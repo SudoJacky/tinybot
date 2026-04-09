@@ -1,0 +1,62 @@
+[project]
+name = "tinybot"
+version = "0.0.1.dev1"
+description = ""
+license = {text = "MIT"}
+requires-python = ">=3.13"
+dependencies = [
+    "typer>=0.20.0,<1.0.0",
+    "pydantic>=2.12.0,<3.0.0",
+    "pydantic-settings>=2.12.0,<3.0.0",
+    "websockets>=16.0,<17.0",
+    "httpx>=0.28.0,<1.0.0",
+    "loguru>=0.7.3,<1.0.0",
+    "rich>=14.0.0,<15.0.0",
+    "lark-oapi>=1.5.0,<2.0.0",
+    "msgpack>=1.1.0,<2.0.0",
+    "prompt-toolkit>=3.0.50,<4.0.0",
+    "mcp>=1.26.0,<2.0.0",
+    "json-repair>=0.57.0,<1.0.0",
+    "openai>=2.8.0",
+    "tiktoken>=0.12.0,<1.0.0",
+    "jinja2>=3.1.0,<4.0.0",
+    "chromadb>=1.5.6",
+    "sentence-transformers>=5.3.0",
+    "playwright>=1.49.0",
+]
+
+[project.scripts]
+tinybot = "tinybot.cli.commands:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build]
+include = [
+    "tinybot/**/*.py",
+    "tinybot/templates/**/*.md",
+    "tinybot/skills/**/*.md",
+    "tinybot/skills/**/*.sh",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tinybot"]
+
+[tool.hatch.build.targets.wheel.sources]
+"tinybot" = "tinybot"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "tinybot/",
+    "README.md",
+    "LICENSE",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
