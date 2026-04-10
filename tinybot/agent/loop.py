@@ -50,6 +50,7 @@ class _LoopHook(AgentHook):
         agent_loop: AgentLoop,
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         *,
         channel: str = "cli",
@@ -59,29 +60,69 @@ class _LoopHook(AgentHook):
         self._loop = agent_loop
         self._on_progress = on_progress
         self._on_stream = on_stream
+        self._on_reasoning_stream = on_reasoning_stream
         self._on_stream_end = on_stream_end
         self._channel = channel
         self._chat_id = chat_id
         self._message_id = message_id
         self._stream_buf = ""
+        self._reasoning_buf = ""
 
     def wants_streaming(self) -> bool:
-        return self._on_stream is not None
+        return self._on_stream is not None or self._on_reasoning_stream is not None
+
+    @staticmethod
+    def _merge_stream_buffer(previous: str, delta: str, *, strip_hidden: bool = False) -> tuple[str, str]:
+        if not delta:
+            return previous, ""
+        if strip_hidden:
+            from tinybot.utils.text import strip_think
+
+            prev_clean = strip_think(previous)
+            appended_buf = previous + delta
+            appended_clean = strip_think(appended_buf)
+            snapshot_clean = strip_think(delta)
+
+            candidates: list[tuple[int, str, str]] = []
+            if appended_clean.startswith(prev_clean):
+                candidates.append((len(appended_clean), appended_buf, appended_clean))
+            if snapshot_clean.startswith(prev_clean):
+                candidates.append((len(snapshot_clean), delta, snapshot_clean))
+
+            if candidates:
+                _, next_buf, next_clean = min(candidates, key=lambda item: item[0])
+            else:
+                next_buf = appended_buf
+                next_clean = appended_clean
+            incremental = next_clean[len(prev_clean):]
+            return next_buf, incremental
+
+        next_buf = delta if delta.startswith(previous) else previous + delta
+        incremental = next_buf[len(previous):]
+        return next_buf, incremental
 
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
-        from tinybot.utils.text import strip_think
-
-        prev_clean = strip_think(self._stream_buf)
-        self._stream_buf += delta
-        new_clean = strip_think(self._stream_buf)
-        incremental = new_clean[len(prev_clean):]
+        self._stream_buf, incremental = self._merge_stream_buffer(
+            self._stream_buf,
+            delta,
+            strip_hidden=True,
+        )
         if incremental and self._on_stream:
             await self._on_stream(incremental)
+
+    async def on_reasoning_stream(self, context: AgentHookContext, delta: str) -> None:
+        self._reasoning_buf, incremental = self._merge_stream_buffer(
+            self._reasoning_buf,
+            delta,
+        )
+        if incremental and self._on_reasoning_stream:
+            await self._on_reasoning_stream(incremental)
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         if self._on_stream_end:
             await self._on_stream_end(resuming=resuming)
         self._stream_buf = ""
+        self._reasoning_buf = ""
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         if self._on_progress:
@@ -130,6 +171,10 @@ class _LoopHookChain(AgentHook):
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
         await self._primary.on_stream(context, delta)
         await self._extras.on_stream(context, delta)
+
+    async def on_reasoning_stream(self, context: AgentHookContext, delta: str) -> None:
+        await self._primary.on_reasoning_stream(context, delta)
+        await self._extras.on_reasoning_stream(context, delta)
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         await self._primary.on_stream_end(context, resuming=resuming)
@@ -351,6 +396,27 @@ class AgentLoop:
                 CronTool(self.cron_service, default_timezone=self.context.timezone or "UTC")
             )
 
+    @staticmethod
+    def _should_expose_message_tool(channel: str) -> bool:
+        """Expose `message` only on routable external chat channels."""
+        return channel not in {"cli", "api"}
+
+    def _tools_for_run(
+        self,
+        *,
+        channel: str | None = None,
+        allow_message: bool | None = None,
+    ) -> ToolRegistry:
+        """Return a per-run registry with channel-specific tool filtering."""
+        expose_message = (
+            allow_message
+            if allow_message is not None
+            else self._should_expose_message_tool(channel or "cli")
+        )
+        if expose_message or not self.tools.has("message"):
+            return self.tools
+        return self.tools.filtered(exclude={"message"})
+
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
         if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
@@ -497,11 +563,9 @@ class AgentLoop:
     async def _execute_subtask_via_agent(self, subtask, plan) -> str:
         """Execute a subtask by running the agent with the subtask description."""
         from tinybot.agent.runner import AgentRunSpec, AgentRunner
-        from tinybot.agent.tools.registry import ToolRegistry
-        from tinybot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 
-        # Build tools for subtask execution (reuse main agent's tools)
-        tools = self.tools
+        # Subtasks should not directly message users.
+        tools = self._tools_for_run(allow_message=False)
 
         # Build context using TaskManager's method (properly truncated)
         context_str = self.task_manager._build_context_for_subtask(plan, subtask)
@@ -552,6 +616,7 @@ class AgentLoop:
         initial_messages: list[dict],
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         *,
         session: Session | None = None,
@@ -570,6 +635,7 @@ class AgentLoop:
             self,
             on_progress=on_progress,
             on_stream=on_stream,
+            on_reasoning_stream=on_reasoning_stream,
             on_stream_end=on_stream_end,
             channel=channel,
             chat_id=chat_id,
@@ -586,9 +652,10 @@ class AgentLoop:
                 return
             self._set_runtime_checkpoint(session, payload)
 
+        tools = self._tools_for_run(channel=channel)
         result = await self.runner.run(AgentRunSpec(
             initial_messages=initial_messages,
-            tools=self.tools,
+            tools=tools,
             model=self.model,
             max_iterations=self.max_iterations,
             max_tool_result_chars=self.max_tool_result_chars,
@@ -648,7 +715,7 @@ class AgentLoop:
         gate = self._concurrency_gate or nullcontext()
         async with lock, gate:
             try:
-                on_stream = on_stream_end = None
+                on_stream = on_reasoning_stream = on_stream_end = None
                 if msg.metadata.get("_wants_stream"):
                     # Split one answer into distinct stream segments.
                     stream_base_id = f"{msg.session_key}:{time.time_ns()}"
@@ -660,6 +727,16 @@ class AgentLoop:
                     async def on_stream(delta: str) -> None:
                         meta = dict(msg.metadata or {})
                         meta["_stream_delta"] = True
+                        meta["_stream_id"] = _current_stream_id()
+                        await self.bus.publish_outbound(OutboundMessage(
+                            channel=msg.channel, chat_id=msg.chat_id,
+                            content=delta,
+                            metadata=meta,
+                        ))
+
+                    async def on_reasoning_stream(delta: str) -> None:
+                        meta = dict(msg.metadata or {})
+                        meta["_reasoning_delta"] = True
                         meta["_stream_id"] = _current_stream_id()
                         await self.bus.publish_outbound(OutboundMessage(
                             channel=msg.channel, chat_id=msg.chat_id,
@@ -681,7 +758,10 @@ class AgentLoop:
                         stream_segment += 1
 
                 response = await self._process_message(
-                    msg, on_stream=on_stream, on_stream_end=on_stream_end,
+                    msg,
+                    on_stream=on_stream,
+                    on_reasoning_stream=on_reasoning_stream,
+                    on_stream_end=on_stream_end,
                 )
                 if response is not None:
                     await self.bus.publish_outbound(response)
@@ -729,6 +809,7 @@ class AgentLoop:
         session_key: str | None = None,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
@@ -743,6 +824,9 @@ class AgentLoop:
                 self.sessions.save(session)
             await self.consolidator.maybe_consolidate_by_tokens(session)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+            if message_tool := self.tools.get("message"):
+                if isinstance(message_tool, MessageTool):
+                    message_tool.start_turn()
             history = session.get_history(max_messages=0)
             current_role = "assistant" if msg.sender_id == "subagent" else "user"
             messages = self.context.build_messages(
@@ -758,6 +842,8 @@ class AgentLoop:
             self._clear_runtime_checkpoint(session)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
+            if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
+                return None
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
@@ -802,6 +888,7 @@ class AgentLoop:
             initial_messages,
             on_progress=on_progress or _bus_progress,
             on_stream=on_stream,
+            on_reasoning_stream=on_reasoning_stream,
             on_stream_end=on_stream_end,
             session=session,
             channel=msg.channel, chat_id=msg.chat_id,
@@ -984,12 +1071,17 @@ class AgentLoop:
         chat_id: str = "direct",
         on_progress: Callable[[str], Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload."""
         await self._connect_mcp()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         return await self._process_message(
-            msg, session_key=session_key, on_progress=on_progress,
-            on_stream=on_stream, on_stream_end=on_stream_end,
+            msg,
+            session_key=session_key,
+            on_progress=on_progress,
+            on_stream=on_stream,
+            on_reasoning_stream=on_reasoning_stream,
+            on_stream_end=on_stream_end,
         )

@@ -49,18 +49,25 @@ class MessageTool(Tool):
         """Reset per-turn send tracking."""
         self._sent_in_turn = False
 
+    def _is_current_chat_target(self, channel: str, chat_id: str) -> bool:
+        """Return True when the tool targets the active conversation."""
+        return channel == self._default_channel and chat_id == self._default_chat_id
+
     @property
     def name(self) -> str:
         return "message"
+
 
     @property
     def description(self) -> str:
         return (
             "Send a message to the user, optionally with file attachments. "
+            "Do not use this tool for a plain-text reply to the current active chat; reply normally instead. "
             "This is the ONLY way to deliver files (images, documents, audio, video) to the user. "
             "Use the 'media' parameter with file paths to attach files. "
             "Do NOT use read_file to send files — that only reads content for your own analysis."
         )
+
 
     async def execute(
         self,
@@ -89,6 +96,12 @@ class MessageTool(Tool):
         if not channel or not chat_id:
             return "Error: No target channel/chat specified"
 
+        if self._is_current_chat_target(channel, chat_id) and not media:
+            return (
+                "Error: Do not use the message tool for a plain-text reply to the current chat. "
+                "Reply with normal assistant text instead."
+            )
+
         if not self._send_callback:
             return "Error: Message sending not configured"
 
@@ -104,9 +117,10 @@ class MessageTool(Tool):
 
         try:
             await self._send_callback(msg)
-            if channel == self._default_channel and chat_id == self._default_chat_id:
+            if self._is_current_chat_target(channel, chat_id):
                 self._sent_in_turn = True
             media_info = f" with {len(media)} attachments" if media else ""
             return f"Message sent to {channel}:{chat_id}{media_info}"
         except Exception as e:
             return f"Error sending message: {str(e)}"
+
