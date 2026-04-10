@@ -84,6 +84,7 @@ class AgentDefaults(Base):
     provider_retry_mode: Literal["standard", "persistent"] = "standard"
     reasoning_effort: str | None = None  # low / medium / high - enables LLM thinking mode
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
+    enable_vector_store: bool = False  # Feature flag: ChromaDB embedding storage for session summaries
     dream: DreamConfig = Field(default_factory=DreamConfig)
 
 

@@ -195,6 +195,7 @@ class AgentLoop:
             mcp_servers=config.tools.mcp_servers,
             channels_config=config.channels,
             timezone=defaults.timezone,
+            enable_vector_store=defaults.enable_vector_store,
             cron_service=cron_service,
             session_manager=session_manager,
         )
@@ -218,6 +219,7 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         timezone: str | None = None,
+        enable_vector_store: bool = False,
         hooks: list[AgentHook] | None = None,
     ):
         from tinybot.config.schema import ExecToolConfig, WebToolsConfig
@@ -264,11 +266,15 @@ class AgentLoop:
         self.context = ContextBuilder(workspace, timezone=timezone, task_manager=self.task_manager)
         self.sessions = session_manager or SessionManager(workspace)
 
-        # Initialize ChromaDB vector store (lazy — first use loads the model)
-        from tinybot.agent.vector_store import VectorStore
-        vector_store_dir = workspace / ".chromadb"
-        self._vector_store = VectorStore(vector_store_dir)
-        self.context.vector_store = self._vector_store
+        # Initialize ChromaDB vector store only when feature flag is enabled
+        if enable_vector_store:
+            from tinybot.agent.vector_store import VectorStore
+            vector_store_dir = workspace / ".chromadb"
+            self._vector_store = VectorStore(vector_store_dir)
+            self.context.vector_store = self._vector_store
+        else:
+            self._vector_store = None
+            self.context.vector_store = None
         self.tools = ToolRegistry()
         self.runner = AgentRunner(provider)
         self.subagents = SubagentManager(
