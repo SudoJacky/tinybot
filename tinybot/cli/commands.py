@@ -341,8 +341,6 @@ def onboard(
         console.print(f"  1. Add your API key to [cyan]{config_path}[/cyan]")
         console.print("     Get one at: https://openrouter.ai/keys")
         console.print(f"  2. Chat: [cyan]{agent_cmd}[/cyan]")
-    console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/tinybot#-chat-apps[/dim]")
-
 
 def _merge_missing_defaults(existing: Any, defaults: Any) -> Any:
     """Recursively fill in missing values from defaults without overwriting user config."""
@@ -806,9 +804,11 @@ def agent(
         async def run_once():
             renderer = StreamRenderer(render_markdown=markdown)
             response = await agent_loop.process_direct(
-                message, session_id,
+                message,
+                session_id,
                 on_progress=_cli_progress,
                 on_stream=renderer.on_delta,
+                on_reasoning_stream=renderer.on_reasoning_delta,
                 on_stream_end=renderer.on_end,
             )
             if not renderer.streamed:
@@ -860,6 +860,10 @@ def agent(
                     try:
                         msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
 
+                        if msg.metadata.get("_reasoning_delta"):
+                            if renderer:
+                                await renderer.on_reasoning_delta(msg.content)
+                            continue
                         if msg.metadata.get("_stream_delta"):
                             if renderer:
                                 await renderer.on_delta(msg.content)

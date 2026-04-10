@@ -35,7 +35,18 @@ class ToolRegistry:
         """Get all tool definitions in OpenAI format."""
         return [tool.to_schema() for tool in self._tools.values()]
 
+    def filtered(self, *, exclude: set[str] | None = None) -> "ToolRegistry":
+        """Return a shallow filtered registry sharing the same tool instances."""
+        if not exclude:
+            return self
+        registry = ToolRegistry()
+        for name, tool in self._tools.items():
+            if name not in exclude:
+                registry.register(tool)
+        return registry
+
     def prepare_call(
+
         self,
         name: str,
         params: dict[str, Any],

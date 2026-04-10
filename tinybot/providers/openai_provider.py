@@ -28,7 +28,7 @@ _ALNUM = string.ascii_letters + string.digits
 _STANDARD_TC_KEYS = frozenset({"id", "type", "index", "function"})
 _STANDARD_FN_KEYS = frozenset({"name", "arguments"})
 _DEFAULT_OPENROUTER_HEADERS = {
-    "HTTP-Referer": "https://github.com/HKUDS/tinybot",
+    "HTTP-Referer": "https://github.com/SudoJacky/tinybot",
     "X-OpenRouter-Title": "tinybot",
     "X-OpenRouter-Categories": "cli-agent,personal-agent",
 }
@@ -645,6 +645,7 @@ class OpenAIProvider(LLMProvider):
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         kwargs = self._build_kwargs(
             messages, tools, model, max_tokens, temperature,
@@ -666,14 +667,21 @@ class OpenAIProvider(LLMProvider):
                 except StopAsyncIteration:
                     break
                 chunks.append(chunk)
-                if on_content_delta and chunk.choices:
-                    text = getattr(chunk.choices[0].delta, "reasoning_content", None)
-                    if text:
-                        await on_content_delta(text)
-                    text = getattr(chunk.choices[0].delta, "content", None)
-                    if text:
-                        await on_content_delta(text)
+                if chunk.choices:
+                    # Stream reasoning_content separately if callback provided
+                    reasoning = getattr(chunk.choices[0].delta, "reasoning_content", None)
+                    if reasoning and on_reasoning_delta:
+                        text = self._extract_text_content(reasoning)
+                        if text:
+                            await on_reasoning_delta(text)
+                    # Stream content via on_content_delta
+                    content = getattr(chunk.choices[0].delta, "content", None)
+                    if content and on_content_delta:
+                        text = self._extract_text_content(content)
+                        if text:
+                            await on_content_delta(text)
             return self._parse_chunks(chunks)
+
         except asyncio.TimeoutError:
             return LLMResponse(
                 content=(

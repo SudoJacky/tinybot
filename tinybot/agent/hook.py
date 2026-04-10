@@ -38,6 +38,9 @@ class AgentHook:
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
         pass
 
+    async def on_reasoning_stream(self, context: AgentHookContext, delta: str) -> None:
+        pass
+
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         pass
 
@@ -80,6 +83,13 @@ class CompositeHook(AgentHook):
                 await h.on_stream(context, delta)
             except Exception:
                 logger.exception("AgentHook.on_stream error in {}", type(h).__name__)
+
+    async def on_reasoning_stream(self, context: AgentHookContext, delta: str) -> None:
+        for h in self._hooks:
+            try:
+                await h.on_reasoning_stream(context, delta)
+            except Exception:
+                logger.exception("AgentHook.on_reasoning_stream error in {}", type(h).__name__)
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         for h in self._hooks:
