@@ -96,12 +96,11 @@ class StreamRenderer:
     def _render(self):
         blocks = []
         if self._reasoning_buf:
-            blocks.extend([
-                Text("思考：", style="dim"),
-                Text(self._reasoning_buf, style="dim"),
-            ])
-            if self._buf:
-                blocks.append(Text(""))
+            if not self._buf:
+                blocks.extend([
+                    Text("思考：", style="dim"),
+                    Text(self._reasoning_buf, style="dim"),
+                ])
         if self._buf or not blocks:
             blocks.append(self._render_content())
         return Group(*blocks) if len(blocks) > 1 else blocks[0]
