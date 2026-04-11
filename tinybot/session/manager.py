@@ -25,6 +25,15 @@ class Session:
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
     last_consolidated: int = 0  # Number of messages already consolidated to files
+    user_profile: dict[str, Any] = field(default_factory=dict)
+    # Example user_profile structure:
+    # {
+    #   "name": "张三",
+    #   "preferences": ["蓝色", "简洁风格"],
+    #   "mentioned_entities": ["大黄（狗）", "项目Alpha"],
+    #   "communication_style": "casual",
+    #   "key_facts": ["住在上海", "后端开发者"],
+    # }
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
@@ -66,6 +75,7 @@ class Session:
         """Clear all messages and reset session to initial state."""
         self.messages = []
         self.last_consolidated = 0
+        self.user_profile = {}
         self.updated_at = datetime.now()
 
     def retain_recent_legal_suffix(self, max_messages: int) -> None:
@@ -179,7 +189,8 @@ class SessionManager:
                 messages=messages,
                 created_at=created_at or datetime.now(),
                 metadata=metadata,
-                last_consolidated=last_consolidated
+                last_consolidated=last_consolidated,
+                user_profile=metadata.pop("user_profile", {}) if isinstance(metadata, dict) else {},
             )
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
@@ -190,12 +201,16 @@ class SessionManager:
         path = self._get_session_path(session.key)
 
         with open(path, "w", encoding="utf-8") as f:
+            # Embed user_profile inside metadata for backward compatibility
+            merged_metadata = dict(session.metadata)
+            if session.user_profile:
+                merged_metadata["user_profile"] = session.user_profile
             metadata_line = {
                 "_type": "metadata",
                 "key": session.key,
                 "created_at": session.created_at.isoformat(),
                 "updated_at": session.updated_at.isoformat(),
-                "metadata": session.metadata,
+                "metadata": merged_metadata,
                 "last_consolidated": session.last_consolidated
             }
             f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
