@@ -52,6 +52,24 @@ class VectorStore:
                         SentenceTransformerEmbeddingFunction,
                     )
 
+                    model_cache_dir = Path.home() / ".tinybot" / "models"
+                    model_local_path = model_cache_dir / "all-MiniLM-L6-v2"
+
+                    if model_local_path.exists() and (
+                        model_local_path / "config.json"
+                    ).exists():
+                        model_name = str(model_local_path)
+                        logger.info(
+                            "Loading embedding model from local cache: {}",
+                            model_local_path,
+                        )
+                    else:
+                        model_name = "all-MiniLM-L6-v2"
+                        model_cache_dir.mkdir(parents=True, exist_ok=True)
+                        logger.info(
+                            "Downloading embedding model (first run only)..."
+                        )
+
                     device = "cpu"
                     try:
                         import torch
@@ -64,10 +82,23 @@ class VectorStore:
                     logger.info("Embedding device: {}", device)
                     self._embedding_fn = (
                         SentenceTransformerEmbeddingFunction(
-                            model_name="all-MiniLM-L6-v2",
+                            model_name=model_name,
                             device=device,
                         )
                     )
+
+                    # Persist downloaded model to local cache for future use
+                    if not (model_local_path / "config.json").exists():
+                        try:
+                            self._embedding_fn.model.save(str(model_local_path))
+                            logger.info(
+                                "Embedding model saved to local cache: {}",
+                                model_local_path,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to cache embedding model: {}", e
+                            )
         return self._embedding_fn
 
     def _collection_name(self, session_key: str) -> str:

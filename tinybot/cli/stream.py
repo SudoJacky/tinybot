@@ -7,6 +7,7 @@ markdown rendering during streaming. Ellipsis mode handles overflow.
 from __future__ import annotations
 
 import os
+import random
 import sys
 import time
 
@@ -19,17 +20,63 @@ from rich.text import Text
 from tinybot import __logo__
 
 
+_THINKING_MESSAGES = [
+    "tinybot is thinking...",
+    "tinybot is pondering the meaning of life...",
+    "tinybot is connecting the neural dots...",
+    "tinybot is brewing ideas...",
+    "tinybot is consulting the oracle...",
+    "tinybot is staring into the void for inspiration...",
+    "tinybot is having an existential crisis...",
+    "tinybot is arguing with itself internally...",
+    "tinybot is scrolling through its memories...",
+    "tinybot is doing its best, okay?",
+    "tinybot is trying very hard not to get distracted...",
+    "tinybot is thinking outside the bot...",
+    "tinybot is weighing 42 possible answers...",
+    "tinybot is channeling its inner genius...",
+    "tinybot is on it — probably...",
+    "tinybot is loading its brain cells...",
+    "tinybot is thinking at the speed of thought...",
+    "tinybot is formulating a brilliant response...",
+    "tinybot is asking a friend for advice...",
+    "tinybot is pretending to be smart...",
+    "tinybot is doing complex math... 2 + 2 = ...",
+    "tinybot is carefully choosing its words...",
+    "tinybot is thinking... no wait, it's got it!",
+    "tinybot is thinking so hard you can almost hear it...",
+]
+
+_SPINNER_STYLES = [
+    "dots4",
+    "star2",
+    "material",
+    "aesthetic",
+    "earth",
+    "moon",
+    "arc",
+    "runner",
+    "shark",
+    "weather",
+    "hearts",
+    "fire",
+    "christmas",
+]
+
+
 def _make_console() -> Console:
     return Console(file=sys.stdout)
 
 
 
 class ThinkingSpinner:
-    """Spinner that shows 'tinybot is thinking...' with pause support."""
+    """Spinner with random humorous messages and varied animations."""
 
     def __init__(self, console: Console | None = None):
         c = console or _make_console()
-        self._spinner = c.status("[dim]tinybot is thinking...[/dim]", spinner="dots")
+        message = random.choice(_THINKING_MESSAGES)
+        spinner = random.choice(_SPINNER_STYLES)
+        self._spinner = c.status(f"[dim]{message}[/dim]", spinner=spinner)
         self._active = False
 
     def __enter__(self):
@@ -91,7 +138,7 @@ class StreamRenderer:
         self._plain_reasoning_started = False
         self._spinner: ThinkingSpinner | None = None
         # Cache static Text objects for Rich Live stability
-        self._thinking_label = Text("思考：", style="dim")
+        self._thinking_label = Text("Thinking:", style="dim")
         self._empty_text = Text("")
         self._start_spinner()
 
