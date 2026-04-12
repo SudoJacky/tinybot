@@ -164,14 +164,6 @@ class WebSearchConfig(Base):
     max_results: int = 5
 
 
-class BrowserToolsConfig(Base):
-    """Browser automation tool configuration (Playwright-based)."""
-
-    enable: bool = True
-    idle_timeout: int = Field(default=600, ge=0)  # seconds; 0 = no auto-close
-    cdp_port: int | None = Field(default=None, ge=1, le=65535)  # Chrome DevTools Protocol port
-
-
 class WebToolsConfig(Base):
     """Web tools configuration."""
 
@@ -180,7 +172,6 @@ class WebToolsConfig(Base):
         None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
     )
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
-    browser: BrowserToolsConfig = Field(default_factory=BrowserToolsConfig)
 
 
 class ExecToolConfig(Base):

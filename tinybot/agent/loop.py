@@ -18,7 +18,6 @@ from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
 from tinybot.agent.subagent import SubagentManager
-from tinybot.agent.tools.browser import BrowserControlTool
 from tinybot.agent.tools.cron import CronTool
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from tinybot.agent.tools.message import MessageTool
@@ -38,7 +37,7 @@ from tinybot.utils.media import image_placeholder_text
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
-    from tinybot.config.schema import BrowserToolsConfig, ChannelsConfig, ExecToolConfig, WebToolsConfig
+    from tinybot.config.schema import ChannelsConfig, ExecToolConfig
     from tinybot.cron.service import CronService
 
 
@@ -234,7 +233,6 @@ class AgentLoop:
             context_block_limit=defaults.context_block_limit,
             max_tool_result_chars=defaults.max_tool_result_chars,
             provider_retry_mode=defaults.provider_retry_mode,
-            web_config=config.tools.web,
             exec_config=config.tools.exec,
             restrict_to_workspace=config.tools.restrict_to_workspace,
             mcp_servers=config.tools.mcp_servers,
@@ -256,7 +254,6 @@ class AgentLoop:
         context_block_limit: int | None = None,
         max_tool_result_chars: int | None = None,
         provider_retry_mode: str = "standard",
-        web_config: WebToolsConfig | None = None,
         exec_config: ExecToolConfig | None = None,
         cron_service: CronService | None = None,
         restrict_to_workspace: bool = False,
@@ -267,7 +264,7 @@ class AgentLoop:
         enable_vector_store: bool = False,
         hooks: list[AgentHook] | None = None,
     ):
-        from tinybot.config.schema import ExecToolConfig, WebToolsConfig
+        from tinybot.config.schema import ExecToolConfig
 
         defaults = AgentDefaults()
         self.bus = bus
@@ -290,7 +287,6 @@ class AgentLoop:
             else defaults.max_tool_result_chars
         )
         self.provider_retry_mode = provider_retry_mode
-        self.web_config = web_config or WebToolsConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
@@ -327,7 +323,6 @@ class AgentLoop:
             workspace=workspace,
             bus=bus,
             model=self.model,
-            web_config=self.web_config,
             max_tool_result_chars=self.max_tool_result_chars,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
@@ -384,14 +379,6 @@ class AgentLoop:
                 restrict_to_workspace=self.restrict_to_workspace,
                 path_append=self.exec_config.path_append,
             ))
-        if self.web_config.enable:
-            browser_cfg = getattr(self.web_config, "browser", None)
-            if browser_cfg and getattr(browser_cfg, "enable", True):
-                self.tools.register(BrowserControlTool(
-                    workspace=self.workspace,
-                    idle_timeout=browser_cfg.idle_timeout,
-                    proxy=self.web_config.proxy,
-                ))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         self.tools.register(TaskTool(task_manager=self.task_manager))
