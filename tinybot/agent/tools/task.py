@@ -1,11 +1,12 @@
 """Task management tool for complex multi-step tasks."""
 
-from typing import Any
+from typing import Any, Callable, Coroutine
 
 from tinybot.agent.tools.base import Tool, tool_parameters
 from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, StringSchema, tool_parameters_schema
 from tinybot.task.service import TaskManager
-from tinybot.task.types import TaskPlan
+from tinybot.task.types import TaskPlan, SubTask
+from tinybot.utils.prompt_templates import render_template
 
 
 def _format_status_icon(status: str) -> str:
@@ -60,13 +61,17 @@ def _format_plan_summary(plan: TaskPlan) -> str:
     tool_parameters_schema(
         action=StringSchema(
             "Action to perform",
-            enum=["create", "status", "progress", "resume", "pause", "cancel", "list", "delete", "add_subtask", "remove_subtask"],
+            enum=["create", "status", "progress", "resume", "pause", "cancel", "list", "delete", "add_subtask", "remove_subtask", "summary"],
         ),
         request=StringSchema("Original request (for create action)"),
         plan_id=StringSchema("Plan ID (for most actions)"),
         parallel=BooleanSchema(
             description="Execute parallel-safe subtasks concurrently (default true)",
             default=True,
+        ),
+        auto_execute=BooleanSchema(
+            description="Auto-start execution after creating the plan (default false)",
+            default=False,
         ),
         subtask_title=StringSchema("Title for new subtask (add_subtask action)"),
         subtask_description=StringSchema("Description for new subtask (add_subtask action)"),
@@ -86,15 +91,30 @@ def _format_plan_summary(plan: TaskPlan) -> str:
 class TaskTool(Tool):
     """Tool for managing complex multi-step tasks with automatic decomposition."""
 
-    def __init__(self, task_manager: TaskManager):
+    def __init__(
+        self,
+        task_manager: TaskManager,
+        spawn_callback: Callable[..., Coroutine[Any, Any, str]] | None = None,
+        announce_callback_factory: Callable[[str, str], Callable[[str, str, str, str], Coroutine[Any, Any, None]]] | None = None,
+    ):
         self._manager = task_manager
         self._channel = ""
         self._chat_id = ""
+        self._spawn_callback = spawn_callback  # Function to spawn subagents
+        self._announce_callback_factory = announce_callback_factory
+        self._announce_callback: Callable[[str, str, str, str], Coroutine[Any, Any, None]] | None = None
 
     def set_context(self, channel: str, chat_id: str) -> None:
         """Set the current session context."""
         self._channel = channel
         self._chat_id = chat_id
+        # Create announce callback with proper channel/chat_id
+        if self._announce_callback_factory:
+            self._announce_callback = self._announce_callback_factory(channel, chat_id)
+
+    def set_spawn_callback(self, callback: Callable[..., Coroutine[Any, Any, str]]) -> None:
+        """Set the callback for spawning subagents."""
+        self._spawn_callback = callback
 
     @property
     def name(self) -> str:
@@ -103,9 +123,10 @@ class TaskTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Manage complex multi-step tasks: create (auto-decompose), check status/progress, "
-            "resume/pause/cancel execution, add/remove subtasks dynamically. "
-            "Use this tool for complex requests that benefit from structured planning."
+            "管理复杂多步任务。create创建任务计划（auto_execute=true可一步启动），"
+            "resume启动后台执行。执行后SubAgent自动运行，无需主动干预，完成后会通知你。"
+            "status/progress查询状态（仅在需要时使用），pause/cancel控制执行，"
+            "add_subtask/remove_subtask动态调整。summary获取完成结果。"
         )
 
     async def execute(
@@ -114,6 +135,7 @@ class TaskTool(Tool):
         request: str = "",
         plan_id: str = "",
         parallel: bool = True,
+        auto_execute: bool = False,
         subtask_title: str = "",
         subtask_description: str = "",
         subtask_dependencies: list[str] | None = None,
@@ -123,7 +145,7 @@ class TaskTool(Tool):
         **kwargs: Any,
     ) -> str:
         if action == "create":
-            return await self._create_plan(request)
+            return await self._create_plan(request, auto_execute, parallel)
         elif action == "status":
             return self._get_status(plan_id)
         elif action == "progress":
@@ -142,9 +164,11 @@ class TaskTool(Tool):
             return self._add_subtask(plan_id, subtask_title, subtask_description, subtask_dependencies, subtask_parallel_safe, after_subtask)
         elif action == "remove_subtask":
             return self._remove_subtask(plan_id, subtask_id)
+        elif action == "summary":
+            return self._get_summary(plan_id)
         return f"Unknown action: {action}"
 
-    async def _create_plan(self, request: str) -> str:
+    async def _create_plan(self, request: str, auto_execute: bool = False, parallel: bool = True) -> str:
         if not request:
             return "Error: request is required for create action"
 
@@ -154,15 +178,19 @@ class TaskTool(Tool):
             chat_id=self._chat_id,
         )
 
-        summary = _format_plan_summary(plan)
-
         # Check for DAG errors
         dag_errors = plan.context.get("dag_errors", [])
-        warning = ""
         if dag_errors:
+            summary = _format_plan_summary(plan)
             warning = f"\n\n⚠️ Warning: Plan has dependency issues: {dag_errors}\nPlease fix before executing."
+            return f"任务计划已创建（plan_id: {plan.id}）。\n\n{summary}\n\n提示：使用 `task action=resume plan_id={plan.id}` 启动执行，之后无需干预，完成后会通知你。{warning}"
 
-        return f"Created task plan:\n\n{summary}\n\nUse `task action=resume plan_id={plan.id}` to start execution.{warning}"
+        # Auto-execute if requested
+        if auto_execute:
+            return await self._resume_plan(plan.id, parallel)
+
+        summary = _format_plan_summary(plan)
+        return f"任务计划已创建（plan_id: {plan.id}）。\n\n{summary}\n\n提示：使用 `task action=resume plan_id={plan.id}` 启动执行，之后无需干预，完成后会通知你。"
 
     def _get_status(self, plan_id: str) -> str:
         if not plan_id:
@@ -203,7 +231,99 @@ class TaskTool(Tool):
 
         return "\n".join(lines)
 
+    async def _spawn_ready_subtasks(self, plan_id: str) -> int:
+        """Spawn SubAgents for all ready subtasks. Returns count spawned.
+
+        This is called both on initial resume and after each subtask completes
+        to automatically continue the execution chain.
+        """
+        if self._spawn_callback is None:
+            return 0
+
+        plan = self._manager.get_plan(plan_id)
+        if plan is None or plan.status != "executing":
+            return 0
+
+        ready_subtasks = self._manager.get_ready_subtasks(plan_id)
+        spawned_count = 0
+
+        for subtask in ready_subtasks:
+            # Mark subtask as in_progress
+            self._manager.mark_subtask_started(plan_id, subtask.id)
+
+            # Build task description with context
+            context_str = self._manager._build_context_for_subtask(plan, subtask)
+            task_description = f"""Execute subtask: {subtask.title}
+
+## Description
+{subtask.description}
+
+## Context from Completed Subtasks
+{context_str}
+
+## Instructions
+1. Focus on completing only this subtask
+2. Use available tools to gather information and produce results
+3. Provide a clear, concise summary of what was accomplished"""
+
+            # Create completion callback that spawns next tasks
+            async def on_complete(result: str, status: str, task_id: str, metadata: dict[str, Any] | None):
+                if metadata:
+                    p_id = metadata.get("plan_id", "")
+                    s_id = metadata.get("subtask_id", "")
+
+                    # Update subtask result
+                    self._manager.update_subtask_result(
+                        plan_id=p_id,
+                        subtask_id=s_id,
+                        result=result,
+                        status="completed" if status == "completed" else "failed",
+                        error=result if status == "failed" else None,
+                    )
+
+                    # Check plan state after this update
+                    plan = self._manager.get_plan(p_id)
+                    if plan is None:
+                        return
+
+                    if plan.status == "completed":
+                        # Send final announcement to trigger main agent summary
+                        if self._announce_callback:
+                            summary = self._manager.get_plan_summary(p_id)
+                            await self._announce_callback(
+                                plan.title,
+                                "completed",
+                                summary or "All tasks completed.",
+                                p_id,
+                            )
+                    elif plan.status == "paused":
+                        # Plan paused (e.g., subtask failed after retries) — notify user
+                        if self._announce_callback:
+                            error_info = plan.context.get("error", "Execution paused.")
+                            summary = self._manager.get_plan_summary(p_id)
+                            await self._announce_callback(
+                                plan.title,
+                                "paused",
+                                f"{error_info}\n\n## Completed so far\n{summary or 'No subtasks completed.'}",
+                                p_id,
+                            )
+                    else:
+                        # Auto-spawn next ready subtasks (chain execution)
+                        await self._spawn_ready_subtasks(p_id)
+
+            # Spawn subagent
+            await self._spawn_callback(
+                task=task_description,
+                label=subtask.title,
+                metadata={"plan_id": plan_id, "subtask_id": subtask.id},
+                on_complete=on_complete,
+            )
+            spawned_count += 1
+
+        return spawned_count
+
     async def _resume_plan(self, plan_id: str, parallel: bool) -> str:
+        """Resume execution by spawning SubAgents for ready subtasks."""
         if not plan_id:
             return "Error: plan_id is required for resume action"
 
@@ -212,21 +332,43 @@ class TaskTool(Tool):
             return f"Error: Plan {plan_id} not found"
 
         if plan.status == "completed":
-            return "Plan already completed."
+            return "Plan already completed. Use `task action=summary plan_id={plan_id}` to get the final results."
 
         if plan.status == "executing":
-            return "Plan is already executing."
+            progress = self._manager.get_progress(plan_id)
+            return f"Plan is already executing.\n\n{self._get_progress(plan_id)}"
 
         # Check for DAG errors
         dag_errors = plan.context.get("dag_errors", [])
         if dag_errors:
             return f"Cannot execute plan due to dependency errors: {dag_errors}\nUse 'add_subtask' or 'remove_subtask' to fix the plan."
 
-        result = await self._manager.execute_plan(
-            plan_id=plan_id,
-            parallel=parallel,
-        )
-        return result
+        # Check if plan is blocked (all pending but none can execute)
+        if self._manager.is_plan_blocked(plan_id):
+            return f"Error: Plan is blocked. All pending tasks have unmet dependencies.\nUse `task action=status plan_id={plan_id}` to inspect."
+
+        # Get ready subtasks (dependency-satisfied, pending)
+        ready_subtasks = self._manager.get_ready_subtasks(plan_id)
+
+        if not ready_subtasks:
+            # Check if all completed
+            if self._manager.is_plan_completed(plan_id):
+                return "All subtasks are completed. Use `task action=summary plan_id={plan_id}` to get the final results."
+            return "No ready subtasks found. Check plan status."
+
+        # Check if spawn callback is available
+        if self._spawn_callback is None:
+            return "Error: SubAgent spawning not configured. Cannot execute plan asynchronously."
+
+        # Mark plan as executing
+        plan.status = "executing"
+        self._manager._save_plan(plan)
+
+        # Spawn ready subtasks (they will auto-chain on completion)
+        spawned_count = await self._spawn_ready_subtasks(plan_id)
+
+        # Fire-and-forget: minimal info, no encouragement to query
+        return f"任务已后台启动，SubAgent自动执行中。完成后会通知你。无需主动干预。（plan_id: {plan.id}，启动 {spawned_count} 个子任务）"
 
     def _pause_plan(self, plan_id: str) -> str:
         if not plan_id:
@@ -321,3 +463,21 @@ class TaskTool(Tool):
         if removed:
             return f"Removed subtask {subtask_id} from plan {plan_id}."
         return f"Error: Could not remove subtask {subtask_id}. It may not be pending or not found."
+
+    def _get_summary(self, plan_id: str) -> str:
+        """Get final summary of completed plan."""
+        if not plan_id:
+            return "Error: plan_id is required for summary action"
+
+        plan = self._manager.get_plan(plan_id)
+        if plan is None:
+            return f"Error: Plan {plan_id} not found"
+
+        if plan.status != "completed":
+            return f"Plan is not completed yet (status: {plan.status}).\nUse `task action=status plan_id={plan_id}` to check progress."
+
+        summary = self._manager.get_plan_summary(plan_id)
+        if summary is None:
+            return f"Error: Could not generate summary for plan {plan_id}"
+
+        return f"# Task Completed: {plan.title}\n\n## Results\n\n{summary}"

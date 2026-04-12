@@ -34,6 +34,7 @@ from tinybot.providers.base import LLMProvider
 from tinybot.session.manager import Session, SessionManager
 from tinybot.utils.helper import truncate_text
 from tinybot.utils.media import image_placeholder_text
+from tinybot.utils.prompt_templates import render_template
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
@@ -299,7 +300,7 @@ class AgentLoop:
             provider=provider,
             model=model or provider.get_default_model(),
             on_progress=self._on_task_progress,
-            on_execute=self._execute_subtask_via_agent,
+            # on_execute removed: TaskTool now uses spawn for async execution
         )
         self._task_progress_channel: str = ""
         self._task_progress_chat_id: str = ""
@@ -326,6 +327,8 @@ class AgentLoop:
             max_tool_result_chars=self.max_tool_result_chars,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            max_concurrent=int(os.environ.get("TINYBOT_MAX_CONCURRENT_SUBAGENTS", "5")),
+            timeout_seconds=int(os.environ.get("TINYBOT_SUBAGENT_TIMEOUT_SECONDS", "300")),
         )
 
         self._running = False
@@ -380,8 +383,38 @@ class AgentLoop:
                 path_append=self.exec_config.path_append,
             ))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
-        self.tools.register(SpawnTool(manager=self.subagents))
-        self.tools.register(TaskTool(task_manager=self.task_manager))
+        spawn_tool = SpawnTool(manager=self.subagents)
+        self.tools.register(spawn_tool)
+
+        # Create announce callback factory for TaskTool
+        def _create_announce_callback(channel: str, chat_id: str):
+            """Factory to create announce callback with proper channel/chat_id."""
+            async def _announce_plan_completed(title: str, status: str, summary: str, plan_id: str) -> None:
+                """Send final plan completion notification to trigger main agent summary."""
+                content = render_template(
+                    "agent/task_completed.md",
+                    title=title,
+                    status=status,
+                    summary=summary,
+                    plan_id=plan_id,
+                )
+                msg = InboundMessage(
+                    channel="system",
+                    sender_id="subagent",  # Triggers main agent reply
+                    chat_id=f"{channel}:{chat_id}",
+                    content=content,
+                )
+                await self.bus.publish_inbound(msg)
+                logger.info("Plan '{}' completed, sending final notification", title)
+            return _announce_plan_completed
+
+        # TaskTool uses spawn_callback for async SubAgent execution
+        task_tool = TaskTool(
+            task_manager=self.task_manager,
+            spawn_callback=spawn_tool.spawn_with_callback,
+            announce_callback_factory=_create_announce_callback,
+        )
+        self.tools.register(task_tool)
         if self.cron_service:
             self.tools.register(
                 CronTool(self.cron_service, default_timezone=self.context.timezone or "UTC")
@@ -707,7 +740,22 @@ class AgentLoop:
         async with lock, gate:
             try:
                 on_stream = on_reasoning_stream = on_stream_end = None
-                if msg.metadata.get("_wants_stream"):
+
+                # Determine target channel for stream callbacks
+                # For system messages (e.g., plan completion notification), parse from chat_id
+                if msg.channel == "system":
+                    target_channel, target_chat_id = (
+                        msg.chat_id.split(":", 1) if ":" in msg.chat_id
+                        else ("cli", msg.chat_id)
+                    )
+                    # System messages always get stream callbacks for the target channel
+                    wants_stream = True
+                else:
+                    target_channel = msg.channel
+                    target_chat_id = msg.chat_id
+                    wants_stream = msg.metadata.get("_wants_stream")
+
+                if wants_stream:
                     # Split one answer into distinct stream segments.
                     stream_base_id = f"{msg.session_key}:{time.time_ns()}"
                     stream_segment = 0
@@ -720,7 +768,7 @@ class AgentLoop:
                         meta["_stream_delta"] = True
                         meta["_stream_id"] = _current_stream_id()
                         await self.bus.publish_outbound(OutboundMessage(
-                            channel=msg.channel, chat_id=msg.chat_id,
+                            channel=target_channel, chat_id=target_chat_id,
                             content=delta,
                             metadata=meta,
                         ))
@@ -730,7 +778,7 @@ class AgentLoop:
                         meta["_reasoning_delta"] = True
                         meta["_stream_id"] = _current_stream_id()
                         await self.bus.publish_outbound(OutboundMessage(
-                            channel=msg.channel, chat_id=msg.chat_id,
+                            channel=target_channel, chat_id=target_chat_id,
                             content=delta,
                             metadata=meta,
                         ))
@@ -742,7 +790,7 @@ class AgentLoop:
                         meta["_resuming"] = resuming
                         meta["_stream_id"] = _current_stream_id()
                         await self.bus.publish_outbound(OutboundMessage(
-                            channel=msg.channel, chat_id=msg.chat_id,
+                            channel=target_channel, chat_id=target_chat_id,
                             content="",
                             metadata=meta,
                         ))
@@ -834,7 +882,9 @@ class AgentLoop:
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
                                 else ("cli", msg.chat_id))
             logger.info("Processing system message from {}", msg.sender_id)
+
             key = f"{channel}:{chat_id}"
+
             session = self.sessions.get_or_create(key)
             if self._restore_runtime_checkpoint(session):
                 self.sessions.save(session)
@@ -854,6 +904,10 @@ class AgentLoop:
             final_content, _, all_msgs = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
+                on_progress=on_progress,
+                on_stream=on_stream,
+                on_reasoning_stream=on_reasoning_stream,
+                on_stream_end=on_stream_end,
             )
             self._save_turn(session, all_msgs, 1 + len(history))
             self._clear_runtime_checkpoint(session)

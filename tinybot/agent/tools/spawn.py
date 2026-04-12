@@ -1,6 +1,6 @@
 """Spawn tool for creating background subagents."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from tinybot.agent.tools.base import Tool, tool_parameters
 from tinybot.agent.tools.schema import StringSchema, tool_parameters_schema
@@ -53,4 +53,22 @@ class SpawnTool(Tool):
             origin_channel=self._origin_channel,
             origin_chat_id=self._origin_chat_id,
             session_key=self._session_key,
+        )
+
+    async def spawn_with_callback(
+        self,
+        task: str,
+        label: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        on_complete: Callable[[str, str, str, dict[str, Any] | None], Coroutine[Any, Any, None]] | None = None,
+    ) -> str:
+        """Spawn a subagent with completion callback (for TaskTool integration)."""
+        return await self._manager.spawn(
+            task=task,
+            label=label,
+            origin_channel=self._origin_channel,
+            origin_chat_id=self._origin_chat_id,
+            session_key=self._session_key,
+            metadata=metadata,
+            on_complete=on_complete,
         )
