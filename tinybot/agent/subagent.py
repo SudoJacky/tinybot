@@ -17,7 +17,7 @@ from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.shell import ExecTool
 from tinybot.bus.events import InboundMessage
 from tinybot.bus.queue import MessageBus
-from tinybot.config.schema import ExecToolConfig, WebToolsConfig
+from tinybot.config.schema import ExecToolConfig
 from tinybot.providers.base import LLMProvider
 
 
@@ -46,7 +46,6 @@ class SubagentManager:
         bus: MessageBus,
         max_tool_result_chars: int,
         model: str | None = None,
-        web_config: "WebToolsConfig | None" = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
     ):
@@ -56,7 +55,6 @@ class SubagentManager:
         self.workspace = workspace
         self.bus = bus
         self.model = model or provider.get_default_model()
-        self.web_config = web_config or WebToolsConfig()
         self.max_tool_result_chars = max_tool_result_chars
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
@@ -122,8 +120,6 @@ class SubagentManager:
                     restrict_to_workspace=self.restrict_to_workspace,
                     path_append=self.exec_config.path_append,
                 ))
-            if self.web_config.enable:
-                pass
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
