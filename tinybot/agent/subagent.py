@@ -2,9 +2,10 @@
 
 import asyncio
 import json
+import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Coroutine
 
 from loguru import logger
 
@@ -37,7 +38,12 @@ class _SubagentHook(AgentHook):
 
 
 class SubagentManager:
-    """Manages background subagent execution."""
+    """Manages background subagent execution with concurrency limits and heartbeat monitoring."""
+
+    # Default timeout for subagent execution (5 minutes)
+    DEFAULT_TIMEOUT_SECONDS = 300
+    # Default max concurrent subagents
+    DEFAULT_MAX_CONCURRENT = 5
 
     def __init__(
         self,
@@ -48,6 +54,8 @@ class SubagentManager:
         model: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        max_concurrent: int | None = None,
+        timeout_seconds: int | None = None,
     ):
         from tinybot.config.schema import ExecToolConfig
 
@@ -61,6 +69,13 @@ class SubagentManager:
         self.runner = AgentRunner(provider)
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        # Concurrency control
+        self.max_concurrent = max_concurrent or self.DEFAULT_MAX_CONCURRENT
+        self._concurrency_semaphore = asyncio.Semaphore(self.max_concurrent)
+        # Heartbeat tracking
+        self.timeout_seconds = timeout_seconds or self.DEFAULT_TIMEOUT_SECONDS
+        self._task_start_times: dict[str, float] = {}  # task_id -> start timestamp
+        self._heartbeat_monitor_task: asyncio.Task | None = None
 
     async def spawn(
         self,
@@ -69,21 +84,48 @@ class SubagentManager:
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        on_complete: Callable[[str, str, str, dict[str, Any] | None], Coroutine[Any, Any, None]] | None = None,
     ) -> str:
-        """Spawn a subagent to execute a task in the background."""
+        """Spawn a subagent to execute a task in the background.
+
+        Args:
+            task: The task description for the subagent
+            label: Optional short label for display
+            origin_channel: Channel where the request originated
+            origin_chat_id: Chat ID where the request originated
+            session_key: Optional session key for grouping subagents
+            metadata: Optional metadata passed to on_complete callback (e.g., plan_id, subtask_id)
+            on_complete: Optional async callback when subagent completes (result, status, metadata)
+
+        Returns:
+            Message about the spawn result.
+        """
         task_id = str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
 
-        bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin)
-        )
+        # Start heartbeat monitor if not running
+        if self._heartbeat_monitor_task is None or self._heartbeat_monitor_task.done():
+            self._heartbeat_monitor_task = asyncio.create_task(self._heartbeat_monitor_loop())
+
+        async def _run_with_semaphore():
+            async with self._concurrency_semaphore:
+                # Record start time for heartbeat tracking (after acquiring semaphore)
+                self._task_start_times[task_id] = time.monotonic()
+                try:
+                    await self._run_subagent(task_id, task, display_label, origin, metadata, on_complete)
+                finally:
+                    self._task_start_times.pop(task_id, None)
+
+        bg_task = asyncio.create_task(_run_with_semaphore())
         self._running_tasks[task_id] = bg_task
         if session_key:
             self._session_tasks.setdefault(session_key, set()).add(task_id)
 
         def _cleanup(_: asyncio.Task) -> None:
             self._running_tasks.pop(task_id, None)
+            self._task_start_times.pop(task_id, None)
             if session_key and (ids := self._session_tasks.get(session_key)):
                 ids.discard(task_id)
                 if not ids:
@@ -91,8 +133,16 @@ class SubagentManager:
 
         bg_task.add_done_callback(_cleanup)
 
-        logger.info("Spawned subagent [{}]: {}", task_id, display_label)
-        return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
+        # Count tasks actually running (past semaphore) vs queued
+        running_count = len([t for t in self._running_tasks.values() if not t.done() and t.get_coro().__name__ == "_run_with_semaphore"])
+        queued_count = self.get_running_count() - running_count
+
+        logger.info("Spawned subagent [{}]: {} (queued: {}, running: {})",
+                    task_id, display_label, queued_count, running_count)
+
+        if queued_count > 0:
+            return f"Subagent [{display_label}] queued (id: {task_id}). {queued_count} waiting, {running_count} running."
+        return f"Subagent [{display_label}] started (id: {task_id}). Running: {running_count}/{self.max_concurrent}"
 
     async def _run_subagent(
         self,
@@ -100,6 +150,8 @@ class SubagentManager:
         task: str,
         label: str,
         origin: dict[str, str],
+        metadata: dict[str, Any] | None = None,
+        on_complete: Callable[[str, str, str, dict[str, Any] | None], Coroutine[Any, Any, None]] | None = None,
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
@@ -137,66 +189,79 @@ class SubagentManager:
                 error_message=None,
                 fail_on_tool_error=True,
             ))
-            if result.stop_reason == "tool_error":
-                await self._announce_result(
-                    task_id,
-                    label,
-                    task,
-                    self._format_partial_progress(result),
-                    origin,
-                    "error",
-                )
-                return
-            if result.stop_reason == "error":
-                await self._announce_result(
-                    task_id,
-                    label,
-                    task,
-                    result.error or "Error: subagent execution failed.",
-                    origin,
-                    "error",
-                )
-                return
-            final_result = result.final_content or "Task completed but no final response was generated."
 
-            logger.info("Subagent [{}] completed successfully", task_id)
-            await self._announce_result(task_id, label, task, final_result, origin, "ok")
+            # Handle different stop reasons
+            final_result: str
+            final_status: str
+
+            if result.stop_reason == "tool_error":
+                final_result = self._format_partial_progress(result)
+                final_status = "failed"
+            elif result.stop_reason == "error":
+                final_result = result.error or "Error: subagent execution failed."
+                final_status = "failed"
+            else:
+                final_result = result.final_content or "Task completed but no final response was generated."
+                final_status = "completed"
+
+            logger.info("Subagent [{}] {} with status: {}", task_id, label, final_status)
+
+            # Call on_complete callback (updates TaskManager, auto-spawns next, sends final notification)
+            # This is the single point that drives the entire execution chain
+            if on_complete:
+                try:
+                    await on_complete(final_result, final_status, task_id, metadata)
+                except Exception as e:
+                    logger.error("Subagent [{}] on_complete callback failed: {}", task_id, e)
+
+        except asyncio.CancelledError:
+            # Handle timeout cancellation
+            elapsed = self.get_task_elapsed_time(task_id) or 0
+            error_msg = f"Subagent timed out after {elapsed:.1f}s (limit: {self.timeout_seconds}s)"
+            logger.warning("Subagent [{}] cancelled: {}", task_id, error_msg)
+
+            # Call on_complete callback with timeout error
+            if on_complete:
+                try:
+                    await on_complete(error_msg, "failed", task_id, metadata)
+                except Exception as cb_err:
+                    logger.error("Subagent [{}] on_complete callback failed: {}", task_id, cb_err)
+
+            raise  # Re-raise to properly cleanup
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
-            await self._announce_result(task_id, label, task, error_msg, origin, "error")
+
+            # Call on_complete callback with error
+            if on_complete:
+                try:
+                    await on_complete(error_msg, "failed", task_id, metadata)
+                except Exception as cb_err:
+                    logger.error("Subagent [{}] on_complete callback failed: {}", task_id, cb_err)
 
     async def _announce_result(
         self,
-        task_id: str,
-        label: str,
-        task: str,
-        result: str,
+        content: str,
         origin: dict[str, str],
-        status: str,
+        sender_id: str = "subagent",
     ) -> None:
-        """Announce the subagent result to the main agent via the message bus."""
-        status_text = "completed successfully" if status == "ok" else "failed"
+        """Send notification to main agent via the message bus.
 
-        announce_content = render_template(
-            "agent/subagent_announce.md",
-            label=label,
-            status_text=status_text,
-            task=task,
-            result=result,
-        )
-
-        # Inject as system message to trigger main agent
+        Args:
+            content: The notification content (markdown formatted)
+            origin: Origin channel/chat_id info
+            sender_id: Sender identifier (default "subagent" triggers main agent reply)
+        """
         msg = InboundMessage(
             channel="system",
-            sender_id="subagent",
+            sender_id=sender_id,
             chat_id=f"{origin['channel']}:{origin['chat_id']}",
-            content=announce_content,
+            content=content,
         )
 
         await self.bus.publish_inbound(msg)
-        logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
+        logger.debug("Sent notification to {}:{}", origin['channel'], origin['chat_id'])
 
     @staticmethod
     def _format_partial_progress(result) -> str:
@@ -246,3 +311,42 @@ class SubagentManager:
     def get_running_count(self) -> int:
         """Return the number of currently running subagents."""
         return len(self._running_tasks)
+
+    def get_task_elapsed_time(self, task_id: str) -> float | None:
+        """Get elapsed time in seconds for a running task."""
+        start = self._task_start_times.get(task_id)
+        if start is None:
+            return None
+        return time.monotonic() - start
+
+    async def _heartbeat_monitor_loop(self) -> None:
+        """Background task that monitors for timeout and handles stale subagents."""
+        check_interval = 30  # Check every 30 seconds
+        logger.info("Heartbeat monitor started (timeout: {}s)", self.timeout_seconds)
+
+        while self._running_tasks:
+            try:
+                await asyncio.sleep(check_interval)
+            except asyncio.CancelledError:
+                logger.debug("Heartbeat monitor cancelled")
+                break
+
+            now = time.monotonic()
+            stale_tasks = []
+
+            for task_id, start_time in list(self._task_start_times.items()):
+                elapsed = now - start_time
+                if elapsed > self.timeout_seconds:
+                    stale_tasks.append((task_id, elapsed))
+
+            for task_id, elapsed in stale_tasks:
+                task = self._running_tasks.get(task_id)
+                if task and not task.done():
+                    logger.warning(
+                        "Subagent [{}] timeout after {:.1f}s (limit: {}s)",
+                        task_id, elapsed, self.timeout_seconds
+                    )
+                    task.cancel()
+                    # The task will handle cancellation in _run_subagent and call on_complete
+
+        logger.debug("Heartbeat monitor stopped (no running tasks)")

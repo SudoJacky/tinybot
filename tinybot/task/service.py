@@ -842,6 +842,134 @@ class TaskManager:
         """Get all subtasks that can be executed now."""
         return [s for s in plan.subtasks if self._can_execute(s, plan)]
 
+    def get_ready_subtasks(self, plan_id: str) -> list[SubTask]:
+        """Get all ready (dependency-satisfied, pending) subtasks for a plan.
+
+        This is used for non-blocking execution: spawn SubAgents for these tasks.
+        """
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            return []
+        return [s for s in plan.subtasks if self._can_execute(s, plan)]
+
+    def can_execute(self, subtask: SubTask, plan: TaskPlan) -> bool:
+        """Public method to check if a subtask can be executed."""
+        return self._can_execute(subtask, plan)
+
+    def is_plan_completed(self, plan_id: str) -> bool:
+        """Check if all subtasks in a plan are completed or skipped."""
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            return False
+        return all(s.status in ("completed", "skipped") for s in plan.subtasks)
+
+    def is_plan_blocked(self, plan_id: str) -> bool:
+        """Check if plan has pending tasks that cannot execute (blocked by dependencies)."""
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            return False
+        pending = [s for s in plan.subtasks if s.status == "pending"]
+        if not pending:
+            return False
+        # All pending tasks have unmet dependencies and no in-progress tasks
+        return all(not self._can_execute(s, plan) for s in pending) and \
+               not any(s.status == "in_progress" for s in plan.subtasks)
+
+    def mark_subtask_started(self, plan_id: str, subtask_id: str) -> SubTask | None:
+        """Mark a subtask as in_progress (called when SubAgent starts)."""
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            return None
+        subtask = plan.get_subtask(subtask_id)
+        if subtask is None:
+            return None
+        subtask.status = "in_progress"
+        subtask.started_at = datetime.now()
+        # Note: retry_count is incremented on failure, not on start
+        plan.current_subtask_ids.append(subtask_id)
+        self._save_plan(plan)
+        logger.info("Subtask '{}' marked as in_progress", subtask.title)
+        # Trigger progress update for CLI display
+        asyncio.get_event_loop().create_task(
+            self._report_progress(plan, subtask, "started")
+        )
+        return subtask
+
+    def update_subtask_result(
+        self,
+        plan_id: str,
+        subtask_id: str,
+        result: str | None,
+        status: str = "completed",
+        error: str | None = None,
+    ) -> SubTask | None:
+        """Update subtask result after SubAgent completes.
+
+        This is called by SubagentManager when a SubAgent finishes.
+        """
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            logger.warning("Plan {} not found when updating subtask {}", plan_id, subtask_id)
+            return None
+
+        subtask = plan.get_subtask(subtask_id)
+        if subtask is None:
+            logger.warning("Subtask {} not found in plan {}", subtask_id, plan_id)
+            return None
+
+        # Update status
+        subtask.status = status  # type: ignore
+        if result is not None:
+            subtask.result = self._truncate_result(result)
+        if error is not None:
+            subtask.error = error
+
+        if status == "completed":
+            subtask.completed_at = datetime.now()
+            plan.current_subtask_ids = [sid for sid in plan.current_subtask_ids if sid != subtask_id]
+            logger.info("Subtask '{}' completed", subtask.title)
+        elif status == "failed":
+            subtask.completed_at = datetime.now()
+            plan.current_subtask_ids = [sid for sid in plan.current_subtask_ids if sid != subtask_id]
+            logger.warning("Subtask '{}' failed: {}", subtask.title, error or "unknown")
+            # Check if all retries exhausted
+            if subtask.retry_count >= subtask.max_retries:
+                # Mark plan as paused for intervention
+                plan.status = "paused"
+                plan.context["error"] = f"Subtask '{subtask.title}' failed after {subtask.max_retries} retries"
+                logger.warning("Plan '{}' paused due to subtask failure", plan.title)
+
+        self._save_plan(plan)
+
+        # Check if plan should transition to completed
+        if self.is_plan_completed(plan_id):
+            plan.status = "completed"
+            self._save_plan(plan)
+            logger.info("Plan '{}' completed", plan.title)
+
+        # Trigger progress update for CLI display
+        asyncio.get_event_loop().create_task(
+            self._report_progress(plan, subtask, status)
+        )
+
+        return subtask
+
+    def get_plan_summary(self, plan_id: str) -> str | None:
+        """Get a summary of all completed subtask results for final report."""
+        plan = self.get_plan(plan_id)
+        if plan is None:
+            return None
+
+        results = []
+        for subtask in plan.subtasks:
+            if subtask.status == "completed" and subtask.result:
+                results.append(f"[{subtask.title}] {subtask.result}")
+
+        if not results:
+            return "No completed subtasks."
+
+        return "\n\n".join(results)
+
     # ========== Plan Control ==========
 
     def pause_plan(self, plan_id: str) -> TaskPlan | None:

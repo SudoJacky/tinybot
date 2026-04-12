@@ -59,7 +59,6 @@ _SPINNER_STYLES = [
     "shark",
     "weather",
     "hearts",
-    "fire",
     "christmas",
 ]
 
