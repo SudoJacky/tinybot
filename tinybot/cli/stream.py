@@ -77,6 +77,8 @@ class StreamRenderer:
         self._live: Live | None = None
         self._t = 0.0
         self.streamed = False
+        self._md_obj: Markdown | None = None
+        self._md_buf_len: int = 0
         self._console = _make_console()
         self._plain = (
             not self._console.is_terminal
@@ -88,22 +90,37 @@ class StreamRenderer:
         self._last_plain_reasoning_delta = ""
         self._plain_reasoning_started = False
         self._spinner: ThinkingSpinner | None = None
+        # Cache static Text objects for Rich Live stability
+        self._thinking_label = Text("思考：", style="dim")
+        self._empty_text = Text("")
         self._start_spinner()
 
-    def _render_content(self):
-        return Markdown(self._buf) if self._md and self._buf else Text(self._buf or "")
+    def _render_content(self, force_rebuild: bool = False):
+        if not self._buf:
+            return Text("")
+        if self._md:
+            # Reuse cached Markdown object; recreate when ~256 chars of new content
+            # or when explicitly forced (e.g., final render)
+            if force_rebuild or self._md_obj is None or (len(self._buf) - self._md_buf_len) > 256:
+                self._md_obj = Markdown(self._buf)
+                self._md_buf_len = len(self._buf)
+            return self._md_obj
+        return Text(self._buf)
 
-    def _render(self):
+    def _render(self, force_rebuild: bool = False):
         blocks = []
+        # Reasoning always shown when present
         if self._reasoning_buf:
-            if not self._buf:
-                blocks.extend([
-                    Text("思考：", style="dim"),
-                    Text(self._reasoning_buf, style="dim"),
-                ])
-        if self._buf or not blocks:
-            blocks.append(self._render_content())
-        return Group(*blocks) if len(blocks) > 1 else blocks[0]
+            blocks.extend([
+                self._thinking_label,
+                Text(self._reasoning_buf, style="dim"),
+                self._empty_text,
+            ])
+        # Content
+        if self._buf:
+            blocks.append(self._render_content(force_rebuild=force_rebuild))
+        # Always return Group for consistent type
+        return Group(*blocks) if blocks else Group(self._empty_text)
 
 
     def _start_spinner(self) -> None:
@@ -133,7 +150,7 @@ class StreamRenderer:
         if self._live is None:
             return
         now = time.monotonic()
-        if "\n" in delta or (now - self._t) > 0.05:
+        if "\n" in delta or (now - self._t) > 0.1:
             self._live.update(self._render())
             self._live.refresh()
             self._t = now
@@ -187,7 +204,8 @@ class StreamRenderer:
             return
 
         if self._live:
-            self._live.update(self._render())
+            # Force rebuild Markdown to ensure final content is complete
+            self._live.update(self._render(force_rebuild=True))
             self._live.refresh()
             self._live.stop()
             self._live = None
@@ -195,6 +213,8 @@ class StreamRenderer:
         if resuming:
             self._buf = ""
             self._reasoning_buf = ""
+            self._md_obj = None
+            self._md_buf_len = 0
             self._start_spinner()
         else:
             self._console.print()
