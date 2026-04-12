@@ -16,6 +16,7 @@ from tinybot.utils.media import detect_image_mime
 
 if TYPE_CHECKING:
     from tinybot.agent.vector_store import VectorStore
+    from tinybot.session.manager import SessionManager
     from tinybot.task.service import TaskManager
 
 
@@ -31,6 +32,7 @@ class ContextBuilder:
         timezone: str | None = None,
         vector_store: VectorStore | None = None,
         task_manager: TaskManager | None = None,
+        session_manager: SessionManager | None = None,
     ):
         self.workspace = workspace
         self.timezone = timezone
@@ -38,6 +40,7 @@ class ContextBuilder:
         self.skills = SkillsLoader(workspace)
         self.vector_store = vector_store
         self.task_manager = task_manager
+        self.session_manager = session_manager
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
@@ -80,11 +83,28 @@ class ContextBuilder:
     def _build_runtime_context(
         channel: str | None, chat_id: str | None, timezone: str | None = None,
         task_manager: TaskManager | None = None,
+        user_profile: dict[str, Any] | None = None,
     ) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
         lines = [f"Current Time: {current_time_str(timezone)}"]
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
+
+        # Inject dynamic user profile (entity memory)
+        if user_profile:
+            profile_parts = []
+            if name := user_profile.get("name"):
+                profile_parts.append(f"Name: {name}")
+            if prefs := user_profile.get("preferences"):
+                profile_parts.append(f"Preferences: {', '.join(prefs)}")
+            if entities := user_profile.get("mentioned_entities"):
+                profile_parts.append(f"Known Entities: {', '.join(entities)}")
+            if style := user_profile.get("communication_style"):
+                profile_parts.append(f"Communication Style: {style}")
+            if facts := user_profile.get("key_facts"):
+                profile_parts.append(f"Key Facts: {', '.join(facts)}")
+            if profile_parts:
+                lines.append("User Context: " + "; ".join(profile_parts))
 
         # Add active task progress if any (support multiple plans)
         if task_manager:
@@ -138,9 +158,12 @@ class ContextBuilder:
         channel: str | None = None,
         chat_id: str | None = None,
         current_role: str = "user",
+        user_profile: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
-        runtime_ctx = self._build_runtime_context(channel, chat_id, self.timezone, self.task_manager)
+        runtime_ctx = self._build_runtime_context(
+            channel, chat_id, self.timezone, self.task_manager, user_profile,
+        )
         user_content = self._build_user_content(current_message, media)
 
         # Merge runtime context and user content into a single user message
@@ -154,15 +177,55 @@ class ContextBuilder:
             {"role": "system", "content": self.build_system_prompt(skill_names)},
         ]
 
-        # Inject consolidated summary from ChromaDB before history
+        # Inject memory context from ChromaDB: hierarchical retrieval
         if self.vector_store is not None and channel and chat_id:
             session_key = f"{channel}:{chat_id}"
-            summary = self.vector_store.get_latest_summary(session_key)
-            if summary:
-                messages.append({
-                    "role": "system",
-                    "content": f"---\nSUMMARY: {summary}\n---",
-                })
+
+            # Build richer search query from recent history + current message
+            search_query = self._build_search_query(history, current_message)
+
+            try:
+                # Hierarchical retrieval: summaries → their child chunks
+                results = self.vector_store.search_with_hierarchy(
+                    session_key,
+                    search_query,
+                    max_summaries=2,
+                    max_chunks_per_summary=2,
+                    session_manager=self.session_manager,
+                )
+            except Exception:
+                results = []
+
+            if results:
+                # search_with_hierarchy already deduplicates by ID;
+                # the check below is defensive only.
+                unique_results = results
+
+                # Sort by boundary (chronological order) for coherence
+                unique_results.sort(key=lambda x: x.get("boundary") or 0)
+
+                # Build context parts with type and time-range labels
+                context_parts: list[str] = []
+                for item in unique_results:
+                    if item["type"] == "summary":
+                        boundary = item.get("boundary", 0)
+                        context_parts.append(
+                            f"[Summary (covers messages up to #{boundary})]\n{item['content']}"
+                        )
+                    else:
+                        context_parts.append(
+                            f"[Original conversation fragment]\n{item['content']}"
+                        )
+
+                if context_parts:
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "---\n[RELEVANT PAST CONTEXT]\n\n"
+                            + "\n\n---\n\n".join(context_parts)
+                            + "\n---"
+                        ),
+                    })
 
         messages.extend(history)
         if messages[-1].get("role") == current_role:
@@ -172,6 +235,24 @@ class ContextBuilder:
             return messages
         messages.append({"role": current_role, "content": merged})
         return messages
+
+    @staticmethod
+    def _build_search_query(
+        history: list[dict[str, Any]],  # from session.get_history(); contains role/content
+        current_message: str,
+        max_recent: int = 2,
+    ) -> str:
+        """Build a richer search query from recent user messages + current message.
+
+        Truncates each message to avoid overly long embeddings that dilute
+        semantic quality.
+        """
+        recent_user_msgs = [
+            m.get("content", "")[:200] for m in history[-6:]
+            if m.get("role") == "user" and isinstance(m.get("content"), str)
+        ]
+        parts = recent_user_msgs[-max_recent:] + [current_message[:500]]
+        return "\n".join(p for p in parts if p.strip())
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
         """Build user message content with optional base64-encoded images."""

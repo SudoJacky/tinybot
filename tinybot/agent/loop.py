@@ -14,7 +14,7 @@ from loguru import logger
 
 from tinybot.agent.context import ContextBuilder
 from tinybot.agent.hook import AgentHook, AgentHookContext, CompositeHook
-from tinybot.agent.memory import Consolidator, Dream
+from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
 from tinybot.agent.subagent import SubagentManager
@@ -308,8 +308,8 @@ class AgentLoop:
         self._task_progress_channel: str = ""
         self._task_progress_chat_id: str = ""
         self._task_display_lines: int = 0  # Track how many lines we've displayed for in-place refresh
-        self.context = ContextBuilder(workspace, timezone=timezone, task_manager=self.task_manager)
         self.sessions = session_manager or SessionManager(workspace)
+        self.context = ContextBuilder(workspace, timezone=timezone, task_manager=self.task_manager, session_manager=self.sessions)
 
         # Initialize ChromaDB vector store only when feature flag is enabled
         if enable_vector_store:
@@ -359,6 +359,10 @@ class AgentLoop:
         )
         self.dream = Dream(
             store=self.context.memory,
+            provider=provider,
+            model=self.model,
+        )
+        self.entity_extractor = EntityExtractor(
             provider=provider,
             model=self.model,
         )
@@ -798,6 +802,31 @@ class AgentLoop:
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
+    async def _update_user_profile(
+        self,
+        session: Session,
+        user_text: str,
+        assistant_text: str,
+    ) -> None:
+        """Extract entities from a turn and merge into session.user_profile."""
+        if not user_text.strip():
+            return
+        try:
+            extracted = await self.entity_extractor.extract(user_text, assistant_text)
+            if extracted:
+                from tinybot.agent.memory import EntityExtractor
+                session.user_profile = EntityExtractor.merge_profile(
+                    session.user_profile, extracted,
+                )
+                self.sessions.save(session)
+                logger.debug(
+                    "Updated user_profile for {}: {}",
+                    session.key,
+                    list(extracted.keys()),
+                )
+        except Exception:
+            logger.debug("Entity extraction failed for {}", session.key)
+
     def stop(self) -> None:
         """Stop the agent loop."""
         self._running = False
@@ -833,6 +862,7 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
                 current_role=current_role,
+                user_profile=session.user_profile,
             )
             final_content, _, all_msgs = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
@@ -842,6 +872,9 @@ class AgentLoop:
             self._clear_runtime_checkpoint(session)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
+            self._schedule_background(self._update_user_profile(
+                session, msg.content, final_content or "",
+            ))
             if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
                 return None
             return OutboundMessage(channel=channel, chat_id=chat_id,
@@ -874,6 +907,7 @@ class AgentLoop:
             current_message=msg.content,
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
+            user_profile=session.user_profile,
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
@@ -902,6 +936,9 @@ class AgentLoop:
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)
         self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
+        self._schedule_background(self._update_user_profile(
+            session, msg.content, final_content or "",
+        ))
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None

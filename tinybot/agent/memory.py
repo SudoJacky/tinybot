@@ -432,13 +432,14 @@ class Consolidator:
     # Single batch archive (called once after pointer is moved)
     # ------------------------------------------------------------------
 
-    async def archive(self, messages: list[dict]) -> str | None:
+    async def archive(self, messages: list[dict]) -> tuple[str | None, list[str]]:
         """Summarize messages via LLM, store to ChromaDB + history.jsonl.
 
-        Returns the summary text, or None on failure.
+        Returns a tuple of (summary_text, topic_tags).
+        Topic tags are 3-5 keywords extracted by the LLM for later filtering.
         """
         if not messages:
-            return None
+            return None, []
         try:
             formatted = MemoryStore._format_messages(messages)
             response = await self.provider.chat_with_retry(
@@ -458,11 +459,48 @@ class Consolidator:
             )
             summary = response.content or "[no summary]"
             self.store.append_history(summary)
-            return summary
+
+            # Extract topic tags from the summary
+            topics = await self._extract_topics(summary)
+            return summary, topics
         except Exception:
             logger.warning("Consolidation LLM call failed, raw-dumping to history")
             self.store.raw_archive(messages)
-            return None
+            return None, []
+
+    async def _extract_topics(self, text: str) -> list[str]:
+        """Extract 3-5 topic keywords from text via a lightweight LLM call."""
+        if not text.strip() or text.strip() == "(nothing)":
+            return []
+        try:
+            response = await self.provider.chat_with_retry(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Extract 3-5 concise topic keywords from the text below. "
+                            "Output ONLY a JSON array of strings, e.g. "
+                            '[\"refactoring\", \"database\", \"api-design\"]. '
+                            "No explanation, no markdown."
+                        ),
+                    },
+                    {"role": "user", "content": text[:2000]},
+                ],
+                tools=None,
+                tool_choice=None,
+            )
+            raw = (response.content or "").strip()
+            # Try to parse JSON array
+            import re as _re
+            match = _re.search(r"\[.*\]", raw, _re.DOTALL)
+            if match:
+                tags = json.loads(match.group())
+                if isinstance(tags, list):
+                    return [str(t).strip() for t in tags if str(t).strip()][:5]
+        except Exception:
+            logger.debug("Topic extraction failed, skipping")
+        return []
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -558,13 +596,15 @@ class Consolidator:
 
             # Store in ChromaDB
             if self.vector_store is not None:
-                text_to_store = summary or MemoryStore._format_messages(evicted)
+                summary_text, topics = summary
+                text_to_store = summary_text or MemoryStore._format_messages(evicted)
                 self.vector_store.store_summary(
                     session_key=session.key,
                     summary=text_to_store,
                     messages=evicted,
                     boundary_start=original_consolidated,
                     boundary_end=session.last_consolidated,
+                    topics=topics,
                 )
 
             self.sessions.save(session)
@@ -728,3 +768,104 @@ class Dream:
                 logger.info("Dream commit: {}", sha)
 
         return True
+
+
+# ---------------------------------------------------------------------------
+# EntityExtractor — lightweight runtime entity extraction for user_profile
+# ---------------------------------------------------------------------------
+
+_ENTITY_EXTRACT_SYSTEM = """\
+You are an entity extractor. Given a conversation turn, extract structured facts about the user as JSON.
+
+Rules:
+1. Only extract EXPLICITLY stated facts — never infer or guess.
+2. Output a single JSON object with these keys (omit empty keys):
+   - "name": the user's name (if mentioned)
+   - "preferences": list of stated preferences (colors, styles, tools, etc.)
+   - "mentioned_entities": list of named things (people, pets, projects, companies, etc.) with brief context
+   - "communication_style": one of "casual", "formal", "technical", "brief"
+   - "key_facts": list of any other important facts about the user
+3. If nothing can be extracted, output: {}
+4. Keep values concise — no full sentences, just key facts.
+
+Example output:
+{"name": "张三", "preferences": ["蓝色", "VS Code"], "mentioned_entities": ["大黄（狗）"], "key_facts": ["住在上海"]}"""
+
+
+class EntityExtractor:
+    """Extracts user entities from conversation turns and updates Session.user_profile.
+
+    Designed to be called after each agent turn completes. Uses a lightweight
+    LLM call to extract structured facts, then merges them into the session's
+    ``user_profile`` dict.
+    """
+
+    def __init__(
+        self,
+        provider: LLMProvider,
+        model: str,
+    ):
+        self.provider = provider
+        self.model = model
+
+    async def extract(
+        self,
+        user_message: str,
+        assistant_message: str,
+    ) -> dict[str, Any]:
+        """Run entity extraction on a single turn. Returns extracted dict (may be empty)."""
+        if not user_message.strip():
+            return {}
+
+        prompt = f"USER: {user_message}\nASSISTANT: {assistant_message}"
+        try:
+            response = await self.provider.chat_with_retry(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": _ENTITY_EXTRACT_SYSTEM},
+                    {"role": "user", "content": prompt},
+                ],
+                tools=None,
+                tool_choice=None,
+            )
+            text = (response.content or "").strip()
+            # Find JSON in response — LLM may wrap it in markdown code fences
+            json_match = re.search(r"\{.*\}", text, re.DOTALL)
+            if json_match:
+                extracted = json.loads(json_match.group())
+                if isinstance(extracted, dict):
+                    return extracted
+        except (json.JSONDecodeError, Exception):
+            logger.debug("Entity extraction failed or returned non-JSON")
+        return {}
+
+    @staticmethod
+    def merge_profile(
+        current: dict[str, Any],
+        extracted: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge newly extracted entities into the current profile.
+
+        - Scalar values (name, communication_style) are overwritten by new values.
+        - List values (preferences, mentioned_entities, key_facts) are union-merged.
+        """
+        if not extracted:
+            return current
+
+        merged = dict(current)
+
+        # Scalar fields
+        for key in ("name", "communication_style"):
+            if key in extracted and extracted[key]:
+                merged[key] = extracted[key]
+
+        # List fields — union merge
+        for key in ("preferences", "mentioned_entities", "key_facts"):
+            if key in extracted and isinstance(extracted[key], list):
+                existing = set(merged.get(key, []))
+                for item in extracted[key]:
+                    if item not in existing:
+                        merged.setdefault(key, []).append(item)
+                        existing.add(item)
+
+        return merged
