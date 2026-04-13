@@ -124,9 +124,10 @@ class TaskTool(Tool):
     def description(self) -> str:
         return (
             "管理复杂多步任务。create创建任务计划（auto_execute=true可一步启动），"
-            "resume启动后台执行。执行后SubAgent自动运行，无需主动干预，完成后会通知你。"
+            "resume启动后台执行。执行后SubAgent自动运行，无需主动干预，完成后会通知你，也**不用主动去查询**。"
             "status/progress查询状态（仅在需要时使用），pause/cancel控制执行，"
             "add_subtask/remove_subtask动态调整。summary获取完成结果。"
+            "创建完成后，你会收到一次成功的响应。告诉用户已经在执行了，然后就不用做任何的操作。你将在完全完成后收到通知。"
         )
 
     async def execute(
