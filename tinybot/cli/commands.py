@@ -2,11 +2,13 @@
 
 import asyncio
 import os
+import random
 import signal
 import sys
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
+
 
 import select
 
@@ -24,18 +26,31 @@ if sys.platform == "win32":
 import typer
 from loguru import logger
 from prompt_toolkit import PromptSession, print_formatted_text
-from prompt_toolkit.application import run_in_terminal
+from prompt_toolkit.application import Application, run_in_terminal
+from prompt_toolkit.document import Document
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import ANSI, HTML
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
+
+
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.styles import Style
+from prompt_toolkit.widgets import Frame, TextArea
+
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
 from tinybot import __logo__, __version__
-from tinybot.cli.stream import StreamRenderer, ThinkingSpinner, TaskProgressPanel
-from tinybot.config.paths import get_workspace_path, is_default_workspace
+from tinybot.cli.stream import StreamRenderer, ThinkingSpinner, _THINKING_MESSAGES
+
+from tinybot.config.paths import get_cli_history_path, get_workspace_path, is_default_workspace
+
 from tinybot.config.schema import Config
 from tinybot.utils.helper import sync_workspace_templates
 from tinybot.utils.restart import (
@@ -53,8 +68,17 @@ app = typer.Typer(
 
 console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
+_UI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+_UI_REPLY_MESSAGES = (
+    "tinybot is drafting a reply...",
+    "tinybot is choosing the clearest words...",
+    "tinybot is turning thoughts into tokens...",
+    "tinybot is polishing the response...",
+    "tinybot is typing with robotic confidence...",
+)
 
 # ---------------------------------------------------------------------------
+
 # CLI input: prompt_toolkit for editing, paste, history, and display
 # ---------------------------------------------------------------------------
 
@@ -233,7 +257,392 @@ async def _read_interactive_input_async() -> str:
         raise KeyboardInterrupt from exc
 
 
+def _format_task_progress_text(snapshot: dict[str, Any]) -> str:
+    """Render task progress as compact plain text for the full-screen UI."""
+    plans = sorted(
+        snapshot.get("plans", []),
+        key=lambda plan: (
+            0 if plan.get("active") else 1,
+            -plan.get("last_update", 0.0),
+        ),
+    )
+    if not plans:
+        return ""
+
+    plan_icons = {
+        "planning": "📝",
+        "executing": "▶️",
+        "completed": "✅",
+        "failed": "❌",
+        "paused": "⏸️",
+    }
+    status_icons = {
+        "pending": "⏳",
+        "in_progress": "▶️",
+        "completed": "✅",
+        "failed": "❌",
+        "skipped": "⏭️",
+    }
+
+    lines: list[str] = []
+    for index, plan in enumerate(plans):
+        if index:
+            lines.append("")
+        total = plan.get("total", 0)
+        completed = plan.get("completed", 0)
+        failed = plan.get("failed", 0)
+        skipped = plan.get("skipped", 0)
+        pct = (completed / total * 100) if total > 0 else 0
+        icon = plan_icons.get(plan.get("plan_status", "planning"), "📋")
+        header = f"{icon} {plan.get('plan_title', 'Task')} [{completed}/{total} ({pct:.0f}%)] {plan.get('plan_status', 'planning')}"
+        if failed:
+            header += f"  failed={failed}"
+        if skipped:
+            header += f"  skipped={skipped}"
+        lines.append(header)
+
+        for subtask in plan.get("subtasks", []):
+            status = subtask.get("status", "pending")
+            sub_icon = status_icons.get(status, "❓")
+            title = (subtask.get("title") or "").strip() or "Untitled task"
+            error = (subtask.get("error") or "").strip()
+            line = f"  {sub_icon} {title}"
+            if error and status == "failed":
+                line += f" — {error[:60]}"
+            lines.append(line)
+
+        meta: list[str] = []
+        if plan.get("current"):
+            meta.append(f"current: {plan['current']}")
+        if plan.get("next"):
+            meta.append(f"next: {plan['next']}")
+        if meta:
+            lines.append("  " + " | ".join(meta))
+
+    return "\n".join(lines)
+
+
+class InteractiveChatUI:
+    """Full-screen interactive CLI with fixed bottom input."""
+
+    def __init__(
+        self,
+        *,
+        render_markdown: bool,
+        history: FileHistory,
+        on_submit,
+        initial_transcript: list[str] | None = None,
+    ):
+        self._render_markdown = render_markdown
+        self._on_submit = on_submit
+        self._blocks: list[str] = [block for block in (initial_transcript or []) if block.strip()]
+        self._current_response = ""
+        self._current_reasoning = ""
+        self._progress_text = ""
+        self._busy = False
+        self._status = "Enter 发送，Ctrl+C 退出"
+        self._busy_mode = "thinking"
+        self._busy_message = ""
+        self._spinner_index = 0
+        self._spinner_task: asyncio.Task | None = None
+        self._transcript_follow = True
+
+        self._transcript = TextArea(
+            text="",
+            read_only=True,
+            focusable=False,
+            scrollbar=True,
+            wrap_lines=True,
+            style="class:transcript-area",
+        )
+        self._progress = TextArea(
+            text="",
+            read_only=True,
+            focusable=False,
+            scrollbar=True,
+            wrap_lines=False,
+            height=10,
+            style="class:progress-area",
+        )
+        self._input = TextArea(
+            text="",
+            multiline=False,
+            wrap_lines=False,
+            history=history,
+            accept_handler=self._accept_input,
+            style="class:input-field",
+        )
+
+        kb = KeyBindings()
+
+        @kb.add("c-c")
+        def _exit(_event) -> None:
+            self.exit()
+
+        @kb.add("escape")
+        def _focus_input(event) -> None:
+            event.app.layout.focus(self._input)
+
+        @kb.add(Keys.ScrollUp, eager=True)
+        def _scroll_up(_event) -> None:
+            self._scroll_transcript(-3)
+
+        @kb.add(Keys.ScrollDown, eager=True)
+        def _scroll_down(_event) -> None:
+            self._scroll_transcript(3)
+
+
+        @kb.add("pageup", eager=True)
+        def _page_up(_event) -> None:
+            self._scroll_transcript(-12)
+
+        @kb.add("pagedown", eager=True)
+        def _page_down(_event) -> None:
+            self._scroll_transcript(12)
+
+        self._show_progress = Condition(lambda: bool(self._progress.text.strip()))
+        self._show_activity = Condition(lambda: self._busy)
+        progress_container = ConditionalContainer(
+            content=Frame(self._progress, title="Task Progress", style="class:panel"),
+            filter=self._show_progress,
+        )
+        activity_container = ConditionalContainer(
+            content=Window(
+                content=FormattedTextControl(self._activity_fragments),
+                height=1,
+                style="class:activity-bar",
+            ),
+            filter=self._show_activity,
+        )
+        input_row = VSplit([
+            Window(
+                content=FormattedTextControl(lambda: [("class:prompt", "You: ")]),
+                width=5,
+                dont_extend_width=True,
+            ),
+            self._input,
+        ], height=1)
+        status_bar = Window(
+            content=FormattedTextControl(self._status_fragments),
+            height=1,
+            style="class:status",
+        )
+        style = Style.from_dict({
+            "": "bg:#11121a #c0caf5",
+            "frame.border": "#414868",
+            "frame.label": "bold #7dcfff",
+            "panel": "bg:#11121a",
+            "transcript-area": "bg:#11121a #c0caf5",
+            "progress-area": "bg:#0f1720 #a9b1d6",
+            "input-field": "bg:#1a1b26 #e5e9f0",
+            "prompt": "bold #7aa2f7",
+            "status": "bg:#1f2335 #c0caf5",
+            "activity-bar": "bg:#16161e",
+            "activity.thinking": "bold #e0af68",
+            "activity.replying": "bold #7dcfff",
+        })
+
+        self._app = Application(
+            layout=Layout(
+                HSplit([
+                    progress_container,
+                    activity_container,
+                    Frame(self._transcript, title="Conversation", style="class:panel"),
+                    input_row,
+                    status_bar,
+                ]),
+                focused_element=self._input,
+            ),
+            key_bindings=kb,
+            full_screen=True,
+            mouse_support=True,
+            style=style,
+        )
+        self._refresh_views()
+
+    def _status_fragments(self):
+        if self._busy:
+            label = "tinybot 正在思考..." if self._busy_mode == "thinking" else "tinybot 正在回复..."
+            return [("class:status", f" {label} · 滚轮/PageUp/PageDown 滚动对话 · Esc 回到底部输入 ")]
+        return [("class:status", f" {self._status} · 滚轮/PageUp/PageDown 滚动对话 · Esc 回到底部输入 ")]
+
+    def _activity_fragments(self):
+        if not self._busy:
+            return []
+        spinner = _UI_SPINNER_FRAMES[self._spinner_index % len(_UI_SPINNER_FRAMES)]
+        style = "class:activity.thinking" if self._busy_mode == "thinking" else "class:activity.replying"
+        message = self._busy_message or ("tinybot is thinking..." if self._busy_mode == "thinking" else "tinybot is replying...")
+        return [(style, f" {spinner} {message} ")]
+
+    def _start_spinner(self) -> None:
+        if self._spinner_task and not self._spinner_task.done():
+            return
+
+        async def _animate() -> None:
+            try:
+                while self._busy:
+                    await asyncio.sleep(0.12)
+                    self._spinner_index = (self._spinner_index + 1) % len(_UI_SPINNER_FRAMES)
+                    self._invalidate()
+            except asyncio.CancelledError:
+                pass
+
+        self._spinner_task = asyncio.create_task(_animate())
+
+    def _stop_spinner(self) -> None:
+        task = self._spinner_task
+        self._spinner_task = None
+        self._spinner_index = 0
+        if task:
+            task.cancel()
+
+    def _set_busy_mode(self, mode: str, *, refresh_message: bool = False) -> None:
+        self._busy = True
+        if refresh_message or self._busy_mode != mode or not self._busy_message:
+            pool = _THINKING_MESSAGES if mode == "thinking" else _UI_REPLY_MESSAGES
+            self._busy_message = random.choice(pool)
+        self._busy_mode = mode
+        self._status = "tinybot 正在思考..." if mode == "thinking" else "tinybot 正在回复..."
+        self._start_spinner()
+
+    def _finish_busy_state(self) -> None:
+        self._busy = False
+        self._busy_mode = "thinking"
+        self._busy_message = ""
+        self._status = "Enter 发送，Ctrl+C 退出"
+        self._stop_spinner()
+
+    def _scroll_transcript(self, lines: int) -> None:
+        buffer = self._transcript.buffer
+        if not buffer.text:
+            return
+        self._transcript_follow = False
+        if lines < 0:
+            buffer.cursor_up(count=-lines)
+        elif lines > 0:
+            buffer.cursor_down(count=lines)
+        self._transcript_follow = buffer.cursor_position >= len(buffer.text)
+        self._invalidate()
+
+    def _accept_input(self, buffer) -> bool:
+        text = buffer.text.strip()
+        if not text:
+            buffer.set_document(Document(""), bypass_readonly=True)
+            return False
+        if self._busy:
+            self._status = "正在回复中；请稍候再发送"
+            buffer.set_document(Document(buffer.text, cursor_position=len(buffer.text)), bypass_readonly=True)
+            self._invalidate()
+            return True
+
+        asyncio.create_task(self._submit_text(text))
+        buffer.set_document(Document(""), bypass_readonly=True)
+        return False
+
+    async def _submit_text(self, text: str) -> None:
+        self._transcript_follow = True
+        self._set_busy_mode("thinking", refresh_message=True)
+        self._append_block(f"You: {text}")
+        self._refresh_views()
+        await self._on_submit(text)
+
+    def _append_block(self, text: str) -> None:
+        block = text.rstrip()
+        if block:
+            self._blocks.append(block)
+
+    def _assistant_block(self, content: str, reasoning: str = "") -> str:
+        parts = [f"{__logo__} tinybot"]
+        clean_reasoning = reasoning.rstrip()
+        clean_content = content.rstrip()
+        if clean_reasoning:
+            parts.extend(["思考：", clean_reasoning])
+        if clean_content:
+            parts.append(clean_content)
+        return "\n".join(parts).rstrip()
+
+    def _render_transcript_text(self) -> str:
+        blocks = list(self._blocks)
+        if self._current_reasoning or self._current_response:
+            blocks.append(self._assistant_block(self._current_response, self._current_reasoning))
+        return "\n\n".join(block for block in blocks if block).rstrip()
+
+    def _set_textarea_text(self, area: TextArea, text: str, *, follow_end: bool) -> None:
+        buffer = area.buffer
+        if buffer.text == text:
+            return
+        cursor_position = len(text) if follow_end else min(buffer.cursor_position, len(text))
+        buffer.set_document(Document(text, cursor_position=cursor_position), bypass_readonly=True)
+
+    def _refresh_views(self) -> None:
+        self._set_textarea_text(self._transcript, self._render_transcript_text(), follow_end=self._transcript_follow)
+        self._set_textarea_text(self._progress, self._progress_text, follow_end=True)
+        self._invalidate()
+
+    def _invalidate(self) -> None:
+        if self._app.is_running:
+            self._app.invalidate()
+
+    def set_task_progress(self, snapshot: dict[str, Any]) -> None:
+        self._progress_text = _format_task_progress_text(snapshot)
+        self._refresh_views()
+
+    def add_progress_line(self, text: str) -> None:
+        self._append_block(f"↳ {text}")
+        self._refresh_views()
+
+    def on_reasoning_delta(self, delta: str) -> None:
+        self._set_busy_mode("thinking")
+        self._current_reasoning += delta
+        self._refresh_views()
+
+    def on_stream_delta(self, delta: str) -> None:
+        if not self._current_response:
+            self._set_busy_mode("replying", refresh_message=True)
+        else:
+            self._set_busy_mode("replying")
+        self._current_response += delta
+        self._refresh_views()
+
+    def on_stream_end(self, *, resuming: bool = False) -> None:
+        if self._current_reasoning or self._current_response:
+            self._append_block(self._assistant_block(self._current_response, self._current_reasoning))
+            self._current_reasoning = ""
+            self._current_response = ""
+            self._refresh_views()
+        if resuming:
+            self._set_busy_mode("thinking", refresh_message=True)
+        else:
+            self._finish_busy_state()
+            self._refresh_views()
+
+    def add_assistant_response(
+        self,
+        response: str,
+        metadata: dict | None = None,
+    ) -> None:
+        content = response or ""
+        if content:
+            self._append_block(self._assistant_block(content))
+        self._finish_busy_state()
+        self._refresh_views()
+
+    def finish_turn(self) -> None:
+        self._finish_busy_state()
+        self._refresh_views()
+
+    async def run(self) -> None:
+        await self._app.run_async()
+
+    def exit(self) -> None:
+        self._stop_spinner()
+        if self._app.is_running:
+            self._app.exit()
+
+
+
 def version_callback(value: bool):
+
     if value:
         console.print(f"{__logo__} tinybot v{__version__}")
         raise typer.Exit()
@@ -781,12 +1190,13 @@ def agent(
         config, bus, provider,
         cron_service=cron,
     )
+    restart_notice_text = None
     restart_notice = consume_restart_notice_from_env()
     if restart_notice and should_show_cli_restart_notice(restart_notice, session_id):
-        _print_agent_response(
-            format_restart_completed_message(restart_notice.started_at_raw),
-            render_markdown=False,
-        )
+        restart_notice_text = format_restart_completed_message(restart_notice.started_at_raw)
+        if message:
+            _print_agent_response(restart_notice_text, render_markdown=False)
+
 
     # Shared reference for progress callbacks
     _thinking: ThinkingSpinner | None = None
@@ -822,171 +1232,123 @@ def agent(
 
         asyncio.run(run_once())
     else:
-        # Interactive mode — route through bus like other channels
+        # Interactive mode — full-screen TUI with fixed bottom input.
         from tinybot.bus.events import InboundMessage
-        _init_prompt_session()
-        console.print(f"{__logo__} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)\n")
 
         if ":" in session_id:
             cli_channel, cli_chat_id = session_id.split(":", 1)
         else:
             cli_channel, cli_chat_id = "cli", session_id
 
-        def _handle_signal(signum, frame):
-            sig_name = signal.Signals(signum).name
-            _restore_terminal()
-            console.print(f"\nReceived {sig_name}, goodbye!")
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, _handle_signal)
-        signal.signal(signal.SIGTERM, _handle_signal)
-        # SIGHUP is not available on Windows
-        if hasattr(signal, 'SIGHUP'):
-            signal.signal(signal.SIGHUP, _handle_signal)
-        # Ignore SIGPIPE to prevent silent process termination when writing to closed pipes
-        # SIGPIPE is not available on Windows
-        if hasattr(signal, 'SIGPIPE'):
+        # Ignore SIGPIPE to prevent silent process termination when writing to closed pipes.
+        if hasattr(signal, "SIGPIPE"):
             signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 
         async def run_interactive():
-            bus_task = asyncio.create_task(agent_loop.run())
-            turn_done = asyncio.Event()
-            turn_done.set()
-            turn_response: list[tuple[str, dict]] = []
-            renderer: StreamRenderer | None = None
+            history_file = get_cli_history_path()
+            history_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Create one persistent task progress panel for the whole interactive session.
-            progress_panel = TaskProgressPanel(agent_loop.task_progress_state)
+            initial_blocks = [
+                f"{__logo__} Interactive mode (type exit or press Ctrl+C to quit)",
+            ]
+            if restart_notice_text:
+                initial_blocks.append(f"{__logo__} tinybot\n{restart_notice_text}")
+
+            async def _submit_user_input(user_input: str) -> None:
+                command = user_input.strip()
+                if not command:
+                    return
+                if _is_exit_command(command):
+                    ui.exit()
+                    return
+
+                agent_loop.task_progress_state.reset()
+                await bus.publish_inbound(InboundMessage(
+                    channel=cli_channel,
+                    sender_id="user",
+                    chat_id=cli_chat_id,
+                    content=user_input,
+                    metadata={"_wants_stream": True},
+                ))
+
+            ui = InteractiveChatUI(
+                render_markdown=markdown,
+                history=FileHistory(str(history_file)),
+                on_submit=_submit_user_input,
+                initial_transcript=initial_blocks,
+            )
+
+            def _handle_signal(signum, _frame):
+                ui.exit()
+
+            if hasattr(signal, "SIGTERM"):
+                signal.signal(signal.SIGTERM, _handle_signal)
+            if hasattr(signal, "SIGHUP"):
+                signal.signal(signal.SIGHUP, _handle_signal)
+
+            bus_task = asyncio.create_task(agent_loop.run())
 
             async def _refresh_progress_panel():
-                """Refresh the panel only when task state actually changes."""
                 last_version = agent_loop.task_progress_state.get_snapshot()["version"]
+                ui.set_task_progress(agent_loop.task_progress_state.get_snapshot())
                 while True:
                     try:
                         state = agent_loop.task_progress_state
                         version = await asyncio.to_thread(state.wait_for_change, last_version, 0.25)
                         if version == last_version:
                             continue
-
                         last_version = version
-                        snapshot = state.get_snapshot()
-                        if snapshot["plans"] and not progress_panel.is_started:
-                            progress_panel.start()
-                        if progress_panel.is_started:
-                            progress_panel.refresh()
+                        ui.set_task_progress(state.get_snapshot())
                     except asyncio.CancelledError:
                         break
-
-
-            progress_refresh_task = asyncio.create_task(_refresh_progress_panel())
 
             async def _consume_outbound():
                 while True:
                     try:
-                        msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
-
+                        msg = await bus.consume_outbound()
                         if msg.metadata.get("_reasoning_delta"):
-                            if renderer:
-                                await renderer.on_reasoning_delta(msg.content)
+                            ui.on_reasoning_delta(msg.content)
                             continue
                         if msg.metadata.get("_stream_delta"):
-                            if renderer:
-                                await renderer.on_delta(msg.content)
+                            ui.on_stream_delta(msg.content)
                             continue
                         if msg.metadata.get("_stream_end"):
-                            if renderer:
-                                await renderer.on_end(
-                                    resuming=msg.metadata.get("_resuming", False),
-                                )
+                            ui.on_stream_end(resuming=msg.metadata.get("_resuming", False))
                             continue
                         if msg.metadata.get("_streamed"):
-                            turn_done.set()
+                            ui.finish_turn()
                             continue
 
                         if msg.metadata.get("_progress"):
                             is_tool_hint = msg.metadata.get("_tool_hint", False)
                             ch = agent_loop.channels_config
                             if ch and is_tool_hint and not ch.send_tool_hints:
-                                pass
-                            elif ch and not is_tool_hint and not ch.send_progress:
-                                pass
-                            else:
-                                await _print_interactive_progress_line(msg.content, _thinking)
+                                continue
+                            if ch and not is_tool_hint and not ch.send_progress:
+                                continue
+                            ui.add_progress_line(msg.content)
                             continue
 
-                        if not turn_done.is_set():
-                            if msg.content:
-                                turn_response.append((msg.content, dict(msg.metadata or {})))
-                            turn_done.set()
-                        elif msg.content:
-                            await _print_interactive_response(
-                                msg.content,
-                                render_markdown=markdown,
-                                metadata=msg.metadata,
-                            )
-
-                    except asyncio.TimeoutError:
-                        continue
+                        ui.add_assistant_response(msg.content, msg.metadata)
                     except asyncio.CancelledError:
                         break
 
             outbound_task = asyncio.create_task(_consume_outbound())
+            progress_refresh_task = asyncio.create_task(_refresh_progress_panel())
 
             try:
-                while True:
-                    try:
-                        _flush_pending_tty_input()
-                        user_input = await _read_interactive_input_async()
-                        command = user_input.strip()
-                        if not command:
-                            continue
-
-                        if _is_exit_command(command):
-                            _restore_terminal()
-                            console.print("\nGoodbye!")
-                            break
-
-                        turn_done.clear()
-                        turn_response.clear()
-                        renderer = StreamRenderer(render_markdown=markdown)
-
-                        await bus.publish_inbound(InboundMessage(
-                            channel=cli_channel,
-                            sender_id="user",
-                            chat_id=cli_chat_id,
-                            content=user_input,
-                            metadata={"_wants_stream": True},
-                        ))
-
-                        await turn_done.wait()
-
-                        if turn_response:
-                            content, meta = turn_response[0]
-                            if content and not meta.get("_streamed"):
-                                if renderer:
-                                    await renderer.close()
-                                _print_agent_response(
-                                    content, render_markdown=markdown, metadata=meta,
-                                )
-                        elif renderer and not renderer.streamed:
-                            await renderer.close()
-                    except KeyboardInterrupt:
-                        _restore_terminal()
-                        console.print("\nGoodbye!")
-                        break
-                    except EOFError:
-                        _restore_terminal()
-                        console.print("\nGoodbye!")
-                        break
+                await ui.run()
             finally:
                 agent_loop.stop()
                 outbound_task.cancel()
                 progress_refresh_task.cancel()
-                progress_panel.stop(clear=True)
                 await asyncio.gather(bus_task, outbound_task, progress_refresh_task, return_exceptions=True)
                 await agent_loop.close_mcp()
 
         asyncio.run(run_interactive())
+        _restore_terminal()
+        console.print("\nGoodbye!")
+
 
 
 # ============================================================================
