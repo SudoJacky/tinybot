@@ -37,6 +37,9 @@ from tinybot.utils.media import image_placeholder_text
 from tinybot.utils.prompt_templates import render_template
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
+# Import TaskProgressState for CLI progress display
+from tinybot.cli.stream import TaskProgressState
+
 if TYPE_CHECKING:
     from tinybot.config.schema import ChannelsConfig, ExecToolConfig
     from tinybot.cron.service import CronService
@@ -302,9 +305,10 @@ class AgentLoop:
             on_progress=self._on_task_progress,
             # on_execute removed: TaskTool now uses spawn for async execution
         )
+        # Shared state for task progress display (used by CLI)
+        self.task_progress_state = TaskProgressState()
         self._task_progress_channel: str = ""
         self._task_progress_chat_id: str = ""
-        self._task_display_lines: int = 0  # Track how many lines we've displayed for in-place refresh
         self.sessions = session_manager or SessionManager(workspace)
         self.context = ContextBuilder(workspace, timezone=timezone, task_manager=self.task_manager, session_manager=self.sessions)
 
@@ -472,7 +476,7 @@ class AgentLoop:
         # Set task progress channel for real-time updates
         self._task_progress_channel = channel
         self._task_progress_chat_id = chat_id
-        self._task_display_lines = 0  # Reset display counter for new session
+
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -519,55 +523,17 @@ class AgentLoop:
         return "\n".join(lines)
 
     async def _on_task_progress(self, progress: dict[str, Any]) -> None:
-        """Handle task progress updates: CLI output, message push, and progress file."""
-        import sys
-
+        """Handle task progress updates: update shared state and/or send message push."""
         event = progress.get("event", "")
-        plan_id = progress.get("plan_id", "")
-        plan_title = progress.get("plan_title", "")
         prog = progress.get("progress", {})
 
-        # CLI output: in-place refresh display
-        if self._task_progress_channel == "cli":
-            subtasks = progress.get("subtasks", [])
-            if subtasks:
-                status_icons = {
-                    "pending": "[ ]",
-                    "in_progress": "[>]",
-                    "completed": "[x]",
-                    "failed": "[!]",
-                    "skipped": "[-]",
-                }
 
-                # Calculate display width
-                width = 52
-                header = f"=== {plan_title[:30]} [{prog.get('completed', 0)}/{prog.get('total', 0)}] ==="
-
-                lines = [header]
-                for st in subtasks:
-                    icon = status_icons.get(st.get("status", "pending"), "[?]")
-                    title = st.get("title", "")[:40]
-                    lines.append(f"  {icon} {title}")
-
-                lines.append("=" * len(header))
-
-                # Move cursor up and clear previous display
-                prev_lines = self._task_display_lines
-                if prev_lines > 0:
-                    # Move up and clear each line
-                    for _ in range(prev_lines):
-                        sys.stderr.write("\033[A\033[2K")
-
-                # Render new display
-                display = "\n".join(lines)
-                sys.stderr.write(display + "\n")
-                sys.stderr.flush()
-
-                # Remember how many lines we displayed
-                self._task_display_lines = len(lines)
+        # Update shared state for CLI progress panel
+        self.task_progress_state.update(progress)
 
         # Message push via bus (for non-CLI channels)
-        elif self._task_progress_channel and self._task_progress_chat_id:
+
+        if self._task_progress_channel and self._task_progress_channel != "cli" and self._task_progress_chat_id:
             subtask_title = progress.get("subtask_title", "")
             if event == "started":
                 msg = f"▶️ Starting: {subtask_title}"
@@ -877,7 +843,11 @@ class AgentLoop:
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
+        if msg.channel != "system":
+            self.task_progress_state.reset()
+
         # System messages: parse origin from chat_id ("channel:chat_id")
+
         if msg.channel == "system":
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
                                 else ("cli", msg.chat_id))
