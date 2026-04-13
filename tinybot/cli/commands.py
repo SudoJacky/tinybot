@@ -34,7 +34,7 @@ from rich.table import Table
 from rich.text import Text
 
 from tinybot import __logo__, __version__
-from tinybot.cli.stream import StreamRenderer, ThinkingSpinner
+from tinybot.cli.stream import StreamRenderer, ThinkingSpinner, TaskProgressPanel
 from tinybot.config.paths import get_workspace_path, is_default_workspace
 from tinybot.config.schema import Config
 from tinybot.utils.helper import sync_workspace_templates
@@ -855,6 +855,31 @@ def agent(
             turn_response: list[tuple[str, dict]] = []
             renderer: StreamRenderer | None = None
 
+            # Create one persistent task progress panel for the whole interactive session.
+            progress_panel = TaskProgressPanel(agent_loop.task_progress_state)
+
+            async def _refresh_progress_panel():
+                """Refresh the panel only when task state actually changes."""
+                last_version = agent_loop.task_progress_state.get_snapshot()["version"]
+                while True:
+                    try:
+                        state = agent_loop.task_progress_state
+                        version = await asyncio.to_thread(state.wait_for_change, last_version, 0.25)
+                        if version == last_version:
+                            continue
+
+                        last_version = version
+                        snapshot = state.get_snapshot()
+                        if snapshot["plans"] and not progress_panel.is_started:
+                            progress_panel.start()
+                        if progress_panel.is_started:
+                            progress_panel.refresh()
+                    except asyncio.CancelledError:
+                        break
+
+
+            progress_refresh_task = asyncio.create_task(_refresh_progress_panel())
+
             async def _consume_outbound():
                 while True:
                     try:
@@ -956,7 +981,9 @@ def agent(
             finally:
                 agent_loop.stop()
                 outbound_task.cancel()
-                await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
+                progress_refresh_task.cancel()
+                progress_panel.stop(clear=True)
+                await asyncio.gather(bus_task, outbound_task, progress_refresh_task, return_exceptions=True)
                 await agent_loop.close_mcp()
 
         asyncio.run(run_interactive())
