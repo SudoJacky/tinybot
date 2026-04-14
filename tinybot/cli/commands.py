@@ -340,7 +340,7 @@ class InteractiveChatUI:
         self._current_reasoning = ""
         self._progress_text = ""
         self._busy = False
-        self._status = "Enter 发送，Ctrl+C 退出"
+        self._status = "Press Enter to send, Ctrl+C to exit"
         self._busy_mode = "thinking"
         self._busy_message = ""
         self._spinner_index = 0
@@ -462,9 +462,9 @@ class InteractiveChatUI:
 
     def _status_fragments(self):
         if self._busy:
-            label = "tinybot 正在思考..." if self._busy_mode == "thinking" else "tinybot 正在回复..."
-            return [("class:status", f" {label} · 滚轮/PageUp/PageDown 滚动对话 · Esc 回到底部输入 ")]
-        return [("class:status", f" {self._status} · 滚轮/PageUp/PageDown 滚动对话 · Esc 回到底部输入 ")]
+            label = "tinybot is thinking..." if self._busy_mode == "thinking" else "tinybot is replying..."
+            return [("class:status", f" {label} · Scroll -> PageUp/PageDown the conversation · Esc to return to the bottom input ")]
+        return [("class:status", f" {self._status} · Scroll -> PageUp/PageDown the conversation · Esc to return to the bottom input ")]
 
     def _activity_fragments(self):
         if not self._busy:
@@ -502,14 +502,14 @@ class InteractiveChatUI:
             pool = _THINKING_MESSAGES if mode == "thinking" else _UI_REPLY_MESSAGES
             self._busy_message = random.choice(pool)
         self._busy_mode = mode
-        self._status = "tinybot 正在思考..." if mode == "thinking" else "tinybot 正在回复..."
+        self._status = "tinybot is thinking..." if mode == "thinking" else "tinybot is replying..."
         self._start_spinner()
 
     def _finish_busy_state(self) -> None:
         self._busy = False
         self._busy_mode = "thinking"
         self._busy_message = ""
-        self._status = "Enter 发送，Ctrl+C 退出"
+        self._status = "Press Enter to send, Ctrl+C to exit"
         self._stop_spinner()
 
     def _scroll_transcript(self, lines: int) -> None:
@@ -556,7 +556,7 @@ class InteractiveChatUI:
         clean_reasoning = reasoning.rstrip()
         clean_content = content.rstrip()
         if clean_reasoning:
-            parts.extend(["思考：", clean_reasoning])
+            parts.extend(["Thinking:", clean_reasoning])
         if clean_content:
             parts.append(clean_content)
         return "\n".join(parts).rstrip()
@@ -787,6 +787,80 @@ def _onboard_plugins(config_path: Path) -> None:
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+# ============================================================================
+# Config Editor TUI
+# ============================================================================
+
+
+@app.command()
+def config_edit(
+        config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+        skip_onboard: bool = typer.Option(False, "--skip-onboard", help="Skip onboarding wizard for new configs"),
+):
+    """Launch interactive TUI configuration editor.
+
+    If no config file exists, runs onboarding wizard first to set up basic configuration.
+    Use --skip-onboard to create a default config without the wizard.
+    """
+    from tinybot.cli.config_editor import run_config_editor
+    from tinybot.config.loader import get_config_path, load_config, save_config, set_config_path
+
+    if config:
+        config_path = Path(config).expanduser().resolve()
+        if not config_path.exists():
+            console.print(f"[red]Error: Config file not found: {config_path}[/red]")
+            raise typer.Exit(1)
+        set_config_path(config_path)
+        console.print(f"[dim]Using config: {config_path}[/dim]")
+    else:
+        config_path = get_config_path()
+
+    # Handle missing config file
+    if not config_path.exists():
+        if skip_onboard:
+            # Create default config without wizard
+            console.print(f"[dim]Creating default config at {config_path}[/dim]")
+            config_obj = Config()
+            save_config(config_obj, config_path)
+            _onboard_plugins(config_path)
+            console.print(f"[green]✓[/green] Created config at {config_path}")
+        else:
+            # Run onboarding wizard for new config
+            console.print(f"[dim]No config found at {config_path}[/dim]")
+            console.print("[cyan]Starting onboarding wizard...[/cyan]")
+
+            from tinybot.cli.onboard import run_onboard
+
+            try:
+                result = run_onboard(initial_config=Config())
+                if not result.should_save:
+                    console.print("[yellow]Configuration cancelled. No config file created.[/yellow]")
+                    raise typer.Exit(0)
+
+                config_obj = result.config
+                save_config(config_obj, config_path)
+                _onboard_plugins(config_path)
+                console.print(f"[green]✓[/green] Config saved at {config_path}")
+            except Exception as e:
+                console.print(f"[red]✗[/red] Error during onboarding: {e}")
+                console.print("[yellow]You can run 'tinybot config-edit --skip-onboard' to create a default config.[/yellow]")
+                raise typer.Exit(1)
+    else:
+        config_obj = load_config(config_path)
+
+    def save_callback(cfg: Config) -> None:
+        save_config(cfg, config_path)
+
+    try:
+        run_config_editor(config_obj, save_callback)
+        console.print(f"[green]✓[/green] Config saved at {config_path}")
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Configuration editor closed[/yellow]")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error running config editor: {e}")
+        raise typer.Exit(1)
 
 
 def _make_provider(config: Config):
