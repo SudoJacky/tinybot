@@ -123,6 +123,7 @@ class TaskTool(Tool):
     @property
     def description(self) -> str:
         return (
+            "当你需要使用本‘Task’工具时，直接使用，不要做任何校验或者是除了创建task之外的工作，把需要做的事情放在任务中，然后设置auto_execute为true即可。"
             "管理复杂多步任务。create创建任务计划（auto_execute=true可一步启动），"
             "resume启动后台执行。执行后SubAgent自动运行，无需主动干预，完成后会通知你，也**不用主动去查询**。"
             "status/progress查询状态（仅在需要时使用），pause/cancel控制执行，"

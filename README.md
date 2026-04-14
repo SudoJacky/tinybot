@@ -8,6 +8,8 @@ A lightweight personal AI assistant framework that integrates Large Language Mod
 
 ### 🧠 Agentic DAG Task Scheduling
 
+![task](./show/task_1.png)
+
 Automatically decomposes complex tasks into executable subtask DAGs, supporting:
 
 - **Intelligent Decomposition** — LLM analyzes tasks and generates dependency-based subtask graphs
