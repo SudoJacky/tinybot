@@ -217,7 +217,7 @@ class StreamRenderer:
             self._last_plain_reasoning_delta = norm
             self._reasoning_buf += delta
             if not self._plain_reasoning_started:
-                self._console.print("思考：")
+                self._console.print("Thinking:")
                 self._plain_reasoning_started = True
             self._console.print(delta, end="")
             self._console.file.flush()
