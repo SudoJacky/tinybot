@@ -1,86 +1,112 @@
 # Tinybot
 
-一个轻量的个人 AI 助手框架，将大语言模型与多种聊天平台、工具系统和自动化机制集成在一起。
+[中文文档](README_ZH.md)
 
-## ✨ 核心亮点
+A lightweight personal AI assistant framework that integrates Large Language Models with multiple chat platforms, tool systems, and automation mechanisms.
 
-### 🧠 Agentic DAG 任务调度
+## ✨ Core Highlights
 
-自动将复杂任务分解为可执行的子任务 DAG，支持：
-- **智能分解** — LLM 自动分析任务，生成带依赖关系的子任务图
-- **自动链式执行** — SubAgent 完成后自动触发依赖任务，无需人工干预
-- **并行执行** — 并行安全的任务同时运行，最大化效率
-- **动态调整** — 运行中可添加/移除子任务，灵活应对变化
+### 🧠 Agentic DAG Task Scheduling
 
-```python
-# 一句话启动复杂任务，后台自动执行
-await bot.run("调研三大云服务商的产品定价，生成对比报告")
-# → Agent 自动分解 → SubAgent 并行执行 → 完成后通知汇总
+Automatically decomposes complex tasks into executable subtask DAGs, supporting:
+
+- **Intelligent Decomposition** — LLM analyzes tasks and generates dependency-based subtask graphs
+- **Automatic Chain Execution** — SubAgent completions automatically trigger dependent tasks
+- **Parallel Execution** — Parallel-safe tasks run simultaneously for maximum efficiency
+- **Dynamic Adjustment** — Add/remove subtasks during runtime
+
+### 🤖 SubAgent Asynchronous Execution System
+
+- **Non-blocking Execution** — Background tasks don't block main conversation
+- **Concurrency Control** — Configurable max concurrency to prevent overload
+- **Heartbeat Monitoring** — Auto-detects timeout tasks, prevents zombie processes
+- **Auto-notification** — Automatically triggers main Agent to summarize results when complete
+
+### 📊 CLI Real-time Progress Display
+
+Task execution shows real-time progress in CLI without disrupting main conversation:
+
+```
+=== Research Cloud Providers [3/5] ===
+  ✅ Environment preparation
+  ▶️ Access Huawei Cloud and collect info
+  ▶️ Access Alibaba Cloud and collect info
+  ⏳ Access Tencent Cloud and collect info
+  ⏳ Summary and organize results
+======================================
 ```
 
-### 🤖 SubAgent 异步执行系统
+### ⚙️ TUI Configuration Editor
 
-- **非阻塞执行** — 后台任务不阻塞主对话，用户可继续交互
-- **并发控制** — 可配置最大并发数，防止资源过载
-- **心跳监控** — 自动检测超时任务，防止僵尸进程
-- **自动通知** — 任务完成时自动触发主 Agent 汇总结果
+Full-screen terminal configuration editor similar to Claude Code CLI:
 
-### 📊 CLI 实时进度显示
-
-任务执行时 CLI 实时显示进度，不干扰主对话流：
 ```
-=== 调研三大云服务商 [3/5] ===
-  ✅ 环境准备与依赖安装
-  ▶️ 访问华为云并收集信息
-  ▶️ 访问阿里云并收集信息
-  ⏳ 访问腾讯云并收集信息
-  ⏳ 汇总与整理结果
-================================
+┌─────────────────────────────────────────────────────────┐
+│ 🤖 tinybot Configuration Editor                         │
+├─────────────────────────────────────────────────────────┤
+│ [Agent Settings]   │  Agent: Default Settings           │
+│ [LLM Providers]    │  ├─ model: deepseek-reasoner       │
+│ [Channels]         │  ├─ max_tokens: 8192               │
+│ [Gateway]          │  └─ temperature: 0.1               │
+│ [Tools]            │                                   │
+├─────────────────────────────────────────────────────────┤
+│ ↑↓ Navigate · Enter Edit · Tab Switch · s Save · q Quit│
+└─────────────────────────────────────────────────────────┘
 ```
 
-## 🚀 基础特性
-
-- **多平台接入** — 内置微信、钉钉、飞书频道，支持插件扩展
-- **丰富的工具** — 文件读写、Shell 执行、浏览器自动化、定时任务等
-- **智能记忆** — 基于向量存储的记忆系统，支持会话整合与语义搜索
-- **多 LLM 支持** — 兼容 OpenAI、DeepSeek、智谱、通义千问、Gemini 等 14+ 家提供商
-- **自动化** — 定时任务（Cron）+ 心跳服务，周期性自动执行任务
-- **OpenAI 兼容 API** — 可作为 OpenAI 兼容后端服务运行
-- **Skills 系统** — 通过 Markdown 文件定义技能，让 Agent 学会特定工作流
-
-## 快速开始
+Features:
+- Keyboard navigation with ↑↓, Tab, Enter, Esc
+- Field highlighting and selection
+- Sensitive field masking (API keys)
+- Virtual scrolling for long lists
+- Auto-onboarding for new configurations
 
 ```bash
-# 安装
+# Launch configuration editor
+tinybot config-edit
+
+# Skip onboarding wizard for new config
+tinybot config-edit --skip-onboard
+```
+
+## 🚀 Basic Features
+
+- **Multi-platform Integration** — Built-in WeChat, DingTalk, Feishu channels; plugin extensibility
+- **Rich Tools** — File read/write, shell execution, browser automation, web search, scheduled tasks
+- **Intelligent Memory** — Vector storage-based memory system with session integration and semantic search
+- **Multi-LLM Support** — Compatible with OpenAI, DeepSeek, Zhipu, Qwen, Gemini, and 14+ providers
+- **Automation** — Cron scheduled tasks + heartbeat service for periodic auto-execution
+- **OpenAI Compatible API** — Run as OpenAI-compatible backend service
+- **Skills System** — Define skills via Markdown files, teach Agent specific workflows
+
+## Quick Start
+
+```bash
+# Install
 uv sync
 
-# 初始化配置
+# Initialize configuration (interactive wizard)
 uv run tinybot onboard
 
-# 交互模式
+# Or use TUI config editor
+uv run tinybot config-edit
+
+# Interactive mode
 uv run tinybot agent
 
-# 发送单条消息
-uv run tinybot agent -m "你好"
+# Send single message
+uv run tinybot agent -m "Hello"
 
-# 启动网关（多频道 + 定时任务 + 心跳）
+# Start gateway (multi-channel + scheduled tasks + heartbeat)
 uv run tinybot gateway
 ```
 
-## 编程接口
+## Programming Interface
 
-```python
-from tinybot import Tinybot
-
-bot = Tinybot.from_config()
-result = await bot.run("帮我总结这个仓库")
-print(result.content)
-```
-
-## 环境要求
+## Requirements
 
 - Python >= 3.13
 
-## 许可证
+## License
 
 [MIT](LICENSE)
