@@ -390,6 +390,12 @@ class InteractiveChatUI:
         self._transcript_follow = True
         self._command_menu_visible = False
         self._command_menu_selection = 0
+        self._pending_tool_calls: dict[str, int] = {}  # tool_name -> block index
+
+        # Reasoning display control
+        self._show_full_reasoning = False
+        self._reasoning_max_lines = 8  # Max lines to show before truncating
+        self._stored_reasoning_blocks: list[dict] = []  # Store reasoning data for toggling
 
         # Store runtime info for display
         self._provider_name = provider_name or "unknown"
@@ -406,6 +412,9 @@ class InteractiveChatUI:
             wrap_lines=True,
             style="class:transcript-area",
         )
+        # 允许滚动到底部之外，确保可以滚动到所有内容
+        self._transcript.window.allow_scroll_beyond_bottom = lambda: True
+
         self._progress = TextArea(
             text="",
             read_only=True,
@@ -461,6 +470,13 @@ class InteractiveChatUI:
         @kb.add("pagedown", eager=True)
         def _page_down(_event) -> None:
             self._scroll_transcript(12)
+
+        @kb.add("c-r")
+        def _toggle_reasoning(_event) -> None:
+            """Toggle showing full reasoning content with Ctrl+R."""
+            self._show_full_reasoning = not self._show_full_reasoning
+            self._rerender_all_blocks()
+            self._refresh_views()
 
         # Command menu navigation when visible
         @kb.add("up", filter=Condition(lambda: self._command_menu_visible))
@@ -584,8 +600,8 @@ class InteractiveChatUI:
     def _status_fragments(self):
         if self._busy:
             label = "tinybot is thinking..." if self._busy_mode == "thinking" else "tinybot is replying..."
-            return [("class:status", f" {label} | Ctrl+C exit | Esc focus input | PgUp/PgDn scroll ")]
-        return [("class:status", f" {self._status} | Ctrl+C exit | Esc focus input | PgUp/PgDn scroll ")]
+            return [("class:status", f" {label} | Ctrl+C exit | Esc input | PgUp/PgDn scroll | Ctrl+R expand reasoning ")]
+        return [("class:status", f" {self._status} | Ctrl+C exit | Esc input | PgUp/PgDn scroll | Ctrl+R expand reasoning ")]
 
     def _info_fragments(self):
         """Build info bar showing provider, model, context, workspace."""
@@ -594,12 +610,26 @@ class InteractiveChatUI:
         info_parts.append(f"Model: {self._model_name}")
         # Show current context tokens if available, otherwise show max window
         current_tokens = self._get_context_tokens() if self._get_context_tokens else None
+        max_tokens = self._context_window_tokens or 0
+
+        def format_tokens(tokens: int) -> str:
+            """Format token count: show raw number < 1000, else use k suffix."""
+            if tokens < 1000:
+                return str(tokens)
+            else:
+                # For 1000-9999, show like 1.5k; for >= 10000, show like 15k
+                if tokens < 10000:
+                    return f"{tokens / 1000:.1f}k"
+                else:
+                    return f"{tokens // 1000}k"
+
         if current_tokens:
-            max_tokens = self._context_window_tokens or 0
             usage_pct = (current_tokens / max_tokens * 100) if max_tokens > 0 else 0
-            info_parts.append(f"Ctx: {current_tokens // 1000}k/{max_tokens // 1000}k ({usage_pct:.0f}%)")
-        elif self._context_window_tokens:
-            info_parts.append(f"Ctx: 0/{self._context_window_tokens // 1000}k")
+            current_str = format_tokens(current_tokens)
+            max_str = format_tokens(max_tokens)
+            info_parts.append(f"Ctx: {current_str}/{max_str} ({usage_pct:.0f}%)")
+        elif max_tokens:
+            info_parts.append(f"Ctx: 0/{format_tokens(max_tokens)}")
         # Truncate workspace path if too long
         ws_display = self._workspace_path
         if len(ws_display) > 30:
@@ -654,19 +684,43 @@ class InteractiveChatUI:
         self._busy = False
         self._busy_mode = "thinking"
         self._busy_message = ""
-        self._status = "Press Enter to send, Ctrl+C to exit"
+        self._status = "Press Enter to send."
         self._stop_spinner()
 
     def _scroll_transcript(self, lines: int) -> None:
+        """Scroll transcript by adjusting both cursor position and vertical_scroll."""
         buffer = self._transcript.buffer
-        if not buffer.text:
+        window = self._transcript.window
+        text = buffer.text
+        if not text:
             return
         self._transcript_follow = False
-        if lines < 0:
-            buffer.cursor_up(count=-lines)
-        elif lines > 0:
-            buffer.cursor_down(count=lines)
-        self._transcript_follow = buffer.cursor_position >= len(buffer.text)
+
+        # 计算当前光标所在行
+        current_pos = buffer.cursor_position
+        # 找到当前行号
+        current_line = text[:current_pos].count('\n')
+
+        # 计算目标行号
+        target_line = max(0, current_line - lines) if lines < 0 else current_line + lines
+
+        # 找到目标行的起始位置
+        line_starts = [0]
+        for i, ch in enumerate(text):
+            if ch == '\n':
+                line_starts.append(i + 1)
+        line_starts.append(len(text))
+
+        if target_line >= len(line_starts):
+            target_line = len(line_starts) - 1
+
+        target_pos = line_starts[target_line]
+
+        # 同时设置光标位置和滚动位置
+        buffer.cursor_position = target_pos
+        window.vertical_scroll = max(0, target_line)
+
+        self._transcript_follow = target_pos >= len(text) - 10
         self._invalidate()
 
     def _on_input_change_wrapper(self, _) -> None:
@@ -736,20 +790,62 @@ class InteractiveChatUI:
         self._refresh_views()
         await self._on_submit(text)
 
-    def _append_block(self, text: str) -> None:
+    def _append_block(self, text: str, reasoning: str = "", content: str = "") -> None:
+        """Append a block to the transcript.
+
+        For assistant blocks with reasoning, also store the raw data for toggle display.
+        """
         block = text.rstrip()
         if block:
             self._blocks.append(block)
+            # Store reasoning data for assistant blocks
+            if reasoning or content:
+                self._stored_reasoning_blocks.append({
+                    "index": len(self._blocks) - 1,
+                    "reasoning": reasoning,
+                    "content": content,
+                })
 
-    def _assistant_block(self, content: str, reasoning: str = "") -> str:
+    def _rerender_all_blocks(self) -> None:
+        """Re-render all blocks when toggling reasoning display."""
+        for stored in self._stored_reasoning_blocks:
+            idx = stored["index"]
+            if idx < len(self._blocks):
+                new_block = self._format_assistant_block(stored["content"], stored["reasoning"])
+                self._blocks[idx] = new_block
+
+    def _format_assistant_block(self, content: str, reasoning: str = "") -> str:
+        """Format assistant block with visual separators."""
         parts = [f"{__logo__} tinybot"]
         clean_reasoning = reasoning.rstrip()
         clean_content = content.rstrip()
+
         if clean_reasoning:
-            parts.extend(["Thinking:", clean_reasoning])
+            reasoning_lines = clean_reasoning.split("\n")
+            # Truncate if not showing full and too long
+            if not self._show_full_reasoning and len(reasoning_lines) > self._reasoning_max_lines:
+                truncated_lines = reasoning_lines[:self._reasoning_max_lines]
+                truncated_text = "\n".join(truncated_lines)
+                parts.append("--- Thinking ---")
+                parts.append(truncated_text)
+                parts.append(f"... ({len(reasoning_lines)} lines, Ctrl+R to expand)")
+            else:
+                parts.append("--- Thinking ---")
+                parts.append(clean_reasoning)
+                if self._show_full_reasoning:
+                    parts.append("(Ctrl+R to collapse)")
+
         if clean_content:
+            if clean_reasoning:
+                parts.append("")  # Add spacing
+            parts.append("--- Response ---")
             parts.append(clean_content)
+
         return "\n".join(parts).rstrip()
+
+    def _assistant_block(self, content: str, reasoning: str = "") -> str:
+        """Create assistant block (wrapper for _format_assistant_block)."""
+        return self._format_assistant_block(content, reasoning)
 
     def _render_transcript_text(self) -> str:
         blocks = list(self._blocks)
@@ -781,6 +877,30 @@ class InteractiveChatUI:
         self._append_block(f"↳ {text}")
         self._refresh_views()
 
+    def add_tool_call_display(self, tool_name: str, content: str) -> None:
+        """Add tool call display with Claude Code-style formatting."""
+        block = f"● {content}\n  ⎿  Running..."
+        self._append_block(block)
+        # 记录这个工具调用的block索引
+        self._pending_tool_calls[tool_name] = len(self._blocks) - 1
+        self._refresh_views()
+
+    def update_tool_result(self, tool_name: str, result: str) -> None:
+        """Update the pending tool call block with result."""
+        idx = self._pending_tool_calls.get(tool_name)
+        if idx is not None and idx < len(self._blocks):
+            # 原地更新block内容
+            original = self._blocks[idx]
+            # 提取第一行（工具调用信息）
+            first_line = original.split("\n")[0] if "\n" in original else original
+            self._blocks[idx] = f"{first_line}\n  ⎿  {result}"
+            # 清除记录
+            del self._pending_tool_calls[tool_name]
+        else:
+            # 如果找不到，直接添加结果
+            self._append_block(f"● {tool_name}\n  ⎿  {result}")
+        self._refresh_views()
+
     def on_reasoning_delta(self, delta: str) -> None:
         self._set_busy_mode("thinking")
         self._current_reasoning += delta
@@ -796,10 +916,15 @@ class InteractiveChatUI:
 
     def on_stream_end(self, *, resuming: bool = False) -> None:
         if self._current_reasoning or self._current_response:
-            self._append_block(self._assistant_block(self._current_response, self._current_reasoning))
+            self._append_block(
+                self._assistant_block(self._current_response, self._current_reasoning),
+                reasoning=self._current_reasoning,
+                content=self._current_response,
+            )
             self._current_reasoning = ""
             self._current_response = ""
             self._refresh_views()
+        self.refresh_info_bar()  # Update context token display after LLM response
         if resuming:
             self._set_busy_mode("thinking", refresh_message=True)
         else:
@@ -813,13 +938,15 @@ class InteractiveChatUI:
     ) -> None:
         content = response or ""
         if content:
-            self._append_block(self._assistant_block(content))
+            self._append_block(self._assistant_block(content), content=content)
         self._finish_busy_state()
         self._refresh_views()
+        self.refresh_info_bar()  # Update context token display after LLM response
 
     def finish_turn(self) -> None:
         self._finish_busy_state()
         self._refresh_views()
+        self.refresh_info_bar()  # Update context token display after LLM response
 
     async def run(self) -> None:
         await self._app.run_async()
@@ -1396,7 +1523,7 @@ def agent(
     # Shared reference for progress callbacks
     _thinking: ThinkingSpinner | None = None
 
-    async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
+    async def _cli_progress(content: str, *, tool_hint: bool = False, tool_detail: bool = False, tool_result: bool = False, tool_name: str = "") -> None:
         ch = agent_loop.channels_config
         if ch and tool_hint and not ch.send_tool_hints:
             return
@@ -1554,12 +1681,21 @@ def agent(
 
                         if msg.metadata.get("_progress"):
                             is_tool_hint = msg.metadata.get("_tool_hint", False)
+                            is_tool_detail = msg.metadata.get("_tool_detail", False)
+                            is_tool_result = msg.metadata.get("_tool_result", False)
+                            tool_name = msg.metadata.get("_tool_name", "")
                             ch = agent_loop.channels_config
                             if ch and is_tool_hint and not ch.send_tool_hints:
                                 continue
                             if ch and not is_tool_hint and not ch.send_progress:
                                 continue
-                            ui.add_progress_line(msg.content)
+
+                            if is_tool_result:
+                                ui.update_tool_result(tool_name, msg.content)
+                            elif is_tool_detail:
+                                ui.add_tool_call_display(tool_name, msg.content)
+                            else:
+                                ui.add_progress_line(msg.content)
                             continue
 
                         ui.add_assistant_response(msg.content, msg.metadata)
