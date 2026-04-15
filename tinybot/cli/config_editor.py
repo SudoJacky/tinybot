@@ -941,7 +941,13 @@ class ConfigEditorUI:
 
 
 def run_config_editor(config: Config, save_callback: Callable[[Config], None] | None = None) -> None:
-    """Run the configuration editor synchronously."""
+    """Run the configuration editor synchronously (starts its own event loop)."""
     import asyncio
     editor = ConfigEditorUI(config, save_callback)
     asyncio.run(editor.run())
+
+
+async def run_config_editor_async(config: Config, save_callback: Callable[[Config], None] | None = None) -> None:
+    """Run the configuration editor asynchronously (from within an existing event loop)."""
+    editor = ConfigEditorUI(config, save_callback)
+    await editor.run()

@@ -7,7 +7,7 @@ import signal
 import sys
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 import select
@@ -67,7 +67,16 @@ app = typer.Typer(
 )
 
 console = Console()
-EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
+EXIT_COMMANDS = {"exit", "/exit", ":q"}
+
+# Slash commands with descriptions for autocomplete menu
+SLASH_COMMANDS = {
+    "/config": "Open configuration editor",
+    "/exit": "Exit the chat",
+    "/help": "Show available commands",
+    "/clear": "Clear conversation history",
+}
+
 _UI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 _UI_REPLY_MESSAGES = (
     "tinybot is drafting a reply...",
@@ -238,6 +247,30 @@ def _is_exit_command(command: str) -> bool:
     return command.lower() in EXIT_COMMANDS
 
 
+def _is_config_command(command: str) -> bool:
+    """Return True when input should open config editor."""
+    return command.strip().lower() in {"/config", "config"}
+
+
+def _is_help_command(command: str) -> bool:
+    """Return True when input should show help."""
+    return command.strip().lower() in {"/help", "help"}
+
+
+def _is_clear_command(command: str) -> bool:
+    """Return True when input should clear conversation."""
+    return command.strip().lower() in {"/clear", "clear"}
+
+
+def _get_command_help_text() -> str:
+    """Get formatted help text for slash commands."""
+    lines = ["Available commands:"]
+    for cmd, desc in SLASH_COMMANDS.items():
+        lines.append(f"  {cmd} - {desc}")
+    lines.append("  Ctrl+O - Open configuration editor")
+    return "\n".join(lines)
+
+
 async def _read_interactive_input_async() -> str:
     """Read user input using prompt_toolkit (handles paste, history, display).
 
@@ -333,21 +366,37 @@ class InteractiveChatUI:
         render_markdown: bool,
         history: FileHistory,
         on_submit,
+        on_config_edit: Callable[[], None] | None = None,
         initial_transcript: list[str] | None = None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        context_window_tokens: int | None = None,
+        workspace_path: str | None = None,
+        get_context_tokens: Callable[[], int | None] | None = None,
     ):
         self._render_markdown = render_markdown
         self._on_submit = on_submit
+        self._on_config_edit = on_config_edit
         self._blocks: list[str] = [block for block in (initial_transcript or []) if block.strip()]
         self._current_response = ""
         self._current_reasoning = ""
         self._progress_text = ""
         self._busy = False
-        self._status = "Press Enter to send, Ctrl+C to exit"
+        self._status = "Press Enter to send, Ctrl+C exit, Ctrl+O config"
         self._busy_mode = "thinking"
         self._busy_message = ""
         self._spinner_index = 0
         self._spinner_task: asyncio.Task | None = None
         self._transcript_follow = True
+        self._command_menu_visible = False
+        self._command_menu_selection = 0
+
+        # Store runtime info for display
+        self._provider_name = provider_name or "unknown"
+        self._model_name = model_name or "unknown"
+        self._context_window_tokens = context_window_tokens
+        self._workspace_path = workspace_path or "unknown"
+        self._get_context_tokens = get_context_tokens  # Callback to get current context tokens
 
         self._transcript = TextArea(
             text="",
@@ -374,6 +423,8 @@ class InteractiveChatUI:
             accept_handler=self._accept_input,
             style="class:input-field",
         )
+        # Add input change listener for command menu
+        self._input.buffer.on_text_changed += self._on_input_change_wrapper
 
         kb = KeyBindings()
 
@@ -381,9 +432,18 @@ class InteractiveChatUI:
         def _exit(_event) -> None:
             self.exit()
 
+        @kb.add("c-o")
+        async def _open_config(event) -> None:
+            """Open config editor with Ctrl+O."""
+            if self._on_config_edit:
+                self._command_menu_visible = False
+                # run_in_terminal pauses TUI and runs the sync callback
+                await run_in_terminal(self._on_config_edit)
+
         @kb.add("escape")
         def _focus_input(event) -> None:
             event.app.layout.focus(self._input)
+            self._command_menu_visible = False
 
         @kb.add(Keys.ScrollUp, eager=True)
         def _scroll_up(_event) -> None:
@@ -402,8 +462,29 @@ class InteractiveChatUI:
         def _page_down(_event) -> None:
             self._scroll_transcript(12)
 
+        # Command menu navigation when visible
+        @kb.add("up", filter=Condition(lambda: self._command_menu_visible))
+        def _menu_up(_event) -> None:
+            self._command_menu_selection = max(0, self._command_menu_selection - 1)
+            self._invalidate()
+
+        @kb.add("down", filter=Condition(lambda: self._command_menu_visible))
+        def _menu_down(_event) -> None:
+            self._command_menu_selection = min(len(SLASH_COMMANDS) - 1, self._command_menu_selection + 1)
+            self._invalidate()
+
+        @kb.add("enter", filter=Condition(lambda: self._command_menu_visible))
+        def _menu_select(_event) -> None:
+            commands = list(SLASH_COMMANDS.keys())
+            selected_cmd = commands[self._command_menu_selection]
+            self._command_menu_visible = False
+            # Insert the selected command into input
+            self._input.buffer.set_document(Document(selected_cmd, cursor_position=len(selected_cmd)), bypass_readonly=True)
+            self._invalidate()
+
         self._show_progress = Condition(lambda: bool(self._progress.text.strip()))
         self._show_activity = Condition(lambda: self._busy)
+        self._show_command_menu = Condition(lambda: self._command_menu_visible)
         progress_container = ConditionalContainer(
             content=Frame(self._progress, title="Task Progress", style="class:panel"),
             filter=self._show_progress,
@@ -416,6 +497,15 @@ class InteractiveChatUI:
             ),
             filter=self._show_activity,
         )
+        # Command menu container - appears above input when '/' is typed
+        command_menu_container = ConditionalContainer(
+            content=Window(
+                content=FormattedTextControl(self._command_menu_fragments),
+                height=len(SLASH_COMMANDS),
+                style="class:command-menu",
+            ),
+            filter=self._show_command_menu,
+        )
         input_row = VSplit([
             Window(
                 content=FormattedTextControl(lambda: [("class:prompt", "You: ")]),
@@ -424,6 +514,13 @@ class InteractiveChatUI:
             ),
             self._input,
         ], height=1)
+        # Info bar (top line): provider, model, context, workspace
+        info_bar = Window(
+            content=FormattedTextControl(self._info_fragments),
+            height=1,
+            style="class:info-bar",
+        )
+        # Status bar (bottom line): busy state or idle status
         status_bar = Window(
             content=FormattedTextControl(self._status_fragments),
             height=1,
@@ -438,20 +535,27 @@ class InteractiveChatUI:
             "progress-area": "bg:#0f1720 #a9b1d6",
             "input-field": "bg:#1a1b26 #e5e9f0",
             "prompt": "bold #7aa2f7",
+            "info-bar": "bg:#16161e #565f89",
             "status": "bg:#1f2335 #c0caf5",
             "activity-bar": "bg:#16161e",
             "activity.thinking": "bold #e0af68",
             "activity.replying": "bold #7dcfff",
+            "command-menu": "bg:#1a1b26",
+            "command-item": "#565f89",
+            "command-selected": "bold #c678dd",  # Light purple for selected item
+            "command-desc": "#565f89",
         })
 
         self._app = Application(
             layout=Layout(
                 HSplit([
+                    info_bar,  # Top: provider/model/context/workspace info
                     progress_container,
                     activity_container,
                     Frame(self._transcript, title="Conversation", style="class:panel"),
+                    command_menu_container,  # Command menu above input
                     input_row,
-                    status_bar,
+                    status_bar,  # Bottom: status and controls
                 ]),
                 focused_element=self._input,
             ),
@@ -462,11 +566,50 @@ class InteractiveChatUI:
         )
         self._refresh_views()
 
+    def _command_menu_fragments(self):
+        """Build command menu fragments showing available slash commands."""
+        fragments = []
+        commands = list(SLASH_COMMANDS.items())
+        for idx, (cmd, desc) in enumerate(commands):
+            if idx == self._command_menu_selection:
+                # Selected item: light purple highlight
+                fragments.append(("class:command-selected", f"  {cmd}"))
+                fragments.append(("class:command-desc", f"  - {desc}\n"))
+            else:
+                # Normal item: gray
+                fragments.append(("class:command-item", f"  {cmd}"))
+                fragments.append(("class:command-desc", f"  - {desc}\n"))
+        return fragments
+
     def _status_fragments(self):
         if self._busy:
             label = "tinybot is thinking..." if self._busy_mode == "thinking" else "tinybot is replying..."
-            return [("class:status", f" {label} · Scroll -> PageUp/PageDown the conversation · Esc to return to the bottom input ")]
-        return [("class:status", f" {self._status} · Scroll -> PageUp/PageDown the conversation · Esc to return to the bottom input ")]
+            return [("class:status", f" {label} | Ctrl+C exit | Esc focus input | PgUp/PgDn scroll ")]
+        return [("class:status", f" {self._status} | Ctrl+C exit | Esc focus input | PgUp/PgDn scroll ")]
+
+    def _info_fragments(self):
+        """Build info bar showing provider, model, context, workspace."""
+        info_parts = []
+        info_parts.append(f"Provider: {self._provider_name}")
+        info_parts.append(f"Model: {self._model_name}")
+        # Show current context tokens if available, otherwise show max window
+        current_tokens = self._get_context_tokens() if self._get_context_tokens else None
+        if current_tokens:
+            max_tokens = self._context_window_tokens or 0
+            usage_pct = (current_tokens / max_tokens * 100) if max_tokens > 0 else 0
+            info_parts.append(f"Ctx: {current_tokens // 1000}k/{max_tokens // 1000}k ({usage_pct:.0f}%)")
+        elif self._context_window_tokens:
+            info_parts.append(f"Ctx: 0/{self._context_window_tokens // 1000}k")
+        # Truncate workspace path if too long
+        ws_display = self._workspace_path
+        if len(ws_display) > 30:
+            ws_display = "..." + ws_display[-27:]
+        info_parts.append(f"WS: {ws_display}")
+        return [("class:info-bar", " " + " | ".join(info_parts) + " ")]
+
+    def refresh_info_bar(self) -> None:
+        """Refresh the info bar to show updated context tokens."""
+        self._invalidate()
 
     def _activity_fragments(self):
         if not self._busy:
@@ -526,17 +669,62 @@ class InteractiveChatUI:
         self._transcript_follow = buffer.cursor_position >= len(buffer.text)
         self._invalidate()
 
+    def _on_input_change_wrapper(self, _) -> None:
+        """Wrapper for buffer.on_text_changed event."""
+        text = self._input.buffer.text
+        # Show command menu when text starts with '/'
+        if text.startswith('/') and len(text) == 1:
+            self._command_menu_visible = True
+            self._command_menu_selection = 0
+        elif not text.startswith('/'):
+            self._command_menu_visible = False
+        self._invalidate()
+
     def _accept_input(self, buffer) -> bool:
         text = buffer.text.strip()
         if not text:
+            self._command_menu_visible = False
             buffer.set_document(Document(""), bypass_readonly=True)
             return False
         if self._busy:
-            self._status = "正在回复中；请稍候再发送"
+            self._status = "Please wait for response"
             buffer.set_document(Document(buffer.text, cursor_position=len(buffer.text)), bypass_readonly=True)
             self._invalidate()
             return True
 
+        # Handle special commands
+        if _is_exit_command(text):
+            self.exit()
+            return False
+        if _is_config_command(text):
+            self._command_menu_visible = False
+            buffer.set_document(Document(""), bypass_readonly=True)
+            self._invalidate()
+            if self._on_config_edit:
+                # Create a wrapper coroutine and schedule it
+                async def _run_editor_wrapper():
+                    await run_in_terminal(self._on_config_edit)
+                asyncio.create_task(_run_editor_wrapper())
+            return False
+        if _is_help_command(text):
+            self._command_menu_visible = False
+            self._append_block(f"You: {text}")
+            self._append_block(_get_command_help_text())
+            self._refresh_views()
+            buffer.set_document(Document(""), bypass_readonly=True)
+            return False
+        if _is_clear_command(text):
+            self._command_menu_visible = False
+            self._blocks.clear()
+            self._current_response = ""
+            self._current_reasoning = ""
+            self._append_block("Conversation cleared.")
+            self._refresh_views()
+            buffer.set_document(Document(""), bypass_readonly=True)
+            return False
+
+        # Hide command menu when submitting non-command text
+        self._command_menu_visible = False
         asyncio.create_task(self._submit_text(text))
         buffer.set_document(Document(""), bypass_readonly=True)
         return False
@@ -792,77 +980,8 @@ def _onboard_plugins(config_path: Path) -> None:
 
 
 # ============================================================================
-# Config Editor TUI
+# Provider Setup
 # ============================================================================
-
-
-@app.command()
-def config_edit(
-        config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-        skip_onboard: bool = typer.Option(False, "--skip-onboard", help="Skip onboarding wizard for new configs"),
-):
-    """Launch interactive TUI configuration editor.
-
-    If no config file exists, runs onboarding wizard first to set up basic configuration.
-    Use --skip-onboard to create a default config without the wizard.
-    """
-    from tinybot.cli.config_editor import run_config_editor
-    from tinybot.config.loader import get_config_path, load_config, save_config, set_config_path
-
-    if config:
-        config_path = Path(config).expanduser().resolve()
-        if not config_path.exists():
-            console.print(f"[red]Error: Config file not found: {config_path}[/red]")
-            raise typer.Exit(1)
-        set_config_path(config_path)
-        console.print(f"[dim]Using config: {config_path}[/dim]")
-    else:
-        config_path = get_config_path()
-
-    # Handle missing config file
-    if not config_path.exists():
-        if skip_onboard:
-            # Create default config without wizard
-            console.print(f"[dim]Creating default config at {config_path}[/dim]")
-            config_obj = Config()
-            save_config(config_obj, config_path)
-            _onboard_plugins(config_path)
-            console.print(f"[green]✓[/green] Created config at {config_path}")
-        else:
-            # Run onboarding wizard for new config
-            console.print(f"[dim]No config found at {config_path}[/dim]")
-            console.print("[cyan]Starting onboarding wizard...[/cyan]")
-
-            from tinybot.cli.onboard import run_onboard
-
-            try:
-                result = run_onboard(initial_config=Config())
-                if not result.should_save:
-                    console.print("[yellow]Configuration cancelled. No config file created.[/yellow]")
-                    raise typer.Exit(0)
-
-                config_obj = result.config
-                save_config(config_obj, config_path)
-                _onboard_plugins(config_path)
-                console.print(f"[green]✓[/green] Config saved at {config_path}")
-            except Exception as e:
-                console.print(f"[red]✗[/red] Error during onboarding: {e}")
-                console.print("[yellow]You can run 'tinybot config-edit --skip-onboard' to create a default config.[/yellow]")
-                raise typer.Exit(1)
-    else:
-        config_obj = load_config(config_path)
-
-    def save_callback(cfg: Config) -> None:
-        save_config(cfg, config_path)
-
-    try:
-        run_config_editor(config_obj, save_callback)
-        console.print(f"[green]✓[/green] Config saved at {config_path}")
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Configuration editor closed[/yellow]")
-    except Exception as e:
-        console.print(f"[red]✗[/red] Error running config editor: {e}")
-        raise typer.Exit(1)
 
 
 def _make_provider(config: Config):
@@ -1325,7 +1444,7 @@ def agent(
             history_file.parent.mkdir(parents=True, exist_ok=True)
 
             initial_blocks = [
-                f"{__logo__} Interactive mode (type exit or press Ctrl+C to quit)",
+                f"{__logo__} Interactive mode (/help for commands, Ctrl+O config, exit to quit)",
             ]
             if restart_notice_text:
                 initial_blocks.append(f"{__logo__} tinybot\n{restart_notice_text}")
@@ -1347,11 +1466,45 @@ def agent(
                     metadata={"_wants_stream": True},
                 ))
 
+            def _open_config_editor() -> None:
+                """Open config editor (sync wrapper that runs in separate thread)."""
+                import asyncio
+                import threading
+                from tinybot.cli.config_editor import run_config_editor_async
+                from tinybot.config.loader import get_config_path, save_config
+
+                config_path = get_config_path()
+                save_cb = lambda cfg: save_config(cfg, config_path)
+
+                def run_editor_in_thread():
+                    """Run the async editor in a thread with its own event loop."""
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(run_config_editor_async(config, save_cb))
+                    except KeyboardInterrupt:
+                        pass
+                    except Exception as e:
+                        console.print(f"[red]Error: {e}[/red]")
+                    finally:
+                        loop.close()
+
+                thread = threading.Thread(target=run_editor_in_thread)
+                thread.start()
+                thread.join()
+                console.print(f"[green]Config saved to {config_path}[/green]")
+
             ui = InteractiveChatUI(
                 render_markdown=markdown,
                 history=FileHistory(str(history_file)),
                 on_submit=_submit_user_input,
+                on_config_edit=_open_config_editor,
                 initial_transcript=initial_blocks,
+                provider_name=config.get_provider_name() or config.agents.defaults.provider,
+                model_name=agent_loop.model,
+                context_window_tokens=agent_loop.context_window_tokens,
+                workspace_path=str(config.workspace_path),
+                get_context_tokens=agent_loop.get_current_context_tokens,
             )
 
             def _handle_signal(signum, _frame):
@@ -1367,14 +1520,18 @@ def agent(
             async def _refresh_progress_panel():
                 last_version = agent_loop.task_progress_state.get_snapshot()["version"]
                 ui.set_task_progress(agent_loop.task_progress_state.get_snapshot())
+                ui.refresh_info_bar()  # Initial refresh
                 while True:
                     try:
                         state = agent_loop.task_progress_state
                         version = await asyncio.to_thread(state.wait_for_change, last_version, 0.25)
                         if version == last_version:
+                            # Even if no task progress change, refresh info bar periodically
+                            ui.refresh_info_bar()
                             continue
                         last_version = version
                         ui.set_task_progress(state.get_snapshot())
+                        ui.refresh_info_bar()  # Refresh info bar when task progress changes
                     except asyncio.CancelledError:
                         break
 
