@@ -47,6 +47,9 @@ class AgentHook:
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         pass
 
+    async def after_execute_tools(self, context: AgentHookContext) -> None:
+        pass
+
     async def after_iteration(self, context: AgentHookContext) -> None:
         pass
 
@@ -104,6 +107,13 @@ class CompositeHook(AgentHook):
                 await h.before_execute_tools(context)
             except Exception:
                 logger.exception("AgentHook.before_execute_tools error in {}", type(h).__name__)
+
+    async def after_execute_tools(self, context: AgentHookContext) -> None:
+        for h in self._hooks:
+            try:
+                await h.after_execute_tools(context)
+            except Exception:
+                logger.exception("AgentHook.after_execute_tools error in {}", type(h).__name__)
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         for h in self._hooks:
