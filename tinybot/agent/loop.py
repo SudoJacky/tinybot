@@ -769,6 +769,18 @@ class AgentLoop:
                     on_stream_end=on_stream_end,
                 )
                 if response is not None:
+                    # If content was streamed, mark the OutboundMessage as "_streamed"
+                    # so CLI knows the content was already displayed via stream deltas
+                    # and only needs to finish the turn (not add the content again).
+                    if wants_stream:
+                        meta = dict(response.metadata or {})
+                        meta["_streamed"] = True
+                        response = OutboundMessage(
+                            channel=response.channel,
+                            chat_id=response.chat_id,
+                            content="",  # Empty: content already delivered via stream
+                            metadata=meta,
+                        )
                     await self.bus.publish_outbound(response)
                 elif msg.channel == "cli":
                     await self.bus.publish_outbound(OutboundMessage(
@@ -864,11 +876,20 @@ class AgentLoop:
                 if isinstance(message_tool, MessageTool):
                     message_tool.start_turn()
             history = session.get_history(max_messages=0)
-            current_role = "assistant" if msg.sender_id == "subagent" else "user"
+
+            # Build notification message with clear context for the agent
+            # Use "user" role so it's not merged with previous assistant message
+            # and the agent clearly understands this is a task completion notification
+            if msg.sender_id == "subagent":
+                notification_content = f"[后台任务完成通知]\n\n{msg.content}\n\n请向用户简要汇报任务完成结果。"
+            else:
+                notification_content = msg.content
+
             messages = self.context.build_messages(
                 history=history,
-                current_message=msg.content, channel=channel, chat_id=chat_id,
-                current_role=current_role,
+                current_message=notification_content,
+                channel=channel, chat_id=chat_id,
+                current_role="user",  # Use "user" role to avoid merging with previous assistant message
                 user_profile=session.user_profile,
             )
             final_content, _, all_msgs = await self._run_agent_loop(

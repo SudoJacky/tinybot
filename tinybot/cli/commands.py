@@ -269,19 +269,20 @@ def _format_task_progress_text(snapshot: dict[str, Any]) -> str:
     if not plans:
         return ""
 
+    # Use simple ASCII symbols for better terminal compatibility
     plan_icons = {
-        "planning": "📝",
-        "executing": "▶️",
-        "completed": "✅",
-        "failed": "❌",
-        "paused": "⏸️",
+        "planning": "[*]",
+        "executing": "[>]",
+        "completed": "[+]",
+        "failed": "[!]",
+        "paused": "[=]",
     }
     status_icons = {
-        "pending": "⏳",
-        "in_progress": "▶️",
-        "completed": "✅",
-        "failed": "❌",
-        "skipped": "⏭️",
+        "pending": "  ",
+        "in_progress": "> ",
+        "completed": "+ ",
+        "failed": "! ",
+        "skipped": "- ",
     }
 
     lines: list[str] = []
@@ -293,8 +294,9 @@ def _format_task_progress_text(snapshot: dict[str, Any]) -> str:
         failed = plan.get("failed", 0)
         skipped = plan.get("skipped", 0)
         pct = (completed / total * 100) if total > 0 else 0
-        icon = plan_icons.get(plan.get("plan_status", "planning"), "📋")
-        header = f"{icon} {plan.get('plan_title', 'Task')} [{completed}/{total} ({pct:.0f}%)] {plan.get('plan_status', 'planning')}"
+        icon = plan_icons.get(plan.get("plan_status", "planning"), "[?]")
+        status_label = plan.get("plan_status", "planning")
+        header = f"{icon} {plan.get('plan_title', 'Task')} [{completed}/{total} ({pct:.0f}%)] {status_label}"
         if failed:
             header += f"  failed={failed}"
         if skipped:

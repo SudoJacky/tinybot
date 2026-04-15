@@ -181,24 +181,32 @@ class AgentRunner:
                 continue
 
             clean = hook.finalize_content(context, response.content)
+            did_finalization_retry = False
             if response.finish_reason != "error" and is_blank_text(clean):
                 logger.warning(
                     "Empty final response on turn {} for {}; retrying with explicit finalization prompt",
                     iteration,
                     spec.session_key or "default",
                 )
+                # Stream end before retry: this clears the current buffers
+                # (reasoning was streamed, but content is empty)
                 if hook.wants_streaming():
                     await hook.on_stream_end(context, resuming=False)
+                # Retry uses non-stream API, so no stream deltas will follow
                 response = await self._request_finalization_retry(spec, messages_for_model)
+                did_finalization_retry = True
                 retry_usage = self._usage_dict(response.usage)
                 self._accumulate_usage(usage, retry_usage)
-                raw_usage = self._merge_usage(raw_usage, retry_usage)
+                raw_usage = _merge_usage(raw_usage, retry_usage)
                 context.response = response
                 context.usage = dict(raw_usage)
                 context.tool_calls = list(response.tool_calls)
                 clean = hook.finalize_content(context, response.content)
 
-            if hook.wants_streaming():
+            # Only call stream_end if we didn't do a finalization_retry.
+            # After retry, content comes from non-stream API and will be
+            # delivered via OutboundMessage (not stream deltas).
+            if hook.wants_streaming() and not did_finalization_retry:
                 await hook.on_stream_end(context, resuming=False)
 
             if response.finish_reason == "error":
