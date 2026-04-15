@@ -372,6 +372,10 @@ class AgentLoop:
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
 
+    def get_current_context_tokens(self) -> int | None:
+        """Get the current context token count from the last LLM call."""
+        return self._last_usage.get("prompt_tokens")
+
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         allowed_dir = self.workspace if self.restrict_to_workspace else None

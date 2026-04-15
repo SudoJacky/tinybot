@@ -38,38 +38,14 @@ Task execution shows real-time progress in CLI without disrupting main conversat
 ======================================
 ```
 
-### ⚙️ TUI Configuration Editor
+### ⚙️ Integrated Configuration Editor
 
-Full-screen terminal configuration editor similar to Claude Code CLI:
+Full-screen terminal configuration editor accessible directly within the interactive chat:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ 🤖 tinybot Configuration Editor                         │
-├─────────────────────────────────────────────────────────┤
-│ [Agent Settings]   │  Agent: Default Settings           │
-│ [LLM Providers]    │  ├─ model: deepseek-reasoner       │
-│ [Channels]         │  ├─ max_tokens: 8192               │
-│ [Gateway]          │  └─ temperature: 0.1               │
-│ [Tools]            │                                   │
-├─────────────────────────────────────────────────────────┤
-│ ↑↓ Navigate · Enter Edit · Tab Switch · s Save · q Quit│
-└─────────────────────────────────────────────────────────┘
-```
-
-Features:
-- Keyboard navigation with ↑↓, Tab, Enter, Esc
-- Field highlighting and selection
-- Sensitive field masking (API keys)
-- Virtual scrolling for long lists
-- Auto-onboarding for new configurations
-
-```bash
-# Launch configuration editor
-tinybot config-edit
-
-# Skip onboarding wizard for new config
-tinybot config-edit --skip-onboard
-```
+- Press `Ctrl+O` or type `/config` to open the editor
+- No need to exit the chat session
+- Edit provider settings, model parameters, tool configs, etc.
+- Press `q` to save and return to chat
 
 ## 🚀 Basic Features
 
@@ -90,10 +66,7 @@ uv sync
 # Initialize configuration (interactive wizard)
 uv run tinybot onboard
 
-# Or use TUI config editor
-uv run tinybot config-edit
-
-# Interactive mode
+# Interactive chat mode
 uv run tinybot agent
 
 # Send single message
@@ -103,7 +76,16 @@ uv run tinybot agent -m "Hello"
 uv run tinybot gateway
 ```
 
-## Programming Interface
+## Interactive Chat Commands
+
+When in interactive mode, the following commands are available:
+
+| Command | Description |
+|---------|-------------|
+| `/config` or `Ctrl+O` | Open configuration editor |
+| `/help` | Show available commands |
+| `/clear` | Clear conversation history |
+| `/exit` or `:q` | Exit the chat |
 
 ## Requirements
 
