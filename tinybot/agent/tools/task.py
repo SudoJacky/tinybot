@@ -2,6 +2,8 @@
 
 from typing import Any, Callable, Coroutine
 
+from loguru import logger
+
 from tinybot.agent.tools.base import Tool, tool_parameters
 from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, StringSchema, tool_parameters_schema
 from tinybot.task.service import TaskManager
@@ -123,12 +125,13 @@ class TaskTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "当你需要使用本‘Task’工具时，直接使用，不要做任何校验或者是除了创建task之外的工作，把需要做的事情放在任务中，然后设置auto_execute为true即可。"
+            "当你需要使用本'Task'工具时，直接使用，不要做任何校验或者是除了创建task之外的工作，把需要做的事情放在任务中，然后设置auto_execute为true即可。"
             "管理复杂多步任务。create创建任务计划（auto_execute=true可一步启动），"
             "resume启动后台执行。执行后SubAgent自动运行，无需主动干预，完成后会通知你，也**不用主动去查询**。"
             "status/progress查询状态（仅在需要时使用），pause/cancel控制执行，"
             "add_subtask/remove_subtask动态调整。summary获取完成结果。"
             "创建完成后，你会收到一次成功的响应。告诉用户已经在执行了，然后就不用做任何的操作。你将在完全完成后收到通知。"
+            "如果中途有任务失败导致阻塞，也会收到通知，你可以根据通知中的进度信息决定下一步操作。"
         )
 
     async def execute(
@@ -233,6 +236,141 @@ class TaskTool(Tool):
 
         return "\n".join(lines)
 
+    def _build_task_description(self, plan: TaskPlan, subtask: SubTask) -> str:
+        """Build a task description string for spawning a subagent."""
+        context_str = self._manager._build_context_for_subtask(plan, subtask)
+        return f"""Execute subtask: {subtask.title}
+
+## Description
+{subtask.description}
+
+## Context from Completed Subtasks
+{context_str}
+
+## Instructions
+1. Focus on completing only this subtask
+2. Use available tools to gather information and produce results
+3. Provide a clear, concise summary of what was accomplished"""
+
+    async def _handle_subtask_completion(
+        self, result: str, status: str, task_id: str, metadata: dict[str, Any] | None,
+    ) -> None:
+        """Handle the result of a completed subtask (success or failure).
+
+        This is the unified callback for all subtask completions. It handles:
+        1. Updating subtask result
+        2. Retry logic for failed subtasks
+        3. Checking plan state after the update
+        4. Sending notifications (completed / paused / blocked)
+        5. Auto-spawning the next batch of ready subtasks
+        """
+        if not metadata:
+            return
+
+        p_id = metadata.get("plan_id", "")
+        s_id = metadata.get("subtask_id", "")
+
+        plan = self._manager.get_plan(p_id)
+        if plan is None:
+            return
+        subtask = plan.get_subtask(s_id)
+        if subtask is None:
+            return
+
+        if status == "completed":
+            # Subtask succeeded — update result
+            self._manager.update_subtask_result(
+                plan_id=p_id,
+                subtask_id=s_id,
+                result=result,
+                status="completed",
+            )
+        else:
+            # Subtask failed — handle retry logic
+            subtask.retry_count += 1
+            if subtask.retry_count <= subtask.max_retries:
+                # Still have retries — reset to pending and re-spawn
+                subtask.status = "pending"
+                subtask.error = self._manager._truncate_result(result) if result else None
+                self._manager._save_plan(plan)
+                logger.info("Subtask '{}' failed, retrying ({}/{})", subtask.title, subtask.retry_count, subtask.max_retries)
+                # Re-spawn this subtask immediately
+                await self._spawn_single_subtask(p_id, subtask)
+                return
+            else:
+                # Retries exhausted — mark as failed permanently
+                self._manager.update_subtask_result(
+                    plan_id=p_id,
+                    subtask_id=s_id,
+                    result=result,
+                    status="failed",
+                    error=result,
+                )
+
+        # Re-read plan after updates
+        plan = self._manager.get_plan(p_id)
+        if plan is None:
+            return
+
+        if plan.status == "completed":
+            # Send final announcement to trigger main agent summary
+            if self._announce_callback:
+                summary = self._manager.get_plan_summary(p_id)
+                await self._announce_callback(
+                    plan.title,
+                    "completed",
+                    summary or "All tasks completed.",
+                    p_id,
+                )
+        elif plan.status == "paused":
+            # Plan paused (e.g., subtask failed after retries) — notify user
+            if self._announce_callback:
+                error_info = plan.context.get("error", "Execution paused.")
+                summary = self._manager.get_plan_summary(p_id)
+                progress = self._manager.get_progress(p_id)
+                progress_info = ""
+                if progress:
+                    progress_info = (
+                        f"\n\n## 当前进度\n"
+                        f"- 已完成: {progress['completed']}/{progress['total']}\n"
+                        f"- 失败: {progress['failed']}\n"
+                        f"- 被阻塞: {progress['pending']}"
+                    )
+                await self._announce_callback(
+                    plan.title,
+                    "paused",
+                    f"{error_info}{progress_info}\n\n## 已完成的结果\n{summary or '暂无完成结果。'}",
+                    p_id,
+                )
+        elif self._manager.is_plan_blocked(p_id):
+            # Plan is blocked by failed subtask dependencies — notify agent
+            plan.status = "paused"
+            failed_tasks = [s for s in plan.subtasks if s.status == "failed"]
+            blocked_tasks = [s for s in plan.subtasks if s.status == "pending"]
+            error_detail = f"子任务 '{failed_tasks[0].title}' 失败，导致 {len(blocked_tasks)} 个后续任务被阻塞。"
+            plan.context["error"] = error_detail
+            self._manager._save_plan(plan)
+            if self._announce_callback:
+                summary = self._manager.get_plan_summary(p_id)
+                progress = self._manager.get_progress(p_id)
+                progress_info = ""
+                if progress:
+                    progress_info = (
+                        f"\n\n## 当前进度\n"
+                        f"- 已完成: {progress['completed']}/{progress['total']}\n"
+                        f"- 失败: {progress['failed']}\n"
+                        f"- 被阻塞: {progress['pending']}"
+                    )
+                await self._announce_callback(
+                    plan.title,
+                    "paused",
+                    f"{error_detail}{progress_info}\n\n## 已完成的结果\n{summary or '暂无完成结果。'}",
+                    p_id,
+                )
+        else:
+            # Auto-spawn next ready subtasks (chain execution)
+            await self._spawn_ready_subtasks(p_id)
+
     async def _spawn_ready_subtasks(self, plan_id: str) -> int:
         """Spawn SubAgents for all ready subtasks. Returns count spawned.
 
@@ -254,75 +392,41 @@ class TaskTool(Tool):
             self._manager.mark_subtask_started(plan_id, subtask.id)
 
             # Build task description with context
-            context_str = self._manager._build_context_for_subtask(plan, subtask)
-            task_description = f"""Execute subtask: {subtask.title}
+            task_description = self._build_task_description(plan, subtask)
 
-## Description
-{subtask.description}
-
-## Context from Completed Subtasks
-{context_str}
-
-## Instructions
-1. Focus on completing only this subtask
-2. Use available tools to gather information and produce results
-3. Provide a clear, concise summary of what was accomplished"""
-
-            # Create completion callback that spawns next tasks
-            async def on_complete(result: str, status: str, task_id: str, metadata: dict[str, Any] | None):
-                if metadata:
-                    p_id = metadata.get("plan_id", "")
-                    s_id = metadata.get("subtask_id", "")
-
-                    # Update subtask result
-                    self._manager.update_subtask_result(
-                        plan_id=p_id,
-                        subtask_id=s_id,
-                        result=result,
-                        status="completed" if status == "completed" else "failed",
-                        error=result if status == "failed" else None,
-                    )
-
-                    # Check plan state after this update
-                    plan = self._manager.get_plan(p_id)
-                    if plan is None:
-                        return
-
-                    if plan.status == "completed":
-                        # Send final announcement to trigger main agent summary
-                        if self._announce_callback:
-                            summary = self._manager.get_plan_summary(p_id)
-                            await self._announce_callback(
-                                plan.title,
-                                "completed",
-                                summary or "All tasks completed.",
-                                p_id,
-                            )
-                    elif plan.status == "paused":
-                        # Plan paused (e.g., subtask failed after retries) — notify user
-                        if self._announce_callback:
-                            error_info = plan.context.get("error", "Execution paused.")
-                            summary = self._manager.get_plan_summary(p_id)
-                            await self._announce_callback(
-                                plan.title,
-                                "paused",
-                                f"{error_info}\n\n## Completed so far\n{summary or 'No subtasks completed.'}",
-                                p_id,
-                            )
-                    else:
-                        # Auto-spawn next ready subtasks (chain execution)
-                        await self._spawn_ready_subtasks(p_id)
-
-            # Spawn subagent
+            # Spawn subagent with unified completion handler
             await self._spawn_callback(
                 task=task_description,
                 label=subtask.title,
                 metadata={"plan_id": plan_id, "subtask_id": subtask.id},
-                on_complete=on_complete,
+                on_complete=self._handle_subtask_completion,
             )
             spawned_count += 1
 
         return spawned_count
+
+    async def _spawn_single_subtask(self, plan_id: str, subtask: SubTask) -> None:
+        """Spawn a single subagent for one specific subtask (used for retries)."""
+        if self._spawn_callback is None:
+            return
+
+        plan = self._manager.get_plan(plan_id)
+        if plan is None or plan.status != "executing":
+            return
+
+        # Mark subtask as in_progress
+        self._manager.mark_subtask_started(plan_id, subtask.id)
+
+        # Build task description with context
+        task_description = self._build_task_description(plan, subtask)
+
+        # Spawn subagent with unified completion handler
+        await self._spawn_callback(
+            task=task_description,
+            label=subtask.title,
+            metadata={"plan_id": plan_id, "subtask_id": subtask.id},
+            on_complete=self._handle_subtask_completion,
+        )
 
     async def _resume_plan(self, plan_id: str, parallel: bool) -> str:
         """Resume execution by spawning SubAgents for ready subtasks."""
