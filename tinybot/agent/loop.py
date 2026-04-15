@@ -135,12 +135,32 @@ class _LoopHook(AgentHook):
                 )
                 if thought:
                     await self._on_progress(thought)
-            tool_hint = self._loop._strip_think(self._loop._tool_hint(context.tool_calls))
-            await self._on_progress(tool_hint, tool_hint=True)
+
+            # 发送每个工具调用的详细信息
+            for tc in context.tool_calls:
+                detail = self._loop._format_tool_call_detail(tc)
+                await self._on_progress(detail, tool_hint=True, tool_detail=True, tool_name=tc.name)
+
         for tc in context.tool_calls:
             args_str = json.dumps(tc.arguments, ensure_ascii=False)
             logger.info("Tool call: {}({})", tc.name, args_str[:200])
         self._loop._set_tool_context(self._channel, self._chat_id, self._message_id)
+
+    async def after_execute_tools(self, context: AgentHookContext) -> None:
+        """Send tool execution results."""
+        if self._on_progress and context.tool_events:
+            for event in context.tool_events:
+                name = event.get("name", "tool")
+                status = event.get("status", "ok")
+                detail = event.get("detail", "")
+                # 截断过长的detail
+                if len(detail) > 80:
+                    detail = detail[:80] + "..."
+                if status == "ok":
+                    # 只发送结果内容，UI会原地更新
+                    await self._on_progress(detail, tool_hint=True, tool_result=True, tool_name=name)
+                else:
+                    await self._on_progress(f"✗ {detail}", tool_hint=True, tool_result=True, tool_name=name)
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         u = context.usage or {}
@@ -186,6 +206,10 @@ class _LoopHookChain(AgentHook):
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         await self._primary.before_execute_tools(context)
         await self._extras.before_execute_tools(context)
+
+    async def after_execute_tools(self, context: AgentHookContext) -> None:
+        await self._primary.after_execute_tools(context)
+        await self._extras.after_execute_tools(context)
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         await self._primary.after_iteration(context)
@@ -500,6 +524,35 @@ class AgentLoop:
                 return tc.name
             return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
         return ", ".join(_fmt(tc) for tc in tool_calls)
+
+    @staticmethod
+    def _format_tool_call_detail(tc) -> str:
+        """Format tool call as Claude Code-style display: ● ToolName(args)."""
+        args = tc.arguments if isinstance(tc.arguments, dict) else {}
+        # 取第一个参数作为摘要显示
+        if args:
+            first_key = next(iter(args.keys()), None)
+            first_val = args.get(first_key) if first_key else None
+            if isinstance(first_val, str):
+                val_display = first_val[:60] + "…" if len(first_val) > 60 else first_val
+                summary = f"{first_key}=\"{val_display}\""
+            elif first_val is not None:
+                summary = f"{first_key}={first_val}"
+            else:
+                summary = ""
+            # 如果有其他参数，简要列出
+            other_args = []
+            for k, v in list(args.items())[1:3]:  # 最多显示3个参数
+                if isinstance(v, str) and len(v) > 30:
+                    other_args.append(f"{k}=\"{v[:30]}…\"")
+                elif isinstance(v, str):
+                    other_args.append(f"{k}=\"{v}\"")
+                else:
+                    other_args.append(f"{k}={v}")
+            if other_args:
+                summary += ", " + ", ".join(other_args)
+            return f"{tc.name}({summary})" if summary else tc.name
+        return tc.name
 
     def _render_task_progress_display(self, progress: dict[str, Any]) -> str:
         """Render a compact task progress display for CLI."""
@@ -885,7 +938,11 @@ class AgentLoop:
             # Use "user" role so it's not merged with previous assistant message
             # and the agent clearly understands this is a task completion notification
             if msg.sender_id == "subagent":
-                notification_content = f"[后台任务完成通知]\n\n{msg.content}\n\n请向用户简要汇报任务完成结果。"
+                # Detect whether this is a completion or failure notification
+                if "paused" in msg.content.lower() or "失败" in msg.content or "阻塞" in msg.content:
+                    notification_content = f"[后台任务状态通知]\n\n{msg.content}\n\n请向用户汇报任务的当前状态，包括已完成和失败的部分，并建议下一步操作。"
+                else:
+                    notification_content = f"[后台任务完成通知]\n\n{msg.content}\n\n请向用户简要汇报任务完成结果。"
             else:
                 notification_content = msg.content
 
@@ -946,10 +1003,13 @@ class AgentLoop:
             user_profile=session.user_profile,
         )
 
-        async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
+        async def _bus_progress(content: str, *, tool_hint: bool = False, tool_detail: bool = False, tool_result: bool = False, tool_name: str = "") -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
+            meta["_tool_detail"] = tool_detail
+            meta["_tool_result"] = tool_result
+            meta["_tool_name"] = tool_name
             await self.bus.publish_outbound(OutboundMessage(
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
