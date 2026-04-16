@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import weakref
+
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -407,7 +409,8 @@ class Consolidator:
                 last_boundary = (idx, removed_tokens)
                 if removed_tokens >= tokens_to_remove:
                     return last_boundary
-            removed_tokens += estimate_message_tokens(message)
+            removed_tokens += estimate_message_tokens(message, model=self.model)
+
 
         return last_boundary
 
@@ -791,8 +794,15 @@ Rules:
 Example output:
 {"name": "张三", "preferences": ["蓝色", "VS Code"], "mentioned_entities": ["大黄（狗）"], "key_facts": ["住在上海"]}"""
 
+_ENTITY_SIGNAL_PATTERNS = (
+    re.compile(r"\b(my name is|call me|please call me|i am|i'm|i prefer|i like|i use|i work as|i live in|i'm from)\b", re.IGNORECASE),
+    re.compile(r"(我叫|叫我|我是|我在|我住在|我来自|我做|我从事|我主要用|我常用|我喜欢|我偏好|我习惯|我不喜欢|我讨厌|请叫我)"),
+    re.compile(r"(名字|昵称|称呼|偏好|习惯|邮箱|email|e-mail|电话|手机号|微信|qq|职业|岗位|学校|专业)"),
+)
+
 
 class EntityExtractor:
+
     """Extracts user entities from conversation turns and updates Session.user_profile.
 
     Designed to be called after each agent turn completes. Uses a lightweight
@@ -808,7 +818,38 @@ class EntityExtractor:
         self.provider = provider
         self.model = model
 
+    @staticmethod
+    def turn_fingerprint(user_message: str) -> str:
+        normalized = " ".join(user_message.strip().lower().split())
+        return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def should_extract(
+        user_message: str,
+        current_profile: dict[str, Any] | None = None,
+    ) -> bool:
+        text = user_message.strip()
+        if not text:
+            return False
+
+        lowered = text.lower()
+        if any(pattern.search(text) for pattern in _ENTITY_SIGNAL_PATTERNS):
+            return True
+
+        if re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text):
+            return True
+        if re.search(r"\b\d{11}\b", text):
+            return True
+        if current_profile:
+            if not current_profile.get("name") and ("叫我" in text or "my name is" in lowered):
+                return True
+            if not current_profile.get("preferences") and any(token in text for token in ("喜欢", "偏好", "习惯")):
+                return True
+
+        return bool(re.search(r"\b(my|i)\b", lowered) and len(text) >= 48)
+
     async def extract(
+
         self,
         user_message: str,
         assistant_message: str,

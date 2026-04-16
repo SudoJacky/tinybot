@@ -1,90 +1,170 @@
 import json
+from functools import lru_cache
+from math import ceil
 from typing import Any
+
 import tiktoken
 
+_MODEL_ENCODING_HINTS: tuple[tuple[str, str], ...] = (
+    ("gpt-4.1", "o200k_base"),
+    ("gpt-4o", "o200k_base"),
+    ("gpt-5", "o200k_base"),
+    ("o1", "o200k_base"),
+    ("o3", "o200k_base"),
+    ("o4", "o200k_base"),
+    ("claude", "cl100k_base"),
+    ("deepseek", "cl100k_base"),
+    ("gemini", "cl100k_base"),
+    ("glm", "cl100k_base"),
+    ("qwen", "cl100k_base"),
+    ("moonshot", "cl100k_base"),
+    ("mistral", "cl100k_base"),
+    ("minimax", "cl100k_base"),
+)
+_REASONING_MODEL_HINTS = (
+    "reasoner",
+    "reasoning",
+    "deepseek-r1",
+    "thinking",
+    "flash-thinking",
+    "o1",
+    "o3",
+    "o4",
+)
+_REASONING_RISK_MULTIPLIER = 1.12
 
 
-def estimate_message_tokens(message: dict[str, Any]) -> int:
-    """Estimate prompt tokens contributed by one persisted message."""
+@lru_cache(maxsize=64)
+def _resolve_encoding_name(model: str | None) -> str:
+    normalized = _normalize_model_name(model)
+    candidates = [c for c in {
+        str(model or "").strip(),
+        normalized,
+        normalized.split("/", 1)[-1] if normalized else "",
+    } if c]
+
+    for candidate in candidates:
+        try:
+            return tiktoken.encoding_for_model(candidate).name
+        except Exception:
+            continue
+
+    for hint, encoding_name in _MODEL_ENCODING_HINTS:
+        if hint in normalized:
+            return encoding_name
+    return "cl100k_base"
+
+
+@lru_cache(maxsize=16)
+def _get_encoder(encoding_name: str):
+    return tiktoken.get_encoding(encoding_name)
+
+
+def _normalize_model_name(model: str | None) -> str:
+    return str(model or "").strip().lower()
+
+
+def is_reasoning_model(model: str | None) -> bool:
+    normalized = _normalize_model_name(model)
+    if not normalized:
+        return False
+    return any(hint in normalized for hint in _REASONING_MODEL_HINTS)
+
+
+def apply_reasoning_risk_buffer(tokens: int, model: str | None) -> int:
+    if tokens <= 0:
+        return 0
+    if not is_reasoning_model(model):
+        return tokens
+    return max(tokens, ceil(tokens * _REASONING_RISK_MULTIPLIER))
+
+
+def _tokenize_payload_length(payload: str, model: str | None) -> int:
+    if not payload:
+        return 0
+    encoding_name = _resolve_encoding_name(model)
+    encoder = _get_encoder(encoding_name)
+    return len(encoder.encode(payload))
+
+
+def _iter_message_parts(message: dict[str, Any]):
     content = message.get("content")
-    parts: list[str] = []
     if isinstance(content, str):
-        parts.append(content)
+        if content:
+            yield content
     elif isinstance(content, list):
         for part in content:
             if isinstance(part, dict) and part.get("type") == "text":
                 text = part.get("text", "")
                 if text:
-                    parts.append(text)
+                    yield text
             else:
-                parts.append(json.dumps(part, ensure_ascii=False))
+                yield json.dumps(part, ensure_ascii=False)
     elif content is not None:
-        parts.append(json.dumps(content, ensure_ascii=False))
+        yield json.dumps(content, ensure_ascii=False)
 
     for key in ("name", "tool_call_id"):
         value = message.get(key)
         if isinstance(value, str) and value:
-            parts.append(value)
-    if message.get("tool_calls"):
-        parts.append(json.dumps(message["tool_calls"], ensure_ascii=False))
+            yield value
 
-    rc = message.get("reasoning_content")
-    if isinstance(rc, str) and rc:
-        parts.append(rc)
+    tool_calls = message.get("tool_calls")
+    if tool_calls:
+        yield json.dumps(tool_calls, ensure_ascii=False)
 
-    payload = "\n".join(parts)
+    reasoning_content = message.get("reasoning_content")
+    if isinstance(reasoning_content, str) and reasoning_content:
+        yield reasoning_content
+
+
+def _apply_calibration(tokens: int, calibration_factor: float = 1.0) -> int:
+    if tokens <= 0:
+        return 0
+    if calibration_factor <= 0:
+        calibration_factor = 1.0
+    return max(1, ceil(tokens * calibration_factor))
+
+
+def estimate_message_tokens(
+    message: dict[str, Any],
+    model: str | None = None,
+) -> int:
+    """Estimate prompt tokens contributed by one persisted message."""
+    payload = "\n".join(_iter_message_parts(message))
     if not payload:
         return 4
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
-        return max(4, len(enc.encode(payload)) + 4)
+        return max(4, _tokenize_payload_length(payload, model) + 4)
     except Exception:
         return max(4, len(payload) // 4 + 4)
+
 
 
 def estimate_prompt_tokens(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
+    *,
+    model: str | None = None,
+    calibration_factor: float = 1.0,
 ) -> int:
-    """Estimate prompt tokens with tiktoken.
+    """Estimate prompt tokens with model-aware tokenizer selection.
 
     Counts all fields that providers send to the LLM: content, tool_calls,
     reasoning_content, tool_call_id, name, plus per-message framing overhead.
     """
     try:
-        enc = tiktoken.get_encoding("cl100k_base")
         parts: list[str] = []
         for msg in messages:
-            content = msg.get("content")
-            if isinstance(content, str):
-                parts.append(content)
-            elif isinstance(content, list):
-                for part in content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        txt = part.get("text", "")
-                        if txt:
-                            parts.append(txt)
-
-            tc = msg.get("tool_calls")
-            if tc:
-                parts.append(json.dumps(tc, ensure_ascii=False))
-
-            rc = msg.get("reasoning_content")
-            if isinstance(rc, str) and rc:
-                parts.append(rc)
-
-            for key in ("name", "tool_call_id"):
-                value = msg.get(key)
-                if isinstance(value, str) and value:
-                    parts.append(value)
-
+            parts.extend(_iter_message_parts(msg))
         if tools:
             parts.append(json.dumps(tools, ensure_ascii=False))
 
         per_message_overhead = len(messages) * 4
-        return len(enc.encode("\n".join(parts))) + per_message_overhead
+        estimated = _tokenize_payload_length("\n".join(parts), model) + per_message_overhead
+        return _apply_calibration(estimated, calibration_factor)
     except Exception:
         return 0
+
 
 
 def estimate_prompt_tokens_chain(
@@ -93,17 +173,26 @@ def estimate_prompt_tokens_chain(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
 ) -> tuple[int, str]:
-    """Estimate prompt tokens via provider counter first, then tiktoken fallback."""
+    """Estimate prompt tokens via provider counter first, then tokenizer fallback.
+
+    The returned number is slightly risk-adjusted for reasoning-heavy models so
+    context management can compress a bit earlier instead of waiting for a hard
+    limit breach.
+    """
     provider_counter = getattr(provider, "estimate_prompt_tokens", None)
     if callable(provider_counter):
         try:
             tokens, source = provider_counter(messages, tools, model)
             if isinstance(tokens, (int, float)) and tokens > 0:
-                return int(tokens), str(source or "provider_counter")
+                adjusted = apply_reasoning_risk_buffer(int(tokens), model)
+                suffix = "+reasoning_buffer" if adjusted != int(tokens) else ""
+                return adjusted, f"{source or 'provider_counter'}{suffix}"
         except Exception:
             pass
 
-    estimated = estimate_prompt_tokens(messages, tools)
+    estimated = estimate_prompt_tokens(messages, tools, model=model)
     if estimated > 0:
-        return int(estimated), "tiktoken"
+        adjusted = apply_reasoning_risk_buffer(int(estimated), model)
+        suffix = "+reasoning_buffer" if adjusted != int(estimated) else ""
+        return adjusted, f"tiktoken{suffix}"
     return 0, "none"

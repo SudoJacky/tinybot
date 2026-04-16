@@ -183,18 +183,20 @@ class ContextBuilder:
 
             # Build richer search query from recent history + current message
             search_query = self._build_search_query(history, current_message)
+            retrieval_limits = self._plan_vector_retrieval(history, current_message)
 
             try:
                 # Hierarchical retrieval: summaries → their child chunks
                 results = self.vector_store.search_with_hierarchy(
                     session_key,
                     search_query,
-                    max_summaries=2,
-                    max_chunks_per_summary=2,
+                    max_summaries=retrieval_limits["max_summaries"],
+                    max_chunks_per_summary=retrieval_limits["max_chunks_per_summary"],
                     session_manager=self.session_manager,
                 )
             except Exception:
                 results = []
+
 
             if results:
                 # search_with_hierarchy already deduplicates by ID;
@@ -251,8 +253,59 @@ class ContextBuilder:
             m.get("content", "")[:200] for m in history[-6:]
             if m.get("role") == "user" and isinstance(m.get("content"), str)
         ]
-        parts = recent_user_msgs[-max_recent:] + [current_message[:500]]
-        return "\n".join(p for p in parts if p.strip())
+        recent_assistant_msgs = [
+            m.get("content", "")[:160] for m in history[-4:]
+            if m.get("role") == "assistant" and isinstance(m.get("content"), str)
+        ]
+        current_text = current_message[:500].strip()
+        focus_lines = [
+            line.strip(" -*0123456789.、")[:120]
+            for line in current_message.splitlines()
+            if line.strip()
+        ]
+        focus_lines = [line for line in focus_lines if len(line) >= 6][:3]
+
+        parts: list[str] = []
+        if recent_user_msgs:
+            parts.append("Recent user context:\n" + "\n".join(recent_user_msgs[-max_recent:]))
+        if recent_assistant_msgs and any(
+            token in current_text.lower()
+            for token in ("之前", "上次", "刚才", "继续", "回顾", "总结", "earlier", "previous", "continue")
+        ):
+            parts.append("Recent assistant context:\n" + "\n".join(recent_assistant_msgs[-1:]))
+        if focus_lines:
+            parts.append("Current focus:\n" + "\n".join(focus_lines))
+        if current_text:
+            parts.append("Current message:\n" + current_text)
+        return "\n\n".join(p for p in parts if p.strip())
+
+    @staticmethod
+    def _plan_vector_retrieval(
+        history: list[dict[str, Any]],
+        current_message: str,
+    ) -> dict[str, int]:
+        """Choose retrieval depth dynamically from the current query complexity."""
+        text = current_message.strip()
+        complexity = 0
+        if len(text) >= 120:
+            complexity += 1
+        if len(text) >= 260:
+            complexity += 1
+        if text.count("\n") >= 2 or any(
+            marker in text
+            for marker in ("1.", "2.", "- ", "* ", "、", "以及", "同时", "对比", "compare", "vs", "总结", "回顾")
+        ):
+            complexity += 1
+        if sum(1 for item in history[-8:] if item.get("role") == "user") >= 4:
+            complexity += 1
+
+        max_summaries = min(4, 2 + complexity)
+        max_chunks = 2 if complexity <= 1 else 3
+        return {
+            "max_summaries": max_summaries,
+            "max_chunks_per_summary": max_chunks,
+        }
+
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
         """Build user message content with optional base64-encoded images."""
