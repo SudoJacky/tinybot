@@ -881,21 +881,37 @@ class AgentLoop:
         """Extract entities from a turn and merge into session.user_profile."""
         if not user_text.strip():
             return
+        if not self.entity_extractor.should_extract(user_text, session.user_profile):
+            return
+
+        turn_hash = self.entity_extractor.turn_fingerprint(user_text)
+        metadata_key = "entity_extractor_last_turn_hash"
+        if session.metadata.get(metadata_key) == turn_hash:
+            logger.debug("Skipping duplicate entity extraction for {}", session.key)
+            return
+
         try:
             extracted = await self.entity_extractor.extract(user_text, assistant_text)
+            session.metadata[metadata_key] = turn_hash
+            changed = False
             if extracted:
-                from tinybot.agent.memory import EntityExtractor
-                session.user_profile = EntityExtractor.merge_profile(
-                    session.user_profile, extracted,
+                merged = EntityExtractor.merge_profile(
+                    session.user_profile,
+                    extracted,
                 )
+                if merged != session.user_profile:
+                    session.user_profile = merged
+                    changed = True
+                    logger.debug(
+                        "Updated user_profile for {}: {}",
+                        session.key,
+                        list(extracted.keys()),
+                    )
+            if changed or session.metadata.get(metadata_key) == turn_hash:
                 self.sessions.save(session)
-                logger.debug(
-                    "Updated user_profile for {}: {}",
-                    session.key,
-                    list(extracted.keys()),
-                )
         except Exception:
             logger.debug("Entity extraction failed for {}", session.key)
+
 
     def stop(self) -> None:
         """Stop the agent loop."""

@@ -563,12 +563,13 @@ class AgentRunner:
         if not non_system:
             return messages
 
-        system_tokens = sum(estimate_message_tokens(msg) for msg in system_messages)
+        system_tokens = sum(estimate_message_tokens(msg, model=spec.model) for msg in system_messages)
         remaining_budget = max(128, budget - system_tokens)
         kept: list[dict[str, Any]] = []
         kept_tokens = 0
         for message in reversed(non_system):
-            msg_tokens = estimate_message_tokens(message)
+            msg_tokens = estimate_message_tokens(message, model=spec.model)
+
             if kept and kept_tokens + msg_tokens > remaining_budget:
                 break
             kept.append(message)

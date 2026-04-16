@@ -1,13 +1,15 @@
-Extract key facts from this conversation. Only output items matching these categories, skip everything else:
-- User facts: personal info, preferences, stated opinions, habits
-- Decisions: choices made, conclusions reached
-- Solutions: working approaches discovered through trial and error, especially non-obvious methods that succeeded after failed attempts
-- Events: plans, deadlines, notable occurrences
-- Preferences: communication style, tool preferences
+Summarize this archived conversation into durable memory.
 
-Priority: user corrections and preferences > solutions > decisions > events > environment facts. The most valuable memory prevents the user from having to repeat themselves.
+Emit only information worth remembering later, grouped implicitly by concise bullet prefixes when useful:
+- [Preference] stable user preferences, constraints, habits, communication style
+- [Decision] confirmed choices, conclusions, commitments, deadlines
+- [Fix] problem → root cause → working solution, especially after failed attempts
+- [Correction] places where the user corrected the assistant or revised an earlier assumption
+- [Open] unfinished follow-ups or promises that should not be forgotten
 
-Skip: code patterns derivable from source, git history, or anything already captured in existing memory.
-
-Output as concise bullet points, one fact per line. No preamble, no commentary.
-If nothing noteworthy happened, output: (nothing)
+Rules:
+- Only keep explicit facts or clearly confirmed outcomes.
+- Preserve important before/after structure when a correction or trial-and-error sequence matters.
+- Skip code that can be recovered from the repository, routine tool output, and transient noise.
+- One bullet per item. No preamble. No commentary.
+- If nothing durable is worth keeping, output: (nothing)

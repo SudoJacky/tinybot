@@ -13,6 +13,8 @@ from typing import Any
 from loguru import logger
 
 from tinybot.utils.media import image_placeholder_text
+from tinybot.utils.tokens import estimate_prompt_tokens
+
 
 
 @dataclass
@@ -94,10 +96,16 @@ class LLMProvider(ABC):
 
     _SENTINEL = object()
 
+    _PROMPT_CALIBRATION_ALPHA = 0.25
+    _PROMPT_CALIBRATION_MIN = 0.8
+    _PROMPT_CALIBRATION_MAX = 1.35
+
     def __init__(self, api_key: str | None = None, api_base: str | None = None):
         self.api_key = api_key
         self.api_base = api_base
         self.generation: GenerationSettings = GenerationSettings()
+        self._prompt_calibration: dict[str, float] = {}
+
 
     @staticmethod
     def _sanitize_empty_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -216,7 +224,91 @@ class LLMProvider(ABC):
                 result.append(msg)
         return result if found else None
 
+    @property
+    def provider_name(self) -> str:
+        spec = getattr(self, "_spec", None)
+        name = getattr(spec, "name", None)
+        if isinstance(name, str) and name.strip():
+            return name.strip().lower()
+        return type(self).__name__.removesuffix("Provider").lower()
+
+    def _prompt_calibration_key(self, model: str | None) -> str:
+        model_name = str(model or self.get_default_model() or "").strip().lower()
+        return f"{self.provider_name}:{model_name or 'default'}"
+
+    def estimate_prompt_tokens(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        model: str | None,
+    ) -> tuple[int, str]:
+        factor = self._prompt_calibration.get(self._prompt_calibration_key(model), 1.0)
+        estimated = estimate_prompt_tokens(
+            messages,
+            tools,
+            model=model or self.get_default_model(),
+            calibration_factor=factor,
+        )
+        return estimated, "provider_counter"
+
+    def observe_prompt_tokens(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        model: str | None,
+        actual_prompt_tokens: int,
+    ) -> None:
+        if actual_prompt_tokens <= 0:
+            return
+        baseline = estimate_prompt_tokens(
+            messages,
+            tools,
+            model=model or self.get_default_model(),
+            calibration_factor=1.0,
+        )
+        if baseline <= 0:
+            return
+
+        ratio = actual_prompt_tokens / baseline
+        ratio = max(self._PROMPT_CALIBRATION_MIN, min(self._PROMPT_CALIBRATION_MAX, ratio))
+        key = self._prompt_calibration_key(model)
+        previous = self._prompt_calibration.get(key)
+        if previous is None:
+            self._prompt_calibration[key] = ratio
+            return
+        alpha = self._PROMPT_CALIBRATION_ALPHA
+        self._prompt_calibration[key] = (previous * (1.0 - alpha)) + (ratio * alpha)
+
+    def _observe_prompt_usage(self, kw: dict[str, Any], response: LLMResponse) -> None:
+        usage = response.usage or {}
+        try:
+            actual_prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        except (TypeError, ValueError):
+            return
+        if actual_prompt_tokens <= 0:
+            return
+
+        messages = kw.get("messages")
+        if not isinstance(messages, list):
+            return
+
+        tools = kw.get("tools")
+        if tools is not None and not isinstance(tools, list):
+            tools = None
+
+        try:
+            self.observe_prompt_tokens(
+                messages=messages,
+                tools=tools,
+                model=kw.get("model"),
+                actual_prompt_tokens=actual_prompt_tokens,
+            )
+        except Exception:
+            logger.debug("Prompt token calibration skipped for {}", self.provider_name)
+
     async def _safe_chat(self, **kwargs: Any) -> LLMResponse:
+
         """Call chat() and convert unexpected exceptions to error responses."""
         try:
             return await self.chat(**kwargs)
@@ -433,7 +525,9 @@ class LLMProvider(ABC):
             attempt += 1
             response = await call(**kw)
             if response.finish_reason != "error":
+                self._observe_prompt_usage(kw, response)
                 return response
+
             last_response = response
             error_key = ((response.content or "").strip().lower() or None)
             if error_key and error_key == last_error_key:

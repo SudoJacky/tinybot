@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from datetime import datetime
+
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -315,7 +317,50 @@ class VectorStore:
             })
         return out
 
+    @staticmethod
+    def _query_terms(query: str) -> set[str]:
+        lowered = query.lower()
+        terms = {match.group(0) for match in re.finditer(r"[a-z0-9_]{2,}", lowered)}
+
+        cjk_text = "".join(ch for ch in query if "\u4e00" <= ch <= "\u9fff")
+        for size in (2, 3):
+            for idx in range(max(0, len(cjk_text) - size + 1)):
+                terms.add(cjk_text[idx: idx + size])
+        return {term for term in terms if term}
+
+    @classmethod
+    def _lexical_score(cls, query: str, text: str) -> float:
+        if not query.strip() or not text.strip():
+            return 0.0
+        query_terms = cls._query_terms(query)
+        lowered_text = text.lower()
+        score = 0.0
+        for term in query_terms:
+            if term in lowered_text:
+                score += 1.6 if len(term) >= 4 else 1.0
+        if query.strip()[:80] and query.strip()[:80].lower() in lowered_text:
+            score += 2.5
+        return score
+
+    @classmethod
+    def _rerank_by_query(
+        cls,
+        query: str,
+        items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not query.strip() or len(items) <= 1:
+            return items
+
+        def _rank(item: dict[str, Any]) -> tuple[float, float]:
+            text = str(item.get("content") or "")
+            lexical = cls._lexical_score(query, text)
+            distance = float(item.get("distance") or 0.0)
+            return (lexical - (distance * 0.75), -distance)
+
+        return sorted(items, key=_rank, reverse=True)
+
     def search_with_hierarchy(
+
         self,
         session_key: str,
         query: str,
@@ -359,6 +404,8 @@ class VectorStore:
         summaries = self.search_relevant_summaries(
             session_key, query, top_k=max_summaries,
         )
+        summaries = self._rerank_by_query(query, summaries)
+
 
         # Adapt distance threshold based on collection size:
         # fewer documents → looser threshold (more tolerant),
@@ -402,9 +449,13 @@ class VectorStore:
             if stored_session_key and session_manager is not None:
                 # New data path: dynamically read from SessionManager
                 chunks = self._read_chunks_from_session(
-                    session_manager, stored_session_key, meta, query,
+                    session_manager,
+                    stored_session_key,
+                    {**meta, "id": summary_id},
+                    query,
                     max_chunks=max_chunks_per_summary,
                 )
+
                 for chunk in chunks:
                     cid = chunk["id"]
                     if cid in seen_ids:
@@ -509,21 +560,21 @@ class VectorStore:
                 "id": chunk_id,
                 "type": "chunk",
                 "content": chunk_text,
-                "distance": 0.0,  # Dynamic chunks are always included
+                "distance": 0.0,  # Dynamic chunks are re-ranked locally below
                 "metadata": {
                     "summary_ref": summary_id,
                     "boundary_start": boundary_start,
                     "session_key": session_key,
                 },
-                "boundary": boundary_start,
+                "boundary": start + i,
             })
 
-        # If we have more chunks than max_chunks, take the last ones
-        # (most recent are typically more relevant)
         if len(chunks) > max_chunks:
-            chunks = chunks[-max_chunks:]
+            chunks = self._rerank_by_query(query, chunks)[:max_chunks]
+            chunks.sort(key=lambda item: item.get("boundary") or 0)
 
         return chunks
+
 
     @staticmethod
     def _read_legacy_chunks(
