@@ -373,7 +373,9 @@ class InteractiveChatUI:
         context_window_tokens: int | None = None,
         workspace_path: str | None = None,
         get_context_tokens: Callable[[], int | None] | None = None,
+        get_context_snapshot: Callable[[], dict[str, Any]] | None = None,
     ):
+
         self._render_markdown = render_markdown
         self._on_submit = on_submit
         self._on_config_edit = on_config_edit
@@ -402,7 +404,9 @@ class InteractiveChatUI:
         self._model_name = model_name or "unknown"
         self._context_window_tokens = context_window_tokens
         self._workspace_path = workspace_path or "unknown"
-        self._get_context_tokens = get_context_tokens  # Callback to get current context tokens
+        self._get_context_tokens = get_context_tokens  # Backward-compatible fallback
+        self._get_context_snapshot = get_context_snapshot
+
 
         self._transcript = TextArea(
             text="",
@@ -608,8 +612,18 @@ class InteractiveChatUI:
         info_parts = []
         info_parts.append(f"Provider: {self._provider_name}")
         info_parts.append(f"Model: {self._model_name}")
-        # Show current context tokens if available, otherwise show max window
-        current_tokens = self._get_context_tokens() if self._get_context_tokens else None
+
+        snapshot = self._get_context_snapshot() if self._get_context_snapshot else {}
+        current_tokens = None
+        estimated = False
+        if isinstance(snapshot, dict):
+            raw_tokens = snapshot.get("tokens")
+            if isinstance(raw_tokens, (int, float)) and raw_tokens > 0:
+                current_tokens = int(raw_tokens)
+                estimated = bool(snapshot.get("estimated"))
+        if current_tokens is None and self._get_context_tokens:
+            current_tokens = self._get_context_tokens()
+
         max_tokens = self._context_window_tokens or 0
 
         def format_tokens(tokens: int) -> str:
@@ -626,6 +640,8 @@ class InteractiveChatUI:
         if current_tokens:
             usage_pct = (current_tokens / max_tokens * 100) if max_tokens > 0 else 0
             current_str = format_tokens(current_tokens)
+            if estimated:
+                current_str = f"~{current_str}"
             max_str = format_tokens(max_tokens)
             info_parts.append(f"Ctx: {current_str}/{max_str} ({usage_pct:.0f}%)")
         elif max_tokens:
@@ -638,6 +654,7 @@ class InteractiveChatUI:
         return [("class:info-bar", " " + " | ".join(info_parts) + " ")]
 
     def refresh_info_bar(self) -> None:
+
         """Refresh the info bar to show updated context tokens."""
         self._invalidate()
 
@@ -1632,9 +1649,11 @@ def agent(
                 context_window_tokens=agent_loop.context_window_tokens,
                 workspace_path=str(config.workspace_path),
                 get_context_tokens=agent_loop.get_current_context_tokens,
+                get_context_snapshot=agent_loop.get_current_context_snapshot,
             )
 
             def _handle_signal(signum, _frame):
+
                 ui.exit()
 
             if hasattr(signal, "SIGTERM"):

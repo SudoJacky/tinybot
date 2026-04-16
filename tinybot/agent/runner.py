@@ -54,6 +54,8 @@ class AgentRunSpec:
     provider_retry_mode: str = "standard"
     progress_callback: Any | None = None
     checkpoint_callback: Any | None = None
+    context_usage_callback: Any | None = None
+
 
 
 @dataclass(slots=True)
@@ -100,12 +102,30 @@ class AgentRunner:
                 messages_for_model = messages
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
+            await self._emit_context_usage(
+                spec,
+                self._build_context_usage_payload(
+                    spec,
+                    messages_for_model,
+                    iteration=iteration,
+                    phase="before_request",
+                ),
+            )
             response = await self._request_model(spec, messages_for_model, hook, context)
             raw_usage = self._usage_dict(response.usage)
             context.response = response
             context.usage = dict(raw_usage)
             context.tool_calls = list(response.tool_calls)
             self._accumulate_usage(usage, raw_usage)
+            await self._emit_context_usage(
+                spec,
+                self._build_actual_usage_payload(
+                    raw_usage,
+                    iteration=iteration,
+                    phase="after_response",
+                ),
+            )
+
 
             if response.has_tool_calls:
                 if hook.wants_streaming():
@@ -193,6 +213,15 @@ class AgentRunner:
                 # (reasoning was streamed, but content is empty)
                 if hook.wants_streaming():
                     await hook.on_stream_end(context, resuming=False)
+                await self._emit_context_usage(
+                    spec,
+                    self._build_context_usage_payload(
+                        spec,
+                        messages_for_model + [build_finalization_retry_message()],
+                        iteration=iteration,
+                        phase="before_finalization_retry",
+                    ),
+                )
                 # Retry uses non-stream API, so no stream deltas will follow
                 response = await self._request_finalization_retry(spec, messages_for_model)
                 did_finalization_retry = True
@@ -202,7 +231,16 @@ class AgentRunner:
                 context.response = response
                 context.usage = dict(raw_usage)
                 context.tool_calls = list(response.tool_calls)
+                await self._emit_context_usage(
+                    spec,
+                    self._build_actual_usage_payload(
+                        retry_usage,
+                        iteration=iteration,
+                        phase="after_finalization_retry",
+                    ),
+                )
                 clean = hook.finalize_content(context, response.content)
+
 
             # Only call stream_end if we didn't do a finalization_retry.
             # After retry, content comes from non-stream API and will be
@@ -458,6 +496,54 @@ class AgentRunner:
             detail = detail[:120] + "..."
         return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
 
+    def _build_context_usage_payload(
+
+        self,
+        spec: AgentRunSpec,
+        messages: list[dict[str, Any]],
+        *,
+        iteration: int,
+        phase: str,
+    ) -> dict[str, Any]:
+        provider_max_tokens = getattr(getattr(self.provider, "generation", None), "max_tokens", 4096)
+        max_output = spec.max_tokens if isinstance(spec.max_tokens, int) else (
+            provider_max_tokens if isinstance(provider_max_tokens, int) else 4096
+        )
+        budget = spec.context_block_limit or (
+            spec.context_window_tokens - max_output - _SNIP_SAFETY_BUFFER
+            if spec.context_window_tokens else None
+        )
+        estimated, source = estimate_prompt_tokens_chain(
+            self.provider,
+            spec.model,
+            messages,
+            spec.tools.get_definitions(),
+        )
+        return {
+            "phase": phase,
+            "iteration": iteration,
+            "tokens": estimated,
+            "source": source,
+            "budget": budget,
+            "message_count": len(messages),
+            "estimated": True,
+        }
+
+    @staticmethod
+    def _build_actual_usage_payload(
+        usage: dict[str, int],
+        *,
+        iteration: int,
+        phase: str,
+    ) -> dict[str, Any]:
+        return {
+            "phase": phase,
+            "iteration": iteration,
+            "tokens": int(usage.get("prompt_tokens") or 0),
+            "source": "provider_usage",
+            "estimated": False,
+        }
+
     async def _emit_checkpoint(
         self,
         spec: AgentRunSpec,
@@ -467,8 +553,18 @@ class AgentRunner:
         if callback is not None:
             await callback(payload)
 
+    async def _emit_context_usage(
+        self,
+        spec: AgentRunSpec,
+        payload: dict[str, Any],
+    ) -> None:
+        callback = spec.context_usage_callback
+        if callback is not None and int(payload.get("tokens") or 0) > 0:
+            await callback(payload)
+
     @staticmethod
     def _append_final_message(messages: list[dict[str, Any]], content: str | None) -> None:
+
         if not content:
             return
         if (

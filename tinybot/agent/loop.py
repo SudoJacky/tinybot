@@ -320,9 +320,11 @@ class AgentLoop:
         self.restrict_to_workspace = restrict_to_workspace
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
+        self._current_context_snapshot: dict[str, Any] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
         self.task_manager = TaskManager(
+
             workspace=workspace,
             provider=provider,
             model=model or provider.get_default_model(),
@@ -396,12 +398,37 @@ class AgentLoop:
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
 
+    def get_current_context_snapshot(self) -> dict[str, Any]:
+        """Get the latest context usage snapshot for CLI/TUI display."""
+        if self._current_context_snapshot:
+            return dict(self._current_context_snapshot)
+        tokens = self._last_usage.get("prompt_tokens")
+        if tokens:
+            return {
+                "tokens": tokens,
+                "source": "turn_total_usage",
+                "estimated": False,
+            }
+        return {}
+
     def get_current_context_tokens(self) -> int | None:
-        """Get the current context token count from the last LLM call."""
-        return self._last_usage.get("prompt_tokens")
+        """Get the latest context token count for display."""
+        snapshot = self.get_current_context_snapshot()
+        tokens = snapshot.get("tokens")
+        return int(tokens) if isinstance(tokens, (int, float)) and tokens > 0 else None
+
+    def _update_context_snapshot(self, payload: dict[str, Any]) -> None:
+        """Track the latest estimated/actual prompt usage for the active turn."""
+        tokens = payload.get("tokens")
+        if not isinstance(tokens, (int, float)) or tokens <= 0:
+            return
+        snapshot = dict(payload)
+        snapshot["tokens"] = int(tokens)
+        self._current_context_snapshot = snapshot
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
+
         allowed_dir = self.workspace if self.restrict_to_workspace else None
         extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
         self.tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
@@ -678,7 +705,9 @@ class AgentLoop:
         ``resuming=True`` means tool calls follow (spinner should restart);
         ``resuming=False`` means this is the final response.
         """
+        self._current_context_snapshot = {}
         loop_hook = _LoopHook(
+
             self,
             on_progress=on_progress,
             on_stream=on_stream,
@@ -699,8 +728,12 @@ class AgentLoop:
                 return
             self._set_runtime_checkpoint(session, payload)
 
+        async def _context_usage(payload: dict[str, Any]) -> None:
+            self._update_context_snapshot(payload)
+
         tools = self._tools_for_run(channel=channel)
         result = await self.runner.run(AgentRunSpec(
+
             initial_messages=initial_messages,
             tools=tools,
             model=self.model,
@@ -716,7 +749,9 @@ class AgentLoop:
             provider_retry_mode=self.provider_retry_mode,
             progress_callback=on_progress,
             checkpoint_callback=_checkpoint,
+            context_usage_callback=_context_usage,
         ))
+
         self._last_usage = result.usage
         if result.stop_reason == "max_iterations":
             logger.warning("Max iterations ({}) reached", self.max_iterations)
