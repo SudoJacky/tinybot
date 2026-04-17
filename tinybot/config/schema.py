@@ -305,7 +305,7 @@ class Config(BaseSettings):
 
     def _match_provider(
         self, model: str | None = None
-    ) -> tuple["ProviderConfig | None", str | None]:
+    ) -> tuple[ProviderConfig | None, str | None]:
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from tinybot.providers.registry import PROVIDERS, find_by_name
 

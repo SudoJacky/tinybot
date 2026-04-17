@@ -53,7 +53,7 @@ def _response_text(value: Any) -> str:
     if value is None:
         return ""
     if hasattr(value, "content"):
-        return str(getattr(value, "content") or "")
+        return str(value.content or "")
     return str(value)
 
 
@@ -138,7 +138,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                         )
                         response_text = _FALLBACK
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return _error_json(504, f"Request timed out after {timeout_s}s")
             except Exception:
                 logger.exception("Error processing request for session {}", session_key)

@@ -5,7 +5,8 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Coroutine
+from typing import Any
+from collections.abc import Callable, Coroutine
 
 from loguru import logger
 

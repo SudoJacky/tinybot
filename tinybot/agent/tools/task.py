@@ -1,6 +1,7 @@
 """Task management tool for complex multi-step tasks."""
 
-from typing import Any, Callable, Coroutine
+from typing import Any
+from collections.abc import Callable, Coroutine
 
 from loguru import logger
 

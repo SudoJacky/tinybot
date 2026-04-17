@@ -26,7 +26,7 @@ ALLOWED_RESOURCE_DIRS = {"scripts", "references", "assets"}
 PLACEHOLDER_MARKERS = ("[todo", "todo:")
 
 
-def _extract_frontmatter(content: str) -> Optional[str]:
+def _extract_frontmatter(content: str) -> str | None:
     lines = content.splitlines()
     if not lines or lines[0].strip() != "---":
         return None
@@ -36,11 +36,11 @@ def _extract_frontmatter(content: str) -> Optional[str]:
     return None
 
 
-def _parse_simple_frontmatter(frontmatter_text: str) -> Optional[dict[str, str]]:
+def _parse_simple_frontmatter(frontmatter_text: str) -> dict[str, str] | None:
     """Fallback parser for simple frontmatter when PyYAML is unavailable."""
     parsed: dict[str, str] = {}
-    current_key: Optional[str] = None
-    multiline_key: Optional[str] = None
+    current_key: str | None = None
+    multiline_key: str | None = None
 
     for raw_line in frontmatter_text.splitlines():
         stripped = raw_line.strip()
@@ -83,7 +83,7 @@ def _parse_simple_frontmatter(frontmatter_text: str) -> Optional[dict[str, str]]
     return parsed
 
 
-def _load_frontmatter(frontmatter_text: str) -> tuple[Optional[dict], Optional[str]]:
+def _load_frontmatter(frontmatter_text: str) -> tuple[dict | None, str | None]:
     if yaml is not None:
         try:
             frontmatter = yaml.safe_load(frontmatter_text)
@@ -99,7 +99,7 @@ def _load_frontmatter(frontmatter_text: str) -> tuple[Optional[dict], Optional[s
     return frontmatter, None
 
 
-def _validate_skill_name(name: str, folder_name: str) -> Optional[str]:
+def _validate_skill_name(name: str, folder_name: str) -> str | None:
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
         return (
             f"Name '{name}' should be hyphen-case "
@@ -115,7 +115,7 @@ def _validate_skill_name(name: str, folder_name: str) -> Optional[str]:
     return None
 
 
-def _validate_description(description: str) -> Optional[str]:
+def _validate_description(description: str) -> str | None:
     trimmed = description.strip()
     if not trimmed:
         return "Description cannot be empty"

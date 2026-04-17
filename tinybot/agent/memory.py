@@ -10,7 +10,8 @@ import weakref
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
 
 from loguru import logger
 
@@ -268,7 +269,7 @@ class MemoryStore:
         """Read all entries from history.jsonl."""
         entries: list[dict[str, Any]] = []
         try:
-            with open(self.history_file, "r", encoding="utf-8") as f:
+            with open(self.history_file, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if line:
