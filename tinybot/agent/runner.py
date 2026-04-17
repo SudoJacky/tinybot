@@ -711,4 +711,3 @@ class AgentRunner:
         if current:
             batches.append(current)
         return batches
-

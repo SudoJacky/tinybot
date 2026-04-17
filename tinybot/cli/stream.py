@@ -585,6 +585,3 @@ class TaskProgressPanel:
     def is_started(self) -> bool:
         """Check if the panel is currently started."""
         return self._started
-
-
-

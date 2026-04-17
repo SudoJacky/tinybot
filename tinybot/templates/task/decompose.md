@@ -25,7 +25,7 @@ Each subtask should be:
 **Sequential (strict order):**
 ```
 1. Research → no deps, parallel_safe: true
-2. Analyze → deps: [1], parallel_safe: true  
+2. Analyze → deps: [1], parallel_safe: true
 3. Write report → deps: [2], parallel_safe: true
 ```
 
