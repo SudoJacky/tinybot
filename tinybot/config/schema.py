@@ -1,9 +1,11 @@
 """Configuration schema using Pydantic."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
@@ -86,6 +88,70 @@ class AgentDefaults(Base):
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     enable_vector_store: bool = False  # Feature flag: ChromaDB embedding storage for session summaries
     dream: DreamConfig = Field(default_factory=DreamConfig)
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, v: str) -> str:
+        """Validate model is non-empty."""
+        if not v or v.strip() == "":
+            raise ValueError("model cannot be empty")
+        return v.strip()
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
+        """Validate timezone is a valid IANA timezone."""
+        if not v or v.strip() == "":
+            raise ValueError("timezone cannot be empty")
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(v)
+        except ImportError:
+            # zoneinfo not available - skip validation
+            pass
+        except Exception:
+            # ZoneInfoNotFoundError or other errors - skip validation on Windows
+            # since tzdata may not be installed
+            pass
+        return v.strip()
+
+    @field_validator("temperature")
+    @classmethod
+    def validate_temperature(cls, v: float) -> float:
+        """Validate temperature is in valid range."""
+        if v < 0 or v > 2:
+            raise ValueError(f"temperature must be between 0 and 2, got {v}")
+        return v
+
+    @field_validator("max_tool_iterations")
+    @classmethod
+    def validate_max_iterations(cls, v: int) -> int:
+        """Validate max_tool_iterations is positive."""
+        if v < 1:
+            raise ValueError(f"max_tool_iterations must be at least 1, got {v}")
+        return v
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def validate_reasoning_effort(cls, v: str | None) -> str | None:
+        """Validate reasoning_effort is valid value."""
+        if v is None:
+            return v
+        valid_values = ["low", "medium", "high"]
+        if v.lower() not in valid_values:
+            raise ValueError(f"reasoning_effort must be one of {valid_values}, got '{v}'")
+        return v.lower()
+
+    @model_validator(mode="after")
+    def validate_context_limits(self) -> AgentDefaults:
+        """Validate context_block_limit is less than context_window_tokens."""
+        if self.context_block_limit is not None:
+            if self.context_block_limit > self.context_window_tokens:
+                raise ValueError(
+                    f"context_block_limit ({self.context_block_limit}) must be less than "
+                    f"context_window_tokens ({self.context_window_tokens})"
+                )
+        return self
 
 
 class AgentsConfig(Base):
@@ -192,6 +258,25 @@ class MCPServerConfig(Base):
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP/SSE: custom headers
     tool_timeout: int = 30  # seconds before a tool call is cancelled
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all tools; [] = no tools
+
+    @model_validator(mode="after")
+    def validate_connection_config(self) -> MCPServerConfig:
+        """Validate that required fields are present based on type."""
+        if self.type == "stdio":
+            if not self.command:
+                raise ValueError("stdio MCP server requires 'command' field")
+        elif self.type in ("sse", "streamableHttp"):
+            if not self.url:
+                raise ValueError(f"{self.type} MCP server requires 'url' field")
+        return self
+
+    @field_validator("tool_timeout")
+    @classmethod
+    def validate_tool_timeout(cls, v: int) -> int:
+        """Validate tool_timeout is positive."""
+        if v < 1:
+            raise ValueError(f"tool_timeout must be at least 1 second, got {v}")
+        return v
 
 class ToolsConfig(Base):
     """Tools configuration."""

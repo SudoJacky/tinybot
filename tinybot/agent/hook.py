@@ -24,6 +24,9 @@ class AgentHookContext:
     final_content: str | None = None
     stop_reason: str | None = None
     error: str | None = None
+    # New fields for T014
+    current_tool: str | None = None  # Current executing tool name
+    tool_errors: list[dict[str, Any]] = field(default_factory=list)  # Tool error records
 
 
 class AgentHook:
@@ -51,6 +54,18 @@ class AgentHook:
         pass
 
     async def after_iteration(self, context: AgentHookContext) -> None:
+        pass
+
+    async def on_tool_start(self, context: AgentHookContext, tool_name: str, args: dict[str, Any]) -> None:
+        """Called before each tool execution."""
+        pass
+
+    async def on_tool_end(self, context: AgentHookContext, tool_name: str, result: Any) -> None:
+        """Called after each tool execution."""
+        pass
+
+    async def on_error(self, context: AgentHookContext, error: Exception) -> None:
+        """Called when an error occurs."""
         pass
 
     def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
@@ -121,6 +136,27 @@ class CompositeHook(AgentHook):
                 await h.after_iteration(context)
             except Exception:
                 logger.exception("AgentHook.after_iteration error in {}", type(h).__name__)
+
+    async def on_tool_start(self, context: AgentHookContext, tool_name: str, args: dict[str, Any]) -> None:
+        for h in self._hooks:
+            try:
+                await h.on_tool_start(context, tool_name, args)
+            except Exception:
+                logger.exception("AgentHook.on_tool_start error in {}", type(h).__name__)
+
+    async def on_tool_end(self, context: AgentHookContext, tool_name: str, result: Any) -> None:
+        for h in self._hooks:
+            try:
+                await h.on_tool_end(context, tool_name, result)
+            except Exception:
+                logger.exception("AgentHook.on_tool_end error in {}", type(h).__name__)
+
+    async def on_error(self, context: AgentHookContext, error: Exception) -> None:
+        for h in self._hooks:
+            try:
+                await h.on_error(context, error)
+            except Exception:
+                logger.exception("AgentHook.on_error error in {}", type(h).__name__)
 
     def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
         for h in self._hooks:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from contextlib import AsyncExitStack, nullcontext
@@ -13,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from loguru import logger
 
 from tinybot.agent.context import ContextBuilder
-from tinybot.agent.hook import AgentHook, AgentHookContext, CompositeHook
+from tinybot.agent.hook import AgentHook
 from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
@@ -31,9 +30,11 @@ from tinybot.bus.queue import MessageBus
 from tinybot.command import CommandContext, CommandRouter, register_builtin_commands
 from tinybot.config.schema import AgentDefaults
 from tinybot.providers.base import LLMProvider
+from tinybot.agent.dependencies import AgentDependencies
+from tinybot.agent.session_handler import SessionHandler
+from tinybot.agent.stream_handler import StreamHandler, StreamHookChain
+from tinybot.agent.tool_executor import ToolContextManager, format_tool_call_detail
 from tinybot.session.manager import Session, SessionManager
-from tinybot.utils.helper import truncate_text
-from tinybot.utils.media import image_placeholder_text
 from tinybot.utils.prompt_templates import render_template
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
@@ -43,181 +44,6 @@ from tinybot.cli.stream import TaskProgressState
 if TYPE_CHECKING:
     from tinybot.config.schema import ChannelsConfig, ExecToolConfig
     from tinybot.cron.service import CronService
-
-
-class _LoopHook(AgentHook):
-    """Core hook for the main loop."""
-
-    def __init__(
-        self,
-        agent_loop: AgentLoop,
-        on_progress: Callable[..., Awaitable[None]] | None = None,
-        on_stream: Callable[[str], Awaitable[None]] | None = None,
-        on_reasoning_stream: Callable[[str], Awaitable[None]] | None = None,
-        on_stream_end: Callable[..., Awaitable[None]] | None = None,
-        *,
-        channel: str = "cli",
-        chat_id: str = "direct",
-        message_id: str | None = None,
-    ) -> None:
-        self._loop = agent_loop
-        self._on_progress = on_progress
-        self._on_stream = on_stream
-        self._on_reasoning_stream = on_reasoning_stream
-        self._on_stream_end = on_stream_end
-        self._channel = channel
-        self._chat_id = chat_id
-        self._message_id = message_id
-        self._stream_buf = ""
-        self._reasoning_buf = ""
-
-    def wants_streaming(self) -> bool:
-        return self._on_stream is not None or self._on_reasoning_stream is not None
-
-    @staticmethod
-    def _merge_stream_buffer(previous: str, delta: str, *, strip_hidden: bool = False) -> tuple[str, str]:
-        if not delta:
-            return previous, ""
-        if strip_hidden:
-            from tinybot.utils.text import strip_think
-
-            prev_clean = strip_think(previous)
-            appended_buf = previous + delta
-            appended_clean = strip_think(appended_buf)
-            snapshot_clean = strip_think(delta)
-
-            candidates: list[tuple[int, str, str]] = []
-            if appended_clean.startswith(prev_clean):
-                candidates.append((len(appended_clean), appended_buf, appended_clean))
-            if snapshot_clean.startswith(prev_clean):
-                candidates.append((len(snapshot_clean), delta, snapshot_clean))
-
-            if candidates:
-                _, next_buf, next_clean = min(candidates, key=lambda item: item[0])
-            else:
-                next_buf = appended_buf
-                next_clean = appended_clean
-            incremental = next_clean[len(prev_clean):]
-            return next_buf, incremental
-
-        next_buf = delta if delta.startswith(previous) else previous + delta
-        incremental = next_buf[len(previous):]
-        return next_buf, incremental
-
-    async def on_stream(self, context: AgentHookContext, delta: str) -> None:
-        self._stream_buf, incremental = self._merge_stream_buffer(
-            self._stream_buf,
-            delta,
-            strip_hidden=True,
-        )
-        if incremental and self._on_stream:
-            await self._on_stream(incremental)
-
-    async def on_reasoning_stream(self, context: AgentHookContext, delta: str) -> None:
-        self._reasoning_buf, incremental = self._merge_stream_buffer(
-            self._reasoning_buf,
-            delta,
-        )
-        if incremental and self._on_reasoning_stream:
-            await self._on_reasoning_stream(incremental)
-
-    async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
-        if self._on_stream_end:
-            await self._on_stream_end(resuming=resuming)
-        self._stream_buf = ""
-        self._reasoning_buf = ""
-
-    async def before_execute_tools(self, context: AgentHookContext) -> None:
-        if self._on_progress:
-            if not self._on_stream:
-                thought = self._loop._strip_think(
-                    context.response.content if context.response else None
-                )
-                if thought:
-                    await self._on_progress(thought)
-
-            # 发送每个工具调用的详细信息
-            for tc in context.tool_calls:
-                detail = self._loop._format_tool_call_detail(tc)
-                await self._on_progress(detail, tool_hint=True, tool_detail=True, tool_name=tc.name)
-
-        for tc in context.tool_calls:
-            args_str = json.dumps(tc.arguments, ensure_ascii=False)
-            logger.info("Tool call: {}({})", tc.name, args_str[:200])
-        self._loop._set_tool_context(self._channel, self._chat_id, self._message_id)
-
-    async def after_execute_tools(self, context: AgentHookContext) -> None:
-        """Send tool execution results."""
-        if self._on_progress and context.tool_events:
-            for event in context.tool_events:
-                name = event.get("name", "tool")
-                status = event.get("status", "ok")
-                detail = event.get("detail", "")
-                # 截断过长的detail
-                if len(detail) > 80:
-                    detail = detail[:80] + "..."
-                if status == "ok":
-                    # 只发送结果内容，UI会原地更新
-                    await self._on_progress(detail, tool_hint=True, tool_result=True, tool_name=name)
-                else:
-                    await self._on_progress(f"✗ {detail}", tool_hint=True, tool_result=True, tool_name=name)
-
-    async def after_iteration(self, context: AgentHookContext) -> None:
-        u = context.usage or {}
-        logger.debug(
-            "LLM usage: prompt={} completion={} cached={}",
-            u.get("prompt_tokens", 0),
-            u.get("completion_tokens", 0),
-            u.get("cached_tokens", 0),
-        )
-
-    def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
-        return self._loop._strip_think(content)
-
-
-class _LoopHookChain(AgentHook):
-    """Run the core hook before extra hooks."""
-
-    __slots__ = ("_primary", "_extras")
-
-    def __init__(self, primary: AgentHook, extra_hooks: list[AgentHook]) -> None:
-        self._primary = primary
-        self._extras = CompositeHook(extra_hooks)
-
-    def wants_streaming(self) -> bool:
-        return self._primary.wants_streaming() or self._extras.wants_streaming()
-
-    async def before_iteration(self, context: AgentHookContext) -> None:
-        await self._primary.before_iteration(context)
-        await self._extras.before_iteration(context)
-
-    async def on_stream(self, context: AgentHookContext, delta: str) -> None:
-        await self._primary.on_stream(context, delta)
-        await self._extras.on_stream(context, delta)
-
-    async def on_reasoning_stream(self, context: AgentHookContext, delta: str) -> None:
-        await self._primary.on_reasoning_stream(context, delta)
-        await self._extras.on_reasoning_stream(context, delta)
-
-    async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
-        await self._primary.on_stream_end(context, resuming=resuming)
-        await self._extras.on_stream_end(context, resuming=resuming)
-
-    async def before_execute_tools(self, context: AgentHookContext) -> None:
-        await self._primary.before_execute_tools(context)
-        await self._extras.before_execute_tools(context)
-
-    async def after_execute_tools(self, context: AgentHookContext) -> None:
-        await self._primary.after_execute_tools(context)
-        await self._extras.after_execute_tools(context)
-
-    async def after_iteration(self, context: AgentHookContext) -> None:
-        await self._primary.after_iteration(context)
-        await self._extras.after_iteration(context)
-
-    def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
-        content = self._primary.finalize_content(context, content)
-        return self._extras.finalize_content(context, content)
 
 
 class AgentLoop:
@@ -231,8 +57,6 @@ class AgentLoop:
     4. Executes tool calls
     5. Sends responses back
     """
-
-    _RUNTIME_CHECKPOINT_KEY = "runtime_checkpoint"
 
     @classmethod
     def from_config(
@@ -291,6 +115,7 @@ class AgentLoop:
         timezone: str | None = None,
         enable_vector_store: bool = False,
         hooks: list[AgentHook] | None = None,
+        deps: AgentDependencies | None = None,  # Optional dependency injection
     ):
         from tinybot.config.schema import ExecToolConfig
 
@@ -323,43 +148,84 @@ class AgentLoop:
         self._current_context_snapshot: dict[str, Any] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
-        self.task_manager = TaskManager(
-
-            workspace=workspace,
-            provider=provider,
-            model=model or provider.get_default_model(),
-            on_progress=self._on_task_progress,
-            # on_execute removed: TaskTool now uses spawn for async execution
-        )
         # Shared state for task progress display (used by CLI)
         self.task_progress_state = TaskProgressState()
         self._task_progress_channel: str = ""
         self._task_progress_chat_id: str = ""
-        self.sessions = session_manager or SessionManager(workspace)
-        self.context = ContextBuilder(workspace, timezone=timezone, task_manager=self.task_manager, session_manager=self.sessions)
 
-        # Initialize ChromaDB vector store only when feature flag is enabled
-        if enable_vector_store:
-            from tinybot.agent.vector_store import VectorStore
-            vector_store_dir = workspace / ".chromadb"
-            self._vector_store = VectorStore(vector_store_dir)
-            self.context.vector_store = self._vector_store
+        # Use injected dependencies or create defaults
+        if deps is not None:
+            self.deps = deps
+            self.task_manager = deps.task_manager
+            self.sessions = deps.session_manager
+            self.session_handler = deps.session_handler
+            self.tool_context = deps.tool_context
+            self.context = deps.context_builder
+            self._vector_store = deps.vector_store
+            self.tools = deps.tools
+            self.subagents = deps.subagents
+            self.consolidator = deps.consolidator
+            self.dream = deps.dream
+            self.entity_extractor = deps.entity_extractor
         else:
-            self._vector_store = None
-            self.context.vector_store = None
-        self.tools = ToolRegistry()
+            # Create dependencies inline (backward compatible)
+            self.task_manager = TaskManager(
+                workspace=workspace,
+                provider=provider,
+                model=self.model,
+                on_progress=self._on_task_progress,
+            )
+            self.sessions = session_manager or SessionManager(workspace)
+            self.session_handler = SessionHandler(self.max_tool_result_chars)
+            self.tool_context = ToolContextManager()
+            self.context = ContextBuilder(
+                workspace, timezone=timezone,
+                task_manager=self.task_manager, session_manager=self.sessions
+            )
+
+            if enable_vector_store:
+                from tinybot.agent.vector_store import VectorStore
+                vector_store_dir = workspace / ".chromadb"
+                self._vector_store = VectorStore(vector_store_dir)
+                self.context.vector_store = self._vector_store
+            else:
+                self._vector_store = None
+                self.context.vector_store = None
+
+            self.tools = ToolRegistry()
+            self.subagents = SubagentManager(
+                provider=provider,
+                workspace=workspace,
+                bus=bus,
+                model=self.model,
+                max_tool_result_chars=self.max_tool_result_chars,
+                exec_config=self.exec_config,
+                restrict_to_workspace=restrict_to_workspace,
+                max_concurrent=int(os.environ.get("TINYBOT_MAX_CONCURRENT_SUBAGENTS", "5")),
+                timeout_seconds=int(os.environ.get("TINYBOT_SUBAGENT_TIMEOUT_SECONDS", "300")),
+            )
+            self.consolidator = Consolidator(
+                store=self.context.memory,
+                provider=provider,
+                model=self.model,
+                sessions=self.sessions,
+                context_window_tokens=context_window_tokens,
+                build_messages=self.context.build_messages,
+                get_tool_definitions=self.tools.get_definitions,
+                max_completion_tokens=provider.generation.max_tokens,
+                vector_store=self._vector_store,
+            )
+            self.dream = Dream(
+                store=self.context.memory,
+                provider=provider,
+                model=self.model,
+            )
+            self.entity_extractor = EntityExtractor(
+                provider=provider,
+                model=self.model,
+            )
+
         self.runner = AgentRunner(provider)
-        self.subagents = SubagentManager(
-            provider=provider,
-            workspace=workspace,
-            bus=bus,
-            model=self.model,
-            max_tool_result_chars=self.max_tool_result_chars,
-            exec_config=self.exec_config,
-            restrict_to_workspace=restrict_to_workspace,
-            max_concurrent=int(os.environ.get("TINYBOT_MAX_CONCURRENT_SUBAGENTS", "5")),
-            timeout_seconds=int(os.environ.get("TINYBOT_SUBAGENT_TIMEOUT_SECONDS", "300")),
-        )
 
         self._running = False
         self._mcp_servers = mcp_servers or {}
@@ -373,26 +239,6 @@ class AgentLoop:
         _max = int(os.environ.get("tinybot_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
             asyncio.Semaphore(_max) if _max > 0 else None
-        )
-        self.consolidator = Consolidator(
-            store=self.context.memory,
-            provider=provider,
-            model=self.model,
-            sessions=self.sessions,
-            context_window_tokens=context_window_tokens,
-            build_messages=self.context.build_messages,
-            get_tool_definitions=self.tools.get_definitions,
-            max_completion_tokens=provider.generation.max_tokens,
-            vector_store=self._vector_store,
-        )
-        self.dream = Dream(
-            store=self.context.memory,
-            provider=provider,
-            model=self.model,
-        )
-        self.entity_extractor = EntityExtractor(
-            provider=provider,
-            model=self.model,
         )
         self._register_default_tools()
         self.commands = CommandRouter()
@@ -524,10 +370,12 @@ class AgentLoop:
 
     def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron", "task"):
+        self.tool_context.set_context(channel, chat_id, message_id)
+        self.tool_context.apply_to_tools(self.tools)
+        for name in ("spawn", "cron", "task"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
-                    tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
+                    tool.set_context(channel, chat_id)
         # Set task progress channel for real-time updates
         self._task_progress_channel = channel
         self._task_progress_chat_id = chat_id
@@ -551,35 +399,6 @@ class AgentLoop:
                 return tc.name
             return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
         return ", ".join(_fmt(tc) for tc in tool_calls)
-
-    @staticmethod
-    def _format_tool_call_detail(tc) -> str:
-        """Format tool call as Claude Code-style display: ● ToolName(args)."""
-        args = tc.arguments if isinstance(tc.arguments, dict) else {}
-        # 取第一个参数作为摘要显示
-        if args:
-            first_key = next(iter(args.keys()), None)
-            first_val = args.get(first_key) if first_key else None
-            if isinstance(first_val, str):
-                val_display = first_val[:60] + "…" if len(first_val) > 60 else first_val
-                summary = f"{first_key}=\"{val_display}\""
-            elif first_val is not None:
-                summary = f"{first_key}={first_val}"
-            else:
-                summary = ""
-            # 如果有其他参数，简要列出
-            other_args = []
-            for k, v in list(args.items())[1:3]:  # 最多显示3个参数
-                if isinstance(v, str) and len(v) > 30:
-                    other_args.append(f"{k}=\"{v[:30]}…\"")
-                elif isinstance(v, str):
-                    other_args.append(f"{k}=\"{v}\"")
-                else:
-                    other_args.append(f"{k}={v}")
-            if other_args:
-                summary += ", " + ", ".join(other_args)
-            return f"{tc.name}({summary})" if summary else tc.name
-        return tc.name
 
     def _render_task_progress_display(self, progress: dict[str, Any]) -> str:
         """Render a compact task progress display for CLI."""
@@ -706,8 +525,7 @@ class AgentLoop:
         ``resuming=False`` means this is the final response.
         """
         self._current_context_snapshot = {}
-        loop_hook = _LoopHook(
-
+        loop_hook = StreamHandler(
             self,
             on_progress=on_progress,
             on_stream=on_stream,
@@ -718,7 +536,7 @@ class AgentLoop:
             message_id=message_id,
         )
         hook: AgentHook = (
-            _LoopHookChain(loop_hook, self._extra_hooks)
+            StreamHookChain(loop_hook, self._extra_hooks)
             if self._extra_hooks
             else loop_hook
         )
@@ -726,7 +544,7 @@ class AgentLoop:
         async def _checkpoint(payload: dict[str, Any]) -> None:
             if session is None:
                 return
-            self._set_runtime_checkpoint(session, payload)
+            self.session_handler.set_checkpoint(session, payload)
 
         async def _context_usage(payload: dict[str, Any]) -> None:
             self._update_context_snapshot(payload)
@@ -976,7 +794,7 @@ class AgentLoop:
             key = f"{channel}:{chat_id}"
 
             session = self.sessions.get_or_create(key)
-            if self._restore_runtime_checkpoint(session):
+            if self.session_handler.restore_checkpoint(session):
                 self.sessions.save(session)
             await self.consolidator.maybe_consolidate_by_tokens(session)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
@@ -1012,8 +830,8 @@ class AgentLoop:
                 on_reasoning_stream=on_reasoning_stream,
                 on_stream_end=on_stream_end,
             )
-            self._save_turn(session, all_msgs, 1 + len(history))
-            self._clear_runtime_checkpoint(session)
+            self.session_handler.save_turn(session, all_msgs, 1 + len(history), ContextBuilder._RUNTIME_CONTEXT_TAG)
+            self.session_handler.clear_checkpoint(session)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
             self._schedule_background(self._update_user_profile(
@@ -1029,7 +847,7 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
-        if self._restore_runtime_checkpoint(session):
+        if self.session_handler.restore_checkpoint(session):
             self.sessions.save(session)
 
         # Slash commands
@@ -1079,8 +897,8 @@ class AgentLoop:
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
 
-        self._save_turn(session, all_msgs, 1 + len(history))
-        self._clear_runtime_checkpoint(session)
+        self.session_handler.save_turn(session, all_msgs, 1 + len(history), ContextBuilder._RUNTIME_CONTEXT_TAG)
+        self.session_handler.clear_checkpoint(session)
         self.sessions.save(session)
         self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
         self._schedule_background(self._update_user_profile(
@@ -1100,152 +918,6 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id, content=final_content,
             metadata=meta,
         )
-
-    def _sanitize_persisted_blocks(
-        self,
-        content: list[dict[str, Any]],
-        *,
-        truncate_text: bool = False,
-        drop_runtime: bool = False,
-    ) -> list[dict[str, Any]]:
-        """Strip volatile multimodal payloads before writing session history."""
-        filtered: list[dict[str, Any]] = []
-        for block in content:
-            if not isinstance(block, dict):
-                filtered.append(block)
-                continue
-
-            if (
-                drop_runtime
-                and block.get("type") == "text"
-                and isinstance(block.get("text"), str)
-                and block["text"].startswith(ContextBuilder._RUNTIME_CONTEXT_TAG)
-            ):
-                continue
-
-            if (
-                block.get("type") == "image_url"
-                and block.get("image_url", {}).get("url", "").startswith("data:image/")
-            ):
-                path = (block.get("_meta") or {}).get("path", "")
-                filtered.append({"type": "text", "text": image_placeholder_text(path)})
-                continue
-
-            if block.get("type") == "text" and isinstance(block.get("text"), str):
-                text = block["text"]
-                if truncate_text and len(text) > self.max_tool_result_chars:
-                    text = truncate_text(text, self.max_tool_result_chars)
-                filtered.append({**block, "text": text})
-                continue
-
-            filtered.append(block)
-
-        return filtered
-
-    def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
-        """Save new-turn messages into session, truncating large tool results."""
-        from datetime import datetime
-        for m in messages[skip:]:
-            entry = dict(m)
-            role, content = entry.get("role"), entry.get("content")
-            if role == "assistant" and not content and not entry.get("tool_calls"):
-                continue  # skip empty assistant messages — they poison session context
-            if role == "tool":
-                if isinstance(content, str) and len(content) > self.max_tool_result_chars:
-                    entry["content"] = truncate_text(content, self.max_tool_result_chars)
-                elif isinstance(content, list):
-                    filtered = self._sanitize_persisted_blocks(content, truncate_text=True)
-                    if not filtered:
-                        continue
-                    entry["content"] = filtered
-            elif role == "user":
-                if isinstance(content, str) and content.startswith(ContextBuilder._RUNTIME_CONTEXT_TAG):
-                    # Strip the runtime-context prefix, keep only the user text.
-                    parts = content.split("\n\n", 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        entry["content"] = parts[1]
-                    else:
-                        continue
-                if isinstance(content, list):
-                    filtered = self._sanitize_persisted_blocks(content, drop_runtime=True)
-                    if not filtered:
-                        continue
-                    entry["content"] = filtered
-            entry.setdefault("timestamp", datetime.now().isoformat())
-            session.messages.append(entry)
-        session.updated_at = datetime.now()
-
-    def _set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
-        """Persist the latest in-flight turn state into session metadata."""
-        session.metadata[self._RUNTIME_CHECKPOINT_KEY] = payload
-        self.sessions.save(session)
-
-    def _clear_runtime_checkpoint(self, session: Session) -> None:
-        if self._RUNTIME_CHECKPOINT_KEY in session.metadata:
-            session.metadata.pop(self._RUNTIME_CHECKPOINT_KEY, None)
-
-    @staticmethod
-    def _checkpoint_message_key(message: dict[str, Any]) -> tuple[Any, ...]:
-        return (
-            message.get("role"),
-            message.get("content"),
-            message.get("tool_call_id"),
-            message.get("name"),
-            message.get("tool_calls"),
-            message.get("reasoning_content"),
-            message.get("thinking_blocks"),
-        )
-
-    def _restore_runtime_checkpoint(self, session: Session) -> bool:
-        """Materialize an unfinished turn into session history before a new request."""
-        from datetime import datetime
-
-        checkpoint = session.metadata.get(self._RUNTIME_CHECKPOINT_KEY)
-        if not isinstance(checkpoint, dict):
-            return False
-
-        assistant_message = checkpoint.get("assistant_message")
-        completed_tool_results = checkpoint.get("completed_tool_results") or []
-        pending_tool_calls = checkpoint.get("pending_tool_calls") or []
-
-        restored_messages: list[dict[str, Any]] = []
-        if isinstance(assistant_message, dict):
-            restored = dict(assistant_message)
-            restored.setdefault("timestamp", datetime.now().isoformat())
-            restored_messages.append(restored)
-        for message in completed_tool_results:
-            if isinstance(message, dict):
-                restored = dict(message)
-                restored.setdefault("timestamp", datetime.now().isoformat())
-                restored_messages.append(restored)
-        for tool_call in pending_tool_calls:
-            if not isinstance(tool_call, dict):
-                continue
-            tool_id = tool_call.get("id")
-            name = ((tool_call.get("function") or {}).get("name")) or "tool"
-            restored_messages.append({
-                "role": "tool",
-                "tool_call_id": tool_id,
-                "name": name,
-                "content": "Error: Task interrupted before this tool finished.",
-                "timestamp": datetime.now().isoformat(),
-            })
-
-        overlap = 0
-        max_overlap = min(len(session.messages), len(restored_messages))
-        for size in range(max_overlap, 0, -1):
-            existing = session.messages[-size:]
-            restored = restored_messages[:size]
-            if all(
-                self._checkpoint_message_key(left) == self._checkpoint_message_key(right)
-                for left, right in zip(existing, restored)
-            ):
-                overlap = size
-                break
-        session.messages.extend(restored_messages[overlap:])
-
-        self._clear_runtime_checkpoint(session)
-        return True
 
     async def process_direct(
         self,
