@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import threading
+from collections import OrderedDict
 from datetime import datetime
+from functools import lru_cache
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -14,6 +17,79 @@ from loguru import logger
 
 if TYPE_CHECKING:
     from tinybot.session.manager import SessionManager
+
+
+class CachedEmbeddingFunction:
+    """Wrapper that caches embedding results to avoid redundant computation.
+
+    ChromaDB's embedding function interface requires a __call__ method that
+    takes a list of texts and returns a list of embedding vectors.
+    """
+
+    _cache_lock = threading.Lock()
+    _cache: OrderedDict[str, list[float]] = OrderedDict()
+    _max_cache_size = 1000
+    _hits = 0
+    _misses = 0
+
+    def __init__(self, underlying_fn):
+        self._underlying = underlying_fn
+
+    def __call__(self, texts: list[str]) -> list[list[float]]:
+        """Compute embeddings with caching for repeated texts."""
+        # Pre-allocate results list with placeholders
+        results: list[list[float] | None] = [None] * len(texts)
+        uncached_texts: list[str] = []
+        uncached_indices: list[int] = []
+
+        for i, text in enumerate(texts):
+            cache_key = self._make_cache_key(text)
+            with CachedEmbeddingFunction._cache_lock:
+                if cache_key in CachedEmbeddingFunction._cache:
+                    results[i] = CachedEmbeddingFunction._cache[cache_key]
+                    CachedEmbeddingFunction._hits += 1
+                else:
+                    uncached_texts.append(text)
+                    uncached_indices.append(i)
+                    CachedEmbeddingFunction._misses += 1
+
+        if uncached_texts:
+            new_embeddings = self._underlying(uncached_texts)
+            for text, embedding in zip(uncached_texts, new_embeddings):
+                cache_key = self._make_cache_key(text)
+                with CachedEmbeddingFunction._cache_lock:
+                    CachedEmbeddingFunction._cache[cache_key] = embedding
+                    if len(CachedEmbeddingFunction._cache) > CachedEmbeddingFunction._max_cache_size:
+                        CachedEmbeddingFunction._cache.popitem(last=False)
+
+            for idx, embedding in zip(uncached_indices, new_embeddings):
+                results[idx] = embedding
+
+        return [r for r in results]  # Convert None placeholders to actual values
+
+    @staticmethod
+    def _make_cache_key(text: str) -> str:
+        """Create a stable cache key from text."""
+        return text[:200] + str(hash(text))
+
+    @classmethod
+    def get_cache_stats(cls) -> dict[str, int]:
+        """Return cache statistics."""
+        with cls._cache_lock:
+            return {
+                "hits": cls._hits,
+                "misses": cls._misses,
+                "size": len(cls._cache),
+                "max_size": cls._max_cache_size,
+            }
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        """Clear the embedding cache."""
+        with cls._cache_lock:
+            cls._cache.clear()
+            cls._hits = 0
+            cls._misses = 0
 
 
 class VectorStore:
@@ -27,9 +103,60 @@ class VectorStore:
     _lock = threading.Lock()
     _client = None
     _embedding_fn = None
+    _initialized = False
+    _init_event: asyncio.Event | None = None
+    _collections: dict[str, Any] = {}  # collection_name -> collection cache
+    _collection_lock = threading.Lock()
+    _query_stats: dict[str, int] = {"queries": 0, "cache_hits": 0}
 
     def __init__(self, persist_dir: Path | str) -> None:
         self._persist_dir = Path(persist_dir)
+
+    async def async_initialize(self) -> None:
+        """Pre-load embedding model asynchronously to avoid blocking later calls.
+
+        Should be called during application startup. If the model is already
+        loaded, this method returns immediately.
+        """
+        if self._initialized:
+            return
+
+        if self._init_event is None:
+            self._init_event = asyncio.Event()
+
+        def _load_blocking():
+            try:
+                self._get_embedding_function()
+                VectorStore._initialized = True
+            except Exception as e:
+                logger.warning("VectorStore: async init failed: {}", e)
+
+        # Run the blocking load in a thread pool
+        await asyncio.to_thread(_load_blocking)
+        if self._init_event:
+            self._init_event.set()
+
+    async def await_embedding_ready(self, timeout: float = 30.0) -> bool:
+        """Wait for embedding model to be ready, with timeout.
+
+        Args:
+            timeout: Maximum seconds to wait.
+
+        Returns:
+            True if ready, False if timeout or initialization failed.
+        """
+        if self._initialized:
+            return True
+
+        if self._init_event is None:
+            self._init_event = asyncio.Event()
+
+        try:
+            await asyncio.wait_for(self._init_event.wait(), timeout=timeout)
+            return self._initialized
+        except TimeoutError:
+            logger.warning("VectorStore: embedding init timed out after {}s", timeout)
+            return False
 
     @property
     def client(self):
@@ -82,17 +209,15 @@ class VectorStore:
                         pass
 
                     logger.info("Embedding device: {}", device)
-                    self._embedding_fn = (
-                        SentenceTransformerEmbeddingFunction(
-                            model_name=model_name,
-                            device=device,
-                        )
+                    base_fn = SentenceTransformerEmbeddingFunction(
+                        model_name=model_name,
+                        device=device,
                     )
 
                     # Persist downloaded model to local cache for future use
                     if not (model_local_path / "config.json").exists():
                         try:
-                            self._embedding_fn.model.save(str(model_local_path))
+                            base_fn.model.save(str(model_local_path))
                             logger.info(
                                 "Embedding model saved to local cache: {}",
                                 model_local_path,
@@ -101,11 +226,89 @@ class VectorStore:
                             logger.warning(
                                 "Failed to cache embedding model: {}", e
                             )
+
+                    # Wrap with caching layer
+                    self._embedding_fn = CachedEmbeddingFunction(base_fn)
+                    logger.info("Embedding cache enabled (max {} entries)", CachedEmbeddingFunction._max_cache_size)
         return self._embedding_fn
 
     def _collection_name(self, session_key: str) -> str:
         safe = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in session_key)
         return f"session_{safe}"[:63]
+
+    def _get_collection(self, collection_name: str) -> Any | None:
+        """Get a cached collection or fetch it from client.
+
+        Args:
+            collection_name: The collection name.
+
+        Returns:
+            The collection object, or None if not found.
+        """
+        with self._collection_lock:
+            if collection_name in self._collections:
+                VectorStore._query_stats["cache_hits"] += 1
+                return self._collections[collection_name]
+
+        VectorStore._query_stats["queries"] += 1
+        try:
+            collection = self.client.get_collection(
+                name=collection_name,
+                embedding_function=self._get_embedding_function(),
+            )
+            with self._collection_lock:
+                self._collections[collection_name] = collection
+            return collection
+        except Exception:
+            return None
+
+    def _get_or_create_collection(self, collection_name: str) -> Any:
+        """Get or create a collection, updating the cache.
+
+        Args:
+            collection_name: The collection name.
+
+        Returns:
+            The collection object.
+        """
+        try:
+            collection = self.client.get_or_create_collection(
+                name=collection_name,
+                embedding_function=self._get_embedding_function(),
+                metadata={"hnsw:space": "cosine"},
+            )
+            with self._collection_lock:
+                self._collections[collection_name] = collection
+            return collection
+        except Exception:
+            # Fallback: delete and recreate
+            self.client.delete_collection(name=collection_name)
+            collection = self.client.get_or_create_collection(
+                name=collection_name,
+                embedding_function=self._get_embedding_function(),
+                metadata={"hnsw:space": "cosine"},
+            )
+            with self._collection_lock:
+                self._collections[collection_name] = collection
+            return collection
+
+    def invalidate_collection_cache(self, session_key: str) -> None:
+        """Remove a cached collection for a session."""
+        collection_name = self._collection_name(session_key)
+        with self._collection_lock:
+            self._collections.pop(collection_name, None)
+
+    @classmethod
+    def get_query_stats(cls) -> dict[str, int]:
+        """Return collection query statistics."""
+        return dict(cls._query_stats)
+
+    @classmethod
+    def clear_collection_cache(cls) -> None:
+        """Clear all cached collections."""
+        with cls._collection_lock:
+            cls._collections.clear()
+            cls._query_stats = {"queries": 0, "cache_hits": 0}
 
     def store_summary(
         self,
@@ -130,19 +333,7 @@ class VectorStore:
             topics: Optional list of topic keywords for filtering.
         """
         collection_name = self._collection_name(session_key)
-        try:
-            collection = self.client.get_or_create_collection(
-                name=collection_name,
-                embedding_function=self._get_embedding_function(),
-                metadata={"hnsw:space": "cosine"},
-            )
-        except Exception:
-            self.client.delete_collection(name=collection_name)
-            collection = self.client.get_or_create_collection(
-                name=collection_name,
-                embedding_function=self._get_embedding_function(),
-                metadata={"hnsw:space": "cosine"},
-            )
+        collection = self._get_or_create_collection(collection_name)
 
         now = datetime.now().isoformat()
 
@@ -171,12 +362,8 @@ class VectorStore:
     def get_latest_summary(self, session_key: str) -> str | None:
         """Return the most recent summary for a session, or None."""
         collection_name = self._collection_name(session_key)
-        try:
-            collection = self.client.get_collection(
-                name=collection_name,
-                embedding_function=self._get_embedding_function(),
-            )
-        except Exception:
+        collection = self._get_collection(collection_name)
+        if collection is None:
             return None
 
         results = collection.get(
@@ -214,12 +401,8 @@ class VectorStore:
             A list of dicts with keys: id, content, distance, metadata.
         """
         collection_name = self._collection_name(session_key)
-        try:
-            collection = self.client.get_collection(
-                name=collection_name,
-                embedding_function=self._get_embedding_function(),
-            )
-        except Exception:
+        collection = self._get_collection(collection_name)
+        if collection is None:
             return []
 
         count = collection.count()
@@ -276,12 +459,8 @@ class VectorStore:
             A list of dicts with keys: id, content, distance, metadata.
         """
         collection_name = self._collection_name(session_key)
-        try:
-            collection = self.client.get_collection(
-                name=collection_name,
-                embedding_function=self._get_embedding_function(),
-            )
-        except Exception:
+        collection = self._get_collection(collection_name)
+        if collection is None:
             return []
 
         count = collection.count()
@@ -392,12 +571,8 @@ class VectorStore:
             boundary (int or None).
         """
         collection_name = self._collection_name(session_key)
-        try:
-            collection = self.client.get_collection(
-                name=collection_name,
-                embedding_function=self._get_embedding_function(),
-            )
-        except Exception:
+        collection = self._get_collection(collection_name)
+        if collection is None:
             return []
 
         # Step 1: search summaries
@@ -662,12 +837,8 @@ class VectorStore:
             return []
 
         collection_name = self._collection_name(session_key)
-        try:
-            collection = self.client.get_collection(
-                name=collection_name,
-                embedding_function=self._get_embedding_function(),
-            )
-        except Exception:
+        collection = self._get_collection(collection_name)
+        if collection is None:
             return []
 
         # Retrieve all summaries and filter by topics in Python
@@ -744,12 +915,8 @@ class VectorStore:
         Each element is ``{"content": str, "boundary_end": int, "created_at": str}``.
         """
         collection_name = self._collection_name(session_key)
-        try:
-            collection = self.client.get_collection(
-                name=collection_name,
-                embedding_function=self._get_embedding_function(),
-            )
-        except Exception:
+        collection = self._get_collection(collection_name)
+        if collection is None:
             return []
 
         results = collection.get(
@@ -776,6 +943,7 @@ class VectorStore:
         collection_name = self._collection_name(session_key)
         try:
             self.client.delete_collection(name=collection_name)
+            self.invalidate_collection_cache(session_key)
             logger.debug("VectorStore: deleted collection for {}", session_key)
         except Exception:
             pass
