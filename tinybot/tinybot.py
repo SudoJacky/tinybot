@@ -97,4 +97,3 @@ class Tinybot:
 
         content = (response.content if response else None) or ""
         return RunResult(content=content, tools_used=[], messages=[])
-

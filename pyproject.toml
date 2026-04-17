@@ -25,6 +25,17 @@ dependencies = [
     "browser-use>=0.12.6",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=0.24.0,<1.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
+    "pytest-mock>=3.14.0,<4.0.0",
+    "mypy>=1.15.0,<2.0.0",
+    "ruff>=0.11.0,<1.0.0",
+    "pre-commit>=4.0.0,<5.0.0",
+]
+
 [project.scripts]
 tinybot = "tinybot.cli.commands:app"
 
@@ -60,3 +71,54 @@ include = [
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["tinybot"]
+branch = true
+omit = [
+    "tinybot/__main__.py",
+    "tinybot/cli/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
+show_missing = true
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+disable_error_code = ["no-any-return", "union-attr", "arg-type", "override", "misc", "attr-defined", "return-value", "index", "assignment", "valid-type", "abstract", "func-returns-value", "var-annotated", "dict-item", "import-untyped", "name-defined", "no-redef", "typeddict-unknown-key"]
+exclude = [
+    "tinybot/skills/skill-creator/scripts/",
+    "tinybot/cli/onboard\\.py",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+exclude = ["tinybot/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "I001", "F401", "F841"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

@@ -80,7 +80,7 @@ class MessageTool(Tool):
     ) -> str:
         from tinybot.utils.text import strip_think
         content = strip_think(content)
-        
+
         channel = channel or self._default_channel
         chat_id = chat_id or self._default_chat_id
         # Only inherit default message_id when targeting the same channel+chat.
@@ -123,4 +123,3 @@ class MessageTool(Tool):
             return f"Message sent to {channel}:{chat_id}{media_info}"
         except Exception as e:
             return f"Error sending message: {str(e)}"
-
