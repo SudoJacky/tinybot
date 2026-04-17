@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -110,6 +111,7 @@ class SessionManager:
     Manages conversation sessions.
 
     Sessions are stored as JSONL files in the sessions directory.
+    Thread-safe: uses lock to protect in-memory cache access.
     """
 
     def __init__(self, workspace: Path):
@@ -117,6 +119,7 @@ class SessionManager:
         self.sessions_dir = ensure_dir(self.workspace / "sessions")
         self.legacy_sessions_dir = get_legacy_sessions_dir()
         self._cache: dict[str, Session] = {}
+        self._cache_lock = threading.Lock()
 
     def _get_session_path(self, key: str) -> Path:
         """Get the file path for a session."""
@@ -132,21 +135,29 @@ class SessionManager:
         """
         Get an existing session or create a new one.
 
+        Thread-safe with double-checked locking pattern.
+
         Args:
             key: Session key (usually channel:chat_id).
 
         Returns:
             The session.
         """
+        # First check without lock (fast path)
         if key in self._cache:
             return self._cache[key]
 
-        session = self._load(key)
-        if session is None:
-            session = Session(key=key)
+        with self._cache_lock:
+            # Second check with lock (slow path)
+            if key in self._cache:
+                return self._cache[key]
 
-        self._cache[key] = session
-        return session
+            session = self._load(key)
+            if session is None:
+                session = Session(key=key)
+
+            self._cache[key] = session
+            return session
 
     def _load(self, key: str) -> Session | None:
         """Load a session from disk."""
@@ -197,7 +208,7 @@ class SessionManager:
             return None
 
     def save(self, session: Session) -> None:
-        """Save a session to disk."""
+        """Save a session to disk. Thread-safe."""
         path = self._get_session_path(session.key)
 
         with open(path, "w", encoding="utf-8") as f:
@@ -217,11 +228,13 @@ class SessionManager:
             for msg in session.messages:
                 f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
-        self._cache[session.key] = session
+        with self._cache_lock:
+            self._cache[session.key] = session
 
     def invalidate(self, key: str) -> None:
-        """Remove a session from the in-memory cache."""
-        self._cache.pop(key, None)
+        """Remove a session from the in-memory cache. Thread-safe."""
+        with self._cache_lock:
+            self._cache.pop(key, None)
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """
