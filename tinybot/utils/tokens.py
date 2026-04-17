@@ -5,6 +5,10 @@ from typing import Any
 
 import tiktoken
 
+# Cache size constants - increased for better model coverage
+ENCODING_NAME_CACHE_SIZE = 128
+ENCODER_CACHE_SIZE = 32
+
 _MODEL_ENCODING_HINTS: tuple[tuple[str, str], ...] = (
     ("gpt-4.1", "o200k_base"),
     ("gpt-4o", "o200k_base"),
@@ -34,7 +38,7 @@ _REASONING_MODEL_HINTS = (
 _REASONING_RISK_MULTIPLIER = 1.12
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=ENCODING_NAME_CACHE_SIZE)
 def _resolve_encoding_name(model: str | None) -> str:
     normalized = _normalize_model_name(model)
     candidates = [c for c in {
@@ -55,9 +59,40 @@ def _resolve_encoding_name(model: str | None) -> str:
     return "cl100k_base"
 
 
-@lru_cache(maxsize=16)
+@lru_cache(maxsize=ENCODER_CACHE_SIZE)
 def _get_encoder(encoding_name: str):
     return tiktoken.get_encoding(encoding_name)
+
+
+def get_cache_stats() -> dict[str, dict[str, int]]:
+    """Return cache statistics for token estimation.
+
+    Returns:
+        Dict with keys 'encoding_name' and 'encoder', each containing
+        'size', 'maxsize', 'hits', 'misses'.
+    """
+    encoding_cache = _resolve_encoding_name.cache_info()
+    encoder_cache = _get_encoder.cache_info()
+    return {
+        "encoding_name": {
+            "size": encoding_cache.currsize,
+            "maxsize": ENCODING_NAME_CACHE_SIZE,
+            "hits": encoding_cache.hits,
+            "misses": encoding_cache.misses,
+        },
+        "encoder": {
+            "size": encoder_cache.currsize,
+            "maxsize": ENCODER_CACHE_SIZE,
+            "hits": encoder_cache.hits,
+            "misses": encoder_cache.misses,
+        },
+    }
+
+
+def clear_cache() -> None:
+    """Clear all token estimation caches."""
+    _resolve_encoding_name.cache_clear()
+    _get_encoder.cache_clear()
 
 
 def _normalize_model_name(model: str | None) -> str:
