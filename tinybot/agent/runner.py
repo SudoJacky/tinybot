@@ -157,6 +157,8 @@ class AgentRunner:
                     spec,
                     response.tool_calls,
                     external_lookup_counts,
+                    hook,
+                    context,
                 )
                 tool_events.extend(new_events)
                 context.tool_results = list(results)
@@ -401,18 +403,20 @@ class AgentRunner:
         spec: AgentRunSpec,
         tool_calls: list[ToolCallRequest],
         external_lookup_counts: dict[str, int],
+        hook: AgentHook | None = None,
+        context: AgentHookContext | None = None,
     ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
         batches = self._partition_tool_batches(spec, tool_calls)
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
                 tool_results.extend(await asyncio.gather(*(
-                    self._run_tool(spec, tool_call, external_lookup_counts)
+                    self._run_tool(spec, tool_call, external_lookup_counts, hook, context)
                     for tool_call in batch
                 )))
             else:
                 for tool_call in batch:
-                    tool_results.append(await self._run_tool(spec, tool_call, external_lookup_counts))
+                    tool_results.append(await self._run_tool(spec, tool_call, external_lookup_counts, hook, context))
 
         results: list[Any] = []
         events: list[dict[str, str]] = []
@@ -429,6 +433,8 @@ class AgentRunner:
         spec: AgentRunSpec,
         tool_call: ToolCallRequest,
         external_lookup_counts: dict[str, int],
+        hook: AgentHook | None = None,
+        context: AgentHookContext | None = None,
     ) -> tuple[Any, dict[str, str], BaseException | None]:
         _HINT = "\n\n[Analyze the error above and try a different approach.]"
         lookup_error = repeated_external_lookup_error(
@@ -461,14 +467,36 @@ class AgentRunner:
                 "detail": prep_error.split(": ", 1)[-1][:120],
             }
             return prep_error + _HINT, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
+
+        # Trigger on_tool_start hook before execution
+        if hook and context:
+            context.current_tool = tool_call.name
+            await hook.on_tool_start(context, tool_call.name, params)
+
         try:
             if tool is not None:
                 result = await tool.execute(**params)
             else:
                 result = await spec.tools.execute(tool_call.name, params)
+
+            # Trigger on_tool_end hook after successful execution
+            if hook and context:
+                await hook.on_tool_end(context, tool_call.name, result)
+                context.current_tool = None
+
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
+            # Trigger on_error hook on exception
+            if hook and context:
+                error_record = {
+                    "tool_name": tool_call.name,
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                }
+                context.tool_errors.append(error_record)
+                await hook.on_error(context, exc)
+                context.current_tool = None
             event = {
                 "name": tool_call.name,
                 "status": "error",

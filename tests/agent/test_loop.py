@@ -2,17 +2,17 @@
 
 import pytest
 
-from tinybot.agent.loop import _LoopHook
+from tinybot.agent.stream_handler import StreamHandler
 
 
 class TestLoopHookMergeStreamBuffer:
-    """Tests for _LoopHook._merge_stream_buffer static method."""
+    """Tests for StreamHandler.merge_stream_buffer static method."""
 
     def test_empty_delta(self):
         """Empty delta should return previous buffer unchanged."""
         previous = "Hello"
         delta = ""
-        result_buf, result_inc = _LoopHook._merge_stream_buffer(previous, delta)
+        result_buf, result_inc = StreamHandler.merge_stream_buffer(previous, delta)
         assert result_buf == previous
         assert result_inc == ""
 
@@ -20,7 +20,7 @@ class TestLoopHookMergeStreamBuffer:
         """Empty previous with delta should return delta as buffer."""
         previous = ""
         delta = "Hello"
-        result_buf, result_inc = _LoopHook._merge_stream_buffer(previous, delta)
+        result_buf, result_inc = StreamHandler.merge_stream_buffer(previous, delta)
         assert result_buf == delta
         assert result_inc == delta
 
@@ -28,7 +28,7 @@ class TestLoopHookMergeStreamBuffer:
         """Normal append should work correctly."""
         previous = "Hello"
         delta = " World"
-        result_buf, result_inc = _LoopHook._merge_stream_buffer(previous, delta)
+        result_buf, result_inc = StreamHandler.merge_stream_buffer(previous, delta)
         assert result_buf == "Hello World"
         assert result_inc == " World"
 
@@ -36,7 +36,7 @@ class TestLoopHookMergeStreamBuffer:
         """When delta starts with previous, it replaces buffer."""
         previous = "Hello"
         delta = "Hello World"
-        result_buf, result_inc = _LoopHook._merge_stream_buffer(previous, delta)
+        result_buf, result_inc = StreamHandler.merge_stream_buffer(previous, delta)
         assert result_buf == "Hello World"
         assert result_inc == " World"
 
@@ -44,7 +44,7 @@ class TestLoopHookMergeStreamBuffer:
         """Strip hidden mode should handle think tags."""
         previous = "<think>thinking</think>Hello"
         delta = "<think>more</think>Hello World"
-        result_buf, result_inc = _LoopHook._merge_stream_buffer(previous, delta, strip_hidden=True)
+        result_buf, result_inc = StreamHandler.merge_stream_buffer(previous, delta, strip_hidden=True)
         # Should strip think tags and return clean content
         assert result_inc == " World"
 
