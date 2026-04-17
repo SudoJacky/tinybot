@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
-from typing import Any, AsyncGenerator
+from typing import Any
+from collections.abc import AsyncGenerator
 
 import httpx
 import json_repair
@@ -25,7 +26,7 @@ def map_finish_reason(status: str | None) -> str:
     return FINISH_REASON_MAP.get(status or "completed", "stop")
 
 
-async def iter_sse(response: httpx.Response) -> AsyncGenerator[dict[str, Any], None]:
+async def iter_sse(response: httpx.Response) -> AsyncGenerator[dict[str, Any]]:
     """Yield parsed JSON events from a Responses API SSE stream."""
     buffer: list[str] = []
 

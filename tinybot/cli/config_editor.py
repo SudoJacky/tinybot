@@ -10,7 +10,8 @@ import json
 import types
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Callable, NamedTuple, get_args, get_origin
+from typing import Any, NamedTuple, get_args, get_origin
+from collections.abc import Callable
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.document import Document
@@ -473,7 +474,7 @@ class ConfigEditorUI:
     def _get_input_label(self) -> str:
         """Get label for input area."""
         if self._state.editing:
-            return f"Value: "
+            return "Value: "
         return "Value: "
 
     def _get_status_fragments(self) -> list[tuple[str, str]]:

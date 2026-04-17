@@ -1,6 +1,7 @@
 """Message tool for sending messages to users."""
 
-from typing import Any, Awaitable, Callable
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 from tinybot.agent.tools.base import Tool, tool_parameters
 from tinybot.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema

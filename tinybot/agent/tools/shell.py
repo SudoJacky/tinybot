@@ -103,11 +103,11 @@ class ExecTool(Tool):
                     process.communicate(),
                     timeout=effective_timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
                 finally:
                     if sys.platform != "win32":

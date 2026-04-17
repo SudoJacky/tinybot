@@ -1,6 +1,7 @@
 """Spawn tool for creating background subagents."""
 
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Coroutine
 
 from tinybot.agent.tools.base import Tool, tool_parameters
 from tinybot.agent.tools.schema import StringSchema, tool_parameters_schema

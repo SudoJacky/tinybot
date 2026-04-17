@@ -106,7 +106,7 @@ class MCPToolWrapper(Tool):
                 self._session.call_tool(self._original_name, arguments=kwargs),
                 timeout=self._tool_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("MCP tool '{}' timed out after {}s", self._name, self._tool_timeout)
             return f"(MCP tool call timed out after {self._tool_timeout}s)"
         except asyncio.CancelledError:

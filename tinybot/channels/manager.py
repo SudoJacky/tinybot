@@ -171,7 +171,7 @@ class ChannelManager:
                 else:
                     logger.warning("Unknown channel: {}", msg.channel)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break

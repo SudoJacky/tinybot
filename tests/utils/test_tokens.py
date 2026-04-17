@@ -3,8 +3,10 @@
 from tinybot.utils.tokens import (
     _normalize_model_name,
     apply_reasoning_risk_buffer,
+    clear_cache,
     estimate_message_tokens,
     estimate_prompt_tokens,
+    get_cache_stats,
     is_reasoning_model,
 )
 
@@ -125,3 +127,42 @@ class TestEstimatePromptTokens:
     def test_empty_messages(self):
         tokens = estimate_prompt_tokens([], model="gpt-4o")
         assert tokens >= 0
+
+
+class TestCacheStats:
+    """Tests for cache statistics and management."""
+
+    def test_get_cache_stats_returns_dict(self):
+        stats = get_cache_stats()
+        assert "encoding_name" in stats
+        assert "encoder" in stats
+        assert "size" in stats["encoding_name"]
+        assert "maxsize" in stats["encoding_name"]
+        assert "hits" in stats["encoding_name"]
+        assert "misses" in stats["encoding_name"]
+
+    def test_cache_clear(self):
+        # Generate some cache activity
+        estimate_message_tokens({"role": "user", "content": "test"}, "gpt-4o")
+        estimate_message_tokens({"role": "user", "content": "test"}, "claude-3")
+
+        # Clear cache
+        clear_cache()
+
+        stats = get_cache_stats()
+        assert stats["encoding_name"]["size"] == 0
+        assert stats["encoding_name"]["hits"] == 0
+        assert stats["encoding_name"]["misses"] == 0
+
+    def test_cache_hit_after_same_model(self):
+        clear_cache()
+
+        # First call - miss
+        estimate_message_tokens({"role": "user", "content": "Hello"}, "gpt-4o")
+        stats1 = get_cache_stats()
+
+        # Second call with same model - should hit
+        estimate_message_tokens({"role": "user", "content": "World"}, "gpt-4o")
+        stats2 = get_cache_stats()
+
+        assert stats2["encoding_name"]["hits"] > stats1["encoding_name"]["hits"]

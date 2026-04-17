@@ -95,7 +95,7 @@ def _extract_tc_extras(tc: Any) -> tuple[
     return extra_content, prov, fn_prov
 
 
-def _uses_openrouter_attribution(spec: "ProviderSpec | None", api_base: str | None) -> bool:
+def _uses_openrouter_attribution(spec: ProviderSpec | None, api_base: str | None) -> bool:
     """Apply tinybot attribution headers to OpenRouter requests by default."""
     if spec and spec.name == "openrouter":
         return True
@@ -682,7 +682,7 @@ class OpenAIProvider(LLMProvider):
                             await on_content_delta(text)
             return self._parse_chunks(chunks)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return LLMResponse(
                 content=(
                     f"Error calling LLM: stream stalled for more than "

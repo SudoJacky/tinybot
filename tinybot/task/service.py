@@ -9,7 +9,8 @@ import uuid
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Coroutine
 
 from loguru import logger
 
@@ -677,7 +678,7 @@ class TaskManager:
             icon = status_icons.get(subtask.status, "❓")
             lines.append(f"- {icon} **{subtask.id}:** {subtask.title}")
             if subtask.status == "in_progress":
-                lines.append(f"  - *Currently executing...*")
+                lines.append("  - *Currently executing...*")
             if subtask.result:
                 lines.append(f"  - Result: {subtask.result[:200]}...")
             if subtask.error:
@@ -686,7 +687,7 @@ class TaskManager:
                 lines.append(f"  - Dependencies: {', '.join(subtask.dependencies)}")
 
         lines.append("")
-        lines.append(f"---")
+        lines.append("---")
         lines.append(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         progress_file.write_text("\n".join(lines), encoding="utf-8")
