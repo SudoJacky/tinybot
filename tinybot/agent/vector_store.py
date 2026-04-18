@@ -24,8 +24,18 @@ class CachedEmbeddingFunction:
 
     ChromaDB's embedding function interface requires a __call__ method that
     takes a list of texts and returns a list of embedding vectors.
+
+    Design Note: The cache uses class-level variables intentionally.
+    All VectorStore instances share the same embedding cache because:
+      1. Embedding computation is expensive (network calls to embedding API)
+      2. Same text always produces the same embedding vector
+      3. Sharing cache across instances avoids redundant computation
+
+    If per-instance cache isolation is needed (rare), create a separate
+    embedding function wrapper instead of modifying this class.
     """
 
+    # Class-level cache shared across all instances (intentional design)
     _cache_lock = threading.Lock()
     _cache: OrderedDict[str, list[float]] = OrderedDict()
     _max_cache_size = 1000

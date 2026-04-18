@@ -1,4 +1,30 @@
-"""Shared execution loop for tool-using agents."""
+"""Shared execution loop for tool-using agents.
+
+Architecture Note (Runner vs Loop):
+-----------------------------------
+This module contains **AgentRunner**, the pure logic layer for LLM execution.
+It knows nothing about messaging, sessions, or product-layer concerns.
+
+**AgentRunner** (this file) responsibilities:
+  - Execute the LLM iteration loop (request → tool calls → response)
+  - Call the LLM provider and handle streaming/non-streaming responses
+  - Execute tool calls and collect results
+  - Manage context budget and history truncation (_snip_history)
+  - Handle finalization retries and error states
+  - Emit checkpoints and context usage callbacks
+
+**AgentLoop** (loop.py) responsibilities:
+  - Integrate with the message bus (receive InboundMessage, send OutboundMessage)
+  - Build context (system prompt, session history, skills, memory)
+  - Manage sessions and conversation history
+  - Handle streaming output to channels (CLI, DingTalk, Feishu, etc.)
+  - Coordinate components: TaskManager, VectorStore, Consolidator, Dream
+  - Process MCP server connections
+  - Route slash commands
+
+The separation allows Runner to be reused in different contexts (CLI, SDK, tests)
+while Loop handles all product-specific integration.
+"""
 
 from __future__ import annotations
 
