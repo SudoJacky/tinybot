@@ -19,7 +19,7 @@ from tinybot.agent.vector_store import VectorStore
 from tinybot.utils.prompt_templates import render_template
 from tinybot.utils.tokens import estimate_message_tokens, estimate_prompt_tokens_chain
 from tinybot.utils.fs import ensure_dir
-from tinybot.utils.text import strip_think
+from tinybot.utils.helper import strip_think
 
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.tools.registry import ToolRegistry

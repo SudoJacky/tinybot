@@ -1,6 +1,7 @@
 """Utility functions for tinybot."""
 
 import json
+import re
 import shutil
 import time
 import uuid
@@ -289,3 +290,10 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
         logger.warning("Failed to initialize git store for {}", workspace)
 
     return added
+
+
+def strip_think(text: str) -> str:
+    """Strip <think>...</think> blocks from text."""
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text)
+    text = re.sub(r"<think[\s\S]*$", "", text)
+    return text.strip()

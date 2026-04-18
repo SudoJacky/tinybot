@@ -88,15 +88,43 @@ class SessionHandler:
         skip: int,
         runtime_context_tag: str,
     ) -> None:
-        """Save new-turn messages into session, truncating large tool results."""
-        for m in messages[skip:]:
+        """Save new-turn messages into session, truncating large tool results.
+
+        Uses duplicate detection instead of skip to handle messages saved by checkpoint.
+        """
+        for m in messages:
             entry = dict(m)
             role, content = entry.get("role"), entry.get("content")
+
+            # Skip system messages - they are runtime context, not persisted history
+            if role == "system":
+                continue
 
             # Skip empty assistant messages — they poison session context
             if role == "assistant" and not content and not entry.get("tool_calls"):
                 continue
 
+            # Process user message content stripping before duplicate check
+            # This ensures we compare stripped content with session's stripped content
+            if role == "user":
+                if isinstance(content, str) and content.startswith(runtime_context_tag):
+                    parts = content.split("\n\n", 1)
+                    if len(parts) > 1 and parts[1].strip():
+                        entry["content"] = parts[1]
+                    else:
+                        continue  # Skip if only runtime context
+
+                elif isinstance(content, list):
+                    filtered = self.sanitize_persisted_blocks(content, drop_runtime=True, runtime_context_tag=runtime_context_tag)
+                    if not filtered:
+                        continue
+                    entry["content"] = filtered
+
+            # Check for duplicates - skip if message already exists in session
+            if self._is_duplicate_message(session, entry):
+                continue
+
+            # Process tool message truncation (after duplicate check)
             if role == "tool":
                 if isinstance(content, str) and len(content) > self.max_tool_result_chars:
                     entry["content"] = truncate_content_util(content, self.max_tool_result_chars)
@@ -106,25 +134,41 @@ class SessionHandler:
                         continue
                     entry["content"] = filtered
 
-            elif role == "user":
-                # Strip runtime-context prefix if present
-                if isinstance(content, str) and content.startswith(runtime_context_tag):
-                    parts = content.split("\n\n", 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        entry["content"] = parts[1]
-                    else:
-                        continue
-
-                if isinstance(content, list):
-                    filtered = self.sanitize_persisted_blocks(content, drop_runtime=True, runtime_context_tag=runtime_context_tag)
-                    if not filtered:
-                        continue
-                    entry["content"] = filtered
-
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
 
         session.updated_at = datetime.now()
+
+    def _is_duplicate_message(self, session: Session, entry: dict[str, Any]) -> bool:
+        """Check if a message already exists in session.messages."""
+        role = entry.get("role")
+        content = entry.get("content")
+        tool_call_id = entry.get("tool_call_id")
+        tool_calls = entry.get("tool_calls")
+
+        for existing in session.messages:
+            if existing.get("role") != role:
+                continue
+
+            # Tool messages: match by tool_call_id
+            if role == "tool":
+                if existing.get("tool_call_id") == tool_call_id:
+                    return True
+                continue
+
+            # Assistant messages: match by content and tool_calls
+            if role == "assistant":
+                if existing.get("content") == content and existing.get("tool_calls") == tool_calls:
+                    return True
+                continue
+
+            # User messages: match by content (after runtime context stripping)
+            if role == "user":
+                if existing.get("content") == content:
+                    return True
+                continue
+
+        return False
 
     def sanitize_persisted_blocks(
         self,
