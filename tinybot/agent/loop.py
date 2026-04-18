@@ -1,4 +1,31 @@
-"""Agent loop: the core processing engine."""
+"""Agent loop: the core processing engine.
+
+Architecture Note (Loop vs Runner):
+-----------------------------------
+This module contains **AgentLoop**, the product integration layer that wraps
+AgentRunner and handles all messaging, sessions, and channel-specific concerns.
+
+**AgentLoop** (this file) responsibilities:
+  - Receive messages from the bus and route them to processing
+  - Build context: system prompt, session history, skills, memory, runtime info
+  - Manage sessions (conversation history via SessionManager)
+  - Handle streaming output to channels (CLI, DingTalk, Feishu, WeChat, etc.)
+  - Coordinate components: TaskManager, VectorStore, Consolidator, Dream, EntityExtractor
+  - Process MCP server connections and tool registration
+  - Route slash commands via CommandRouter
+  - Provide `process_direct()` for SDK/CLI direct invocation
+
+**AgentRunner** (runner.py) responsibilities:
+  - Execute the pure LLM iteration loop (no product-layer knowledge)
+  - Call the LLM provider and handle streaming/non-streaming responses
+  - Execute tool calls and collect results
+  - Manage context budget and history truncation
+  - Handle finalization retries and error states
+
+The separation allows:
+  - Runner to be reused in different contexts (CLI, SDK, tests, subagents)
+  - Loop to focus on product integration without LLM complexity
+"""
 
 from __future__ import annotations
 
