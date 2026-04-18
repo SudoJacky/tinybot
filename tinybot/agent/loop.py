@@ -6,6 +6,7 @@ import asyncio
 import os
 import time
 from contextlib import AsyncExitStack, nullcontext
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from collections.abc import Awaitable, Callable
@@ -547,6 +548,39 @@ class AgentLoop:
                 return
             self.session_handler.set_checkpoint(session, payload)
 
+            # Append checkpoint messages to session.messages
+            assistant_msg = payload.get("assistant_message")
+            completed_results = payload.get("completed_tool_results") or []
+
+            if assistant_msg and isinstance(assistant_msg, dict):
+                # Avoid duplicate - check if last message is the same assistant
+                if not (
+                    session.messages
+                    and session.messages[-1].get("role") == "assistant"
+                    and session.messages[-1].get("content") == assistant_msg.get("content")
+                    and session.messages[-1].get("tool_calls") == assistant_msg.get("tool_calls")
+                ):
+                    entry = dict(assistant_msg)
+                    entry.setdefault("timestamp", datetime.now().isoformat())
+                    session.messages.append(entry)
+
+            for result_msg in completed_results:
+                if not isinstance(result_msg, dict):
+                    continue
+                tool_call_id = result_msg.get("tool_call_id")
+                # Avoid duplicate - check if tool result already exists
+                if tool_call_id and any(
+                    m.get("role") == "tool" and m.get("tool_call_id") == tool_call_id
+                    for m in session.messages
+                ):
+                    continue
+                entry = dict(result_msg)
+                entry.setdefault("timestamp", datetime.now().isoformat())
+                session.messages.append(entry)
+
+            session.updated_at = datetime.now()
+            self.sessions.save(session)
+
         async def _context_usage(payload: dict[str, Any]) -> None:
             self._update_context_snapshot(payload)
 
@@ -834,7 +868,8 @@ class AgentLoop:
                 on_reasoning_stream=on_reasoning_stream,
                 on_stream_end=on_stream_end,
             )
-            self.session_handler.save_turn(session, all_msgs, 1 + len(history), ContextBuilder._RUNTIME_CONTEXT_TAG)
+            skip_count = len(session.messages)
+            self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
             self.session_handler.clear_checkpoint(session)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
@@ -851,8 +886,6 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
-        if self.session_handler.restore_checkpoint(session):
-            self.sessions.save(session)
 
         # Slash commands
         raw = msg.content.strip()
@@ -901,7 +934,9 @@ class AgentLoop:
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
 
-        self.session_handler.save_turn(session, all_msgs, 1 + len(history), ContextBuilder._RUNTIME_CONTEXT_TAG)
+        # Process remaining messages (user message, etc.) that checkpoint didn't handle
+        skip_count = len(session.messages)
+        self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
         self.session_handler.clear_checkpoint(session)
         self.sessions.save(session)
         self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
