@@ -388,7 +388,7 @@ class AgentLoop:
         """Remove <think>…</think> blocks that some models embed in content."""
         if not text:
             return None
-        from tinybot.utils.text import strip_think
+        from tinybot.utils.helper import strip_think
         return strip_think(text) or None
 
     @staticmethod
@@ -546,9 +546,14 @@ class AgentLoop:
         async def _checkpoint(payload: dict[str, Any]) -> None:
             if session is None:
                 return
+            phase = payload.get("phase", "")
             self.session_handler.set_checkpoint(session, payload)
 
-            # Append checkpoint messages to session.messages
+            # Only persist messages to session on completion phases
+            # awaiting_tools phase only stores checkpoint for recovery
+            if phase not in ("tools_completed", "final_response"):
+                return
+
             assistant_msg = payload.get("assistant_message")
             completed_results = payload.get("completed_tool_results") or []
 
@@ -908,6 +913,47 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
             user_profile=session.user_profile,
         )
+
+        # Save user message to session before running agent loop
+        # This ensures user input is persisted even if checkpoint saves assistant/tool messages
+        user_msg = None
+        for m in reversed(initial_messages):
+            if m.get("role") == "user":
+                user_msg = m
+                break
+        if user_msg:
+            entry = dict(user_msg)
+            # Strip runtime-context prefix if present
+            content = entry.get("content")
+            if isinstance(content, str) and content.startswith(ContextBuilder._RUNTIME_CONTEXT_TAG):
+                parts = content.split("\n\n", 1)
+                if len(parts) > 1 and parts[1].strip():
+                    entry["content"] = parts[1]
+                else:
+                    entry = None  # Skip if only runtime context
+            elif isinstance(content, list):
+                # Filter out runtime context blocks
+                filtered = [
+                    b for b in content
+                    if not (
+                        b.get("type") == "text"
+                        and isinstance(b.get("text"), str)
+                        and b["text"].startswith(ContextBuilder._RUNTIME_CONTEXT_TAG)
+                    )
+                ]
+                if filtered:
+                    entry["content"] = filtered
+                else:
+                    entry = None
+            if entry:
+                entry.setdefault("timestamp", datetime.now().isoformat())
+                # Avoid duplicate - check if last message is already user
+                if not (
+                    session.messages
+                    and session.messages[-1].get("role") == "user"
+                ):
+                    session.messages.append(entry)
+                    session.updated_at = datetime.now()
 
         async def _bus_progress(content: str, *, tool_hint: bool = False, tool_detail: bool = False, tool_result: bool = False, tool_name: str = "") -> None:
             meta = dict(msg.metadata or {})

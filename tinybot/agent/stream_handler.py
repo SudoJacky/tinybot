@@ -56,7 +56,7 @@ class StreamHandler(AgentHook):
             return previous, ""
 
         if strip_hidden:
-            from tinybot.utils.text import strip_think
+            from tinybot.utils.helper import strip_think
 
             prev_clean = strip_think(previous)
             appended_buf = previous + delta

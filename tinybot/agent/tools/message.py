@@ -79,7 +79,7 @@ class MessageTool(Tool):
         media: list[str] | None = None,
         **kwargs: Any
     ) -> str:
-        from tinybot.utils.text import strip_think
+        from tinybot.utils.helper import strip_think
         content = strip_think(content)
 
         channel = channel or self._default_channel
