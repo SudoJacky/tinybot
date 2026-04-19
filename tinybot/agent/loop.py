@@ -41,12 +41,15 @@ from collections.abc import Awaitable, Callable
 from loguru import logger
 
 from tinybot.agent.context import ContextBuilder
+from tinybot.agent.experience import ExperienceStore
+from tinybot.agent.experience_accumulator import ExperienceAccumulator
 from tinybot.agent.hook import AgentHook
 from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
 from tinybot.agent.subagent import SubagentManager
 from tinybot.agent.tools.cron import CronTool
+from tinybot.agent.tools.experience import SaveExperienceTool, QueryExperienceTool
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from tinybot.agent.tools.message import MessageTool
 from tinybot.agent.tools.registry import ToolRegistry
@@ -196,6 +199,7 @@ class AgentLoop:
             self.consolidator = deps.consolidator
             self.dream = deps.dream
             self.entity_extractor = deps.entity_extractor
+            self.experience_store = deps.experience_store
         else:
             # Create dependencies inline (backward compatible)
             self.task_manager = TaskManager(
@@ -207,9 +211,11 @@ class AgentLoop:
             self.sessions = session_manager or SessionManager(workspace)
             self.session_handler = SessionHandler(self.max_tool_result_chars)
             self.tool_context = ToolContextManager()
+            self.experience_store = ExperienceStore(workspace)
+            self.experience_accumulator = ExperienceAccumulator(self.experience_store)
             self.context = ContextBuilder(
                 workspace, timezone=timezone,
-                task_manager=self.task_manager, session_manager=self.sessions
+                task_manager=self.task_manager, session_manager=self.sessions,
             )
 
             if enable_vector_store:
@@ -248,6 +254,7 @@ class AgentLoop:
                 store=self.context.memory,
                 provider=provider,
                 model=self.model,
+                experience_store=self.experience_store,
             )
             self.entity_extractor = EntityExtractor(
                 provider=provider,
@@ -363,6 +370,7 @@ class AgentLoop:
         self,
         *,
         channel: str | None = None,
+        chat_id: str | None = None,
         allow_message: bool | None = None,
     ) -> ToolRegistry:
         """Return a per-run registry with channel-specific tool filtering."""
@@ -371,9 +379,26 @@ class AgentLoop:
             if allow_message is not None
             else self._should_expose_message_tool(channel or "cli")
         )
-        if expose_message or not self.tools.has("message"):
-            return self.tools
-        return self.tools.filtered(exclude={"message"})
+        registry = self.tools.filtered(exclude=set()) if not expose_message and self.tools.has("message") else self.tools
+
+        # Add experience tools for Agent to query/save experiences
+        session_key = f"{channel}:{chat_id}" if channel and chat_id else ""
+        if self.experience_store:
+            # Query tool - always available
+            query_exp_tool = QueryExperienceTool(
+                experience_store=self.experience_store,
+            )
+            registry.register(query_exp_tool)
+
+            # Save tool - only with valid session_key
+            if session_key:
+                save_exp_tool = SaveExperienceTool(
+                    experience_store=self.experience_store,
+                    session_key=session_key,
+                )
+                registry.register(save_exp_tool)
+
+        return registry
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -616,7 +641,7 @@ class AgentLoop:
         async def _context_usage(payload: dict[str, Any]) -> None:
             self._update_context_snapshot(payload)
 
-        tools = self._tools_for_run(channel=channel)
+        tools = self._tools_for_run(channel=channel, chat_id=chat_id)
         result = await self.runner.run(AgentRunSpec(
 
             initial_messages=initial_messages,
@@ -642,6 +667,16 @@ class AgentLoop:
             logger.warning("Max iterations ({}) reached", self.max_iterations)
         elif result.stop_reason == "error":
             logger.error("LLM returned error: {}", (result.final_content or "")[:200])
+
+        # Background experience accumulation (non-blocking)
+        if result.tool_events and self.experience_store:
+            self._schedule_background(
+                self.experience_accumulator.accumulate_from_events(
+                    result.tool_events,
+                    session.key if session else "",
+                )
+            )
+
         return result.final_content, result.tools_used, result.messages
 
     async def run(self) -> None:
@@ -834,7 +869,6 @@ class AgentLoop:
                 self.sessions.save(session)
         except Exception:
             logger.debug("Entity extraction failed for {}", session.key)
-
 
     def stop(self) -> None:
         """Stop the agent loop."""
