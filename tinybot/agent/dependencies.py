@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from tinybot.agent.context import ContextBuilder
+from tinybot.agent.experience import ExperienceStore
 from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.session_handler import SessionHandler
 from tinybot.agent.subagent import SubagentManager
@@ -42,6 +43,7 @@ class AgentDependencies:
         consolidator: Memory consolidation service
         dream: Dream memory processing
         entity_extractor: User profile entity extraction
+        experience_store: Experience storage for self-evolution
         tools: Tool registry for agent execution
         vector_store: Optional ChromaDB storage
     """
@@ -55,6 +57,7 @@ class AgentDependencies:
     consolidator: Consolidator
     dream: Dream
     entity_extractor: EntityExtractor
+    experience_store: ExperienceStore
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     vector_store: VectorStore | None = None
 
@@ -105,7 +108,7 @@ class AgentDependencies:
             on_progress=on_task_progress,
         )
 
-        # Context builder
+        # Context builder (experience_store will be set later)
         context_builder = ContextBuilder(
             workspace=workspace,
             timezone=timezone,
@@ -120,6 +123,9 @@ class AgentDependencies:
             vector_store_dir = workspace / ".chromadb"
             vector_store = VectorStore(vector_store_dir)
             context_builder.vector_store = vector_store
+
+        # Experience store (needed for Dream)
+        experience_store = ExperienceStore(workspace)
 
         # Memory components
         consolidator = Consolidator(
@@ -138,6 +144,7 @@ class AgentDependencies:
             store=context_builder.memory,
             provider=provider,
             model=model,
+            experience_store=experience_store,
         )
 
         entity_extractor = EntityExtractor(
@@ -176,6 +183,7 @@ class AgentDependencies:
             consolidator=consolidator,
             dream=dream,
             entity_extractor=entity_extractor,
+            experience_store=experience_store,
             tools=tools,
             vector_store=vector_store,
         )

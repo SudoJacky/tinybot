@@ -29,6 +29,7 @@ while Loop handles all product-specific integration.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -515,14 +516,9 @@ class AgentRunner:
         except BaseException as exc:
             # Trigger on_error hook on exception
             if hook and context:
-                error_record = {
-                    "tool_name": tool_call.name,
-                    "error_type": type(exc).__name__,
-                    "error_message": str(exc),
-                }
-                context.tool_errors.append(error_record)
                 await hook.on_error(context, exc)
                 context.current_tool = None
+
             event = {
                 "name": tool_call.name,
                 "status": "error",

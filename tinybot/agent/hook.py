@@ -24,9 +24,7 @@ class AgentHookContext:
     final_content: str | None = None
     stop_reason: str | None = None
     error: str | None = None
-    # New fields for T014
-    current_tool: str | None = None  # Current executing tool name
-    tool_errors: list[dict[str, Any]] = field(default_factory=list)  # Tool error records
+    current_tool: str | None = None  # Name of the tool currently being executed
 
 
 class AgentHook:

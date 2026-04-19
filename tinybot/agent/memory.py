@@ -501,6 +501,7 @@ class Dream:
     Phase 1 produces an analysis summary (plain LLM call).
     Phase 2 delegates to AgentRunner with read_file / edit_file tools so the
     LLM can make targeted, incremental edits instead of replacing entire files.
+    Phase 3 processes experiences: merges similar ones and updates strategies in MEMORY.md.
     """
 
     def __init__(
@@ -511,6 +512,7 @@ class Dream:
         max_batch_size: int = 20,
         max_iterations: int = 10,
         max_tool_result_chars: int = 16_000,
+        experience_store: Any | None = None,
     ):
         self.store = store
         self.provider = provider
@@ -518,6 +520,7 @@ class Dream:
         self.max_batch_size = max_batch_size
         self.max_iterations = max_iterations
         self.max_tool_result_chars = max_tool_result_chars
+        self.experience_store = experience_store
         self._runner = AgentRunner(provider)
         self._tools = self._build_tools()
 
@@ -647,7 +650,69 @@ class Dream:
             if sha:
                 logger.info("Dream commit: {}", sha)
 
+        # Phase 3: Process experiences
+        if self.experience_store is not None:
+            await self._process_experiences()
+
         return True
+
+    async def _process_experiences(self) -> None:
+        """Phase 3: Merge similar experiences, cleanup old ones, and update MEMORY.md."""
+        if self.experience_store is None:
+            return
+
+        # 1. Merge similar experiences (boosts confidence automatically)
+        merged_count = self.experience_store.merge_similar()
+        if merged_count > 0:
+            logger.info("Dream Phase 3: merged {} similar experiences", merged_count)
+
+        # 2. Cleanup old/low-confidence experiences
+        self.experience_store.compact()
+
+        # 3. Get high-confidence strategies for MEMORY.md
+        high_conf = [
+            e for e in self.experience_store.read_experiences()
+            if e.confidence >= 0.7 and e.resolution and e.outcome in ("success", "resolved")
+        ]
+
+        if not high_conf:
+            logger.debug("Dream Phase 3: no high-confidence experiences to update")
+            return
+
+        # Build strategies section
+        strategies_by_tool: dict[str, list[Any]] = {}
+        for exp in high_conf:
+            strategies_by_tool.setdefault(exp.tool_name, []).append(exp)
+
+        strategy_lines = ["## Tool Strategies\n\n"]
+        strategy_lines.append("Patterns learned from successful problem-solving.\n\n")
+
+        for tool_name, exps in sorted(strategies_by_tool.items()):
+            strategy_lines.append(f"### {tool_name}\n")
+            for exp in sorted(exps, key=lambda x: -x.confidence):
+                error_label = exp.error_type or "general"
+                strategy_lines.append(
+                    f"- **{error_label}**: {exp.resolution} ({int(exp.confidence * 100)}%)\n"
+                )
+            strategy_lines.append("\n")
+
+        strategy_content = "".join(strategy_lines).rstrip()
+
+        # Update MEMORY.md
+        current_memory = self.store.read_memory()
+        if "## Tool Strategies" in current_memory:
+            import re
+            new_memory = re.sub(
+                r"## Tool Strategies\n.*",
+                strategy_content,
+                current_memory,
+                flags=re.DOTALL
+            )
+        else:
+            new_memory = current_memory.rstrip() + "\n\n" + strategy_content
+
+        self.store.write_memory(new_memory)
+        logger.info("Dream Phase 3: wrote {} strategies to MEMORY.md", len(high_conf))
 
 
 # ---------------------------------------------------------------------------
