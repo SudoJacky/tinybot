@@ -200,7 +200,7 @@ cli({
 });
 ```
 
-> Twitter queryId 会随部署更新，建议配合[动态 queryId 发现模式](./advanced-patterns.md#模式-1动态-queryid-发现替代硬编码)。
+> Twitter queryId 会随部署更新，建议配合[动态 queryId 发现模式](advanced-patterns.md#模式-1动态-queryid-发现替代硬编码)。
 
 ---
 

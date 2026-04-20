@@ -18,8 +18,8 @@ opencli doctor
 
 按任务类型，AI Agent 有两个不同入口：
 
-- [`skills/opencli/opencli-explorer/SKILL.md`](./opencli-explorer/SKILL.md)：适配器创建入口，支持全自动生成（`opencli generate <url>`）和手动探索两种流程。
-- [`skills/opencli/opencli-browser/SKILL.md`](./opencli-browser/SKILL.md)：底层控制入口，适合实时操作页面、debug 和人工介入。
+- [`skills/opencli/opencli-explorer/SKILL.md`](../opencli-explorer/SKILL.md)：适配器创建入口，支持全自动生成（`opencli generate <url>`）和手动探索两种流程。
+- [`skills/opencli/opencli-browser/SKILL.md`](../opencli-browser/SKILL.md)：底层控制入口，适合实时操作页面、debug 和人工介入。
 
 实际使用上：
 
