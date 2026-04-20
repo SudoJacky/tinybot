@@ -26,9 +26,11 @@ class Experience:
     params: dict[str, Any] = field(default_factory=dict)
     outcome: str = "success"  # "success" | "failure" | "resolved"
     resolution: str = ""
+    context_summary: str = ""  # User intent summary for matching
     confidence: float = 0.5
     session_key: str = ""
     merged_count: int = 0  # Number of similar experiences merged into this one
+    last_used_at: str = ""  # Last time this experience was queried/used
 
 
 class ExperienceStore:
@@ -57,6 +59,7 @@ class ExperienceStore:
         params: dict[str, Any] | None = None,
         outcome: str = "success",
         resolution: str = "",
+        context_summary: str = "",
         confidence: float = 0.5,
         session_key: str = "",
     ) -> str:
@@ -69,6 +72,7 @@ class ExperienceStore:
             params: The parameters used (summary, not full detail).
             outcome: "success", "failure", or "resolved" (failed then fixed).
             resolution: How the problem was solved (for "resolved" outcomes).
+            context_summary: User intent summary for context matching.
             confidence: Initial confidence score (0.0-1.0).
             session_key: The session where this occurred.
 
@@ -92,8 +96,10 @@ class ExperienceStore:
             params=params or {},
             outcome=outcome,
             resolution=resolution[:500] if resolution else "",
+            context_summary=context_summary[:200] if context_summary else "",
             confidence=min(1.0, max(0.0, confidence)),
             session_key=session_key,
+            last_used_at=ts,  # Initially same as creation time
         )
 
         record = asdict(exp)
@@ -137,10 +143,10 @@ class ExperienceStore:
         """Search experiences by context criteria (keyword matching).
 
         Args:
-            tool_name: Exact match on tool name.
-            error_type: Exact match on error type.
-            outcome: Exact match on outcome.
-            keywords: Keywords to match in resolution text (case-insensitive).
+            tool_name: Exact match on tool name (optional).
+            error_type: Exact match on error type (optional).
+            outcome: Exact match on outcome (optional).
+            keywords: Keywords to match in context_summary and resolution (case-insensitive).
             min_confidence: Minimum confidence threshold.
             limit: Maximum number of results.
 
@@ -151,7 +157,7 @@ class ExperienceStore:
         results: list[Experience] = []
 
         for exp in experiences:
-            # Exact matches
+            # Exact matches (optional filters)
             if tool_name and exp.tool_name != tool_name:
                 continue
             if error_type and exp.error_type != error_type:
@@ -161,10 +167,12 @@ class ExperienceStore:
             if exp.confidence < min_confidence:
                 continue
 
-            # Keyword matching in resolution
+            # Keyword matching in context_summary and resolution
             if keywords:
+                context_lower = (exp.context_summary or "").lower()
                 resolution_lower = exp.resolution.lower()
-                if not any(kw.lower() in resolution_lower for kw in keywords):
+                combined = context_lower + " " + resolution_lower
+                if not any(kw.lower() in combined for kw in keywords):
                     continue
 
             results.append(exp)
@@ -172,6 +180,33 @@ class ExperienceStore:
         # Sort by confidence descending
         results.sort(key=lambda e: e.confidence, reverse=True)
         return results[:limit]
+
+    def search_by_problem(
+        self,
+        keywords: list[str],
+        limit: int = 5,
+        min_confidence: float = 0.5,
+    ) -> list[Experience]:
+        """Search experiences by problem keywords (problem-centric search).
+
+        This method searches for experiences based on problem description
+        keywords, without requiring tool_name. Useful for finding solutions
+        to similar problems across different tools.
+
+        Args:
+            keywords: Keywords describing the problem (e.g., ["path", "absolute", "not found"]).
+            limit: Maximum results.
+            min_confidence: Minimum confidence threshold.
+
+        Returns:
+            List of matching experiences with resolutions.
+        """
+        return self.search_by_context(
+            keywords=keywords,
+            outcome="resolved",
+            min_confidence=min_confidence,
+            limit=limit,
+        )
 
     def get_similar_experiences(
         self,
@@ -254,6 +289,10 @@ class ExperienceStore:
 
             # Create merged experience
             base = group[0]
+            # Use most recent last_used_at from group
+            last_used_dates = [e.last_used_at for e in group if e.last_used_at]
+            last_used_at = max(last_used_dates) if last_used_dates else base.last_used_at
+
             merged = Experience(
                 id=base.id,
                 timestamp=base.timestamp,
@@ -267,6 +306,7 @@ class ExperienceStore:
                 confidence=min(1.0, 0.5 + 0.1 * len(group)),
                 session_key=base.session_key,
                 merged_count=len(group),
+                last_used_at=last_used_at,
             )
             new_experiences.append(merged)
             merged_count += len(group) - 1
@@ -287,6 +327,172 @@ class ExperienceStore:
         kept = experiences[:self.max_experiences]
         self._write_experiences(kept)
         logger.info("ExperienceStore: compacted to {} experiences", len(kept))
+
+    # -- Decay and pruning operations ----------------------------------------
+
+    def decay_confidence(self, days_threshold: int = 30, decay_rate: float = 0.1) -> int:
+        """Decay confidence of experiences not used recently.
+
+        Args:
+            days_threshold: Days without use before decay starts.
+            decay_rate: Confidence reduction per period (0.1 = 10% reduction).
+
+        Returns:
+            Number of experiences with decayed confidence.
+        """
+        experiences = self.read_experiences()
+        if not experiences:
+            return 0
+
+        now = datetime.now()
+        decayed_count = 0
+
+        for exp in experiences:
+            if not exp.last_used_at:
+                continue
+
+            try:
+                last_used = datetime.fromisoformat(exp.last_used_at)
+            except ValueError:
+                continue
+
+            days_unused = (now - last_used).days
+            if days_unused > days_threshold:
+                # Decay confidence based on days unused
+                periods = days_unused // days_threshold
+                new_confidence = exp.confidence * (1 - decay_rate * periods)
+                new_confidence = max(0.1, new_confidence)  # Minimum confidence
+
+                if new_confidence < exp.confidence:
+                    exp.confidence = new_confidence
+                    decayed_count += 1
+
+        if decayed_count > 0:
+            self._write_experiences(experiences)
+            logger.info(
+                "ExperienceStore: decayed {} experiences (threshold={} days)",
+                decayed_count, days_threshold,
+            )
+
+        return decayed_count
+
+    def prune_stale(
+        self,
+        min_confidence: float = 0.3,
+        max_age_days: int = 90,
+    ) -> int:
+        """Remove experiences with low confidence or long unused.
+
+        Args:
+            min_confidence: Minimum confidence threshold (below this = prune).
+            max_age_days: Maximum age in days before pruning low-confidence.
+
+        Returns:
+            Number of experiences removed.
+        """
+        experiences = self.read_experiences()
+        if not experiences:
+            return 0
+
+        now = datetime.now()
+        kept: list[Experience] = []
+        pruned_count = 0
+
+        for exp in experiences:
+            # Keep if confidence is high enough
+            if exp.confidence >= min_confidence:
+                kept.append(exp)
+                continue
+
+            # Check age for low-confidence experiences
+            try:
+                created = datetime.fromisoformat(exp.timestamp)
+            except ValueError:
+                # Invalid timestamp - prune it
+                pruned_count += 1
+                continue
+
+            age_days = (now - created).days
+            if age_days < max_age_days:
+                # Recent low-confidence might improve - keep it
+                kept.append(exp)
+            else:
+                # Old and low-confidence - prune
+                pruned_count += 1
+
+        if pruned_count > 0:
+            self._write_experiences(kept)
+            logger.info(
+                "ExperienceStore: pruned {} stale experiences (min_conf={}, max_age={} days)",
+                pruned_count, min_confidence, max_age_days,
+            )
+
+        return pruned_count
+
+    def mark_used(self, exp_id: str) -> bool:
+        """Mark an experience as used (update last_used_at).
+
+        Args:
+            exp_id: The experience ID to mark.
+
+        Returns:
+            True if experience was found and updated.
+        """
+        experiences = self.read_experiences()
+        now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+        for exp in experiences:
+            if exp.id == exp_id:
+                exp.last_used_at = now
+                self._write_experiences(experiences)
+                return True
+
+        return False
+
+    def update_confidence(self, exp_id: str, delta: float) -> bool:
+        """Update confidence of an experience.
+
+        Args:
+            exp_id: The experience ID to update.
+            delta: Confidence change (+0.1 for positive feedback, -0.1 for negative).
+
+        Returns:
+            True if experience was found and updated.
+        """
+        experiences = self.read_experiences()
+
+        for exp in experiences:
+            if exp.id == exp_id:
+                exp.confidence = min(1.0, max(0.1, exp.confidence + delta))
+                self._write_experiences(experiences)
+                logger.debug(
+                    "ExperienceStore: confidence updated {} -> {}",
+                    exp_id, exp.confidence,
+                )
+                return True
+
+        return False
+
+    def delete_experience(self, exp_id: str) -> bool:
+        """Delete an experience by ID.
+
+        Args:
+            exp_id: The experience ID to delete.
+
+        Returns:
+            True if experience was found and deleted.
+        """
+        experiences = self.read_experiences()
+        original_count = len(experiences)
+
+        kept = [exp for exp in experiences if exp.id != exp_id]
+
+        if len(kept) < original_count:
+            self._write_experiences(kept)
+            logger.info("ExperienceStore: deleted experience {}", exp_id)
+            return True
+
+        return False
 
     def _write_experiences(self, experiences: list[Experience]) -> None:
         """Overwrite the experience file with given experiences."""

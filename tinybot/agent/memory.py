@@ -657,7 +657,7 @@ class Dream:
         return True
 
     async def _process_experiences(self) -> None:
-        """Phase 3: Merge similar experiences, cleanup old ones, and update MEMORY.md."""
+        """Phase 3: Merge, decay, prune experiences, and update MEMORY.md."""
         if self.experience_store is None:
             return
 
@@ -666,10 +666,20 @@ class Dream:
         if merged_count > 0:
             logger.info("Dream Phase 3: merged {} similar experiences", merged_count)
 
-        # 2. Cleanup old/low-confidence experiences
+        # 2. Decay confidence of unused experiences
+        decayed_count = self.experience_store.decay_confidence(days_threshold=30)
+        if decayed_count > 0:
+            logger.info("Dream Phase 3: decayed {} stale experiences", decayed_count)
+
+        # 3. Prune low-confidence or old experiences
+        pruned_count = self.experience_store.prune_stale(min_confidence=0.3, max_age_days=90)
+        if pruned_count > 0:
+            logger.info("Dream Phase 3: pruned {} low-quality experiences", pruned_count)
+
+        # 4. Compact if exceeding limit
         self.experience_store.compact()
 
-        # 3. Get high-confidence strategies for MEMORY.md
+        # 5. Get high-confidence strategies for MEMORY.md
         high_conf = [
             e for e in self.experience_store.read_experiences()
             if e.confidence >= 0.7 and e.resolution and e.outcome in ("success", "resolved")

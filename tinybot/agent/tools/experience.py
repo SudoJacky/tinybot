@@ -91,18 +91,20 @@ class SaveExperienceTool(Tool):
 
 @tool_parameters(
     tool_parameters_schema(
-        tool_name=StringSchema("The tool to query experiences for (e.g., 'exec', 'edit_file')"),
-        error_type=StringSchema(
-            "The error type to search (optional, e.g., 'FileNotFoundError')",
-        ),
         keywords=StringSchema(
-            "Keywords to search in resolutions, comma-separated (optional, e.g., 'path,absolute')",
+            "Keywords describing the problem (comma-separated, e.g., 'path,absolute,not found') - primary search criteria",
+        ),
+        tool_name=StringSchema(
+            "Optional: filter by specific tool (e.g., 'exec', 'read_file')",
+        ),
+        error_type=StringSchema(
+            "Optional: filter by error type (e.g., 'FileNotFoundError')",
         ),
         outcome=StringSchema(
-            "Filter by outcome: 'success', 'failure', 'resolved' (optional)",
+            "Optional: filter by outcome: 'success', 'failure', 'resolved'",
             enum=["success", "failure", "resolved"],
         ),
-        required=["tool_name"],
+        required=["keywords"],
     )
 )
 class QueryExperienceTool(Tool):
@@ -112,6 +114,8 @@ class QueryExperienceTool(Tool):
     - Encountering an error and need suggestions from past solutions
     - Before attempting a complex operation to recall successful approaches
     - To check if similar issues have been resolved before
+
+    Search is based on problem keywords, not tied to specific tools.
     """
 
     def __init__(self, experience_store: ExperienceStore):
@@ -124,39 +128,44 @@ class QueryExperienceTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Query relevant problem-solving experiences from past interactions. "
-            "Returns successful patterns and resolved solutions. "
+            "Query problem-solving experiences by keywords. "
+            "Search for solutions to similar problems across all tools. "
+            "Use keywords that describe your problem (e.g., 'path not found', 'permission denied'). "
             "Call this when encountering an error or before complex operations."
         )
 
     async def execute(
         self,
-        tool_name: str,
+        keywords: str,
+        tool_name: str = "",
         error_type: str = "",
-        keywords: str = "",
         outcome: str = "",
     ) -> str:
         """Query experiences and return relevant ones."""
-        # Parse keywords
-        keyword_list = [kw.strip() for kw in keywords.split(",") if kw.strip()] if keywords else None
+        # Parse keywords (required)
+        keyword_list = [kw.strip() for kw in keywords.split(",") if kw.strip()]
+        if not keyword_list:
+            return "Error: keywords are required for searching experiences"
 
-        # Search experiences - outcome filter only if specified
-        outcome_filter = outcome if outcome else None
-
+        # Search experiences
         experiences = self._store.search_by_context(
-            tool_name=tool_name,
+            tool_name=tool_name if tool_name else None,
             error_type=error_type if error_type else None,
-            outcome=outcome_filter,
+            outcome=outcome if outcome else None,
             keywords=keyword_list,
-            min_confidence=0.3,  # Include lower confidence for context
+            min_confidence=0.3,
             limit=10,
         )
 
         if not experiences:
-            return f"No experiences found for tool '{tool_name}'"
+            return f"No experiences found for keywords: '{keywords}'"
 
-        # Format results
-        lines = [f"Found {len(experiences)} experiences for '{tool_name}':\n"]
+        # Mark top experiences as used
+        for exp in experiences[:3]:
+            self._store.mark_used(exp.id)
+
+        # Format results - include exp_id for feedback
+        lines = [f"Found {len(experiences)} experiences matching '{keywords}':\n"]
 
         # Prioritize resolved > success > failure
         def sort_key(exp):
@@ -171,17 +180,118 @@ class QueryExperienceTool(Tool):
 
         for exp in sorted_exps:
             status = exp.outcome
-            error_label = exp.error_type or "general"
+            tool_label = exp.tool_name or "general"
             conf = int(exp.confidence * 100)
+            exp_id = exp.id
 
+            # Show context summary + resolution with exp_id
+            context = exp.context_summary or ""
+            lines.append(f"  [{exp_id}] {status}/{tool_label} ({conf}%)\n")
+            if context:
+                lines.append(f"    问题: {context}\n")
             if exp.resolution:
-                lines.append(f"  [{status}/{error_label}] {exp.resolution} ({conf}%)\n")
-            else:
-                lines.append(f"  [{status}/{error_label}] (no resolution yet) ({conf}%)\n")
+                lines.append(f"    方案: {exp.resolution}\n")
 
-        # Add helpful hint
+        # Add helpful hint about feedback
         resolved_count = sum(1 for e in sorted_exps if e.outcome == "resolved" and e.resolution)
         if resolved_count > 0:
-            lines.append(f"\n  {resolved_count} resolved experiences available. Consider applying similar approaches.")
+            lines.append(f"\n  {resolved_count} resolved experiences available.")
+            lines.append("\n  If a solution helped, use `feedback_experience` with the exp_id.")
+            lines.append("\n  If outdated/wrong, use `delete_experience` to remove it.")
 
         return "".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# feedback_experience - 反馈经验是否有效
+# ---------------------------------------------------------------------------
+
+@tool_parameters(
+    tool_parameters_schema(
+        exp_id=StringSchema("The experience ID from query results (e.g., 'exp_abc123')"),
+        helpful=StringSchema(
+            "Whether this experience was helpful: 'yes' or 'no'",
+            enum=["yes", "no"],
+        ),
+        required=["exp_id", "helpful"],
+    )
+)
+class FeedbackExperienceTool(Tool):
+    """Tool to provide feedback on an experience.
+
+    Use this after trying a solution from query_experience:
+    - 'yes': Solution worked - boosts confidence
+    - 'no': Solution didn't help - reduces confidence
+    """
+
+    def __init__(self, experience_store: ExperienceStore):
+        self._store = experience_store
+
+    @property
+    def name(self) -> str:
+        return "feedback_experience"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Provide feedback on whether an experience was helpful. "
+            "Call this after trying a solution from query_experience. "
+            "'yes' boosts confidence, 'no' reduces it. "
+            "Helps the system learn which experiences are most valuable."
+        )
+
+    async def execute(self, exp_id: str, helpful: str) -> str:
+        """Record feedback for an experience."""
+        delta = 0.1 if helpful == "yes" else -0.15
+
+        if self._store.update_confidence(exp_id, delta):
+            action = "boosted" if helpful == "yes" else "reduced"
+            return f"Feedback recorded: {exp_id} confidence {action}"
+        return f"Error: experience '{exp_id}' not found"
+
+
+# ---------------------------------------------------------------------------
+# delete_experience - 删除过时或错误的经验
+# ---------------------------------------------------------------------------
+
+@tool_parameters(
+    tool_parameters_schema(
+        exp_id=StringSchema("The experience ID to delete (e.g., 'exp_abc123')"),
+        reason=StringSchema(
+            "Reason for deletion (e.g., 'outdated', 'incorrect', 'no longer relevant')",
+        ),
+        required=["exp_id"],
+    )
+)
+class DeleteExperienceTool(Tool):
+    """Tool to delete an outdated or incorrect experience.
+
+    Use this when:
+    - An experience is no longer relevant (outdated approach)
+    - An experience contains incorrect information
+    - An experience has very low confidence and should be removed
+    """
+
+    def __init__(self, experience_store: ExperienceStore):
+        self._store = experience_store
+
+    @property
+    def name(self) -> str:
+        return "delete_experience"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Delete an outdated or incorrect experience. "
+            "Use when a stored solution is no longer valid or contains errors. "
+            "Provide the exp_id from query_experience results."
+        )
+
+    async def execute(self, exp_id: str, reason: str = "") -> str:
+        """Delete an experience."""
+        if self._store.delete_experience(exp_id):
+            msg = f"Experience {exp_id} deleted"
+            if reason:
+                msg += f" (reason: {reason})"
+            return msg
+        return f"Error: experience '{exp_id}' not found"

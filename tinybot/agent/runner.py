@@ -463,7 +463,7 @@ class AgentRunner:
         hook: AgentHook | None = None,
         context: AgentHookContext | None = None,
     ) -> tuple[Any, dict[str, str], BaseException | None]:
-        _HINT = "\n\n[Analyze the error above and try a different approach.]"
+        _HINT = "\n\n[Analyze the error above and try a different approach. Consider using `query_experience` to search for past solutions to similar problems.]"
         lookup_error = repeated_external_lookup_error(
             tool_call.name,
             tool_call.arguments,
