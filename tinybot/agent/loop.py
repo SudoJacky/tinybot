@@ -43,13 +43,19 @@ from loguru import logger
 from tinybot.agent.context import ContextBuilder
 from tinybot.agent.experience import ExperienceStore
 from tinybot.agent.experience_accumulator import ExperienceAccumulator
+from tinybot.agent.experience_summarizer import ExperienceSummarizer
 from tinybot.agent.hook import AgentHook
 from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
 from tinybot.agent.subagent import SubagentManager
 from tinybot.agent.tools.cron import CronTool
-from tinybot.agent.tools.experience import SaveExperienceTool, QueryExperienceTool
+from tinybot.agent.tools.experience import (
+    DeleteExperienceTool,
+    FeedbackExperienceTool,
+    QueryExperienceTool,
+    SaveExperienceTool,
+)
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from tinybot.agent.tools.message import MessageTool
 from tinybot.agent.tools.registry import ToolRegistry
@@ -200,6 +206,7 @@ class AgentLoop:
             self.dream = deps.dream
             self.entity_extractor = deps.entity_extractor
             self.experience_store = deps.experience_store
+            self.experience_summarizer = deps.experience_summarizer
         else:
             # Create dependencies inline (backward compatible)
             self.task_manager = TaskManager(
@@ -213,6 +220,7 @@ class AgentLoop:
             self.tool_context = ToolContextManager()
             self.experience_store = ExperienceStore(workspace)
             self.experience_accumulator = ExperienceAccumulator(self.experience_store)
+            self.experience_summarizer = ExperienceSummarizer(provider=provider, model=self.model)
             self.context = ContextBuilder(
                 workspace, timezone=timezone,
                 task_manager=self.task_manager, session_manager=self.sessions,
@@ -389,6 +397,18 @@ class AgentLoop:
                 experience_store=self.experience_store,
             )
             registry.register(query_exp_tool)
+
+            # Feedback tool - always available
+            feedback_exp_tool = FeedbackExperienceTool(
+                experience_store=self.experience_store,
+            )
+            registry.register(feedback_exp_tool)
+
+            # Delete tool - always available
+            delete_exp_tool = DeleteExperienceTool(
+                experience_store=self.experience_store,
+            )
+            registry.register(delete_exp_tool)
 
             # Save tool - only with valid session_key
             if session_key:
@@ -668,12 +688,15 @@ class AgentLoop:
         elif result.stop_reason == "error":
             logger.error("LLM returned error: {}", (result.final_content or "")[:200])
 
-        # Background experience accumulation (non-blocking)
-        if result.tool_events and self.experience_store:
+        # Background experience summarization (non-blocking)
+        # Only summarize after complete conversation (completed or max_iterations)
+        if result.stop_reason in ("completed", "max_iterations") and result.messages and self.experience_store:
             self._schedule_background(
-                self.experience_accumulator.accumulate_from_events(
-                    result.tool_events,
-                    session.key if session else "",
+                self.experience_summarizer.summarize_from_messages(
+                    messages=result.messages,
+                    tool_events=result.tool_events,
+                    session_key=session.key if session else "",
+                    store=self.experience_store,
                 )
             )
 

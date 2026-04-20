@@ -11,6 +11,8 @@ from loguru import logger
 
 from tinybot.agent.context import ContextBuilder
 from tinybot.agent.experience import ExperienceStore
+from tinybot.agent.experience_accumulator import ExperienceAccumulator
+from tinybot.agent.experience_summarizer import ExperienceSummarizer
 from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.session_handler import SessionHandler
 from tinybot.agent.subagent import SubagentManager
@@ -44,6 +46,7 @@ class AgentDependencies:
         dream: Dream memory processing
         entity_extractor: User profile entity extraction
         experience_store: Experience storage for self-evolution
+        experience_summarizer: LLM-based experience summarizer
         tools: Tool registry for agent execution
         vector_store: Optional ChromaDB storage
     """
@@ -58,6 +61,7 @@ class AgentDependencies:
     dream: Dream
     entity_extractor: EntityExtractor
     experience_store: ExperienceStore
+    experience_summarizer: ExperienceSummarizer
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     vector_store: VectorStore | None = None
 
@@ -127,6 +131,9 @@ class AgentDependencies:
         # Experience store (needed for Dream)
         experience_store = ExperienceStore(workspace)
 
+        # Experience summarizer (LLM-based)
+        experience_summarizer = ExperienceSummarizer(provider=provider, model=model)
+
         # Memory components
         consolidator = Consolidator(
             store=context_builder.memory,
@@ -184,6 +191,7 @@ class AgentDependencies:
             dream=dream,
             entity_extractor=entity_extractor,
             experience_store=experience_store,
+            experience_summarizer=experience_summarizer,
             tools=tools,
             vector_store=vector_store,
         )
