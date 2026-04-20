@@ -74,6 +74,7 @@ class AgentRunSpec:
     max_iterations_message: str | None = None
     concurrent_tools: bool = False
     fail_on_tool_error: bool = False
+    experience_analyzer: Any | None = None  # ErrorAnalyzer for auto error diagnosis
     workspace: Path | None = None
     session_key: str | None = None
     context_window_tokens: int | None = None
@@ -478,6 +479,14 @@ class AgentRunner:
             if spec.fail_on_tool_error:
                 return lookup_error + _HINT, event, RuntimeError(lookup_error)
             return lookup_error + _HINT, event, None
+
+        # Auto-analyze error with experience analyzer if available
+        def _get_error_suggestions(tool_name: str, error: Exception | str) -> str:
+            if spec.experience_analyzer:
+                suggestions = spec.experience_analyzer.analyze_error(tool_name, error)
+                if suggestions:
+                    return "\n\n" + suggestions
+            return _HINT
         prepare_call = getattr(spec.tools, "prepare_call", None)
         tool, params, prep_error = None, tool_call.arguments, None
         if callable(prepare_call):
@@ -493,7 +502,8 @@ class AgentRunner:
                 "status": "error",
                 "detail": prep_error.split(": ", 1)[-1][:120],
             }
-            return prep_error + _HINT, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
+            suggestions = _get_error_suggestions(tool_call.name, prep_error)
+            return prep_error + suggestions, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
 
         # Trigger on_tool_start hook before execution
         if hook and context:
@@ -524,9 +534,10 @@ class AgentRunner:
                 "status": "error",
                 "detail": str(exc),
             }
+            suggestions = _get_error_suggestions(tool_call.name, exc)
             if spec.fail_on_tool_error:
-                return f"Error: {type(exc).__name__}: {exc}", event, exc
-            return f"Error: {type(exc).__name__}: {exc}", event, None
+                return f"Error: {type(exc).__name__}: {exc}" + suggestions, event, exc
+            return f"Error: {type(exc).__name__}: {exc}" + suggestions, event, None
 
         if isinstance(result, str) and result.startswith("Error"):
             event = {
