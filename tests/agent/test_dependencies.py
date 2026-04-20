@@ -20,6 +20,7 @@ class TestAgentDependencies:
         mock_consolidator = MagicMock()
         mock_dream = MagicMock()
         mock_entity_extractor = MagicMock()
+        mock_experience_store = MagicMock()
         mock_tools = MagicMock()
         mock_vector_store = MagicMock()
 
@@ -33,6 +34,7 @@ class TestAgentDependencies:
             consolidator=mock_consolidator,
             dream=mock_dream,
             entity_extractor=mock_entity_extractor,
+            experience_store=mock_experience_store,
             tools=mock_tools,
             vector_store=mock_vector_store,
         )
@@ -46,6 +48,7 @@ class TestAgentDependencies:
         assert deps.consolidator == mock_consolidator
         assert deps.dream == mock_dream
         assert deps.entity_extractor == mock_entity_extractor
+        assert deps.experience_store == mock_experience_store
         assert deps.tools == mock_tools
         assert deps.vector_store == mock_vector_store
 
@@ -60,6 +63,7 @@ class TestAgentDependencies:
         mock_consolidator = MagicMock()
         mock_dream = MagicMock()
         mock_entity_extractor = MagicMock()
+        mock_experience_store = MagicMock()
 
         deps = AgentDependencies(
             task_manager=mock_task_manager,
@@ -71,6 +75,7 @@ class TestAgentDependencies:
             consolidator=mock_consolidator,
             dream=mock_dream,
             entity_extractor=mock_entity_extractor,
+            experience_store=mock_experience_store,
             tools=None,  # Will use default factory
             vector_store=None,
         )
@@ -90,6 +95,7 @@ class TestAgentDependencies:
         mock_consolidator = MagicMock()
         mock_dream = MagicMock()
         mock_entity_extractor = MagicMock()
+        mock_experience_store = MagicMock()
 
         deps = AgentDependencies(
             task_manager=mock_task_manager,
@@ -101,6 +107,7 @@ class TestAgentDependencies:
             consolidator=mock_consolidator,
             dream=mock_dream,
             entity_extractor=mock_entity_extractor,
+            experience_store=mock_experience_store,
         )
 
         assert deps.tools is not None
