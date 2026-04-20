@@ -15,6 +15,7 @@ from tinybot.utils.helper import build_assistant_message
 from tinybot.utils.media import detect_image_mime
 
 if TYPE_CHECKING:
+    from tinybot.agent.experience import ExperienceStore
     from tinybot.agent.vector_store import VectorStore
     from tinybot.session.manager import SessionManager
     from tinybot.task.service import TaskManager
@@ -33,6 +34,7 @@ class ContextBuilder:
         vector_store: VectorStore | None = None,
         task_manager: TaskManager | None = None,
         session_manager: SessionManager | None = None,
+        experience_store: ExperienceStore | None = None,
     ):
         self.workspace = workspace
         self.timezone = timezone
@@ -41,6 +43,7 @@ class ContextBuilder:
         self.vector_store = vector_store
         self.task_manager = task_manager
         self.session_manager = session_manager
+        self.experience_store = experience_store
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
@@ -229,6 +232,15 @@ class ContextBuilder:
                         ),
                     })
 
+        # Auto-inject relevant experiences based on user message
+        if self.experience_store is not None:
+            experience_context = self._build_experience_context(current_message)
+            if experience_context:
+                messages.append({
+                    "role": "system",
+                    "content": experience_context,
+                })
+
         messages.extend(history)
         if messages[-1].get("role") == current_role:
             last = dict(messages[-1])
@@ -237,6 +249,111 @@ class ContextBuilder:
             return messages
         messages.append({"role": current_role, "content": merged})
         return messages
+
+    def _build_experience_context(
+        self,
+        current_message: str,
+        max_experiences: int = 3,
+        min_confidence: float = 0.5,
+    ) -> str | None:
+        """Build context block from relevant experiences.
+
+        Auto-injects relevant past solutions when the user message
+        suggests a problem that might benefit from prior experience.
+
+        Args:
+            current_message: The user's current message.
+            max_experiences: Maximum experiences to inject.
+            min_confidence: Minimum confidence threshold.
+
+        Returns:
+            Formatted context string or None if no relevant experiences.
+        """
+        if not self.experience_store:
+            return None
+
+        # Skip injection for simple conversational messages
+        if self._is_simple_conversation(current_message):
+            return None
+
+        # Semantic search for relevant experiences
+        experiences = self.experience_store.search_semantic(
+            query=current_message,
+            outcome="resolved",  # Prefer resolved problems
+            min_confidence=min_confidence,
+            limit=max_experiences * 2,  # Get more for filtering
+        )
+
+        # Also search for success patterns
+        success_exps = self.experience_store.search_semantic(
+            query=current_message,
+            outcome="success",
+            min_confidence=min_confidence + 0.1,  # Higher bar for success
+            limit=max_experiences,
+        )
+
+        # Combine and dedupe, prioritizing resolved
+        all_exps = experiences + success_exps
+        seen_ids: set[str] = set()
+        unique_exps: list[Any] = []
+        for exp in all_exps:
+            if exp.id not in seen_ids:
+                seen_ids.add(exp.id)
+                unique_exps.append(exp)
+        unique_exps = unique_exps[:max_experiences]
+
+        if not unique_exps:
+            return None
+
+        # Format experiences as context
+        lines = ["---\n[RELEVANT EXPERIENCES — past solutions for similar problems]\n\n"]
+        for exp in unique_exps:
+            tool_label = exp.tool_name or "general"
+            conf = int(exp.confidence * 100)
+            lines.append(f"**{tool_label}** ({conf}% confidence)\n")
+            if exp.resolution:
+                lines.append(f"  Solution: {exp.resolution}\n")
+            if exp.category:
+                lines.append(f"  Category: {exp.category}\n")
+            lines.append("\n")
+        lines.append("---")
+
+        # Mark these experiences as used
+        for exp in unique_exps[:2]:
+            try:
+                self.experience_store.mark_used(exp.id)
+            except Exception:
+                pass
+
+        return "".join(lines)
+
+    @staticmethod
+    def _is_simple_conversation(text: str) -> bool:
+        """Detect simple conversational messages that don't need experience injection."""
+        text = text.strip().lower()
+
+        # Short messages (< 20 chars) are likely simple
+        if len(text) < 20:
+            return True
+
+        # Common conversational patterns
+        simple_patterns = [
+            "你好", "hello", "hi", "谢谢", "thank", "好的", "ok", "ok",
+            "再见", "bye", "怎么样", "how are", "什么", "what is",
+            "帮我", "help me", "请", "please", "?", "是", "yes", "否", "no",
+        ]
+
+        # Check if message matches simple patterns
+        for pattern in simple_patterns:
+            if pattern in text and len(text) < 50:
+                return True
+
+        # Check if message is mostly punctuation/short words
+        words = [w for w in text.split() if len(w) >= 2]
+        if len(words) <= 2:
+            return True
+
+        return False
 
     @staticmethod
     def _build_search_query(

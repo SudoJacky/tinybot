@@ -102,6 +102,8 @@ class ExperienceSummarizer:
                 context_summary=context_summary,
                 confidence=exp.get("confidence", 0.7),
                 session_key=session_key,
+                category=exp.get("category", "general"),
+                tags=exp.get("tags", []),
             )
             count += 1
 
@@ -194,24 +196,36 @@ class ExperienceSummarizer:
         if "SKIP:" in text:
             return context_summary, []
 
-        # Extract EXPERIENCE blocks
-        exp_pattern = r"EXPERIENCE:\s*\n(?:tool_name:\s*(.+?)\n)?(?:error_type:\s*(.+?)\n)?(?:resolution:\s*(.+?)\n)?(?:confidence:\s*(.+?)\n)?"
+        # Extract EXPERIENCE blocks (updated pattern for category/tags)
+        exp_pattern = r"EXPERIENCE:\s*\n(?:tool_name:\s*(.+?)\n)?(?:error_type:\s*(.+?)\n)?(?:category:\s*(.+?)\n)?(?:tags:\s*(.+?)\n)?(?:resolution:\s*(.+?)\n)?(?:confidence:\s*(.+?)\n)?"
         for match in re.finditer(exp_pattern, text, re.DOTALL):
             tool_name = match.group(1).strip() if match.group(1) else "general"
             error_type = match.group(2).strip() if match.group(2) else ""
-            resolution = match.group(3).strip() if match.group(3) else ""
-            confidence_str = match.group(4).strip() if match.group(4) else "0.7"
+            category = match.group(3).strip() if match.group(3) else "general"
+            tags_str = match.group(4).strip() if match.group(4) else ""
+            resolution = match.group(5).strip() if match.group(5) else ""
+            confidence_str = match.group(6).strip() if match.group(6) else "0.7"
+
+            # Parse tags
+            tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
 
             try:
                 confidence = float(confidence_str)
             except ValueError:
                 confidence = 0.7
 
+            # Validate category
+            valid_categories = ["path", "permission", "encoding", "network", "api", "config", "dependency", "general"]
+            if category not in valid_categories:
+                category = "general"
+
             # Only require resolution (tool_name can be "general")
             if resolution:
                 experiences.append({
                     "tool_name": tool_name,
                     "error_type": error_type if error_type != "success" else "",
+                    "category": category,
+                    "tags": tags,
                     "resolution": resolution,
                     "confidence": min(1.0, max(0.3, confidence)),
                 })

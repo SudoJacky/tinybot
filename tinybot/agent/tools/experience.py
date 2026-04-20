@@ -147,12 +147,12 @@ class QueryExperienceTool(Tool):
         if not keyword_list:
             return "Error: keywords are required for searching experiences"
 
-        # Search experiences
-        experiences = self._store.search_by_context(
+        # Use semantic search with the full query text
+        query_text = " ".join(keyword_list)
+        experiences = self._store.search_semantic(
+            query=query_text,
             tool_name=tool_name if tool_name else None,
-            error_type=error_type if error_type else None,
             outcome=outcome if outcome else None,
-            keywords=keyword_list,
             min_confidence=0.3,
             limit=10,
         )
@@ -183,12 +183,15 @@ class QueryExperienceTool(Tool):
             tool_label = exp.tool_name or "general"
             conf = int(exp.confidence * 100)
             exp_id = exp.id
+            category = exp.category or "general"
 
             # Show context summary + resolution with exp_id
             context = exp.context_summary or ""
-            lines.append(f"  [{exp_id}] {status}/{tool_label} ({conf}%)\n")
+            lines.append(f"  [{exp_id}] {status}/{tool_label}/{category} ({conf}%)\n")
             if context:
                 lines.append(f"    问题: {context}\n")
+            if exp.tags:
+                lines.append(f"    标签: {', '.join(exp.tags)}\n")
             if exp.resolution:
                 lines.append(f"    方案: {exp.resolution}\n")
 
@@ -244,7 +247,7 @@ class FeedbackExperienceTool(Tool):
         """Record feedback for an experience."""
         delta = 0.1 if helpful == "yes" else -0.15
 
-        if self._store.update_confidence(exp_id, delta):
+        if self._store.update_confidence(exp_id, delta, is_feedback=True):
             action = "boosted" if helpful == "yes" else "reduced"
             return f"Feedback recorded: {exp_id} confidence {action}"
         return f"Error: experience '{exp_id}' not found"

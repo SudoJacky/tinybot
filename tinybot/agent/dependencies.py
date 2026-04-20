@@ -129,7 +129,8 @@ class AgentDependencies:
             context_builder.vector_store = vector_store
 
         # Experience store (needed for Dream)
-        experience_store = ExperienceStore(workspace)
+        experience_store = ExperienceStore(workspace, vector_store=vector_store)
+        context_builder.experience_store = experience_store
 
         # Experience summarizer (LLM-based)
         experience_summarizer = ExperienceSummarizer(provider=provider, model=model)

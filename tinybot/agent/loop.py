@@ -43,6 +43,7 @@ from loguru import logger
 from tinybot.agent.context import ContextBuilder
 from tinybot.agent.experience import ExperienceStore
 from tinybot.agent.experience_accumulator import ExperienceAccumulator
+from tinybot.agent.experience_analyzer import ErrorAnalyzer
 from tinybot.agent.experience_summarizer import ExperienceSummarizer
 from tinybot.agent.hook import AgentHook
 from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
@@ -270,6 +271,9 @@ class AgentLoop:
             )
 
         self.runner = AgentRunner(provider)
+
+        # Create error analyzer for auto error diagnosis
+        self.experience_analyzer = ErrorAnalyzer(self.experience_store) if self.experience_store else None
 
         self._running = False
         self._mcp_servers = mcp_servers or {}
@@ -680,6 +684,7 @@ class AgentLoop:
             progress_callback=on_progress,
             checkpoint_callback=_checkpoint,
             context_usage_callback=_context_usage,
+            experience_analyzer=self.experience_analyzer,
         ))
 
         self._last_usage = result.usage
