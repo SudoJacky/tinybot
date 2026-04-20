@@ -8,6 +8,8 @@ allowed-tools: Bash(opencli:*), Read, Edit, Write
 
 Control Chrome step-by-step via CLI. Reuses existing login sessions — no passwords needed.
 
+If the user wants to see it, please use the `browser state` command
+
 ## Prerequisites
 
 ```bash

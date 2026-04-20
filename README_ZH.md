@@ -14,7 +14,7 @@
 
 ### 🧠 Agentic DAG 任务调度
 
-![task](./show/task_1.png)
+![task](./show/task_1.gif)
 
 自动将复杂任务分解为可执行的子任务 DAG，支持：
 
