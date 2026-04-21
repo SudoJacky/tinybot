@@ -685,6 +685,7 @@ class AgentLoop:
             checkpoint_callback=_checkpoint,
             context_usage_callback=_context_usage,
             experience_analyzer=self.experience_analyzer,
+            experience_store=self.experience_store,
         ))
 
         self._last_usage = result.usage
