@@ -84,6 +84,32 @@ def test_recovery_strategy_returns_primary_action():
 
     assert strategy is not None
     assert strategy["primary_action"] == "Retry with a workspace absolute path."
+    assert strategy["retry_policy"]["action"] == "retry_with_adjustment"
+    assert strategy["retry_policy"]["should_retry"] is True
+
+
+def test_permission_error_maps_to_stop_retry_policy():
+    workspace = _prepare_workspace()
+    store = ExperienceStore(workspace)
+    store.append_experience(
+        tool_name="exec",
+        error_type="PermissionError",
+        outcome="resolved",
+        experience_type="recovery",
+        trigger_stage="on_error",
+        action_hint="Do not retry the same command without elevated access.",
+        applicability="Permission denied from shell execution.",
+        resolution="Stop retrying and change approach or request elevated permissions.",
+        confidence=0.9,
+        category="permission",
+    )
+
+    analyzer = ErrorAnalyzer(store)
+    strategy = analyzer.build_recovery_strategy("exec", "PermissionError: access denied")
+
+    assert strategy is not None
+    assert strategy["retry_policy"]["action"] == "stop_retry"
+    assert strategy["retry_policy"]["should_retry"] is False
 
 
 def test_retry_success_links_back_to_recovery_experience():
