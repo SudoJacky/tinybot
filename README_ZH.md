@@ -146,6 +146,28 @@ uv run tinybot api
 
 技能自动加载，当条件匹配时 Agent 会遵循定义的工作流。
 
+### 使用浏览器之前
+
+#### 1. 安装 OpenCLI
+
+```bash
+npm install -g @jackwener/opencli
+```
+
+#### 2. 安装chrome拓展
+
+OpenCLI 通过一个轻量级的浏览器桥接扩展程序和一个小型本地守护进程连接到 Chrome/Chromium。该守护进程会在需要时自动启动。
+
+1. 从 GitHub 下载最新版本的 `opencli-extension-v{version}.zip` [Releases page](https://github.com/jackwener/opencli/releases).
+2. 解压，打开 `chrome://extensions`，然后启用**开发者模式**.
+3. 点击“加载已解压文件”并选择已解压的文件夹.
+
+#### 3. 验证设置
+
+```bash
+opencli doctor
+```
+
 ## 经验管理工具
 
 Agent 可以主动管理其学习经验：
