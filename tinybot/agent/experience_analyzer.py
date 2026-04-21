@@ -46,14 +46,14 @@ class ErrorAnalyzer:
             min_confidence=min_confidence,
         )
 
-    def analyze_error(
+    def build_recovery_strategy(
         self,
         tool_name: str,
         error: Exception | str,
         max_suggestions: int = 3,
         min_confidence: float = 0.4,
-    ) -> str | None:
-        """Analyze error and return formatted suggestions."""
+    ) -> dict[str, Any] | None:
+        """Return a compact recovery strategy with a primary action and references."""
         error_type, _ = self._parse_error(error)
         experiences = self.suggest_recoveries(
             tool_name=tool_name,
@@ -63,7 +63,33 @@ class ErrorAnalyzer:
         )
         if not experiences:
             return None
-        return self._format_suggestions(experiences, error_type)
+
+        primary = experiences[0]
+        return {
+            "error_type": error_type,
+            "primary_action": primary.action_hint or primary.resolution or "",
+            "primary_experience_id": primary.id,
+            "experiences": experiences,
+        }
+
+    def analyze_error(
+        self,
+        tool_name: str,
+        error: Exception | str,
+        max_suggestions: int = 3,
+        min_confidence: float = 0.4,
+    ) -> str | None:
+        """Analyze error and return formatted suggestions."""
+        error_type, _ = self._parse_error(error)
+        strategy = self.build_recovery_strategy(
+            tool_name=tool_name,
+            error=error,
+            max_suggestions=max_suggestions,
+            min_confidence=min_confidence,
+        )
+        if not strategy:
+            return None
+        return self._format_suggestions(strategy["experiences"], error_type)
 
     def _parse_error(self, error: Exception | str) -> tuple[str, str]:
         if isinstance(error, Exception):

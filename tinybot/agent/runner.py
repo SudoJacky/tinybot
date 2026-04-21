@@ -512,14 +512,21 @@ class AgentRunner:
         # Auto-analyze error with experience analyzer if available
         def _get_error_suggestions(tool_name: str, error: Exception | str) -> str:
             if spec.experience_analyzer:
-                recoveries = spec.experience_analyzer.suggest_recoveries(tool_name, error)
-                if recoveries:
-                    recovery_hints[tool_name] = [exp.id for exp in recoveries]
+                strategy = spec.experience_analyzer.build_recovery_strategy(tool_name, error)
+                if strategy:
+                    recovery_hints[tool_name] = [exp.id for exp in strategy["experiences"]]
+                    primary_action = strategy.get("primary_action", "").strip()
+                    primary_block = ""
+                    if primary_action:
+                        primary_block = (
+                            "\n\n[PRIMARY RECOVERY ACTION]\n"
+                            f"{primary_action}\n"
+                        )
                     suggestions = spec.experience_analyzer._format_suggestions(  # type: ignore[attr-defined]
-                        recoveries,
-                        spec.experience_analyzer._parse_error(error)[0],  # type: ignore[attr-defined]
+                        strategy["experiences"],
+                        strategy["error_type"],
                     )
-                    return "\n\n" + suggestions
+                    return primary_block + "\n\n" + suggestions
             return _HINT
         prepare_call = getattr(spec.tools, "prepare_call", None)
         tool, params, prep_error = None, tool_call.arguments, None
