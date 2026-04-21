@@ -55,8 +55,35 @@ def test_recovery_experience_is_returned_for_tool_error():
     )
 
     assert suggestions is not None
+    assert "[PRIMARY RECOVERY ACTION]" not in suggestions
     assert "Retry with a workspace absolute path" in suggestions
     assert "RECOVERY SUGGESTIONS" in suggestions
+
+
+def test_recovery_strategy_returns_primary_action():
+    workspace = _prepare_workspace()
+    store = ExperienceStore(workspace)
+    store.append_experience(
+        tool_name="read_file",
+        error_type="FileNotFoundError",
+        outcome="resolved",
+        experience_type="recovery",
+        trigger_stage="on_error",
+        action_hint="Retry with a workspace absolute path.",
+        applicability="Relative path failures.",
+        resolution="Resolve the path from the workspace root and retry.",
+        confidence=0.9,
+        category="path",
+    )
+
+    analyzer = ErrorAnalyzer(store)
+    strategy = analyzer.build_recovery_strategy(
+        "read_file",
+        "FileNotFoundError: config/settings.json not found",
+    )
+
+    assert strategy is not None
+    assert strategy["primary_action"] == "Retry with a workspace absolute path."
 
 
 def test_retry_success_links_back_to_recovery_experience():
