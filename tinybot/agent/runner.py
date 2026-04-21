@@ -515,12 +515,18 @@ class AgentRunner:
                 strategy = spec.experience_analyzer.build_recovery_strategy(tool_name, error)
                 if strategy:
                     recovery_hints[tool_name] = [exp.id for exp in strategy["experiences"]]
-                    primary_action = strategy.get("primary_action", "").strip()
                     primary_block = ""
-                    if primary_action:
+                    retry_policy = strategy.get("retry_policy")
+                    if retry_policy:
+                        primary_block = (
+                            "\n\n"
+                            + spec.experience_analyzer.format_retry_policy(retry_policy)
+                            + "\n"
+                        )
+                    elif strategy.get("primary_action", "").strip():
                         primary_block = (
                             "\n\n[PRIMARY RECOVERY ACTION]\n"
-                            f"{primary_action}\n"
+                            f"{strategy['primary_action'].strip()}\n"
                         )
                     suggestions = spec.experience_analyzer._format_suggestions(  # type: ignore[attr-defined]
                         strategy["experiences"],

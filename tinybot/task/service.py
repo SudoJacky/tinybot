@@ -18,6 +18,7 @@ from tinybot.task.types import SubTask, TaskPlan, TaskStore
 from tinybot.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
+    from tinybot.agent.experience import ExperienceStore
     from tinybot.providers.base import LLMProvider
 
 
@@ -88,6 +89,7 @@ class TaskManager:
         model: str,
         on_execute: Callable[[SubTask, TaskPlan], Coroutine[Any, Any, str]] | None = None,
         on_progress: Callable[[dict[str, Any]], Coroutine[Any, Any, None]] | None = None,
+        experience_store: ExperienceStore | None = None,
     ):
         self.workspace = workspace
         self.plans_dir = workspace / "plans"
@@ -95,6 +97,7 @@ class TaskManager:
         self.model = model
         self.on_execute = on_execute
         self.on_progress = on_progress
+        self.experience_store = experience_store
         self._store: TaskStore | None = None
         self._execution_tasks: dict[str, asyncio.Task] = {}  # plan_id -> execution task
         self._cancel_events: dict[str, asyncio.Event] = {}  # plan_id -> cancel signal
@@ -268,6 +271,9 @@ class TaskManager:
 
         # Build context for decomposition
         context_info = f"Workspace: {self.workspace}\nRequest: {request}"
+        planning_strategy = self._build_planning_strategy(request)
+        if planning_strategy:
+            context_info = planning_strategy + "\n\n" + context_info
 
         # Call LLM to decompose the task
         response = await self.provider.chat_with_retry(
@@ -326,6 +332,43 @@ class TaskManager:
 
         logger.info("Created task plan '{}' ({})", plan.title, plan.id)
         return plan
+
+    def _build_planning_strategy(self, request: str, limit: int = 2) -> str:
+        """Select explicit before-plan workflow strategies for task decomposition."""
+        if self.experience_store is None:
+            return ""
+
+        workflows = self.experience_store.search_workflows(
+            query=request,
+            limit=limit,
+            min_confidence=0.55,
+        )
+        if not workflows:
+            return ""
+
+        lines = [
+            "[PLANNING STRATEGY]",
+            "Prefer the following reusable workflows when decomposing the request.",
+            "",
+        ]
+        for exp in workflows:
+            conf = int(exp.confidence * 100)
+            lines.append(
+                f"- [{exp.id}] {exp.context_summary or exp.tool_name or 'workflow'} ({conf}% confidence)"
+            )
+            if exp.action_hint:
+                lines.append(f"  Primary action: {exp.action_hint}")
+            if exp.applicability:
+                lines.append(f"  Applies when: {exp.applicability}")
+            if exp.resolution:
+                lines.append(f"  Reference: {exp.resolution}")
+            lines.append("")
+            try:
+                self.experience_store.mark_used(exp.id)
+            except Exception:
+                logger.warning("TaskManager: failed to mark planning strategy as used")
+
+        return "\n".join(lines).strip()
 
     async def execute_plan(
         self,
