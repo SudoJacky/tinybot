@@ -1,25 +1,21 @@
-"""Tests for ExperienceSummarizer module."""
+"""Tests for ExperienceSummarizer."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+
 from tinybot.agent.experience_summarizer import ExperienceSummarizer
 
 
 class TestExperienceSummarizer:
-    """Tests for ExperienceSummarizer."""
-
     def test_init(self):
-        """Test ExperienceSummarizer initialization."""
         mock_provider = MagicMock()
         summarizer = ExperienceSummarizer(provider=mock_provider, model="test-model")
         assert summarizer.provider == mock_provider
         assert summarizer.model == "test-model"
 
     def test_format_messages(self):
-        """Test message formatting for LLM."""
-        mock_provider = MagicMock()
-        summarizer = ExperienceSummarizer(provider=mock_provider, model="test-model")
-
+        summarizer = ExperienceSummarizer(provider=MagicMock(), model="test-model")
         messages = [
             {"role": "user", "content": "Hello, help me read a file"},
             {
@@ -31,16 +27,13 @@ class TestExperienceSummarizer:
         ]
 
         formatted = summarizer._format_messages(messages)
-        assert "[用户]" in formatted
-        assert "[助手]" in formatted
-        assert "[调用] read_file" in formatted
-        assert "[结果:read_file]" in formatted
+        assert "[user]" in formatted
+        assert "[assistant]" in formatted
+        assert "[tool_call] read_file" in formatted
+        assert "[tool_result:read_file]" in formatted
 
     def test_format_events(self):
-        """Test tool events formatting."""
-        mock_provider = MagicMock()
-        summarizer = ExperienceSummarizer(provider=mock_provider, model="test-model")
-
+        summarizer = ExperienceSummarizer(provider=MagicMock(), model="test-model")
         events = [
             {"name": "read_file", "status": "error", "detail": "FileNotFoundError: path not found"},
             {"name": "read_file", "status": "ok", "detail": "File read successfully"},
@@ -51,59 +44,51 @@ class TestExperienceSummarizer:
         assert "read_file: ok" in formatted
 
     def test_extract_text(self):
-        """Test text extraction from content."""
-        mock_provider = MagicMock()
-        summarizer = ExperienceSummarizer(provider=mock_provider, model="test-model")
-
-        # String content
+        summarizer = ExperienceSummarizer(provider=MagicMock(), model="test-model")
         assert summarizer._extract_text("Hello") == "Hello"
 
-        # List content
         content = [{"type": "text", "text": "Hello"}, {"type": "image", "url": "test.png"}]
         assert summarizer._extract_text(content) == "Hello"
 
     def test_parse_summary(self):
-        """Test parsing LLM summary response."""
-        mock_provider = MagicMock()
-        summarizer = ExperienceSummarizer(provider=mock_provider, model="test-model")
-
+        summarizer = ExperienceSummarizer(provider=MagicMock(), model="test-model")
         text = """
-SUMMARY: User tried to read config file, fixed by using absolute path
+SUMMARY: User reviewed a module and followed a reusable inspection flow
 ---
 EXPERIENCE:
-tool_name: read_file
-error_type: FileNotFoundError
-resolution: Use workspace absolute path when relative path fails
+experience_type: workflow
+trigger_stage: before_plan
+tool_name: general
+category: general
+tags: architecture,review
+action_hint: Inspect module entry points before proposing changes
+applicability: Use when reviewing a module for architecture improvements
+resolution: Start from the entry points, trace the main flow, then inspect failure handling.
 confidence: 0.8
 ---
 """
         context_summary, experiences = summarizer._parse_summary(text)
-        assert context_summary == "User tried to read config file, fixed by using absolute path"
+        assert context_summary == "User reviewed a module and followed a reusable inspection flow"
         assert len(experiences) == 1
-        assert experiences[0]["tool_name"] == "read_file"
-        assert experiences[0]["error_type"] == "FileNotFoundError"
+        assert experiences[0]["experience_type"] == "workflow"
+        assert experiences[0]["trigger_stage"] == "before_plan"
+        assert experiences[0]["action_hint"] == "Inspect module entry points before proposing changes"
         assert experiences[0]["confidence"] == 0.8
 
     def test_parse_summary_skip(self):
-        """Test parsing summary with SKIP marker."""
-        mock_provider = MagicMock()
-        summarizer = ExperienceSummarizer(provider=mock_provider, model="test-model")
-
+        summarizer = ExperienceSummarizer(provider=MagicMock(), model="test-model")
         text = """
 SUMMARY: Simple greeting conversation
-SKIP: no special experience to record
+SKIP: no reusable experience
 """
         context_summary, experiences = summarizer._parse_summary(text)
+        assert context_summary == "Simple greeting conversation"
         assert len(experiences) == 0
 
     @pytest.mark.asyncio
     async def test_summarize_skips_simple_conversation(self):
-        """Test that simple conversations are skipped."""
-        mock_provider = MagicMock()
-        summarizer = ExperienceSummarizer(provider=mock_provider, model="test-model")
+        summarizer = ExperienceSummarizer(provider=MagicMock(), model="test-model")
         mock_store = MagicMock()
-
-        # Simple conversation with no failures and few tools
         messages = [{"role": "user", "content": "Hello"}]
         events = [{"name": "message", "status": "ok", "detail": "sent"}]
 
@@ -117,13 +102,13 @@ SKIP: no special experience to record
 
     @pytest.mark.asyncio
     async def test_summarize_calls_llm_for_complex_conversation(self):
-        """Test that LLM is called for complex conversations."""
         mock_provider = MagicMock()
-        mock_provider.chat_with_retry = AsyncMock(return_value=MagicMock(content="SUMMARY: test\nSKIP: none"))
+        mock_provider.chat_with_retry = AsyncMock(
+            return_value=MagicMock(content="SUMMARY: test\nSKIP: no reusable experience")
+        )
         summarizer = ExperienceSummarizer(provider=mock_provider, model="test-model")
         mock_store = MagicMock()
 
-        # Complex conversation with failures
         messages = [
             {"role": "user", "content": "Help"},
             {"role": "assistant", "content": "OK", "tool_calls": [{"name": "read_file", "arguments": {"path": "x"}}]},
@@ -144,4 +129,5 @@ SKIP: no special experience to record
                 store=mock_store,
             )
 
+        assert count == 0
         mock_provider.chat_with_retry.assert_called_once()

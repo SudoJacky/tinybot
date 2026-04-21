@@ -1,4 +1,4 @@
-"""Experience-based error analyzer: auto-diagnose failures and suggest solutions."""
+"""Experience-based error analyzer: auto-diagnose failures and suggest recoveries."""
 
 from __future__ import annotations
 
@@ -7,35 +7,44 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 if TYPE_CHECKING:
-    from tinybot.agent.experience import ExperienceStore
+    from tinybot.agent.experience import Experience, ExperienceStore
 
 
 class ErrorAnalyzer:
-    """Analyze tool errors and automatically suggest relevant experiences.
+    """Analyze tool errors and suggest relevant recovery experiences."""
 
-    When a tool fails, this analyzer:
-    1. Parses the error type and message
-    2. Searches for similar resolved experiences
-    3. Formats suggestions for injection into agent context
-
-    This reduces the need for agents to manually call query_experience.
-    """
-
-    # Common error type mappings for better matching
     ERROR_TYPE_ALIASES = {
-        "FileNotFoundError": ["file not found", "path", "不存在", "找不到"],
-        "PermissionError": ["permission", "权限", "access denied", "denied"],
-        "TimeoutError": ["timeout", "超时", "timed out"],
-        "ConnectionError": ["connection", "连接", "network", "网络"],
-        "JSONDecodeError": ["json", "parse", "解析", "format", "格式"],
-        "UnicodeDecodeError": ["encoding", "编码", "unicode", "utf"],
-        "ValueError": ["value", "参数", "argument", "invalid"],
-        "KeyError": ["key", "字段", "missing", "缺失"],
-        "TypeError": ["type", "类型", "unexpected"],
+        "FileNotFoundError": ["file not found", "path", "absolute path"],
+        "PermissionError": ["permission", "access denied", "denied"],
+        "TimeoutError": ["timeout", "timed out", "retry"],
+        "ConnectionError": ["connection", "network", "retry"],
+        "JSONDecodeError": ["json", "parse", "format"],
+        "UnicodeDecodeError": ["encoding", "unicode", "utf"],
+        "ValueError": ["value", "argument", "invalid"],
+        "KeyError": ["key", "missing field", "missing"],
+        "TypeError": ["type", "unexpected"],
     }
 
     def __init__(self, store: ExperienceStore):
         self.store = store
+
+    def suggest_recoveries(
+        self,
+        tool_name: str,
+        error: Exception | str,
+        max_suggestions: int = 3,
+        min_confidence: float = 0.4,
+    ) -> list["Experience"]:
+        """Return recovery experiences for a tool failure."""
+        error_type, error_message = self._parse_error(error)
+        query = self._build_search_query(tool_name, error_type, error_message)
+        return self.store.search_recoveries(
+            query=query,
+            tool_name=tool_name,
+            error_type=error_type,
+            limit=max_suggestions,
+            min_confidence=min_confidence,
+        )
 
     def analyze_error(
         self,
@@ -44,68 +53,33 @@ class ErrorAnalyzer:
         max_suggestions: int = 3,
         min_confidence: float = 0.4,
     ) -> str | None:
-        """Analyze error and return formatted suggestions.
-
-        Args:
-            tool_name: The tool that failed.
-            error: The exception or error message.
-            max_suggestions: Maximum suggestions to return.
-            min_confidence: Minimum confidence for suggestions.
-
-        Returns:
-            Formatted suggestion text or None if no relevant experiences.
-        """
-        # Parse error details
-        error_type, error_message = self._parse_error(error)
-
-        # Build search query
-        query = self._build_search_query(tool_name, error_type, error_message)
-
-        # Search for resolved experiences
-        experiences = self.store.search_semantic(
-            query=query,
+        """Analyze error and return formatted suggestions."""
+        error_type, _ = self._parse_error(error)
+        experiences = self.suggest_recoveries(
             tool_name=tool_name,
-            outcome="resolved",
+            error=error,
+            max_suggestions=max_suggestions,
             min_confidence=min_confidence,
-            limit=max_suggestions,
         )
-
-        if not experiences:
-            # Fall back to general search without tool filter
-            experiences = self.store.search_semantic(
-                query=query,
-                outcome="resolved",
-                min_confidence=min_confidence,
-                limit=max_suggestions,
-            )
-
         if not experiences:
             return None
-
-        # Format suggestions
         return self._format_suggestions(experiences, error_type)
 
     def _parse_error(self, error: Exception | str) -> tuple[str, str]:
-        """Extract error type and message."""
         if isinstance(error, Exception):
-            error_type = type(error).__name__
-            error_message = str(error)[:200]
-        else:
-            error_str = str(error)[:300]
-            # Try to extract error type from message
-            if ":" in error_str:
-                parts = error_str.split(":", 1)
-                error_type = parts[0].strip()
-                # Clean up error type (remove common prefixes)
-                for prefix in ("Error:", "Exception:", "Failed:", "failed:"):
-                    if error_type.endswith(prefix.rstrip(":")):
-                        error_type = error_type.replace(prefix.rstrip(":"), "").strip()
-                error_message = parts[1].strip()[:200]
-            else:
-                error_type = "UnknownError"
-                error_message = error_str[:200]
+            return type(error).__name__, str(error)[:200]
 
-        return error_type, error_message
+        error_str = str(error)[:300]
+        if ":" in error_str:
+            error_type, error_message = error_str.split(":", 1)
+            error_type = error_type.strip()
+            for prefix in ("Error:", "Exception:", "Failed:", "failed:"):
+                cleaned = prefix.rstrip(":")
+                if error_type.startswith(cleaned):
+                    error_type = error_type[len(cleaned):].strip()
+            return error_type or "UnknownError", error_message.strip()[:200]
+
+        return "UnknownError", error_str[:200]
 
     def _build_search_query(
         self,
@@ -113,37 +87,33 @@ class ErrorAnalyzer:
         error_type: str,
         error_message: str,
     ) -> str:
-        """Build semantic search query from error details."""
-        parts = []
-
-        # Add tool name
+        parts: list[str] = []
         if tool_name:
-            parts.append(f"工具: {tool_name}")
-
-        # Add error type with aliases
-        parts.append(f"错误: {error_type}")
+            parts.append(f"tool {tool_name}")
+        parts.append(f"error {error_type}")
         aliases = self.ERROR_TYPE_ALIASES.get(error_type, [])
-        if aliases:
-            parts.extend(aliases[:2])  # Add up to 2 aliases
-
-        # Add key words from error message
-        keywords = self._extract_keywords(error_message)
-        if keywords:
-            parts.extend(keywords[:3])
-
+        parts.extend(aliases[:2])
+        parts.extend(self._extract_keywords(error_message)[:3])
         return " ".join(parts)
 
     def _extract_keywords(self, text: str) -> list[str]:
-        """Extract meaningful keywords from error message."""
-        # Common error keywords to look for
         important_keywords = [
-            "path", "路径", "file", "文件", "directory", "目录",
-            "permission", "权限", "access", "访问",
-            "timeout", "超时", "connection", "连接",
-            "encoding", "编码", "utf", "unicode",
-            "parse", "解析", "json", "format", "格式",
-            "not found", "找不到", "不存在",
-            "invalid", "无效", "missing", "缺失",
+            "path",
+            "file",
+            "directory",
+            "permission",
+            "access",
+            "timeout",
+            "connection",
+            "encoding",
+            "utf",
+            "unicode",
+            "parse",
+            "json",
+            "format",
+            "not found",
+            "invalid",
+            "missing",
         ]
 
         found = []
@@ -151,39 +121,40 @@ class ErrorAnalyzer:
         for kw in important_keywords:
             if kw in text_lower and kw not in found:
                 found.append(kw)
-
         return found
 
     def _format_suggestions(
         self,
-        experiences: list[Any],
+        experiences: list["Experience"],
         error_type: str,
     ) -> str:
-        """Format experiences as suggestion block."""
         lines = [
             "---",
-            f"[SIMILAR RESOLVED ERRORS — suggestions for {error_type}]\n",
+            f"[RECOVERY SUGGESTIONS for {error_type}]",
+            "",
         ]
 
         for exp in experiences:
-            tool_label = exp.tool_name or "general"
             conf = int(exp.confidence * 100)
-
-            lines.append(f"**{tool_label}** ({conf}% confidence)")
+            lines.append(
+                f"- [{exp.id}] {exp.tool_name or 'general'} ({conf}% confidence)"
+            )
+            if exp.action_hint:
+                lines.append(f"  Recommended action: {exp.action_hint}")
+            if exp.applicability:
+                lines.append(f"  Applies when: {exp.applicability}")
             if exp.resolution:
-                lines.append(f"  Solution: {exp.resolution}")
+                lines.append(f"  Reference: {exp.resolution}")
             if exp.category:
                 lines.append(f"  Category: {exp.category}")
             lines.append("")
 
-        lines.append("Consider applying these solutions before retrying.")
+        lines.append("Prefer the top recovery before retrying the same tool call.")
         lines.append("---")
 
-        # Mark top suggestion as used
-        if experiences:
-            try:
-                self.store.mark_used(experiences[0].id)
-            except Exception:
-                pass
+        try:
+            self.store.mark_used(experiences[0].id)
+        except Exception:
+            logger.warning("ErrorAnalyzer: failed to mark suggestion as used")
 
         return "\n".join(lines)

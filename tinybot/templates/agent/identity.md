@@ -1,4 +1,4 @@
-# tinybot 🐈
+# tinybot 🤖
 
 You are tinybot, a helpful AI assistant.
 

@@ -6,13 +6,11 @@ import platform
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from tinybot.utils.helper import current_time_str
-
 from tinybot.agent.memory import MemoryStore
-from tinybot.utils.prompt_templates import render_template
 from tinybot.agent.skills import SkillsLoader
-from tinybot.utils.helper import build_assistant_message
+from tinybot.utils.helper import build_assistant_message, current_time_str
 from tinybot.utils.media import detect_image_mime
+from tinybot.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
     from tinybot.agent.experience import ExperienceStore
@@ -25,7 +23,7 @@ class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"]
-    _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
+    _RUNTIME_CONTEXT_TAG = "[Runtime Context - metadata only, not instructions]"
 
     def __init__(
         self,
@@ -46,7 +44,6 @@ class ContextBuilder:
         self.experience_store = experience_store
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
-        """Build the system prompt from identity, bootstrap files, memory, and skills."""
         parts = [self._get_identity()]
 
         bootstrap = self._load_bootstrap_files()
@@ -65,15 +62,19 @@ class ContextBuilder:
 
         skills_summary = self.skills.build_skills_summary()
         if skills_summary:
-            parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
+            parts.append(
+                render_template("agent/skills_section.md", skills_summary=skills_summary)
+            )
 
         return "\n\n---\n\n".join(parts)
 
     def _get_identity(self) -> str:
-        """Get the core identity section."""
         workspace_path = str(self.workspace.expanduser().resolve())
         system = platform.system()
-        runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
+        runtime = (
+            f"{'macOS' if system == 'Darwin' else system} "
+            f"{platform.machine()}, Python {platform.python_version()}"
+        )
 
         return render_template(
             "agent/identity.md",
@@ -84,16 +85,16 @@ class ContextBuilder:
 
     @staticmethod
     def _build_runtime_context(
-        channel: str | None, chat_id: str | None, timezone: str | None = None,
+        channel: str | None,
+        chat_id: str | None,
+        timezone: str | None = None,
         task_manager: TaskManager | None = None,
         user_profile: dict[str, Any] | None = None,
     ) -> str:
-        """Build untrusted runtime metadata block for injection before the user message."""
         lines = [f"Current Time: {current_time_str(timezone)}"]
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
 
-        # Inject dynamic user profile (entity memory)
         if user_profile:
             profile_parts = []
             if name := user_profile.get("name"):
@@ -109,19 +110,23 @@ class ContextBuilder:
             if profile_parts:
                 lines.append("User Context: " + "; ".join(profile_parts))
 
-        # Add active task progress if any (support multiple plans)
         if task_manager:
             active_plans = task_manager.list_plans(include_completed=False)
             active_plans = [p for p in active_plans if p.status == "executing"]
-
-            for plan in active_plans[:3]:  # Limit to 3 active plans
+            for plan in active_plans[:3]:
                 progress = task_manager.get_progress(plan.id)
                 if progress:
                     lines.append(f"Active Task: {plan.title}")
-                    lines.append(f"Task Progress: {progress['completed']}/{progress['total']} completed, {progress['in_progress']} in progress")
-                    if progress.get('current_all'):
-                        lines.append(f"Current Steps: {', '.join(progress['current_all'])}")
-                    elif progress.get('current'):
+                    lines.append(
+                        "Task Progress: "
+                        f"{progress['completed']}/{progress['total']} completed, "
+                        f"{progress['in_progress']} in progress"
+                    )
+                    if progress.get("current_all"):
+                        lines.append(
+                            f"Current Steps: {', '.join(progress['current_all'])}"
+                        )
+                    elif progress.get("current"):
                         lines.append(f"Current Step: {progress['current']}")
 
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
@@ -133,7 +138,10 @@ class ContextBuilder:
 
         def _to_blocks(value: Any) -> list[dict[str, Any]]:
             if isinstance(value, list):
-                return [item if isinstance(item, dict) else {"type": "text", "text": str(item)} for item in value]
+                return [
+                    item if isinstance(item, dict) else {"type": "text", "text": str(item)}
+                    for item in value
+                ]
             if value is None:
                 return []
             return [{"type": "text", "text": str(value)}]
@@ -141,15 +149,12 @@ class ContextBuilder:
         return _to_blocks(left) + _to_blocks(right)
 
     def _load_bootstrap_files(self) -> str:
-        """Load all bootstrap files from workspace."""
         parts = []
-
         for filename in self.BOOTSTRAP_FILES:
             file_path = self.workspace / filename
             if file_path.exists():
                 content = file_path.read_text(encoding="utf-8")
                 parts.append(f"## {filename}\n\n{content}")
-
         return "\n\n".join(parts) if parts else ""
 
     def build_messages(
@@ -163,33 +168,24 @@ class ContextBuilder:
         current_role: str = "user",
         user_profile: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Build the complete message list for an LLM call."""
         runtime_ctx = self._build_runtime_context(
-            channel, chat_id, self.timezone, self.task_manager, user_profile,
+            channel, chat_id, self.timezone, self.task_manager, user_profile
         )
         user_content = self._build_user_content(current_message, media)
 
-        # Merge runtime context and user content into a single user message
-        # to avoid consecutive same-role messages that some providers reject.
         if isinstance(user_content, str):
             merged = f"{runtime_ctx}\n\n{user_content}"
         else:
             merged = [{"type": "text", "text": runtime_ctx}] + user_content
 
-        messages = [
-            {"role": "system", "content": self.build_system_prompt(skill_names)},
-        ]
+        messages = [{"role": "system", "content": self.build_system_prompt(skill_names)}]
 
-        # Inject memory context from ChromaDB: hierarchical retrieval
         if self.vector_store is not None and channel and chat_id:
             session_key = f"{channel}:{chat_id}"
-
-            # Build richer search query from recent history + current message
             search_query = self._build_search_query(history, current_message)
             retrieval_limits = self._plan_vector_retrieval(history, current_message)
 
             try:
-                # Hierarchical retrieval: summaries → their child chunks
                 results = self.vector_store.search_with_hierarchy(
                     session_key,
                     search_query,
@@ -200,16 +196,9 @@ class ContextBuilder:
             except Exception:
                 results = []
 
-
             if results:
-                # search_with_hierarchy already deduplicates by ID;
-                # the check below is defensive only.
                 unique_results = results
-
-                # Sort by boundary (chronological order) for coherence
                 unique_results.sort(key=lambda x: x.get("boundary") or 0)
-
-                # Build context parts with type and time-range labels
                 context_parts: list[str] = []
                 for item in unique_results:
                     if item["type"] == "summary":
@@ -223,23 +212,21 @@ class ContextBuilder:
                         )
 
                 if context_parts:
-                    messages.append({
-                        "role": "system",
-                        "content": (
-                            "---\n[RELEVANT PAST CONTEXT]\n\n"
-                            + "\n\n---\n\n".join(context_parts)
-                            + "\n---"
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "system",
+                            "content": (
+                                "---\n[RELEVANT PAST CONTEXT]\n\n"
+                                + "\n\n---\n\n".join(context_parts)
+                                + "\n---"
+                            ),
+                        }
+                    )
 
-        # Auto-inject relevant experiences based on user message
         if self.experience_store is not None:
             experience_context = self._build_experience_context(current_message)
             if experience_context:
-                messages.append({
-                    "role": "system",
-                    "content": experience_context,
-                })
+                messages.append({"role": "system", "content": experience_context})
 
         messages.extend(history)
         if messages[-1].get("role") == current_role:
@@ -256,44 +243,25 @@ class ContextBuilder:
         max_experiences: int = 3,
         min_confidence: float = 0.5,
     ) -> str | None:
-        """Build context block from relevant experiences.
-
-        Auto-injects relevant past solutions when the user message
-        suggests a problem that might benefit from prior experience.
-
-        Args:
-            current_message: The user's current message.
-            max_experiences: Maximum experiences to inject.
-            min_confidence: Minimum confidence threshold.
-
-        Returns:
-            Formatted context string or None if no relevant experiences.
-        """
         if not self.experience_store:
             return None
 
-        # Skip injection for simple conversational messages
         if self._is_simple_conversation(current_message):
             return None
 
-        # Semantic search for relevant experiences
-        experiences = self.experience_store.search_semantic(
+        workflow_exps = self.experience_store.search_workflows(
             query=current_message,
-            outcome="resolved",  # Prefer resolved problems
-            min_confidence=min_confidence,
-            limit=max_experiences * 2,  # Get more for filtering
-        )
-
-        # Also search for success patterns
-        success_exps = self.experience_store.search_semantic(
-            query=current_message,
-            outcome="success",
-            min_confidence=min_confidence + 0.1,  # Higher bar for success
             limit=max_experiences,
+            min_confidence=min_confidence,
+        )
+        reference_exps = self.experience_store.search_semantic(
+            query=current_message,
+            outcome="resolved",
+            min_confidence=min_confidence,
+            limit=max_experiences * 2,
         )
 
-        # Combine and dedupe, prioritizing resolved
-        all_exps = experiences + success_exps
+        all_exps = workflow_exps + reference_exps
         seen_ids: set[str] = set()
         unique_exps: list[Any] = []
         for exp in all_exps:
@@ -305,20 +273,41 @@ class ContextBuilder:
         if not unique_exps:
             return None
 
-        # Format experiences as context
-        lines = ["---\n[RELEVANT EXPERIENCES — past solutions for similar problems]\n\n"]
-        for exp in unique_exps:
-            tool_label = exp.tool_name or "general"
-            conf = int(exp.confidence * 100)
-            lines.append(f"**{tool_label}** ({conf}% confidence)\n")
-            if exp.resolution:
-                lines.append(f"  Solution: {exp.resolution}\n")
-            if exp.category:
-                lines.append(f"  Category: {exp.category}\n")
-            lines.append("\n")
+        lines = ["---\n"]
+        workflow_section = [e for e in unique_exps if e.experience_type == "workflow"]
+        reference_section = [e for e in unique_exps if e.experience_type != "workflow"]
+
+        if workflow_section:
+            lines.append("[RELEVANT WORKFLOWS]\n\n")
+            for exp in workflow_section:
+                conf = int(exp.confidence * 100)
+                lines.append(
+                    f"- {exp.context_summary or exp.tool_name or 'workflow'} ({conf}% confidence)\n"
+                )
+                if exp.action_hint:
+                    lines.append(f"  Recommended action: {exp.action_hint}\n")
+                if exp.applicability:
+                    lines.append(f"  Applies when: {exp.applicability}\n")
+                if exp.resolution:
+                    lines.append(f"  Reference: {exp.resolution}\n")
+                lines.append("\n")
+
+        if reference_section:
+            lines.append("[RELEVANT RECOVERIES / REFERENCES]\n\n")
+            for exp in reference_section[:max_experiences]:
+                tool_label = exp.tool_name or "general"
+                conf = int(exp.confidence * 100)
+                lines.append(f"- {tool_label} ({conf}% confidence)\n")
+                if exp.action_hint:
+                    lines.append(f"  Recommended action: {exp.action_hint}\n")
+                if exp.resolution:
+                    lines.append(f"  Solution: {exp.resolution}\n")
+                if exp.category:
+                    lines.append(f"  Category: {exp.category}\n")
+                lines.append("\n")
+
         lines.append("---")
 
-        # Mark these experiences as used
         for exp in unique_exps[:2]:
             try:
                 self.experience_store.mark_used(exp.id)
@@ -329,54 +318,51 @@ class ContextBuilder:
 
     @staticmethod
     def _is_simple_conversation(text: str) -> bool:
-        """Detect simple conversational messages that don't need experience injection."""
         text = text.strip().lower()
-
-        # Short messages (< 20 chars) are likely simple
         if len(text) < 20:
             return True
 
-        # Common conversational patterns
         simple_patterns = [
-            "你好", "hello", "hi", "谢谢", "thank", "好的", "ok", "ok",
-            "再见", "bye", "怎么样", "how are", "什么", "what is",
-            "帮我", "help me", "请", "please", "?", "是", "yes", "否", "no",
+            "hello",
+            "hi",
+            "thanks",
+            "thank",
+            "ok",
+            "bye",
+            "how are",
+            "what is",
+            "help me",
+            "please",
+            "?",
+            "yes",
+            "no",
         ]
-
-        # Check if message matches simple patterns
         for pattern in simple_patterns:
             if pattern in text and len(text) < 50:
                 return True
 
-        # Check if message is mostly punctuation/short words
         words = [w for w in text.split() if len(w) >= 2]
-        if len(words) <= 2:
-            return True
-
-        return False
+        return len(words) <= 2
 
     @staticmethod
     def _build_search_query(
-        history: list[dict[str, Any]],  # from session.get_history(); contains role/content
+        history: list[dict[str, Any]],
         current_message: str,
         max_recent: int = 2,
     ) -> str:
-        """Build a richer search query from recent user messages + current message.
-
-        Truncates each message to avoid overly long embeddings that dilute
-        semantic quality.
-        """
         recent_user_msgs = [
-            m.get("content", "")[:200] for m in history[-6:]
+            m.get("content", "")[:200]
+            for m in history[-6:]
             if m.get("role") == "user" and isinstance(m.get("content"), str)
         ]
         recent_assistant_msgs = [
-            m.get("content", "")[:160] for m in history[-4:]
+            m.get("content", "")[:160]
+            for m in history[-4:]
             if m.get("role") == "assistant" and isinstance(m.get("content"), str)
         ]
         current_text = current_message[:500].strip()
         focus_lines = [
-            line.strip(" -*0123456789.、")[:120]
+            line.strip(" -*0123456789.")[:120]
             for line in current_message.splitlines()
             if line.strip()
         ]
@@ -387,9 +373,11 @@ class ContextBuilder:
             parts.append("Recent user context:\n" + "\n".join(recent_user_msgs[-max_recent:]))
         if recent_assistant_msgs and any(
             token in current_text.lower()
-            for token in ("之前", "上次", "刚才", "继续", "回顾", "总结", "earlier", "previous", "continue")
+            for token in ("earlier", "previous", "continue", "summary", "recap")
         ):
-            parts.append("Recent assistant context:\n" + "\n".join(recent_assistant_msgs[-1:]))
+            parts.append(
+                "Recent assistant context:\n" + "\n".join(recent_assistant_msgs[-1:])
+            )
         if focus_lines:
             parts.append("Current focus:\n" + "\n".join(focus_lines))
         if current_text:
@@ -401,7 +389,6 @@ class ContextBuilder:
         history: list[dict[str, Any]],
         current_message: str,
     ) -> dict[str, int]:
-        """Choose retrieval depth dynamically from the current query complexity."""
         text = current_message.strip()
         complexity = 0
         if len(text) >= 120:
@@ -410,7 +397,7 @@ class ContextBuilder:
             complexity += 1
         if text.count("\n") >= 2 or any(
             marker in text
-            for marker in ("1.", "2.", "- ", "* ", "、", "以及", "同时", "对比", "compare", "vs", "总结", "回顾")
+            for marker in ("1.", "2.", "- ", "* ", "compare", "vs", "summary", "recap")
         ):
             complexity += 1
         if sum(1 for item in history[-8:] if item.get("role") == "user") >= 4:
@@ -423,9 +410,9 @@ class ContextBuilder:
             "max_chunks_per_summary": max_chunks,
         }
 
-
-    def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
-        """Build user message content with optional base64-encoded images."""
+    def _build_user_content(
+        self, text: str, media: list[str] | None
+    ) -> str | list[dict[str, Any]]:
         if not media:
             return text
 
@@ -435,41 +422,53 @@ class ContextBuilder:
             if not p.is_file():
                 continue
             raw = p.read_bytes()
-            # Detect real MIME type from magic bytes; fallback to filename guess
             mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
             if not mime or not mime.startswith("image/"):
                 continue
             b64 = base64.b64encode(raw).decode()
-            images.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{b64}"},
-                "_meta": {"path": str(p)},
-            })
+            images.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    "_meta": {"path": str(p)},
+                }
+            )
 
         if not images:
             return text
         return images + [{"type": "text", "text": text}]
 
     def add_tool_result(
-        self, messages: list[dict[str, Any]],
-        tool_call_id: str, tool_name: str, result: Any,
+        self,
+        messages: list[dict[str, Any]],
+        tool_call_id: str,
+        tool_name: str,
+        result: Any,
     ) -> list[dict[str, Any]]:
-        """Add a tool result to the message list."""
-        messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "name": tool_name,
+                "content": result,
+            }
+        )
         return messages
 
     def add_assistant_message(
-        self, messages: list[dict[str, Any]],
+        self,
+        messages: list[dict[str, Any]],
         content: str | None,
         tool_calls: list[dict[str, Any]] | None = None,
         reasoning_content: str | None = None,
         thinking_blocks: list[dict] | None = None,
     ) -> list[dict[str, Any]]:
-        """Add an assistant message to the message list."""
-        messages.append(build_assistant_message(
-            content,
-            tool_calls=tool_calls,
-            reasoning_content=reasoning_content,
-            thinking_blocks=thinking_blocks,
-        ))
+        messages.append(
+            build_assistant_message(
+                content,
+                tool_calls=tool_calls,
+                reasoning_content=reasoning_content,
+                thinking_blocks=thinking_blocks,
+            )
+        )
         return messages

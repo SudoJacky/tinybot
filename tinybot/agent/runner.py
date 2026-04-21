@@ -75,6 +75,7 @@ class AgentRunSpec:
     concurrent_tools: bool = False
     fail_on_tool_error: bool = False
     experience_analyzer: Any | None = None  # ErrorAnalyzer for auto error diagnosis
+    experience_store: Any | None = None
     workspace: Path | None = None
     session_key: str | None = None
     context_window_tokens: int | None = None
@@ -115,6 +116,8 @@ class AgentRunner:
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
         external_lookup_counts: dict[str, int] = {}
+        recovery_hints: dict[str, list[str]] = {}
+        tool_attempts: dict[str, int] = {}
 
         for iteration in range(spec.max_iterations):
             try:
@@ -185,6 +188,8 @@ class AgentRunner:
                     spec,
                     response.tool_calls,
                     external_lookup_counts,
+                    recovery_hints,
+                    tool_attempts,
                     hook,
                     context,
                 )
@@ -431,6 +436,8 @@ class AgentRunner:
         spec: AgentRunSpec,
         tool_calls: list[ToolCallRequest],
         external_lookup_counts: dict[str, int],
+        recovery_hints: dict[str, list[str]],
+        tool_attempts: dict[str, int],
         hook: AgentHook | None = None,
         context: AgentHookContext | None = None,
     ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
@@ -439,12 +446,30 @@ class AgentRunner:
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
                 tool_results.extend(await asyncio.gather(*(
-                    self._run_tool(spec, tool_call, external_lookup_counts, hook, context)
+                    self._run_tool(
+                        spec,
+                        tool_call,
+                        external_lookup_counts,
+                        recovery_hints,
+                        tool_attempts,
+                        hook,
+                        context,
+                    )
                     for tool_call in batch
                 )))
             else:
                 for tool_call in batch:
-                    tool_results.append(await self._run_tool(spec, tool_call, external_lookup_counts, hook, context))
+                    tool_results.append(
+                        await self._run_tool(
+                            spec,
+                            tool_call,
+                            external_lookup_counts,
+                            recovery_hints,
+                            tool_attempts,
+                            hook,
+                            context,
+                        )
+                    )
 
         results: list[Any] = []
         events: list[dict[str, str]] = []
@@ -461,6 +486,8 @@ class AgentRunner:
         spec: AgentRunSpec,
         tool_call: ToolCallRequest,
         external_lookup_counts: dict[str, int],
+        recovery_hints: dict[str, list[str]],
+        tool_attempts: dict[str, int],
         hook: AgentHook | None = None,
         context: AgentHookContext | None = None,
     ) -> tuple[Any, dict[str, str], BaseException | None]:
@@ -470,6 +497,8 @@ class AgentRunner:
             tool_call.arguments,
             external_lookup_counts,
         )
+        attempt_no = tool_attempts.get(tool_call.name, 0) + 1
+        tool_attempts[tool_call.name] = attempt_no
         if lookup_error:
             event = {
                 "name": tool_call.name,
@@ -483,8 +512,13 @@ class AgentRunner:
         # Auto-analyze error with experience analyzer if available
         def _get_error_suggestions(tool_name: str, error: Exception | str) -> str:
             if spec.experience_analyzer:
-                suggestions = spec.experience_analyzer.analyze_error(tool_name, error)
-                if suggestions:
+                recoveries = spec.experience_analyzer.suggest_recoveries(tool_name, error)
+                if recoveries:
+                    recovery_hints[tool_name] = [exp.id for exp in recoveries]
+                    suggestions = spec.experience_analyzer._format_suggestions(  # type: ignore[attr-defined]
+                        recoveries,
+                        spec.experience_analyzer._parse_error(error)[0],  # type: ignore[attr-defined]
+                    )
                     return "\n\n" + suggestions
             return _HINT
         prepare_call = getattr(spec.tools, "prepare_call", None)
@@ -503,6 +537,17 @@ class AgentRunner:
                 "detail": prep_error.split(": ", 1)[-1][:120],
             }
             suggestions = _get_error_suggestions(tool_call.name, prep_error)
+            if spec.experience_store and spec.session_key:
+                related_id = (recovery_hints.get(tool_call.name) or [""])[0]
+                spec.experience_store.record_tool_event(
+                    tool_name=tool_call.name,
+                    params=params,
+                    status="error",
+                    detail=prep_error,
+                    session_key=spec.session_key,
+                    attempt_no=attempt_no,
+                    related_experience_id=related_id,
+                )
             return prep_error + suggestions, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
 
         # Trigger on_tool_start hook before execution
@@ -535,6 +580,17 @@ class AgentRunner:
                 "detail": str(exc),
             }
             suggestions = _get_error_suggestions(tool_call.name, exc)
+            if spec.experience_store and spec.session_key:
+                related_id = (recovery_hints.get(tool_call.name) or [""])[0]
+                spec.experience_store.record_tool_event(
+                    tool_name=tool_call.name,
+                    params=params,
+                    status="error",
+                    detail=f"{type(exc).__name__}: {exc}",
+                    session_key=spec.session_key,
+                    attempt_no=attempt_no,
+                    related_experience_id=related_id,
+                )
             if spec.fail_on_tool_error:
                 return f"Error: {type(exc).__name__}: {exc}" + suggestions, event, exc
             return f"Error: {type(exc).__name__}: {exc}" + suggestions, event, None
@@ -545,9 +601,21 @@ class AgentRunner:
                 "status": "error",
                 "detail": result.replace("\n", " ").strip()[:120],
             }
+            suggestions = _get_error_suggestions(tool_call.name, result)
+            if spec.experience_store and spec.session_key:
+                related_id = (recovery_hints.get(tool_call.name) or [""])[0]
+                spec.experience_store.record_tool_event(
+                    tool_name=tool_call.name,
+                    params=params,
+                    status="error",
+                    detail=result,
+                    session_key=spec.session_key,
+                    attempt_no=attempt_no,
+                    related_experience_id=related_id,
+                )
             if spec.fail_on_tool_error:
-                return result + _HINT, event, RuntimeError(result)
-            return result + _HINT, event, None
+                return result + suggestions, event, RuntimeError(result)
+            return result + suggestions, event, None
 
         detail = "" if result is None else str(result)
         detail = detail.replace("\n", " ").strip()
@@ -555,6 +623,19 @@ class AgentRunner:
             detail = "(empty)"
         elif len(detail) > 120:
             detail = detail[:120] + "..."
+        if spec.experience_store and spec.session_key:
+            related_id = (recovery_hints.get(tool_call.name) or [""])[0]
+            spec.experience_store.record_tool_event(
+                tool_name=tool_call.name,
+                params=params,
+                status="ok",
+                detail=detail,
+                session_key=spec.session_key,
+                attempt_no=attempt_no,
+                related_experience_id=related_id,
+            )
+            if related_id:
+                recovery_hints.pop(tool_call.name, None)
         return result, {"name": tool_call.name, "status": "ok", "detail": detail}, None
 
     def _build_context_usage_payload(
