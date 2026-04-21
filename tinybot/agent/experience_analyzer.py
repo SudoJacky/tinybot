@@ -46,14 +46,14 @@ class ErrorAnalyzer:
             min_confidence=min_confidence,
         )
 
-    def analyze_error(
+    def build_recovery_strategy(
         self,
         tool_name: str,
         error: Exception | str,
         max_suggestions: int = 3,
         min_confidence: float = 0.4,
-    ) -> str | None:
-        """Analyze error and return formatted suggestions."""
+    ) -> dict[str, Any] | None:
+        """Return a compact recovery strategy with a primary action and references."""
         error_type, _ = self._parse_error(error)
         experiences = self.suggest_recoveries(
             tool_name=tool_name,
@@ -63,7 +63,78 @@ class ErrorAnalyzer:
         )
         if not experiences:
             return None
-        return self._format_suggestions(experiences, error_type)
+
+        primary = experiences[0]
+        retry_policy = self.build_retry_policy(tool_name, error, experiences)
+        return {
+            "error_type": error_type,
+            "primary_action": primary.action_hint or primary.resolution or "",
+            "primary_experience_id": primary.id,
+            "retry_policy": retry_policy,
+            "experiences": experiences,
+        }
+
+    def build_retry_policy(
+        self,
+        tool_name: str,
+        error: Exception | str,
+        experiences: list["Experience"] | None = None,
+    ) -> dict[str, Any] | None:
+        """Build a structured retry policy from the top recovery experience."""
+        error_type, error_message = self._parse_error(error)
+        recoveries = experiences or self.suggest_recoveries(tool_name, error)
+        if not recoveries:
+            return None
+
+        primary = recoveries[0]
+        action_text = " ".join(
+            part for part in (primary.action_hint, primary.applicability, primary.resolution) if part
+        ).lower()
+        fallback_tool = self._extract_tool_name(action_text, exclude=tool_name)
+
+        action = "retry_with_adjustment"
+        should_retry = True
+        if any(token in action_text for token in ("switch tool", "fallback tool", "use list_dir", "use exec", "use read_file")):
+            action = "switch_tool"
+        elif any(token in action_text for token in ("do not retry", "stop", "manual intervention", "permission denied", "unsupported")):
+            action = "stop_retry"
+            should_retry = False
+
+        if error_type == "PermissionError":
+            action = "stop_retry"
+            should_retry = False
+        elif error_type in {"FileNotFoundError", "ValueError", "TypeError"} and action != "switch_tool":
+            action = "retry_with_adjustment"
+            should_retry = True
+
+        return {
+            "action": action,
+            "should_retry": should_retry,
+            "tool_name": tool_name,
+            "fallback_tool": fallback_tool,
+            "parameter_adjustment": primary.action_hint or primary.resolution,
+            "reason": primary.applicability or error_message or primary.resolution,
+            "experience_id": primary.id,
+        }
+
+    def analyze_error(
+        self,
+        tool_name: str,
+        error: Exception | str,
+        max_suggestions: int = 3,
+        min_confidence: float = 0.4,
+    ) -> str | None:
+        """Analyze error and return formatted suggestions."""
+        error_type, _ = self._parse_error(error)
+        strategy = self.build_recovery_strategy(
+            tool_name=tool_name,
+            error=error,
+            max_suggestions=max_suggestions,
+            min_confidence=min_confidence,
+        )
+        if not strategy:
+            return None
+        return self._format_suggestions(strategy["experiences"], error_type)
 
     def _parse_error(self, error: Exception | str) -> tuple[str, str]:
         if isinstance(error, Exception):
@@ -158,3 +229,32 @@ class ErrorAnalyzer:
             logger.warning("ErrorAnalyzer: failed to mark suggestion as used")
 
         return "\n".join(lines)
+
+    def format_retry_policy(self, policy: dict[str, Any]) -> str:
+        """Format a structured retry policy for agent consumption."""
+        action = policy.get("action", "retry_with_adjustment")
+        should_retry = "yes" if policy.get("should_retry", False) else "no"
+        lines = [
+            "[RETRY POLICY]",
+            f"action={action}",
+            f"should_retry={should_retry}",
+        ]
+        if policy.get("tool_name"):
+            lines.append(f"tool={policy['tool_name']}")
+        if policy.get("fallback_tool"):
+            lines.append(f"fallback_tool={policy['fallback_tool']}")
+        if policy.get("experience_id"):
+            lines.append(f"experience_id={policy['experience_id']}")
+        if policy.get("parameter_adjustment"):
+            lines.append(f"parameter_adjustment={policy['parameter_adjustment']}")
+        if policy.get("reason"):
+            lines.append(f"reason={policy['reason']}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _extract_tool_name(text: str, exclude: str = "") -> str:
+        candidates = ["list_dir", "read_file", "write_file", "edit_file", "exec", "task", "query_experience"]
+        for candidate in candidates:
+            if candidate != exclude and candidate in text:
+                return candidate
+        return ""

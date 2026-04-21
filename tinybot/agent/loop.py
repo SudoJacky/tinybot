@@ -220,6 +220,7 @@ class AgentLoop:
             self.session_handler = SessionHandler(self.max_tool_result_chars)
             self.tool_context = ToolContextManager()
             self.experience_store = ExperienceStore(workspace)
+            self.task_manager.experience_store = self.experience_store
             self.experience_accumulator = ExperienceAccumulator(self.experience_store)
             self.experience_summarizer = ExperienceSummarizer(provider=provider, model=self.model)
             self.context = ContextBuilder(
