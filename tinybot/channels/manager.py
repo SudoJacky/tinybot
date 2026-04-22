@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -27,9 +28,18 @@ class ChannelManager:
     - Route outbound messages
     """
 
-    def __init__(self, config: Config, bus: MessageBus):
+    def __init__(
+        self,
+        config: Config,
+        bus: MessageBus,
+        *,
+        workspace: Path | None = None,
+        session_manager: Any = None,
+    ):
         self.config = config
         self.bus = bus
+        self.workspace = workspace
+        self.session_manager = session_manager
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
 
@@ -54,6 +64,8 @@ class ChannelManager:
                 continue
             try:
                 channel = cls(section, self.bus)
+                if hasattr(channel, "bind_runtime") and self.workspace is not None and self.session_manager is not None:
+                    channel.bind_runtime(workspace=self.workspace, session_manager=self.session_manager)
                 channel.transcription_api_key = groq_key
                 self.channels[name] = channel
                 logger.info("{} channel enabled", cls.display_name)

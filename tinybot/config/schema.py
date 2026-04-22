@@ -166,6 +166,7 @@ class ProviderConfig(Base):
     api_key: str = ""
     api_base: str | None = None
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
+    enable_search: bool = False  # DashScope/Qwen online search switch via OpenAI-compatible extra_body
 
 
 class ProvidersConfig(Base):
