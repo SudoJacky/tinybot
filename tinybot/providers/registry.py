@@ -311,6 +311,7 @@ def create_provider(config: Any, *, on_missing_key: object | None = None) -> Any
         api_base=config.get_api_base(model),
         default_model=model,
         extra_headers=p.extra_headers if p else None,
+        enable_search=p.enable_search if p else False,
         spec=spec,
     )
 

@@ -23,6 +23,10 @@
 - **并行执行** — 并行安全的任务同时运行，最大化效率
 - **动态调整** — 运行中可添加/移除子任务，灵活应对变化
 
+### WebUI
+
+![webui](./show/webui_1.PNG)
+
 ### 🔄 经验自进化系统
 
 持续从问题解决经验中学习的自学习系统：
@@ -127,6 +131,69 @@ uv run tinybot gateway
 # 作为 OpenAI 兼容 API 服务运行
 uv run tinybot api
 ```
+
+## WebUI 使用指南
+
+Tinybot 提供浏览器网页界面，可直接与 AI 助手对话。
+
+### 启用 WebUI 的步骤
+
+#### 1. 在配置文件中启用 WebSocket 频道
+
+编辑 `~/.tinybot/config.json` 文件，在 `channels` 下添加：
+
+```json
+{
+  "channels": {
+    "websocket": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 18790
+    }
+  }
+}
+```
+
+#### 2. 启动 Gateway
+
+```bash
+uv run tinybot gateway
+```
+
+#### 3. 打开浏览器
+
+访问 `http://127.0.0.1:18790`
+
+### 可用的 API 接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/sessions` | GET | 获取所有聊天会话 |
+| `/api/sessions/{key}/messages` | GET | 获取会话消息 |
+| `/api/sessions/{key}` | DELETE/PATCH | 删除/更新会话 |
+| `/api/sessions/{key}/clear` | POST | 清空会话历史 |
+| `/api/sessions/{key}/profile` | GET | 获取用户画像 |
+| `/api/config` | GET/PATCH | 获取/更新配置 |
+| `/api/status` | GET | 获取系统状态 |
+| `/api/tools` | GET | 获取可用工具列表 |
+| `/api/skills` | GET | 获取所有技能 |
+| `/api/skills/{name}` | GET | 获取技能详情 |
+| `/api/workspace/files` | GET | 列出工作区文件 |
+| `/ws` | WebSocket | 实时聊天连接 |
+
+### WebSocket 事件
+
+| 事件 | 方向 | 说明 |
+|------|------|------|
+| `new_chat` | 客户端 → 服务端 | 创建新聊天 |
+| `attach` | 客户端 → 服务端 | 加入已有聊天 |
+| `message` | 客户端 → 服务端 | 发送消息 |
+| `interrupt` | 客户端 → 服务端 | 停止 AI 生成 |
+| `ping` | 客户端 → 服务端 | 心跳检测 |
+| `delta` | 服务端 → 客户端 | 流式文本片段 |
+| `stream_end` | 服务端 → 客户端 | 流式输出结束 |
+| `message` | 服务端 → 客户端 | 完整消息 |
+| `file_updated` | 服务端 → 客户端 | 工作区文件变更 |
 
 ## 交互聊天命令
 

@@ -905,6 +905,25 @@ class AgentLoop:
         self._running = False
         logger.info("Agent loop stopping")
 
+    def cancel_session(self, session_key: str) -> bool:
+        """Cancel all active tasks for a session.
+
+        Args:
+            session_key: The session key to cancel (e.g., "websocket:abc123").
+
+        Returns:
+            True if any task was cancelled, False otherwise.
+        """
+        tasks = self._active_tasks.get(session_key, [])
+        cancelled_count = 0
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+                cancelled_count += 1
+        if cancelled_count > 0:
+            logger.info("Cancelled {} tasks for session {}", cancelled_count, session_key)
+        return cancelled_count > 0
+
     async def _process_message(
         self,
         msg: InboundMessage,

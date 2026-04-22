@@ -159,6 +159,20 @@ class SessionManager:
             self._cache[key] = session
             return session
 
+    def get(self, key: str) -> Session | None:
+        """Get an existing session without creating a new one."""
+        if key in self._cache:
+            return self._cache[key]
+
+        with self._cache_lock:
+            if key in self._cache:
+                return self._cache[key]
+
+            session = self._load(key)
+            if session is not None:
+                self._cache[key] = session
+            return session
+
     def _load(self, key: str) -> Session | None:
         """Load a session from disk."""
         path = self._get_session_path(key)
@@ -235,6 +249,25 @@ class SessionManager:
         """Remove a session from the in-memory cache. Thread-safe."""
         with self._cache_lock:
             self._cache.pop(key, None)
+
+    def delete(self, key: str) -> bool:
+        """Delete a session from disk and cache."""
+        path = self._get_session_path(key)
+        legacy_path = self._get_legacy_session_path(key)
+        deleted = False
+
+        for candidate in (path, legacy_path):
+            try:
+                if candidate.exists():
+                    candidate.unlink()
+                    deleted = True
+            except Exception as e:
+                logger.warning("Failed to delete session {} at {}: {}", key, candidate, e)
+
+        with self._cache_lock:
+            deleted = self._cache.pop(key, None) is not None or deleted
+
+        return deleted
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """

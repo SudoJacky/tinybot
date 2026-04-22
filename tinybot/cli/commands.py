@@ -1374,7 +1374,15 @@ def gateway(
     cron.on_job = on_cron_job
 
     # Create channel manager
-    channels = ChannelManager(config, bus)
+    from tinybot.config.loader import get_config_path
+    channels = ChannelManager(
+        config,
+        bus,
+        workspace=config.workspace_path,
+        session_manager=session_manager,
+        agent_loop=agent,
+        config_path=get_config_path(),
+    )
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""

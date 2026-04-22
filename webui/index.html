@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tinybot Web UI</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="/assets/i18n.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <!-- 左侧边栏：会话列表 + 系统状态 -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">T</div>
+        <div>
+          <h1 data-i18n="brand.title">Tinybot</h1>
+          <p data-i18n="brand.subtitle">Minimal Web UI</p>
+        </div>
+      </div>
+
+      <div class="sidebar-actions">
+        <button id="new-chat-button" class="button button-primary" type="button" data-i18n="ui.newChat">新建会话</button>
+        <button id="refresh-button" class="button" type="button" data-i18n="ui.refresh">刷新</button>
+      </div>
+
+      <section class="sessions-panel">
+        <div class="panel-header">
+          <h2 data-i18n="ui.sessions">会话</h2>
+          <span id="session-count" class="muted">0</span>
+        </div>
+        <div id="session-list" class="session-list"></div>
+      </section>
+
+      <section class="status-panel">
+        <div class="panel-header">
+          <h2 data-i18n="ui.systemStatus">系统状态</h2>
+        </div>
+        <div id="system-status" class="system-status">
+          <div class="status-item">
+            <span class="status-label" data-i18n="ui.provider">Provider</span>
+            <span id="status-provider" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label" data-i18n="ui.model">Model</span>
+            <span id="status-model" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label" data-i18n="ui.websocket">WebSocket</span>
+            <span id="status-channel" class="status-value">-</span>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- 中间：聊天面板 -->
+    <section class="chat-panel">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" data-i18n="ui.currentSession">Current Session</p>
+          <h2 id="chat-title" data-i18n="ui.notConnected">未连接</h2>
+        </div>
+        <div class="status-group">
+          <span id="connection-status" class="status status-idle" data-i18n="status.init">初始化中</span>
+          <button id="clear-messages-button" class="button button-ghost" type="button" data-i18n="ui.clear">清空</button>
+        </div>
+      </header>
+
+      <section id="message-list" class="message-list"></section>
+
+      <form id="composer-form" class="composer">
+        <label class="composer-label" for="composer-input" data-i18n="ui.enterMessage">输入消息</label>
+        <div class="composer-row">
+          <textarea
+            id="composer-input"
+            class="composer-input"
+            data-i18n-placeholder="ui.inputPlaceholder"
+            placeholder="输入内容后按 Enter 发送，Shift+Enter 换行"
+            rows="1"
+          ></textarea>
+          <button id="send-button" class="button button-primary composer-send" type="submit" data-i18n="ui.send">发送</button>
+        </div>
+        <div class="composer-meta">
+          <span id="error-text" class="error-text"></span>
+        </div>
+      </form>
+    </section>
+
+    <!-- 右侧：工具面板 + 文件编辑器 + OpenAI API -->
+    <aside class="right-panel">
+      <!-- 工具面板 -->
+      <section class="tools-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Tools</p>
+            <h2 data-i18n="ui.tools">可用工具</h2>
+          </div>
+          <button id="refresh-tools-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+        </header>
+        <div id="tools-list" class="tools-list"></div>
+      </section>
+
+      <!-- 技能面板 -->
+      <section class="skills-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Skills</p>
+            <h2 data-i18n="ui.skills">可用技能</h2>
+          </div>
+          <button id="refresh-skills-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+        </header>
+        <div id="skills-list" class="skills-list"></div>
+      </section>
+
+      <!-- 文件编辑器 -->
+      <section class="editor-panel collapsible" id="editor-section">
+        <header class="section-header clickable" id="editor-toggle">
+          <div>
+            <p class="eyebrow">Workspace</p>
+            <h2 id="editor-title">AGENTS.md</h2>
+          </div>
+          <div class="toggle-indicator">
+            <span class="toggle-icon">▼</span>
+            <span id="editor-status" class="status status-idle status-small" data-i18n="status.notConfigured">未加载</span>
+          </div>
+        </header>
+        <div class="editor-content collapsible-content">
+          <div class="editor-toolbar">
+            <select id="file-select" class="select"></select>
+            <button id="reload-file-button" class="button button-small" type="button" data-i18n="ui.reload">重新加载</button>
+            <button id="save-file-button" class="button button-primary button-small" type="button" data-i18n="ui.save">保存</button>
+          </div>
+          <textarea
+            id="file-editor"
+            class="file-editor"
+            spellcheck="false"
+            data-i18n-placeholder="ui.filePlaceholder"
+            placeholder="选择一个工作区 Markdown 文件进行编辑"
+          ></textarea>
+          <div class="editor-footer">
+            <span id="file-meta" class="muted" data-i18n="ui.fileNotSelected">未选择文件</span>
+            <span id="file-error" class="error-text"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 语言切换 + 设置按钮 -->
+      <div class="settings-bar">
+        <button id="language-toggle" class="button" type="button">EN</button>
+        <button id="settings-button" class="button button-primary" type="button" data-i18n="ui.settings">⚙ 设置</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 设置弹窗 -->
+  <div id="settings-modal" class="modal">
+    <div class="modal-overlay" id="modal-overlay"></div>
+    <div class="modal-content">
+      <header class="modal-header">
+        <h2 data-i18n="settings.title">⚙ 设置</h2>
+        <button id="modal-close" class="button button-ghost" type="button">✕</button>
+      </header>
+      <div class="modal-body">
+        <!-- Agent 配置 -->
+        <div class="config-group">
+          <h3 class="config-group-title clickable" data-group="agent"><span data-i18n="settings.agent">Agent 配置</span> <span class="toggle-icon">▼</span></h3>
+          <div class="config-group-content" id="config-agent-group">
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.workspace">Workspace</label>
+              <input id="config-workspace" class="config-input" type="text" data-i18n-placeholder="settings.agent.workspacePlaceholder" placeholder="工作区路径" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.model">Model</label>
+              <input id="config-model" class="config-input" type="text" data-i18n-placeholder="settings.agent.modelPlaceholder" placeholder="模型名称" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.provider">Provider</label>
+              <select id="config-provider" class="config-select">
+                <option value="auto" data-i18n="settings.agent.providerAuto">auto (自动检测)</option>
+                <option value="custom">custom</option>
+                <option value="openai">openai</option>
+                <option value="openrouter">openrouter</option>
+                <option value="deepseek">deepseek</option>
+                <option value="groq">groq</option>
+                <option value="zhipu">zhipu</option>
+                <option value="dashscope">dashscope</option>
+                <option value="ollama">ollama</option>
+                <option value="gemini">gemini</option>
+                <option value="moonshot">moonshot</option>
+                <option value="minimax">minimax</option>
+                <option value="mistral">mistral</option>
+                <option value="stepfun">stepfun</option>
+                <option value="siliconflow">siliconflow</option>
+                <option value="volcengine">volcengine</option>
+                <option value="byteplus">byteplus</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.temperature">Temperature</label>
+              <input id="config-temperature" class="config-input" type="number" step="0.1" min="0" max="2" data-i18n-placeholder="settings.agent.temperaturePlaceholder" placeholder="0.0 - 2.0" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.maxTokens">Max Tokens</label>
+              <input id="config-max-tokens" class="config-input" type="number" min="1" data-i18n-placeholder="settings.agent.maxTokensPlaceholder" placeholder="最大输出长度" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.contextWindow">Context Window</label>
+              <input id="config-context-window" class="config-input" type="number" min="1" data-i18n-placeholder="settings.agent.contextWindowPlaceholder" placeholder="上下文窗口大小" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.maxToolIterations">Max Tool Iterations</label>
+              <input id="config-max-tool-iterations" class="config-input" type="number" min="1" data-i18n-placeholder="settings.agent.maxToolIterationsPlaceholder" placeholder="最大工具调用次数" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.reasoningEffort">Reasoning Effort</label>
+              <select id="config-reasoning-effort" class="config-select">
+                <option value="" data-i18n="settings.agent.reasoningEffortDefault">默认</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.agent.timezone">Timezone</label>
+              <input id="config-timezone" class="config-input" type="text" data-i18n-placeholder="settings.agent.timezonePlaceholder" placeholder="如 Asia/Shanghai" />
+            </div>
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-vector-store" type="checkbox" />
+                <span data-i18n="settings.agent.vectorStore">启用向量存储</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Provider 配置 -->
+        <div class="config-group">
+          <h3 class="config-group-title clickable" data-group="provider"><span data-i18n="settings.provider">Provider 配置</span> <span class="toggle-icon">▼</span></h3>
+          <div class="config-group-content collapsed" id="config-provider-group">
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.provider.name">Provider名称</label>
+              <select id="config-provider-select" class="config-select">
+                <option value="custom">custom</option>
+                <option value="openai">openai</option>
+                <option value="openrouter">openrouter</option>
+                <option value="deepseek">deepseek</option>
+                <option value="groq">groq</option>
+                <option value="zhipu">zhipu</option>
+                <option value="dashscope">dashscope</option>
+                <option value="vllm">vllm</option>
+                <option value="ollama">ollama</option>
+                <option value="gemini">gemini</option>
+                <option value="moonshot">moonshot</option>
+                <option value="minimax">minimax</option>
+                <option value="mistral">mistral</option>
+                <option value="stepfun">stepfun</option>
+                <option value="siliconflow">siliconflow</option>
+                <option value="volcengine">volcengine</option>
+                <option value="byteplus">byteplus</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.provider.apiKey">API Key</label>
+              <input id="config-api-key" class="config-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.provider.apiBase">API Base</label>
+              <input id="config-api-base" class="config-input" type="text" data-i18n-placeholder="settings.provider.apiBasePlaceholder" placeholder="API地址" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Tools 配置 -->
+        <div class="config-group">
+          <h3 class="config-group-title clickable" data-group="tools"><span data-i18n="settings.tools">Tools 配置</span> <span class="toggle-icon">▼</span></h3>
+          <div class="config-group-content collapsed" id="config-tools-group">
+            <div class="config-subsection">
+              <h4 data-i18n="settings.tools.web">Web工具</h4>
+              <div class="config-field config-checkbox-group">
+                <label class="config-checkbox-label">
+                  <input id="config-web-enable" type="checkbox" />
+                  <span data-i18n="settings.tools.webEnable">启用Web工具</span>
+                </label>
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.tools.proxy">Proxy</label>
+                <input id="config-web-proxy" class="config-input" type="text" data-i18n-placeholder="settings.tools.proxyPlaceholder" placeholder="HTTP/SOCKS5代理" />
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.tools.searchProvider">Search Provider</label>
+                <select id="config-search-provider" class="config-select">
+                  <option value="duckduckgo">duckduckgo</option>
+                  <option value="brave">brave</option>
+                  <option value="tavily">tavily</option>
+                  <option value="searxng">searxng</option>
+                  <option value="jina">jina</option>
+                </select>
+              </div>
+            </div>
+            <div class="config-subsection">
+              <h4 data-i18n="settings.tools.exec">Exec工具</h4>
+              <div class="config-field config-checkbox-group">
+                <label class="config-checkbox-label">
+                  <input id="config-exec-enable" type="checkbox" />
+                  <span data-i18n="settings.tools.execEnable">启用Exec工具</span>
+                </label>
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.tools.timeout">Timeout (秒)</label>
+                <input id="config-exec-timeout" class="config-input" type="number" min="1" data-i18n-placeholder="settings.tools.timeoutPlaceholder" placeholder="执行超时" />
+              </div>
+            </div>
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-restrict-workspace" type="checkbox" />
+                <span data-i18n="settings.tools.restrictWorkspace">限制在工作区</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gateway 配置 -->
+        <div class="config-group">
+          <h3 class="config-group-title clickable" data-group="gateway"><span data-i18n="settings.gateway">Gateway 配置</span> <span class="toggle-icon">▼</span></h3>
+          <div class="config-group-content collapsed" id="config-gateway-group">
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.gateway.host">Host</label>
+              <input id="config-gateway-host" class="config-input" type="text" data-i18n-placeholder="settings.gateway.hostPlaceholder" placeholder="监听地址" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.gateway.port">Port</label>
+              <input id="config-gateway-port" class="config-input" type="number" min="1" data-i18n-placeholder="settings.gateway.portPlaceholder" placeholder="端口" />
+            </div>
+            <div class="config-subsection">
+              <h4 data-i18n="settings.gateway.heartbeat">心跳服务</h4>
+              <div class="config-field config-checkbox-group">
+                <label class="config-checkbox-label">
+                  <input id="config-heartbeat-enable" type="checkbox" />
+                  <span data-i18n="settings.gateway.heartbeatEnable">启用心跳</span>
+                </label>
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.gateway.interval">Interval (秒)</label>
+                <input id="config-heartbeat-interval" class="config-input" type="number" min="60" data-i18n-placeholder="settings.gateway.intervalPlaceholder" placeholder="心跳间隔" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Channels 配置 -->
+        <div class="config-group">
+          <h3 class="config-group-title clickable" data-group="channels"><span data-i18n="settings.channels">Channels 配置</span> <span class="toggle-icon">▼</span></h3>
+          <div class="config-group-content collapsed" id="config-channels-group">
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-send-progress" type="checkbox" />
+                <span data-i18n="settings.channels.sendProgress">发送进度消息</span>
+              </label>
+            </div>
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-send-tool-hints" type="checkbox" />
+                <span data-i18n="settings.channels.sendToolHints">发送工具提示</span>
+              </label>
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.channels.maxRetries">Max Retries</label>
+              <input id="config-send-retries" class="config-input" type="number" min="0" max="10" data-i18n-placeholder="settings.channels.maxRetriesPlaceholder" placeholder="发送重试次数" />
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <span id="config-error" class="error-text"></span>
+        <span id="config-success" class="success-text"></span>
+        <button id="save-config-button" class="button button-primary" type="button" data-i18n="ui.save">保存</button>
+      </footer>
+    </div>
+  </div>
+
+  <template id="message-template">
+    <article class="message">
+      <div class="message-meta">
+        <span class="message-role"></span>
+        <span class="message-time"></span>
+      </div>
+      <div class="message-content"></div>
+    </article>
+  </template>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
