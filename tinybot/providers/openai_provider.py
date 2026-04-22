@@ -115,11 +115,13 @@ class OpenAIProvider(LLMProvider):
         api_base: str | None = None,
         default_model: str = "gpt-4o",
         extra_headers: dict[str, str] | None = None,
+        enable_search: bool = False,
         spec: ProviderSpec | None = None,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
         self.extra_headers = extra_headers or {}
+        self.enable_search = enable_search
         self._spec = spec
 
         if api_key and spec and spec.env_key:
@@ -285,6 +287,12 @@ class OpenAIProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
+
+        if self.enable_search:
+            kwargs["extra_body"] = {
+                **(kwargs.get("extra_body") or {}),
+                "enable_search": True,
+            }
 
         return kwargs
 
