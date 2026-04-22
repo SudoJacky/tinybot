@@ -75,6 +75,9 @@ class WebSocketChannel(BaseChannel):
         self.token_manager = WebTokenManager(ttl_s=int(self._cfg("token_ttl_s", 300)))
         self.session_manager: SessionManager | None = None
         self.workspace: Path | None = None
+        self.agent_loop: Any = None
+        self.config_ref: Any = None
+        self.config_path: Path | None = None
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self._clients: dict[str, web.WebSocketResponse] = {}
@@ -106,10 +109,13 @@ class WebSocketChannel(BaseChannel):
             "allowFrom": ["*"],
         }
 
-    def bind_runtime(self, *, workspace: Path, session_manager: SessionManager) -> None:
+    def bind_runtime(self, *, workspace: Path, session_manager: SessionManager, agent_loop: Any = None, config: Any = None, config_path: Path | None = None) -> None:
         """Inject shared runtime state from gateway startup."""
         self.workspace = workspace
         self.session_manager = session_manager
+        self.agent_loop = agent_loop
+        self.config_ref = config
+        self.config_path = config_path
 
     def _cfg(self, key: str, default: Any) -> Any:
         if isinstance(self.config, dict):
@@ -194,6 +200,7 @@ class WebSocketChannel(BaseChannel):
                 "chat_id": chat_id,
                 "message_id": metadata.get("_stream_id"),
                 "text": delta,
+                "is_reasoning": metadata.get("_reasoning_delta", False),
             },
         )
 
@@ -203,6 +210,15 @@ class WebSocketChannel(BaseChannel):
         app.router.add_get(self.sessions_path, self.handle_list_sessions)
         app.router.add_get(f"{self.sessions_path}/{{key}}/messages", self.handle_get_messages)
         app.router.add_delete(f"{self.sessions_path}/{{key}}", self.handle_delete_session)
+        app.router.add_patch(f"{self.sessions_path}/{{key}}", self.handle_patch_session)
+        app.router.add_post(f"{self.sessions_path}/{{key}}/clear", self.handle_clear_session)
+        app.router.add_get(f"{self.sessions_path}/{{key}}/profile", self.handle_get_profile)
+        app.router.add_get("/api/config", self.handle_get_config)
+        app.router.add_patch("/api/config", self.handle_patch_config)
+        app.router.add_get("/api/status", self.handle_get_status)
+        app.router.add_get("/api/tools", self.handle_get_tools)
+        app.router.add_get("/api/skills", self.handle_get_skills)
+        app.router.add_get("/api/skills/{name}", self.handle_get_skill_detail)
         app.router.add_get("/api/workspace/files", self.handle_list_workspace_files)
         app.router.add_get("/api/workspace/files/{path:.+}", self.handle_get_workspace_file)
         app.router.add_put("/api/workspace/files/{path:.+}", self.handle_put_workspace_file)
@@ -449,6 +465,28 @@ class WebSocketChannel(BaseChannel):
             await ws.send_json({"event": "file_subscribed", "path": logical_path})
             return
 
+        if msg_type == "interrupt":
+            chat_id = str(payload.get("chat_id", "")).strip()
+            if not chat_id:
+                await ws.send_json({"event": "error", "message": "chat_id is required"})
+                return
+            session_key = f"{self.name}:{chat_id}"
+            if self.agent_loop:
+                cancelled = self.agent_loop.cancel_session(session_key)
+                await ws.send_json({"event": "interrupted", "chat_id": chat_id, "cancelled": cancelled})
+            else:
+                await ws.send_json({"event": "error", "message": "interrupt not available"})
+            return
+
+        if msg_type == "ping":
+            await ws.send_json({"event": "pong"})
+            return
+
+        if msg_type == "unsubscribe_file":
+            logical_path = str(payload.get("path", "")).strip()
+            await ws.send_json({"event": "file_unsubscribed", "path": logical_path})
+            return
+
         await ws.send_json({"event": "error", "message": f"unsupported event type: {msg_type}"})
 
     async def _attach_client(self, client_id: str, chat_id: str) -> None:
@@ -509,3 +547,252 @@ class WebSocketChannel(BaseChannel):
 
     def _is_authorized(self, request: web.Request) -> bool:
         return self.token_manager.validate(_extract_bearer_token(request))
+
+    async def handle_get_status(self, request: web.Request) -> web.Response:
+        """Get system status: channels, provider, model."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        status: dict[str, Any] = {
+            "channels": {"websocket": {"enabled": True, "running": self._running}},
+            "provider": None,
+            "model": None,
+        }
+        if self.agent_loop:
+            status["model"] = self.agent_loop.model
+        if self.config_ref:
+            provider_name = self.config_ref.get_provider_name()
+            status["provider"] = {"name": provider_name} if provider_name else None
+        return web.json_response(status)
+
+    async def handle_get_tools(self, request: web.Request) -> web.Response:
+        """Get available tools list."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        tools: list[dict[str, Any]] = []
+        if self.agent_loop:
+            for name in self.agent_loop.tools.tool_names:
+                tool = self.agent_loop.tools.get(name)
+                if tool:
+                    tools.append({
+                        "name": name,
+                        "description": tool.description[:200] if tool.description else "",
+                    })
+        return web.json_response({"tools": tools})
+
+    async def handle_get_skills(self, request: web.Request) -> web.Response:
+        """Get all available skills."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        if self.workspace is None:
+            return web.json_response({"error": "workspace not available"}, status=404)
+
+        from tinybot.agent.skills import SkillsLoader
+        loader = SkillsLoader(self.workspace)
+
+        skills: list[dict[str, Any]] = []
+        for s in loader.list_skills(filter_unavailable=False):
+            meta = loader.get_skill_metadata(s["name"]) or {}
+            skill_meta = loader._parse_tinybot_metadata(meta.get("metadata", ""))
+            available = loader._check_requirements(skill_meta)
+
+            skill_info = {
+                "name": s["name"],
+                "source": s["source"],
+                "path": s["path"],
+                "description": loader._get_skill_description(s["name"]),
+                "available": available,
+                "always": skill_meta.get("always") or meta.get("always", False),
+            }
+
+            if not available:
+                missing = loader._get_missing_requirements(skill_meta)
+                if missing:
+                    skill_info["missing_requirements"] = missing
+
+            skills.append(skill_info)
+
+        return web.json_response({"skills": skills})
+
+    async def handle_get_skill_detail(self, request: web.Request) -> web.Response:
+        """Get detailed content of a specific skill."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        if self.workspace is None:
+            return web.json_response({"error": "workspace not available"}, status=404)
+
+        from tinybot.agent.skills import SkillsLoader
+        loader = SkillsLoader(self.workspace)
+
+        name = request.match_info["name"]
+        content = loader.load_skill(name)
+        if content is None:
+            return web.json_response({"error": "skill not found"}, status=404)
+
+        meta = loader.get_skill_metadata(name) or {}
+        skill_meta = loader._parse_tinybot_metadata(meta.get("metadata", ""))
+        stripped_content = loader._strip_frontmatter(content)
+
+        return web.json_response({
+            "name": name,
+            "content": stripped_content,
+            "raw_content": content,
+            "metadata": meta,
+            "tinybot_meta": skill_meta,
+            "available": loader._check_requirements(skill_meta),
+        })
+
+    async def handle_patch_session(self, request: web.Request) -> web.Response:
+        """Update session metadata (title, etc.)."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        assert self.session_manager is not None
+        key = request.match_info["key"]
+        session = self.session_manager.get(key)
+        if session is None:
+            return web.json_response({"error": "session not found"}, status=404)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json body"}, status=400)
+
+        metadata = payload.get("metadata")
+        if metadata is not None and isinstance(metadata, dict):
+            session.metadata.update(metadata)
+            self.session_manager.save(session)
+
+        return web.json_response({
+            "key": session.key,
+            "metadata": session.metadata,
+            "updated_at": session.updated_at.isoformat(),
+        })
+
+    async def handle_clear_session(self, request: web.Request) -> web.Response:
+        """Clear session messages but keep session."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        assert self.session_manager is not None
+        key = request.match_info["key"]
+        session = self.session_manager.get(key)
+        if session is None:
+            return web.json_response({"error": "session not found"}, status=404)
+
+        session.clear()
+        self.session_manager.save(session)
+        return web.json_response({
+            "key": session.key,
+            "cleared": True,
+            "updated_at": session.updated_at.isoformat(),
+        })
+
+    async def handle_get_profile(self, request: web.Request) -> web.Response:
+        """Get user profile for a session."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        assert self.session_manager is not None
+        key = request.match_info["key"]
+        session = self.session_manager.get(key)
+        if session is None:
+            return web.json_response({"error": "session not found"}, status=404)
+
+        return web.json_response({
+            "key": session.key,
+            "profile": session.user_profile,
+        })
+
+    async def handle_get_config(self, request: web.Request) -> web.Response:
+        """Get current configuration (full config, no masking)."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        if self.config_ref is None:
+            return web.json_response({"error": "config not available"}, status=404)
+
+        data = self.config_ref.model_dump(mode="json", by_alias=True)
+        return web.json_response(data)
+
+    def _apply_config_update(self, obj: Any, updates: dict[str, Any], prefix: str = "") -> list[str]:
+        """Recursively apply config updates to all fields.
+
+        Returns list of updated field paths.
+        """
+        updated: list[str] = []
+        for key, value in updates.items():
+            path = f"{prefix}.{key}" if prefix else key
+
+            # Get current attribute
+            current = getattr(obj, key, None)
+            if current is None:
+                continue
+
+            # Handle nested dict updates
+            if isinstance(value, dict) and not isinstance(current, dict):
+                # current is a pydantic model, recurse
+                updated.extend(self._apply_config_update(current, value, path))
+            elif hasattr(current, "__pydantic_model__") or hasattr(current, "model_fields"):
+                # current is a pydantic model, recurse
+                updated.extend(self._apply_config_update(current, value, path))
+            else:
+                # Direct assignment
+                try:
+                    setattr(obj, key, value)
+                    updated.append(path)
+                except Exception:
+                    # Skip fields that can't be set
+                    pass
+
+        return updated
+
+    async def handle_patch_config(self, request: web.Request) -> web.Response:
+        """Update configuration and save to file.
+
+        Allows updating any field including api_key, api_base, etc.
+        """
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        if self.config_ref is None or self.config_path is None:
+            return web.json_response({"error": "config not available"}, status=404)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json body"}, status=400)
+
+        if not isinstance(payload, dict):
+            return web.json_response({"error": "payload must be a dict"}, status=400)
+
+        # Apply updates recursively
+        updated_fields = self._apply_config_update(self.config_ref, payload)
+
+        if not updated_fields:
+            return web.json_response({"error": "no valid fields to update"}, status=400)
+
+        # Validate the updated config
+        try:
+            # Re-validate by dumping and reloading
+            data = self.config_ref.model_dump(mode="json", by_alias=True)
+            self.config_ref.model_validate(data)
+        except Exception as e:
+            return web.json_response({
+                "error": f"validation failed: {e}",
+                "updated_fields": updated_fields,
+            }, status=400)
+
+        # Save config to file
+        from tinybot.config.loader import save_config
+        save_config(self.config_ref, self.config_path)
+
+        data = self.config_ref.model_dump(mode="json", by_alias=True)
+        return web.json_response({
+            "updated": True,
+            "updated_fields": updated_fields,
+            "config": data,
+        })
