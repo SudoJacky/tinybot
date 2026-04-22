@@ -104,6 +104,7 @@ async def test_websocket_chat_flow(web_channel, web_client):
             "chat_id": chat_id,
             "message_id": "stream-1",
             "text": "po",
+            "is_reasoning": False,
         }
 
         await channel.send_delta(chat_id, "", {"_stream_id": "stream-1", "_stream_end": True})
