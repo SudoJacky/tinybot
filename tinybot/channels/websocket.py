@@ -83,6 +83,7 @@ class WebSocketChannel(BaseChannel):
         self._clients: dict[str, web.WebSocketResponse] = {}
         self._subscriptions: dict[str, set[str]] = {}
         self._client_chat: dict[str, str] = {}
+        self._client_tokens: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._shutdown_event = asyncio.Event()
         self._workspace_files = {
@@ -309,18 +310,25 @@ class WebSocketChannel(BaseChannel):
         if not self._is_authorized(request):
             return web.json_response({"error": "unauthorized"}, status=401)
 
+        # Extract token for auto-refresh
+        token = _extract_bearer_token(request)
+
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
 
         client_id = uuid.uuid4().hex[:12]
         async with self._lock:
             self._clients[client_id] = ws
+            if token:
+                self._client_tokens[client_id] = token
 
         await ws.send_json({"event": "ready", "client_id": client_id})
 
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
+                    # Auto-refresh token on each message (WebSocket active)
+                    self._refresh_client_token(client_id)
                     await self._handle_ws_message(client_id, ws, msg.data)
                 elif msg.type == WSMsgType.ERROR:
                     logger.warning("WebSocket client {} errored: {}", client_id, ws.exception())
@@ -329,6 +337,12 @@ class WebSocketChannel(BaseChannel):
             await self._remove_client(client_id)
 
         return ws
+
+    def _refresh_client_token(self, client_id: str) -> None:
+        """Refresh token when WebSocket is active."""
+        token = self._client_tokens.get(client_id)
+        if token:
+            self.token_manager.refresh(token)
 
     async def handle_list_workspace_files(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):
@@ -506,6 +520,7 @@ class WebSocketChannel(BaseChannel):
         async with self._lock:
             ws = self._clients.pop(client_id, None)
             chat_id = self._client_chat.pop(client_id, None)
+            self._client_tokens.pop(client_id, None)
             if chat_id:
                 subscribers = self._subscriptions.get(chat_id)
                 if subscribers:

@@ -35,6 +35,24 @@ class WebTokenManager:
             expires_at = self._tokens.get(token)
             return expires_at is not None and expires_at > now
 
+    def refresh(self, token: str) -> bool:
+        """Extend token validity if it exists (not expired).
+
+        Returns True if token was refreshed, False if token doesn't exist or expired.
+        """
+        if not token:
+            return False
+
+        now = time.time()
+        with self._lock:
+            self._prune_locked(now)
+            expires_at = self._tokens.get(token)
+            if expires_at is None:
+                return False
+            # Extend token validity
+            self._tokens[token] = now + self.ttl_s
+            return True
+
     def _prune_locked(self, now: float) -> None:
         expired = [token for token, expires_at in self._tokens.items() if expires_at <= now]
         for token in expired:
