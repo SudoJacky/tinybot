@@ -23,6 +23,10 @@ Automatically decomposes complex tasks into executable subtask DAGs, supporting:
 - **Parallel Execution** — Parallel-safe tasks run simultaneously for maximum efficiency
 - **Dynamic Adjustment** — Add/remove subtasks during runtime
 
+### WebUI
+
+![webui](./show/webui_1.PNG)
+
 ### 🔄 Experience Self-Evolution System
 
 A self-learning system that continuously improves from problem-solving experiences:
@@ -127,6 +131,69 @@ uv run tinybot gateway
 # Run as OpenAI-compatible API server
 uv run tinybot api
 ```
+
+## WebUI Usage
+
+Tinybot provides a browser-based web interface for chatting with the AI agent.
+
+### Steps to Enable WebUI
+
+#### 1. Enable WebSocket Channel in Config
+
+Edit your `~/.tinybot/config.json` file, add the following under `channels`:
+
+```json
+{
+  "channels": {
+    "websocket": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 18790
+    }
+  }
+}
+```
+
+#### 2. Start the Gateway
+
+```bash
+uv run tinybot gateway
+```
+
+#### 3. Open Browser
+
+Visit `http://127.0.0.1:18790` in your browser.
+
+### Available API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/sessions` | GET | List all chat sessions |
+| `/api/sessions/{key}/messages` | GET | Get session messages |
+| `/api/sessions/{key}` | DELETE/PATCH | Delete/update session |
+| `/api/sessions/{key}/clear` | POST | Clear session history |
+| `/api/sessions/{key}/profile` | GET | Get user profile |
+| `/api/config` | GET/PATCH | Get/update configuration |
+| `/api/status` | GET | Get system status |
+| `/api/tools` | GET | Get available tools |
+| `/api/skills` | GET | Get all skills |
+| `/api/skills/{name}` | GET | Get skill detail |
+| `/api/workspace/files` | GET | List workspace files |
+| `/ws` | WebSocket | Real-time chat connection |
+
+### WebSocket Events
+
+| Event | Direction | Description |
+|-------|-----------|-------------|
+| `new_chat` | Client → Server | Create new chat |
+| `attach` | Client → Server | Attach to existing chat |
+| `message` | Client → Server | Send message |
+| `interrupt` | Client → Server | Stop AI generation |
+| `ping` | Client → Server | Heartbeat |
+| `delta` | Server → Client | Streaming text chunk |
+| `stream_end` | Server → Client | Stream finished |
+| `message` | Server → Client | Full message |
+| `file_updated` | Server → Client | Workspace file changed |
 
 ## Interactive Chat Commands
 
