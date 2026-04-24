@@ -3,6 +3,7 @@ const state = {
   wsPath: "/ws",
   sessionsPath: "/api/sessions",
   workspaceFilesPath: "/api/workspace/files",
+  skillsApiPath: "/api/skills",
   socket: null,
   activeChatId: "",
   activeSessionKey: "",
@@ -17,6 +18,11 @@ const state = {
   skills: [],
   config: null,
   pendingMessage: null,  // 待发送的消息（创建新会话后发送）
+  activeSkill: null,  // 当前编辑的 skill
+  skillMode: "view",  // view, edit, create
+  theme: "light",  // 当前主题
+  contextWindowTokens: 65536,  // 默认上下文窗口大小
+  lastUsage: null,  // 最后一次的usage数据
 };
 
 const elements = {
@@ -47,6 +53,7 @@ const elements = {
   toolsList: document.querySelector("#tools-list"),
   refreshToolsButton: document.querySelector("#refresh-tools-button"),
   skillsList: document.querySelector("#skills-list"),
+  newSkillButton: document.querySelector("#new-skill-button"),
   refreshSkillsButton: document.querySelector("#refresh-skills-button"),
   editorSection: document.querySelector("#editor-section"),
   editorToggle: document.querySelector("#editor-toggle"),
@@ -84,6 +91,24 @@ const elements = {
   saveConfigButton: document.querySelector("#save-config-button"),
   configError: document.querySelector("#config-error"),
   configSuccess: document.querySelector("#config-success"),
+  // Skill modal elements
+  skillModal: document.querySelector("#skill-modal"),
+  skillModalOverlay: document.querySelector("#skill-modal-overlay"),
+  skillModalClose: document.querySelector("#skill-modal-close"),
+  skillModalTitle: document.querySelector("#skill-modal-title"),
+  skillNameInput: document.querySelector("#skill-name-input"),
+  skillDescInput: document.querySelector("#skill-desc-input"),
+  skillAlwaysCheckbox: document.querySelector("#skill-always-checkbox"),
+  skillSourceDisplay: document.querySelector("#skill-source-display"),
+  skillContentEditor: document.querySelector("#skill-content-editor"),
+  skillValidateButton: document.querySelector("#skill-validate-button"),
+  skillSaveButton: document.querySelector("#skill-save-button"),
+  skillDeleteButton: document.querySelector("#skill-delete-button"),
+  skillError: document.querySelector("#skill-error"),
+  skillSuccess: document.querySelector("#skill-success"),
+  skillValidationResult: document.querySelector("#skill-validation-result"),
+  // Theme toggle
+  themeToggle: document.querySelector("#theme-toggle"),
 };
 
 function setStatus(text, kind = "idle") {
@@ -102,6 +127,61 @@ function setEditorStatus(text, kind = "idle") {
 
 function setFileError(text = "") {
   elements.fileError.textContent = text;
+}
+
+function updateUsageDisplay(usage) {
+  state.lastUsage = usage;
+  const container = document.querySelector("#status-usage");
+  if (!usage || !container) {
+    if (container) {
+      container.innerHTML = "-";
+    }
+    return;
+  }
+  const prompt = usage.prompt_tokens || 0;
+  const completion = usage.completion_tokens || 0;
+  const total = usage.total_tokens || 0;
+  const cached = usage.cached_tokens || 0;
+  const contextWindow = state.contextWindowTokens || 65536;
+
+  // 计算占比
+  const ratio = Math.min(1, total / contextWindow);
+  const percent = Math.round(ratio * 100);
+
+  // 根据占比决定颜色: <50%绿色, 50-75%黄色, 75-90%橙色, >90%红色
+  let colorClass = "usage-bar-safe";
+  if (ratio >= 0.9) {
+    colorClass = "usage-bar-danger";
+  } else if (ratio >= 0.75) {
+    colorClass = "usage-bar-warning";
+  } else if (ratio >= 0.5) {
+    colorClass = "usage-bar-caution";
+  }
+
+  // 构建进度条HTML
+  const lang = getLanguage();
+  const labelText = lang === "zh"
+    ? `输入:${prompt} 输出:${completion}`
+    : `In:${prompt} Out:${completion}`;
+  const totalText = lang === "zh"
+    ? `${total}/${contextWindow}`
+    : `${total}/${contextWindow}`;
+  const cachedText = cached > 0
+    ? (lang === "zh" ? `缓存:${cached}` : `Cache:${cached}`)
+    : "";
+
+  container.innerHTML = `
+    <div class="usage-bar-wrapper">
+      <div class="usage-bar-track">
+        <div class="usage-bar-fill ${colorClass}" style="width: ${percent}%"></div>
+      </div>
+      <div class="usage-bar-text">
+        <span class="usage-detail">${labelText}</span>
+        <span class="usage-total">${totalText} (${percent}%)</span>
+        ${cachedText ? `<span class="usage-cached">${cachedText}</span>` : ""}
+      </div>
+    </div>
+  `;
 }
 
 function authHeaders() {
@@ -153,6 +233,12 @@ function roleLabel(role) {
   if (role === "user") {
     return "user";
   }
+  if (role === "tool") {
+    return "tool";
+  }
+  if (role === "progress") {
+    return "progress";
+  }
   return "system";
 }
 
@@ -190,7 +276,18 @@ function createMessageNode(message) {
   node.classList.add(`message-${roleLabel(message.role)}`);
   node.dataset.messageId = message.message_id || "";
 
-  node.querySelector(".message-role").textContent = roleLabel(message.role);
+  // Handle role display for tool messages
+  let roleDisplay = roleLabel(message.role);
+  if (message.role === "tool" && message.name) {
+    roleDisplay = `tool: ${message.name}`;
+  }
+  if (message.role === "progress") {
+    roleDisplay = "tool";
+    if (message._tool_name) {
+      roleDisplay = `tool: ${message._tool_name}`;
+    }
+  }
+  node.querySelector(".message-role").textContent = roleDisplay;
   node.querySelector(".message-time").textContent = formatTime(message.timestamp);
 
   const contentEl = node.querySelector(".message-content");
@@ -208,6 +305,22 @@ function updateMessageContent(contentEl, message) {
     reasoningEl.textContent = message.reasoning_content;
     contentEl.append(reasoningEl);
   }
+
+  // Handle tool_calls for assistant messages
+  if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
+    const toolCallsEl = document.createElement("div");
+    toolCallsEl.className = "tool-calls";
+    for (const tc of message.tool_calls) {
+      const callEl = document.createElement("div");
+      callEl.className = "tool-call";
+      const name = tc.function?.name || tc.name || "unknown";
+      const args = tc.function?.arguments || tc.arguments || "";
+      callEl.textContent = `▸ ${name}(${args.length > 100 ? args.slice(0, 100) + "..." : args})`;
+      toolCallsEl.append(callEl);
+    }
+    contentEl.append(toolCallsEl);
+  }
+
   if (message.content && message.content.trim()) {
     const textEl = document.createElement("div");
     textEl.className = "message-text";
@@ -223,6 +336,9 @@ function updateMessageContent(contentEl, message) {
       } catch {
         textEl.textContent = message.content;
       }
+    } else if (message.role === "tool" || message.role === "progress") {
+      // Tool results are often truncated/preformatted, show as code-like
+      textEl.textContent = message.content;
     } else {
       textEl.textContent = message.content;
     }
@@ -504,46 +620,363 @@ function renderSkills() {
     return;
   }
 
+  // Get enabled skills list from config
+  const enabledSkills = state.config?.skills?.enabled || null;
+  const isAllEnabled = !enabledSkills || enabledSkills.includes("*");
+
   for (const skill of state.skills) {
     const item = document.createElement("div");
     item.className = "skill-item";
-    if (!skill.available) {
-      item.classList.add("skill-unavailable");
-    }
+
+    // Header row: name + toggle switch
+    const headerRow = document.createElement("div");
+    headerRow.className = "skill-header-row";
+
+    // Name section (left side)
+    const nameSection = document.createElement("div");
+    nameSection.className = "skill-name-section";
 
     const name = document.createElement("span");
-    name.className = "skill-name";
+    name.className = "skill-name skill-name-clickable";
     name.textContent = skill.name;
+    name.title = t("ui.clickToView");
+    name.addEventListener("click", () => viewSkill(skill.name));
 
-    const statusBadge = document.createElement("span");
-    statusBadge.className = "skill-status";
-    if (skill.available) {
-      statusBadge.textContent = skill.always ? t("status.always") : t("status.available");
-      statusBadge.classList.add("skill-available");
+    nameSection.append(name);
+
+    // Toggle switch section (right side)
+    const toggleSection = document.createElement("div");
+    toggleSection.className = "skill-toggle-section";
+
+    // Create toggle switch
+    const toggleSwitch = document.createElement("div");
+    toggleSwitch.className = "toggle-switch";
+
+    if (!skill.available) {
+      // Unavailable - gray/disabled style
+      toggleSwitch.classList.add("toggle-unavailable");
+      toggleSwitch.innerHTML = `<span class="toggle-label">${t("status.unavailable")}</span>`;
+    } else if (skill.always) {
+      // Always - special "always" style (cannot be toggled)
+      toggleSwitch.classList.add("toggle-always", "toggle-on");
+      toggleSwitch.innerHTML = `<span class="toggle-label">${t("status.always")}</span>`;
     } else {
-      statusBadge.textContent = t("status.unavailable");
-      statusBadge.classList.add("skill-disabled");
+      // Normal skill - can be toggled
+      const isEnabled = isAllEnabled || enabledSkills.includes(skill.name);
+      toggleSwitch.classList.add(isEnabled ? "toggle-on" : "toggle-off");
+      toggleSwitch.classList.add("toggle-clickable");
+      toggleSwitch.innerHTML = `<span class="toggle-slider"></span>`;
+      toggleSwitch.title = isEnabled ? t("ui.clickToDisable") : t("ui.clickToEnable");
+      toggleSwitch.addEventListener("click", () => toggleSkill(skill.name, !isEnabled));
     }
 
+    // Delete button (only for workspace skills, positioned in toggle section)
+    if (skill.source === "workspace") {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "skill-delete-btn";
+      deleteBtn.textContent = "×";
+      deleteBtn.title = t("ui.delete");
+      deleteBtn.addEventListener("click", () => deleteSkill(skill.name));
+      toggleSection.append(deleteBtn);
+    }
+
+    toggleSection.append(toggleSwitch);
+
+    headerRow.append(nameSection, toggleSection);
+
+    // Description row
     const desc = document.createElement("span");
     desc.className = "skill-desc";
     desc.textContent = skill.description || t("msg.noDescription");
 
-    item.append(name, statusBadge, desc);
+    item.append(headerRow, desc);
     elements.skillsList.append(item);
+  }
+}
+
+async function toggleSkill(skillName, enable) {
+  try {
+    // Get current enabled skills
+    let currentEnabled = state.config?.skills?.enabled || [];
+    const isAllEnabled = !currentEnabled || currentEnabled.includes("*");
+
+    // Build new enabled list
+    let newEnabled;
+    if (enable) {
+      // Enable this skill
+      if (isAllEnabled) {
+        // If all enabled, keep "*"
+        newEnabled = ["*"];
+      } else {
+        // Add skill to list if not already there
+        newEnabled = currentEnabled.includes(skillName) ? currentEnabled : [...currentEnabled, skillName];
+      }
+    } else {
+      // Disable this skill
+      if (isAllEnabled) {
+        // If all enabled, we need to build explicit list excluding this skill
+        const allSkillNames = state.skills
+          .filter(s => s.available && s.name !== skillName && !s.always)
+          .map(s => s.name);
+        newEnabled = allSkillNames;
+      } else {
+        // Remove skill from list
+        newEnabled = currentEnabled.filter(s => s !== skillName);
+      }
+    }
+
+    // Send PATCH request
+    const response = await fetch("/api/config", {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ skills: { enabled: newEnabled } }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `${t("settings.saveFailed")}: ${response.status}`);
+    }
+
+    const result = await response.json();
+    state.config = result.config || state.config;
+    // Update skills config in state
+    if (state.config && result.config?.skills) {
+      state.config.skills = result.config.skills;
+    }
+
+    // Reload skills to refresh enabled status
+    await loadSkills();
+  } catch (error) {
+    console.error(error);
+    setError(error.message || t("status.failed"));
+  }
+}
+
+// ============ Skill Modal Functions ============
+
+function openSkillModal() {
+  elements.skillModal.classList.add("active");
+  elements.skillError.textContent = "";
+  elements.skillSuccess.textContent = "";
+  elements.skillValidationResult.textContent = "";
+  elements.skillValidationResult.className = "skill-validation-result";
+}
+
+function closeSkillModal() {
+  elements.skillModal.classList.remove("active");
+  state.activeSkill = null;
+  state.skillMode = "view";
+}
+
+async function viewSkill(skillName) {
+  try {
+    const response = await fetch(`${state.skillsApiPath}/${encodeURIComponent(skillName)}`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) {
+      throw new Error(`load skill failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    state.activeSkill = payload;
+    state.skillMode = "edit";
+
+    // Populate modal
+    elements.skillModalTitle.textContent = payload.name;
+    elements.skillNameInput.value = payload.name;
+    elements.skillNameInput.disabled = true;  // Can't rename existing skill
+    elements.skillDescInput.value = payload.tinybot_meta?.description || payload.metadata?.description || "";
+    elements.skillAlwaysCheckbox.checked = payload.tinybot_meta?.always || payload.metadata?.always || false;
+    // Get source from state.skills (API doesn't return source in detail endpoint)
+    const skillInfo = state.skills.find(s => s.name === skillName);
+    elements.skillSourceDisplay.textContent = skillInfo?.source || "unknown";
+    elements.skillContentEditor.value = payload.content || "";
+
+    // Show/hide delete button based on source
+    elements.skillDeleteButton.style.display = skillInfo?.source === "workspace" ? "inline-block" : "none";
+
+    openSkillModal();
+  } catch (error) {
+    console.error(error);
+    setError(error.message || t("status.failed"));
+  }
+}
+
+async function createNewSkill() {
+  state.activeSkill = null;
+  state.skillMode = "create";
+
+  elements.skillModalTitle.textContent = t("skill.new");
+  elements.skillNameInput.value = "";
+  elements.skillNameInput.disabled = false;
+  elements.skillDescInput.value = "";
+  elements.skillAlwaysCheckbox.checked = false;
+  elements.skillSourceDisplay.textContent = t("skill.workspaceNew");
+  elements.skillContentEditor.value = "";
+  elements.skillDeleteButton.style.display = "none";
+
+  openSkillModal();
+}
+
+async function saveSkill() {
+  elements.skillError.textContent = "";
+  elements.skillSuccess.textContent = "";
+
+  const name = elements.skillNameInput.value.trim();
+  const description = elements.skillDescInput.value.trim();
+  const always = elements.skillAlwaysCheckbox.checked;
+  const content = elements.skillContentEditor.value;
+
+  if (!name) {
+    elements.skillError.textContent = t("skill.nameRequired");
+    return;
+  }
+
+  try {
+    if (state.skillMode === "create") {
+      // Create new skill
+      const response = await fetch(state.skillsApiPath, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ name, description, content, always }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || t("skill.createFailed"));
+      }
+
+      const result = await response.json();
+      elements.skillSuccess.textContent = t("skill.created");
+      state.activeSkill = { name: result.name };
+      state.skillMode = "edit";
+      elements.skillNameInput.disabled = true;
+      elements.skillDeleteButton.style.display = "inline-block";
+    } else {
+      // Update existing skill
+      const response = await fetch(`${state.skillsApiPath}/${encodeURIComponent(state.activeSkill.name)}`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ description, content, always }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || t("skill.updateFailed"));
+      }
+
+      elements.skillSuccess.textContent = t("skill.updated");
+    }
+
+    // Reload skills list
+    await loadSkills();
+  } catch (error) {
+    console.error(error);
+    elements.skillError.textContent = error.message || t("status.failed");
+  }
+}
+
+async function deleteSkill(skillName) {
+  if (!confirm(`${t("ui.confirmDelete")} ${skillName}?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${state.skillsApiPath}/${encodeURIComponent(skillName)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || t("skill.deleteFailed"));
+    }
+
+    // Close modal if deleting the active skill
+    if (state.activeSkill?.name === skillName) {
+      closeSkillModal();
+    }
+
+    // Reload skills list
+    await loadSkills();
+  } catch (error) {
+    console.error(error);
+    if (state.activeSkill?.name === skillName) {
+      elements.skillError.textContent = error.message || t("status.failed");
+    } else {
+      setError(error.message || t("status.failed"));
+    }
+  }
+}
+
+async function validateSkill() {
+  if (!state.activeSkill?.name) {
+    elements.skillValidationResult.textContent = t("skill.saveFirst");
+    elements.skillValidationResult.className = "skill-validation-result invalid";
+    return;
+  }
+
+  try {
+    const response = await fetch(`${state.skillsApiPath}/${encodeURIComponent(state.activeSkill.name)}/validate`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || t("skill.validateFailed"));
+    }
+
+    const result = await response.json();
+    if (result.valid) {
+      elements.skillValidationResult.textContent = `✓ ${t("skill.valid")}`;
+      elements.skillValidationResult.className = "skill-validation-result valid";
+    } else {
+      elements.skillValidationResult.textContent = `✗ ${result.message || t("skill.invalid")}`;
+      elements.skillValidationResult.className = "skill-validation-result invalid";
+    }
+  } catch (error) {
+    console.error(error);
+    elements.skillValidationResult.textContent = error.message || t("status.failed");
+    elements.skillValidationResult.className = "skill-validation-result invalid";
   }
 }
 
 function toggleCollapsibleSection(section) {
   if (section.classList.contains("collapsed")) {
     section.classList.remove("collapsed");
+    section.setAttribute("aria-expanded", "true");
   } else {
     section.classList.add("collapsed");
+    section.setAttribute("aria-expanded", "false");
   }
 }
 
 function toggleEditorPanel() {
   toggleCollapsibleSection(elements.editorSection);
+  elements.editorToggle.setAttribute("aria-expanded",
+    !elements.editorSection.classList.contains("collapsed"));
+}
+
+// ============ Theme Functions ============
+
+function initTheme() {
+  // 从 localStorage 读取主题偏好，默认为 light
+  const savedTheme = localStorage.getItem("tinybot-theme") || "light";
+  state.theme = savedTheme;
+  applyTheme(savedTheme);
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  state.theme = theme;
+  // 保存到 localStorage
+  localStorage.setItem("tinybot-theme", theme);
+}
+
+function toggleTheme() {
+  const newTheme = state.theme === "light" ? "dark" : "light";
+  applyTheme(newTheme);
 }
 
 function openModal() {
@@ -580,6 +1013,7 @@ function populateConfigForm(config) {
   elements.configTemperature.value = defaults.temperature !== undefined ? defaults.temperature : 0.1;
   elements.configMaxTokens.value = defaults.maxTokens || defaults.max_tokens || 8192;
   elements.configContextWindow.value = defaults.contextWindowTokens || defaults.context_window_tokens || 65536;
+  state.contextWindowTokens = defaults.contextWindowTokens || defaults.context_window_tokens || 65536;
   elements.configMaxToolIterations.value = defaults.maxToolIterations || defaults.max_tool_iterations || 200;
   elements.configReasoningEffort.value = defaults.reasoningEffort || defaults.reasoning_effort || "";
   elements.configTimezone.value = defaults.timezone || "UTC";
@@ -637,9 +1071,11 @@ function toggleConfigGroup(groupTitle) {
   if (isCollapsed) {
     groupContent.classList.remove("collapsed");
     groupTitle.classList.remove("collapsed");
+    groupTitle.setAttribute("aria-expanded", "true");
   } else {
     groupContent.classList.add("collapsed");
     groupTitle.classList.add("collapsed");
+    groupTitle.setAttribute("aria-expanded", "false");
   }
 }
 
@@ -898,11 +1334,26 @@ async function connectWebSocket() {
       }
 
       if (payload.event === "message") {
-        pushMessage(sessionKeyForChat(payload.chat_id), {
-          role: "assistant",
-          content: payload.text || "",
-          timestamp: new Date().toISOString(),
-        });
+        // Check if this is a progress/tool hint message
+        if (payload._progress) {
+          // Progress messages are temporary hints, not persisted messages
+          pushMessage(sessionKeyForChat(payload.chat_id), {
+            role: "progress",
+            content: payload.text || "",
+            timestamp: new Date().toISOString(),
+            _tool_hint: payload._tool_hint || false,
+            _tool_detail: payload._tool_detail || false,
+            _tool_result: payload._tool_result || false,
+            _tool_name: payload._tool_name || "",
+          });
+        } else {
+          // Regular assistant message
+          pushMessage(sessionKeyForChat(payload.chat_id), {
+            role: "assistant",
+            content: payload.text || "",
+            timestamp: new Date().toISOString(),
+          });
+        }
         return;
       }
 
@@ -910,6 +1361,11 @@ async function connectWebSocket() {
         if (payload.message_id) {
           state.streamBuffers.delete(payload.message_id);
         }
+        return;
+      }
+
+      if (payload.event === "usage") {
+        updateUsageDisplay(payload.usage);
         return;
       }
 
@@ -1102,17 +1558,47 @@ function bindEvents() {
     }
   });
 
+  elements.newSkillButton.addEventListener("click", async () => {
+    await createNewSkill();
+  });
+
   elements.editorToggle.addEventListener("click", toggleEditorPanel);
+  elements.editorToggle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggleEditorPanel();
+    }
+  });
 
   // 设置弹窗事件
   elements.settingsButton.addEventListener("click", openModal);
   elements.modalOverlay.addEventListener("click", closeModal);
   elements.modalClose.addEventListener("click", closeModal);
 
+  // Skill modal events
+  elements.skillModalOverlay.addEventListener("click", closeSkillModal);
+  elements.skillModalClose.addEventListener("click", closeSkillModal);
+  elements.skillValidateButton.addEventListener("click", async () => {
+    await validateSkill();
+  });
+  elements.skillSaveButton.addEventListener("click", async () => {
+    await saveSkill();
+  });
+  elements.skillDeleteButton.addEventListener("click", async () => {
+    if (state.activeSkill?.name) {
+      await deleteSkill(state.activeSkill.name);
+    }
+  });
+
   // ESC键关闭弹窗
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && elements.modal.classList.contains("active")) {
-      closeModal();
+    if (event.key === "Escape") {
+      if (elements.modal.classList.contains("active")) {
+        closeModal();
+      }
+      if (elements.skillModal.classList.contains("active")) {
+        closeSkillModal();
+      }
     }
   });
 
@@ -1120,6 +1606,12 @@ function bindEvents() {
   document.querySelectorAll(".config-group-title.clickable").forEach((title) => {
     title.addEventListener("click", () => {
       toggleConfigGroup(title);
+    });
+    title.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleConfigGroup(title);
+      }
     });
   });
 
@@ -1152,10 +1644,17 @@ function bindEvents() {
     renderDynamicContent();
   });
 
+  // 主题切换按钮
+  elements.themeToggle.addEventListener("click", toggleTheme);
+
   // 监听语言变化事件（来自 i18n.js）
   window.addEventListener("languagechange", () => {
     updateLanguageButton();
     renderDynamicContent();
+    // 重新渲染usage显示
+    if (state.lastUsage) {
+      updateUsageDisplay(state.lastUsage);
+    }
   });
 }
 
@@ -1185,6 +1684,7 @@ function renderDynamicContent() {
 }
 
 async function init() {
+  initTheme();
   bindEvents();
   resizeComposer();
 

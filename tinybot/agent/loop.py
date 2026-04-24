@@ -694,6 +694,22 @@ class AgentLoop:
         ))
 
         self._last_usage = result.usage
+        if result.usage and channel == "websocket":
+            await self.bus.publish_outbound(OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content="",
+                metadata={
+                    "_usage": True,
+                    "usage_data": {
+                        "prompt_tokens": result.usage.get("prompt_tokens", 0),
+                        "completion_tokens": result.usage.get("completion_tokens", 0),
+                        "total_tokens": result.usage.get("total_tokens", 0),
+                        "cached_tokens": result.usage.get("cached_tokens", 0),
+                    },
+                },
+            ))
+
         if result.stop_reason == "max_iterations":
             logger.warning("Max iterations ({}) reached", self.max_iterations)
         elif result.stop_reason == "error":

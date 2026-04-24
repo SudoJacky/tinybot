@@ -1,14 +1,20 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tinybot Web UI</title>
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/styles.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="/assets/i18n.js"></script>
 </head>
 <body>
+  <!-- Skip to main content link for accessibility -->
+  <a href="#message-list" class="skip-link">Skip to chat</a>
   <div class="shell">
     <!-- 左侧边栏：会话列表 + 系统状态 -->
     <aside class="sidebar">
@@ -28,7 +34,7 @@
       <section class="sessions-panel">
         <div class="panel-header">
           <h2 data-i18n="ui.sessions">会话</h2>
-          <span id="session-count" class="muted">0</span>
+          <span id="session-count" class="muted" style="color: var(--text-muted);">0</span>
         </div>
         <div id="session-list" class="session-list"></div>
       </section>
@@ -49,6 +55,10 @@
           <div class="status-item">
             <span class="status-label" data-i18n="ui.websocket">WebSocket</span>
             <span id="status-channel" class="status-value">-</span>
+          </div>
+          <div class="status-item usage-item">
+            <span class="status-label" data-i18n="ui.tokenUsage">Token用量</span>
+            <div id="status-usage" class="usage-display">-</div>
           </div>
         </div>
       </section>
@@ -108,14 +118,17 @@
             <p class="eyebrow">Skills</p>
             <h2 data-i18n="ui.skills">可用技能</h2>
           </div>
-          <button id="refresh-skills-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+          <div class="header-buttons">
+            <button id="new-skill-button" class="button button-ghost button-small" type="button" aria-label="Create new skill">+</button>
+            <button id="refresh-skills-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+          </div>
         </header>
         <div id="skills-list" class="skills-list"></div>
       </section>
 
       <!-- 文件编辑器 -->
       <section class="editor-panel collapsible" id="editor-section">
-        <header class="section-header clickable" id="editor-toggle">
+        <header class="section-header clickable" id="editor-toggle" tabindex="0" role="button" aria-expanded="true">
           <div>
             <p class="eyebrow">Workspace</p>
             <h2 id="editor-title">AGENTS.md</h2>
@@ -139,18 +152,86 @@
             placeholder="选择一个工作区 Markdown 文件进行编辑"
           ></textarea>
           <div class="editor-footer">
-            <span id="file-meta" class="muted" data-i18n="ui.fileNotSelected">未选择文件</span>
+            <span id="file-meta" class="muted" style="color: var(--text-muted);" data-i18n="ui.fileNotSelected">未选择文件</span>
             <span id="file-error" class="error-text"></span>
           </div>
         </div>
       </section>
 
-      <!-- 语言切换 + 设置按钮 -->
+      <!-- 语言切换 + 主题切换 + 设置按钮 -->
       <div class="settings-bar">
-        <button id="language-toggle" class="button" type="button">EN</button>
-        <button id="settings-button" class="button button-primary" type="button" data-i18n="ui.settings">⚙ 设置</button>
+        <button id="language-toggle" class="button" type="button" aria-label="Switch language">EN</button>
+        <button id="theme-toggle" class="theme-toggle" type="button" title="切换主题" aria-label="Toggle theme">
+          <!-- Sun icon -->
+          <svg class="sun-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+          <!-- Moon icon -->
+          <svg class="moon-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        </button>
+        <button id="settings-button" class="button button-icon" type="button" title="设置" aria-label="Settings">
+          <svg class="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
       </div>
     </aside>
+  </div>
+
+  <!-- Skills 弹窗 -->
+  <div id="skill-modal" class="modal">
+    <div class="modal-overlay" id="skill-modal-overlay"></div>
+    <div class="modal-content skill-modal-content">
+      <header class="modal-header">
+        <h2 id="skill-modal-title">Skill</h2>
+        <button id="skill-modal-close" class="button button-ghost" type="button" aria-label="Close skill modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="skill-detail-info">
+          <div class="config-field">
+            <label class="config-label" data-i18n="skill.name">名称</label>
+            <input id="skill-name-input" class="config-input" type="text" data-i18n-placeholder="skill.namePlaceholder" placeholder="skill-name" />
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="skill.description">描述</label>
+            <input id="skill-desc-input" class="config-input" type="text" data-i18n-placeholder="skill.descriptionPlaceholder" placeholder="Skill description" />
+          </div>
+          <div class="config-field config-checkbox-group">
+            <label class="config-checkbox-label">
+              <input id="skill-always-checkbox" type="checkbox" />
+              <span data-i18n="skill.always">始终加载</span>
+            </label>
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="skill.source">来源</label>
+            <span id="skill-source-display" style="color: var(--text-muted);">-</span>
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="skill.content">内容 (SKILL.md)</label>
+            <textarea id="skill-content-editor" class="skill-editor" spellcheck="false" data-i18n-placeholder="skill.contentPlaceholder" placeholder="# Skill instructions..."></textarea>
+          </div>
+        </div>
+        <div id="skill-validation-result" class="skill-validation-result"></div>
+      </div>
+      <footer class="modal-footer">
+        <span id="skill-error" class="error-text"></span>
+        <span id="skill-success" class="success-text"></span>
+        <button id="skill-validate-button" class="button" type="button" data-i18n="skill.validate">验证</button>
+        <button id="skill-save-button" class="button button-primary" type="button" data-i18n="ui.save">保存</button>
+        <button id="skill-delete-button" class="button" type="button" data-i18n="ui.delete">删除</button>
+      </footer>
+    </div>
   </div>
 
   <!-- 设置弹窗 -->
@@ -158,13 +239,18 @@
     <div class="modal-overlay" id="modal-overlay"></div>
     <div class="modal-content">
       <header class="modal-header">
-        <h2 data-i18n="settings.title">⚙ 设置</h2>
-        <button id="modal-close" class="button button-ghost" type="button">✕</button>
+        <h2>
+          <svg class="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span data-i18n="settings.title">设置</span>
+        </h2>
+        <button id="modal-close" class="button button-ghost" type="button" aria-label="Close settings modal">✕</button>
       </header>
       <div class="modal-body">
-        <!-- Agent 配置 -->
         <div class="config-group">
-          <h3 class="config-group-title clickable" data-group="agent"><span data-i18n="settings.agent">Agent 配置</span> <span class="toggle-icon">▼</span></h3>
+          <h3 class="config-group-title clickable" data-group="agent" tabindex="0" role="button" aria-expanded="true"><span data-i18n="settings.agent">Agent 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content" id="config-agent-group">
             <div class="config-field">
               <label class="config-label" data-i18n="settings.agent.workspace">Workspace</label>
@@ -236,7 +322,7 @@
 
         <!-- Provider 配置 -->
         <div class="config-group">
-          <h3 class="config-group-title clickable" data-group="provider"><span data-i18n="settings.provider">Provider 配置</span> <span class="toggle-icon">▼</span></h3>
+          <h3 class="config-group-title clickable" data-group="provider" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.provider">Provider 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content collapsed" id="config-provider-group">
             <div class="config-field">
               <label class="config-label" data-i18n="settings.provider.name">Provider名称</label>
@@ -273,7 +359,7 @@
 
         <!-- Tools 配置 -->
         <div class="config-group">
-          <h3 class="config-group-title clickable" data-group="tools"><span data-i18n="settings.tools">Tools 配置</span> <span class="toggle-icon">▼</span></h3>
+          <h3 class="config-group-title clickable" data-group="tools" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.tools">Tools 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content collapsed" id="config-tools-group">
             <div class="config-subsection">
               <h4 data-i18n="settings.tools.web">Web工具</h4>
@@ -322,7 +408,7 @@
 
         <!-- Gateway 配置 -->
         <div class="config-group">
-          <h3 class="config-group-title clickable" data-group="gateway"><span data-i18n="settings.gateway">Gateway 配置</span> <span class="toggle-icon">▼</span></h3>
+          <h3 class="config-group-title clickable" data-group="gateway" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.gateway">Gateway 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content collapsed" id="config-gateway-group">
             <div class="config-field">
               <label class="config-label" data-i18n="settings.gateway.host">Host</label>
@@ -350,7 +436,7 @@
 
         <!-- Channels 配置 -->
         <div class="config-group">
-          <h3 class="config-group-title clickable" data-group="channels"><span data-i18n="settings.channels">Channels 配置</span> <span class="toggle-icon">▼</span></h3>
+          <h3 class="config-group-title clickable" data-group="channels" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.channels">Channels 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content collapsed" id="config-channels-group">
             <div class="config-field config-checkbox-group">
               <label class="config-checkbox-label">
