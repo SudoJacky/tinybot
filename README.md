@@ -10,6 +10,20 @@
 
 A lightweight personal AI assistant framework that integrates Large Language Models with multiple chat platforms, tool systems, and automation mechanisms.
 
+## Change log
+
+<details>
+<summary>2026.04.24 new webui, human-create-skills, enable/disable skills,</summary>
+
+white mode
+
+![white](./show/webui_1.PNG)
+
+dark mode
+
+![dark](./show/webui_2.PNG)
+</details>
+
 ## ✨ Core Highlights
 
 ### 🧠 Agentic DAG Task Scheduling

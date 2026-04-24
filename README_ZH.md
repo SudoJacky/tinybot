@@ -10,6 +10,20 @@
 
 一个轻量的个人 AI 助手框架，将大语言模型与多种聊天平台、工具系统和自动化机制集成在一起。
 
+## 更新日志
+
+<details>
+<summary>2026.04.24 新的 webui, 自定义skills, skills的自选激活</summary>
+
+日间模式
+
+![white](./show/webui_1.PNG)
+
+黑暗模式
+
+![dark](./show/webui_2.PNG)
+</details>
+
 ## ✨ 核心亮点
 
 ### 🧠 Agentic DAG 任务调度
