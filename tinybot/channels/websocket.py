@@ -170,15 +170,25 @@ class WebSocketChannel(BaseChannel):
             self._site = None
 
     async def send(self, msg: OutboundMessage) -> None:
-        await self._broadcast(
-            msg.chat_id,
-            {
-                "event": "message",
-                "chat_id": msg.chat_id,
-                "message_id": msg.metadata.get("_stream_id") or uuid.uuid4().hex[:12],
-                "text": msg.content,
-            },
-        )
+        payload = {
+            "event": "message",
+            "chat_id": msg.chat_id,
+            "message_id": msg.metadata.get("_stream_id") or uuid.uuid4().hex[:12],
+            "text": msg.content,
+        }
+        # Include metadata flags for progress/tool messages
+        meta = msg.metadata or {}
+        if meta.get("_progress"):
+            payload["_progress"] = True
+        if meta.get("_tool_hint"):
+            payload["_tool_hint"] = True
+        if meta.get("_tool_detail"):
+            payload["_tool_detail"] = True
+        if meta.get("_tool_result"):
+            payload["_tool_result"] = True
+        if meta.get("_tool_name"):
+            payload["_tool_name"] = meta.get("_tool_name")
+        await self._broadcast(msg.chat_id, payload)
 
     async def send_delta(self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None) -> None:
         metadata = metadata or {}
@@ -205,6 +215,24 @@ class WebSocketChannel(BaseChannel):
             },
         )
 
+    async def send_usage(self, chat_id: str, usage: dict[str, int]) -> None:
+        """Push token usage stats to connected clients."""
+        if not usage:
+            return
+        await self._broadcast(
+            chat_id,
+            {
+                "event": "usage",
+                "chat_id": chat_id,
+                "usage": {
+                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                    "completion_tokens": usage.get("completion_tokens", 0),
+                    "total_tokens": usage.get("total_tokens", 0),
+                    "cached_tokens": usage.get("cached_tokens", 0),
+                },
+            },
+        )
+
     def _build_app(self) -> web.Application:
         app = web.Application()
         app.router.add_get(self.bootstrap_path, self.handle_bootstrap)
@@ -219,7 +247,11 @@ class WebSocketChannel(BaseChannel):
         app.router.add_get("/api/status", self.handle_get_status)
         app.router.add_get("/api/tools", self.handle_get_tools)
         app.router.add_get("/api/skills", self.handle_get_skills)
+        app.router.add_post("/api/skills", self.handle_create_skill)
         app.router.add_get("/api/skills/{name}", self.handle_get_skill_detail)
+        app.router.add_patch("/api/skills/{name}", self.handle_update_skill)
+        app.router.add_delete("/api/skills/{name}", self.handle_delete_skill)
+        app.router.add_post("/api/skills/{name}/validate", self.handle_validate_skill)
         app.router.add_get("/api/workspace/files", self.handle_list_workspace_files)
         app.router.add_get("/api/workspace/files/{path:.+}", self.handle_get_workspace_file)
         app.router.add_put("/api/workspace/files/{path:.+}", self.handle_put_workspace_file)
@@ -607,11 +639,17 @@ class WebSocketChannel(BaseChannel):
         from tinybot.agent.skills import SkillsLoader
         loader = SkillsLoader(self.workspace)
 
+        # Get enabled skills from config
+        enabled_list = None
+        if self.config_ref and hasattr(self.config_ref, "skills"):
+            enabled_list = self.config_ref.skills.enabled
+
         skills: list[dict[str, Any]] = []
         for s in loader.list_skills(filter_unavailable=False):
             meta = loader.get_skill_metadata(s["name"]) or {}
             skill_meta = loader._parse_tinybot_metadata(meta.get("metadata", ""))
             available = loader._check_requirements(skill_meta)
+            enabled = loader.is_skill_enabled(s["name"], enabled_list)
 
             skill_info = {
                 "name": s["name"],
@@ -619,6 +657,7 @@ class WebSocketChannel(BaseChannel):
                 "path": s["path"],
                 "description": loader._get_skill_description(s["name"]),
                 "available": available,
+                "enabled": enabled,
                 "always": skill_meta.get("always") or meta.get("always", False),
             }
 
@@ -659,6 +698,270 @@ class WebSocketChannel(BaseChannel):
             "tinybot_meta": skill_meta,
             "available": loader._check_requirements(skill_meta),
         })
+
+    async def handle_create_skill(self, request: web.Request) -> web.Response:
+        """Create a new skill in workspace skills directory."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        if self.workspace is None:
+            return web.json_response({"error": "workspace not available"}, status=404)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json body"}, status=400)
+
+        name = payload.get("name")
+        if not name:
+            return web.json_response({"error": "name is required"}, status=400)
+
+        # Normalize name
+        import re
+        normalized = name.strip().lower()
+        normalized = re.sub(r"[^a-z0-9]+", "-", normalized)
+        normalized = normalized.strip("-")
+        normalized = re.sub(r"-{2,}", "-", normalized)
+
+        if not normalized:
+            return web.json_response({"error": "invalid skill name"}, status=400)
+        if len(normalized) > 64:
+            return web.json_response({"error": "skill name too long (max 64 chars)"}, status=400)
+
+        # Check if skill already exists
+        skill_dir = self.workspace / "skills" / normalized
+        if skill_dir.exists():
+            return web.json_response({"error": f"skill '{normalized}' already exists"}, status=409)
+
+        # Create skill directory and SKILL.md
+        description = payload.get("description", f"Custom skill: {normalized}")
+        content = payload.get("content", "")
+        always = payload.get("always", False)
+        resources = payload.get("resources", [])  # ["scripts", "references", "assets"]
+
+        try:
+            skill_dir.mkdir(parents=True, exist_ok=False)
+
+            # Build SKILL.md content
+            frontmatter_lines = [
+                "---",
+                f"name: {normalized}",
+                f"description: {description}",
+            ]
+            if always:
+                frontmatter_lines.append("always: true")
+            frontmatter_lines.append("---")
+            frontmatter_lines.append("")
+            frontmatter_lines.append(f"# {normalized.replace('-', ' ').title()}")
+            frontmatter_lines.append("")
+            if content:
+                frontmatter_lines.append(content)
+            else:
+                frontmatter_lines.append("[TODO: Add skill instructions here]")
+
+            skill_md = skill_dir / "SKILL.md"
+            skill_md.write_text("\n".join(frontmatter_lines), encoding="utf-8")
+
+            # Create resource directories if requested
+            allowed_resources = {"scripts", "references", "assets"}
+            for resource in resources:
+                if resource in allowed_resources:
+                    (skill_dir / resource).mkdir(exist_ok=True)
+
+        except Exception as e:
+            # Cleanup if creation fails
+            if skill_dir.exists():
+                import shutil
+                shutil.rmtree(skill_dir, ignore_errors=True)
+            return web.json_response({"error": f"failed to create skill: {e}"}, status=500)
+
+        return web.json_response({
+            "created": True,
+            "name": normalized,
+            "path": str(skill_dir / "SKILL.md"),
+            "message": f"Skill '{normalized}' created successfully",
+        })
+
+    async def handle_update_skill(self, request: web.Request) -> web.Response:
+        """Update an existing skill's SKILL.md content."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        if self.workspace is None:
+            return web.json_response({"error": "workspace not available"}, status=404)
+
+        name = request.match_info["name"]
+        skill_dir = self.workspace / "skills" / name
+        skill_md = skill_dir / "SKILL.md"
+
+        if not skill_md.exists():
+            return web.json_response({"error": "skill not found"}, status=404)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json body"}, status=400)
+
+        # Read current content
+        current_content = skill_md.read_text(encoding="utf-8")
+
+        # Parse frontmatter
+        import re
+        frontmatter_match = re.match(r"^---\n(.*?)\n---\n", current_content, re.DOTALL)
+        frontmatter_lines = ["---"]
+        if frontmatter_match:
+            for line in frontmatter_match.group(1).split("\n"):
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    # Update frontmatter fields if provided
+                    if key == "description" and "description" in payload:
+                        frontmatter_lines.append(f"description: {payload['description']}")
+                    elif key == "always" and "always" in payload:
+                        frontmatter_lines.append(f"always: {str(payload['always']).lower()}")
+                    else:
+                        frontmatter_lines.append(f"{key}: {value}")
+            # Add new fields if not in existing frontmatter
+            if "description" in payload and not any(l.startswith("description:") for l in frontmatter_lines):
+                frontmatter_lines.append(f"description: {payload['description']}")
+            if "always" in payload and not any(l.startswith("always:") for l in frontmatter_lines):
+                frontmatter_lines.append(f"always: {str(payload['always']).lower()}")
+        else:
+            # No frontmatter, create one
+            frontmatter_lines.append(f"name: {name}")
+            frontmatter_lines.append(f"description: {payload.get('description', name)}")
+            if payload.get("always"):
+                frontmatter_lines.append("always: true")
+
+        frontmatter_lines.append("---")
+        frontmatter_lines.append("")
+
+        # Get body content
+        body_start = frontmatter_match.end() if frontmatter_match else 0
+        body_content = current_content[body_start:].strip()
+
+        # Update body if provided
+        if "content" in payload:
+            body_content = payload["content"]
+
+        # Write updated content
+        new_content = "\n".join(frontmatter_lines) + body_content
+        skill_md.write_text(new_content, encoding="utf-8")
+
+        return web.json_response({
+            "updated": True,
+            "name": name,
+            "path": str(skill_md),
+        })
+
+    async def handle_delete_skill(self, request: web.Request) -> web.Response:
+        """Delete a skill from workspace skills directory."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        if self.workspace is None:
+            return web.json_response({"error": "workspace not available"}, status=404)
+
+        name = request.match_info["name"]
+        skill_dir = self.workspace / "skills" / name
+
+        if not skill_dir.exists():
+            return web.json_response({"error": "skill not found"}, status=404)
+
+        # Only allow deleting workspace skills (not builtin)
+        from tinybot.agent.skills import SkillsLoader
+        loader = SkillsLoader(self.workspace)
+        skill_info = loader.list_skills(filter_unavailable=False)
+        skill_source = next((s["source"] for s in skill_info if s["name"] == name), None)
+
+        if skill_source == "builtin":
+            return web.json_response({"error": "cannot delete builtin skills"}, status=403)
+
+        try:
+            import shutil
+            shutil.rmtree(skill_dir)
+        except Exception as e:
+            return web.json_response({"error": f"failed to delete skill: {e}"}, status=500)
+
+        return web.json_response({
+            "deleted": True,
+            "name": name,
+        })
+
+    async def handle_validate_skill(self, request: web.Request) -> web.Response:
+        """Validate a skill's structure and format."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        if self.workspace is None:
+            return web.json_response({"error": "workspace not available"}, status=404)
+
+        name = request.match_info["name"]
+        skill_dir = self.workspace / "skills" / name
+
+        if not skill_dir.exists():
+            return web.json_response({"error": "skill not found"}, status=404)
+
+        # Inline validation logic
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            return web.json_response({"name": name, "valid": False, "message": "SKILL.md not found"})
+
+        try:
+            content = skill_md.read_text(encoding="utf-8")
+        except Exception as e:
+            return web.json_response({"name": name, "valid": False, "message": f"Could not read SKILL.md: {e}"})
+
+        # Parse frontmatter
+        import re
+        frontmatter_match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+        if not frontmatter_match:
+            return web.json_response({"name": name, "valid": False, "message": "Invalid frontmatter format"})
+
+        # Parse frontmatter fields
+        frontmatter = {}
+        for line in frontmatter_match.group(1).split("\n"):
+            if ":" in line:
+                key, value = line.split(":", 1)
+                frontmatter[key.strip()] = value.strip().strip("\"'")
+
+        # Check required fields
+        if "name" not in frontmatter:
+            return web.json_response({"name": name, "valid": False, "message": "Missing 'name' in frontmatter"})
+        if "description" not in frontmatter:
+            return web.json_response({"name": name, "valid": False, "message": "Missing 'description' in frontmatter"})
+
+        # Validate name matches directory
+        skill_name = frontmatter["name"]
+        if skill_name != name:
+            return web.json_response({"name": name, "valid": False, "message": f"Skill name '{skill_name}' must match directory name '{name}'"})
+
+        # Validate name format
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", skill_name):
+            return web.json_response({"name": name, "valid": False, "message": "Name should be hyphen-case (lowercase letters, digits, hyphens)"})
+
+        # Validate description
+        desc = frontmatter["description"].strip()
+        if not desc:
+            return web.json_response({"name": name, "valid": False, "message": "Description cannot be empty"})
+
+        # Check allowed directories
+        allowed_dirs = {"scripts", "references", "assets"}
+        for child in skill_dir.iterdir():
+            if child.name == "SKILL.md":
+                continue
+            if child.is_dir() and child.name in allowed_dirs:
+                continue
+            if child.is_symlink():
+                continue
+            return web.json_response({
+                "name": name,
+                "valid": False,
+                "message": f"Unexpected file/directory: {child.name}. Only scripts/, references/, assets/ allowed"
+            })
+
+        return web.json_response({"name": name, "valid": True, "message": "Skill is valid"})
 
     async def handle_patch_session(self, request: web.Request) -> web.Response:
         """Update session metadata (title, etc.)."""

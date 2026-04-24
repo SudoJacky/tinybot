@@ -33,15 +33,26 @@ class ContextBuilder:
         task_manager: TaskManager | None = None,
         session_manager: SessionManager | None = None,
         experience_store: ExperienceStore | None = None,
+        enabled_skills: list[str] | None = None,
+        config: Any | None = None,
     ):
         self.workspace = workspace
         self.timezone = timezone
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
+        self._enabled_skills = enabled_skills  # Fallback if no config
+        self.config = config  # Config reference for dynamic settings
         self.vector_store = vector_store
         self.task_manager = task_manager
         self.session_manager = session_manager
         self.experience_store = experience_store
+
+    @property
+    def enabled_skills(self) -> list[str] | None:
+        """Get enabled skills from config (dynamic) or fallback to static value."""
+        if self.config and hasattr(self.config, "skills"):
+            return self.config.skills.enabled
+        return self._enabled_skills
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         parts = [self._get_identity()]
@@ -54,13 +65,13 @@ class ContextBuilder:
         if memory:
             parts.append(f"# Memory\n\n{memory}")
 
-        always_skills = self.skills.get_always_skills()
+        always_skills = self.skills.get_always_skills(self.enabled_skills)
         if always_skills:
             always_content = self.skills.load_skills_for_context(always_skills)
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
-        skills_summary = self.skills.build_skills_summary()
+        skills_summary = self.skills.build_skills_summary(self.enabled_skills)
         if skills_summary:
             parts.append(
                 render_template("agent/skills_section.md", skills_summary=skills_summary)

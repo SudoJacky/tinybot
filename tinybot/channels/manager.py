@@ -201,7 +201,11 @@ class ChannelManager:
     @staticmethod
     async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
-        if msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end") or msg.metadata.get("_reasoning_delta"):
+        if msg.metadata.get("_usage"):
+            usage = msg.metadata.get("usage_data", {})
+            if hasattr(channel, "send_usage"):
+                await channel.send_usage(msg.chat_id, usage)
+        elif msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end") or msg.metadata.get("_reasoning_delta"):
             await channel.send_delta(msg.chat_id, msg.content, msg.metadata)
         elif not msg.metadata.get("_streamed"):
             await channel.send(msg)
