@@ -289,6 +289,12 @@ class ToolsConfig(Base):
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
+class SkillsConfig(Base):
+    """Skills configuration."""
+
+    enabled: list[str] = Field(default_factory=lambda: ["*"])
+
+
 class Config(BaseSettings):
     """Root configuration for tinybot."""
 
@@ -298,6 +304,7 @@ class Config(BaseSettings):
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
 
     @property
     def workspace_path(self) -> Path:

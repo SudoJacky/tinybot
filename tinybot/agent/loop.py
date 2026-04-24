@@ -132,6 +132,7 @@ class AgentLoop:
             enable_vector_store=defaults.enable_vector_store,
             cron_service=cron_service,
             session_manager=session_manager,
+            config_ref=config,
         )
 
     def __init__(
@@ -155,6 +156,7 @@ class AgentLoop:
         enable_vector_store: bool = False,
         hooks: list[AgentHook] | None = None,
         deps: AgentDependencies | None = None,  # Optional dependency injection
+        config_ref: Any = None,  # Config reference for dynamic settings
     ):
         from tinybot.config.schema import ExecToolConfig
 
@@ -182,6 +184,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self._config_ref = config_ref
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
         self._current_context_snapshot: dict[str, Any] = {}
@@ -226,6 +229,7 @@ class AgentLoop:
             self.context = ContextBuilder(
                 workspace, timezone=timezone,
                 task_manager=self.task_manager, session_manager=self.sessions,
+                config=self._config_ref,
             )
 
             if enable_vector_store:

@@ -18,6 +18,22 @@ class SkillsLoader:
     specific tools or perform certain tasks.
     """
 
+    @staticmethod
+    def is_skill_enabled(name: str, enabled_list: list[str] | None) -> bool:
+        """
+        Check if a skill is enabled based on the enabled list.
+
+        Args:
+            name: Skill name to check.
+            enabled_list: List of enabled skills. ["*"] or None/empty means all enabled.
+
+        Returns:
+            True if skill should be shown, False if hidden.
+        """
+        if not enabled_list or "*" in enabled_list:
+            return True
+        return name in enabled_list
+
     def __init__(self, workspace: Path, builtin_skills_dir: Path | None = None):
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
@@ -98,12 +114,15 @@ class SkillsLoader:
 
         return "\n\n---\n\n".join(parts) if parts else ""
 
-    def build_skills_summary(self) -> str:
+    def build_skills_summary(self, enabled_skills: list[str] | None = None) -> str:
         """
         Build a summary of all skills (name, description, path, availability).
 
         This is used for progressive loading - the agent can read the full
         skill content using read_file when needed.
+
+        Args:
+            enabled_skills: List of enabled skill names. ["*"] or None shows all.
 
         Returns:
             XML-formatted skills summary.
@@ -112,11 +131,16 @@ class SkillsLoader:
         if not all_skills:
             return ""
 
+        # Filter by enabled list
+        filtered_skills = [s for s in all_skills if self.is_skill_enabled(s["name"], enabled_skills)]
+        if not filtered_skills:
+            return ""
+
         def escape_xml(s: str) -> str:
             return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         lines = ["<skills>"]
-        for s in all_skills:
+        for s in filtered_skills:
             name = escape_xml(s["name"])
             path = s["path"]
             desc = escape_xml(self._get_skill_description(s["name"]))
@@ -190,14 +214,22 @@ class SkillsLoader:
         meta = self.get_skill_metadata(name) or {}
         return self._parse_tinybot_metadata(meta.get("metadata", ""))
 
-    def get_always_skills(self) -> list[str]:
-        """Get skills marked as always=true that meet requirements."""
+    def get_always_skills(self, enabled_skills: list[str] | None = None) -> list[str]:
+        """Get skills marked as always=true that are enabled and meet requirements.
+
+        Args:
+            enabled_skills: List of enabled skill names. ["*"] or None enables all.
+        """
         result = []
         for s in self.list_skills(filter_unavailable=True):
-            meta = self.get_skill_metadata(s["name"]) or {}
+            name = s["name"]
+            # Must be enabled first
+            if not self.is_skill_enabled(name, enabled_skills):
+                continue
+            meta = self.get_skill_metadata(name) or {}
             skill_meta = self._parse_tinybot_metadata(meta.get("metadata", ""))
             if skill_meta.get("always") or meta.get("always"):
-                result.append(s["name"])
+                result.append(name)
         return result
 
     def get_skill_metadata(self, name: str) -> dict | None:
