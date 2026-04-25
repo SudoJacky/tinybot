@@ -46,6 +46,7 @@ from tinybot.agent.experience_accumulator import ExperienceAccumulator
 from tinybot.agent.experience_analyzer import ErrorAnalyzer
 from tinybot.agent.experience_summarizer import ExperienceSummarizer
 from tinybot.agent.hook import AgentHook
+from tinybot.agent.knowledge import KnowledgeStore
 from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
@@ -58,6 +59,13 @@ from tinybot.agent.tools.experience import (
     SaveExperienceTool,
 )
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+from tinybot.agent.tools.knowledge import (
+    AddDocumentTool,
+    DeleteDocumentTool,
+    GetDocumentTool,
+    ListDocumentsTool,
+    QueryKnowledgeTool,
+)
 from tinybot.agent.tools.message import MessageTool
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.shell import ExecTool
@@ -130,6 +138,7 @@ class AgentLoop:
             channels_config=config.channels,
             timezone=defaults.timezone,
             enable_vector_store=defaults.enable_vector_store,
+            enable_knowledge=config.knowledge.enabled if hasattr(config, "knowledge") else False,
             cron_service=cron_service,
             session_manager=session_manager,
             config_ref=config,
@@ -154,6 +163,7 @@ class AgentLoop:
         channels_config: ChannelsConfig | None = None,
         timezone: str | None = None,
         enable_vector_store: bool = False,
+        enable_knowledge: bool = False,
         hooks: list[AgentHook] | None = None,
         deps: AgentDependencies | None = None,  # Optional dependency injection
         config_ref: Any = None,  # Config reference for dynamic settings
@@ -240,6 +250,19 @@ class AgentLoop:
             else:
                 self._vector_store = None
                 self.context.vector_store = None
+
+            # Initialize knowledge store for RAG
+            if enable_knowledge and self._vector_store:
+                knowledge_config = self._config_ref.knowledge if self._config_ref and hasattr(self._config_ref, "knowledge") else None
+                self.knowledge_store = KnowledgeStore(
+                    workspace=workspace,
+                    vector_store=self._vector_store,
+                    config=knowledge_config,
+                )
+                self.context.knowledge_store = self.knowledge_store
+            else:
+                self.knowledge_store = None
+                self.context.knowledge_store = None
 
             self.tools = ToolRegistry()
             self.subagents = SubagentManager(
@@ -412,6 +435,14 @@ class AgentLoop:
                 experience_store=self.experience_store,
             )
             registry.register(feedback_exp_tool)
+
+        # Add knowledge tools for RAG
+        if self.knowledge_store:
+            registry.register(AddDocumentTool(knowledge_store=self.knowledge_store))
+            registry.register(QueryKnowledgeTool(knowledge_store=self.knowledge_store))
+            registry.register(ListDocumentsTool(knowledge_store=self.knowledge_store))
+            registry.register(GetDocumentTool(knowledge_store=self.knowledge_store))
+            registry.register(DeleteDocumentTool(knowledge_store=self.knowledge_store))
 
             # Delete tool - always available
             delete_exp_tool = DeleteExperienceTool(

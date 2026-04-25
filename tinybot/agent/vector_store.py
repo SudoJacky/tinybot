@@ -44,15 +44,20 @@ class CachedEmbeddingFunction:
 
     def __init__(self, underlying_fn):
         self._underlying = underlying_fn
+        # Forward ChromaDB-required attributes from underlying function
+        self.name = getattr(underlying_fn, "name", "cached_embedding")
 
-    def __call__(self, texts: list[str]) -> list[list[float]]:
-        """Compute embeddings with caching for repeated texts."""
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        """Compute embeddings with caching for repeated texts.
+
+        ChromaDB expects 'input' as parameter name (v0.4.16+ interface).
+        """
         # Pre-allocate results list with placeholders
-        results: list[list[float] | None] = [None] * len(texts)
+        results: list[list[float] | None] = [None] * len(input)
         uncached_texts: list[str] = []
         uncached_indices: list[int] = []
 
-        for i, text in enumerate(texts):
+        for i, text in enumerate(input):
             cache_key = self._make_cache_key(text)
             with CachedEmbeddingFunction._cache_lock:
                 if cache_key in CachedEmbeddingFunction._cache:
@@ -76,6 +81,17 @@ class CachedEmbeddingFunction:
                 results[idx] = embedding
 
         return [r for r in results]  # Convert None placeholders to actual values
+
+    def embed_query(self, input: list[str]) -> list[list[float]]:
+        """Embed query texts (ChromaDB interface requirement).
+
+        ChromaDB calls this with input as keyword argument, expecting list output.
+        """
+        return self(input)
+
+    def embed_documents(self, documents: list[str]) -> list[list[float]]:
+        """Embed multiple documents (ChromaDB interface requirement)."""
+        return self(documents)
 
     @staticmethod
     def _make_cache_key(text: str) -> str:

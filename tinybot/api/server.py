@@ -2,6 +2,7 @@
 
 Provides /v1/chat/completions and /v1/models endpoints.
 All requests route to a single persistent API session.
+Also provides /v1/knowledge/* endpoints for RAG operations.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Any
 from aiohttp import web
 from loguru import logger
 
+from tinybot.api.knowledge import register_knowledge_routes
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 API_SESSION_KEY = "api:default"
@@ -175,19 +177,30 @@ async def handle_health(request: web.Request) -> web.Response:
 # App factory
 # ---------------------------------------------------------------------------
 
-def create_app(agent_loop, model_name: str = "tinybot", request_timeout: float = 120.0) -> web.Application:
+def create_app(
+    agent_loop,
+    model_name: str = "tinybot",
+    request_timeout: float = 120.0,
+    knowledge_store=None,
+) -> web.Application:
     """Create the aiohttp application.
 
     Args:
         agent_loop: An initialized AgentLoop instance.
         model_name: Model name reported in responses.
         request_timeout: Per-request timeout in seconds.
+        knowledge_store: Optional KnowledgeStore instance for RAG API.
     """
     app = web.Application()
     app["agent_loop"] = agent_loop
     app["model_name"] = model_name
     app["request_timeout"] = request_timeout
     app["session_locks"] = {}  # per-user locks, keyed by session_key
+
+    # Add knowledge store if provided
+    if knowledge_store:
+        app["knowledge_store"] = knowledge_store
+        register_knowledge_routes(app)
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_models)

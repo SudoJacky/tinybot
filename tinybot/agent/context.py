@@ -14,6 +14,7 @@ from tinybot.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
     from tinybot.agent.experience import ExperienceStore
+    from tinybot.agent.knowledge import KnowledgeStore
     from tinybot.agent.vector_store import VectorStore
     from tinybot.session.manager import SessionManager
     from tinybot.task.service import TaskManager
@@ -33,6 +34,7 @@ class ContextBuilder:
         task_manager: TaskManager | None = None,
         session_manager: SessionManager | None = None,
         experience_store: ExperienceStore | None = None,
+        knowledge_store: KnowledgeStore | None = None,
         enabled_skills: list[str] | None = None,
         config: Any | None = None,
     ):
@@ -46,6 +48,7 @@ class ContextBuilder:
         self.task_manager = task_manager
         self.session_manager = session_manager
         self.experience_store = experience_store
+        self.knowledge_store = knowledge_store
 
     @property
     def enabled_skills(self) -> list[str] | None:
@@ -239,6 +242,12 @@ class ContextBuilder:
             if experience_context:
                 messages.append({"role": "system", "content": experience_context})
 
+        # RAG: Auto-retrieve relevant knowledge from knowledge base
+        if self.knowledge_store is not None:
+            knowledge_context = self._build_knowledge_context(current_message)
+            if knowledge_context:
+                messages.append({"role": "system", "content": knowledge_context})
+
         messages.extend(history)
         if messages[-1].get("role") == current_role:
             last = dict(messages[-1])
@@ -325,6 +334,47 @@ class ContextBuilder:
             except Exception:
                 pass
 
+        return "".join(lines)
+
+    def _build_knowledge_context(
+        self,
+        current_message: str,
+        max_chunks: int = 3,
+    ) -> str | None:
+        """Build RAG context by retrieving relevant knowledge chunks."""
+        if not self.knowledge_store:
+            return None
+
+        # Check if knowledge feature is enabled in config
+        if self.config and hasattr(self.config, "knowledge"):
+            if not self.config.knowledge.enabled:
+                return None
+            if not self.config.knowledge.auto_retrieve:
+                return None
+            max_chunks = self.config.knowledge.max_chunks
+
+        # Skip simple conversational messages
+        if self._is_simple_conversation(current_message):
+            return None
+
+        try:
+            results = self.knowledge_store.query(
+                query_text=current_message,
+                top_k=max_chunks,
+            )
+        except Exception:
+            return None
+
+        if not results:
+            return None
+
+        lines = ["---\n[RELEVANT KNOWLEDGE]\n\n"]
+        for idx, result in enumerate(results, 1):
+            doc_name = result.get("doc_name", "Unknown")
+            content = result.get("content", "")
+            lines.append(f"[{idx}] From '{doc_name}':\n{content}\n\n")
+
+        lines.append("---")
         return "".join(lines)
 
     @staticmethod

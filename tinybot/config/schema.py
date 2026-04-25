@@ -295,6 +295,22 @@ class SkillsConfig(Base):
     enabled: list[str] = Field(default_factory=lambda: ["*"])
 
 
+class KnowledgeConfig(Base):
+    """RAG knowledge base configuration."""
+
+    enabled: bool = False  # Feature flag for RAG
+    auto_retrieve: bool = True  # Auto-inject relevant knowledge on each query
+    max_chunks: int = 5  # Max chunks to retrieve per query
+    chunk_size: int = 500  # Characters per chunk when splitting documents
+    chunk_overlap: int = 100  # Overlap between adjacent chunks
+    retrieval_mode: str = "hybrid"  # "dense", "sparse", "hybrid"
+    rrf_k: int = Field(default=60, ge=1)  # RRF constant
+    bm25_k: float = Field(default=1.2, ge=0.0)  # BM25 k parameter
+    bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)  # BM25 b parameter
+    dense_weight: float = Field(default=1.0, ge=0.0)  # Weight for dense retrieval in hybrid
+    sparse_weight: float = Field(default=1.0, ge=0.0)  # Weight for sparse retrieval in hybrid
+
+
 class Config(BaseSettings):
     """Root configuration for tinybot."""
 
@@ -305,6 +321,7 @@ class Config(BaseSettings):
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
 
     @property
     def workspace_path(self) -> Path:
