@@ -1252,7 +1252,15 @@ def serve(
         )
     console.print()
 
-    api_app = create_app(agent_loop, model_name=model_name, request_timeout=timeout)
+    api_app = create_app(
+        agent_loop,
+        model_name=model_name,
+        request_timeout=timeout,
+        knowledge_store=agent_loop.knowledge_store,
+    )
+
+    if agent_loop.knowledge_store:
+        console.print("  [cyan]Knowledge[/cyan] : enabled")
 
     async def on_startup(_app):
         await agent_loop._connect_mcp()
@@ -1382,6 +1390,7 @@ def gateway(
         session_manager=session_manager,
         agent_loop=agent,
         config_path=get_config_path(),
+        knowledge_store=agent.knowledge_store,
     )
 
     def _pick_heartbeat_target() -> tuple[str, str]:

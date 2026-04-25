@@ -138,30 +138,25 @@ async def handle_get_document(request: web.Request) -> web.Response:
         return _error_json(400, "Document ID is required")
 
     try:
-        content = knowledge_store.get_document_content(doc_id)
-        if content is None:
+        doc = knowledge_store.get_document(doc_id)
+        if doc is None:
             return _error_json(404, f"Document {doc_id} not found")
 
-        # Get document metadata
-        documents = knowledge_store.list_documents(limit=1000)
-        doc = next((d for d in documents if d.id == doc_id), None)
+        content = knowledge_store.get_document_content(doc_id)
+        if content is None:
+            content = doc.content
 
-        if doc:
-            return _success_json({
-                "id": doc.id,
-                "name": doc.name,
-                "content": content,
-                "file_path": doc.file_path,
-                "file_type": doc.file_type,
-                "category": doc.category,
-                "tags": doc.tags,
-                "created_at": doc.created_at,
-            })
-        else:
-            return _success_json({
-                "id": doc_id,
-                "content": content,
-            })
+        return _success_json({
+            "id": doc.id,
+            "name": doc.name,
+            "content": content,
+            "file_path": doc.file_path,
+            "file_type": doc.file_type,
+            "category": doc.category,
+            "tags": doc.tags,
+            "chunk_count": doc.chunk_count,
+            "created_at": doc.created_at,
+        })
     except Exception as e:
         logger.exception("Error getting document")
         return _error_json(500, f"Error getting document: {e}", err_type="server_error")
@@ -271,8 +266,8 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
     try:
         stats = knowledge_store.get_stats()
         return _success_json({
-            "total_documents": stats.get("total_docs", 0),
-            "total_chunks": stats.get("total_chunks", 0),
+            "total_documents": stats.get("document_count", 0),
+            "total_chunks": stats.get("chunk_count", 0),
             "total_chars": stats.get("total_chars", 0),
             "categories": stats.get("categories", {}),
             "indexed_dense": stats.get("indexed_dense", 0),

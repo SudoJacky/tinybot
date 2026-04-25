@@ -631,6 +631,17 @@ class KnowledgeStore:
                 return doc.content
         return None
 
+    def get_document(self, doc_id: str) -> KnowledgeDocument | None:
+        """Get a document record by ID.
+
+        Returns the full document object with metadata.
+        """
+        documents = self._read_documents()
+        for doc in documents:
+            if doc.id == doc_id:
+                return doc
+        return None
+
     def get_chunk_context(
         self,
         doc_id: str,

@@ -78,6 +78,7 @@ class WebSocketChannel(BaseChannel):
         self.agent_loop: Any = None
         self.config_ref: Any = None
         self.config_path: Path | None = None
+        self.knowledge_store: Any = None
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self._clients: dict[str, web.WebSocketResponse] = {}
@@ -110,13 +111,14 @@ class WebSocketChannel(BaseChannel):
             "allowFrom": ["*"],
         }
 
-    def bind_runtime(self, *, workspace: Path, session_manager: SessionManager, agent_loop: Any = None, config: Any = None, config_path: Path | None = None) -> None:
+    def bind_runtime(self, *, workspace: Path, session_manager: SessionManager, agent_loop: Any = None, config: Any = None, config_path: Path | None = None, knowledge_store: Any = None) -> None:
         """Inject shared runtime state from gateway startup."""
         self.workspace = workspace
         self.session_manager = session_manager
         self.agent_loop = agent_loop
         self.config_ref = config
         self.config_path = config_path
+        self.knowledge_store = knowledge_store
 
     def _cfg(self, key: str, default: Any) -> Any:
         if isinstance(self.config, dict):
@@ -256,6 +258,11 @@ class WebSocketChannel(BaseChannel):
         app.router.add_get("/api/workspace/files/{path:.+}", self.handle_get_workspace_file)
         app.router.add_put("/api/workspace/files/{path:.+}", self.handle_put_workspace_file)
         app.router.add_get(self.ws_path, self.handle_websocket)
+        # Register knowledge routes BEFORE catch-all static routes
+        if self.knowledge_store:
+            app["knowledge_store"] = self.knowledge_store
+            from tinybot.api.knowledge import register_knowledge_routes
+            register_knowledge_routes(app)
         self._add_static_routes(app)
         return app
 
