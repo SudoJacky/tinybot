@@ -111,6 +111,65 @@
         <div id="tools-list" class="tools-list"></div>
       </section>
 
+      <!-- 知识库面板 -->
+      <section class="knowledge-panel collapsible" id="knowledge-section">
+        <header class="section-header clickable" id="knowledge-toggle" tabindex="0" role="button" aria-expanded="true">
+          <div>
+            <p class="eyebrow">RAG</p>
+            <h2 data-i18n="ui.knowledge">知识库</h2>
+          </div>
+          <div class="toggle-indicator">
+            <span class="toggle-icon">▼</span>
+            <span id="knowledge-status" class="status status-idle status-small" data-i18n="status.notConfigured">未加载</span>
+          </div>
+        </header>
+        <div class="collapsible-content knowledge-content">
+          <!-- 统计信息 -->
+          <div class="knowledge-stats" id="knowledge-stats">
+            <div class="stats-row">
+              <span class="stats-item">
+                <span class="stats-label" data-i18n="knowledge.docs">文档</span>
+                <span id="stats-docs" class="stats-value">0</span>
+              </span>
+              <span class="stats-item">
+                <span class="stats-label" data-i18n="knowledge.chunks">片段</span>
+                <span id="stats-chunks" class="stats-value">0</span>
+              </span>
+            </div>
+          </div>
+          <!-- 文档列表 -->
+          <div class="knowledge-docs-panel">
+            <div class="docs-header">
+              <span data-i18n="knowledge.documents">文档列表</span>
+              <div class="docs-actions">
+                <button id="refresh-docs-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+                <button id="add-doc-button" class="button button-primary button-small" type="button" data-i18n="knowledge.addDoc">添加</button>
+              </div>
+            </div>
+            <div id="docs-list" class="docs-list"></div>
+          </div>
+          <!-- 查询面板 -->
+          <div class="knowledge-query-panel">
+            <div class="query-header">
+              <span data-i18n="knowledge.query">知识查询</span>
+            </div>
+            <div class="query-form">
+              <input id="query-input" class="query-input" type="text" data-i18n-placeholder="knowledge.queryPlaceholder" placeholder="输入查询内容..." />
+              <div class="query-options">
+                <select id="query-mode" class="query-select">
+                  <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
+                  <option value="dense" data-i18n="knowledge.modeDense">密集</option>
+                  <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
+                </select>
+                <input id="query-top-k" class="query-num-input" type="number" min="1" max="20" value="5" title="top_k" />
+                <button id="query-button" class="button button-primary button-small" type="button" data-i18n="knowledge.search">查询</button>
+              </div>
+            </div>
+            <div id="query-results" class="query-results"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- 技能面板 -->
       <section class="skills-panel">
         <header class="section-header">
@@ -230,6 +289,92 @@
         <button id="skill-validate-button" class="button" type="button" data-i18n="skill.validate">验证</button>
         <button id="skill-save-button" class="button button-primary" type="button" data-i18n="ui.save">保存</button>
         <button id="skill-delete-button" class="button" type="button" data-i18n="ui.delete">删除</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- 添加文档弹窗 -->
+  <div id="doc-modal" class="modal">
+    <div class="modal-overlay" id="doc-modal-overlay"></div>
+    <div class="modal-content doc-modal-content">
+      <header class="modal-header">
+        <h2 id="doc-modal-title" data-i18n="knowledge.addDoc">添加文档</h2>
+        <button id="doc-modal-close" class="button button-ghost" type="button" aria-label="Close doc modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="doc-detail-info">
+          <div class="config-field">
+            <label class="config-label" data-i18n="knowledge.docName">文档名称</label>
+            <input id="doc-name-input" class="config-input" type="text" data-i18n-placeholder="knowledge.docNamePlaceholder" placeholder="document-name" />
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="knowledge.category">分类</label>
+            <input id="doc-category-input" class="config-input" type="text" data-i18n-placeholder="knowledge.categoryPlaceholder" placeholder="category" />
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="knowledge.tags">标签</label>
+            <input id="doc-tags-input" class="config-input" type="text" data-i18n-placeholder="knowledge.tagsPlaceholder" placeholder="tag1, tag2 (逗号分隔)" />
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="knowledge.fileType">文件类型</label>
+            <select id="doc-file-type-select" class="config-select">
+              <option value="txt">txt</option>
+              <option value="md">md</option>
+            </select>
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="knowledge.content">文档内容</label>
+            <textarea id="doc-content-editor" class="doc-editor" spellcheck="false" data-i18n-placeholder="knowledge.contentPlaceholder" placeholder="输入文档内容..."></textarea>
+          </div>
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <span id="doc-error" class="error-text"></span>
+        <span id="doc-success" class="success-text"></span>
+        <button id="doc-save-button" class="button button-primary" type="button" data-i18n="ui.save">保存</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- 文档详情弹窗 -->
+  <div id="doc-view-modal" class="modal">
+    <div class="modal-overlay" id="doc-view-modal-overlay"></div>
+    <div class="modal-content doc-modal-content">
+      <header class="modal-header">
+        <h2 id="doc-view-modal-title" data-i18n="knowledge.docDetail">文档详情</h2>
+        <button id="doc-view-modal-close" class="button button-ghost" type="button" aria-label="Close doc view modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="doc-view-info">
+          <div class="doc-meta-row">
+            <span class="doc-meta-label" data-i18n="knowledge.docId">ID</span>
+            <span id="doc-view-id" class="doc-meta-value"></span>
+          </div>
+          <div class="doc-meta-row">
+            <span class="doc-meta-label" data-i18n="knowledge.docName">名称</span>
+            <span id="doc-view-name" class="doc-meta-value"></span>
+          </div>
+          <div class="doc-meta-row">
+            <span class="doc-meta-label" data-i18n="knowledge.category">分类</span>
+            <span id="doc-view-category" class="doc-meta-value"></span>
+          </div>
+          <div class="doc-meta-row">
+            <span class="doc-meta-label" data-i18n="knowledge.tags">标签</span>
+            <span id="doc-view-tags" class="doc-meta-value"></span>
+          </div>
+          <div class="doc-meta-row">
+            <span class="doc-meta-label" data-i18n="knowledge.createdAt">创建时间</span>
+            <span id="doc-view-created" class="doc-meta-value"></span>
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="knowledge.content">内容</label>
+            <textarea id="doc-view-content" class="doc-editor" readonly spellcheck="false"></textarea>
+          </div>
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <button id="doc-view-delete-button" class="button" type="button" data-i18n="ui.delete">删除</button>
+        <button id="doc-view-close-button" class="button button-primary" type="button" data-i18n="ui.close">关闭</button>
       </footer>
     </div>
   </div>

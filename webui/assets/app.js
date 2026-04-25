@@ -4,6 +4,7 @@ const state = {
   sessionsPath: "/api/sessions",
   workspaceFilesPath: "/api/workspace/files",
   skillsApiPath: "/api/skills",
+  knowledgeApiPath: "/v1/knowledge",
   socket: null,
   activeChatId: "",
   activeSessionKey: "",
@@ -16,10 +17,13 @@ const state = {
   fileDraftDirty: false,
   tools: [],
   skills: [],
+  knowledgeDocs: [],
+  knowledgeStats: null,
   config: null,
   pendingMessage: null,  // 待发送的消息（创建新会话后发送）
   activeSkill: null,  // 当前编辑的 skill
   skillMode: "view",  // view, edit, create
+  activeDoc: null,  // 当前查看的文档
   theme: "light",  // 当前主题
   contextWindowTokens: 65536,  // 默认上下文窗口大小
   lastUsage: null,  // 最后一次的usage数据
@@ -109,6 +113,45 @@ const elements = {
   skillValidationResult: document.querySelector("#skill-validation-result"),
   // Theme toggle
   themeToggle: document.querySelector("#theme-toggle"),
+  // Knowledge panel elements
+  knowledgeSection: document.querySelector("#knowledge-section"),
+  knowledgeToggle: document.querySelector("#knowledge-toggle"),
+  knowledgeStatus: document.querySelector("#knowledge-status"),
+  knowledgeStats: document.querySelector("#knowledge-stats"),
+  statsDocs: document.querySelector("#stats-docs"),
+  statsChunks: document.querySelector("#stats-chunks"),
+  docsList: document.querySelector("#docs-list"),
+  refreshDocsButton: document.querySelector("#refresh-docs-button"),
+  addDocButton: document.querySelector("#add-doc-button"),
+  queryInput: document.querySelector("#query-input"),
+  queryMode: document.querySelector("#query-mode"),
+  queryTopK: document.querySelector("#query-top-k"),
+  queryButton: document.querySelector("#query-button"),
+  queryResults: document.querySelector("#query-results"),
+  // Doc modal elements
+  docModal: document.querySelector("#doc-modal"),
+  docModalOverlay: document.querySelector("#doc-modal-overlay"),
+  docModalClose: document.querySelector("#doc-modal-close"),
+  docNameInput: document.querySelector("#doc-name-input"),
+  docCategoryInput: document.querySelector("#doc-category-input"),
+  docTagsInput: document.querySelector("#doc-tags-input"),
+  docFileTypeSelect: document.querySelector("#doc-file-type-select"),
+  docContentEditor: document.querySelector("#doc-content-editor"),
+  docSaveButton: document.querySelector("#doc-save-button"),
+  docError: document.querySelector("#doc-error"),
+  docSuccess: document.querySelector("#doc-success"),
+  // Doc view modal elements
+  docViewModal: document.querySelector("#doc-view-modal"),
+  docViewModalOverlay: document.querySelector("#doc-view-modal-overlay"),
+  docViewModalClose: document.querySelector("#doc-view-modal-close"),
+  docViewId: document.querySelector("#doc-view-id"),
+  docViewName: document.querySelector("#doc-view-name"),
+  docViewCategory: document.querySelector("#doc-view-category"),
+  docViewTags: document.querySelector("#doc-view-tags"),
+  docViewCreated: document.querySelector("#doc-view-created"),
+  docViewContent: document.querySelector("#doc-view-content"),
+  docViewDeleteButton: document.querySelector("#doc-view-delete-button"),
+  docViewCloseButton: document.querySelector("#doc-view-close-button"),
 };
 
 function setStatus(text, kind = "idle") {
@@ -942,6 +985,357 @@ async function validateSkill() {
   }
 }
 
+// ============ Knowledge Functions ============
+
+async function loadKnowledgeStats() {
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/stats`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) {
+      if (response.status === 503) {
+        // Knowledge store not initialized
+        elements.knowledgeStatus.textContent = t("status.unavailable");
+        elements.knowledgeStatus.className = "status status-idle status-small";
+        elements.statsDocs.textContent = "-";
+        elements.statsChunks.textContent = "-";
+        return;
+      }
+      throw new Error(`load knowledge stats failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    state.knowledgeStats = payload;
+    elements.statsDocs.textContent = payload.total_documents || 0;
+    elements.statsChunks.textContent = payload.total_chunks || 0;
+    elements.knowledgeStatus.textContent = t("status.available");
+    elements.knowledgeStatus.className = "status status-connected status-small";
+  } catch (error) {
+    console.error(error);
+    elements.knowledgeStatus.textContent = t("status.failed");
+    elements.knowledgeStatus.className = "status status-error status-small";
+  }
+}
+
+async function loadKnowledgeDocs() {
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) {
+      if (response.status === 503) {
+        // Knowledge store not initialized
+        elements.docsList.textContent = "";
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = t("status.unavailable");
+        elements.docsList.append(empty);
+        return;
+      }
+      throw new Error(`load knowledge docs failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    state.knowledgeDocs = payload.data || [];
+    renderKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    elements.docsList.textContent = "";
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("status.loadFailed");
+    elements.docsList.append(empty);
+  }
+}
+
+function renderKnowledgeDocs() {
+  elements.docsList.textContent = "";
+
+  if (state.knowledgeDocs.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("knowledge.noDocs");
+    elements.docsList.append(empty);
+    return;
+  }
+
+  for (const doc of state.knowledgeDocs) {
+    const item = document.createElement("div");
+    item.className = "doc-item";
+
+    const headerRow = document.createElement("div");
+    headerRow.className = "doc-header-row";
+
+    const nameSection = document.createElement("div");
+    nameSection.className = "doc-name-section";
+
+    const name = document.createElement("span");
+    name.className = "doc-name doc-name-clickable";
+    name.textContent = doc.name;
+    name.title = t("ui.clickToView");
+    name.addEventListener("click", () => viewDoc(doc.id));
+
+    nameSection.append(name);
+
+    const metaSection = document.createElement("div");
+    metaSection.className = "doc-meta-section";
+
+    const chunks = document.createElement("span");
+    chunks.className = "doc-chunks";
+    chunks.textContent = `${doc.chunk_count || 0} ${t("knowledge.chunks")}`;
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "doc-delete-btn";
+    deleteBtn.textContent = "×";
+    deleteBtn.title = t("ui.delete");
+    deleteBtn.addEventListener("click", () => deleteDoc(doc.id, doc.name));
+
+    metaSection.append(chunks, deleteBtn);
+    headerRow.append(nameSection, metaSection);
+
+    const descRow = document.createElement("div");
+    descRow.className = "doc-desc-row";
+
+    const category = doc.category || t("knowledge.noCategory");
+    const categorySpan = document.createElement("span");
+    categorySpan.className = "doc-category";
+    categorySpan.textContent = category;
+
+    const tags = doc.tags || [];
+    if (tags.length > 0) {
+      const tagsSpan = document.createElement("span");
+      tagsSpan.className = "doc-tags";
+      tagsSpan.textContent = tags.join(", ");
+      descRow.append(categorySpan, tagsSpan);
+    } else {
+      descRow.append(categorySpan);
+    }
+
+    item.append(headerRow, descRow);
+    elements.docsList.append(item);
+  }
+}
+
+function openDocModal() {
+  elements.docModal.classList.add("active");
+  elements.docError.textContent = "";
+  elements.docSuccess.textContent = "";
+}
+
+function closeDocModal() {
+  elements.docModal.classList.remove("active");
+  state.activeDoc = null;
+}
+
+function openDocViewModal() {
+  elements.docViewModal.classList.add("active");
+}
+
+function closeDocViewModal() {
+  elements.docViewModal.classList.remove("active");
+  state.activeDoc = null;
+}
+
+async function viewDoc(docId) {
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents/${encodeURIComponent(docId)}`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) {
+      throw new Error(`load doc failed: ${response.status}`);
+    }
+
+    const doc = await response.json();
+    state.activeDoc = doc;
+
+    elements.docViewId.textContent = doc.id;
+    elements.docViewName.textContent = doc.name;
+    elements.docViewCategory.textContent = doc.category || t("knowledge.noCategory");
+    elements.docViewTags.textContent = (doc.tags || []).join(", ") || "-";
+    elements.docViewCreated.textContent = doc.created_at ? formatTime(doc.created_at) : "-";
+    elements.docViewContent.value = doc.content || "";
+
+    openDocViewModal();
+  } catch (error) {
+    console.error(error);
+    setError(error.message || t("status.failed"));
+  }
+}
+
+async function addDoc() {
+  elements.docError.textContent = "";
+  elements.docSuccess.textContent = "";
+
+  const name = elements.docNameInput.value.trim();
+  const content = elements.docContentEditor.value;
+
+  if (!name) {
+    elements.docError.textContent = t("knowledge.nameRequired");
+    return;
+  }
+  if (!content) {
+    elements.docError.textContent = t("knowledge.contentRequired");
+    return;
+  }
+
+  const tags = elements.docTagsInput.value.trim()
+    ? elements.docTagsInput.value.split(",").map(t => t.trim()).filter(t => t)
+    : [];
+  const category = elements.docCategoryInput.value.trim() || "";
+  const fileType = elements.docFileTypeSelect.value;
+
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        name,
+        content,
+        tags,
+        category,
+        file_type: fileType,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.addFailed"));
+    }
+
+    elements.docSuccess.textContent = t("knowledge.docAdded");
+    elements.docNameInput.value = "";
+    elements.docCategoryInput.value = "";
+    elements.docTagsInput.value = "";
+    elements.docContentEditor.value = "";
+
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    elements.docError.textContent = error.message || t("status.failed");
+  }
+}
+
+async function deleteDoc(docId, docName) {
+  if (!confirm(`${t("ui.confirmDelete")} ${docName}?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents/${encodeURIComponent(docId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.deleteFailed"));
+    }
+
+    // Close view modal if deleting the active doc
+    if (state.activeDoc?.id === docId) {
+      closeDocViewModal();
+    }
+
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    setError(error.message || t("status.failed"));
+  }
+}
+
+async function queryKnowledge() {
+  const query = elements.queryInput.value.trim();
+  if (!query) {
+    elements.queryResults.textContent = "";
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("knowledge.queryRequired");
+    elements.queryResults.append(empty);
+    return;
+  }
+
+  const mode = elements.queryMode.value;
+  const topK = parseInt(elements.queryTopK.value) || 5;
+
+  try {
+    elements.queryResults.textContent = "";
+    const loading = document.createElement("div");
+    loading.className = "empty-state";
+    loading.textContent = t("status.loading");
+    elements.queryResults.append(loading);
+
+    const response = await fetch(`${state.knowledgeApiPath}/query`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        query,
+        top_k: topK,
+        mode,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.queryFailed"));
+    }
+
+    const result = await response.json();
+    renderQueryResults(result);
+  } catch (error) {
+    console.error(error);
+    elements.queryResults.textContent = "";
+    const empty = document.createElement("div");
+    empty.className = "empty-state error-text";
+    empty.textContent = error.message || t("status.failed");
+    elements.queryResults.append(empty);
+  }
+}
+
+function renderQueryResults(result) {
+  elements.queryResults.textContent = "";
+
+  if (!result.data || result.data.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("knowledge.noResults");
+    elements.queryResults.append(empty);
+    return;
+  }
+
+  for (const item of result.data) {
+    const resultItem = document.createElement("div");
+    resultItem.className = "query-result-item";
+
+    const header = document.createElement("div");
+    header.className = "query-result-header";
+
+    const docName = document.createElement("span");
+    docName.className = "query-result-doc-name";
+    docName.textContent = item.doc_name || "unknown";
+
+    const score = document.createElement("span");
+    score.className = "query-result-score";
+    score.textContent = `${(item.score || 0).toFixed(3)}`;
+
+    header.append(docName, score);
+
+    const content = document.createElement("div");
+    content.className = "query-result-content";
+    content.textContent = item.content || "";
+
+    resultItem.append(header, content);
+    elements.queryResults.append(resultItem);
+  }
+}
+
+function toggleKnowledgePanel() {
+  toggleCollapsibleSection(elements.knowledgeSection);
+  elements.knowledgeToggle.setAttribute("aria-expanded",
+    !elements.knowledgeSection.classList.contains("collapsed"));
+}
+
 function toggleCollapsibleSection(section) {
   if (section.classList.contains("collapsed")) {
     section.classList.remove("collapsed");
@@ -1590,6 +1984,44 @@ function bindEvents() {
     }
   });
 
+  // Knowledge panel events
+  elements.knowledgeToggle.addEventListener("click", toggleKnowledgePanel);
+  elements.knowledgeToggle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggleKnowledgePanel();
+    }
+  });
+  elements.refreshDocsButton.addEventListener("click", async () => {
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  });
+  elements.addDocButton.addEventListener("click", openDocModal);
+  elements.queryButton.addEventListener("click", queryKnowledge);
+  elements.queryInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      queryKnowledge();
+    }
+  });
+
+  // Doc modal events
+  elements.docModalOverlay.addEventListener("click", closeDocModal);
+  elements.docModalClose.addEventListener("click", closeDocModal);
+  elements.docSaveButton.addEventListener("click", async () => {
+    await addDoc();
+  });
+
+  // Doc view modal events
+  elements.docViewModalOverlay.addEventListener("click", closeDocViewModal);
+  elements.docViewModalClose.addEventListener("click", closeDocViewModal);
+  elements.docViewCloseButton.addEventListener("click", closeDocViewModal);
+  elements.docViewDeleteButton.addEventListener("click", async () => {
+    if (state.activeDoc?.id) {
+      await deleteDoc(state.activeDoc.id, state.activeDoc.name);
+    }
+  });
+
   // ESC键关闭弹窗
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -1598,6 +2030,12 @@ function bindEvents() {
       }
       if (elements.skillModal.classList.contains("active")) {
         closeSkillModal();
+      }
+      if (elements.docModal.classList.contains("active")) {
+        closeDocModal();
+      }
+      if (elements.docViewModal.classList.contains("active")) {
+        closeDocViewModal();
       }
     }
   });
@@ -1669,6 +2107,7 @@ function renderDynamicContent() {
   renderMessages();
   renderTools();
   renderSkills();
+  renderKnowledgeDocs();
   // 更新文件编辑器状态
   if (state.activeFilePath && state.activeFileUpdatedAt) {
     elements.fileMeta.textContent = `${t("ui.lastUpdate")} ${formatTime(state.activeFileUpdatedAt)}`;
@@ -1696,6 +2135,8 @@ async function init() {
     await loadSystemStatus();
     await loadTools();
     await loadSkills();
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
     await loadConfig();
     if (state.activeFilePath) {
       sendSocketMessage({ type: "subscribe_file", path: state.activeFilePath });

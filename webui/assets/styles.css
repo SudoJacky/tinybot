@@ -1293,6 +1293,357 @@ body {
   gap: 8px;
 }
 
+/* ========== 知识库面板 ========== */
+.knowledge-panel {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.knowledge-panel .collapsible-content {
+  overflow: hidden;
+}
+
+.knowledge-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow-y: auto;
+  max-height: 350px;
+}
+
+/* Knowledge stats */
+.knowledge-stats {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--panel-strong);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.stats-row {
+  display: flex;
+  gap: 20px;
+}
+
+.stats-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stats-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.stats-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Docs list panel */
+.knowledge-docs-panel {
+  background: var(--panel-strong);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.docs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.docs-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.docs-list {
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 140px;
+}
+
+.doc-item {
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  transition: all var(--transition-fast);
+}
+
+.doc-item:hover {
+  box-shadow: var(--shadow-xs);
+}
+
+.doc-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.doc-name-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.doc-name-clickable {
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.doc-name-clickable:hover {
+  color: var(--accent);
+}
+
+.doc-meta-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-chunks {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.doc-delete-btn {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  border: none;
+  color: var(--text-subtle);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.doc-delete-btn:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.doc-desc-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.doc-category {
+  color: var(--accent);
+}
+
+.doc-tags {
+  color: var(--text-subtle);
+}
+
+/* Query panel */
+.knowledge-query-panel {
+  background: var(--panel-strong);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.query-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.query-form {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.query-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  transition: all var(--transition-base);
+}
+
+.query-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.query-options {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.query-select {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.query-num-input {
+  width: 50px;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  text-align: center;
+}
+
+.query-results {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.query-result-item {
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.query-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.query-result-doc-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.query-result-score {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.query-result-content {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* ========== Doc Modal Styles ========== */
+.doc-modal-content {
+  width: min(90vw, 700px);
+}
+
+.doc-detail-info {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.doc-editor {
+  width: 100%;
+  min-height: 150px;
+  max-height: 300px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  padding: 16px;
+  font: 14px/1.6 var(--font-mono);
+  color: var(--text);
+  transition: all var(--transition-base);
+}
+
+.doc-editor:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+  background: var(--panel-strong);
+}
+
+.doc-view-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.doc-meta-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.doc-meta-value {
+  font-size: 13px;
+  color: var(--text);
+}
+
 /* ========== 可折叠面板 ========== */
 .collapsible {
   background: var(--bg-subtle);
