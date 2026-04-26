@@ -336,6 +336,33 @@ function createMessageNode(message) {
   const contentEl = node.querySelector(".message-content");
   updateMessageContent(contentEl, message);
 
+  // 添加消息复制按钮（仅对user和assistant消息）
+  if (message.role === "user" || message.role === "assistant") {
+    const metaEl = node.querySelector(".message-meta");
+    if (metaEl) {
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "message-copy-btn";
+      copyBtn.textContent = "复制";
+      copyBtn.title = "复制消息内容";
+      copyBtn.addEventListener("click", async () => {
+        try {
+          const textToCopy = message.content || "";
+          await navigator.clipboard.writeText(textToCopy);
+          copyBtn.textContent = "已复制";
+          setTimeout(() => {
+            copyBtn.textContent = "复制";
+          }, 1500);
+        } catch {
+          copyBtn.textContent = "失败";
+          setTimeout(() => {
+            copyBtn.textContent = "复制";
+          }, 1500);
+        }
+      });
+      metaEl.appendChild(copyBtn);
+    }
+  }
+
   return node;
 }
 
@@ -376,6 +403,34 @@ function updateMessageContent(contentEl, message) {
           gfm: true,
         });
         textEl.innerHTML = marked.parse(message.content);
+        // 应用代码语法高亮和添加复制按钮
+        if (typeof hljs !== "undefined") {
+          textEl.querySelectorAll("pre code").forEach((block) => {
+            hljs.highlightElement(block);
+            // 添加复制按钮到代码块
+            const pre = block.parentElement;
+            if (pre && !pre.querySelector(".code-copy-btn")) {
+              const copyBtn = document.createElement("button");
+              copyBtn.className = "code-copy-btn";
+              copyBtn.textContent = "复制";
+              copyBtn.addEventListener("click", async () => {
+                try {
+                  await navigator.clipboard.writeText(block.textContent);
+                  copyBtn.textContent = "已复制";
+                  setTimeout(() => {
+                    copyBtn.textContent = "复制";
+                  }, 1500);
+                } catch {
+                  copyBtn.textContent = "失败";
+                  setTimeout(() => {
+                    copyBtn.textContent = "复制";
+                  }, 1500);
+                }
+              });
+              pre.appendChild(copyBtn);
+            }
+          });
+        }
       } catch {
         textEl.textContent = message.content;
       }
@@ -1366,6 +1421,24 @@ function applyTheme(theme) {
   state.theme = theme;
   // 保存到 localStorage
   localStorage.setItem("tinybot-theme", theme);
+  // 同步切换highlight.js主题
+  const lightTheme = document.getElementById("hljs-light-theme");
+  const darkTheme = document.getElementById("hljs-dark-theme");
+  if (lightTheme && darkTheme) {
+    if (theme === "dark") {
+      lightTheme.disabled = true;
+      darkTheme.disabled = false;
+    } else {
+      lightTheme.disabled = false;
+      darkTheme.disabled = true;
+    }
+  }
+  // 重新高亮所有代码块
+  if (typeof hljs !== "undefined") {
+    document.querySelectorAll(".message-text pre code").forEach((block) => {
+      hljs.highlightElement(block);
+    });
+  }
 }
 
 function toggleTheme() {
@@ -1485,19 +1558,22 @@ async function saveConfig() {
     return val;
   };
 
-  // Build payload - only include changed/non-null values
+  // Build payload - matching backend schema structure
+  // agents.defaults contains the actual agent config fields
   const payload = {
     agents: {
-      model: getValue(elements.configModel),
-      provider: getValue(elements.configProvider),
-      workspace: getValue(elements.configWorkspace),
-      temperature: getValue(elements.configTemperature, "number"),
-      max_tokens: getValue(elements.configMaxTokens, "number"),
-      context_window_tokens: getValue(elements.configContextWindow, "number"),
-      max_tool_iterations: getValue(elements.configMaxToolIterations, "number"),
-      reasoning_effort: getValue(elements.configReasoningEffort),
-      timezone: getValue(elements.configTimezone),
-      enable_vector_store: elements.configVectorStore.checked,
+      defaults: {
+        model: getValue(elements.configModel),
+        provider: getValue(elements.configProvider),
+        workspace: getValue(elements.configWorkspace),
+        temperature: getValue(elements.configTemperature, "number"),
+        max_tokens: getValue(elements.configMaxTokens, "number"),
+        context_window_tokens: getValue(elements.configContextWindow, "number"),
+        max_tool_iterations: getValue(elements.configMaxToolIterations, "number"),
+        reasoning_effort: getValue(elements.configReasoningEffort),
+        timezone: getValue(elements.configTimezone),
+        enable_vector_store: elements.configVectorStore.checked,
+      },
     },
     tools: {
       web: {
@@ -1814,6 +1890,15 @@ async function submitMessage() {
     return;
   }
 
+  // 触发发送按钮动画
+  const sendBtn = elements.composerForm.querySelector(".composer-send");
+  if (sendBtn) {
+    sendBtn.classList.add("sending");
+    setTimeout(() => {
+      sendBtn.classList.remove("sending");
+    }, 600);
+  }
+
   // 如果没有活跃会话，先创建新会话
   if (!state.activeChatId) {
     state.pendingMessage = content;  // 保存待发送的消息
@@ -2022,8 +2107,9 @@ function bindEvents() {
     }
   });
 
-  // ESC键关闭弹窗
+  // ESC键关闭弹窗 + 全局快捷键
   document.addEventListener("keydown", (event) => {
+    // ESC关闭弹窗
     if (event.key === "Escape") {
       if (elements.modal.classList.contains("active")) {
         closeModal();
@@ -2036,6 +2122,42 @@ function bindEvents() {
       }
       if (elements.docViewModal.classList.contains("active")) {
         closeDocViewModal();
+      }
+      return;
+    }
+
+    // 全局快捷键（需要在输入框外生效）
+    if (event.ctrlKey || event.metaKey) {
+      // Ctrl+N: 新建会话
+      if (event.key === "n" || event.key === "N") {
+        event.preventDefault();
+        createNewChat();
+        return;
+      }
+
+      // Ctrl+L: 清空当前会话
+      if (event.key === "l" || event.key === "L") {
+        event.preventDefault();
+        if (state.activeSessionKey) {
+          clearSession(state.activeSessionKey).catch(console.error);
+        }
+        return;
+      }
+
+      // Ctrl+S: 保存文件编辑
+      if (event.key === "s" || event.key === "S") {
+        event.preventDefault();
+        if (state.activeFilePath && state.fileDraftDirty) {
+          saveActiveFile().catch(console.error);
+        }
+        return;
+      }
+
+      // Ctrl+/: 显示快捷键帮助
+      if (event.key === "/" || event.key === "?") {
+        event.preventDefault();
+        showShortcutHelp();
+        return;
       }
     }
   });
@@ -2122,7 +2244,63 @@ function renderDynamicContent() {
   }
 }
 
+// 快捷键帮助
+function showShortcutHelp() {
+  const lang = getLanguage();
+  const shortcuts = lang === "zh" ? [
+    { key: "Ctrl+N", desc: "新建会话" },
+    { key: "Ctrl+L", desc: "清空当前会话" },
+    { key: "Ctrl+S", desc: "保存文件编辑" },
+    { key: "Ctrl+/", desc: "显示快捷键帮助" },
+    { key: "Enter", desc: "发送消息" },
+    { key: "Shift+Enter", desc: "换行" },
+    { key: "Esc", desc: "关闭弹窗" },
+  ] : [
+    { key: "Ctrl+N", desc: "New chat" },
+    { key: "Ctrl+L", desc: "Clear current session" },
+    { key: "Ctrl+S", desc: "Save file edit" },
+    { key: "Ctrl+/", desc: "Show shortcuts" },
+    { key: "Enter", desc: "Send message" },
+    { key: "Shift+Enter", desc: "New line" },
+    { key: "Esc", desc: "Close modal" },
+  ];
+
+  // 创建快捷键帮助弹窗
+  const modal = document.createElement("div");
+  modal.className = "modal active";
+  modal.innerHTML = `
+    <div class="modal-overlay"></div>
+    <div class="modal-content" style="width: min(90vw, 400px);">
+      <header class="modal-header">
+        <h2>${lang === "zh" ? "快捷键" : "Shortcuts"}</h2>
+        <button class="button button-ghost" type="button">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="shortcut-list">
+          ${shortcuts.map(s => `
+            <div class="shortcut-item">
+              <span class="shortcut-key">${s.key}</span>
+              <span class="shortcut-desc">${s.desc}</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // 点击关闭
+  const closeBtn = modal.querySelector(".button-ghost");
+  const overlay = modal.querySelector(".modal-overlay");
+  closeBtn.addEventListener("click", () => modal.remove());
+  overlay.addEventListener("click", () => modal.remove());
+
+  document.body.appendChild(modal);
+}
+
 async function init() {
+  // 显示初始化骨架屏
+  showInitSkeleton();
+
   initTheme();
   bindEvents();
   resizeComposer();
@@ -2141,11 +2319,47 @@ async function init() {
     if (state.activeFilePath) {
       sendSocketMessage({ type: "subscribe_file", path: state.activeFilePath });
     }
+    // 移除骨架屏
+    removeInitSkeleton();
     setStatus(t("status.connected"), "connected");
   } catch (error) {
     console.error(error);
+    removeInitSkeleton();
     setStatus(t("status.initFailed"), "error");
     setError(error.message || t("status.initFailed"));
+  }
+}
+
+function showInitSkeleton() {
+  const skeletonHTML = `
+    <div class="skeleton-overlay" id="init-skeleton">
+      <div class="skeleton-container">
+        <div class="skeleton-message">
+          <div class="skeleton-meta">
+            <div class="skeleton skeleton-role"></div>
+            <div class="skeleton skeleton-time"></div>
+          </div>
+          <div class="skeleton skeleton-content"></div>
+          <div class="skeleton skeleton-content-short"></div>
+        </div>
+        <div class="skeleton-message" style="align-self: flex-end; width: 70%;">
+          <div class="skeleton-meta">
+            <div class="skeleton skeleton-role"></div>
+            <div class="skeleton skeleton-time"></div>
+          </div>
+          <div class="skeleton skeleton-content" style="width: 80%;"></div>
+        </div>
+        <div class="init-loading-text">${getLanguage() === "zh" ? "正在初始化..." : "Initializing..."}</div>
+      </div>
+    </div>
+  `;
+  elements.messageList.innerHTML = skeletonHTML;
+}
+
+function removeInitSkeleton() {
+  const skeleton = document.getElementById("init-skeleton");
+  if (skeleton) {
+    skeleton.remove();
   }
 }
 
