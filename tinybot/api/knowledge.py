@@ -2,11 +2,13 @@
 
 Provides REST endpoints for RAG operations:
 - List, add, get, delete documents
+- Upload files (txt, md)
 - Query knowledge base with hybrid retrieval
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -122,6 +124,93 @@ async def handle_add_document(request: web.Request) -> web.Response:
     except Exception as e:
         logger.exception("Error adding document")
         return _error_json(500, f"Error adding document: {e}", err_type="server_error")
+
+
+async def handle_upload_document(request: web.Request) -> web.Response:
+    """POST /v1/knowledge/documents/upload
+
+    Handles multipart/form-data file upload.
+    Supported file types: txt, md
+
+    Form fields:
+    - file: The uploaded file (required)
+    - category: Optional category classification
+    - tags: Optional comma-separated tags
+    """
+    knowledge_store = request.app.get("knowledge_store")
+    if not knowledge_store:
+        return _error_json(503, "Knowledge store not initialized")
+
+    reader = await request.multipart()
+    file_content: bytes | None = None
+    filename: str | None = None
+    category: str = ""
+    tags: list[str] = []
+
+    try:
+        while True:
+            field = await reader.next()
+            if field is None:
+                break
+
+            if field.filename:
+                # This is the file field
+                filename = field.filename
+                file_content = await field.read()
+            elif field.name == "category":
+                category_val = await field.read()
+                category = category_val.decode("utf-8").strip()
+            elif field.name == "tags":
+                tags_val = await field.read()
+                tags_str = tags_val.decode("utf-8").strip()
+                tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+    except Exception as e:
+        logger.exception("Error parsing multipart upload")
+        return _error_json(400, f"Error parsing upload: {e}")
+
+    if not filename or file_content is None:
+        return _error_json(400, "No file uploaded")
+
+    # Validate file type
+    file_ext = Path(filename).suffix.lower().lstrip(".")
+    supported_types = {"txt", "md"}
+    if file_ext not in supported_types:
+        return _error_json(
+            400,
+            f"Unsupported file type '{file_ext}'. Supported: {', '.join(sorted(supported_types))}",
+        )
+
+    # Decode content
+    try:
+        content = file_content.decode("utf-8")
+    except UnicodeDecodeError as e:
+        return _error_json(400, f"Error decoding file content (expected UTF-8): {e}")
+
+    if not content.strip():
+        return _error_json(400, "File content is empty")
+
+    try:
+        doc_id = knowledge_store.add_document(
+            name=filename,
+            content=content,
+            tags=tags,
+            category=category,
+            file_type=file_ext,
+            source="file_upload",
+        )
+
+        return _success_json({
+            "id": doc_id,
+            "name": filename,
+            "file_type": file_ext,
+            "size_bytes": len(file_content),
+            "message": f"File '{filename}' uploaded and indexed successfully",
+        })
+    except ValueError as e:
+        return _error_json(400, str(e))
+    except Exception as e:
+        logger.exception("Error uploading file")
+        return _error_json(500, f"Error uploading file: {e}", err_type="server_error")
 
 
 async def handle_get_document(request: web.Request) -> web.Response:
@@ -286,6 +375,7 @@ def register_knowledge_routes(app: web.Application) -> None:
     """Register all knowledge API routes."""
     app.router.add_get("/v1/knowledge/documents", handle_list_documents)
     app.router.add_post("/v1/knowledge/documents", handle_add_document)
+    app.router.add_post("/v1/knowledge/documents/upload", handle_upload_document)
     app.router.add_get("/v1/knowledge/documents/{doc_id}", handle_get_document)
     app.router.add_delete("/v1/knowledge/documents/{doc_id}", handle_delete_document)
     app.router.add_post("/v1/knowledge/query", handle_query_knowledge)

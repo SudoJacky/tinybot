@@ -340,14 +340,24 @@ class KnowledgeStore:
         cursor = self._next_cursor()
         self._cursor_file.write_text(str(cursor), encoding="utf-8")
 
+        logger.debug(
+            "KnowledgeStore: adding document '{}' (id={}, category={}, tags={}, {} chars)",
+            name,
+            doc_id,
+            category or "none",
+            tags or [],
+            len(content),
+        )
+
         # Index to both dense and sparse collections
         if self.vector_store is not None:
             self._index_chunks_dense(doc_id, name, str(file_path), chunks, ts, category, tags or [])
             self._index_chunks_sparse(doc_id, name, str(file_path), chunks, ts, category, tags or [])
 
         logger.info(
-            "KnowledgeStore: added document '{}' ({} chunks, {} chars)",
+            "KnowledgeStore: added document '{}' (id={}, {} chunks, {} chars)",
             name,
+            doc_id,
             len(chunks),
             len(content),
         )
@@ -378,12 +388,27 @@ class KnowledgeStore:
         if mode is None:
             mode = self.config.retrieval_mode if self.config else "hybrid"
 
+        logger.debug(
+            "KnowledgeStore: query (mode={}, top_k={}, category={}, tags={})",
+            mode,
+            top_k,
+            category or "none",
+            tags or [],
+        )
+
         if mode == "dense":
-            return self._query_dense(query_text, top_k, category, tags)
+            results = self._query_dense(query_text, top_k, category, tags)
         elif mode == "sparse":
-            return self._query_sparse(query_text, top_k, category, tags)
+            results = self._query_sparse(query_text, top_k, category, tags)
         else:
-            return self.query_hybrid(query_text, top_k, category, tags)
+            results = self.query_hybrid(query_text, top_k, category, tags)
+
+        logger.debug(
+            "KnowledgeStore: query returned {} results (mode={})",
+            len(results),
+            mode,
+        )
+        return results
 
     def query_hybrid(
         self,
@@ -406,12 +431,22 @@ class KnowledgeStore:
         # Get more results from each method for better fusion
         fetch_k = top_k * 3
 
+        logger.debug("KnowledgeStore: hybrid query fetching {} from each method", fetch_k)
+
         dense_results = self._query_dense(query_text, fetch_k, category, tags)
         sparse_results = self._query_sparse(query_text, fetch_k, category, tags)
+
+        logger.debug(
+            "KnowledgeStore: hybrid retrieved {} dense + {} sparse results",
+            len(dense_results),
+            len(sparse_results),
+        )
 
         # RRF fusion
         rrf_k = self.config.rrf_k if self.config else 60
         fused = self._rrf_fusion(dense_results, sparse_results, rrf_k)
+
+        logger.debug("KnowledgeStore: hybrid RRF fusion produced {} results (rrf_k={})", len(fused), rrf_k)
 
         return fused[:top_k]
 
@@ -485,7 +520,15 @@ class KnowledgeStore:
 
             count = collection.count()
             if count == 0:
+                logger.debug("KnowledgeStore: dense collection is empty, returning no results")
                 return []
+
+            logger.debug(
+                "KnowledgeStore: dense query (collection_count={}, top_k={}, filter={})",
+                count,
+                top_k,
+                category or "none",
+            )
 
             filters: list[dict[str, Any]] = []
             if category:
@@ -500,8 +543,16 @@ class KnowledgeStore:
                 where=where_filter,
                 include=["documents", "distances", "metadatas"],
             )
+
+            raw_count = len(results.get("ids", [[]])[0]) if results else 0
+            logger.debug("KnowledgeStore: dense query returned {} raw results", raw_count)
         except Exception as e:
-            logger.warning("KnowledgeStore: dense query failed: {}", e)
+            logger.warning(
+                "KnowledgeStore: dense query failed (top_k={}, category={}): {}",
+                top_k,
+                category or "none",
+                e,
+            )
             return []
 
         return self._process_query_results(results, tags, "dense")
@@ -515,11 +566,20 @@ class KnowledgeStore:
     ) -> list[dict[str, Any]]:
         """Sparse retrieval using custom BM25 index."""
         try:
+            logger.debug(
+                "KnowledgeStore: sparse BM25 query (top_k={}, category={})",
+                top_k,
+                category or "none",
+            )
+
             # Get BM25 results
             bm25_results = self._bm25_index.query(query_text, top_k=top_k * 2)
 
             if not bm25_results:
+                logger.debug("KnowledgeStore: BM25 returned no results")
                 return []
+
+            logger.debug("KnowledgeStore: BM25 returned {} raw results", len(bm25_results))
 
             # Build result list with metadata from chunks file
             chunks_data = self._read_chunks()
@@ -555,9 +615,15 @@ class KnowledgeStore:
                 }
                 out.append(result)
 
+            logger.debug("KnowledgeStore: sparse query returned {} filtered results", len(out))
             return out[:top_k]
         except Exception as e:
-            logger.warning("KnowledgeStore: sparse query failed: {}", e)
+            logger.warning(
+                "KnowledgeStore: sparse query failed (top_k={}, category={}): {}",
+                top_k,
+                category or "none",
+                e,
+            )
             return []
 
     def _process_query_results(
@@ -750,7 +816,15 @@ class KnowledgeStore:
         chunk_size = self.config.chunk_size if self.config else 500
         chunk_overlap = self.config.chunk_overlap if self.config else 100
 
+        logger.debug(
+            "KnowledgeStore: chunking text (len={}, chunk_size={}, overlap={})",
+            len(text),
+            chunk_size,
+            chunk_overlap,
+        )
+
         if len(text) <= chunk_size:
+            logger.debug("KnowledgeStore: text fits in single chunk (no splitting needed)")
             return [{
                 "content": text,
                 "index": 0,
@@ -791,6 +865,12 @@ class KnowledgeStore:
                 next_start = end
             start = next_start
 
+        logger.debug(
+            "KnowledgeStore: chunked text into {} chunks (avg_size={:.0f})",
+            len(chunks),
+            sum(len(c["content"]) for c in chunks) / len(chunks) if chunks else 0,
+        )
+
         return chunks
 
     def _index_chunks_dense(
@@ -805,6 +885,7 @@ class KnowledgeStore:
     ) -> None:
         """Index chunks to dense collection (embedding)."""
         if not self.vector_store:
+            logger.warning("KnowledgeStore: vector_store not available for dense indexing")
             return
 
         try:
@@ -812,6 +893,13 @@ class KnowledgeStore:
                 _KNOWLEDGE_COLLECTION_DENSE
             )
 
+            logger.debug(
+                "KnowledgeStore: indexing {} chunks for doc '{}' to dense collection",
+                len(chunks),
+                doc_name,
+            )
+
+            # Build chunk data
             chunk_ids: list[str] = []
             chunk_docs: list[str] = []
             chunk_metas: list[dict[str, Any]] = []
@@ -834,22 +922,50 @@ class KnowledgeStore:
                     "source": "knowledge",
                 })
 
-            collection.upsert(
-                ids=chunk_ids,
-                documents=chunk_docs,
-                metadatas=chunk_metas,
+            # Batch upsert to avoid embedding API batch size limit (max 10)
+            batch_size = 10
+            total_batches = (len(chunk_ids) + batch_size - 1) // batch_size
+            logger.debug(
+                "KnowledgeStore: upserting {} chunks in {} batches (batch_size={})",
+                len(chunk_ids),
+                total_batches,
+                batch_size,
             )
+
+            for i in range(0, len(chunk_ids), batch_size):
+                batch_num = i // batch_size + 1
+                batch_ids = chunk_ids[i:i + batch_size]
+                batch_docs = chunk_docs[i:i + batch_size]
+                batch_metas = chunk_metas[i:i + batch_size]
+                logger.debug(
+                    "KnowledgeStore: upserting batch {} of {} ({} chunks)",
+                    batch_num,
+                    total_batches,
+                    len(batch_ids),
+                )
+                collection.upsert(
+                    ids=batch_ids,
+                    documents=batch_docs,
+                    metadatas=batch_metas,
+                )
 
             with self._lock:
                 self._indexed_ids.add(doc_id)
 
-            logger.debug(
-                "KnowledgeStore: indexed {} chunks (dense) for doc '{}'",
+            logger.info(
+                "KnowledgeStore: indexed {} chunks (dense) for doc '{}' (id={})",
                 len(chunks),
                 doc_name,
+                doc_id,
             )
         except Exception as e:
-            logger.warning("KnowledgeStore: dense indexing failed: {}", e)
+            logger.warning(
+                "KnowledgeStore: dense indexing failed for doc '{}' (id={}, {} chunks): {}",
+                doc_name,
+                doc_id,
+                len(chunks),
+                e,
+            )
 
     def _index_chunks_sparse(
         self,

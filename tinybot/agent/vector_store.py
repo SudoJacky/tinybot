@@ -68,8 +68,40 @@ class CachedEmbeddingFunction:
                     uncached_indices.append(i)
                     CachedEmbeddingFunction._misses += 1
 
+        # Log cache statistics periodically
+        total_requests = CachedEmbeddingFunction._hits + CachedEmbeddingFunction._misses
+        if total_requests > 0 and total_requests % 100 == 0:
+            hit_rate = CachedEmbeddingFunction._hits / total_requests * 100
+            logger.debug(
+                "CachedEmbeddingFunction: cache stats (hits={}, misses={}, hit_rate={:.1f}%, cache_size={})",
+                CachedEmbeddingFunction._hits,
+                CachedEmbeddingFunction._misses,
+                hit_rate,
+                len(CachedEmbeddingFunction._cache),
+            )
+
         if uncached_texts:
-            new_embeddings = self._underlying(uncached_texts)
+            # Batch process to avoid embedding API batch size limits
+            batch_size = 10
+            new_embeddings: list[list[float]] = []
+            total_batches = (len(uncached_texts) + batch_size - 1) // batch_size
+            logger.debug(
+                "CachedEmbeddingFunction: embedding {} texts in {} batches (cache misses)",
+                len(uncached_texts),
+                total_batches,
+            )
+            for batch_start in range(0, len(uncached_texts), batch_size):
+                batch_num = batch_start // batch_size + 1
+                batch_texts = uncached_texts[batch_start:batch_start + batch_size]
+                logger.debug(
+                    "CachedEmbeddingFunction: embedding batch {} of {} ({} texts)",
+                    batch_num,
+                    total_batches,
+                    len(batch_texts),
+                )
+                batch_embeddings = self._underlying(batch_texts)
+                new_embeddings.extend(batch_embeddings)
+
             for text, embedding in zip(uncached_texts, new_embeddings):
                 cache_key = self._make_cache_key(text)
                 with CachedEmbeddingFunction._cache_lock:
@@ -251,6 +283,8 @@ class VectorStore:
                         "Embedding initialized: provider={}, model={}, api_base={}",
                         config.provider, config.model_name, config.api_base or "local"
                     )
+
+        return VectorStore._embedding_fn
 
     def _config_changed(self, new_config: Any) -> bool:
         """Check if embedding config has changed, requiring re-initialization."""
