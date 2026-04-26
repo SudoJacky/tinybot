@@ -134,6 +134,7 @@ const elements = {
   statsChunks: document.querySelector("#stats-chunks"),
   docsList: document.querySelector("#docs-list"),
   refreshDocsButton: document.querySelector("#refresh-docs-button"),
+  rebuildIndexButton: document.querySelector("#rebuild-index-button"),
   addDocButton: document.querySelector("#add-doc-button"),
   uploadDocButton: document.querySelector("#upload-doc-button"),
   docFileUpload: document.querySelector("#doc-file-upload"),
@@ -395,20 +396,20 @@ function createMessageNode(message) {
     if (metaEl) {
       const copyBtn = document.createElement("button");
       copyBtn.className = "message-copy-btn";
-      copyBtn.textContent = "复制";
-      copyBtn.title = "复制消息内容";
+      copyBtn.textContent = t("ui.copy");
+      copyBtn.title = t("ui.copyContent");
       copyBtn.addEventListener("click", async () => {
         try {
           const textToCopy = message.content || "";
           await navigator.clipboard.writeText(textToCopy);
-          copyBtn.textContent = "已复制";
+          copyBtn.textContent = t("ui.copied");
           setTimeout(() => {
-            copyBtn.textContent = "复制";
+            copyBtn.textContent = t("ui.copy");
           }, 1500);
         } catch {
-          copyBtn.textContent = "失败";
+          copyBtn.textContent = t("ui.copyFailed");
           setTimeout(() => {
-            copyBtn.textContent = "复制";
+            copyBtn.textContent = t("ui.copy");
           }, 1500);
         }
       });
@@ -465,18 +466,18 @@ function updateMessageContent(contentEl, message) {
             if (pre && !pre.querySelector(".code-copy-btn")) {
               const copyBtn = document.createElement("button");
               copyBtn.className = "code-copy-btn";
-              copyBtn.textContent = "复制";
+              copyBtn.textContent = t("ui.copy");
               copyBtn.addEventListener("click", async () => {
                 try {
                   await navigator.clipboard.writeText(block.textContent);
-                  copyBtn.textContent = "已复制";
+                  copyBtn.textContent = t("ui.copied");
                   setTimeout(() => {
-                    copyBtn.textContent = "复制";
+                    copyBtn.textContent = t("ui.copy");
                   }, 1500);
                 } catch {
-                  copyBtn.textContent = "失败";
+                  copyBtn.textContent = t("ui.copyFailed");
                   setTimeout(() => {
-                    copyBtn.textContent = "复制";
+                    copyBtn.textContent = t("ui.copy");
                   }, 1500);
                 }
               });
@@ -1486,6 +1487,43 @@ async function deleteDoc(docId, docName) {
   }
 }
 
+async function rebuildKnowledgeIndex() {
+  if (!confirm(t("knowledge.rebuildConfirm"))) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/rebuild-index`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.rebuildFailed"));
+    }
+
+    const result = await response.json();
+    const message = t("knowledge.rebuildSuccess")
+      .replace("{chunks}", result.chunks_indexed || 0)
+      .replace("{terms}", result.terms_created || 0);
+
+    // Show success notification
+    const successEl = document.createElement("div");
+    successEl.className = "success-toast";
+    successEl.textContent = message;
+    successEl.style.cssText = "position:fixed;top:20px;right:20px;padding:12px 20px;background:#2e7d32;color:#fff;border-radius:4px;z-index:1000;";
+    document.body.appendChild(successEl);
+    setTimeout(() => successEl.remove(), 3000);
+
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    setError(error.message || t("status.failed"));
+  }
+}
+
 async function queryKnowledge() {
   const query = elements.queryInput.value.trim();
   if (!query) {
@@ -2331,6 +2369,7 @@ function bindEvents() {
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
   });
+  elements.rebuildIndexButton.addEventListener("click", rebuildKnowledgeIndex);
   elements.addDocButton.addEventListener("click", openDocModal);
   elements.uploadDocButton.addEventListener("click", () => {
     elements.docFileUpload.click();
@@ -2500,23 +2539,14 @@ function renderDynamicContent() {
 
 // 快捷键帮助
 function showShortcutHelp() {
-  const lang = getLanguage();
-  const shortcuts = lang === "zh" ? [
-    { key: "Ctrl+N", desc: "新建会话" },
-    { key: "Ctrl+L", desc: "清空当前会话" },
-    { key: "Ctrl+S", desc: "保存文件编辑" },
-    { key: "Ctrl+/", desc: "显示快捷键帮助" },
-    { key: "Enter", desc: "发送消息" },
-    { key: "Shift+Enter", desc: "换行" },
-    { key: "Esc", desc: "关闭弹窗" },
-  ] : [
-    { key: "Ctrl+N", desc: "New chat" },
-    { key: "Ctrl+L", desc: "Clear current session" },
-    { key: "Ctrl+S", desc: "Save file edit" },
-    { key: "Ctrl+/", desc: "Show shortcuts" },
-    { key: "Enter", desc: "Send message" },
-    { key: "Shift+Enter", desc: "New line" },
-    { key: "Esc", desc: "Close modal" },
+  const shortcuts = [
+    { key: "Ctrl+N", desc: t("shortcuts.newChat") },
+    { key: "Ctrl+L", desc: t("shortcuts.clearSession") },
+    { key: "Ctrl+S", desc: t("shortcuts.saveEdit") },
+    { key: "Ctrl+/", desc: t("shortcuts.showHelp") },
+    { key: "Enter", desc: t("shortcuts.sendMessage") },
+    { key: "Shift+Enter", desc: t("shortcuts.newLine") },
+    { key: "Esc", desc: t("shortcuts.closeModal") },
   ];
 
   // 创建快捷键帮助弹窗
@@ -2526,7 +2556,7 @@ function showShortcutHelp() {
     <div class="modal-overlay"></div>
     <div class="modal-content" style="width: min(90vw, 400px);">
       <header class="modal-header">
-        <h2>${lang === "zh" ? "快捷键" : "Shortcuts"}</h2>
+        <h2>${t("shortcuts.title")}</h2>
         <button class="button button-ghost" type="button">✕</button>
       </header>
       <div class="modal-body">

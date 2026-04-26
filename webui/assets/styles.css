@@ -2800,6 +2800,10 @@ body {
   display: block;
 }
 
+[data-theme="dark"] .theme-toggle svg {
+  stroke: var(--text-primary);
+}
+
 /* ========== Icon Styles ========== */
 .icon-gear {
   width: 18px;
@@ -2811,6 +2815,13 @@ body {
 
 #settings-button .icon-gear {
   margin-right: 0;
+}
+
+.icon-github {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .modal-header h2 {
