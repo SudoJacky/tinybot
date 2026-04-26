@@ -260,6 +260,8 @@ class KnowledgeChunk:
     chunk_index: int = 0
     start_char: int = 0  # Start position in original document
     end_char: int = 0  # End position in original document
+    line_start: int = 0  # Start line number (1-based)
+    line_end: int = 0  # End line number (1-based)
     page: int | None = None  # Page number (for PDF)
     created_at: str = ""
     doc_name: str = ""
@@ -379,6 +381,8 @@ class KnowledgeStore:
                 chunk_index=chunk["index"],
                 start_char=chunk["start_char"],
                 end_char=chunk["end_char"],
+                line_start=chunk.get("line_start", 1),
+                line_end=chunk.get("line_end", 1),
                 page=chunk.get("page"),
                 created_at=ts,
                 doc_name=name,
@@ -402,10 +406,12 @@ class KnowledgeStore:
             len(content),
         )
 
-        # Index to both dense and sparse collections
+        # Index to dense collection (requires vector_store)
         if self.vector_store is not None:
             self._index_chunks_dense(doc_id, name, str(file_path), chunks, ts, category, tags or [])
-            self._index_chunks_sparse(doc_id, name, str(file_path), chunks, ts, category, tags or [])
+
+        # Index to sparse collection (BM25, independent of vector_store)
+        self._index_chunks_sparse(doc_id, name, str(file_path), chunks, ts, category, tags or [])
 
         logger.info(
             "KnowledgeStore: added document '{}' (id={}, {} chunks, {} chars)",
@@ -662,6 +668,8 @@ class KnowledgeStore:
                     "file_path": meta.file_path,
                     "start_char": meta.start_char,
                     "end_char": meta.end_char,
+                    "line_start": meta.line_start,
+                    "line_end": meta.line_end,
                     "page": meta.page,
                     "bm25_score": bm25_score,
                     "method": "sparse",
@@ -714,6 +722,8 @@ class KnowledgeStore:
                 "file_path": meta.get("file_path", "") if meta else "",
                 "start_char": meta.get("start_char", 0) if meta else 0,
                 "end_char": meta.get("end_char", 0) if meta else 0,
+                "line_start": meta.get("line_start", 0) if meta else 0,
+                "line_end": meta.get("line_end", 0) if meta else 0,
                 "page": meta.get("page") if meta else None,
                 "distance": dist,
                 "method": method,
@@ -909,7 +919,7 @@ class KnowledgeStore:
     def _chunk_text_with_positions(self, text: str) -> list[dict[str, Any]]:
         """Split text into chunks with position metadata.
 
-        Returns list of dicts with: content, index, start_char, end_char.
+        Returns list of dicts with: content, index, start_char, end_char, line_start, line_end.
         """
         chunk_size = self.config.chunk_size if self.config else 500
         chunk_overlap = self.config.chunk_overlap if self.config else 100
@@ -921,13 +931,30 @@ class KnowledgeStore:
             chunk_overlap,
         )
 
+        # Build line position map: char_index -> line_number (1-based)
+        line_positions: list[int] = []  # char index where each line starts
+        line_positions.append(0)  # Line 1 starts at char 0
+        for i, char in enumerate(text):
+            if char == "\n":
+                line_positions.append(i + 1)  # Next line starts after newline
+
+        def get_line_number(char_pos: int) -> int:
+            """Get line number (1-based) for a character position."""
+            for line_num, line_start in enumerate(line_positions, 1):
+                if char_pos < line_start:
+                    return line_num - 1
+            return len(line_positions)
+
         if len(text) <= chunk_size:
             logger.debug("KnowledgeStore: text fits in single chunk (no splitting needed)")
+            line_end = get_line_number(len(text))
             return [{
                 "content": text,
                 "index": 0,
                 "start_char": 0,
                 "end_char": len(text),
+                "line_start": 1,
+                "line_end": line_end,
             }]
 
         chunks: list[dict[str, Any]] = []
@@ -949,11 +976,15 @@ class KnowledgeStore:
 
             chunk_content = text[start:end].strip()
             if chunk_content:
+                line_start = get_line_number(start)
+                line_end = get_line_number(end)
                 chunks.append({
                     "content": chunk_content,
                     "index": index,
                     "start_char": start,
                     "end_char": end,
+                    "line_start": line_start,
+                    "line_end": line_end,
                 })
                 index += 1
 
@@ -1013,6 +1044,8 @@ class KnowledgeStore:
                     "chunk_index": chunk["index"],
                     "start_char": chunk["start_char"],
                     "end_char": chunk["end_char"],
+                    "line_start": chunk.get("line_start", 1),
+                    "line_end": chunk.get("line_end", 1),
                     "page": chunk.get("page"),
                     "created_at": ts,
                     "category": category,

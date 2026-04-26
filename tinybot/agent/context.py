@@ -374,8 +374,8 @@ class ContextBuilder:
             content = result.get("content", "")
             file_path = result.get("file_path", "")
             category = result.get("category", "")
-            start_char = result.get("start_char", 0)
-            end_char = result.get("end_char", 0)
+            line_start = result.get("line_start", 0)
+            line_end = result.get("line_end", 0)
             page = result.get("page")
 
             # Build metadata line
@@ -384,45 +384,62 @@ class ContextBuilder:
                 meta_parts.append(f"路径: {file_path}")
             if category:
                 meta_parts.append(f"分类: {category}")
-            # Position info
-            if start_char and end_char:
-                meta_parts.append(f"位置: 字符{start_char}-{end_char}")
+            # Line info (more useful than char position)
+            if line_start and line_end:
+                meta_parts.append(f"行: {line_start}-{line_end}")
             if page is not None:
                 meta_parts.append(f"页码: {page}")
             meta_str = " | ".join(meta_parts)
 
             lines.append(f"[{idx}] {meta_str}\n{content}\n\n")
 
-        lines.append("注意: 如果引用上述知识内容，请在回答中附上来源信息（文档名称和文件路径）。\n---")
+        lines.append("注意: 如果引用了上述知识内容，请在对应的回答中附上知识的来源（文档名称，第几页，第几行，文档路径在哪）。\n---")
         return "".join(lines)
 
     @staticmethod
     def _is_simple_conversation(text: str) -> bool:
         text = text.strip().lower()
-        if len(text) < 20:
+        # Very short messages are simple
+        if len(text) < 8:
             return True
 
-        simple_patterns = [
+        # English simple patterns (short messages only)
+        simple_en_patterns = [
             "hello",
             "hi",
             "thanks",
-            "thank",
+            "thank you",
             "ok",
+            "okay",
             "bye",
-            "how are",
-            "what is",
-            "help me",
-            "please",
-            "?",
+            "goodbye",
+            "how are you",
             "yes",
             "no",
+            "sure",
         ]
-        for pattern in simple_patterns:
-            if pattern in text and len(text) < 50:
+        for pattern in simple_en_patterns:
+            if pattern in text and len(text) < 25:
                 return True
 
-        words = [w for w in text.split() if len(w) >= 2]
-        return len(words) <= 2
+        # Chinese simple patterns (short greetings only)
+        simple_cn_patterns = [
+            "你好",
+            "您好",
+            "谢谢",
+            "好的",
+            "再见",
+            "拜拜",
+            "嗨",
+            "嗨嗨",
+            "没问题",
+            "收到",
+        ]
+        for pattern in simple_cn_patterns:
+            if pattern in text and len(text) < 15:
+                return True
+
+        return False
 
     @staticmethod
     def _build_search_query(
