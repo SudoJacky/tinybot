@@ -372,9 +372,28 @@ class ContextBuilder:
         for idx, result in enumerate(results, 1):
             doc_name = result.get("doc_name", "Unknown")
             content = result.get("content", "")
-            lines.append(f"[{idx}] From '{doc_name}':\n{content}\n\n")
+            file_path = result.get("file_path", "")
+            category = result.get("category", "")
+            start_char = result.get("start_char", 0)
+            end_char = result.get("end_char", 0)
+            page = result.get("page")
 
-        lines.append("---")
+            # Build metadata line
+            meta_parts = [f"文档: {doc_name}"]
+            if file_path:
+                meta_parts.append(f"路径: {file_path}")
+            if category:
+                meta_parts.append(f"分类: {category}")
+            # Position info
+            if start_char and end_char:
+                meta_parts.append(f"位置: 字符{start_char}-{end_char}")
+            if page is not None:
+                meta_parts.append(f"页码: {page}")
+            meta_str = " | ".join(meta_parts)
+
+            lines.append(f"[{idx}] {meta_str}\n{content}\n\n")
+
+        lines.append("注意: 如果引用上述知识内容，请在回答中附上来源信息（文档名称和文件路径）。\n---")
         return "".join(lines)
 
     @staticmethod

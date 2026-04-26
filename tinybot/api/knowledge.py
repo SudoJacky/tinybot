@@ -367,6 +367,29 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
         return _error_json(500, f"Error getting stats: {e}", err_type="server_error")
 
 
+async def handle_rebuild_index(request: web.Request) -> web.Response:
+    """POST /v1/knowledge/rebuild-index
+
+    Rebuild BM25 index from existing chunks.
+    Useful when tokenizer is updated and existing index needs to be refreshed.
+    """
+    knowledge_store = request.app.get("knowledge_store")
+    if not knowledge_store:
+        return _error_json(503, "Knowledge store not initialized")
+
+    try:
+        result = knowledge_store.rebuild_bm25_index()
+        return _success_json({
+            "message": "BM25 index rebuilt successfully",
+            "chunks_indexed": result.get("chunks_indexed", 0),
+            "terms_created": result.get("terms_created", 0),
+            "total_docs": result.get("total_docs", 0),
+        })
+    except Exception as e:
+        logger.exception("Error rebuilding index")
+        return _error_json(500, f"Error rebuilding index: {e}", err_type="server_error")
+
+
 # ---------------------------------------------------------------------------
 # Route registration
 # ---------------------------------------------------------------------------
@@ -380,3 +403,4 @@ def register_knowledge_routes(app: web.Application) -> None:
     app.router.add_delete("/v1/knowledge/documents/{doc_id}", handle_delete_document)
     app.router.add_post("/v1/knowledge/query", handle_query_knowledge)
     app.router.add_get("/v1/knowledge/stats", handle_knowledge_stats)
+    app.router.add_post("/v1/knowledge/rebuild-index", handle_rebuild_index)
