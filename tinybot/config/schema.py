@@ -69,6 +69,23 @@ class DreamConfig(Base):
         return f"every {hours}h"
 
 
+class EmbeddingConfig(Base):
+    """Embedding model configuration for vector store.
+
+    Supports both local sentence-transformers models and API-based embeddings
+    (OpenAI, Azure OpenAI, or custom OpenAI-compatible endpoints).
+    """
+
+    provider: Literal["local", "openai", "azure", "custom"] = "local"
+    model_name: str = "all-MiniLM-L6-v2"  # Local model name or API embedding model
+    # API configuration (for openai/azure/custom providers)
+    api_key: str = ""  # API key (or use api_key_env_var)
+    api_key_env_var: str | None = None  # Environment variable name for API key (e.g. "OPENAI_API_KEY")
+    api_base: str | None = None  # API base URL (e.g. "https://api.openai.com/v1" or Azure endpoint)
+    api_type: str | None = None  # "azure" for Azure OpenAI
+    api_version: str | None = None  # Azure API version (e.g. "2024-02-01")
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -87,6 +104,7 @@ class AgentDefaults(Base):
     reasoning_effort: str | None = None  # low / medium / high - enables LLM thinking mode
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     enable_vector_store: bool = False  # Feature flag: ChromaDB embedding storage for session summaries
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)  # Embedding model configuration
     dream: DreamConfig = Field(default_factory=DreamConfig)
 
     @field_validator("model")
@@ -295,6 +313,22 @@ class SkillsConfig(Base):
     enabled: list[str] = Field(default_factory=lambda: ["*"])
 
 
+class KnowledgeConfig(Base):
+    """RAG knowledge base configuration."""
+
+    enabled: bool = False  # Feature flag for RAG
+    auto_retrieve: bool = True  # Auto-inject relevant knowledge on each query
+    max_chunks: int = 5  # Max chunks to retrieve per query
+    chunk_size: int = 500  # Characters per chunk when splitting documents
+    chunk_overlap: int = 100  # Overlap between adjacent chunks
+    retrieval_mode: str = "hybrid"  # "dense", "sparse", "hybrid"
+    rrf_k: int = Field(default=60, ge=1)  # RRF constant
+    bm25_k: float = Field(default=1.2, ge=0.0)  # BM25 k parameter
+    bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)  # BM25 b parameter
+    dense_weight: float = Field(default=1.0, ge=0.0)  # Weight for dense retrieval in hybrid
+    sparse_weight: float = Field(default=1.0, ge=0.0)  # Weight for sparse retrieval in hybrid
+
+
 class Config(BaseSettings):
     """Root configuration for tinybot."""
 
@@ -305,6 +339,7 @@ class Config(BaseSettings):
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
 
     @property
     def workspace_path(self) -> Path:

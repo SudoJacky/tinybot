@@ -60,3 +60,8 @@ def get_bridge_install_dir() -> Path:
 def get_legacy_sessions_dir() -> Path:
     """Return the legacy global session directory used for migration fallback."""
     return Path.home() / ".tinybot" / "sessions"
+
+
+def get_knowledge_dir() -> Path:
+    """Return the knowledge base directory for RAG documents."""
+    return get_runtime_subdir("knowledge")

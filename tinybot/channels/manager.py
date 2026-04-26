@@ -37,6 +37,7 @@ class ChannelManager:
         session_manager: Any = None,
         agent_loop: Any = None,
         config_path: Path | None = None,
+        knowledge_store: Any = None,
     ):
         self.config = config
         self.bus = bus
@@ -44,6 +45,7 @@ class ChannelManager:
         self.session_manager = session_manager
         self.agent_loop = agent_loop
         self.config_path = config_path
+        self.knowledge_store = knowledge_store
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
 
@@ -75,6 +77,7 @@ class ChannelManager:
                         agent_loop=self.agent_loop,
                         config=self.config,
                         config_path=self.config_path,
+                        knowledge_store=self.knowledge_store,
                     )
                 channel.transcription_api_key = groq_key
                 self.channels[name] = channel

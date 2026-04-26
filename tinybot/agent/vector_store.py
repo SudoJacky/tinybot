@@ -44,15 +44,20 @@ class CachedEmbeddingFunction:
 
     def __init__(self, underlying_fn):
         self._underlying = underlying_fn
+        # Forward ChromaDB-required attributes from underlying function
+        self.name = getattr(underlying_fn, "name", "cached_embedding")
 
-    def __call__(self, texts: list[str]) -> list[list[float]]:
-        """Compute embeddings with caching for repeated texts."""
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        """Compute embeddings with caching for repeated texts.
+
+        ChromaDB expects 'input' as parameter name (v0.4.16+ interface).
+        """
         # Pre-allocate results list with placeholders
-        results: list[list[float] | None] = [None] * len(texts)
+        results: list[list[float] | None] = [None] * len(input)
         uncached_texts: list[str] = []
         uncached_indices: list[int] = []
 
-        for i, text in enumerate(texts):
+        for i, text in enumerate(input):
             cache_key = self._make_cache_key(text)
             with CachedEmbeddingFunction._cache_lock:
                 if cache_key in CachedEmbeddingFunction._cache:
@@ -63,8 +68,40 @@ class CachedEmbeddingFunction:
                     uncached_indices.append(i)
                     CachedEmbeddingFunction._misses += 1
 
+        # Log cache statistics periodically
+        total_requests = CachedEmbeddingFunction._hits + CachedEmbeddingFunction._misses
+        if total_requests > 0 and total_requests % 100 == 0:
+            hit_rate = CachedEmbeddingFunction._hits / total_requests * 100
+            logger.debug(
+                "CachedEmbeddingFunction: cache stats (hits={}, misses={}, hit_rate={:.1f}%, cache_size={})",
+                CachedEmbeddingFunction._hits,
+                CachedEmbeddingFunction._misses,
+                hit_rate,
+                len(CachedEmbeddingFunction._cache),
+            )
+
         if uncached_texts:
-            new_embeddings = self._underlying(uncached_texts)
+            # Batch process to avoid embedding API batch size limits
+            batch_size = 10
+            new_embeddings: list[list[float]] = []
+            total_batches = (len(uncached_texts) + batch_size - 1) // batch_size
+            logger.debug(
+                "CachedEmbeddingFunction: embedding {} texts in {} batches (cache misses)",
+                len(uncached_texts),
+                total_batches,
+            )
+            for batch_start in range(0, len(uncached_texts), batch_size):
+                batch_num = batch_start // batch_size + 1
+                batch_texts = uncached_texts[batch_start:batch_start + batch_size]
+                logger.debug(
+                    "CachedEmbeddingFunction: embedding batch {} of {} ({} texts)",
+                    batch_num,
+                    total_batches,
+                    len(batch_texts),
+                )
+                batch_embeddings = self._underlying(batch_texts)
+                new_embeddings.extend(batch_embeddings)
+
             for text, embedding in zip(uncached_texts, new_embeddings):
                 cache_key = self._make_cache_key(text)
                 with CachedEmbeddingFunction._cache_lock:
@@ -76,6 +113,17 @@ class CachedEmbeddingFunction:
                 results[idx] = embedding
 
         return [r for r in results]  # Convert None placeholders to actual values
+
+    def embed_query(self, input: list[str]) -> list[list[float]]:
+        """Embed query texts (ChromaDB interface requirement).
+
+        ChromaDB calls this with input as keyword argument, expecting list output.
+        """
+        return self(input)
+
+    def embed_documents(self, documents: list[str]) -> list[list[float]]:
+        """Embed multiple documents (ChromaDB interface requirement)."""
+        return self(documents)
 
     @staticmethod
     def _make_cache_key(text: str) -> str:
@@ -108,19 +156,33 @@ class VectorStore:
     Each session has its own collection. When consolidation happens,
     old messages are summarized and stored as a single document with
     their original text chunks as additional context.
+
+    Supports multiple embedding providers:
+      - local: sentence-transformers models (downloaded or local path)
+      - openai: OpenAI embedding API
+      - azure: Azure OpenAI embedding API
+      - custom: OpenAI-compatible custom endpoint
     """
 
     _lock = threading.Lock()
     _client = None
     _embedding_fn = None
+    _embedding_config: Any = None  # Track which config was loaded
     _initialized = False
     _init_event: asyncio.Event | None = None
     _collections: dict[str, Any] = {}  # collection_name -> collection cache
     _collection_lock = threading.Lock()
     _query_stats: dict[str, int] = {"queries": 0, "cache_hits": 0}
 
-    def __init__(self, persist_dir: Path | str) -> None:
+    def __init__(self, persist_dir: Path | str, embedding_config: Any = None) -> None:
+        """Initialize VectorStore with optional embedding configuration.
+
+        Args:
+            persist_dir: Directory for ChromaDB persistence
+            embedding_config: EmbeddingConfig instance or None for defaults
+        """
         self._persist_dir = Path(persist_dir)
+        self._embedding_config_input = embedding_config
 
     async def async_initialize(self) -> None:
         """Pre-load embedding model asynchronously to avoid blocking later calls.
@@ -184,63 +246,151 @@ class VectorStore:
         return self._client
 
     def _get_embedding_function(self):
-        if self._embedding_fn is None:
-            with self._lock:
-                if self._embedding_fn is None:
-                    from chromadb.utils.embedding_functions import (
-                        SentenceTransformerEmbeddingFunction,
-                    )
+        # Resolve current config
+        if self._embedding_config_input is not None:
+            config = self._embedding_config_input
+        else:
+            from tinybot.config.schema import EmbeddingConfig
+            config = EmbeddingConfig()
 
-                    model_cache_dir = Path.home() / ".tinybot" / "models"
-                    model_local_path = model_cache_dir / "all-MiniLM-L6-v2"
+        # Check if we need to recreate embedding function:
+        # 1. Not initialized yet
+        # 2. Config changed (different provider or model)
+        # Note: Must access class variables via class name for proper comparison
+        needs_create = (
+            VectorStore._embedding_fn is None or
+            self._config_changed(config)
+        )
 
-                    if model_local_path.exists() and (
-                        model_local_path / "config.json"
-                    ).exists():
-                        model_name = str(model_local_path)
-                        logger.info(
-                            "Loading embedding model from local cache: {}",
-                            model_local_path,
-                        )
+        if needs_create:
+            with VectorStore._lock:
+                # Double-check under lock
+                if VectorStore._embedding_fn is None or self._config_changed(config):
+                    # Create embedding function based on provider type
+                    if config.provider == "local":
+                        base_fn = self._create_local_embedding_function(config)
+                    elif config.provider in ("openai", "azure", "custom"):
+                        base_fn = self._create_api_embedding_function(config)
                     else:
-                        model_name = "all-MiniLM-L6-v2"
-                        model_cache_dir.mkdir(parents=True, exist_ok=True)
-                        logger.info(
-                            "Downloading embedding model (first run only)..."
-                        )
+                        # Fallback to local
+                        logger.warning("Unknown embedding provider '{}', using local", config.provider)
+                        base_fn = self._create_local_embedding_function(config)
 
-                    device = "cpu"
-                    try:
-                        import torch
-
-                        if torch.cuda.is_available():
-                            device = "cuda"
-                    except ImportError:
-                        pass
-
-                    logger.info("Embedding device: {}", device)
-                    base_fn = SentenceTransformerEmbeddingFunction(
-                        model_name=model_name,
-                        device=device,
+                    # Wrap with caching layer - set on CLASS level
+                    VectorStore._embedding_fn = CachedEmbeddingFunction(base_fn)
+                    VectorStore._embedding_config = config
+                    logger.info(
+                        "Embedding initialized: provider={}, model={}, api_base={}",
+                        config.provider, config.model_name, config.api_base or "local"
                     )
 
-                    # Persist downloaded model to local cache for future use
-                    if not (model_local_path / "config.json").exists():
-                        try:
-                            base_fn.model.save(str(model_local_path))
-                            logger.info(
-                                "Embedding model saved to local cache: {}",
-                                model_local_path,
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "Failed to cache embedding model: {}", e
-                            )
+        return VectorStore._embedding_fn
 
-                    # Wrap with caching layer
-                    self._embedding_fn = CachedEmbeddingFunction(base_fn)
-                    logger.info("Embedding cache enabled (max {} entries)", CachedEmbeddingFunction._max_cache_size)
-        return self._embedding_fn
+    def _config_changed(self, new_config: Any) -> bool:
+        """Check if embedding config has changed, requiring re-initialization."""
+        # Access class variable via class name
+        if VectorStore._embedding_config is None:
+            return True
+        old = VectorStore._embedding_config
+        # Compare key fields that affect embedding creation
+        return (
+            old.provider != new_config.provider or
+            old.model_name != new_config.model_name or
+            old.api_base != new_config.api_base or
+            old.api_key != new_config.api_key or
+            old.api_key_env_var != new_config.api_key_env_var or
+            old.api_version != new_config.api_version
+        )
+
+    def _create_local_embedding_function(self, config: Any):
+        """Create local sentence-transformers embedding function."""
+        from chromadb.utils.embedding_functions import (
+            SentenceTransformerEmbeddingFunction,
+        )
+
+        model_name = config.model_name
+
+        # Check if it's already a local path
+        if Path(model_name).exists():
+            logger.info("Loading embedding model from local path: {}", model_name)
+            model_local_path = Path(model_name)
+        else:
+            # Check local cache for this model
+            model_cache_dir = Path.home() / ".tinybot" / "models"
+            model_local_path = model_cache_dir / model_name.replace("/", "_")
+
+            if model_local_path.exists() and (model_local_path / "config.json").exists():
+                model_name = str(model_local_path)
+                logger.info("Loading embedding model from local cache: {}", model_local_path)
+            else:
+                model_cache_dir.mkdir(parents=True, exist_ok=True)
+                logger.info("Downloading embedding model '{}' (first run only)...", config.model_name)
+
+        device = "cpu"
+        try:
+            import torch
+            if torch.cuda.is_available():
+                device = "cuda"
+        except ImportError:
+            pass
+
+        logger.info("Embedding device: {}", device)
+        base_fn = SentenceTransformerEmbeddingFunction(
+            model_name=model_name,
+            device=device,
+        )
+
+        # Persist downloaded model to local cache for future use
+        if not Path(model_name).exists() and not (model_local_path / "config.json").exists():
+            try:
+                base_fn.model.save(str(model_local_path))
+                logger.info("Embedding model saved to local cache: {}", model_local_path)
+            except Exception as e:
+                logger.warning("Failed to cache embedding model: {}", e)
+
+        return base_fn
+
+    def _create_api_embedding_function(self, config: Any):
+        """Create API-based embedding function (OpenAI/Azure/Custom)."""
+        import chromadb.utils.embedding_functions as ef
+
+        # Resolve API key: direct value or environment variable
+        api_key = config.api_key
+        if not api_key and config.api_key_env_var:
+            import os
+            api_key = os.environ.get(config.api_key_env_var, "")
+
+        if not api_key:
+            raise ValueError(
+                f"Embedding API key not configured. Set '{config.api_key_env_var}' "
+                f"environment variable or provide 'api_key' in config."
+            )
+
+        # Build parameters based on provider type
+        if config.provider == "azure":
+            logger.info(
+                "Using Azure OpenAI embedding: endpoint={}, model={}, version={}",
+                config.api_base, config.model_name, config.api_version
+            )
+            return ef.OpenAIEmbeddingFunction(
+                api_key=api_key,
+                api_base=config.api_base,
+                api_type="azure",
+                api_version=config.api_version,
+                model_name=config.model_name,
+            )
+        else:
+            # openai or custom (OpenAI-compatible endpoint)
+            api_base = config.api_base or "https://api.openai.com/v1"
+            logger.info(
+                "Using OpenAI-compatible embedding: endpoint={}, model={}",
+                api_base, config.model_name
+            )
+            return ef.OpenAIEmbeddingFunction(
+                api_key=api_key,
+                api_base=api_base,
+                model_name=config.model_name,
+            )
 
     def _collection_name(self, session_key: str) -> str:
         safe = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in session_key)

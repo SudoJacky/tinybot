@@ -4,6 +4,7 @@ const state = {
   sessionsPath: "/api/sessions",
   workspaceFilesPath: "/api/workspace/files",
   skillsApiPath: "/api/skills",
+  knowledgeApiPath: "/v1/knowledge",
   socket: null,
   activeChatId: "",
   activeSessionKey: "",
@@ -16,10 +17,13 @@ const state = {
   fileDraftDirty: false,
   tools: [],
   skills: [],
+  knowledgeDocs: [],
+  knowledgeStats: null,
   config: null,
   pendingMessage: null,  // 待发送的消息（创建新会话后发送）
   activeSkill: null,  // 当前编辑的 skill
   skillMode: "view",  // view, edit, create
+  activeDoc: null,  // 当前查看的文档
   theme: "light",  // 当前主题
   contextWindowTokens: 65536,  // 默认上下文窗口大小
   lastUsage: null,  // 最后一次的usage数据
@@ -71,7 +75,19 @@ const elements = {
   configMaxToolIterations: document.querySelector("#config-max-tool-iterations"),
   configReasoningEffort: document.querySelector("#config-reasoning-effort"),
   configTimezone: document.querySelector("#config-timezone"),
-  configVectorStore: document.querySelector("#config-vector-store"),
+  // Knowledge config elements
+  configKnowledgeEnabled: document.querySelector("#config-knowledge-enabled"),
+  configKnowledgeAutoRetrieve: document.querySelector("#config-knowledge-auto-retrieve"),
+  configKnowledgeMaxChunks: document.querySelector("#config-knowledge-max-chunks"),
+  configKnowledgeChunkSize: document.querySelector("#config-knowledge-chunk-size"),
+  configKnowledgeChunkOverlap: document.querySelector("#config-knowledge-chunk-overlap"),
+  configKnowledgeRetrievalMode: document.querySelector("#config-knowledge-retrieval-mode"),
+  // Embedding config elements
+  configEmbeddingProvider: document.querySelector("#config-embedding-provider"),
+  configEmbeddingModelName: document.querySelector("#config-embedding-model-name"),
+  configEmbeddingApiKey: document.querySelector("#config-embedding-api-key"),
+  configEmbeddingApiBase: document.querySelector("#config-embedding-api-base"),
+  // Provider config elements
   configProviderSelect: document.querySelector("#config-provider-select"),
   configApiKey: document.querySelector("#config-api-key"),
   configApiBase: document.querySelector("#config-api-base"),
@@ -109,6 +125,84 @@ const elements = {
   skillValidationResult: document.querySelector("#skill-validation-result"),
   // Theme toggle
   themeToggle: document.querySelector("#theme-toggle"),
+  // Knowledge panel elements
+  knowledgeSection: document.querySelector("#knowledge-section"),
+  knowledgeToggle: document.querySelector("#knowledge-toggle"),
+  knowledgeStatus: document.querySelector("#knowledge-status"),
+  knowledgeStats: document.querySelector("#knowledge-stats"),
+  statsDocs: document.querySelector("#stats-docs"),
+  statsChunks: document.querySelector("#stats-chunks"),
+  docsList: document.querySelector("#docs-list"),
+  refreshDocsButton: document.querySelector("#refresh-docs-button"),
+  addDocButton: document.querySelector("#add-doc-button"),
+  uploadDocButton: document.querySelector("#upload-doc-button"),
+  docFileUpload: document.querySelector("#doc-file-upload"),
+  queryInput: document.querySelector("#query-input"),
+  queryMode: document.querySelector("#query-mode"),
+  queryTopK: document.querySelector("#query-top-k"),
+  queryButton: document.querySelector("#query-button"),
+  queryResults: document.querySelector("#query-results"),
+  // Doc modal elements
+  docModal: document.querySelector("#doc-modal"),
+  docModalOverlay: document.querySelector("#doc-modal-overlay"),
+  docModalClose: document.querySelector("#doc-modal-close"),
+  docNameInput: document.querySelector("#doc-name-input"),
+  docCategoryInput: document.querySelector("#doc-category-input"),
+  docTagsInput: document.querySelector("#doc-tags-input"),
+  docFileTypeSelect: document.querySelector("#doc-file-type-select"),
+  docContentEditor: document.querySelector("#doc-content-editor"),
+  docSaveButton: document.querySelector("#doc-save-button"),
+  docError: document.querySelector("#doc-error"),
+  docSuccess: document.querySelector("#doc-success"),
+  // Doc view modal elements
+  docViewModal: document.querySelector("#doc-view-modal"),
+  docViewModalOverlay: document.querySelector("#doc-view-modal-overlay"),
+  docViewModalClose: document.querySelector("#doc-view-modal-close"),
+  docViewId: document.querySelector("#doc-view-id"),
+  docViewName: document.querySelector("#doc-view-name"),
+  docViewCategory: document.querySelector("#doc-view-category"),
+  docViewTags: document.querySelector("#doc-view-tags"),
+  docViewCreated: document.querySelector("#doc-view-created"),
+  docViewContent: document.querySelector("#doc-view-content"),
+  docViewDeleteButton: document.querySelector("#doc-view-delete-button"),
+  docViewCloseButton: document.querySelector("#doc-view-close-button"),
+  // Tools modal elements (列表弹窗)
+  toolsModal: document.querySelector("#tools-modal"),
+  toolsModalOverlay: document.querySelector("#tools-modal-overlay"),
+  toolsModalClose: document.querySelector("#tools-modal-close"),
+  toolsModalList: document.querySelector("#tools-modal-list"),
+  toolsToggle: document.querySelector("#tools-toggle"),
+  // Skills modal elements (列表弹窗)
+  skillsModal: document.querySelector("#skills-modal"),
+  skillsModalOverlay: document.querySelector("#skills-modal-overlay"),
+  skillsModalClose: document.querySelector("#skills-modal-close"),
+  skillsModalList: document.querySelector("#skills-modal-list"),
+  skillsToggle: document.querySelector("#skills-toggle"),
+  skillsCount: document.querySelector("#skills-count"),
+  skillsEnabledCount: document.querySelector("#skills-enabled-count"),
+  // Tool modal elements (详情弹窗)
+  toolModal: document.querySelector("#tool-modal"),
+  toolModalOverlay: document.querySelector("#tool-modal-overlay"),
+  toolModalClose: document.querySelector("#tool-modal-close"),
+  toolModalTitle: document.querySelector("#tool-modal-title"),
+  toolModalName: document.querySelector("#tool-modal-name"),
+  toolModalDesc: document.querySelector("#tool-modal-desc"),
+  toolModalSchema: document.querySelector("#tool-modal-schema"),
+  toolModalCloseButton: document.querySelector("#tool-modal-close-button"),
+  // Knowledge modal elements
+  knowledgeModal: document.querySelector("#knowledge-modal"),
+  knowledgeModalOverlay: document.querySelector("#knowledge-modal-overlay"),
+  knowledgeModalClose: document.querySelector("#knowledge-modal-close"),
+  modalStatsDocs: document.querySelector("#modal-stats-docs"),
+  modalStatsChunks: document.querySelector("#modal-stats-chunks"),
+  // Workspace modal elements
+  workspaceModal: document.querySelector("#workspace-modal"),
+  workspaceModalOverlay: document.querySelector("#workspace-modal-overlay"),
+  workspaceModalClose: document.querySelector("#workspace-modal-close"),
+  workspaceModalTitle: document.querySelector("#workspace-modal-title"),
+  workspaceToggle: document.querySelector("#workspace-toggle"),
+  currentFileName: document.querySelector("#current-file-name"),
+  toolsCount: document.querySelector("#tools-count"),
 };
 
 function setStatus(text, kind = "idle") {
@@ -121,8 +215,10 @@ function setError(text = "") {
 }
 
 function setEditorStatus(text, kind = "idle") {
-  elements.editorStatus.textContent = text;
-  elements.editorStatus.className = `status status-${kind}`;
+  if (elements.editorStatus) {
+    elements.editorStatus.textContent = text;
+    elements.editorStatus.className = `status status-${kind}`;
+  }
 }
 
 function setFileError(text = "") {
@@ -293,6 +389,33 @@ function createMessageNode(message) {
   const contentEl = node.querySelector(".message-content");
   updateMessageContent(contentEl, message);
 
+  // 添加消息复制按钮（仅对user和assistant消息）
+  if (message.role === "user" || message.role === "assistant") {
+    const metaEl = node.querySelector(".message-meta");
+    if (metaEl) {
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "message-copy-btn";
+      copyBtn.textContent = "复制";
+      copyBtn.title = "复制消息内容";
+      copyBtn.addEventListener("click", async () => {
+        try {
+          const textToCopy = message.content || "";
+          await navigator.clipboard.writeText(textToCopy);
+          copyBtn.textContent = "已复制";
+          setTimeout(() => {
+            copyBtn.textContent = "复制";
+          }, 1500);
+        } catch {
+          copyBtn.textContent = "失败";
+          setTimeout(() => {
+            copyBtn.textContent = "复制";
+          }, 1500);
+        }
+      });
+      metaEl.appendChild(copyBtn);
+    }
+  }
+
   return node;
 }
 
@@ -333,6 +456,34 @@ function updateMessageContent(contentEl, message) {
           gfm: true,
         });
         textEl.innerHTML = marked.parse(message.content);
+        // 应用代码语法高亮和添加复制按钮
+        if (typeof hljs !== "undefined") {
+          textEl.querySelectorAll("pre code").forEach((block) => {
+            hljs.highlightElement(block);
+            // 添加复制按钮到代码块
+            const pre = block.parentElement;
+            if (pre && !pre.querySelector(".code-copy-btn")) {
+              const copyBtn = document.createElement("button");
+              copyBtn.className = "code-copy-btn";
+              copyBtn.textContent = "复制";
+              copyBtn.addEventListener("click", async () => {
+                try {
+                  await navigator.clipboard.writeText(block.textContent);
+                  copyBtn.textContent = "已复制";
+                  setTimeout(() => {
+                    copyBtn.textContent = "复制";
+                  }, 1500);
+                } catch {
+                  copyBtn.textContent = "失败";
+                  setTimeout(() => {
+                    copyBtn.textContent = "复制";
+                  }, 1500);
+                }
+              });
+              pre.appendChild(copyBtn);
+            }
+          });
+        }
       } catch {
         textEl.textContent = message.content;
       }
@@ -567,6 +718,10 @@ async function loadTools() {
   const payload = await response.json();
   state.tools = payload.tools || [];
   renderTools();
+  // If tools modal is open, update the list
+  if (elements.toolsModal && elements.toolsModal.classList.contains("active")) {
+    renderToolsModalList();
+  }
 }
 
 async function loadSkills() {
@@ -579,89 +734,107 @@ async function loadSkills() {
   const payload = await response.json();
   state.skills = payload.skills || [];
   renderSkills();
+  // If skills modal is open, update the list
+  if (elements.skillsModal && elements.skillsModal.classList.contains("active")) {
+    renderSkillsModalList();
+  }
 }
 
 function renderTools() {
-  elements.toolsList.textContent = "";
+  // 只更新统计信息
+  elements.toolsCount.textContent = state.tools.length;
+}
+
+function renderSkills() {
+  // 只更新统计信息
+  const enabledSkills = state.config?.skills?.enabled || null;
+  const isAllEnabled = !enabledSkills || enabledSkills.includes("*");
+
+  let enabledCount = 0;
+  for (const skill of state.skills) {
+    if (skill.available && skill.always) {
+      enabledCount++;
+    } else if (skill.available) {
+      if (isAllEnabled || enabledSkills.includes(skill.name)) {
+        enabledCount++;
+      }
+    }
+  }
+
+  elements.skillsCount.textContent = state.skills.length;
+  elements.skillsEnabledCount.textContent = enabledCount;
+}
+
+// 弹窗内渲染工具列表
+function renderToolsModalList() {
+  elements.toolsModalList.textContent = "";
 
   if (state.tools.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = t("msg.noTools");
-    elements.toolsList.append(empty);
+    elements.toolsModalList.append(empty);
     return;
   }
 
   for (const tool of state.tools) {
     const item = document.createElement("div");
-    item.className = "tool-item";
+    item.className = "modal-list-item";
 
     const name = document.createElement("span");
-    name.className = "tool-name";
+    name.className = "modal-list-item-name";
     name.textContent = tool.name;
 
     const desc = document.createElement("span");
-    desc.className = "tool-desc";
+    desc.className = "modal-list-item-desc";
     desc.textContent = tool.description || t("msg.noDescription");
 
     item.append(name, desc);
-    elements.toolsList.append(item);
+    item.addEventListener("click", () => viewTool(tool.name));
+    elements.toolsModalList.append(item);
   }
 }
 
-function renderSkills() {
-  elements.skillsList.textContent = "";
+// 弹窗内渲染技能列表
+function renderSkillsModalList() {
+  elements.skillsModalList.textContent = "";
 
   if (state.skills.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = t("msg.noSkills");
-    elements.skillsList.append(empty);
+    elements.skillsModalList.append(empty);
     return;
   }
 
-  // Get enabled skills list from config
   const enabledSkills = state.config?.skills?.enabled || null;
   const isAllEnabled = !enabledSkills || enabledSkills.includes("*");
 
   for (const skill of state.skills) {
     const item = document.createElement("div");
-    item.className = "skill-item";
+    item.className = "modal-list-item";
 
-    // Header row: name + toggle switch
-    const headerRow = document.createElement("div");
-    headerRow.className = "skill-header-row";
-
-    // Name section (left side)
-    const nameSection = document.createElement("div");
-    nameSection.className = "skill-name-section";
-
+    // Name
     const name = document.createElement("span");
-    name.className = "skill-name skill-name-clickable";
+    name.className = "modal-list-item-name";
     name.textContent = skill.name;
-    name.title = t("ui.clickToView");
+    name.style.cursor = "pointer";
     name.addEventListener("click", () => viewSkill(skill.name));
 
-    nameSection.append(name);
-
-    // Toggle switch section (right side)
+    // Toggle section
     const toggleSection = document.createElement("div");
     toggleSection.className = "skill-toggle-section";
 
-    // Create toggle switch
     const toggleSwitch = document.createElement("div");
     toggleSwitch.className = "toggle-switch";
 
     if (!skill.available) {
-      // Unavailable - gray/disabled style
       toggleSwitch.classList.add("toggle-unavailable");
       toggleSwitch.innerHTML = `<span class="toggle-label">${t("status.unavailable")}</span>`;
     } else if (skill.always) {
-      // Always - special "always" style (cannot be toggled)
       toggleSwitch.classList.add("toggle-always", "toggle-on");
       toggleSwitch.innerHTML = `<span class="toggle-label">${t("status.always")}</span>`;
     } else {
-      // Normal skill - can be toggled
       const isEnabled = isAllEnabled || enabledSkills.includes(skill.name);
       toggleSwitch.classList.add(isEnabled ? "toggle-on" : "toggle-off");
       toggleSwitch.classList.add("toggle-clickable");
@@ -670,7 +843,7 @@ function renderSkills() {
       toggleSwitch.addEventListener("click", () => toggleSkill(skill.name, !isEnabled));
     }
 
-    // Delete button (only for workspace skills, positioned in toggle section)
+    // Delete button for workspace skills
     if (skill.source === "workspace") {
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "skill-delete-btn";
@@ -681,17 +854,55 @@ function renderSkills() {
     }
 
     toggleSection.append(toggleSwitch);
-
-    headerRow.append(nameSection, toggleSection);
-
-    // Description row
-    const desc = document.createElement("span");
-    desc.className = "skill-desc";
-    desc.textContent = skill.description || t("msg.noDescription");
-
-    item.append(headerRow, desc);
-    elements.skillsList.append(item);
+    item.append(name, toggleSection);
+    elements.skillsModalList.append(item);
   }
+}
+
+function viewTool(toolName) {
+  const tool = state.tools.find(t => t.name === toolName);
+  if (!tool) return;
+
+  elements.toolModalTitle.textContent = toolName;
+  elements.toolModalName.textContent = toolName;
+  elements.toolModalDesc.textContent = tool.description || t("msg.noDescription");
+
+  // Display schema/parameters
+  if (tool.parameters) {
+    try {
+      elements.toolModalSchema.textContent = JSON.stringify(tool.parameters, null, 2);
+    } catch {
+      elements.toolModalSchema.textContent = tool.parameters;
+    }
+  } else {
+    elements.toolModalSchema.textContent = t("msg.noParameters") || "无参数定义";
+  }
+
+  elements.toolModal.classList.add("active");
+}
+
+function closeToolModal() {
+  elements.toolModal.classList.remove("active");
+}
+
+// 打开工具列表弹窗
+function openToolsModal() {
+  renderToolsModalList();
+  elements.toolsModal.classList.add("active");
+}
+
+function closeToolsModal() {
+  elements.toolsModal.classList.remove("active");
+}
+
+// 打开技能列表弹窗
+function openSkillsModal() {
+  renderSkillsModalList();
+  elements.skillsModal.classList.add("active");
+}
+
+function closeSkillsModal() {
+  elements.skillsModal.classList.remove("active");
 }
 
 async function toggleSkill(skillName, enable) {
@@ -942,6 +1153,430 @@ async function validateSkill() {
   }
 }
 
+// ============ Knowledge Functions ============
+
+async function loadKnowledgeStats() {
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/stats`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) {
+      if (response.status === 503) {
+        // Knowledge store not initialized
+        elements.statsDocs.textContent = "-";
+        elements.statsChunks.textContent = "-";
+        if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = "-";
+        if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = "-";
+        return;
+      }
+      throw new Error(`load knowledge stats failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    state.knowledgeStats = payload;
+    elements.statsDocs.textContent = payload.total_documents || 0;
+    elements.statsChunks.textContent = payload.total_chunks || 0;
+    if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = payload.total_documents || 0;
+    if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = payload.total_chunks || 0;
+  } catch (error) {
+    console.error(error);
+    elements.statsDocs.textContent = "-";
+    elements.statsChunks.textContent = "-";
+    if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = "-";
+    if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = "-";
+  }
+}
+
+async function loadKnowledgeDocs() {
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) {
+      if (response.status === 503) {
+        // Knowledge store not initialized
+        elements.docsList.textContent = "";
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = t("status.unavailable");
+        elements.docsList.append(empty);
+        return;
+      }
+      throw new Error(`load knowledge docs failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    state.knowledgeDocs = payload.data || [];
+    renderKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    elements.docsList.textContent = "";
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("status.loadFailed");
+    elements.docsList.append(empty);
+  }
+}
+
+function renderKnowledgeDocs() {
+  elements.docsList.textContent = "";
+
+  if (state.knowledgeDocs.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("knowledge.noDocs");
+    elements.docsList.append(empty);
+    return;
+  }
+
+  for (const doc of state.knowledgeDocs) {
+    const item = document.createElement("div");
+    item.className = "doc-item";
+
+    const headerRow = document.createElement("div");
+    headerRow.className = "doc-header-row";
+
+    const nameSection = document.createElement("div");
+    nameSection.className = "doc-name-section";
+
+    const name = document.createElement("span");
+    name.className = "doc-name doc-name-clickable";
+    name.textContent = doc.name;
+    name.title = t("ui.clickToView");
+    name.addEventListener("click", () => viewDoc(doc.id));
+
+    nameSection.append(name);
+
+    const metaSection = document.createElement("div");
+    metaSection.className = "doc-meta-section";
+
+    const chunks = document.createElement("span");
+    chunks.className = "doc-chunks";
+    chunks.textContent = `${doc.chunk_count || 0} ${t("knowledge.chunks")}`;
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "doc-delete-btn";
+    deleteBtn.textContent = "×";
+    deleteBtn.title = t("ui.delete");
+    deleteBtn.addEventListener("click", () => deleteDoc(doc.id, doc.name));
+
+    metaSection.append(chunks, deleteBtn);
+    headerRow.append(nameSection, metaSection);
+
+    const descRow = document.createElement("div");
+    descRow.className = "doc-desc-row";
+
+    const category = doc.category || t("knowledge.noCategory");
+    const categorySpan = document.createElement("span");
+    categorySpan.className = "doc-category";
+    categorySpan.textContent = category;
+
+    const tags = doc.tags || [];
+    if (tags.length > 0) {
+      const tagsSpan = document.createElement("span");
+      tagsSpan.className = "doc-tags";
+      tagsSpan.textContent = tags.join(", ");
+      descRow.append(categorySpan, tagsSpan);
+    } else {
+      descRow.append(categorySpan);
+    }
+
+    item.append(headerRow, descRow);
+    elements.docsList.append(item);
+  }
+}
+
+function openKnowledgeModal() {
+  // Update modal stats from sidebar stats
+  elements.modalStatsDocs.textContent = elements.statsDocs.textContent;
+  elements.modalStatsChunks.textContent = elements.statsChunks.textContent;
+  elements.knowledgeModal.classList.add("active");
+}
+
+function closeKnowledgeModal() {
+  elements.knowledgeModal.classList.remove("active");
+}
+
+function openWorkspaceModal() {
+  elements.workspaceModal.classList.add("active");
+}
+
+function closeWorkspaceModal() {
+  elements.workspaceModal.classList.remove("active");
+}
+
+function openDocModal() {
+  elements.docModal.classList.add("active");
+  elements.docError.textContent = "";
+  elements.docSuccess.textContent = "";
+}
+
+function closeDocModal() {
+  elements.docModal.classList.remove("active");
+  state.activeDoc = null;
+}
+
+function openDocViewModal() {
+  elements.docViewModal.classList.add("active");
+}
+
+function closeDocViewModal() {
+  elements.docViewModal.classList.remove("active");
+  state.activeDoc = null;
+}
+
+async function viewDoc(docId) {
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents/${encodeURIComponent(docId)}`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) {
+      throw new Error(`load doc failed: ${response.status}`);
+    }
+
+    const doc = await response.json();
+    state.activeDoc = doc;
+
+    elements.docViewId.textContent = doc.id;
+    elements.docViewName.textContent = doc.name;
+    elements.docViewCategory.textContent = doc.category || t("knowledge.noCategory");
+    elements.docViewTags.textContent = (doc.tags || []).join(", ") || "-";
+    elements.docViewCreated.textContent = doc.created_at ? formatTime(doc.created_at) : "-";
+    elements.docViewContent.value = doc.content || "";
+
+    openDocViewModal();
+  } catch (error) {
+    console.error(error);
+    setError(error.message || t("status.failed"));
+  }
+}
+
+async function addDoc() {
+  elements.docError.textContent = "";
+  elements.docSuccess.textContent = "";
+
+  const name = elements.docNameInput.value.trim();
+  const content = elements.docContentEditor.value;
+
+  if (!name) {
+    elements.docError.textContent = t("knowledge.nameRequired");
+    return;
+  }
+  if (!content) {
+    elements.docError.textContent = t("knowledge.contentRequired");
+    return;
+  }
+
+  const tags = elements.docTagsInput.value.trim()
+    ? elements.docTagsInput.value.split(",").map(t => t.trim()).filter(t => t)
+    : [];
+  const category = elements.docCategoryInput.value.trim() || "";
+  const fileType = elements.docFileTypeSelect.value;
+
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        name,
+        content,
+        tags,
+        category,
+        file_type: fileType,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.addFailed"));
+    }
+
+    elements.docSuccess.textContent = t("knowledge.docAdded");
+    elements.docNameInput.value = "";
+    elements.docCategoryInput.value = "";
+    elements.docTagsInput.value = "";
+    elements.docContentEditor.value = "";
+
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    elements.docError.textContent = error.message || t("status.failed");
+  }
+}
+
+async function uploadDoc() {
+  const fileInput = elements.docFileUpload;
+  const file = fileInput.files[0];
+  if (!file) {
+    return;
+  }
+
+  // Reset the input so the same file can be uploaded again
+  fileInput.value = "";
+
+  // Build FormData
+  const formData = new FormData();
+  formData.append("file", file);
+
+  // Optional: category and tags
+  const category = elements.docCategoryInput.value.trim();
+  const tags = elements.docTagsInput.value.trim();
+  if (category) {
+    formData.append("category", category);
+  }
+  if (tags) {
+    formData.append("tags", tags);
+  }
+
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${state.token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.uploadFailed"));
+    }
+
+    const result = await response.json();
+
+    // Show success feedback
+    elements.docSuccess.textContent = t("knowledge.uploadSuccess") || `File "${result.name}" uploaded (${result.size_bytes} bytes)`;
+
+    // Refresh docs list
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    elements.docError.textContent = error.message || t("status.failed");
+  }
+}
+
+async function deleteDoc(docId, docName) {
+  if (!confirm(`${t("ui.confirmDelete")} ${docName}?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents/${encodeURIComponent(docId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.deleteFailed"));
+    }
+
+    // Close view modal if deleting the active doc
+    if (state.activeDoc?.id === docId) {
+      closeDocViewModal();
+    }
+
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    setError(error.message || t("status.failed"));
+  }
+}
+
+async function queryKnowledge() {
+  const query = elements.queryInput.value.trim();
+  if (!query) {
+    elements.queryResults.textContent = "";
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("knowledge.queryRequired");
+    elements.queryResults.append(empty);
+    return;
+  }
+
+  const mode = elements.queryMode.value;
+  const topK = parseInt(elements.queryTopK.value) || 5;
+
+  try {
+    elements.queryResults.textContent = "";
+    const loading = document.createElement("div");
+    loading.className = "empty-state";
+    loading.textContent = t("status.loading");
+    elements.queryResults.append(loading);
+
+    const response = await fetch(`${state.knowledgeApiPath}/query`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        query,
+        top_k: topK,
+        mode,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.queryFailed"));
+    }
+
+    const result = await response.json();
+    renderQueryResults(result);
+  } catch (error) {
+    console.error(error);
+    elements.queryResults.textContent = "";
+    const empty = document.createElement("div");
+    empty.className = "empty-state error-text";
+    empty.textContent = error.message || t("status.failed");
+    elements.queryResults.append(empty);
+  }
+}
+
+function renderQueryResults(result) {
+  elements.queryResults.textContent = "";
+
+  if (!result.data || result.data.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = t("knowledge.noResults");
+    elements.queryResults.append(empty);
+    return;
+  }
+
+  for (const item of result.data) {
+    const resultItem = document.createElement("div");
+    resultItem.className = "query-result-item";
+
+    const header = document.createElement("div");
+    header.className = "query-result-header";
+
+    const docName = document.createElement("span");
+    docName.className = "query-result-doc-name";
+    docName.textContent = item.doc_name || "unknown";
+
+    const score = document.createElement("span");
+    score.className = "query-result-score";
+    score.textContent = `${(item.score || 0).toFixed(3)}`;
+
+    header.append(docName, score);
+
+    const content = document.createElement("div");
+    content.className = "query-result-content";
+    content.textContent = item.content || "";
+
+    resultItem.append(header, content);
+    elements.queryResults.append(resultItem);
+  }
+}
+
+function toggleKnowledgePanel() {
+  toggleCollapsibleSection(elements.knowledgeSection);
+  elements.knowledgeToggle.setAttribute("aria-expanded",
+    !elements.knowledgeSection.classList.contains("collapsed"));
+}
+
 function toggleCollapsibleSection(section) {
   if (section.classList.contains("collapsed")) {
     section.classList.remove("collapsed");
@@ -972,6 +1607,24 @@ function applyTheme(theme) {
   state.theme = theme;
   // 保存到 localStorage
   localStorage.setItem("tinybot-theme", theme);
+  // 同步切换highlight.js主题
+  const lightTheme = document.getElementById("hljs-light-theme");
+  const darkTheme = document.getElementById("hljs-dark-theme");
+  if (lightTheme && darkTheme) {
+    if (theme === "dark") {
+      lightTheme.disabled = true;
+      darkTheme.disabled = false;
+    } else {
+      lightTheme.disabled = false;
+      darkTheme.disabled = true;
+    }
+  }
+  // 重新高亮所有代码块
+  if (typeof hljs !== "undefined") {
+    document.querySelectorAll(".message-text pre code").forEach((block) => {
+      hljs.highlightElement(block);
+    });
+  }
 }
 
 function toggleTheme() {
@@ -1017,7 +1670,22 @@ function populateConfigForm(config) {
   elements.configMaxToolIterations.value = defaults.maxToolIterations || defaults.max_tool_iterations || 200;
   elements.configReasoningEffort.value = defaults.reasoningEffort || defaults.reasoning_effort || "";
   elements.configTimezone.value = defaults.timezone || "UTC";
-  elements.configVectorStore.checked = defaults.enableVectorStore || defaults.enable_vector_store === true;
+
+  // Knowledge config
+  const knowledge = config.knowledge || {};
+  elements.configKnowledgeEnabled.checked = knowledge.enabled === true;
+  elements.configKnowledgeAutoRetrieve.checked = knowledge.autoRetrieve || knowledge.auto_retrieve === true;
+  elements.configKnowledgeMaxChunks.value = knowledge.maxChunks || knowledge.max_chunks || 5;
+  elements.configKnowledgeChunkSize.value = knowledge.chunkSize || knowledge.chunk_size || 500;
+  elements.configKnowledgeChunkOverlap.value = knowledge.chunkOverlap || knowledge.chunk_overlap || 100;
+  elements.configKnowledgeRetrievalMode.value = knowledge.retrievalMode || knowledge.retrieval_mode || "hybrid";
+
+  // Embedding config (nested in agents.defaults)
+  const embedding = defaults.embedding || {};
+  elements.configEmbeddingProvider.value = embedding.provider || "local";
+  elements.configEmbeddingModelName.value = embedding.modelName || embedding.model_name || "all-MiniLM-L6-v2";
+  elements.configEmbeddingApiKey.value = embedding.apiKey || embedding.api_key || "";
+  elements.configEmbeddingApiBase.value = embedding.apiBase || embedding.api_base || "";
 
   // Providers - 根据当前provider选择加载对应的配置
   const providers = config.providers || {};
@@ -1091,19 +1759,35 @@ async function saveConfig() {
     return val;
   };
 
-  // Build payload - only include changed/non-null values
+  // Build payload - matching backend schema structure
+  // agents.defaults contains the actual agent config fields
   const payload = {
     agents: {
-      model: getValue(elements.configModel),
-      provider: getValue(elements.configProvider),
-      workspace: getValue(elements.configWorkspace),
-      temperature: getValue(elements.configTemperature, "number"),
-      max_tokens: getValue(elements.configMaxTokens, "number"),
-      context_window_tokens: getValue(elements.configContextWindow, "number"),
-      max_tool_iterations: getValue(elements.configMaxToolIterations, "number"),
-      reasoning_effort: getValue(elements.configReasoningEffort),
-      timezone: getValue(elements.configTimezone),
-      enable_vector_store: elements.configVectorStore.checked,
+      defaults: {
+        model: getValue(elements.configModel),
+        provider: getValue(elements.configProvider),
+        workspace: getValue(elements.configWorkspace),
+        temperature: getValue(elements.configTemperature, "number"),
+        max_tokens: getValue(elements.configMaxTokens, "number"),
+        context_window_tokens: getValue(elements.configContextWindow, "number"),
+        max_tool_iterations: getValue(elements.configMaxToolIterations, "number"),
+        reasoning_effort: getValue(elements.configReasoningEffort),
+        timezone: getValue(elements.configTimezone),
+        embedding: {
+          provider: getValue(elements.configEmbeddingProvider),
+          model_name: getValue(elements.configEmbeddingModelName),
+          api_key: getValue(elements.configEmbeddingApiKey),
+          api_base: getValue(elements.configEmbeddingApiBase),
+        },
+      },
+    },
+    knowledge: {
+      enabled: elements.configKnowledgeEnabled.checked,
+      auto_retrieve: elements.configKnowledgeAutoRetrieve.checked,
+      max_chunks: getValue(elements.configKnowledgeMaxChunks, "number"),
+      chunk_size: getValue(elements.configKnowledgeChunkSize, "number"),
+      chunk_overlap: getValue(elements.configKnowledgeChunkOverlap, "number"),
+      retrieval_mode: getValue(elements.configKnowledgeRetrievalMode),
     },
     tools: {
       web: {
@@ -1175,12 +1859,22 @@ async function loadFile(path, { preserveDraft = false } = {}) {
   state.activeFilePath = payload.path;
   state.activeFileUpdatedAt = payload.updated_at;
   state.fileDraftDirty = false;
-  elements.editorTitle.textContent = payload.path;
+  // Update modal title and sidebar file name
+  if (elements.workspaceModalTitle) {
+    elements.workspaceModalTitle.textContent = payload.path;
+  }
+  if (elements.editorTitle) {
+    elements.editorTitle.textContent = payload.path;
+  }
   elements.fileSelect.value = payload.path;
   elements.fileEditor.value = preserveDraft ? elements.fileEditor.value : payload.content || "";
   elements.fileMeta.textContent = payload.updated_at
     ? `${t("ui.lastUpdate")} ${formatTime(payload.updated_at)}`
     : t("ui.fileNotCreated");
+  // Update sidebar compact file name
+  if (elements.currentFileName) {
+    elements.currentFileName.textContent = payload.path;
+  }
   setEditorStatus(t("status.loaded"), "connected");
   setFileError("");
 }
@@ -1420,6 +2114,15 @@ async function submitMessage() {
     return;
   }
 
+  // 触发发送按钮动画
+  const sendBtn = elements.composerForm.querySelector(".composer-send");
+  if (sendBtn) {
+    sendBtn.classList.add("sending");
+    setTimeout(() => {
+      sendBtn.classList.remove("sending");
+    }, 600);
+  }
+
   // 如果没有活跃会话，先创建新会话
   if (!state.activeChatId) {
     state.pendingMessage = content;  // 保存待发送的消息
@@ -1542,14 +2245,6 @@ function bindEvents() {
     }
   });
 
-  elements.refreshToolsButton.addEventListener("click", async () => {
-    try {
-      await loadTools();
-    } catch (error) {
-      console.error(error);
-    }
-  });
-
   elements.refreshSkillsButton.addEventListener("click", async () => {
     try {
       await loadSkills();
@@ -1562,20 +2257,45 @@ function bindEvents() {
     await createNewSkill();
   });
 
-  elements.editorToggle.addEventListener("click", toggleEditorPanel);
-  elements.editorToggle.addEventListener("keydown", (event) => {
+  // Tools modal events
+  elements.toolsToggle.addEventListener("click", openToolsModal);
+  elements.toolsToggle.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      toggleEditorPanel();
+      openToolsModal();
     }
   });
+  elements.toolsModalOverlay.addEventListener("click", closeToolsModal);
+  elements.toolsModalClose.addEventListener("click", closeToolsModal);
+
+  // Skills modal events
+  elements.skillsToggle.addEventListener("click", openSkillsModal);
+  elements.skillsToggle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openSkillsModal();
+    }
+  });
+  elements.skillsModalOverlay.addEventListener("click", closeSkillsModal);
+  elements.skillsModalClose.addEventListener("click", closeSkillsModal);
+
+  // Workspace modal events
+  elements.workspaceToggle.addEventListener("click", openWorkspaceModal);
+  elements.workspaceToggle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openWorkspaceModal();
+    }
+  });
+  elements.workspaceModalOverlay.addEventListener("click", closeWorkspaceModal);
+  elements.workspaceModalClose.addEventListener("click", closeWorkspaceModal);
 
   // 设置弹窗事件
   elements.settingsButton.addEventListener("click", openModal);
   elements.modalOverlay.addEventListener("click", closeModal);
   elements.modalClose.addEventListener("click", closeModal);
 
-  // Skill modal events
+  // Skill detail modal events
   elements.skillModalOverlay.addEventListener("click", closeSkillModal);
   elements.skillModalClose.addEventListener("click", closeSkillModal);
   elements.skillValidateButton.addEventListener("click", async () => {
@@ -1590,14 +2310,108 @@ function bindEvents() {
     }
   });
 
-  // ESC键关闭弹窗
+  // Tool detail modal events
+  elements.toolModalOverlay.addEventListener("click", closeToolModal);
+  elements.toolModalClose.addEventListener("click", closeToolModal);
+  elements.toolModalCloseButton.addEventListener("click", closeToolModal);
+
+  // Knowledge modal events
+  elements.knowledgeToggle.addEventListener("click", openKnowledgeModal);
+  elements.knowledgeToggle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openKnowledgeModal();
+    }
+  });
+  elements.knowledgeModalOverlay.addEventListener("click", closeKnowledgeModal);
+  elements.knowledgeModalClose.addEventListener("click", closeKnowledgeModal);
+
+  // Knowledge panel events
+  elements.refreshDocsButton.addEventListener("click", async () => {
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  });
+  elements.addDocButton.addEventListener("click", openDocModal);
+  elements.uploadDocButton.addEventListener("click", () => {
+    elements.docFileUpload.click();
+  });
+  elements.docFileUpload.addEventListener("change", uploadDoc);
+  elements.queryButton.addEventListener("click", queryKnowledge);
+  elements.queryInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      queryKnowledge();
+    }
+  });
+
+  // Doc modal events
+  elements.docModalOverlay.addEventListener("click", closeDocModal);
+  elements.docModalClose.addEventListener("click", closeDocModal);
+  elements.docSaveButton.addEventListener("click", async () => {
+    await addDoc();
+  });
+
+  // Doc view modal events
+  elements.docViewModalOverlay.addEventListener("click", closeDocViewModal);
+  elements.docViewModalClose.addEventListener("click", closeDocViewModal);
+  elements.docViewCloseButton.addEventListener("click", closeDocViewModal);
+  elements.docViewDeleteButton.addEventListener("click", async () => {
+    if (state.activeDoc?.id) {
+      await deleteDoc(state.activeDoc.id, state.activeDoc.name);
+    }
+  });
+
+  // ESC键关闭弹窗 + 全局快捷键
   document.addEventListener("keydown", (event) => {
+    // ESC关闭弹窗
     if (event.key === "Escape") {
       if (elements.modal.classList.contains("active")) {
         closeModal();
       }
       if (elements.skillModal.classList.contains("active")) {
         closeSkillModal();
+      }
+      if (elements.docModal.classList.contains("active")) {
+        closeDocModal();
+      }
+      if (elements.docViewModal.classList.contains("active")) {
+        closeDocViewModal();
+      }
+      return;
+    }
+
+    // 全局快捷键（需要在输入框外生效）
+    if (event.ctrlKey || event.metaKey) {
+      // Ctrl+N: 新建会话
+      if (event.key === "n" || event.key === "N") {
+        event.preventDefault();
+        createNewChat();
+        return;
+      }
+
+      // Ctrl+L: 清空当前会话
+      if (event.key === "l" || event.key === "L") {
+        event.preventDefault();
+        if (state.activeSessionKey) {
+          clearSession(state.activeSessionKey).catch(console.error);
+        }
+        return;
+      }
+
+      // Ctrl+S: 保存文件编辑
+      if (event.key === "s" || event.key === "S") {
+        event.preventDefault();
+        if (state.activeFilePath && state.fileDraftDirty) {
+          saveActiveFile().catch(console.error);
+        }
+        return;
+      }
+
+      // Ctrl+/: 显示快捷键帮助
+      if (event.key === "/" || event.key === "?") {
+        event.preventDefault();
+        showShortcutHelp();
+        return;
       }
     }
   });
@@ -1669,6 +2483,7 @@ function renderDynamicContent() {
   renderMessages();
   renderTools();
   renderSkills();
+  renderKnowledgeDocs();
   // 更新文件编辑器状态
   if (state.activeFilePath && state.activeFileUpdatedAt) {
     elements.fileMeta.textContent = `${t("ui.lastUpdate")} ${formatTime(state.activeFileUpdatedAt)}`;
@@ -1683,7 +2498,63 @@ function renderDynamicContent() {
   }
 }
 
+// 快捷键帮助
+function showShortcutHelp() {
+  const lang = getLanguage();
+  const shortcuts = lang === "zh" ? [
+    { key: "Ctrl+N", desc: "新建会话" },
+    { key: "Ctrl+L", desc: "清空当前会话" },
+    { key: "Ctrl+S", desc: "保存文件编辑" },
+    { key: "Ctrl+/", desc: "显示快捷键帮助" },
+    { key: "Enter", desc: "发送消息" },
+    { key: "Shift+Enter", desc: "换行" },
+    { key: "Esc", desc: "关闭弹窗" },
+  ] : [
+    { key: "Ctrl+N", desc: "New chat" },
+    { key: "Ctrl+L", desc: "Clear current session" },
+    { key: "Ctrl+S", desc: "Save file edit" },
+    { key: "Ctrl+/", desc: "Show shortcuts" },
+    { key: "Enter", desc: "Send message" },
+    { key: "Shift+Enter", desc: "New line" },
+    { key: "Esc", desc: "Close modal" },
+  ];
+
+  // 创建快捷键帮助弹窗
+  const modal = document.createElement("div");
+  modal.className = "modal active";
+  modal.innerHTML = `
+    <div class="modal-overlay"></div>
+    <div class="modal-content" style="width: min(90vw, 400px);">
+      <header class="modal-header">
+        <h2>${lang === "zh" ? "快捷键" : "Shortcuts"}</h2>
+        <button class="button button-ghost" type="button">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="shortcut-list">
+          ${shortcuts.map(s => `
+            <div class="shortcut-item">
+              <span class="shortcut-key">${s.key}</span>
+              <span class="shortcut-desc">${s.desc}</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // 点击关闭
+  const closeBtn = modal.querySelector(".button-ghost");
+  const overlay = modal.querySelector(".modal-overlay");
+  closeBtn.addEventListener("click", () => modal.remove());
+  overlay.addEventListener("click", () => modal.remove());
+
+  document.body.appendChild(modal);
+}
+
 async function init() {
+  // 显示初始化骨架屏
+  showInitSkeleton();
+
   initTheme();
   bindEvents();
   resizeComposer();
@@ -1696,15 +2567,53 @@ async function init() {
     await loadSystemStatus();
     await loadTools();
     await loadSkills();
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
     await loadConfig();
     if (state.activeFilePath) {
       sendSocketMessage({ type: "subscribe_file", path: state.activeFilePath });
     }
+    // 移除骨架屏
+    removeInitSkeleton();
     setStatus(t("status.connected"), "connected");
   } catch (error) {
     console.error(error);
+    removeInitSkeleton();
     setStatus(t("status.initFailed"), "error");
     setError(error.message || t("status.initFailed"));
+  }
+}
+
+function showInitSkeleton() {
+  const skeletonHTML = `
+    <div class="skeleton-overlay" id="init-skeleton">
+      <div class="skeleton-container">
+        <div class="skeleton-message">
+          <div class="skeleton-meta">
+            <div class="skeleton skeleton-role"></div>
+            <div class="skeleton skeleton-time"></div>
+          </div>
+          <div class="skeleton skeleton-content"></div>
+          <div class="skeleton skeleton-content-short"></div>
+        </div>
+        <div class="skeleton-message" style="align-self: flex-end; width: 70%;">
+          <div class="skeleton-meta">
+            <div class="skeleton skeleton-role"></div>
+            <div class="skeleton skeleton-time"></div>
+          </div>
+          <div class="skeleton skeleton-content" style="width: 80%;"></div>
+        </div>
+        <div class="init-loading-text">${getLanguage() === "zh" ? "正在初始化..." : "Initializing..."}</div>
+      </div>
+    </div>
+  `;
+  elements.messageList.innerHTML = skeletonHTML;
+}
+
+function removeInitSkeleton() {
+  const skeleton = document.getElementById("init-skeleton");
+  if (skeleton) {
+    skeleton.remove();
   }
 }
 

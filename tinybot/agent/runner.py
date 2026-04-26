@@ -262,7 +262,7 @@ class AgentRunner:
                 did_finalization_retry = True
                 retry_usage = self._usage_dict(response.usage)
                 self._accumulate_usage(usage, retry_usage)
-                raw_usage = _merge_usage(raw_usage, retry_usage)
+                raw_usage = self._merge_usage(raw_usage, retry_usage)
                 context.response = response
                 context.usage = dict(raw_usage)
                 context.tool_calls = list(response.tool_calls)

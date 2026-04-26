@@ -78,6 +78,7 @@ class WebSocketChannel(BaseChannel):
         self.agent_loop: Any = None
         self.config_ref: Any = None
         self.config_path: Path | None = None
+        self.knowledge_store: Any = None
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self._clients: dict[str, web.WebSocketResponse] = {}
@@ -110,13 +111,14 @@ class WebSocketChannel(BaseChannel):
             "allowFrom": ["*"],
         }
 
-    def bind_runtime(self, *, workspace: Path, session_manager: SessionManager, agent_loop: Any = None, config: Any = None, config_path: Path | None = None) -> None:
+    def bind_runtime(self, *, workspace: Path, session_manager: SessionManager, agent_loop: Any = None, config: Any = None, config_path: Path | None = None, knowledge_store: Any = None) -> None:
         """Inject shared runtime state from gateway startup."""
         self.workspace = workspace
         self.session_manager = session_manager
         self.agent_loop = agent_loop
         self.config_ref = config
         self.config_path = config_path
+        self.knowledge_store = knowledge_store
 
     def _cfg(self, key: str, default: Any) -> Any:
         if isinstance(self.config, dict):
@@ -256,6 +258,11 @@ class WebSocketChannel(BaseChannel):
         app.router.add_get("/api/workspace/files/{path:.+}", self.handle_get_workspace_file)
         app.router.add_put("/api/workspace/files/{path:.+}", self.handle_put_workspace_file)
         app.router.add_get(self.ws_path, self.handle_websocket)
+        # Register knowledge routes BEFORE catch-all static routes
+        if self.knowledge_store:
+            app["knowledge_store"] = self.knowledge_store
+            from tinybot.api.knowledge import register_knowledge_routes
+            register_knowledge_routes(app)
         self._add_static_routes(app)
         return app
 
@@ -1072,6 +1079,7 @@ class WebSocketChannel(BaseChannel):
         """Update configuration and save to file.
 
         Allows updating any field including api_key, api_base, etc.
+        After saving, dynamically updates the agent_loop's provider and model.
         """
         if not self._is_authorized(request):
             return web.json_response({"error": "unauthorized"}, status=401)
@@ -1107,6 +1115,35 @@ class WebSocketChannel(BaseChannel):
         # Save config to file
         from tinybot.config.loader import save_config
         save_config(self.config_ref, self.config_path)
+
+        # Dynamically update agent_loop if provider/model changed
+        provider_updated = any("providers" in f or "provider" in f for f in updated_fields)
+        model_updated = any("model" in f for f in updated_fields)
+        embedding_updated = any("embedding" in f for f in updated_fields)
+
+        if self.agent_loop and (provider_updated or model_updated):
+            try:
+                from tinybot.providers.registry import create_provider
+                new_provider = create_provider(self.config_ref)
+                self.agent_loop.provider = new_provider
+                # Update model if changed
+                if model_updated:
+                    self.agent_loop.model = self.config_ref.agents.defaults.model or new_provider.get_default_model()
+                logger.info(f"Config updated: provider={self.config_ref.get_provider_name()}, model={self.agent_loop.model}")
+            except Exception as e:
+                logger.warning(f"Failed to update provider after config change: {e}")
+
+        # Reset embedding function if embedding config changed
+        if embedding_updated and self.agent_loop and self.agent_loop._vector_store:
+            try:
+                from tinybot.agent.vector_store import VectorStore
+                # Reset class-level embedding to force reload with new config
+                VectorStore._embedding_fn = None
+                VectorStore._initialized = False
+                VectorStore._embedding_config = None
+                logger.info("Embedding config updated, will reload on next use")
+            except Exception as e:
+                logger.warning(f"Failed to reset embedding after config change: {e}")
 
         data = self.config_ref.model_dump(mode="json", by_alias=True)
         return web.json_response({
