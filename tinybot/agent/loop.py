@@ -245,7 +245,12 @@ class AgentLoop:
             if enable_vector_store:
                 from tinybot.agent.vector_store import VectorStore
                 vector_store_dir = workspace / ".chromadb"
-                self._vector_store = VectorStore(vector_store_dir)
+                # Get embedding config from actual config, not default instance
+                if self._config_ref and hasattr(self._config_ref.agents.defaults, "embedding"):
+                    embedding_config = self._config_ref.agents.defaults.embedding
+                else:
+                    embedding_config = defaults.embedding
+                self._vector_store = VectorStore(vector_store_dir, embedding_config=embedding_config)
                 self.context.vector_store = self._vector_store
             else:
                 self._vector_store = None

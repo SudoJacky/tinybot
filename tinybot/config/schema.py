@@ -69,6 +69,23 @@ class DreamConfig(Base):
         return f"every {hours}h"
 
 
+class EmbeddingConfig(Base):
+    """Embedding model configuration for vector store.
+
+    Supports both local sentence-transformers models and API-based embeddings
+    (OpenAI, Azure OpenAI, or custom OpenAI-compatible endpoints).
+    """
+
+    provider: Literal["local", "openai", "azure", "custom"] = "local"
+    model_name: str = "all-MiniLM-L6-v2"  # Local model name or API embedding model
+    # API configuration (for openai/azure/custom providers)
+    api_key: str = ""  # API key (or use api_key_env_var)
+    api_key_env_var: str | None = None  # Environment variable name for API key (e.g. "OPENAI_API_KEY")
+    api_base: str | None = None  # API base URL (e.g. "https://api.openai.com/v1" or Azure endpoint)
+    api_type: str | None = None  # "azure" for Azure OpenAI
+    api_version: str | None = None  # Azure API version (e.g. "2024-02-01")
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -87,6 +104,7 @@ class AgentDefaults(Base):
     reasoning_effort: str | None = None  # low / medium / high - enables LLM thinking mode
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     enable_vector_store: bool = False  # Feature flag: ChromaDB embedding storage for session summaries
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)  # Embedding model configuration
     dream: DreamConfig = Field(default_factory=DreamConfig)
 
     @field_validator("model")
