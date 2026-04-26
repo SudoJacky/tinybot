@@ -1333,8 +1333,95 @@ body {
 .right-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px;
+  gap: 12px;
+  padding: 16px;
+}
+
+/* 紧凑面板通用样式 */
+.compact-panel {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  padding: 12px 14px;
+}
+
+.compact-panel .section-header {
+  padding: 0;
+  border-bottom: none;
+}
+
+.compact-panel .eyebrow {
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.compact-panel h2 {
+  font-size: 14px;
+}
+
+.compact-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.compact-stats {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.compact-stats .separator {
+  margin: 0 4px;
+  color: var(--border-subtle);
+}
+
+.compact-file {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.compact-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel-strong);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.compact-item:hover {
+  background: var(--bg-subtle);
+  border-color: var(--accent);
+}
+
+.compact-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-item-status {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* 通用section头部 */
@@ -1376,59 +1463,20 @@ body {
 
 /* ========== 工具面板 ========== */
 .tools-panel {
-  background: var(--bg-subtle);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
   flex-shrink: 0;
-  max-height: 240px;
 }
 
 .tools-list {
-  overflow: auto;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 200px;
-}
-
-.tool-item {
-  padding: 12px 14px;
-  background: var(--panel-strong);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  transition: all var(--transition-fast);
-  cursor: default;
-}
-
-.tool-item:hover {
-  box-shadow: var(--shadow-xs);
-}
-
-.skill-item {
-  padding: 12px 14px;
-  background: var(--panel-strong);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  transition: all var(--transition-fast);
-  cursor: default;
-}
-
-.skill-item:hover {
-  box-shadow: var(--shadow-xs);
+  /* 现使用 compact-list 样式 */
 }
 
 .tool-name {
-  display: block;
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
 }
 
 .tool-desc {
-  display: block;
   margin-top: 4px;
   font-size: 11px;
   color: var(--text-muted);
@@ -1439,34 +1487,36 @@ body {
 
 /* ========== 技能面板 ========== */
 .skills-panel {
-  background: var(--bg-subtle);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
   flex-shrink: 0;
-  max-height: 240px;
 }
 
 .skills-list {
-  overflow: auto;
-  padding: 14px;
+  /* 现使用 compact-list 样式 */
+}
+
+/* Skill toggle in compact mode */
+.skill-compact-toggle {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 200px;
+  align-items: center;
+  gap: 4px;
 }
 
-.skill-item {
-  padding: 12px 14px;
-  background: var(--panel-strong);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  transition: all var(--transition-fast);
+.skill-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
 }
 
-.skill-item:hover {
-  box-shadow: var(--shadow-xs);
+.skill-status-dot.enabled {
+  background: var(--success);
+}
+
+.skill-status-dot.disabled {
+  background: var(--text-muted);
+}
+
+.skill-status-dot.always {
+  background: var(--accent);
 }
 
 /* Skill header row with toggle */
@@ -1638,11 +1688,6 @@ body {
 
 /* ========== 知识库面板 ========== */
 .knowledge-panel {
-  background: var(--bg-subtle);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
   flex-shrink: 0;
 }
 
@@ -1656,7 +1701,6 @@ body {
   gap: 12px;
   padding: 14px;
   overflow-y: auto;
-  max-height: 350px;
 }
 
 /* Knowledge stats */
@@ -2011,11 +2055,14 @@ body {
   min-height: 0;
 }
 
+/* ========== 工作区面板 ========== */
+.workspace-panel {
+  flex-shrink: 0;
+}
+
 /* ========== 文件编辑器面板 ========== */
 .editor-panel {
-  flex: 1 1 0%;
-  min-height: 180px;
-  max-height: 40vh;
+  /* 已移至 workspace-modal */
 }
 
 .editor-panel .collapsible-content {
@@ -2126,6 +2173,14 @@ body {
   justify-content: center;
 }
 
+/* 详情弹窗层级 - 显示在列表弹窗之上 */
+#skill-modal.active,
+#tool-modal.active,
+#doc-modal.active,
+#doc-view-modal.active {
+  z-index: 1100;
+}
+
 .modal-overlay {
   position: absolute;
   inset: 0;
@@ -2192,12 +2247,156 @@ body {
   background: var(--bg-subtle);
 }
 
+/* ========== 工具列表弹窗 ========== */
+.tools-modal-content,
+.skills-modal-content {
+  width: min(90vw, 500px);
+}
+
+.modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.modal-list-item:hover {
+  background: var(--panel-strong);
+  border-color: var(--accent);
+}
+
+.modal-list-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-list-item-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.modal-header-buttons {
+  display: flex;
+  gap: 8px;
+  margin-right: 16px;
+}
+
+/* ========== 工具详情弹窗 ========== */
+.tool-modal-content {
+  width: min(90vw, 500px);
+}
+
+.detail-value {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.detail-text {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.schema-display {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  overflow: auto;
+  max-height: 300px;
+  white-space: pre-wrap;
+}
+
+/* ========== 知识库弹窗 ========== */
+.knowledge-modal-content {
+  width: min(90vw, 700px);
+}
+
+.knowledge-modal-content .knowledge-stats {
+  margin-bottom: 16px;
+}
+
+.knowledge-modal-content .knowledge-docs-panel {
+  margin-bottom: 16px;
+}
+
+.knowledge-modal-content .docs-list {
+  max-height: 200px;
+}
+
+.knowledge-modal-content .knowledge-query-panel {
+  background: var(--panel-strong);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+/* ========== 工作区弹窗 ========== */
+.workspace-modal-content {
+  width: min(90vw, 700px);
+  height: min(85vh, 600px);
+}
+
+.workspace-modal-content .modal-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace-modal-content .editor-toolbar {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+}
+
+.workspace-modal-content .file-editor {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  resize: none;
+}
+
+.workspace-modal-content .editor-footer {
+  flex-shrink: 0;
+  padding: 8px 0 0 0;
+}
+
 /* ========== 配置组样式 ========== */
 .config-group {
   margin-bottom: 16px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   background: var(--panel-strong);
+}
+
+.settings-modal-content {
+  width: min(90vw, 650px);
+  max-height: 80vh;
 }
 
 .config-group-title {

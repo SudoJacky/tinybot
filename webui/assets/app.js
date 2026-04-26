@@ -75,7 +75,19 @@ const elements = {
   configMaxToolIterations: document.querySelector("#config-max-tool-iterations"),
   configReasoningEffort: document.querySelector("#config-reasoning-effort"),
   configTimezone: document.querySelector("#config-timezone"),
-  configVectorStore: document.querySelector("#config-vector-store"),
+  // Knowledge config elements
+  configKnowledgeEnabled: document.querySelector("#config-knowledge-enabled"),
+  configKnowledgeAutoRetrieve: document.querySelector("#config-knowledge-auto-retrieve"),
+  configKnowledgeMaxChunks: document.querySelector("#config-knowledge-max-chunks"),
+  configKnowledgeChunkSize: document.querySelector("#config-knowledge-chunk-size"),
+  configKnowledgeChunkOverlap: document.querySelector("#config-knowledge-chunk-overlap"),
+  configKnowledgeRetrievalMode: document.querySelector("#config-knowledge-retrieval-mode"),
+  // Embedding config elements
+  configEmbeddingProvider: document.querySelector("#config-embedding-provider"),
+  configEmbeddingModelName: document.querySelector("#config-embedding-model-name"),
+  configEmbeddingApiKey: document.querySelector("#config-embedding-api-key"),
+  configEmbeddingApiBase: document.querySelector("#config-embedding-api-base"),
+  // Provider config elements
   configProviderSelect: document.querySelector("#config-provider-select"),
   configApiKey: document.querySelector("#config-api-key"),
   configApiBase: document.querySelector("#config-api-base"),
@@ -123,6 +135,8 @@ const elements = {
   docsList: document.querySelector("#docs-list"),
   refreshDocsButton: document.querySelector("#refresh-docs-button"),
   addDocButton: document.querySelector("#add-doc-button"),
+  uploadDocButton: document.querySelector("#upload-doc-button"),
+  docFileUpload: document.querySelector("#doc-file-upload"),
   queryInput: document.querySelector("#query-input"),
   queryMode: document.querySelector("#query-mode"),
   queryTopK: document.querySelector("#query-top-k"),
@@ -152,6 +166,43 @@ const elements = {
   docViewContent: document.querySelector("#doc-view-content"),
   docViewDeleteButton: document.querySelector("#doc-view-delete-button"),
   docViewCloseButton: document.querySelector("#doc-view-close-button"),
+  // Tools modal elements (列表弹窗)
+  toolsModal: document.querySelector("#tools-modal"),
+  toolsModalOverlay: document.querySelector("#tools-modal-overlay"),
+  toolsModalClose: document.querySelector("#tools-modal-close"),
+  toolsModalList: document.querySelector("#tools-modal-list"),
+  toolsToggle: document.querySelector("#tools-toggle"),
+  // Skills modal elements (列表弹窗)
+  skillsModal: document.querySelector("#skills-modal"),
+  skillsModalOverlay: document.querySelector("#skills-modal-overlay"),
+  skillsModalClose: document.querySelector("#skills-modal-close"),
+  skillsModalList: document.querySelector("#skills-modal-list"),
+  skillsToggle: document.querySelector("#skills-toggle"),
+  skillsCount: document.querySelector("#skills-count"),
+  skillsEnabledCount: document.querySelector("#skills-enabled-count"),
+  // Tool modal elements (详情弹窗)
+  toolModal: document.querySelector("#tool-modal"),
+  toolModalOverlay: document.querySelector("#tool-modal-overlay"),
+  toolModalClose: document.querySelector("#tool-modal-close"),
+  toolModalTitle: document.querySelector("#tool-modal-title"),
+  toolModalName: document.querySelector("#tool-modal-name"),
+  toolModalDesc: document.querySelector("#tool-modal-desc"),
+  toolModalSchema: document.querySelector("#tool-modal-schema"),
+  toolModalCloseButton: document.querySelector("#tool-modal-close-button"),
+  // Knowledge modal elements
+  knowledgeModal: document.querySelector("#knowledge-modal"),
+  knowledgeModalOverlay: document.querySelector("#knowledge-modal-overlay"),
+  knowledgeModalClose: document.querySelector("#knowledge-modal-close"),
+  modalStatsDocs: document.querySelector("#modal-stats-docs"),
+  modalStatsChunks: document.querySelector("#modal-stats-chunks"),
+  // Workspace modal elements
+  workspaceModal: document.querySelector("#workspace-modal"),
+  workspaceModalOverlay: document.querySelector("#workspace-modal-overlay"),
+  workspaceModalClose: document.querySelector("#workspace-modal-close"),
+  workspaceModalTitle: document.querySelector("#workspace-modal-title"),
+  workspaceToggle: document.querySelector("#workspace-toggle"),
+  currentFileName: document.querySelector("#current-file-name"),
+  toolsCount: document.querySelector("#tools-count"),
 };
 
 function setStatus(text, kind = "idle") {
@@ -164,8 +215,10 @@ function setError(text = "") {
 }
 
 function setEditorStatus(text, kind = "idle") {
-  elements.editorStatus.textContent = text;
-  elements.editorStatus.className = `status status-${kind}`;
+  if (elements.editorStatus) {
+    elements.editorStatus.textContent = text;
+    elements.editorStatus.className = `status status-${kind}`;
+  }
 }
 
 function setFileError(text = "") {
@@ -665,6 +718,10 @@ async function loadTools() {
   const payload = await response.json();
   state.tools = payload.tools || [];
   renderTools();
+  // If tools modal is open, update the list
+  if (elements.toolsModal && elements.toolsModal.classList.contains("active")) {
+    renderToolsModalList();
+  }
 }
 
 async function loadSkills() {
@@ -677,89 +734,107 @@ async function loadSkills() {
   const payload = await response.json();
   state.skills = payload.skills || [];
   renderSkills();
+  // If skills modal is open, update the list
+  if (elements.skillsModal && elements.skillsModal.classList.contains("active")) {
+    renderSkillsModalList();
+  }
 }
 
 function renderTools() {
-  elements.toolsList.textContent = "";
+  // 只更新统计信息
+  elements.toolsCount.textContent = state.tools.length;
+}
+
+function renderSkills() {
+  // 只更新统计信息
+  const enabledSkills = state.config?.skills?.enabled || null;
+  const isAllEnabled = !enabledSkills || enabledSkills.includes("*");
+
+  let enabledCount = 0;
+  for (const skill of state.skills) {
+    if (skill.available && skill.always) {
+      enabledCount++;
+    } else if (skill.available) {
+      if (isAllEnabled || enabledSkills.includes(skill.name)) {
+        enabledCount++;
+      }
+    }
+  }
+
+  elements.skillsCount.textContent = state.skills.length;
+  elements.skillsEnabledCount.textContent = enabledCount;
+}
+
+// 弹窗内渲染工具列表
+function renderToolsModalList() {
+  elements.toolsModalList.textContent = "";
 
   if (state.tools.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = t("msg.noTools");
-    elements.toolsList.append(empty);
+    elements.toolsModalList.append(empty);
     return;
   }
 
   for (const tool of state.tools) {
     const item = document.createElement("div");
-    item.className = "tool-item";
+    item.className = "modal-list-item";
 
     const name = document.createElement("span");
-    name.className = "tool-name";
+    name.className = "modal-list-item-name";
     name.textContent = tool.name;
 
     const desc = document.createElement("span");
-    desc.className = "tool-desc";
+    desc.className = "modal-list-item-desc";
     desc.textContent = tool.description || t("msg.noDescription");
 
     item.append(name, desc);
-    elements.toolsList.append(item);
+    item.addEventListener("click", () => viewTool(tool.name));
+    elements.toolsModalList.append(item);
   }
 }
 
-function renderSkills() {
-  elements.skillsList.textContent = "";
+// 弹窗内渲染技能列表
+function renderSkillsModalList() {
+  elements.skillsModalList.textContent = "";
 
   if (state.skills.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = t("msg.noSkills");
-    elements.skillsList.append(empty);
+    elements.skillsModalList.append(empty);
     return;
   }
 
-  // Get enabled skills list from config
   const enabledSkills = state.config?.skills?.enabled || null;
   const isAllEnabled = !enabledSkills || enabledSkills.includes("*");
 
   for (const skill of state.skills) {
     const item = document.createElement("div");
-    item.className = "skill-item";
+    item.className = "modal-list-item";
 
-    // Header row: name + toggle switch
-    const headerRow = document.createElement("div");
-    headerRow.className = "skill-header-row";
-
-    // Name section (left side)
-    const nameSection = document.createElement("div");
-    nameSection.className = "skill-name-section";
-
+    // Name
     const name = document.createElement("span");
-    name.className = "skill-name skill-name-clickable";
+    name.className = "modal-list-item-name";
     name.textContent = skill.name;
-    name.title = t("ui.clickToView");
+    name.style.cursor = "pointer";
     name.addEventListener("click", () => viewSkill(skill.name));
 
-    nameSection.append(name);
-
-    // Toggle switch section (right side)
+    // Toggle section
     const toggleSection = document.createElement("div");
     toggleSection.className = "skill-toggle-section";
 
-    // Create toggle switch
     const toggleSwitch = document.createElement("div");
     toggleSwitch.className = "toggle-switch";
 
     if (!skill.available) {
-      // Unavailable - gray/disabled style
       toggleSwitch.classList.add("toggle-unavailable");
       toggleSwitch.innerHTML = `<span class="toggle-label">${t("status.unavailable")}</span>`;
     } else if (skill.always) {
-      // Always - special "always" style (cannot be toggled)
       toggleSwitch.classList.add("toggle-always", "toggle-on");
       toggleSwitch.innerHTML = `<span class="toggle-label">${t("status.always")}</span>`;
     } else {
-      // Normal skill - can be toggled
       const isEnabled = isAllEnabled || enabledSkills.includes(skill.name);
       toggleSwitch.classList.add(isEnabled ? "toggle-on" : "toggle-off");
       toggleSwitch.classList.add("toggle-clickable");
@@ -768,7 +843,7 @@ function renderSkills() {
       toggleSwitch.addEventListener("click", () => toggleSkill(skill.name, !isEnabled));
     }
 
-    // Delete button (only for workspace skills, positioned in toggle section)
+    // Delete button for workspace skills
     if (skill.source === "workspace") {
       const deleteBtn = document.createElement("button");
       deleteBtn.className = "skill-delete-btn";
@@ -779,17 +854,55 @@ function renderSkills() {
     }
 
     toggleSection.append(toggleSwitch);
-
-    headerRow.append(nameSection, toggleSection);
-
-    // Description row
-    const desc = document.createElement("span");
-    desc.className = "skill-desc";
-    desc.textContent = skill.description || t("msg.noDescription");
-
-    item.append(headerRow, desc);
-    elements.skillsList.append(item);
+    item.append(name, toggleSection);
+    elements.skillsModalList.append(item);
   }
+}
+
+function viewTool(toolName) {
+  const tool = state.tools.find(t => t.name === toolName);
+  if (!tool) return;
+
+  elements.toolModalTitle.textContent = toolName;
+  elements.toolModalName.textContent = toolName;
+  elements.toolModalDesc.textContent = tool.description || t("msg.noDescription");
+
+  // Display schema/parameters
+  if (tool.parameters) {
+    try {
+      elements.toolModalSchema.textContent = JSON.stringify(tool.parameters, null, 2);
+    } catch {
+      elements.toolModalSchema.textContent = tool.parameters;
+    }
+  } else {
+    elements.toolModalSchema.textContent = t("msg.noParameters") || "无参数定义";
+  }
+
+  elements.toolModal.classList.add("active");
+}
+
+function closeToolModal() {
+  elements.toolModal.classList.remove("active");
+}
+
+// 打开工具列表弹窗
+function openToolsModal() {
+  renderToolsModalList();
+  elements.toolsModal.classList.add("active");
+}
+
+function closeToolsModal() {
+  elements.toolsModal.classList.remove("active");
+}
+
+// 打开技能列表弹窗
+function openSkillsModal() {
+  renderSkillsModalList();
+  elements.skillsModal.classList.add("active");
+}
+
+function closeSkillsModal() {
+  elements.skillsModal.classList.remove("active");
 }
 
 async function toggleSkill(skillName, enable) {
@@ -1050,10 +1163,10 @@ async function loadKnowledgeStats() {
     if (!response.ok) {
       if (response.status === 503) {
         // Knowledge store not initialized
-        elements.knowledgeStatus.textContent = t("status.unavailable");
-        elements.knowledgeStatus.className = "status status-idle status-small";
         elements.statsDocs.textContent = "-";
         elements.statsChunks.textContent = "-";
+        if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = "-";
+        if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = "-";
         return;
       }
       throw new Error(`load knowledge stats failed: ${response.status}`);
@@ -1063,12 +1176,14 @@ async function loadKnowledgeStats() {
     state.knowledgeStats = payload;
     elements.statsDocs.textContent = payload.total_documents || 0;
     elements.statsChunks.textContent = payload.total_chunks || 0;
-    elements.knowledgeStatus.textContent = t("status.available");
-    elements.knowledgeStatus.className = "status status-connected status-small";
+    if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = payload.total_documents || 0;
+    if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = payload.total_chunks || 0;
   } catch (error) {
     console.error(error);
-    elements.knowledgeStatus.textContent = t("status.failed");
-    elements.knowledgeStatus.className = "status status-error status-small";
+    elements.statsDocs.textContent = "-";
+    elements.statsChunks.textContent = "-";
+    if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = "-";
+    if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = "-";
   }
 }
 
@@ -1171,6 +1286,25 @@ function renderKnowledgeDocs() {
   }
 }
 
+function openKnowledgeModal() {
+  // Update modal stats from sidebar stats
+  elements.modalStatsDocs.textContent = elements.statsDocs.textContent;
+  elements.modalStatsChunks.textContent = elements.statsChunks.textContent;
+  elements.knowledgeModal.classList.add("active");
+}
+
+function closeKnowledgeModal() {
+  elements.knowledgeModal.classList.remove("active");
+}
+
+function openWorkspaceModal() {
+  elements.workspaceModal.classList.add("active");
+}
+
+function closeWorkspaceModal() {
+  elements.workspaceModal.classList.remove("active");
+}
+
 function openDocModal() {
   elements.docModal.classList.add("active");
   elements.docError.textContent = "";
@@ -1263,6 +1397,58 @@ async function addDoc() {
     elements.docTagsInput.value = "";
     elements.docContentEditor.value = "";
 
+    await loadKnowledgeStats();
+    await loadKnowledgeDocs();
+  } catch (error) {
+    console.error(error);
+    elements.docError.textContent = error.message || t("status.failed");
+  }
+}
+
+async function uploadDoc() {
+  const fileInput = elements.docFileUpload;
+  const file = fileInput.files[0];
+  if (!file) {
+    return;
+  }
+
+  // Reset the input so the same file can be uploaded again
+  fileInput.value = "";
+
+  // Build FormData
+  const formData = new FormData();
+  formData.append("file", file);
+
+  // Optional: category and tags
+  const category = elements.docCategoryInput.value.trim();
+  const tags = elements.docTagsInput.value.trim();
+  if (category) {
+    formData.append("category", category);
+  }
+  if (tags) {
+    formData.append("tags", tags);
+  }
+
+  try {
+    const response = await fetch(`${state.knowledgeApiPath}/documents/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${state.token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || errorData.error || t("knowledge.uploadFailed"));
+    }
+
+    const result = await response.json();
+
+    // Show success feedback
+    elements.docSuccess.textContent = t("knowledge.uploadSuccess") || `File "${result.name}" uploaded (${result.size_bytes} bytes)`;
+
+    // Refresh docs list
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
   } catch (error) {
@@ -1484,7 +1670,22 @@ function populateConfigForm(config) {
   elements.configMaxToolIterations.value = defaults.maxToolIterations || defaults.max_tool_iterations || 200;
   elements.configReasoningEffort.value = defaults.reasoningEffort || defaults.reasoning_effort || "";
   elements.configTimezone.value = defaults.timezone || "UTC";
-  elements.configVectorStore.checked = defaults.enableVectorStore || defaults.enable_vector_store === true;
+
+  // Knowledge config
+  const knowledge = config.knowledge || {};
+  elements.configKnowledgeEnabled.checked = knowledge.enabled === true;
+  elements.configKnowledgeAutoRetrieve.checked = knowledge.autoRetrieve || knowledge.auto_retrieve === true;
+  elements.configKnowledgeMaxChunks.value = knowledge.maxChunks || knowledge.max_chunks || 5;
+  elements.configKnowledgeChunkSize.value = knowledge.chunkSize || knowledge.chunk_size || 500;
+  elements.configKnowledgeChunkOverlap.value = knowledge.chunkOverlap || knowledge.chunk_overlap || 100;
+  elements.configKnowledgeRetrievalMode.value = knowledge.retrievalMode || knowledge.retrieval_mode || "hybrid";
+
+  // Embedding config (nested in agents.defaults)
+  const embedding = defaults.embedding || {};
+  elements.configEmbeddingProvider.value = embedding.provider || "local";
+  elements.configEmbeddingModelName.value = embedding.modelName || embedding.model_name || "all-MiniLM-L6-v2";
+  elements.configEmbeddingApiKey.value = embedding.apiKey || embedding.api_key || "";
+  elements.configEmbeddingApiBase.value = embedding.apiBase || embedding.api_base || "";
 
   // Providers - 根据当前provider选择加载对应的配置
   const providers = config.providers || {};
@@ -1572,8 +1773,21 @@ async function saveConfig() {
         max_tool_iterations: getValue(elements.configMaxToolIterations, "number"),
         reasoning_effort: getValue(elements.configReasoningEffort),
         timezone: getValue(elements.configTimezone),
-        enable_vector_store: elements.configVectorStore.checked,
+        embedding: {
+          provider: getValue(elements.configEmbeddingProvider),
+          model_name: getValue(elements.configEmbeddingModelName),
+          api_key: getValue(elements.configEmbeddingApiKey),
+          api_base: getValue(elements.configEmbeddingApiBase),
+        },
       },
+    },
+    knowledge: {
+      enabled: elements.configKnowledgeEnabled.checked,
+      auto_retrieve: elements.configKnowledgeAutoRetrieve.checked,
+      max_chunks: getValue(elements.configKnowledgeMaxChunks, "number"),
+      chunk_size: getValue(elements.configKnowledgeChunkSize, "number"),
+      chunk_overlap: getValue(elements.configKnowledgeChunkOverlap, "number"),
+      retrieval_mode: getValue(elements.configKnowledgeRetrievalMode),
     },
     tools: {
       web: {
@@ -1645,12 +1859,22 @@ async function loadFile(path, { preserveDraft = false } = {}) {
   state.activeFilePath = payload.path;
   state.activeFileUpdatedAt = payload.updated_at;
   state.fileDraftDirty = false;
-  elements.editorTitle.textContent = payload.path;
+  // Update modal title and sidebar file name
+  if (elements.workspaceModalTitle) {
+    elements.workspaceModalTitle.textContent = payload.path;
+  }
+  if (elements.editorTitle) {
+    elements.editorTitle.textContent = payload.path;
+  }
   elements.fileSelect.value = payload.path;
   elements.fileEditor.value = preserveDraft ? elements.fileEditor.value : payload.content || "";
   elements.fileMeta.textContent = payload.updated_at
     ? `${t("ui.lastUpdate")} ${formatTime(payload.updated_at)}`
     : t("ui.fileNotCreated");
+  // Update sidebar compact file name
+  if (elements.currentFileName) {
+    elements.currentFileName.textContent = payload.path;
+  }
   setEditorStatus(t("status.loaded"), "connected");
   setFileError("");
 }
@@ -2021,14 +2245,6 @@ function bindEvents() {
     }
   });
 
-  elements.refreshToolsButton.addEventListener("click", async () => {
-    try {
-      await loadTools();
-    } catch (error) {
-      console.error(error);
-    }
-  });
-
   elements.refreshSkillsButton.addEventListener("click", async () => {
     try {
       await loadSkills();
@@ -2041,20 +2257,45 @@ function bindEvents() {
     await createNewSkill();
   });
 
-  elements.editorToggle.addEventListener("click", toggleEditorPanel);
-  elements.editorToggle.addEventListener("keydown", (event) => {
+  // Tools modal events
+  elements.toolsToggle.addEventListener("click", openToolsModal);
+  elements.toolsToggle.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      toggleEditorPanel();
+      openToolsModal();
     }
   });
+  elements.toolsModalOverlay.addEventListener("click", closeToolsModal);
+  elements.toolsModalClose.addEventListener("click", closeToolsModal);
+
+  // Skills modal events
+  elements.skillsToggle.addEventListener("click", openSkillsModal);
+  elements.skillsToggle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openSkillsModal();
+    }
+  });
+  elements.skillsModalOverlay.addEventListener("click", closeSkillsModal);
+  elements.skillsModalClose.addEventListener("click", closeSkillsModal);
+
+  // Workspace modal events
+  elements.workspaceToggle.addEventListener("click", openWorkspaceModal);
+  elements.workspaceToggle.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openWorkspaceModal();
+    }
+  });
+  elements.workspaceModalOverlay.addEventListener("click", closeWorkspaceModal);
+  elements.workspaceModalClose.addEventListener("click", closeWorkspaceModal);
 
   // 设置弹窗事件
   elements.settingsButton.addEventListener("click", openModal);
   elements.modalOverlay.addEventListener("click", closeModal);
   elements.modalClose.addEventListener("click", closeModal);
 
-  // Skill modal events
+  // Skill detail modal events
   elements.skillModalOverlay.addEventListener("click", closeSkillModal);
   elements.skillModalClose.addEventListener("click", closeSkillModal);
   elements.skillValidateButton.addEventListener("click", async () => {
@@ -2069,19 +2310,32 @@ function bindEvents() {
     }
   });
 
-  // Knowledge panel events
-  elements.knowledgeToggle.addEventListener("click", toggleKnowledgePanel);
+  // Tool detail modal events
+  elements.toolModalOverlay.addEventListener("click", closeToolModal);
+  elements.toolModalClose.addEventListener("click", closeToolModal);
+  elements.toolModalCloseButton.addEventListener("click", closeToolModal);
+
+  // Knowledge modal events
+  elements.knowledgeToggle.addEventListener("click", openKnowledgeModal);
   elements.knowledgeToggle.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      toggleKnowledgePanel();
+      openKnowledgeModal();
     }
   });
+  elements.knowledgeModalOverlay.addEventListener("click", closeKnowledgeModal);
+  elements.knowledgeModalClose.addEventListener("click", closeKnowledgeModal);
+
+  // Knowledge panel events
   elements.refreshDocsButton.addEventListener("click", async () => {
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
   });
   elements.addDocButton.addEventListener("click", openDocModal);
+  elements.uploadDocButton.addEventListener("click", () => {
+    elements.docFileUpload.click();
+  });
+  elements.docFileUpload.addEventListener("change", uploadDoc);
   elements.queryButton.addEventListener("click", queryKnowledge);
   elements.queryInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {

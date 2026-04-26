@@ -21,6 +21,9 @@ const translations = {
     "ui.tools": "可用工具",
     "ui.skills": "可用技能",
     "ui.workspace": "Workspace",
+    "tools.total": "个",
+    "skills.total": "个",
+    "skills.enabled": "启用",
     "ui.reload": "重新加载",
     "ui.save": "保存",
     "ui.fileNotSelected": "未选择文件",
@@ -124,7 +127,22 @@ const translations = {
     "settings.agent.reasoningEffortDefault": "默认",
     "settings.agent.timezone": "Timezone",
     "settings.agent.timezonePlaceholder": "如 Asia/Shanghai",
-    "settings.agent.vectorStore": "启用向量存储",
+
+    // Knowledge settings
+    "settings.knowledge": "Knowledge 配置",
+    "settings.knowledge.enabled": "启用知识库",
+    "settings.knowledge.autoRetrieve": "自动检索",
+    "settings.knowledge.maxChunks": "Max Chunks",
+    "settings.knowledge.chunkSize": "Chunk Size",
+    "settings.knowledge.chunkOverlap": "Chunk Overlap",
+    "settings.knowledge.retrievalMode": "检索模式",
+
+    // Embedding settings
+    "settings.embedding": "Embedding 配置",
+    "settings.embedding.provider": "Provider",
+    "settings.embedding.modelName": "Model Name",
+    "settings.embedding.apiKey": "API Key",
+    "settings.embedding.apiBase": "API Base",
 
     "settings.provider": "Provider 配置",
     "settings.provider.name": "Provider名称",
@@ -181,6 +199,7 @@ const translations = {
     "knowledge.chunks": "片段",
     "knowledge.documents": "文档列表",
     "knowledge.addDoc": "添加",
+    "knowledge.upload": "上传",
     "knowledge.query": "知识查询",
     "knowledge.queryPlaceholder": "输入查询内容...",
     "knowledge.modeHybrid": "混合",
@@ -209,6 +228,8 @@ const translations = {
     "knowledge.queryFailed": "查询失败",
     "knowledge.queryRequired": "请输入查询内容",
     "knowledge.noResults": "未找到相关结果",
+    "knowledge.uploadSuccess": "文件上传成功",
+    "knowledge.uploadFailed": "文件上传失败",
   },
   en: {
     // Brand and titles
@@ -232,6 +253,9 @@ const translations = {
     "ui.tools": "Available Tools",
     "ui.skills": "Available Skills",
     "ui.workspace": "Workspace",
+    "tools.total": "items",
+    "skills.total": "items",
+    "skills.enabled": "enabled",
     "ui.reload": "Reload",
     "ui.save": "Save",
     "ui.fileNotSelected": "No file selected",
@@ -335,7 +359,22 @@ const translations = {
     "settings.agent.reasoningEffortDefault": "Default",
     "settings.agent.timezone": "Timezone",
     "settings.agent.timezonePlaceholder": "e.g. Asia/Shanghai",
-    "settings.agent.vectorStore": "Enable vector store",
+
+    // Knowledge settings
+    "settings.knowledge": "Knowledge Config",
+    "settings.knowledge.enabled": "Enable knowledge base",
+    "settings.knowledge.autoRetrieve": "Auto retrieve",
+    "settings.knowledge.maxChunks": "Max Chunks",
+    "settings.knowledge.chunkSize": "Chunk Size",
+    "settings.knowledge.chunkOverlap": "Chunk Overlap",
+    "settings.knowledge.retrievalMode": "Retrieval Mode",
+
+    // Embedding settings
+    "settings.embedding": "Embedding Config",
+    "settings.embedding.provider": "Provider",
+    "settings.embedding.modelName": "Model Name",
+    "settings.embedding.apiKey": "API Key",
+    "settings.embedding.apiBase": "API Base",
 
     "settings.provider": "Provider Config",
     "settings.provider.name": "Provider name",
@@ -392,6 +431,7 @@ const translations = {
     "knowledge.chunks": "Chunks",
     "knowledge.documents": "Documents",
     "knowledge.addDoc": "Add",
+    "knowledge.upload": "Upload",
     "knowledge.query": "Query",
     "knowledge.queryPlaceholder": "Enter query...",
     "knowledge.modeHybrid": "Hybrid",
@@ -420,6 +460,8 @@ const translations = {
     "knowledge.queryFailed": "Query failed",
     "knowledge.queryRequired": "Please enter query text",
     "knowledge.noResults": "No results found",
+    "knowledge.uploadSuccess": "File uploaded successfully",
+    "knowledge.uploadFailed": "File upload failed",
   }
 };
 

@@ -101,124 +101,60 @@
       </form>
     </section>
 
-    <!-- 右侧：工具面板 + 文件编辑器 + OpenAI API -->
+    <!-- 右侧：精简面板 -->
     <aside class="right-panel">
-      <!-- 工具面板 -->
-      <section class="tools-panel">
-        <header class="section-header">
+      <!-- 工具面板 - 精简统计版 -->
+      <section class="tools-panel compact-panel">
+        <header class="section-header clickable" id="tools-toggle" tabindex="0" role="button" aria-expanded="false">
           <div>
             <p class="eyebrow">Tools</p>
             <h2 data-i18n="ui.tools">可用工具</h2>
           </div>
-          <button id="refresh-tools-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+          <div class="compact-stats">
+            <span id="tools-count">0</span> <span data-i18n="tools.total">个</span>
+          </div>
         </header>
-        <div id="tools-list" class="tools-list"></div>
       </section>
 
-      <!-- 知识库面板 -->
-      <section class="knowledge-panel collapsible" id="knowledge-section">
-        <header class="section-header clickable" id="knowledge-toggle" tabindex="0" role="button" aria-expanded="true">
+      <!-- 知识库面板 - 精简版 -->
+      <section class="knowledge-panel compact-panel">
+        <header class="section-header clickable" id="knowledge-toggle" tabindex="0" role="button" aria-expanded="false">
           <div>
             <p class="eyebrow">RAG</p>
             <h2 data-i18n="ui.knowledge">知识库</h2>
           </div>
-          <div class="toggle-indicator">
-            <span class="toggle-icon">▼</span>
-            <span id="knowledge-status" class="status status-idle status-small" data-i18n="status.notConfigured">未加载</span>
+          <div class="compact-stats">
+            <span id="stats-docs">0</span> <span data-i18n="knowledge.docs">文档</span>
+            <span class="separator">·</span>
+            <span id="stats-chunks">0</span> <span data-i18n="knowledge.chunks">片段</span>
           </div>
         </header>
-        <div class="collapsible-content knowledge-content">
-          <!-- 统计信息 -->
-          <div class="knowledge-stats" id="knowledge-stats">
-            <div class="stats-row">
-              <span class="stats-item">
-                <span class="stats-label" data-i18n="knowledge.docs">文档</span>
-                <span id="stats-docs" class="stats-value">0</span>
-              </span>
-              <span class="stats-item">
-                <span class="stats-label" data-i18n="knowledge.chunks">片段</span>
-                <span id="stats-chunks" class="stats-value">0</span>
-              </span>
-            </div>
-          </div>
-          <!-- 文档列表 -->
-          <div class="knowledge-docs-panel">
-            <div class="docs-header">
-              <span data-i18n="knowledge.documents">文档列表</span>
-              <div class="docs-actions">
-                <button id="refresh-docs-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
-                <button id="add-doc-button" class="button button-primary button-small" type="button" data-i18n="knowledge.addDoc">添加</button>
-              </div>
-            </div>
-            <div id="docs-list" class="docs-list"></div>
-          </div>
-          <!-- 查询面板 -->
-          <div class="knowledge-query-panel">
-            <div class="query-header">
-              <span data-i18n="knowledge.query">知识查询</span>
-            </div>
-            <div class="query-form">
-              <input id="query-input" class="query-input" type="text" data-i18n-placeholder="knowledge.queryPlaceholder" placeholder="输入查询内容..." />
-              <div class="query-options">
-                <select id="query-mode" class="query-select">
-                  <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
-                  <option value="dense" data-i18n="knowledge.modeDense">密集</option>
-                  <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
-                </select>
-                <input id="query-top-k" class="query-num-input" type="number" min="1" max="20" value="5" title="top_k" />
-                <button id="query-button" class="button button-primary button-small" type="button" data-i18n="knowledge.search">查询</button>
-              </div>
-            </div>
-            <div id="query-results" class="query-results"></div>
-          </div>
-        </div>
       </section>
 
-      <!-- 技能面板 -->
-      <section class="skills-panel">
-        <header class="section-header">
+      <!-- 技能面板 - 简统计版 -->
+      <section class="skills-panel compact-panel">
+        <header class="section-header clickable" id="skills-toggle" tabindex="0" role="button" aria-expanded="false">
           <div>
             <p class="eyebrow">Skills</p>
             <h2 data-i18n="ui.skills">可用技能</h2>
           </div>
-          <div class="header-buttons">
-            <button id="new-skill-button" class="button button-ghost button-small" type="button" aria-label="Create new skill">+</button>
-            <button id="refresh-skills-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+          <div class="compact-stats">
+            <span id="skills-count">0</span> <span data-i18n="skills.total">个</span>
+            <span class="separator">·</span>
+            <span id="skills-enabled-count">0</span> <span data-i18n="skills.enabled">启用</span>
           </div>
         </header>
-        <div id="skills-list" class="skills-list"></div>
       </section>
 
-      <!-- 文件编辑器 -->
-      <section class="editor-panel collapsible" id="editor-section">
-        <header class="section-header clickable" id="editor-toggle" tabindex="0" role="button" aria-expanded="true">
+      <!-- 工作区面板 - 精简版 -->
+      <section class="workspace-panel compact-panel">
+        <header class="section-header clickable" id="workspace-toggle" tabindex="0" role="button" aria-expanded="false">
           <div>
             <p class="eyebrow">Workspace</p>
-            <h2 id="editor-title">AGENTS.md</h2>
+            <h2 data-i18n="ui.workspace">工作区</h2>
           </div>
-          <div class="toggle-indicator">
-            <span class="toggle-icon">▼</span>
-            <span id="editor-status" class="status status-idle status-small" data-i18n="status.notConfigured">未加载</span>
-          </div>
+          <span class="compact-file" id="current-file-name">-</span>
         </header>
-        <div class="editor-content collapsible-content">
-          <div class="editor-toolbar">
-            <select id="file-select" class="select"></select>
-            <button id="reload-file-button" class="button button-small" type="button" data-i18n="ui.reload">重新加载</button>
-            <button id="save-file-button" class="button button-primary button-small" type="button" data-i18n="ui.save">保存</button>
-          </div>
-          <textarea
-            id="file-editor"
-            class="file-editor"
-            spellcheck="false"
-            data-i18n-placeholder="ui.filePlaceholder"
-            placeholder="选择一个工作区 Markdown 文件进行编辑"
-          ></textarea>
-          <div class="editor-footer">
-            <span id="file-meta" class="muted" style="color: var(--text-muted);" data-i18n="ui.fileNotSelected">未选择文件</span>
-            <span id="file-error" class="error-text"></span>
-          </div>
-        </div>
       </section>
 
       <!-- 语言切换 + 主题切换 + 设置按钮 -->
@@ -294,6 +230,155 @@
         <button id="skill-save-button" class="button button-primary" type="button" data-i18n="ui.save">保存</button>
         <button id="skill-delete-button" class="button" type="button" data-i18n="ui.delete">删除</button>
       </footer>
+    </div>
+  </div>
+
+  <!-- 工具列表弹窗 -->
+  <div id="tools-modal" class="modal">
+    <div class="modal-overlay" id="tools-modal-overlay"></div>
+    <div class="modal-content tools-modal-content">
+      <header class="modal-header">
+        <h2 data-i18n="ui.tools">可用工具</h2>
+        <button id="tools-modal-close" class="button button-ghost" type="button" aria-label="Close tools modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <div id="tools-modal-list" class="modal-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 工具详情弹窗 -->
+  <div id="tool-modal" class="modal">
+    <div class="modal-overlay" id="tool-modal-overlay"></div>
+    <div class="modal-content tool-modal-content">
+      <header class="modal-header">
+        <h2 id="tool-modal-title">Tool</h2>
+        <button id="tool-modal-close" class="button button-ghost" type="button" aria-label="Close tool modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="tool-detail-info">
+          <div class="config-field">
+            <label class="config-label" data-i18n="tool.name">名称</label>
+            <span id="tool-modal-name" class="detail-value"></span>
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="tool.description">描述</label>
+            <div id="tool-modal-desc" class="detail-text"></div>
+          </div>
+          <div class="config-field">
+            <label class="config-label" data-i18n="tool.parameters">参数</label>
+            <pre id="tool-modal-schema" class="schema-display"></pre>
+          </div>
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <button id="tool-modal-close-button" class="button button-primary" type="button" data-i18n="ui.close">关闭</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- 技能列表弹窗 -->
+  <div id="skills-modal" class="modal">
+    <div class="modal-overlay" id="skills-modal-overlay"></div>
+    <div class="modal-content skills-modal-content">
+      <header class="modal-header">
+        <h2 data-i18n="ui.skills">可用技能</h2>
+        <div class="modal-header-buttons">
+          <button id="new-skill-button" class="button button-ghost button-small" type="button" aria-label="Create new skill">+</button>
+          <button id="refresh-skills-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+        </div>
+        <button id="skills-modal-close" class="button button-ghost" type="button" aria-label="Close skills modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <div id="skills-modal-list" class="modal-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 知识库管理弹窗 -->
+  <div id="knowledge-modal" class="modal">
+    <div class="modal-overlay" id="knowledge-modal-overlay"></div>
+    <div class="modal-content knowledge-modal-content">
+      <header class="modal-header">
+        <h2 data-i18n="ui.knowledge">知识库</h2>
+        <button id="knowledge-modal-close" class="button button-ghost" type="button" aria-label="Close knowledge modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <!-- 统计信息 -->
+        <div class="knowledge-stats">
+          <div class="stats-row">
+            <span class="stats-item">
+              <span class="stats-label" data-i18n="knowledge.docs">文档</span>
+              <span id="modal-stats-docs" class="stats-value">0</span>
+            </span>
+            <span class="stats-item">
+              <span class="stats-label" data-i18n="knowledge.chunks">片段</span>
+              <span id="modal-stats-chunks" class="stats-value">0</span>
+            </span>
+          </div>
+        </div>
+        <!-- 文档列表 -->
+        <div class="knowledge-docs-panel">
+          <div class="docs-header">
+            <span data-i18n="knowledge.documents">文档列表</span>
+            <div class="docs-actions">
+              <input id="doc-file-upload" type="file" accept=".txt,.md" style="display: none;" />
+              <button id="upload-doc-button" class="button button-ghost button-small" type="button" data-i18n="knowledge.upload">上传</button>
+              <button id="refresh-docs-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
+              <button id="add-doc-button" class="button button-primary button-small" type="button" data-i18n="knowledge.addDoc">添加</button>
+            </div>
+          </div>
+          <div id="docs-list" class="docs-list"></div>
+        </div>
+        <!-- 查询面板 -->
+        <div class="knowledge-query-panel">
+          <div class="query-header">
+            <span data-i18n="knowledge.query">知识查询</span>
+          </div>
+          <div class="query-form">
+            <input id="query-input" class="query-input" type="text" data-i18n-placeholder="knowledge.queryPlaceholder" placeholder="输入查询内容..." />
+            <div class="query-options">
+              <select id="query-mode" class="query-select">
+                <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
+                <option value="dense" data-i18n="knowledge.modeDense">密集</option>
+                <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
+              </select>
+              <input id="query-top-k" class="query-num-input" type="number" min="1" max="20" value="5" title="top_k" />
+              <button id="query-button" class="button button-primary button-small" type="button" data-i18n="knowledge.search">查询</button>
+            </div>
+          </div>
+          <div id="query-results" class="query-results"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 工作区编辑弹窗 -->
+  <div id="workspace-modal" class="modal">
+    <div class="modal-overlay" id="workspace-modal-overlay"></div>
+    <div class="modal-content workspace-modal-content">
+      <header class="modal-header">
+        <h2 id="workspace-modal-title" data-i18n="ui.workspace">工作区</h2>
+        <button id="workspace-modal-close" class="button button-ghost" type="button" aria-label="Close workspace modal">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="editor-toolbar">
+          <select id="file-select" class="select"></select>
+          <button id="reload-file-button" class="button button-small" type="button" data-i18n="ui.reload">重新加载</button>
+          <button id="save-file-button" class="button button-primary button-small" type="button" data-i18n="ui.save">保存</button>
+        </div>
+        <textarea
+          id="file-editor"
+          class="file-editor"
+          spellcheck="false"
+          data-i18n-placeholder="ui.filePlaceholder"
+          placeholder="选择一个工作区 Markdown 文件进行编辑"
+        ></textarea>
+        <div class="editor-footer">
+          <span id="file-meta" class="muted" style="color: var(--text-muted);" data-i18n="ui.fileNotSelected">未选择文件</span>
+          <span id="file-error" class="error-text"></span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -386,7 +471,7 @@
   <!-- 设置弹窗 -->
   <div id="settings-modal" class="modal">
     <div class="modal-overlay" id="modal-overlay"></div>
-    <div class="modal-content">
+    <div class="modal-content settings-modal-content">
       <header class="modal-header">
         <h2>
           <svg class="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -460,11 +545,72 @@
               <label class="config-label" data-i18n="settings.agent.timezone">Timezone</label>
               <input id="config-timezone" class="config-input" type="text" data-i18n-placeholder="settings.agent.timezonePlaceholder" placeholder="如 Asia/Shanghai" />
             </div>
+          </div>
+        </div>
+
+        <!-- Knowledge 配置 -->
+        <div class="config-group">
+          <h3 class="config-group-title clickable" data-group="knowledge" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.knowledge">Knowledge 配置</span> <span class="toggle-icon">▼</span></h3>
+          <div class="config-group-content collapsed" id="config-knowledge-group">
             <div class="config-field config-checkbox-group">
               <label class="config-checkbox-label">
-                <input id="config-vector-store" type="checkbox" />
-                <span data-i18n="settings.agent.vectorStore">启用向量存储</span>
+                <input id="config-knowledge-enabled" type="checkbox" />
+                <span data-i18n="settings.knowledge.enabled">启用知识库</span>
               </label>
+            </div>
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-knowledge-auto-retrieve" type="checkbox" />
+                <span data-i18n="settings.knowledge.autoRetrieve">自动检索</span>
+              </label>
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.knowledge.maxChunks">Max Chunks</label>
+              <input id="config-knowledge-max-chunks" class="config-input" type="number" min="1" max="20" value="5" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.knowledge.chunkSize">Chunk Size</label>
+              <input id="config-knowledge-chunk-size" class="config-input" type="number" min="100" value="500" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.knowledge.chunkOverlap">Chunk Overlap</label>
+              <input id="config-knowledge-chunk-overlap" class="config-input" type="number" min="0" value="100" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.knowledge.retrievalMode">Retrieval Mode</label>
+              <select id="config-knowledge-retrieval-mode" class="config-select">
+                <option value="hybrid">hybrid (混合)</option>
+                <option value="dense">dense (密集)</option>
+                <option value="sparse">sparse (稀疏)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Embedding 配置 -->
+        <div class="config-group">
+          <h3 class="config-group-title clickable" data-group="embedding" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.embedding">Embedding 配置</span> <span class="toggle-icon">▼</span></h3>
+          <div class="config-group-content collapsed" id="config-embedding-group">
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.embedding.provider">Provider</label>
+              <select id="config-embedding-provider" class="config-select">
+                <option value="local">local (本地)</option>
+                <option value="openai">openai</option>
+                <option value="azure">azure</option>
+                <option value="custom">custom</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.embedding.modelName">Model Name</label>
+              <input id="config-embedding-model-name" class="config-input" type="text" placeholder="all-MiniLM-L6-v2" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.embedding.apiKey">API Key</label>
+              <input id="config-embedding-api-key" class="config-input" type="password" placeholder="API密钥" />
+            </div>
+            <div class="config-field">
+              <label class="config-label" data-i18n="settings.embedding.apiBase">API Base</label>
+              <input id="config-embedding-api-base" class="config-input" type="text" placeholder="API地址" />
             </div>
           </div>
         </div>
