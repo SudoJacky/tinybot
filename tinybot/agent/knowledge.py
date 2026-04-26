@@ -32,15 +32,57 @@ if TYPE_CHECKING:
 _KNOWLEDGE_COLLECTION_DENSE = "knowledge_dense"
 
 
+_CJK_PATTERN = re.compile(r"[一-鿿぀-ゟ゠-ヿ가-힯]")
+_NGRAM_SIZE = 2
+
+
 def _tokenize(text: str) -> list[str]:
-    """Simple tokenization: lowercase, split by word boundaries."""
-    # Remove punctuation and split by whitespace
-    text = text.lower()
-    # Keep only alphanumeric characters and spaces
-    text = re.sub(r"[^\w\s]", " ", text)
-    tokens = text.split()
-    # Filter out very short tokens
-    return [t for t in tokens if len(t) >= 2]
+    """Smart tokenization supporting both CJK and non-CJK text.
+
+    For CJK (Chinese/Japanese/Korean) text: uses N-gram tokenization.
+    For non-CJK text: uses word-based tokenization with punctuation removal.
+    """
+    if not text:
+        return []
+
+    # Check if text contains CJK characters
+    has_cjk = bool(_CJK_PATTERN.search(text))
+
+    if has_cjk:
+        # CJK text: use N-gram tokenization for better matching
+        tokens = []
+        # First, extract CJK segments and process them with N-gram
+        # Also preserve non-CJK words (English, numbers) within CJK text
+        i = 0
+        while i < len(text):
+            char = text[i]
+            if _CJK_PATTERN.match(char):
+                # CJK character - collect consecutive CJK chars
+                cjk_start = i
+                while i < len(text) and _CJK_PATTERN.match(text[i]):
+                    i += 1
+                cjk_segment = text[cjk_start:i]
+                # Generate N-grams from CJK segment
+                for n in range(_NGRAM_SIZE, min(len(cjk_segment) + 1, _NGRAM_SIZE + 2)):
+                    for j in range(len(cjk_segment) - n + 1):
+                        tokens.append(cjk_segment[j:j + n].lower())
+            elif char.isalnum():
+                # Non-CJK alphanumeric - collect as word
+                word_start = i
+                while i < len(text) and text[i].isalnum() and not _CJK_PATTERN.match(text[i]):
+                    i += 1
+                word = text[word_start:i].lower()
+                if len(word) >= 2:
+                    tokens.append(word)
+            else:
+                i += 1
+        return tokens
+    else:
+        # Non-CJK text: use traditional word-based tokenization
+        text = text.lower()
+        text = re.sub(r"[^\w\s]", " ", text)
+        tokens = text.split()
+        return [t for t in tokens if len(t) >= 2]
 
 
 class BM25Index:
@@ -167,8 +209,19 @@ class BM25Index:
         """Load index from JSON file."""
         if not path.exists():
             return
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            content = path.read_text(encoding="utf-8")
+            if not content.strip():
+                # Empty file, skip loading
+                logger.debug("BM25Index: empty index file at {}, skipping load", path)
+                return
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.warning("BM25Index: corrupted index file at {}, skipping load: {}", path, e)
+            return
+        except Exception as e:
+            logger.warning("BM25Index: error loading index file at {}: {}", path, e)
+            return
         self.k = data.get("k", 1.2)
         self.b = data.get("b", 0.75)
         self._inverted_index = data.get("inverted_index", {})
@@ -207,6 +260,8 @@ class KnowledgeChunk:
     chunk_index: int = 0
     start_char: int = 0  # Start position in original document
     end_char: int = 0  # End position in original document
+    line_start: int = 0  # Start line number (1-based)
+    line_end: int = 0  # End line number (1-based)
     page: int | None = None  # Page number (for PDF)
     created_at: str = ""
     doc_name: str = ""
@@ -326,6 +381,8 @@ class KnowledgeStore:
                 chunk_index=chunk["index"],
                 start_char=chunk["start_char"],
                 end_char=chunk["end_char"],
+                line_start=chunk.get("line_start", 1),
+                line_end=chunk.get("line_end", 1),
                 page=chunk.get("page"),
                 created_at=ts,
                 doc_name=name,
@@ -349,10 +406,12 @@ class KnowledgeStore:
             len(content),
         )
 
-        # Index to both dense and sparse collections
+        # Index to dense collection (requires vector_store)
         if self.vector_store is not None:
             self._index_chunks_dense(doc_id, name, str(file_path), chunks, ts, category, tags or [])
-            self._index_chunks_sparse(doc_id, name, str(file_path), chunks, ts, category, tags or [])
+
+        # Index to sparse collection (BM25, independent of vector_store)
+        self._index_chunks_sparse(doc_id, name, str(file_path), chunks, ts, category, tags or [])
 
         logger.info(
             "KnowledgeStore: added document '{}' (id={}, {} chunks, {} chars)",
@@ -609,6 +668,8 @@ class KnowledgeStore:
                     "file_path": meta.file_path,
                     "start_char": meta.start_char,
                     "end_char": meta.end_char,
+                    "line_start": meta.line_start,
+                    "line_end": meta.line_end,
                     "page": meta.page,
                     "bm25_score": bm25_score,
                     "method": "sparse",
@@ -661,6 +722,8 @@ class KnowledgeStore:
                 "file_path": meta.get("file_path", "") if meta else "",
                 "start_char": meta.get("start_char", 0) if meta else 0,
                 "end_char": meta.get("end_char", 0) if meta else 0,
+                "line_start": meta.get("line_start", 0) if meta else 0,
+                "line_end": meta.get("line_end", 0) if meta else 0,
                 "page": meta.get("page") if meta else None,
                 "distance": dist,
                 "method": method,
@@ -795,6 +858,51 @@ class KnowledgeStore:
             "indexed_sparse": len(self._bm25_index._chunk_contents),
         }
 
+    def rebuild_bm25_index(self) -> dict[str, Any]:
+        """Rebuild BM25 index from existing chunks.
+
+        Useful when the tokenizer is updated and existing index needs to be refreshed.
+        Returns statistics about the rebuild operation.
+        """
+        logger.info("KnowledgeStore: rebuilding BM25 index...")
+
+        # Clear existing BM25 index
+        self._bm25_index = BM25Index(
+            k=self.config.bm25_k if self.config else 1.2,
+            b=self.config.bm25_b if self.config else 0.75,
+        )
+
+        # Read all chunks and re-index
+        chunks = self._read_chunks()
+        indexed_count = 0
+
+        for chunk in chunks:
+            chunk_id = chunk.id
+            content = chunk.content
+            if content:
+                self._bm25_index.add_chunk(chunk_id, content)
+                indexed_count += 1
+
+        # Save the rebuilt index
+        self._bm25_index.save(self.bm25_index_file)
+
+        # Update indexed IDs tracking
+        documents = self._read_documents()
+        with self._lock:
+            self._indexed_ids = {d.id for d in documents}
+
+        logger.info(
+            "KnowledgeStore: BM25 index rebuilt ({} chunks indexed, {} terms)",
+            indexed_count,
+            len(self._bm25_index._inverted_index),
+        )
+
+        return {
+            "chunks_indexed": indexed_count,
+            "terms_created": len(self._bm25_index._inverted_index),
+            "total_docs": self._bm25_index._total_docs,
+        }
+
     def _save_document_file(
         self,
         doc_id: str,
@@ -811,7 +919,7 @@ class KnowledgeStore:
     def _chunk_text_with_positions(self, text: str) -> list[dict[str, Any]]:
         """Split text into chunks with position metadata.
 
-        Returns list of dicts with: content, index, start_char, end_char.
+        Returns list of dicts with: content, index, start_char, end_char, line_start, line_end.
         """
         chunk_size = self.config.chunk_size if self.config else 500
         chunk_overlap = self.config.chunk_overlap if self.config else 100
@@ -823,13 +931,30 @@ class KnowledgeStore:
             chunk_overlap,
         )
 
+        # Build line position map: char_index -> line_number (1-based)
+        line_positions: list[int] = []  # char index where each line starts
+        line_positions.append(0)  # Line 1 starts at char 0
+        for i, char in enumerate(text):
+            if char == "\n":
+                line_positions.append(i + 1)  # Next line starts after newline
+
+        def get_line_number(char_pos: int) -> int:
+            """Get line number (1-based) for a character position."""
+            for line_num, line_start in enumerate(line_positions, 1):
+                if char_pos < line_start:
+                    return line_num - 1
+            return len(line_positions)
+
         if len(text) <= chunk_size:
             logger.debug("KnowledgeStore: text fits in single chunk (no splitting needed)")
+            line_end = get_line_number(len(text))
             return [{
                 "content": text,
                 "index": 0,
                 "start_char": 0,
                 "end_char": len(text),
+                "line_start": 1,
+                "line_end": line_end,
             }]
 
         chunks: list[dict[str, Any]] = []
@@ -851,11 +976,15 @@ class KnowledgeStore:
 
             chunk_content = text[start:end].strip()
             if chunk_content:
+                line_start = get_line_number(start)
+                line_end = get_line_number(end)
                 chunks.append({
                     "content": chunk_content,
                     "index": index,
                     "start_char": start,
                     "end_char": end,
+                    "line_start": line_start,
+                    "line_end": line_end,
                 })
                 index += 1
 
@@ -915,6 +1044,8 @@ class KnowledgeStore:
                     "chunk_index": chunk["index"],
                     "start_char": chunk["start_char"],
                     "end_char": chunk["end_char"],
+                    "line_start": chunk.get("line_start", 1),
+                    "line_end": chunk.get("line_end", 1),
                     "page": chunk.get("page"),
                     "created_at": ts,
                     "category": category,

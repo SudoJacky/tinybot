@@ -13,7 +13,7 @@
 ## 更新日志
 
 <details>
-<summary>2026.04.24 新的 webui, 自定义skills, skills的自选激活</summary>
+<summary>2026.04.24 新的 webui, 自定义skills, skills的自选激活。</summary>
 
 日间模式
 
@@ -22,6 +22,13 @@
 黑暗模式
 
 ![dark](./show/webui_2.PNG)
+
+</details>
+
+<details>
+<summary>2026.04.26 增加RAG模块，目前支持文本内容。</summary>
+
+![RAG](./show/webui_RAG.PNG)
 </details>
 
 ## ✨ 核心亮点

@@ -39,6 +39,31 @@ const translations = {
     "ui.confirmDelete": "确定删除会话",
     "ui.close": "关闭",
 
+    // Copy actions
+    "ui.copy": "复制",
+    "ui.copied": "已复制",
+    "ui.copyFailed": "失败",
+    "ui.copyContent": "复制消息内容",
+    "ui.copyToolResult": "复制工具结果",
+
+    // Tooltips
+    "ui.toggleTheme": "切换主题",
+    "ui.settings": "设置",
+    "ui.newSession": "新建会话",
+    "ui.clearSession": "清空当前会话",
+    "ui.showShortcuts": "显示快捷键帮助",
+    "ui.github": "GitHub 仓库",
+
+    // Shortcuts modal
+    "shortcuts.title": "快捷键",
+    "shortcuts.newChat": "新建会话",
+    "shortcuts.clearSession": "清空当前会话",
+    "shortcuts.saveEdit": "保存文件编辑",
+    "shortcuts.showHelp": "显示快捷键帮助",
+    "shortcuts.sendMessage": "发送消息",
+    "shortcuts.newLine": "换行",
+    "shortcuts.closeModal": "关闭弹窗",
+
     // 状态
     "status.connecting": "连接准备中",
     "status.connected": "已连接",
@@ -206,6 +231,15 @@ const translations = {
     "knowledge.modeDense": "密集",
     "knowledge.modeSparse": "稀疏",
     "knowledge.search": "查询",
+
+    // Settings options
+    "settings.optionHybrid": "混合",
+    "settings.optionDense": "密集",
+    "settings.optionSparse": "稀疏",
+    "settings.optionLocal": "本地",
+
+    // Embedding
+    "settings.embedding": "Embedding 配置",
     "knowledge.noDocs": "暂无文档",
     "knowledge.noCategory": "无分类",
     "knowledge.docDetail": "文档详情",
@@ -230,6 +264,10 @@ const translations = {
     "knowledge.noResults": "未找到相关结果",
     "knowledge.uploadSuccess": "文件上传成功",
     "knowledge.uploadFailed": "文件上传失败",
+    "knowledge.rebuildIndex": "重建索引",
+    "knowledge.rebuildConfirm": "确定要重建知识库索引吗？这将重新处理所有文档的BM25索引。",
+    "knowledge.rebuildSuccess": "索引重建成功，共处理 {chunks} 个片段，{terms} 个词条",
+    "knowledge.rebuildFailed": "重建索引失败",
   },
   en: {
     // Brand and titles
@@ -270,6 +308,31 @@ const translations = {
     "ui.deleteSession": "Delete session",
     "ui.confirmDelete": "Confirm delete session",
     "ui.close": "Close",
+
+    // Copy actions
+    "ui.copy": "Copy",
+    "ui.copied": "Copied",
+    "ui.copyFailed": "Failed",
+    "ui.copyContent": "Copy message content",
+    "ui.copyToolResult": "Copy tool result",
+
+    // Tooltips
+    "ui.toggleTheme": "Toggle theme",
+    "ui.settings": "Settings",
+    "ui.newSession": "New session",
+    "ui.clearSession": "Clear current session",
+    "ui.showShortcuts": "Show keyboard shortcuts",
+    "ui.github": "GitHub Repository",
+
+    // Shortcuts modal
+    "shortcuts.title": "Shortcuts",
+    "shortcuts.newChat": "New chat",
+    "shortcuts.clearSession": "Clear current session",
+    "shortcuts.saveEdit": "Save file edit",
+    "shortcuts.showHelp": "Show shortcuts",
+    "shortcuts.sendMessage": "Send message",
+    "shortcuts.newLine": "New line",
+    "shortcuts.closeModal": "Close modal",
 
     // Status
     "status.connecting": "Connecting...",
@@ -375,6 +438,7 @@ const translations = {
     "settings.embedding.modelName": "Model Name",
     "settings.embedding.apiKey": "API Key",
     "settings.embedding.apiBase": "API Base",
+    "settings.optionLocal": "Local",
 
     "settings.provider": "Provider Config",
     "settings.provider.name": "Provider name",
@@ -462,6 +526,10 @@ const translations = {
     "knowledge.noResults": "No results found",
     "knowledge.uploadSuccess": "File uploaded successfully",
     "knowledge.uploadFailed": "File upload failed",
+    "knowledge.rebuildIndex": "Rebuild Index",
+    "knowledge.rebuildConfirm": "Are you sure you want to rebuild the knowledge index? This will re-process BM25 index for all documents.",
+    "knowledge.rebuildSuccess": "Index rebuilt successfully. Processed {chunks} chunks, {terms} terms.",
+    "knowledge.rebuildFailed": "Rebuild index failed",
   }
 };
 
@@ -509,6 +577,11 @@ function applyTranslations() {
     const key = el.getAttribute("data-i18n-placeholder");
     const text = t(key);
     el.placeholder = text;
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-title");
+    const text = t(key);
+    el.title = text;
   });
 }
 

@@ -24,6 +24,12 @@ dark mode
 ![dark](./show/webui_2.PNG)
 </details>
 
+<details>
+<summary>2026.04.26 add RAG module, support text content for now</summary>
+
+![RAG](./show/webui_RAG.PNG)
+</details>
+
 ## ✨ Core Highlights
 
 ### 🧠 Agentic DAG Task Scheduling
