@@ -25,6 +25,7 @@ dependencies = [
     "browser-use>=0.12.6",
     "cryptography>=46.0.7",
     "snowballstemmer>=3.0.1",
+    "pymupdf>=1.25.0,<2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -124,3 +125,7 @@ ignore = ["E501", "I001", "F401", "F841"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

@@ -22,13 +22,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import fitz  # PyMuPDF
 from loguru import logger
 
 from tinybot.utils.fs import ensure_dir
 
 if TYPE_CHECKING:
     from tinybot.agent.vector_store import VectorStore
-    from tinybot.config.schema import KnowledgeConfig
+    from tinybot.config.schema import Config, KnowledgeConfig
 
 
 _KNOWLEDGE_COLLECTION_DENSE = "knowledge_dense"
@@ -261,6 +262,7 @@ class KnowledgeChunk:
     id: str = ""
     doc_id: str = ""
     content: str = ""
+    summary: str = ""  # AI-generated summary (1-2 sentences)
     chunk_index: int = 0
     start_char: int = 0  # Start position in original document
     end_char: int = 0  # End position in original document
@@ -292,10 +294,12 @@ class KnowledgeStore:
         workspace: Path,
         vector_store: VectorStore | None = None,
         config: KnowledgeConfig | None = None,
+        config_ref: Config | None = None,
     ):
         self.workspace = workspace
         self.vector_store = vector_store
         self.config = config
+        self.config_ref = config_ref  # Full config for LLM calls
         self.knowledge_dir = ensure_dir(workspace / "knowledge")
         self.files_dir = ensure_dir(self.knowledge_dir / "files")
         self.documents_file = self.knowledge_dir / "documents.jsonl"
@@ -314,7 +318,7 @@ class KnowledgeStore:
     def add_document(
         self,
         name: str,
-        content: str,
+        content: str | bytes | bytearray,
         tags: list[str] | None = None,
         category: str = "",
         source: str = "manual_upload",
@@ -331,7 +335,7 @@ class KnowledgeStore:
 
         Args:
             name: Document name/title.
-            content: Document content text.
+            content: Document content (text for txt/md, bytes for PDF).
             tags: Optional list of tags for filtering.
             category: Optional category classification.
             source: Source type (manual_upload, file_import, web_crawl).
@@ -342,6 +346,22 @@ class KnowledgeStore:
         Returns:
             The document ID.
         """
+        # Handle PDF files
+        if file_type == "pdf":
+            return self._add_pdf_document(
+                name=name,
+                pdf_content=content,
+                tags=tags,
+                category=category,
+                source=source,
+                original_path=original_path,
+                metadata=metadata,
+            )
+
+        # Handle text files (txt, md)
+        if isinstance(content, (bytes, bytearray)):
+            content = bytes(content).decode("utf-8")
+
         if not content.strip():
             raise ValueError("Document content cannot be empty")
 
@@ -357,6 +377,9 @@ class KnowledgeStore:
 
         # Split content into chunks with position metadata
         chunks = self._chunk_text_with_positions(content, file_type=file_type)
+
+        # Generate summaries for chunks (if enabled)
+        chunks = self._generate_chunk_summaries(chunks, name)
 
         # Create document record
         doc = KnowledgeDocument(
@@ -384,6 +407,7 @@ class KnowledgeStore:
                 id=f"chunk_{doc_id}_{chunk['index']}",
                 doc_id=doc_id,
                 content=chunk["content"],
+                summary=chunk.get("summary", ""),
                 chunk_index=chunk["index"],
                 start_char=chunk["start_char"],
                 end_char=chunk["end_char"],
@@ -430,6 +454,430 @@ class KnowledgeStore:
         )
 
         return doc_id
+
+    def _add_pdf_document(
+        self,
+        name: str,
+        pdf_content: str | bytes,
+        tags: list[str] | None = None,
+        category: str = "",
+        source: str = "manual_upload",
+        original_path: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Add a PDF document to the knowledge base.
+
+        Args:
+            name: Document name/title.
+            pdf_content: PDF content as bytes, or file path as string.
+            tags: Optional list of tags for filtering.
+            category: Optional category classification.
+            source: Source type (manual_upload, file_import, web_crawl).
+            original_path: User's original file path (if importing from file).
+            metadata: Optional additional metadata.
+
+        Returns:
+            The document ID.
+        """
+        now = datetime.now()
+        ts = now.strftime("%Y-%m-%dT%H:%M:%S")
+
+        # Parse PDF and extract text with page information
+        pdf_pages = self._parse_pdf(pdf_content)
+        if not pdf_pages:
+            raise ValueError("PDF document contains no extractable text")
+
+        # Combine all page text for ID generation and storage
+        full_text = "\n\n".join(p["content"] for p in pdf_pages)
+
+        # Generate document ID
+        if isinstance(pdf_content, (bytes, bytearray)):
+            content_hash = hashlib.sha1(bytes(pdf_content)).hexdigest()[:8]
+        else:
+            content_hash = hashlib.sha1(full_text.encode()).hexdigest()[:8]
+        id_base = f"{ts}:{name}:{content_hash}"
+        doc_id = f"doc_{hashlib.sha1(id_base.encode()).hexdigest()[:8]}"
+
+        # Save original PDF file
+        if isinstance(pdf_content, (bytes, bytearray)):
+            file_path = self._save_document_file(doc_id, bytes(pdf_content), "pdf")
+        else:
+            # pdf_content is a path string
+            import shutil
+            file_name = f"{doc_id}.pdf"
+            file_path = self.files_dir / file_name
+            shutil.copy(pdf_content, file_path)
+            logger.debug("KnowledgeStore: copied PDF file to {}", file_path)
+
+        # Chunk PDF content with page metadata
+        chunks = self._chunk_pdf(pdf_pages)
+
+        # Generate summaries for chunks (if enabled)
+        chunks = self._generate_chunk_summaries(chunks, name)
+
+        # Create document record (store extracted text, not binary)
+        doc = KnowledgeDocument(
+            id=doc_id,
+            name=name,
+            file_path=str(file_path),
+            original_path=original_path,
+            source=source,
+            file_type="pdf",
+            content=full_text,  # Store extracted text for searching
+            created_at=ts,
+            chunk_count=len(chunks),
+            category=category,
+            tags=tags or [],
+            metadata=metadata or {},
+        )
+
+        # Write document index
+        with open(self.documents_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(asdict(doc), ensure_ascii=False) + "\n")
+
+        # Save chunks index
+        for chunk in chunks:
+            chunk_record = KnowledgeChunk(
+                id=f"chunk_{doc_id}_{chunk['index']}",
+                doc_id=doc_id,
+                content=chunk["content"],
+                summary=chunk.get("summary", ""),
+                chunk_index=chunk["index"],
+                start_char=chunk["start_char"],
+                end_char=chunk["end_char"],
+                line_start=chunk.get("line_start", 1),
+                line_end=chunk.get("line_end", 1),
+                page=chunk.get("page"),
+                created_at=ts,
+                doc_name=name,
+                file_path=str(file_path),
+                category=category,
+                tags=tags or [],
+                section_path=chunk.get("section_path", ""),
+                block_type=chunk.get("block_type", "pdf_text"),
+            )
+            with open(self.chunks_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(asdict(chunk_record), ensure_ascii=False) + "\n")
+
+        # Update cursor
+        cursor = self._next_cursor()
+        self._cursor_file.write_text(str(cursor), encoding="utf-8")
+
+        logger.debug(
+            "KnowledgeStore: adding PDF document '{}' (id={}, category={}, tags={}, {} pages)",
+            name,
+            doc_id,
+            category or "none",
+            tags or [],
+            len(pdf_pages),
+        )
+
+        # Index to dense collection (requires vector_store)
+        if self.vector_store is not None:
+            self._index_chunks_dense(doc_id, name, str(file_path), chunks, ts, category, tags or [])
+
+        # Index to sparse collection (BM25, independent of vector_store)
+        self._index_chunks_sparse(doc_id, name, str(file_path), chunks, ts, category, tags or [])
+
+        logger.info(
+            "KnowledgeStore: added PDF document '{}' (id={}, {} chunks, {} pages)",
+            name,
+            doc_id,
+            len(chunks),
+            len(pdf_pages),
+        )
+
+        return doc_id
+
+    def _parse_pdf(self, pdf_content: str | bytes) -> list[dict[str, Any]]:
+        """Parse PDF and extract text from each page.
+
+        Args:
+            pdf_content: PDF content as bytes/bytearray, or file path as string.
+
+        Returns:
+            List of dicts with: content (text), page (1-based), start_char, end_char.
+        """
+        # Open PDF document
+        if isinstance(pdf_content, (bytes, bytearray)):
+            doc = fitz.open(stream=bytes(pdf_content), filetype="pdf")
+        else:
+            # pdf_content is a file path
+            doc = fitz.open(pdf_content)
+
+        pages: list[dict[str, Any]] = []
+        global_char_offset = 0
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text("text")
+
+            if not text.strip():
+                # Skip empty pages
+                global_char_offset += 0
+                continue
+
+            page_info = {
+                "content": text.strip(),
+                "page": page_num + 1,  # 1-based page number
+                "start_char": global_char_offset,
+                "end_char": global_char_offset + len(text.strip()),
+            }
+            pages.append(page_info)
+            global_char_offset += len(text.strip()) + 2  # +2 for separator when joining
+
+        doc.close()
+        logger.debug(
+            "KnowledgeStore: parsed PDF ({} pages, {} chars total)",
+            len(pages),
+            global_char_offset,
+        )
+        return pages
+
+    def _chunk_pdf(self, pdf_pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Chunk PDF content while preserving page metadata.
+
+        Args:
+            pdf_pages: List of page dicts from _parse_pdf.
+
+        Returns:
+            List of chunk dicts with: content, index, start_char, end_char, page, block_type.
+        """
+        chunk_size = self.config.chunk_size if self.config else 500
+        chunk_overlap = self.config.chunk_overlap if self.config else 100
+
+        logger.debug(
+            "KnowledgeStore: chunking PDF ({} pages, chunk_size={}, overlap={})",
+            len(pdf_pages),
+            chunk_size,
+            chunk_overlap,
+        )
+
+        chunks: list[dict[str, Any]] = []
+        chunk_index = 0
+
+        for page_info in pdf_pages:
+            page_text = page_info["content"]
+            page_num = page_info["page"]
+            page_start = page_info["start_char"]
+
+            if len(page_text) <= chunk_size:
+                # Whole page fits in one chunk
+                chunks.append({
+                    "content": page_text,
+                    "index": chunk_index,
+                    "start_char": page_start,
+                    "end_char": page_start + len(page_text),
+                    "line_start": 1,
+                    "line_end": page_text.count("\n") + 1,
+                    "page": page_num,
+                    "section_path": f"Page {page_num}",
+                    "block_type": "pdf_text",
+                })
+                chunk_index += 1
+            else:
+                # Split large page into multiple chunks
+                page_chunks = self._split_pdf_page(
+                    page_text,
+                    page_num,
+                    page_start,
+                    chunk_size,
+                    chunk_overlap,
+                    chunk_index,
+                )
+                chunks.extend(page_chunks)
+                chunk_index += len(page_chunks)
+
+        logger.debug(
+            "KnowledgeStore: chunked PDF into {} chunks",
+            len(chunks),
+        )
+        return chunks
+
+    def _split_pdf_page(
+        self,
+        page_text: str,
+        page_num: int,
+        page_start: int,
+        chunk_size: int,
+        chunk_overlap: int,
+        start_index: int,
+    ) -> list[dict[str, Any]]:
+        """Split a large PDF page into multiple chunks.
+
+        Args:
+            page_text: Text content of the page.
+            page_num: Page number (1-based).
+            page_start: Global character offset for this page.
+            chunk_size: Maximum chunk size.
+            chunk_overlap: Overlap between chunks.
+            start_index: Starting chunk index.
+
+        Returns:
+            List of chunk dicts.
+        """
+        chunks: list[dict[str, Any]] = []
+        start = 0
+        index = start_index
+
+        # Build line position map for this page
+        line_positions: list[int] = [0]
+        for i, char in enumerate(page_text):
+            if char == "\n":
+                line_positions.append(i + 1)
+
+        def get_line_number(char_pos: int) -> int:
+            return max(1, bisect_right(line_positions, char_pos))
+
+        while start < len(page_text):
+            end = min(start + chunk_size, len(page_text))
+
+            # Try to find natural break point
+            if end < len(page_text):
+                for offset in range(min(50, chunk_size // 10)):
+                    if end - offset <= start:
+                        break
+                    char = page_text[end - offset]
+                    if char in ("\n", " ", ".", "!", "?", "；", "。", "！", "？"):
+                        end = end - offset + 1
+                        break
+
+            chunk_content = page_text[start:end].strip()
+            if chunk_content:
+                line_start = get_line_number(start)
+                line_end = get_line_number(end)
+                chunks.append({
+                    "content": chunk_content,
+                    "index": index,
+                    "start_char": page_start + start,
+                    "end_char": page_start + end,
+                    "line_start": line_start,
+                    "line_end": line_end,
+                    "page": page_num,
+                    "section_path": f"Page {page_num}",
+                    "block_type": "pdf_text",
+                })
+                index += 1
+
+            # Next start with overlap
+            next_start = end - chunk_overlap
+            if next_start <= start:
+                next_start = end
+            start = next_start
+
+        return chunks
+
+    def _generate_chunk_summaries(
+        self,
+        chunks: list[dict[str, Any]],
+        doc_name: str,
+    ) -> list[dict[str, Any]]:
+        """Generate summaries for chunks using LLM.
+
+        Args:
+            chunks: List of chunk dicts with 'content' field.
+            doc_name: Document name for context.
+
+        Returns:
+            Chunks with 'summary' field added.
+        """
+        if not self.config or not self.config.generate_summary:
+            return chunks
+
+        if not self.config_ref:
+            logger.warning("KnowledgeStore: generate_summary enabled but no config_ref provided")
+            return chunks
+
+        # Get LLM configuration
+        agent_defaults = self.config_ref.agents.defaults
+        model = agent_defaults.model
+        provider_config = self.config_ref.get_provider(model)
+
+        if not provider_config or not provider_config.api_key:
+            logger.warning("KnowledgeStore: no LLM provider configured for summary generation")
+            return chunks
+
+        api_key = provider_config.api_key
+        api_base = provider_config.api_base or self.config_ref.get_api_base(model) or "https://api.openai.com/v1"
+
+        logger.info(
+            "KnowledgeStore: generating summaries for {} chunks (model={})",
+            len(chunks),
+            model,
+        )
+
+        # Use OpenAI client for batch generation
+        try:
+            import httpx
+        except ImportError:
+            logger.warning("KnowledgeStore: httpx not available for summary generation")
+            return chunks
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        if provider_config.extra_headers:
+            headers.update(provider_config.extra_headers)
+
+        summary_prompt = """请用1-2句话总结以下文本片段的核心内容，要求简洁准确，突出关键信息。不要添加任何解释或引言，直接输出总结内容。
+
+文本片段：
+{content}
+
+总结："""
+
+        # Batch process chunks
+        batch_size = 5
+        for batch_start in range(0, len(chunks), batch_size):
+            batch = chunks[batch_start:batch_start + batch_size]
+            batch_num = batch_start // batch_size + 1
+            total_batches = (len(chunks) + batch_size - 1) // batch_size
+
+            logger.debug(
+                "KnowledgeStore: processing summary batch {} of {}",
+                batch_num,
+                total_batches,
+            )
+
+            for i, chunk in enumerate(batch):
+                content = chunk["content"]
+                if len(content) < 50:
+                    # Skip very short chunks
+                    chunk["summary"] = ""
+                    continue
+
+                prompt = summary_prompt.format(content=content[:2000])  # Limit content length
+
+                try:
+                    with httpx.Client(timeout=30.0) as client:
+                        response = client.post(
+                            f"{api_base}/chat/completions",
+                            headers=headers,
+                            json={
+                                "model": model,
+                                "messages": [{"role": "user", "content": prompt}],
+                                "max_tokens": 100,
+                                "temperature": 0.3,
+                            },
+                        )
+                        response.raise_for_status()
+                        result = response.json()
+                        summary = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        chunk["summary"] = summary.strip()
+                except Exception as e:
+                    logger.warning(
+                        "KnowledgeStore: failed to generate summary for chunk {}: {}",
+                        chunk["index"],
+                        e,
+                    )
+                    chunk["summary"] = ""
+
+        logger.info(
+            "KnowledgeStore: generated {} summaries",
+            sum(1 for c in chunks if c.get("summary")),
+        )
+        return chunks
 
     def query(
         self,
@@ -899,10 +1347,14 @@ class KnowledgeStore:
         """Get full content of a document by ID.
 
         Reads from saved file if available.
+        For PDF files, returns the extracted text stored in doc.content.
         """
         documents = self._read_documents()
         for doc in documents:
             if doc.id == doc_id:
+                # PDF files: return extracted text from doc.content, not binary file
+                if doc.file_type == "pdf":
+                    return doc.content
                 if doc.file_path and Path(doc.file_path).exists():
                     return Path(doc.file_path).read_text(encoding="utf-8")
                 return doc.content
@@ -1054,13 +1506,31 @@ class KnowledgeStore:
     def _save_document_file(
         self,
         doc_id: str,
-        content: str,
+        content: str | bytes | bytearray,
         file_type: str,
     ) -> Path:
-        """Save document content to local file."""
+        """Save document content to local file.
+
+        Args:
+            doc_id: Document ID
+            content: Text content (str) for txt/md, or binary content (bytes/bytearray) for PDF
+            file_type: File type (txt, md, pdf)
+
+        Returns:
+            Path to saved file
+        """
         file_name = f"{doc_id}.{file_type}"
         file_path = self.files_dir / file_name
-        file_path.write_text(content, encoding="utf-8")
+
+        if file_type == "pdf":
+            if isinstance(content, (bytes, bytearray)):
+                file_path.write_bytes(bytes(content))
+            else:
+                # If text is passed for PDF, it's already extracted - save as txt
+                file_path.write_text(content, encoding="utf-8")
+        else:
+            file_path.write_text(content, encoding="utf-8")
+
         logger.debug("KnowledgeStore: saved document file to {}", file_path)
         return file_path
 

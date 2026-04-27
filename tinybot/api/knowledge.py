@@ -2,7 +2,7 @@
 
 Provides REST endpoints for RAG operations:
 - List, add, get, delete documents
-- Upload files (txt, md)
+- Upload files (txt, md, pdf)
 - Query knowledge base with hybrid retrieval
 """
 
@@ -130,7 +130,7 @@ async def handle_upload_document(request: web.Request) -> web.Response:
     """POST /v1/knowledge/documents/upload
 
     Handles multipart/form-data file upload.
-    Supported file types: txt, md
+    Supported file types: txt, md, pdf
 
     Form fields:
     - file: The uploaded file (required)
@@ -173,21 +173,26 @@ async def handle_upload_document(request: web.Request) -> web.Response:
 
     # Validate file type
     file_ext = Path(filename).suffix.lower().lstrip(".")
-    supported_types = {"txt", "md"}
+    supported_types = {"txt", "md", "pdf"}
     if file_ext not in supported_types:
         return _error_json(
             400,
             f"Unsupported file type '{file_ext}'. Supported: {', '.join(sorted(supported_types))}",
         )
 
-    # Decode content
-    try:
-        content = file_content.decode("utf-8")
-    except UnicodeDecodeError as e:
-        return _error_json(400, f"Error decoding file content (expected UTF-8): {e}")
+    # Process file content
+    if file_ext == "pdf":
+        # PDF files use raw binary content
+        content = file_content
+    else:
+        # Text files need UTF-8 decoding
+        try:
+            content = file_content.decode("utf-8")
+        except UnicodeDecodeError as e:
+            return _error_json(400, f"Error decoding file content (expected UTF-8): {e}")
 
-    if not content.strip():
-        return _error_json(400, "File content is empty")
+        if not content.strip():
+            return _error_json(400, "File content is empty")
 
     try:
         doc_id = knowledge_store.add_document(

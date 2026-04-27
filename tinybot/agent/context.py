@@ -372,6 +372,7 @@ class ContextBuilder:
         for idx, result in enumerate(results, 1):
             doc_name = result.get("doc_name", "Unknown")
             content = result.get("content", "")
+            summary = result.get("summary", "")
             file_path = result.get("file_path", "")
             category = result.get("category", "")
             section_path = result.get("section_path", "")
@@ -394,7 +395,11 @@ class ContextBuilder:
                 meta_parts.append(f"页码: {page}")
             meta_str = " | ".join(meta_parts)
 
-            lines.append(f"[{idx}] {meta_str}\n{content}\n\n")
+            # Include summary if available
+            if summary:
+                lines.append(f"[{idx}] {meta_str}\n摘要: {summary}\n内容: {content}\n\n")
+            else:
+                lines.append(f"[{idx}] {meta_str}\n{content}\n\n")
 
         lines.append("注意: 如果引用了上述知识内容，请在对应的回答中附上知识的来源（文档名称，第几页，第几行，文档路径在哪）。\n---")
         return "".join(lines)
