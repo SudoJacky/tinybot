@@ -94,29 +94,74 @@
             <h1>命令行界面</h1>
 <h2 id="启动聊天">启动聊天</h2>
 <p>在终端运行：</p>
-<pre><code class="language-bash">uv run tinybot agent
-</code></pre>
+<pre><code class="language-bash">uv run tinybot agent</code></pre>
 <p>进入聊天界面后，直接输入文字和 AI 对话。</p>
-<p>---</p>
+<hr>
 <h2 id="快捷键">快捷键</h2>
-<p>| 操作 | 快捷键 |
-|------|--------|
-| 发送消息 | 回车键 |
-| 输入多行 | Shift + 回车 |
-| 打开设置 | Ctrl + O 或输入 <code>/config</code> |
-| 中断回复 | Ctrl + C |
-| 退出程序 | Ctrl + D 或输入 <code>/exit</code> |</p>
-<p>---</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>快捷键</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>发送消息</td>
+<td>回车键</td>
+</tr>
+<tr>
+<td>输入多行</td>
+<td>Shift + 回车</td>
+</tr>
+<tr>
+<td>打开设置</td>
+<td>Ctrl + O 或输入 <code>/config</code></td>
+</tr>
+<tr>
+<td>中断回复</td>
+<td>Ctrl + C</td>
+</tr>
+<tr>
+<td>退出程序</td>
+<td>Ctrl + D 或输入 <code>/exit</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
 <h2 id="内置命令">内置命令</h2>
 <p>在聊天中输入以下命令：</p>
-<p>| 命令 | 说明 |
-|------|------|
-| <code>/help</code> | 显示帮助信息 |
-| <code>/config</code> | 打开配置编辑器 |
-| <code>/clear</code> | 清除当前对话历史 |
-| <code>/new</code> | 开始新对话 |
-| <code>/exit</code> | 退出程序 |</p>
-<p>---</p>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/help</code></td>
+<td>显示帮助信息</td>
+</tr>
+<tr>
+<td><code>/config</code></td>
+<td>打开配置编辑器</td>
+</tr>
+<tr>
+<td><code>/clear</code></td>
+<td>清除当前对话历史</td>
+</tr>
+<tr>
+<td><code>/new</code></td>
+<td>开始新对话</td>
+</tr>
+<tr>
+<td><code>/exit</code></td>
+<td>退出程序</td>
+</tr>
+</tbody>
+</table>
+<hr>
 <h2 id="配置编辑器">配置编辑器</h2>
 <p>按 <code>Ctrl+O</code> 打开配置界面，可以：</p>
 <ul>
@@ -126,21 +171,19 @@
 <li>调整其他参数</li>
 </ul>
 <p>修改后按 <code>q</code> 保存并返回聊天。</p>
-<p>---</p>
+<hr>
 <h2 id="发送单条消息">发送单条消息</h2>
 <p>不想进入聊天界面，只想快速问一个问题：</p>
-<pre><code class="language-bash">uv run tinybot agent -m "你的问题"
-</code></pre>
+<pre><code class="language-bash">uv run tinybot agent -m &quot;你的问题&quot;</code></pre>
 <p>AI 会回复后自动退出。</p>
-<p>---</p>
+<hr>
 <h2 id="任务进度显示">任务进度显示</h2>
 <p>当 AI 执行复杂任务时，会显示进度：</p>
 <pre><code class="language-">任务进度：60%
 正在执行：读取文件
 已完成：扫描目录、分析结构
-待执行：生成报告、保存文件
-</code></pre>
-<p>---</p>
+待执行：生成报告、保存文件</code></pre>
+<hr>
 <h2 id="常见问题">常见问题</h2>
 <h3 id="输入中文乱码">输入中文乱码？</h3>
 <p>确保终端支持 UTF-8 编码。Windows 用户建议使用 PowerShell 或 Windows Terminal。</p>
@@ -148,11 +191,12 @@
 <p>可能是网络问题或模型响应慢。可以尝试更换模型或检查网络。</p>
 <h3 id="如何中断-ai-回复">如何中断 AI 回复？</h3>
 <p>按 <code>Ctrl + C</code> 即可中断当前的 AI 回复。</p>
-<p>---</p>
+<hr>
 <h2 id="下一步">下一步</h2>
 <ul>
 <li><a href="/docs/webui">网页界面</a> - 使用浏览器界面</li>
 <li><a href="/docs/config">配置说明</a> - 详细配置选项</li>
+</ul>
           </div>
         </article>
       </main>

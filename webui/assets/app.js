@@ -240,6 +240,34 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function renderMarkdown(target, content) {
+  target.textContent = "";
+  if (!content || !content.trim()) {
+    return;
+  }
+
+  if (typeof marked === "undefined") {
+    target.textContent = content;
+    return;
+  }
+
+  try {
+    marked.setOptions({
+      breaks: true,
+      gfm: true,
+    });
+    target.innerHTML = marked.parse(content);
+
+    if (typeof hljs !== "undefined") {
+      target.querySelectorAll("pre code").forEach((block) => {
+        hljs.highlightElement(block);
+      });
+    }
+  } catch {
+    target.textContent = content;
+  }
+}
+
 function setFileError(text = "") {
   elements.fileError.textContent = text;
 }
@@ -469,16 +497,11 @@ function updateMessageContent(contentEl, message) {
 
     // 对assistant消息使用Markdown渲染
     if (message.role === "assistant" && typeof marked !== "undefined") {
+      renderMarkdown(textEl, message.content);
       try {
-        marked.setOptions({
-          breaks: true,
-          gfm: true,
-        });
-        textEl.innerHTML = marked.parse(message.content);
         // 应用代码语法高亮和添加复制按钮
         if (typeof hljs !== "undefined") {
           textEl.querySelectorAll("pre code").forEach((block) => {
-            hljs.highlightElement(block);
             // 添加复制按钮到代码块
             const pre = block.parentElement;
             if (pre && !pre.querySelector(".code-copy-btn")) {
@@ -1371,7 +1394,7 @@ async function viewDoc(docId) {
     elements.docViewCategory.textContent = doc.category || t("knowledge.noCategory");
     elements.docViewTags.textContent = (doc.tags || []).join(", ") || "-";
     elements.docViewCreated.textContent = doc.created_at ? formatTime(doc.created_at) : "-";
-    elements.docViewContent.value = doc.content || "";
+    renderMarkdown(elements.docViewContent, doc.content || "");
 
     openDocViewModal();
   } catch (error) {

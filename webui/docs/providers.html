@@ -94,62 +94,167 @@
             <h1>AI 服务配置</h1>
 <h2 id="支持哪些-ai-服务">支持哪些 AI 服务？</h2>
 <p>Tinybot 支持多种 AI 服务提供商：</p>
-<p>| 服务 | 说明 | 推荐场景 |
-|------|------|----------|
-| DeepSeek | 国内服务，价格实惠 | 日常使用、编程助手 |
-| OpenAI (GPT-4) | 功能强大 | 复杂任务、多模态需求 |
-| 通义千问 (Qwen) | 阿里云服务 | 国内用户、中文优化 |
-| 智谱 AI (GLM) | 国产模型 | 中文场景 |
-| Moonshot (Kimi) | 长文本处理 | 文档分析 |
-| OpenRouter | 多模型聚合 | 尝试不同模型 |
-| Ollama | 本地运行 | 无需网络、隐私保护 |</p>
-<p>---</p>
+<table>
+<thead>
+<tr>
+<th>服务</th>
+<th>说明</th>
+<th>推荐场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DeepSeek</td>
+<td>国内服务，价格实惠</td>
+<td>日常使用、编程助手</td>
+</tr>
+<tr>
+<td>OpenAI (GPT-4)</td>
+<td>功能强大</td>
+<td>复杂任务、多模态需求</td>
+</tr>
+<tr>
+<td>通义千问 (Qwen)</td>
+<td>阿里云服务</td>
+<td>国内用户、中文优化</td>
+</tr>
+<tr>
+<td>智谱 AI (GLM)</td>
+<td>国产模型</td>
+<td>中文场景</td>
+</tr>
+<tr>
+<td>Moonshot (Kimi)</td>
+<td>长文本处理</td>
+<td>文档分析</td>
+</tr>
+<tr>
+<td>OpenRouter</td>
+<td>多模型聚合</td>
+<td>尝试不同模型</td>
+</tr>
+<tr>
+<td>Ollama</td>
+<td>本地运行</td>
+<td>无需网络、隐私保护</td>
+</tr>
+</tbody>
+</table>
+<hr>
 <h2 id="如何配置">如何配置？</h2>
 <h3 id="方法一-初始化配置">方法一：初始化配置</h3>
 <p>运行初始化命令，会引导你配置：</p>
-<pre><code class="language-bash">uv run tinybot onboard
-</code></pre>
+<pre><code class="language-bash">uv run tinybot onboard</code></pre>
 <h3 id="方法二-网页界面">方法二：网页界面</h3>
 <p>在网页界面的设置面板中配置 API 密钥。</p>
 <h3 id="方法三-环境变量-推荐">方法三：环境变量（推荐）</h3>
 <p>设置环境变量，更安全：</p>
-<strong>Windows (PowerShell):</strong>
-<pre><code class="language-powershell">$env:DEEPSEEK_API_KEY = "你的密钥"
-</code></pre>
-<strong>Mac/Linux:</strong>
-<pre><code class="language-bash">export DEEPSEEK_API_KEY="你的密钥"
-</code></pre>
-<p>---</p>
+<p><strong>Windows (PowerShell):</strong></p>
+<pre><code class="language-powershell">$env:DEEPSEEK_API_KEY = &quot;你的密钥&quot;</code></pre>
+<p><strong>Mac/Linux:</strong></p>
+<pre><code class="language-bash">export DEEPSEEK_API_KEY=&quot;你的密钥&quot;</code></pre>
+<hr>
 <h2 id="获取-api-密钥">获取 API 密钥</h2>
 <p>在对应平台注册账号后获取：</p>
-<p>| 服务 | 获取地址 |
-|------|----------|
-| DeepSeek | https://platform.deepseek.com |
-| OpenAI | https://platform.openai.com |
-| 通义千问 | https://dashscope.aliyuncs.com |
-| 智谱 AI | https://open.bigmodel.cn |
-| Moonshot | https://platform.moonshot.cn |
-| OpenRouter | https://openrouter.ai |</p>
-<p>---</p>
+<table>
+<thead>
+<tr>
+<th>服务</th>
+<th>获取地址</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DeepSeek</td>
+<td>https://platform.deepseek.com</td>
+</tr>
+<tr>
+<td>OpenAI</td>
+<td>https://platform.openai.com</td>
+</tr>
+<tr>
+<td>通义千问</td>
+<td>https://dashscope.aliyuncs.com</td>
+</tr>
+<tr>
+<td>智谱 AI</td>
+<td>https://open.bigmodel.cn</td>
+</tr>
+<tr>
+<td>Moonshot</td>
+<td>https://platform.moonshot.cn</td>
+</tr>
+<tr>
+<td>OpenRouter</td>
+<td>https://openrouter.ai</td>
+</tr>
+</tbody>
+</table>
+<hr>
 <h2 id="选择模型">选择模型</h2>
 <p>不同模型适合不同场景：</p>
 <h3 id="deepseek-模型">DeepSeek 模型</h3>
-<p>| 模型 | 说明 |
-|------|------|
-| deepseek-chat | 日常对话，快速响应 |
-| deepseek-reasoner | 深度思考，适合复杂问题 |</p>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>deepseek-chat</td>
+<td>日常对话，快速响应</td>
+</tr>
+<tr>
+<td>deepseek-reasoner</td>
+<td>深度思考，适合复杂问题</td>
+</tr>
+</tbody>
+</table>
 <h3 id="openai-模型">OpenAI 模型</h3>
-<p>| 模型 | 说明 |
-|------|------|
-| gpt-4o | 最新旗舰，功能全面 |
-| gpt-4o-mini | 轻量版，速度快 |
-| o1/o3 | 推理模型，适合复杂逻辑 |</p>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gpt-4o</td>
+<td>最新旗舰，功能全面</td>
+</tr>
+<tr>
+<td>gpt-4o-mini</td>
+<td>轻量版，速度快</td>
+</tr>
+<tr>
+<td>o1/o3</td>
+<td>推理模型，适合复杂逻辑</td>
+</tr>
+</tbody>
+</table>
 <h3 id="通义千问模型">通义千问模型</h3>
-<p>| 模型 | 说明 |
-|------|------|
-| qwen-max | 高性能版 |
-| qwen-turbo | 快速版 |</p>
-<p>---</p>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>qwen-max</td>
+<td>高性能版</td>
+</tr>
+<tr>
+<td>qwen-turbo</td>
+<td>快速版</td>
+</tr>
+</tbody>
+</table>
+<hr>
 <h2 id="自动匹配">自动匹配</h2>
 <p>Tinybot 会根据模型名称自动选择对应的 AI 服务：</p>
 <ul>
@@ -158,39 +263,39 @@
 <li>使用 <code>qwen-max</code> → 自动使用通义千问服务</li>
 </ul>
 <p>你只需要配置对应服务的 API 密钥即可。</p>
-<p>---</p>
+<hr>
 <h2 id="本地模型-ollama">本地模型 (Ollama)</h2>
 <p>如果你在本机安装了 Ollama，可以使用本地模型，无需 API 密钥。</p>
 <h3 id="安装-ollama">安装 Ollama</h3>
 <p>访问 https://ollama.com 下载安装</p>
 <h3 id="运行模型">运行模型</h3>
-<pre><code class="language-bash">ollama run llama3.2
-</code></pre>
+<pre><code class="language-bash">ollama run llama3.2</code></pre>
 <h3 id="配置-tinybot">配置 Tinybot</h3>
 <p>在设置中选择 <code>ollama</code> 作为 Provider，模型名称填 <code>llama3.2</code>。</p>
-<p>---</p>
+<hr>
 <h2 id="常见问题">常见问题</h2>
 <h3 id="api-调用失败">API 调用失败？</h3>
-<p>检查：
+<p>检查：</p>
 <ol>
 <li>API 密钥是否正确</li>
 <li>网络是否正常</li>
 <li>账户余额是否充足</li>
-</ul></p>
+</ol>
 <h3 id="如何更换模型">如何更换模型？</h3>
 <p>在配置中修改 <code>model</code> 参数，或使用 <code>/config</code> 命令打开配置编辑器。</p>
 <h3 id="费用太高">费用太高？</h3>
-<p>考虑：
+<p>考虑：</p>
 <ol>
 <li>使用 DeepSeek（价格较低）</li>
 <li>使用本地模型（完全免费）</li>
 <li>减少不必要的长对话</li>
-</ul></p>
-<p>---</p>
+</ol>
+<hr>
 <h2 id="下一步">下一步</h2>
 <ul>
 <li><a href="/docs/config">详细配置</a> - 所有配置选项说明</li>
 <li><a href="/docs/quickstart">快速开始</a> - 开始使用</li>
+</ul>
           </div>
         </article>
       </main>

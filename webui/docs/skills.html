@@ -94,31 +94,54 @@
             <h1>技能系统</h1>
 <h2 id="什么是技能">什么是技能？</h2>
 <p>技能是预设的行为模板，让 AI 在特定场景下按照特定方式工作。</p>
-<strong>示例：</strong>
+<p><strong>示例：</strong></p>
 <ul>
-<li>你要求总结文章 → AI 使用"总结技能"按要点整理</li>
-<li>你要求查天气 → AI 使用"天气技能"获取天气信息</li>
-<li>你要求定时提醒 → AI 使用"定时技能"设置任务</li>
+<li>你要求总结文章 → AI 使用&quot;总结技能&quot;按要点整理</li>
+<li>你要求查天气 → AI 使用&quot;天气技能&quot;获取天气信息</li>
+<li>你要求定时提醒 → AI 使用&quot;定时技能&quot;设置任务</li>
 </ul>
-<p>---</p>
+<hr>
 <h2 id="默认技能">默认技能</h2>
 <p>Tinybot 内置多种技能：</p>
-<p>| 技能 | 功能 |
-|------|------|
-| 文本总结 | 按要点整理长文本 |
-| 天气查询 | 获取天气信息 |
-| 定时任务 | 设置定时提醒 |
-| 记忆管理 | 管理对话记忆 |
-| 浏览器操作 | 自动化浏览器任务 |</p>
-<p>---</p>
+<table>
+<thead>
+<tr>
+<th>技能</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>文本总结</td>
+<td>按要点整理长文本</td>
+</tr>
+<tr>
+<td>天气查询</td>
+<td>获取天气信息</td>
+</tr>
+<tr>
+<td>定时任务</td>
+<td>设置定时提醒</td>
+</tr>
+<tr>
+<td>记忆管理</td>
+<td>管理对话记忆</td>
+</tr>
+<tr>
+<td>浏览器操作</td>
+<td>自动化浏览器任务</td>
+</tr>
+</tbody>
+</table>
+<hr>
 <h2 id="技能触发">技能触发</h2>
 <p>AI 会自动判断何时使用技能：</p>
 <pre><code class="language-">用户：帮我总结这篇文章
-<p>AI：[识别需要总结技能]
-[按照技能模板执行]
-</code></pre></p>
+
+AI：[识别需要总结技能]
+[按照技能模板执行]</code></pre>
 <p>不需要特别指令，AI 会自动匹配。</p>
-<p>---</p>
+<hr>
 <h2 id="查看技能">查看技能</h2>
 <h3 id="网页界面">网页界面</h3>
 <p>右侧技能面板显示所有可用技能：</p>
@@ -132,7 +155,7 @@
 <li>点击开关切换状态</li>
 <li>禁用的技能不会被使用</li>
 </ul>
-<p>---</p>
+<hr>
 <h2 id="创建自定义技能">创建自定义技能</h2>
 <p>如果你想让 AI 在特定场景有特定行为，可以创建新技能。</p>
 <h3 id="技能文件格式">技能文件格式</h3>
@@ -141,87 +164,91 @@
 name: my-skill
 description: 我的自定义技能
 ---
-<h1>技能说明</h1>
-<p>##触发条件
-什么时候使用这个技能</p>
-<h2 id="执行步骤">执行步骤</h2>
-<ol>
-<li>第一步做什么</li>
-<li>第二步做什么</li>
-</ul>
-<h2 id="输出格式">输出格式</h2>
-希望结果是什么样子
-</code></pre>
+
+# 技能说明
+
+##触发条件
+什么时候使用这个技能
+
+## 执行步骤
+1. 第一步做什么
+2. 第二步做什么
+
+## 输出格式
+希望结果是什么样子</code></pre>
 <h3 id="创建步骤">创建步骤</h3>
 <ol>
 <li>在技能目录创建文件夹</li>
 <li>编写 <code>SKILL.md</code> 文件</li>
 <li>AI 会自动加载新技能</li>
-</ul>
-<p>---</p>
+</ol>
+<hr>
 <h2 id="技能示例">技能示例</h2>
 <h3 id="简单技能-总结">简单技能：总结</h3>
 <pre><code class="language-markdown">---
 name: summarize
 description: 总结文本内容
 ---
-<h1>文本总结</h1>
-<p>当用户要求总结、概括时触发。</p>
-<p>步骤：
-<ol>
-<li>提取关键信息</li>
-<li>按重要程度排序</li>
-<li>用要点列表输出</li>
-</ul>
-</code></pre></p>
+
+# 文本总结
+
+当用户要求总结、概括时触发。
+
+步骤：
+1. 提取关键信息
+2. 按重要程度排序
+3. 用要点列表输出</code></pre>
 <h3 id="复杂技能-代码审查">复杂技能：代码审查</h3>
 <pre><code class="language-markdown">---
 name: code-review
 description: 审查代码质量
-<p>---</p>
-<h1>代码审查</h1>
-<p>当用户要求检查代码时触发。</p>
-<p>检查项：
-<ul>
-<li>代码风格</li>
-<li>安全问题</li>
-<li>性能问题</li>
-</ul></p>
-<p>输出格式：
-| 类型 | 描述 | 建议 |
-</code></pre></p>
-<p>---</p>
+
+---
+
+# 代码审查
+
+当用户要求检查代码时触发。
+
+检查项：
+- 代码风格
+- 安全问题
+- 性能问题
+
+输出格式：
+| 类型 | 描述 | 建议 |</code></pre>
+<hr>
 <h2 id="技能引用">技能引用</h2>
 <p>技能可以引用外部文件作为参考：</p>
 <pre><code class="language-markdown">---
 name: api-guide
 description: API 使用指南
 ---
-<p>参见 [api-docs.md] 获取完整 API 说明。
-</code></pre></p>
+
+参见 [api-docs.md] 获取完整 API 说明。</code></pre>
 <p>引用的文件会自动包含在技能上下文中。</p>
-<p>---</p>
+<hr>
 <h2 id="常见问题">常见问题</h2>
 <h3 id="技能没有触发">技能没有触发？</h3>
-<p>检查：
+<p>检查：</p>
 <ol>
 <li>技能是否已启用</li>
 <li>描述是否匹配你的需求</li>
 <li>触发条件是否清晰</li>
-</ul></p>
+</ol>
 <h3 id="如何修改技能">如何修改技能？</h3>
 <p>直接编辑技能文件，修改后重新加载。</p>
-<p>---</p>
+<hr>
 <h2 id="下一步">下一步</h2>
 <ul>
 <li><a href="/docs/knowledge">知识库</a> - 添加文档让 AI 学习</li>
 <li><a href="/docs/config">配置说明</a> - 详细配置选项</li>
+</ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么是技能" class="toc-item toc-h2">什么是技能？</a><a href="#默认技能" class="toc-item toc-h2">默认技能</a><a href="#技能触发" class="toc-item toc-h2">技能触发</a><a href="#查看技能" class="toc-item toc-h2">查看技能</a><a href="#网页界面" class="toc-item toc-h3">网页界面</a><a href="#启用-禁用" class="toc-item toc-h3">启用/禁用</a><a href="#创建自定义技能" class="toc-item toc-h2">创建自定义技能</a><a href="#技能文件格式" class="toc-item toc-h3">技能文件格式</a><a href="#执行步骤" class="toc-item toc-h2">执行步骤</a><a href="#输出格式" class="toc-item toc-h2">输出格式</a><a href="#创建步骤" class="toc-item toc-h3">创建步骤</a><a href="#技能示例" class="toc-item toc-h2">技能示例</a><a href="#简单技能-总结" class="toc-item toc-h3">简单技能：总结</a><a href="#复杂技能-代码审查" class="toc-item toc-h3">复杂技能：代码审查</a><a href="#技能引用" class="toc-item toc-h2">技能引用</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#技能没有触发" class="toc-item toc-h3">技能没有触发？</a><a href="#如何修改技能" class="toc-item toc-h3">如何修改技能？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么是技能" class="toc-item toc-h2">什么是技能？</a><a href="#默认技能" class="toc-item toc-h2">默认技能</a><a href="#技能触发" class="toc-item toc-h2">技能触发</a><a href="#查看技能" class="toc-item toc-h2">查看技能</a><a href="#网页界面" class="toc-item toc-h3">网页界面</a><a href="#启用-禁用" class="toc-item toc-h3">启用/禁用</a><a href="#创建自定义技能" class="toc-item toc-h2">创建自定义技能</a><a href="#技能文件格式" class="toc-item toc-h3">技能文件格式</a><a href="#创建步骤" class="toc-item toc-h3">创建步骤</a><a href="#技能示例" class="toc-item toc-h2">技能示例</a><a href="#简单技能-总结" class="toc-item toc-h3">简单技能：总结</a><a href="#复杂技能-代码审查" class="toc-item toc-h3">复杂技能：代码审查</a><a href="#技能引用" class="toc-item toc-h2">技能引用</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#技能没有触发" class="toc-item toc-h3">技能没有触发？</a><a href="#如何修改技能" class="toc-item toc-h3">如何修改技能？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

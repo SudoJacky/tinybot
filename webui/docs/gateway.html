@@ -99,28 +99,26 @@
 <li>连接多个聊天平台（飞书、钉钉等）</li>
 <li>设置定时任务</li>
 </ul>
-<p>---</p>
+<hr>
 <h2 id="启动网关">启动网关</h2>
-<pre><code class="language-bash">uv run tinybot gateway
-</code></pre>
+<pre><code class="language-bash">uv run tinybot gateway</code></pre>
 <p>然后打开浏览器访问 <code>http://127.0.0.1:18790</code></p>
-<p>---</p>
+<hr>
 <h2 id="网页界面设置">网页界面设置</h2>
 <h3 id="访问地址">访问地址</h3>
 <p>默认地址：<code>http://127.0.0.1:18790</code></p>
 <h3 id="修改端口">修改端口</h3>
 <p>如果默认端口被占用，可以修改配置：</p>
 <pre><code class="language-json">{
-  "gateway": {
-    "port": 8080
+  &quot;gateway&quot;: {
+    &quot;port&quot;: 8080
   }
-}
-</code></pre>
+}</code></pre>
 <h3 id="只允许本机访问">只允许本机访问</h3>
 <p>使用 <code>127.0.0.1</code> 作为地址，只有本机能访问。</p>
 <h3 id="允许局域网访问">允许局域网访问</h3>
 <p>使用 <code>0.0.0.0</code> 作为地址，局域网内其他设备可以访问。</p>
-<p>---</p>
+<hr>
 <h2 id="连接聊天平台">连接聊天平台</h2>
 <p>网关可以连接到多个聊天平台，让 AI 在这些平台回复消息。</p>
 <h3 id="飞书">飞书</h3>
@@ -128,37 +126,52 @@
 <li>在飞书开放平台创建应用</li>
 <li>获取 App ID 和 App Secret</li>
 <li>在配置中添加：</li>
-</ul>
+</ol>
 <pre><code class="language-json">{
-  "channels": {
-    "feishu": {
-      "enabled": true,
-      "app_id": "你的App ID",
-      "app_secret": "你的App Secret"
+  &quot;channels&quot;: {
+    &quot;feishu&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;app_id&quot;: &quot;你的App ID&quot;,
+      &quot;app_secret&quot;: &quot;你的App Secret&quot;
     }
   }
-}
-</code></pre>
+}</code></pre>
 <h3 id="钉钉">钉钉</h3>
 <p>类似飞书，需要在钉钉开放平台创建应用。</p>
 <h3 id="微信企业号">微信企业号</h3>
 <p>在微信公众平台创建应用后配置。</p>
-<p>---</p>
+<hr>
 <h2 id="定时任务">定时任务</h2>
 <p>网关支持设置定时任务，让 AI 定期执行某些操作。</p>
 <h3 id="通过对话设置">通过对话设置</h3>
 <p>直接和 AI 说：</p>
-<pre><code class="language-">每天早上9点提醒我检查日程
-</code></pre>
+<pre><code class="language-">每天早上9点提醒我检查日程</code></pre>
 <p>AI 会帮你设置定时任务。</p>
 <h3 id="cron-表达式">Cron 表达式</h3>
 <p>定时任务使用 cron 表达式：</p>
-<p>| 表达式 | 含义 |
-|--------|------|
-| <code>0 9 <em> </em> *</code> | 每天9点 |
-| <code>0 9 <em> </em> 1-5</code> | 工作日9点 |
-| <code><em>/30 </em> <em> </em> *</code> | 每30分钟 |</p>
-<p>---</p>
+<table>
+<thead>
+<tr>
+<th>表达式</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0 9 * * *</code></td>
+<td>每天9点</td>
+</tr>
+<tr>
+<td><code>0 9 * * 1-5</code></td>
+<td>工作日9点</td>
+</tr>
+<tr>
+<td><code>*/30 * * * *</code></td>
+<td>每30分钟</td>
+</tr>
+</tbody>
+</table>
+<hr>
 <h2 id="心跳服务">心跳服务</h2>
 <p>网关空闲时会自动执行一些维护任务：</p>
 <ul>
@@ -166,27 +179,28 @@
 <li>分析和学习经验</li>
 </ul>
 <p>这个功能默认开启，可以保持 AI 的长期记忆。</p>
-<p>---</p>
+<hr>
 <h2 id="常见问题">常见问题</h2>
 <h3 id="网页无法访问">网页无法访问？</h3>
-<p>检查：
+<p>检查：</p>
 <ol>
 <li>网关服务是否启动</li>
 <li>端口是否被占用</li>
-</ul>
-3.防火墙是否拦截</p>
+</ol>
+<p>3.防火墙是否拦截</p>
 <h3 id="其他平台无法收到消息">其他平台无法收到消息？</h3>
-<p>检查：
+<p>检查：</p>
 <ol>
 <li>平台配置是否正确</li>
 <li>应用权限是否设置</li>
 <li>网关服务是否运行</li>
-</ul></p>
-<p>---</p>
+</ol>
+<hr>
 <h2 id="下一步">下一步</h2>
 <ul>
 <li><a href="/docs/webui">网页界面</a> - 详细使用说明</li>
 <li><a href="/docs/config">配置说明</a> - 网关配置选项</li>
+</ul>
           </div>
         </article>
       </main>

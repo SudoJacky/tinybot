@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+from html import escape
 from pathlib import Path
 
 # Try to import markdown, fallback to basic parsing
@@ -50,61 +51,146 @@ DOC_ID_MAP = {
 
 def parse_markdown_basic(content: str) -> str:
     """Basic markdown to HTML conversion without external library."""
-    # Headers
-    content = re.sub(r"^### (.+)$", r"<h3>\1</h3>", content, flags=re.MULTILINE)
-    content = re.sub(r"^## (.+)$", r"<h2>\1</h2>", content, flags=re.MULTILINE)
-    content = re.sub(r"^# (.+)$", r"<h1>\1</h1>", content, flags=re.MULTILINE)
 
-    # Bold and italic
-    content = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", content)
-    content = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", content)
-    content = re.sub(r"\*(.+?)\*", r"<em>\1</em>", content)
+    def render_inline(text: str) -> str:
+        placeholders: list[str] = []
 
-    # Code blocks
-    content = re.sub(
-        r"```(\w+)?\n(.*?)```", r'<pre><code class="language-\1">\2</code></pre>', content, flags=re.DOTALL
-    )
+        def stash_code(match: re.Match[str]) -> str:
+            placeholders.append(f"<code>{escape(match.group(1))}</code>")
+            return f"\x00CODE{len(placeholders) - 1}\x00"
 
-    # Inline code
-    content = re.sub(r"`([^`]+)`", r"<code>\1</code>", content)
+        text = escape(text)
+        text = re.sub(r"`([^`]+)`", stash_code, text)
+        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
+        text = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", text)
+        for index, value in enumerate(placeholders):
+            text = text.replace(f"\x00CODE{index}\x00", value)
+        return text
 
-    # Links
-    content = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', content)
+    def is_table_separator(line: str) -> bool:
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        return bool(cells) and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells)
 
-    # Lists
-    lines = content.split("\n")
-    in_list = False
-    result = []
-    for line in lines:
-        if re.match(r"^- (.+)$", line):
-            if not in_list:
-                result.append("<ul>")
-                in_list = True
-            result.append(f"<li>{line[2:]}</li>")
-        elif re.match(r"^\d+\. (.+)$", line):
-            if not in_list:
-                result.append("<ol>")
-                in_list = True
-            match = re.match(r"^\d+\. (.+)$", line)
-            result.append(f"<li>{match.group(1)}</li>")
-        else:
-            if in_list:
-                result.append("</ul>")
-                in_list = False
-            result.append(line)
+    def split_table_row(line: str) -> list[str]:
+        return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
-    # Tables (basic)
-    content = "\n".join(result)
+    def render_table(table_lines: list[str]) -> str:
+        header = split_table_row(table_lines[0])
+        rows = [split_table_row(line) for line in table_lines[2:]]
+        html = ["<table>", "<thead>", "<tr>"]
+        html.extend(f"<th>{render_inline(cell)}</th>" for cell in header)
+        html.extend(["</tr>", "</thead>", "<tbody>"])
+        for row in rows:
+            html.append("<tr>")
+            html.extend(f"<td>{render_inline(cell)}</td>" for cell in row)
+            html.append("</tr>")
+        html.extend(["</tbody>", "</table>"])
+        return "\n".join(html)
 
-    # Paragraphs
-    paragraphs = []
-    for block in content.split("\n\n"):
-        if block.strip() and not block.strip().startswith("<"):
-            paragraphs.append(f"<p>{block}</p>")
-        else:
-            paragraphs.append(block)
+    lines = content.splitlines()
+    result: list[str] = []
+    paragraph: list[str] = []
+    list_type: str | None = None
+    code_lang: str | None = None
+    code_lines: list[str] = []
+    i = 0
 
-    return "\n".join(paragraphs)
+    def flush_paragraph() -> None:
+        if paragraph:
+            result.append(f"<p>{render_inline(' '.join(line.strip() for line in paragraph))}</p>")
+            paragraph.clear()
+
+    def close_list() -> None:
+        nonlocal list_type
+        if list_type:
+            result.append(f"</{list_type}>")
+            list_type = None
+
+    while i < len(lines):
+        line = lines[i]
+
+        if code_lang is not None:
+            if line.startswith("```"):
+                result.append(
+                    f'<pre><code class="language-{escape(code_lang)}">{escape(chr(10).join(code_lines))}</code></pre>'
+                )
+                code_lang = None
+                code_lines = []
+            else:
+                code_lines.append(line)
+            i += 1
+            continue
+
+        fence = re.match(r"^```([A-Za-z0-9_-]*)\s*$", line)
+        if fence:
+            flush_paragraph()
+            close_list()
+            code_lang = fence.group(1) or ""
+            code_lines = []
+            i += 1
+            continue
+
+        if not line.strip():
+            flush_paragraph()
+            close_list()
+            i += 1
+            continue
+
+        if re.fullmatch(r"\s*[-*_]{3,}\s*", line):
+            flush_paragraph()
+            close_list()
+            result.append("<hr>")
+            i += 1
+            continue
+
+        if i + 1 < len(lines) and "|" in line and is_table_separator(lines[i + 1]):
+            flush_paragraph()
+            close_list()
+            table_lines = [line, lines[i + 1]]
+            i += 2
+            while i < len(lines) and "|" in lines[i] and lines[i].strip():
+                table_lines.append(lines[i])
+                i += 1
+            result.append(render_table(table_lines))
+            continue
+
+        heading = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if heading:
+            flush_paragraph()
+            close_list()
+            level = len(heading.group(1))
+            result.append(f"<h{level}>{render_inline(heading.group(2))}</h{level}>")
+            i += 1
+            continue
+
+        unordered = re.match(r"^\s*[-*]\s+(.+)$", line)
+        ordered = re.match(r"^\s*\d+\.\s+(.+)$", line)
+        if unordered or ordered:
+            flush_paragraph()
+            needed_type = "ul" if unordered else "ol"
+            if list_type != needed_type:
+                close_list()
+                result.append(f"<{needed_type}>")
+                list_type = needed_type
+            item = (unordered or ordered).group(1)
+            result.append(f"<li>{render_inline(item)}</li>")
+            i += 1
+            continue
+
+        close_list()
+        paragraph.append(line)
+        i += 1
+
+    flush_paragraph()
+    close_list()
+    if code_lang is not None:
+        result.append(
+            f'<pre><code class="language-{escape(code_lang)}">{escape(chr(10).join(code_lines))}</code></pre>'
+        )
+
+    return "\n".join(result)
 
 
 def parse_markdown(content: str) -> str:
@@ -304,7 +390,7 @@ def generate_html(doc_id: str, title: str, title_en: str, content_html: str, all
       {toc_html}
     </div>
   </div>
-  {js_code}
+{js_code}
 </body>
 </html>"""
 
