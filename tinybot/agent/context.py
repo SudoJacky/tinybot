@@ -374,6 +374,7 @@ class ContextBuilder:
             content = result.get("content", "")
             file_path = result.get("file_path", "")
             category = result.get("category", "")
+            section_path = result.get("section_path", "")
             line_start = result.get("line_start", 0)
             line_end = result.get("line_end", 0)
             page = result.get("page")
@@ -384,6 +385,8 @@ class ContextBuilder:
                 meta_parts.append(f"路径: {file_path}")
             if category:
                 meta_parts.append(f"分类: {category}")
+            if section_path:
+                meta_parts.append(f"Section: {section_path}")
             # Line info (more useful than char position)
             if line_start and line_end:
                 meta_parts.append(f"行: {line_start}-{line_end}")

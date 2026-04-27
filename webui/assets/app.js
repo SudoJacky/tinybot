@@ -82,6 +82,12 @@ const elements = {
   configKnowledgeChunkSize: document.querySelector("#config-knowledge-chunk-size"),
   configKnowledgeChunkOverlap: document.querySelector("#config-knowledge-chunk-overlap"),
   configKnowledgeRetrievalMode: document.querySelector("#config-knowledge-retrieval-mode"),
+  configKnowledgeRerankEnabled: document.querySelector("#config-knowledge-rerank-enabled"),
+  configKnowledgeRerankModel: document.querySelector("#config-knowledge-rerank-model"),
+  configKnowledgeRerankApiKey: document.querySelector("#config-knowledge-rerank-api-key"),
+  configKnowledgeRerankApiKeyEnvVar: document.querySelector("#config-knowledge-rerank-api-key-env-var"),
+  configKnowledgeRerankApiBase: document.querySelector("#config-knowledge-rerank-api-base"),
+  configKnowledgeRerankTopN: document.querySelector("#config-knowledge-rerank-top-n"),
   // Embedding config elements
   configEmbeddingProvider: document.querySelector("#config-embedding-provider"),
   configEmbeddingModelName: document.querySelector("#config-embedding-model-name"),
@@ -1606,17 +1612,77 @@ function renderQueryResults(result) {
 
     const score = document.createElement("span");
     score.className = "query-result-score";
-    score.textContent = `${(item.score || 0).toFixed(3)}`;
+    score.textContent = formatKnowledgeScore(item);
 
     header.append(docName, score);
+
+    const meta = document.createElement("div");
+    meta.className = "query-result-meta";
+    const methods = item.matched_methods && item.matched_methods.length
+      ? item.matched_methods.join("+")
+      : (item.method || "unknown");
+    const lineText = item.line_start && item.line_end
+      ? `L${item.line_start}-${item.line_end}`
+      : "";
+  const parts = [
+    methods,
+    item.rerank_model ? `rerank ${item.rerank_model}` : "",
+    item.section_path || "",
+    lineText,
+    item.block_type || "",
+    ].filter(Boolean);
+    meta.textContent = parts.join(" · ");
 
     const content = document.createElement("div");
     content.className = "query-result-content";
     content.textContent = item.content || "";
 
-    resultItem.append(header, content);
+    const debug = document.createElement("div");
+    debug.className = "query-result-debug";
+    debug.textContent = formatKnowledgeDebug(item);
+
+    resultItem.append(header, meta, content, debug);
     elements.queryResults.append(resultItem);
   }
+}
+
+function formatKnowledgeScore(item) {
+  if (item.rerank_score != null) {
+    return `rerank ${Number(item.rerank_score).toFixed(4)}`;
+  }
+  if (item.rrf_score != null) {
+    return `rrf ${Number(item.rrf_score).toFixed(4)}`;
+  }
+  if (item.bm25_score != null) {
+    return `bm25 ${Number(item.bm25_score).toFixed(3)}`;
+  }
+  if (item.dense_distance != null) {
+    return `dist ${Number(item.dense_distance).toFixed(3)}`;
+  }
+  return `${Number(item.score || 0).toFixed(3)}`;
+}
+
+function formatKnowledgeDebug(item) {
+  const parts = [];
+  if (item.rerank_rank != null) {
+    const rerank = item.rerank_score != null
+      ? `rerank #${item.rerank_rank} score ${Number(item.rerank_score).toFixed(4)}`
+      : `rerank #${item.rerank_rank}`;
+    parts.push(rerank);
+  }
+  if (item.dense_rank != null) {
+    const dense = item.dense_distance != null
+      ? `dense #${item.dense_rank} dist ${Number(item.dense_distance).toFixed(3)}`
+      : `dense #${item.dense_rank}`;
+    parts.push(dense);
+  }
+  if (item.sparse_rank != null) {
+    const sparse = item.bm25_score != null
+      ? `sparse #${item.sparse_rank} bm25 ${Number(item.bm25_score).toFixed(3)}`
+      : `sparse #${item.sparse_rank}`;
+    parts.push(sparse);
+  }
+  return parts.join(" · ");
 }
 
 function toggleKnowledgePanel() {
@@ -1727,6 +1793,12 @@ function populateConfigForm(config) {
   elements.configKnowledgeChunkSize.value = knowledge.chunkSize || knowledge.chunk_size || 500;
   elements.configKnowledgeChunkOverlap.value = knowledge.chunkOverlap || knowledge.chunk_overlap || 100;
   elements.configKnowledgeRetrievalMode.value = knowledge.retrievalMode || knowledge.retrieval_mode || "hybrid";
+  elements.configKnowledgeRerankEnabled.checked = knowledge.rerankEnabled || knowledge.rerank_enabled === true;
+  elements.configKnowledgeRerankModel.value = knowledge.rerankModel || knowledge.rerank_model || "qwen3-rerank";
+  elements.configKnowledgeRerankApiKey.value = knowledge.rerankApiKey || knowledge.rerank_api_key || "";
+  elements.configKnowledgeRerankApiKeyEnvVar.value = knowledge.rerankApiKeyEnvVar || knowledge.rerank_api_key_env_var || "DASHSCOPE_API_KEY";
+  elements.configKnowledgeRerankApiBase.value = knowledge.rerankApiBase || knowledge.rerank_api_base || "https://dashscope.aliyuncs.com/compatible-api/v1";
+  elements.configKnowledgeRerankTopN.value = knowledge.rerankTopN || knowledge.rerank_top_n || 0;
 
   // Embedding config (nested in agents.defaults)
   const embedding = defaults.embedding || {};
@@ -1836,6 +1908,12 @@ async function saveConfig() {
       chunk_size: getValue(elements.configKnowledgeChunkSize, "number"),
       chunk_overlap: getValue(elements.configKnowledgeChunkOverlap, "number"),
       retrieval_mode: getValue(elements.configKnowledgeRetrievalMode),
+      rerank_enabled: elements.configKnowledgeRerankEnabled.checked,
+      rerank_model: getValue(elements.configKnowledgeRerankModel),
+      rerank_api_key: getValue(elements.configKnowledgeRerankApiKey),
+      rerank_api_key_env_var: getValue(elements.configKnowledgeRerankApiKeyEnvVar),
+      rerank_api_base: getValue(elements.configKnowledgeRerankApiBase),
+      rerank_top_n: getValue(elements.configKnowledgeRerankTopN, "number"),
     },
     tools: {
       web: {

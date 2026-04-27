@@ -327,6 +327,12 @@ class KnowledgeConfig(Base):
     bm25_b: float = Field(default=0.75, ge=0.0, le=1.0)  # BM25 b parameter
     dense_weight: float = Field(default=1.0, ge=0.0)  # Weight for dense retrieval in hybrid
     sparse_weight: float = Field(default=1.0, ge=0.0)  # Weight for sparse retrieval in hybrid
+    rerank_enabled: bool = False  # Enable rerank stage after initial retrieval
+    rerank_model: str = "qwen3-rerank"  # Rerank model name
+    rerank_api_key: str | None = None  # Rerank API key; prefer env var in normal use
+    rerank_api_key_env_var: str = "DASHSCOPE_API_KEY"  # Env var for rerank API key
+    rerank_api_base: str = "https://dashscope.aliyuncs.com/compatible-api/v1"  # OpenAI-compatible base URL
+    rerank_top_n: int = Field(default=0, ge=0)  # 0 means use query top_k
 
 
 class Config(BaseSettings):

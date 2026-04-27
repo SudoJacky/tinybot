@@ -13,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import threading
+from bisect import bisect_right
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +36,8 @@ _KNOWLEDGE_COLLECTION_DENSE = "knowledge_dense"
 
 _CJK_PATTERN = re.compile(r"[一-鿿぀-ゟ゠-ヿ가-힯]")
 _NGRAM_SIZE = 2
+_MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 
 
 def _tokenize(text: str) -> list[str]:
@@ -268,6 +272,8 @@ class KnowledgeChunk:
     file_path: str = ""  # Reference to source file
     category: str = ""
     tags: list[str] = field(default_factory=list)
+    section_path: str = ""
+    block_type: str = "text"
 
 
 class KnowledgeStore:
@@ -350,7 +356,7 @@ class KnowledgeStore:
         file_path = self._save_document_file(doc_id, content, file_type)
 
         # Split content into chunks with position metadata
-        chunks = self._chunk_text_with_positions(content)
+        chunks = self._chunk_text_with_positions(content, file_type=file_type)
 
         # Create document record
         doc = KnowledgeDocument(
@@ -389,6 +395,8 @@ class KnowledgeStore:
                 file_path=str(file_path),
                 category=category,
                 tags=tags or [],
+                section_path=chunk.get("section_path", ""),
+                block_type=chunk.get("block_type", "text"),
             )
             with open(self.chunks_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(asdict(chunk_record), ensure_ascii=False) + "\n")
@@ -455,12 +463,16 @@ class KnowledgeStore:
             tags or [],
         )
 
+        candidate_k = self._rerank_candidate_count(top_k)
+
         if mode == "dense":
-            results = self._query_dense(query_text, top_k, category, tags)
+            results = self._query_dense(query_text, candidate_k, category, tags)
         elif mode == "sparse":
-            results = self._query_sparse(query_text, top_k, category, tags)
+            results = self._query_sparse(query_text, candidate_k, category, tags)
         else:
-            results = self.query_hybrid(query_text, top_k, category, tags)
+            results = self.query_hybrid(query_text, candidate_k, category, tags)
+
+        results = self._maybe_rerank(query_text, results, top_k)
 
         logger.debug(
             "KnowledgeStore: query returned {} results (mode={})",
@@ -468,6 +480,12 @@ class KnowledgeStore:
             mode,
         )
         return results
+
+    def _rerank_candidate_count(self, top_k: int) -> int:
+        if not self.config or not self.config.rerank_enabled:
+            return top_k
+        requested = self.config.rerank_top_n or top_k
+        return max(top_k, min(max(requested * 3, top_k * 3), 50))
 
     def query_hybrid(
         self,
@@ -509,6 +527,117 @@ class KnowledgeStore:
 
         return fused[:top_k]
 
+    def _maybe_rerank(
+        self,
+        query_text: str,
+        results: list[dict[str, Any]],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        """Optionally rerank retrieved candidates with an OpenAI-compatible rerank API."""
+        if not results or not self.config or not self.config.rerank_enabled:
+            return results
+
+        api_key = self.config.rerank_api_key or os.environ.get(self.config.rerank_api_key_env_var, "")
+        if not api_key:
+            logger.warning(
+                "KnowledgeStore: rerank enabled but no API key configured (env={})",
+                self.config.rerank_api_key_env_var,
+            )
+            return results[:top_k]
+
+        documents = [r.get("content", "") for r in results]
+        if not any(documents):
+            return results[:top_k]
+
+        top_n = self.config.rerank_top_n or top_k
+        top_n = max(1, min(top_n, len(results)))
+
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(
+                api_key=api_key,
+                base_url=self.config.rerank_api_base,
+            )
+            response = client.post(
+                "/reranks",
+                body={
+                    "model": self.config.rerank_model,
+                    "query": query_text,
+                    "documents": documents,
+                    "top_n": top_n,
+                },
+                cast_to=object,
+            )
+            reranked = self._apply_rerank_response(results, response, top_n)
+            logger.debug(
+                "KnowledgeStore: reranked {} candidates to {} results with model={}",
+                len(results),
+                len(reranked),
+                self.config.rerank_model,
+            )
+            return reranked
+        except Exception as e:
+            logger.warning("KnowledgeStore: rerank failed, using original retrieval order: {}", e)
+            return results[:top_k]
+
+    def _apply_rerank_response(
+        self,
+        results: list[dict[str, Any]],
+        response: Any,
+        top_n: int,
+    ) -> list[dict[str, Any]]:
+        data = response if isinstance(response, dict) else self._object_to_dict(response)
+        raw_items = data.get("results") or data.get("data") or data.get("output", {}).get("results") or []
+        reranked: list[dict[str, Any]] = []
+        seen: set[int] = set()
+
+        for rank, item in enumerate(raw_items, 1):
+            item_data = item if isinstance(item, dict) else self._object_to_dict(item)
+            index = item_data.get("index")
+            if index is None:
+                index = item_data.get("document_index")
+            if index is None:
+                index = item_data.get("corpus_id")
+            if not isinstance(index, int) or index < 0 or index >= len(results):
+                continue
+
+            candidate = dict(results[index])
+            score = item_data.get("relevance_score")
+            if score is None:
+                score = item_data.get("score")
+            candidate["rerank_score"] = score
+            candidate["rerank_rank"] = rank
+            candidate["rerank_model"] = self.config.rerank_model if self.config else ""
+            candidate["pre_rerank_score"] = candidate.get("rrf_score") or candidate.get("bm25_score") or candidate.get("distance")
+            candidate["method"] = f"{candidate.get('method') or 'retrieval'}+rerank"
+            reranked.append(candidate)
+            seen.add(index)
+
+        if len(reranked) < top_n:
+            for index, candidate in enumerate(results):
+                if index in seen:
+                    continue
+                fallback = dict(candidate)
+                fallback["rerank_rank"] = len(reranked) + 1
+                fallback["rerank_model"] = self.config.rerank_model if self.config else ""
+                fallback["pre_rerank_score"] = fallback.get("rrf_score") or fallback.get("bm25_score") or fallback.get("distance")
+                reranked.append(fallback)
+                if len(reranked) >= top_n:
+                    break
+
+        return reranked[:top_n]
+
+    @staticmethod
+    def _object_to_dict(value: Any) -> dict[str, Any]:
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+        if hasattr(value, "to_dict"):
+            return value.to_dict()
+        if hasattr(value, "__dict__"):
+            return dict(value.__dict__)
+        return {}
+
     def _rrf_fusion(
         self,
         dense_results: list[dict[str, Any]],
@@ -539,7 +668,10 @@ class KnowledgeStore:
             contribution = dense_weight / (k + rank)
             scores[chunk_id] = scores.get(chunk_id, 0) + contribution
             if chunk_id not in result_map:
-                result_map[chunk_id] = r
+                result_map[chunk_id] = dict(r)
+            result_map[chunk_id]["dense_rank"] = rank
+            result_map[chunk_id]["dense_contribution"] = contribution
+            result_map[chunk_id]["dense_distance"] = r.get("distance")
 
         # Process sparse results
         for rank, r in enumerate(sparse_results, 1):
@@ -547,7 +679,10 @@ class KnowledgeStore:
             contribution = sparse_weight / (k + rank)
             scores[chunk_id] = scores.get(chunk_id, 0) + contribution
             if chunk_id not in result_map:
-                result_map[chunk_id] = r
+                result_map[chunk_id] = dict(r)
+            result_map[chunk_id]["sparse_rank"] = rank
+            result_map[chunk_id]["sparse_contribution"] = contribution
+            result_map[chunk_id]["bm25_score"] = r.get("bm25_score")
 
         # Sort by RRF score descending
         sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
@@ -556,6 +691,13 @@ class KnowledgeStore:
         for chunk_id in sorted_ids:
             r = result_map[chunk_id]
             r["rrf_score"] = scores[chunk_id]
+            methods = []
+            if r.get("dense_rank") is not None:
+                methods.append("dense")
+            if r.get("sparse_rank") is not None:
+                methods.append("sparse")
+            r["method"] = "hybrid"
+            r["matched_methods"] = methods
             results.append(r)
 
         return results
@@ -671,8 +813,11 @@ class KnowledgeStore:
                     "line_start": meta.line_start,
                     "line_end": meta.line_end,
                     "page": meta.page,
+                    "section_path": meta.section_path,
+                    "block_type": meta.block_type,
                     "bm25_score": bm25_score,
                     "method": "sparse",
+                    "matched_methods": ["sparse"],
                 }
                 out.append(result)
 
@@ -725,8 +870,11 @@ class KnowledgeStore:
                 "line_start": meta.get("line_start", 0) if meta else 0,
                 "line_end": meta.get("line_end", 0) if meta else 0,
                 "page": meta.get("page") if meta else None,
+                "section_path": meta.get("section_path", "") if meta else "",
+                "block_type": meta.get("block_type", "text") if meta else "text",
                 "distance": dist,
                 "method": method,
+                "matched_methods": [method],
                 "metadata": meta or {},
             }
             out.append(result)
@@ -916,7 +1064,7 @@ class KnowledgeStore:
         logger.debug("KnowledgeStore: saved document file to {}", file_path)
         return file_path
 
-    def _chunk_text_with_positions(self, text: str) -> list[dict[str, Any]]:
+    def _chunk_text_with_positions(self, text: str, file_type: str = "txt") -> list[dict[str, Any]]:
         """Split text into chunks with position metadata.
 
         Returns list of dicts with: content, index, start_char, end_char, line_start, line_end.
@@ -925,10 +1073,11 @@ class KnowledgeStore:
         chunk_overlap = self.config.chunk_overlap if self.config else 100
 
         logger.debug(
-            "KnowledgeStore: chunking text (len={}, chunk_size={}, overlap={})",
+            "KnowledgeStore: chunking text (len={}, chunk_size={}, overlap={}, file_type={})",
             len(text),
             chunk_size,
             chunk_overlap,
+            file_type,
         )
 
         # Build line position map: char_index -> line_number (1-based)
@@ -940,14 +1089,12 @@ class KnowledgeStore:
 
         def get_line_number(char_pos: int) -> int:
             """Get line number (1-based) for a character position."""
-            for line_num, line_start in enumerate(line_positions, 1):
-                if char_pos < line_start:
-                    return line_num - 1
-            return len(line_positions)
+            return max(1, bisect_right(line_positions, char_pos))
 
         if len(text) <= chunk_size:
             logger.debug("KnowledgeStore: text fits in single chunk (no splitting needed)")
             line_end = get_line_number(len(text))
+            section_path = self._find_primary_markdown_heading(text) if self._is_markdown(file_type, text) else ""
             return [{
                 "content": text,
                 "index": 0,
@@ -955,7 +1102,14 @@ class KnowledgeStore:
                 "end_char": len(text),
                 "line_start": 1,
                 "line_end": line_end,
+                "section_path": section_path,
+                "block_type": "markdown" if section_path else "text",
             }]
+
+        if self._is_markdown(file_type, text):
+            chunks = self._chunk_markdown_blocks(text, chunk_size, chunk_overlap, get_line_number)
+            if chunks:
+                return chunks
 
         chunks: list[dict[str, Any]] = []
         start = 0
@@ -985,6 +1139,8 @@ class KnowledgeStore:
                     "end_char": end,
                     "line_start": line_start,
                     "line_end": line_end,
+                    "section_path": "",
+                    "block_type": "text",
                 })
                 index += 1
 
@@ -1000,6 +1156,206 @@ class KnowledgeStore:
             sum(len(c["content"]) for c in chunks) / len(chunks) if chunks else 0,
         )
 
+        return chunks
+
+    @staticmethod
+    def _is_markdown(file_type: str, text: str) -> bool:
+        if file_type.lower() in {"md", "markdown"}:
+            return True
+        return bool(re.search(r"(?m)^(#{1,6})\s+\S+", text)) or "```" in text
+
+    @staticmethod
+    def _find_primary_markdown_heading(text: str) -> str:
+        for line in text.splitlines():
+            match = _MARKDOWN_HEADING_RE.match(line.strip())
+            if match:
+                return match.group(2).strip()
+        return ""
+
+    def _chunk_markdown_blocks(
+        self,
+        text: str,
+        chunk_size: int,
+        chunk_overlap: int,
+        get_line_number: Any,
+    ) -> list[dict[str, Any]]:
+        """Chunk Markdown on block boundaries while preserving code fences."""
+        blocks = self._markdown_blocks(text)
+        if not blocks:
+            return []
+
+        chunks: list[dict[str, Any]] = []
+        current: list[dict[str, Any]] = []
+        current_len = 0
+
+        def emit_current() -> None:
+            nonlocal current, current_len
+            if not current:
+                return
+            start = current[0]["start"]
+            end = current[-1]["end"]
+            content = text[start:end].strip()
+            if content:
+                chunks.append({
+                    "content": content,
+                    "index": len(chunks),
+                    "start_char": start,
+                    "end_char": end,
+                    "line_start": get_line_number(start),
+                    "line_end": get_line_number(end),
+                    "section_path": current[-1].get("section_path", ""),
+                    "block_type": "code" if all(b.get("block_type") == "code" for b in current) else "markdown",
+                })
+            keep: list[dict[str, Any]] = []
+            kept_len = 0
+            for block in reversed(current):
+                block_len = block["end"] - block["start"]
+                if kept_len + block_len > chunk_overlap:
+                    break
+                keep.insert(0, block)
+                kept_len += block_len
+            current = keep
+            current_len = kept_len
+
+        for block in blocks:
+            block_len = block["end"] - block["start"]
+            if block_len > chunk_size:
+                emit_current()
+                if block.get("block_type") == "code":
+                    start = block["start"]
+                    end = block["end"]
+                    chunks.append({
+                        "content": text[start:end].strip(),
+                        "index": len(chunks),
+                        "start_char": start,
+                        "end_char": end,
+                        "line_start": get_line_number(start),
+                        "line_end": get_line_number(end),
+                        "section_path": block.get("section_path", ""),
+                        "block_type": "code",
+                    })
+                else:
+                    chunks.extend(self._split_large_markdown_block(
+                        block,
+                        text,
+                        chunk_size,
+                        chunk_overlap,
+                        get_line_number,
+                        len(chunks),
+                    ))
+                continue
+
+            if current and current_len + block_len > chunk_size:
+                emit_current()
+
+            current.append(block)
+            current_len += block_len
+
+        emit_current()
+
+        for index, chunk in enumerate(chunks):
+            chunk["index"] = index
+
+        logger.debug(
+            "KnowledgeStore: markdown chunked text into {} chunks (avg_size={:.0f})",
+            len(chunks),
+            sum(len(c["content"]) for c in chunks) / len(chunks) if chunks else 0,
+        )
+        return chunks
+
+    def _markdown_blocks(self, text: str) -> list[dict[str, Any]]:
+        lines = text.splitlines(keepends=True)
+        blocks: list[dict[str, Any]] = []
+        headings: list[str] = []
+        pos = 0
+        block_start = 0
+        block_lines: list[str] = []
+        in_fence = False
+
+        def section_path() -> str:
+            return " > ".join(h for h in headings if h)
+
+        def flush(end_pos: int) -> None:
+            nonlocal block_start, block_lines
+            if not block_lines:
+                return
+            content = "".join(block_lines).strip()
+            if content:
+                blocks.append({
+                    "start": block_start,
+                    "end": end_pos,
+                    "section_path": section_path(),
+                    "block_type": "code" if content.startswith(("```", "~~~")) else "markdown",
+                })
+            block_lines = []
+            block_start = end_pos
+
+        for line in lines:
+            line_start = pos
+            line_end = pos + len(line)
+            stripped = line.strip()
+            fence = _FENCE_RE.match(stripped)
+            heading = _MARKDOWN_HEADING_RE.match(stripped) if not in_fence else None
+
+            if heading:
+                flush(line_start)
+                level = len(heading.group(1))
+                title = heading.group(2).strip()
+                headings = headings[:level - 1]
+                headings.append(title)
+                block_start = line_start
+                block_lines = [line]
+                flush(line_end)
+            else:
+                if not block_lines:
+                    block_start = line_start
+                block_lines.append(line)
+                if fence:
+                    in_fence = not in_fence
+                if not in_fence and stripped == "":
+                    flush(line_end)
+
+            pos = line_end
+
+        flush(len(text))
+        return blocks
+
+    def _split_large_markdown_block(
+        self,
+        block: dict[str, Any],
+        text: str,
+        chunk_size: int,
+        chunk_overlap: int,
+        get_line_number: Any,
+        start_index: int,
+    ) -> list[dict[str, Any]]:
+        chunks: list[dict[str, Any]] = []
+        start = block["start"]
+        block_end = block["end"]
+        while start < block_end:
+            end = min(start + chunk_size, block_end)
+            if end < block_end:
+                for offset in range(min(80, max(1, chunk_size // 5))):
+                    pos = end - offset
+                    if pos <= start:
+                        break
+                    if text[pos:pos + 1] in ("\n", " ", ".", "!", "?", ";", ":", ",", "\u3002", "\uff01", "\uff1f", "\uff1b", "\uff1a", "\uff0c"):
+                        end = pos + 1
+                        break
+            content = text[start:end].strip()
+            if content:
+                chunks.append({
+                    "content": content,
+                    "index": start_index + len(chunks),
+                    "start_char": start,
+                    "end_char": end,
+                    "line_start": get_line_number(start),
+                    "line_end": get_line_number(end),
+                    "section_path": block.get("section_path", ""),
+                    "block_type": "markdown",
+                })
+            next_start = end - chunk_overlap
+            start = end if next_start <= start else next_start
         return chunks
 
     def _index_chunks_dense(
@@ -1047,6 +1403,8 @@ class KnowledgeStore:
                     "line_start": chunk.get("line_start", 1),
                     "line_end": chunk.get("line_end", 1),
                     "page": chunk.get("page"),
+                    "section_path": chunk.get("section_path", ""),
+                    "block_type": chunk.get("block_type", "text"),
                     "created_at": ts,
                     "category": category,
                     "tags": json.dumps(tags, ensure_ascii=False),
