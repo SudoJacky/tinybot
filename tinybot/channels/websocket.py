@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import importlib.util
 import ipaddress
+import io
 import json
 import uuid
 from datetime import datetime, timezone
@@ -86,6 +89,7 @@ class WebSocketChannel(BaseChannel):
         self._client_chat: dict[str, str] = {}
         self._client_tokens: dict[str, str] = {}
         self._lock = asyncio.Lock()
+        self._docs_build_lock = asyncio.Lock()
         self._shutdown_event = asyncio.Event()
         self._workspace_files = {
             "AGENTS.md": Path("AGENTS.md"),
@@ -269,7 +273,6 @@ class WebSocketChannel(BaseChannel):
     def _add_static_routes(self, app: web.Application) -> None:
         static_dir = Path(self.static_dir).expanduser() if self.static_dir else None
         index_path = static_dir / "index.html" if static_dir else None
-        docs_path = static_dir / "docs.html" if static_dir else None
         if not static_dir or not index_path or not index_path.is_file():
             return
 
@@ -277,15 +280,46 @@ class WebSocketChannel(BaseChannel):
         if assets_dir.is_dir():
             app.router.add_static("/assets", assets_dir, show_index=False)
 
-        async def handle_docs(request: web.Request) -> web.FileResponse:
-            if docs_path and docs_path.is_file():
+        docs_dir = static_dir / "docs"
+
+        async def handle_docs_index(request: web.Request) -> web.FileResponse:
+            await self._maybe_rebuild_docs(static_dir, docs_dir)
+            page_path = docs_dir / "index.html"
+            if page_path.is_file():
                 return web.FileResponse(
-                    docs_path,
+                    page_path,
                     headers={
                         "Cache-Control": "no-store",
                     },
                 )
-            raise web.HTTPNotFound(text="docs.html not found")
+            raise web.HTTPNotFound(text="docs/index.html not found")
+
+        async def handle_docs_page(request: web.Request) -> web.FileResponse:
+            page_name = request.match_info.get("page", "")
+            await self._maybe_rebuild_docs(static_dir, docs_dir)
+            page_path = docs_dir / f"{page_name}.html"
+            if page_path.is_file():
+                return web.FileResponse(
+                    page_path,
+                    headers={
+                        "Cache-Control": "no-store",
+                    },
+                )
+            raise web.HTTPNotFound(text=f"{page_name}.html not found")
+
+        async def handle_docs_page_slash_redirect(request: web.Request) -> web.HTTPPermanentRedirect:
+            page_name = request.match_info.get("page", "")
+            await self._maybe_rebuild_docs(static_dir, docs_dir)
+            page_path = docs_dir / f"{page_name}.html"
+            if page_path.is_file():
+                raise web.HTTPPermanentRedirect(location=f"/docs/{page_name}")
+            raise web.HTTPNotFound(text=f"{page_name}.html not found")
+
+        async def handle_docs_not_found(request: web.Request) -> web.Response:
+            raise web.HTTPNotFound(text="docs page not found")
+
+        async def handle_removed_doc_url(request: web.Request) -> web.Response:
+            raise web.HTTPGone(text="legacy docs URL removed; use /docs")
 
         async def handle_index(request: web.Request) -> web.FileResponse:
             if request.path.startswith(("/api/", "/v1/")):
@@ -297,10 +331,70 @@ class WebSocketChannel(BaseChannel):
                 },
             )
 
-        # Add docs.html route before catch-all
-        app.router.add_get("/docs.html", handle_docs)
+        # Add documentation routes before catch-all so docs pages do not resolve to index.html.
+        app.router.add_get("/docs", handle_docs_index)
+        app.router.add_get("/docs/", handle_docs_index)
+        app.router.add_get("/docs/{page:[A-Za-z0-9_-]+}", handle_docs_page)
+        app.router.add_get("/docs/{page:[A-Za-z0-9_-]+}/", handle_docs_page_slash_redirect)
+        app.router.add_get("/docs/{tail:.*}", handle_docs_not_found)
+        app.router.add_get("/{page:docs|quickstart|webui|tasks|knowledge|tools|skills|cli|providers|gateway|config}.{suffix:html|md}", handle_removed_doc_url)
         app.router.add_get("/", handle_index)
         app.router.add_get("/{tail:.*}", handle_index)
+
+    async def _maybe_rebuild_docs(self, static_dir: Path, docs_dir: Path) -> None:
+        async with self._docs_build_lock:
+            await asyncio.to_thread(self._rebuild_docs_if_stale, static_dir, docs_dir)
+
+    def _rebuild_docs_if_stale(self, static_dir: Path, docs_dir: Path) -> None:
+        project_root = static_dir.parent
+        source_dir = project_root / "docs"
+        builder_path = project_root / "scripts" / "build_docs.py"
+        if not source_dir.is_dir() or not builder_path.is_file():
+            return
+
+        markdown_files = sorted(source_dir.glob("*.md"))
+        if not markdown_files:
+            return
+
+        builder_mtime = builder_path.stat().st_mtime
+        stale = False
+        for markdown_path in markdown_files:
+            if markdown_path.stem == "docs":
+                continue
+            if markdown_path.stem == "index":
+                target_path = docs_dir / "quickstart.html"
+            else:
+                target_path = docs_dir / f"{markdown_path.stem}.html"
+            if not target_path.is_file():
+                stale = True
+                break
+            target_mtime = target_path.stat().st_mtime
+            if markdown_path.stat().st_mtime > target_mtime or builder_mtime > target_mtime:
+                stale = True
+                break
+
+        if not stale:
+            return
+
+        logger.info("WebUI docs are stale; rebuilding documentation HTML")
+        spec = importlib.util.spec_from_file_location("tinybot_build_docs_runtime", builder_path)
+        if spec is None or spec.loader is None:
+            logger.warning("Failed to load docs builder at {}", builder_path)
+            return
+
+        module = importlib.util.module_from_spec(spec)
+        output = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(output):
+                spec.loader.exec_module(module)
+                module.build_docs()
+        except Exception as e:
+            logger.warning("Failed to rebuild WebUI docs: {}", e)
+            return
+
+        details = output.getvalue().strip()
+        if details:
+            logger.debug("Docs rebuild output:\n{}", details)
 
     async def handle_bootstrap(self, request: web.Request) -> web.Response:
         if not _is_loopback_request(request):

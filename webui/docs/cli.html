@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CLI 命令 - Tinybot Docs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/docs-styles.css">
+  <script src="/assets/i18n.js"></script>
+</head>
+<body>
+  <div class="docs-shell">
+    <!-- Header -->
+    <header class="docs-header">
+      <a href="/" class="docs-brand">
+        <div class="brand-mark">T</div>
+        <div>
+          <h1 class="docs-title">Tinybot</h1>
+          <p class="docs-subtitle">Documentation</p>
+        </div>
+      </a>
+      <div class="docs-actions">
+        <button id="language-toggle" class="button" type="button">EN</button>
+        <button id="theme-toggle" class="theme-toggle" type="button">
+          <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <a href="/" class="docs-back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          <span data-i18n="docs.backToChat">返回聊天</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="docs-layout">
+      <!-- Left Navigation -->
+      <nav class="docs-nav">
+        <a href="/docs" class="nav-item" data-i18n-title="docs.nav.docs">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.docs">文档首页</span>
+        </a>
+        <a href="/docs/quickstart" class="nav-item" data-i18n-title="docs.nav.quickstart">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5.5-2 5.5s3.5-.5 5.5-2c.5-.5 1-1.5 1-2.5c0-1-.5-2-1-3c-1.5-2-4-3-4-3s-.5 2 0 3"/><path d="M12 12c-2-2-4-4-4-4s1-2 2-3c1-.5 2-1 3-1c1 0 2 .5 3 1c1 1 2 3 2 3s-2 2-4 4"/><path d="M12 12l3-3c2 0 4 0 6 2c-2 2-4 2-6 2l-3 3"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.quickstart">快速开始</span>
+        </a>
+        <a href="/docs/webui" class="nav-item" data-i18n-title="docs.nav.webui">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.webui">WebUI 指南</span>
+        </a>
+        <a href="/docs/tasks" class="nav-item" data-i18n-title="docs.nav.tasks">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M5 9v3a3 3 0 0 0 3 3h4"/><path d="M19 9v3a3 3 0 0 1-3 3h-4"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.tasks">任务调度</span>
+        </a>
+        <a href="/docs/knowledge" class="nav-item" data-i18n-title="docs.nav.knowledge">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A6 6 0 0 1 12 21a6 6 0 0 1 9.967-5.517 4 4 0 0 0 .556-6.588 4 4 0 0 0-2.526-5.77A3 3 0 1 0 12 5"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.knowledge">知识库 RAG</span>
+        </a>
+        <a href="/docs/tools" class="nav-item" data-i18n-title="docs.nav.tools">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2 2 0 0 1-2.83-2.83l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.tools">工具系统</span>
+        </a>
+        <a href="/docs/skills" class="nav-item" data-i18n-title="docs.nav.skills">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.skills">技能系统</span>
+        </a>
+        <a href="/docs/cli" class="nav-item active" data-i18n-title="docs.nav.cli">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.cli">CLI 命令</span>
+        </a>
+        <a href="/docs/providers" class="nav-item" data-i18n-title="docs.nav.providers">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.providers">Provider 配置</span>
+        </a>
+        <a href="/docs/gateway" class="nav-item" data-i18n-title="docs.nav.gateway">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.gateway">Gateway 配置</span>
+        </a>
+        <a href="/docs/config" class="nav-item" data-i18n-title="docs.nav.config">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.config">配置系统</span>
+        </a></nav>
+
+      <!-- Content Area -->
+      <main class="docs-content">
+        <article class="docs-article">
+          <header class="article-header">
+            <h1 data-i18n="docs.pages.cli">CLI 命令</h1>
+          </header>
+          <div class="article-body">
+            <h1 id="cli">CLI 交互命令</h1>
+<h2 id="_1">启动方式</h2>
+<pre><code class="language-bash"># 交互聊天模式
+uv run tinybot agent
+
+# 发送单条消息
+uv run tinybot agent -m &quot;你好&quot;
+
+# 指定会话
+uv run tinybot agent -s session-key
+</code></pre>
+<h2 id="_2">内置命令</h2>
+<p>交互模式下可用以下命令：</p>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/config</code> 或 <code>Ctrl+O</code></td>
+<td>打开配置编辑器</td>
+</tr>
+<tr>
+<td><code>/help</code></td>
+<td>显示可用命令</td>
+</tr>
+<tr>
+<td><code>/clear</code></td>
+<td>清除对话历史</td>
+</tr>
+<tr>
+<td><code>/new</code></td>
+<td>开始新对话会话</td>
+</tr>
+<tr>
+<td><code>/exit</code> 或 <code>:q</code></td>
+<td>退出聊天</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_3">配置编辑器</h2>
+<p>按 <code>Ctrl+O</code> 或输入 <code>/config</code> 打开全屏配置编辑器：</p>
+<ul>
+<li>分组显示配置项</li>
+<li>可编辑 Agent、Provider、Tools 等设置</li>
+<li>按 <code>q</code> 保存并返回聊天</li>
+</ul>
+<h2 id="_4">实时进度显示</h2>
+<p>任务执行时在 CLI 显示实时进度：</p>
+<pre><code>┌──────────────────────────────────────────────┐
+│ Tasks: ████████████░░░░░░░░ 60%               │
+│                                                │
+│ Running: extract_features                      │
+│ Pending: generate_doc, write_summary           │
+│ Completed: scan_directory, analyze_structure   │
+└──────────────────────────────────────────────┘
+</code></pre>
+<h2 id="_5">输入快捷键</h2>
+<table>
+<thead>
+<tr>
+<th>快捷键</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Enter</code></td>
+<td>发送消息</td>
+</tr>
+<tr>
+<td><code>Shift+Enter</code></td>
+<td>输入换行</td>
+</tr>
+<tr>
+<td><code>Ctrl+O</code></td>
+<td>打开配置</td>
+</tr>
+<tr>
+<td><code>Ctrl+C</code></td>
+<td>中断生成</td>
+</tr>
+<tr>
+<td><code>Ctrl+D</code></td>
+<td>退出</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_6">消息格式</h2>
+<h3 id="markdown">Markdown 支持</h3>
+<p>输入支持 Markdown 格式：</p>
+<pre><code># 标题
+- 列表项
+**粗体**
+`代码`
+</code></pre>
+<h3 id="_7">代码块</h3>
+<p>使用三引号包裹代码：</p>
+<pre><code>```python
+def hello():
+    print(&quot;Hello, World!&quot;)
+</code></pre>
+<pre><code>
+## 多行输入
+
+使用 `Shift+Enter` 输入多行内容，或粘贴完整代码块。
+
+## 会话管理
+
+### 查看会话
+
+会话保存在 `~/.tinybot/sessions/` 目录：
+
+</code></pre>
+<p>~/.tinybot/sessions/
+├── session-2026-04-20.json
+├── session-2026-04-21.json
+└── ...</p>
+<pre><code>
+### 继续会话
+
+```bash
+uv run tinybot agent -s session-key
+</code></pre>
+<h2 id="_8">输出格式</h2>
+<p>Agent 输出支持：</p>
+<ul>
+<li>Markdown 渲染</li>
+<li>代码语法高亮</li>
+<li>表格显示</li>
+<li>工具调用展示</li>
+</ul>
+<h2 id="_9">最佳实践</h2>
+<ol>
+<li><strong>清晰描述</strong> - 任务描述越清晰，Agent 执行越准确</li>
+<li><strong>分步请求</strong> - 复杂任务分多步完成</li>
+<li><strong>检查进度</strong> - 关注任务进度显示</li>
+<li><strong>及时中断</strong> - 发现错误时 Ctrl+C 中断</li>
+</ol>
+          </div>
+        </article>
+      </main>
+
+      <!-- Right Table of Contents -->
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4></nav>
+    </div>
+  </div>
+
+    <script>
+    // Theme toggle
+    function initTheme() {
+      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute("data-theme");
+      const newTheme = currentTheme === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", newTheme);
+      localStorage.setItem("tinybot-theme", newTheme);
+    }
+
+    // Language toggle
+    function updateLanguageButton() {
+      const lang = getLanguage();
+      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
+    }
+
+    // Initialize
+    initTheme();
+    updateLanguageButton();
+
+    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+    document.getElementById("language-toggle").addEventListener("click", () => {
+      const newLang = getLanguage() === "zh" ? "en" : "zh";
+      setLanguage(newLang);
+      updateLanguageButton();
+    });
+
+    // Smooth scroll for TOC links
+    document.querySelectorAll('.toc-item').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>

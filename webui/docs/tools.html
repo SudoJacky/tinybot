@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>工具系统 - Tinybot Docs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/docs-styles.css">
+  <script src="/assets/i18n.js"></script>
+</head>
+<body>
+  <div class="docs-shell">
+    <!-- Header -->
+    <header class="docs-header">
+      <a href="/" class="docs-brand">
+        <div class="brand-mark">T</div>
+        <div>
+          <h1 class="docs-title">Tinybot</h1>
+          <p class="docs-subtitle">Documentation</p>
+        </div>
+      </a>
+      <div class="docs-actions">
+        <button id="language-toggle" class="button" type="button">EN</button>
+        <button id="theme-toggle" class="theme-toggle" type="button">
+          <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <a href="/" class="docs-back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          <span data-i18n="docs.backToChat">返回聊天</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="docs-layout">
+      <!-- Left Navigation -->
+      <nav class="docs-nav">
+        <a href="/docs" class="nav-item" data-i18n-title="docs.nav.docs">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.docs">文档首页</span>
+        </a>
+        <a href="/docs/quickstart" class="nav-item" data-i18n-title="docs.nav.quickstart">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5.5-2 5.5s3.5-.5 5.5-2c.5-.5 1-1.5 1-2.5c0-1-.5-2-1-3c-1.5-2-4-3-4-3s-.5 2 0 3"/><path d="M12 12c-2-2-4-4-4-4s1-2 2-3c1-.5 2-1 3-1c1 0 2 .5 3 1c1 1 2 3 2 3s-2 2-4 4"/><path d="M12 12l3-3c2 0 4 0 6 2c-2 2-4 2-6 2l-3 3"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.quickstart">快速开始</span>
+        </a>
+        <a href="/docs/webui" class="nav-item" data-i18n-title="docs.nav.webui">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.webui">WebUI 指南</span>
+        </a>
+        <a href="/docs/tasks" class="nav-item" data-i18n-title="docs.nav.tasks">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M5 9v3a3 3 0 0 0 3 3h4"/><path d="M19 9v3a3 3 0 0 1-3 3h-4"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.tasks">任务调度</span>
+        </a>
+        <a href="/docs/knowledge" class="nav-item" data-i18n-title="docs.nav.knowledge">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A6 6 0 0 1 12 21a6 6 0 0 1 9.967-5.517 4 4 0 0 0 .556-6.588 4 4 0 0 0-2.526-5.77A3 3 0 1 0 12 5"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.knowledge">知识库 RAG</span>
+        </a>
+        <a href="/docs/tools" class="nav-item active" data-i18n-title="docs.nav.tools">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2 2 0 0 1-2.83-2.83l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.tools">工具系统</span>
+        </a>
+        <a href="/docs/skills" class="nav-item" data-i18n-title="docs.nav.skills">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.skills">技能系统</span>
+        </a>
+        <a href="/docs/cli" class="nav-item" data-i18n-title="docs.nav.cli">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.cli">CLI 命令</span>
+        </a>
+        <a href="/docs/providers" class="nav-item" data-i18n-title="docs.nav.providers">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.providers">Provider 配置</span>
+        </a>
+        <a href="/docs/gateway" class="nav-item" data-i18n-title="docs.nav.gateway">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.gateway">Gateway 配置</span>
+        </a>
+        <a href="/docs/config" class="nav-item" data-i18n-title="docs.nav.config">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.config">配置系统</span>
+        </a></nav>
+
+      <!-- Content Area -->
+      <main class="docs-content">
+        <article class="docs-article">
+          <header class="article-header">
+            <h1 data-i18n="docs.pages.tools">工具系统</h1>
+          </header>
+          <div class="article-body">
+            <h1 id="_1">工具系统</h1>
+<h2 id="_2">内置工具</h2>
+<p>Tinybot 提供丰富的内置工具，Agent 可以根据任务需要自动调用。</p>
+<h3 id="_3">文件操作</h3>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>read</code></td>
+<td>读取文件内容</td>
+</tr>
+<tr>
+<td><code>write</code></td>
+<td>写入文件</td>
+</tr>
+<tr>
+<td><code>edit</code></td>
+<td>编辑文件（字符串替换）</td>
+</tr>
+<tr>
+<td><code>glob</code></td>
+<td>搜索文件（模式匹配）</td>
+</tr>
+<tr>
+<td><code>grep</code></td>
+<td>搜索文件内容</td>
+</tr>
+</tbody>
+</table>
+<h3 id="shell">Shell 执行</h3>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exec</code></td>
+<td>执行 Shell 命令</td>
+</tr>
+<tr>
+<td><code>python</code></td>
+<td>执行 Python 代码</td>
+</tr>
+</tbody>
+</table>
+<h3 id="web">Web 工具</h3>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>web_search</code></td>
+<td>网络搜索</td>
+</tr>
+<tr>
+<td><code>web_fetch</code></td>
+<td>获取网页内容</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_4">系统工具</h3>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cron</code></td>
+<td>定时任务管理</td>
+</tr>
+<tr>
+<td><code>mcp</code></td>
+<td>MCP 协议工具</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_5">知识库工具</h3>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>knowledge_query</code></td>
+<td>查询知识库</td>
+</tr>
+<tr>
+<td><code>knowledge_add</code></td>
+<td>添加文档</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_6">经验工具</h3>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>query_experience</code></td>
+<td>搜索经验</td>
+</tr>
+<tr>
+<td><code>save_experience</code></td>
+<td>保存经验</td>
+</tr>
+<tr>
+<td><code>feedback_experience</code></td>
+<td>反馈经验有效性</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_7">工具配置</h2>
+<h3 id="web_1">Web 工具配置</h3>
+<pre><code class="language-json">{
+  &quot;tools&quot;: {
+    &quot;web&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;proxy&quot;: &quot;http://127.0.0.1:7890&quot;,
+      &quot;search_provider&quot;: &quot;duckduckgo&quot;
+    }
+  }
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td>是否启用 Web 工具</td>
+</tr>
+<tr>
+<td><code>proxy</code></td>
+<td>HTTP/SOCKS5 代理</td>
+</tr>
+<tr>
+<td><code>search_provider</code></td>
+<td>搜索引擎</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_8">搜索引擎选项</h3>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>duckduckgo</code></td>
+<td>DuckDuckGo（无需 API Key）</td>
+</tr>
+<tr>
+<td><code>brave</code></td>
+<td>Brave Search</td>
+</tr>
+<tr>
+<td><code>tavily</code></td>
+<td>Tavily API</td>
+</tr>
+<tr>
+<td><code>searxng</code></td>
+<td>SearXNG 实例</td>
+</tr>
+<tr>
+<td><code>jina</code></td>
+<td>Jina AI Reader</td>
+</tr>
+</tbody>
+</table>
+<h3 id="exec">Exec 工具配置</h3>
+<pre><code class="language-json">{
+  &quot;tools&quot;: {
+    &quot;exec&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;timeout&quot;: 120,
+      &quot;restrict_workspace&quot;: true
+    }
+  }
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td>是否启用 Exec 工具</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td>执行超时（秒）</td>
+</tr>
+<tr>
+<td><code>restrict_workspace</code></td>
+<td>是否限制在工作区目录</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_9">浏览器自动化</h2>
+<h3 id="opencli">安装 OpenCLI</h3>
+<pre><code class="language-bash">npm install -g @jackwener/opencli
+</code></pre>
+<h3 id="_10">安装浏览器扩展</h3>
+<ol>
+<li>从 <a href="https://github.com/jackwener/opencli/releases">GitHub Releases</a> 下载扩展</li>
+<li>解压后在 <code>chrome://extensions</code> 加载</li>
+</ol>
+<h3 id="_11">验证安装</h3>
+<pre><code class="language-bash">opencli doctor
+</code></pre>
+<h3 id="_12">使用示例</h3>
+<pre><code class="language-markdown">用户: 打开百度搜索 Tinybot
+
+Agent 会调用 browser 工具：
+1. 打开浏览器
+2. 导航到百度
+3. 输入搜索词
+4. 返回结果
+</code></pre>
+<h2 id="mcp">MCP 工具</h2>
+<p>MCP (Model Context Protocol) 支持连接外部工具服务器。</p>
+<h3 id="mcp_1">配置 MCP</h3>
+<pre><code class="language-json">{
+  &quot;mcp&quot;: {
+    &quot;servers&quot;: [
+      {
+        &quot;name&quot;: &quot;filesystem&quot;,
+        &quot;command&quot;: &quot;mcp-server-filesystem&quot;,
+        &quot;args&quot;: [&quot;--path&quot;, &quot;/workspace&quot;]
+      }
+    ]
+  }
+}
+</code></pre>
+<h3 id="mcp_2">MCP 工具特性</h3>
+<ul>
+<li><strong>原生工具封装</strong> - MCP 工具作为原生工具使用</li>
+<li><strong>多服务器支持</strong> - 同时连接多个 MCP 服务器</li>
+<li><strong>自动发现</strong> - 自动发现并注册可用工具</li>
+</ul>
+<h2 id="_13">定时任务</h2>
+<h3 id="cron">使用 cron 工具</h3>
+<pre><code class="language-python"># 创建定时任务
+cron_create(&quot;0 9 * * *&quot;, &quot;每天早上9点提醒检查代码&quot;)
+
+# 查看任务列表
+cron_list()
+
+# 删除任务
+cron_delete(task_id)
+</code></pre>
+<h3 id="cron_1">Cron 表达式</h3>
+<pre><code>┌───────────── 分钟 (0 - 59)
+│ ┌───────────── 小时 (0 - 23)
+│ │ ┌───────────── 日 (1 - 31)
+│ │ │ ┌───────────── 月 (1 - 12)
+│ │ │ │ ┌───────────── 星期 (0 - 6)
+│ │ │ │ │
+* * * * *
+
+示例:
+0 9 * * *     - 每天 9:00
+*/5 * * * *   - 每 5 分钟
+0 9 * * 1-5   - 工作日 9:00
+</code></pre>
+<h2 id="_14">工作区限制</h2>
+<p>启用 <code>restrict_workspace</code> 后：</p>
+<ul>
+<li>文件操作限制在工作区目录</li>
+<li>Shell 命令限制在工作区目录</li>
+<li>防止意外访问系统敏感文件</li>
+</ul>
+<h2 id="_15">最佳实践</h2>
+<ol>
+<li><strong>限制工作区</strong> - 生产环境启用 <code>restrict_workspace</code></li>
+<li><strong>合理超时</strong> - 设置适当的 Exec 超时时间</li>
+<li><strong>代理配置</strong> - 需要外网访问时配置代理</li>
+<li><strong>MCP 扩展</strong> - 通过 MCP 获取更多工具能力</li>
+</ol>
+          </div>
+        </article>
+      </main>
+
+      <!-- Right Table of Contents -->
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4></nav>
+    </div>
+  </div>
+
+    <script>
+    // Theme toggle
+    function initTheme() {
+      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute("data-theme");
+      const newTheme = currentTheme === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", newTheme);
+      localStorage.setItem("tinybot-theme", newTheme);
+    }
+
+    // Language toggle
+    function updateLanguageButton() {
+      const lang = getLanguage();
+      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
+    }
+
+    // Initialize
+    initTheme();
+    updateLanguageButton();
+
+    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+    document.getElementById("language-toggle").addEventListener("click", () => {
+      const newLang = getLanguage() === "zh" ? "en" : "zh";
+      setLanguage(newLang);
+      updateLanguageButton();
+    });
+
+    // Smooth scroll for TOC links
+    document.querySelectorAll('.toc-item').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
