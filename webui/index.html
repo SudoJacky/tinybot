@@ -157,7 +157,7 @@
         </header>
       </section>
 
-      <!-- 语言切换 + 主题切换 + 设置按钮 -->
+      <!-- 语言切换 + 主题切换 + 文档 + 设置按钮 -->
       <div class="settings-bar">
         <button id="language-toggle" class="button" type="button" aria-label="Switch language">EN</button>
         <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" aria-label="Toggle theme">
@@ -178,6 +178,15 @@
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
         </button>
+        <a href="/docs.html" class="button button-icon" data-i18n-title="ui.docs" aria-label="Documentation">
+          <svg class="icon-docs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            <line x1="8" y1="6" x2="16" y2="6"/>
+            <line x1="8" y1="10" x2="16" y2="10"/>
+            <line x1="8" y1="14" x2="12" y2="14"/>
+          </svg>
+        </a>
         <button id="settings-button" class="button button-icon" type="button" data-i18n-title="ui.settings" aria-label="Settings">
           <svg class="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -582,16 +591,42 @@
               <label class="config-label" data-i18n="settings.knowledge.chunkOverlap">Chunk Overlap</label>
               <input id="config-knowledge-chunk-overlap" class="config-input" type="number" min="0" value="100" />
             </div>
-            <div class="config-field">
-              <label class="config-label" data-i18n="settings.knowledge.retrievalMode">Retrieval Mode</label>
-              <select id="config-knowledge-retrieval-mode" class="config-select">
-                <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
-                <option value="dense" data-i18n="knowledge.modeDense">密集</option>
-                <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
-              </select>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.knowledge.retrievalMode">Retrieval Mode</label>
+                <select id="config-knowledge-retrieval-mode" class="config-select">
+                  <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
+                  <option value="dense" data-i18n="knowledge.modeDense">密集</option>
+                  <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
+                </select>
+              </div>
+              <div class="config-field config-checkbox-group">
+                <label class="config-checkbox-label">
+                  <input id="config-knowledge-rerank-enabled" type="checkbox" />
+                  <span data-i18n="settings.knowledge.rerankEnabled">启用重排序</span>
+                </label>
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.knowledge.rerankModel">Rerank Model</label>
+                <input id="config-knowledge-rerank-model" class="config-input" type="text" value="qwen3-rerank" />
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.knowledge.rerankApiKey">Rerank API Key</label>
+                <input id="config-knowledge-rerank-api-key" class="config-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.knowledge.rerankApiKeyEnvVar">Rerank API Key Env Var</label>
+                <input id="config-knowledge-rerank-api-key-env-var" class="config-input" type="text" value="DASHSCOPE_API_KEY" />
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.knowledge.rerankApiBase">Rerank API Base</label>
+                <input id="config-knowledge-rerank-api-base" class="config-input" type="url" value="https://dashscope.aliyuncs.com/compatible-api/v1" />
+              </div>
+              <div class="config-field">
+                <label class="config-label" data-i18n="settings.knowledge.rerankTopN">Rerank Top N</label>
+                <input id="config-knowledge-rerank-top-n" class="config-input" type="number" min="0" max="50" value="0" />
+              </div>
             </div>
           </div>
-        </div>
 
         <!-- Embedding 配置 -->
         <div class="config-group">
