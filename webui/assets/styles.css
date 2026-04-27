@@ -2574,6 +2574,73 @@ body {
   font-weight: 500;
 }
 
+/* 配置帮助提示 */
+.config-label-with-help {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.config-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-subtle);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  cursor: help;
+  position: relative;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.config-help:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.config-help::after {
+  content: attr(data-help);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  padding: 10px 14px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-width: 280px;
+  min-width: 120px;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.config-help:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* checkbox组的帮助提示位置调整 */
+.config-checkbox-label .config-help::after {
+  left: auto;
+  right: 0;
+}
+
 .config-input,
 .config-select {
   width: 100%;
@@ -2619,6 +2686,277 @@ body {
   height: 16px;
   accent-color: var(--accent);
   cursor: pointer;
+}
+
+/* ========== Config Slider (Temperature) ========== */
+.config-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.config-slider-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 40px;
+  text-align: right;
+}
+
+.config-slider {
+  width: 100%;
+  height: 6px;
+  appearance: none;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  outline: none;
+}
+
+.config-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  border-radius: 50%;
+  cursor: grab;
+  box-shadow: var(--shadow-sm), 0 0 8px var(--accent-glow);
+  transition: transform var(--transition-fast);
+}
+
+.config-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.config-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.1);
+}
+
+.config-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  border-radius: 50%;
+  cursor: grab;
+  border: none;
+  box-shadow: var(--shadow-sm), 0 0 8px var(--accent-glow);
+}
+
+.config-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+
+.config-slider-label-left,
+.config-slider-label-right {
+  padding: 2px 6px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-xs);
+}
+
+/* ========== Sensitive Field (API Key) ========== */
+.config-sensitive-group {
+  position: relative;
+}
+
+.config-sensitive-input {
+  padding-right: 40px;
+}
+
+.config-sensitive-input.sensitive {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.config-sensitive-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition-fast);
+}
+
+.config-sensitive-toggle:hover {
+  color: var(--text);
+  background: var(--bg-subtle);
+}
+
+.config-sensitive-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.config-sensitive-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warning);
+  margin-left: 8px;
+}
+
+/* ========== Validation Styles ========== */
+.config-input.error,
+.config-select.error {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.config-input.error:focus,
+.config-select.error:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+
+.config-input.success,
+.config-select.success {
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.config-validation-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.config-validation-msg.error {
+  color: var(--danger);
+}
+
+.config-validation-msg.success {
+  color: var(--success);
+}
+
+.config-validation-msg svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Inline validation icon */
+.config-validation-icon {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.config-validation-icon.error {
+  color: var(--danger);
+}
+
+.config-validation-icon.success {
+  color: var(--success);
+}
+
+/* ========== Config Hint Box (功能未启用提示) ========== */
+.config-hint-box {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.config-hint-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--warning);
+  border-radius: var(--radius-sm);
+  color: white;
+}
+
+.config-hint-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.config-hint-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-hint-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.config-hint-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.config-hint-btn {
+  align-self: flex-start;
+  padding: 8px 16px;
+  background: var(--warning);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.config-hint-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+/* 深色主题适配 */
+[data-theme="dark"] .config-hint-box {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: var(--warning);
+}
+
+[data-theme="dark"] .config-hint-icon {
+  background: var(--warning);
+}
+
+[data-theme="dark"] .config-hint-title {
+  color: var(--warning);
 }
 
 .success-text {

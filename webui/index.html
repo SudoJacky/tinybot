@@ -263,6 +263,17 @@
         <button id="tools-modal-close" class="button button-ghost" type="button" aria-label="Close tools modal">✕</button>
       </header>
       <div class="modal-body">
+        <!-- 功能配置提示 -->
+        <div id="tools-config-hint" class="config-hint-box" style="display: none;">
+          <div class="config-hint-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div class="config-hint-content">
+            <p class="config-hint-title" data-i18n="tools.configHintTitle">部分工具未启用</p>
+            <p class="config-hint-desc" data-i18n="tools.configHintDesc">Web搜索、Exec执行等工具可在 设置 → Tools配置 中单独启用或禁用。</p>
+            <button class="config-hint-btn" type="button" id="goto-tools-config" data-i18n="tools.gotoConfig">前往设置</button>
+          </div>
+        </div>
         <div id="tools-modal-list" class="modal-list"></div>
       </div>
     </div>
@@ -325,6 +336,17 @@
         <button id="knowledge-modal-close" class="button button-ghost" type="button" aria-label="Close knowledge modal">✕</button>
       </header>
       <div class="modal-body">
+        <!-- 功能配置提示 -->
+        <div id="knowledge-config-hint" class="config-hint-box" style="display: none;">
+          <div class="config-hint-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div class="config-hint-content">
+            <p class="config-hint-title" data-i18n="knowledge.configHintTitle">知识库功能未启用</p>
+            <p class="config-hint-desc" data-i18n="knowledge.configHintDesc">在 设置 → Knowledge配置 中启用「启用知识库」开关即可使用此功能。</p>
+            <button class="config-hint-btn" type="button" id="goto-knowledge-config" data-i18n="knowledge.gotoConfig">前往设置</button>
+          </div>
+        </div>
         <!-- 统计信息 -->
         <div class="knowledge-stats">
           <div class="stats-row">
@@ -509,15 +531,24 @@
           <h3 class="config-group-title clickable" data-group="agent" tabindex="0" role="button" aria-expanded="true"><span data-i18n="settings.agent">Agent 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content" id="config-agent-group">
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.workspace">Workspace</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.workspace">Workspace</span>
+                <span class="config-help" data-i18n-help="help.workspace">?</span>
+              </label>
               <input id="config-workspace" class="config-input" type="text" data-i18n-placeholder="settings.agent.workspacePlaceholder" placeholder="工作区路径" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.model">Model</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.model">Model</span>
+                <span class="config-help" data-i18n-help="help.model">?</span>
+              </label>
               <input id="config-model" class="config-input" type="text" data-i18n-placeholder="settings.agent.modelPlaceholder" placeholder="模型名称" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.provider">Provider</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.provider">Provider</span>
+                <span class="config-help" data-i18n-help="help.provider">?</span>
+              </label>
               <select id="config-provider" class="config-select">
                 <option value="auto" data-i18n="settings.agent.providerAuto">auto (自动检测)</option>
                 <option value="custom">custom</option>
@@ -539,23 +570,47 @@
               </select>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.temperature">Temperature</label>
-              <input id="config-temperature" class="config-input" type="number" step="0.1" min="0" max="2" data-i18n-placeholder="settings.agent.temperaturePlaceholder" placeholder="0.0 - 2.0" />
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.temperature">Temperature</span>
+                <span class="config-help" data-i18n-help="help.temperature">?</span>
+              </label>
+              <div class="config-slider-group">
+                <div class="config-slider-header">
+                  <div class="config-slider-labels">
+                    <span class="config-slider-label-left">精确 0</span>
+                    <span class="config-slider-label-right">创意 2</span>
+                  </div>
+                  <span class="config-slider-value" id="temperature-value">0.1</span>
+                </div>
+                <input id="config-temperature" class="config-slider" type="range" min="0" max="2" step="0.1" value="0.1" />
+              </div>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.maxTokens">Max Tokens</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.maxTokens">Max Tokens</span>
+                <span class="config-help" data-i18n-help="help.maxTokens">?</span>
+              </label>
               <input id="config-max-tokens" class="config-input" type="number" min="1" data-i18n-placeholder="settings.agent.maxTokensPlaceholder" placeholder="最大输出长度" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.contextWindow">Context Window</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.contextWindow">Context Window</span>
+                <span class="config-help" data-i18n-help="help.contextWindow">?</span>
+              </label>
               <input id="config-context-window" class="config-input" type="number" min="1" data-i18n-placeholder="settings.agent.contextWindowPlaceholder" placeholder="上下文窗口大小" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.maxToolIterations">Max Tool Iterations</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.maxToolIterations">Max Tool Iterations</span>
+                <span class="config-help" data-i18n-help="help.maxToolIterations">?</span>
+              </label>
               <input id="config-max-tool-iterations" class="config-input" type="number" min="1" data-i18n-placeholder="settings.agent.maxToolIterationsPlaceholder" placeholder="最大工具调用次数" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.reasoningEffort">Reasoning Effort</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.reasoningEffort">Reasoning Effort</span>
+                <span class="config-help" data-i18n-help="help.reasoningEffort">?</span>
+              </label>
               <select id="config-reasoning-effort" class="config-select">
                 <option value="" data-i18n="settings.agent.reasoningEffortDefault">默认</option>
                 <option value="low">low</option>
@@ -564,7 +619,10 @@
               </select>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.agent.timezone">Timezone</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.timezone">Timezone</span>
+                <span class="config-help" data-i18n-help="help.timezone">?</span>
+              </label>
               <input id="config-timezone" class="config-input" type="text" data-i18n-placeholder="settings.agent.timezonePlaceholder" placeholder="如 Asia/Shanghai" />
             </div>
           </div>
@@ -578,60 +636,96 @@
               <label class="config-checkbox-label">
                 <input id="config-knowledge-enabled" type="checkbox" />
                 <span data-i18n="settings.knowledge.enabled">启用知识库</span>
+                <span class="config-help" data-i18n-help="help.knowledgeEnabled">?</span>
               </label>
             </div>
             <div class="config-field config-checkbox-group">
               <label class="config-checkbox-label">
                 <input id="config-knowledge-auto-retrieve" type="checkbox" />
                 <span data-i18n="settings.knowledge.autoRetrieve">自动检索</span>
+                <span class="config-help" data-i18n-help="help.knowledgeAutoRetrieve">?</span>
               </label>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.knowledge.maxChunks">Max Chunks</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.maxChunks">Max Chunks</span>
+                <span class="config-help" data-i18n-help="help.knowledgeMaxChunks">?</span>
+              </label>
               <input id="config-knowledge-max-chunks" class="config-input" type="number" min="1" max="20" value="5" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.knowledge.chunkSize">Chunk Size</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.chunkSize">Chunk Size</span>
+                <span class="config-help" data-i18n-help="help.knowledgeChunkSize">?</span>
+              </label>
               <input id="config-knowledge-chunk-size" class="config-input" type="number" min="100" value="500" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.knowledge.chunkOverlap">Chunk Overlap</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.chunkOverlap">Chunk Overlap</span>
+                <span class="config-help" data-i18n-help="help.knowledgeChunkOverlap">?</span>
+              </label>
               <input id="config-knowledge-chunk-overlap" class="config-input" type="number" min="0" value="100" />
             </div>
-              <div class="config-field">
-                <label class="config-label" data-i18n="settings.knowledge.retrievalMode">Retrieval Mode</label>
-                <select id="config-knowledge-retrieval-mode" class="config-select">
-                  <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
-                  <option value="dense" data-i18n="knowledge.modeDense">密集</option>
-                  <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
-                </select>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.retrievalMode">Retrieval Mode</span>
+                <span class="config-help" data-i18n-help="help.knowledgeRetrievalMode">?</span>
+              </label>
+              <select id="config-knowledge-retrieval-mode" class="config-select">
+                <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
+                <option value="dense" data-i18n="knowledge.modeDense">密集</option>
+                <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
+              </select>
+            </div>
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-knowledge-rerank-enabled" type="checkbox" />
+                <span data-i18n="settings.knowledge.rerankEnabled">启用重排序</span>
+                <span class="config-help" data-i18n-help="help.knowledgeRerankEnabled">?</span>
+              </label>
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.rerankModel">Rerank Model</span>
+                <span class="config-help" data-i18n-help="help.knowledgeRerankModel">?</span>
+              </label>
+              <input id="config-knowledge-rerank-model" class="config-input" type="text" value="qwen3-rerank" />
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.rerankApiKey">Rerank API Key</span>
+                <span class="config-help" data-i18n-help="help.knowledgeRerankApiKey">?</span>
+                <span class="config-sensitive-badge" data-i18n="settings.sensitive">敏感</span>
+              </label>
+              <div class="config-sensitive-group">
+                <input id="config-knowledge-rerank-api-key" class="config-input config-sensitive-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
+                <button class="config-sensitive-toggle" type="button" data-target="config-knowledge-rerank-api-key" aria-label="Toggle visibility">
+                  <svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="eye-off-icon" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
               </div>
-              <div class="config-field config-checkbox-group">
-                <label class="config-checkbox-label">
-                  <input id="config-knowledge-rerank-enabled" type="checkbox" />
-                  <span data-i18n="settings.knowledge.rerankEnabled">启用重排序</span>
-                </label>
-              </div>
-              <div class="config-field">
-                <label class="config-label" data-i18n="settings.knowledge.rerankModel">Rerank Model</label>
-                <input id="config-knowledge-rerank-model" class="config-input" type="text" value="qwen3-rerank" />
-              </div>
-              <div class="config-field">
-                <label class="config-label" data-i18n="settings.knowledge.rerankApiKey">Rerank API Key</label>
-                <input id="config-knowledge-rerank-api-key" class="config-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
-              </div>
-              <div class="config-field">
-                <label class="config-label" data-i18n="settings.knowledge.rerankApiKeyEnvVar">Rerank API Key Env Var</label>
-                <input id="config-knowledge-rerank-api-key-env-var" class="config-input" type="text" value="DASHSCOPE_API_KEY" />
-              </div>
-              <div class="config-field">
-                <label class="config-label" data-i18n="settings.knowledge.rerankApiBase">Rerank API Base</label>
-                <input id="config-knowledge-rerank-api-base" class="config-input" type="url" value="https://dashscope.aliyuncs.com/compatible-api/v1" />
-              </div>
-              <div class="config-field">
-                <label class="config-label" data-i18n="settings.knowledge.rerankTopN">Rerank Top N</label>
-                <input id="config-knowledge-rerank-top-n" class="config-input" type="number" min="0" max="50" value="0" />
-              </div>
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.rerankApiKeyEnvVar">Rerank API Key Env Var</span>
+                <span class="config-help" data-i18n-help="help.knowledgeRerankApiKeyEnvVar">?</span>
+              </label>
+              <input id="config-knowledge-rerank-api-key-env-var" class="config-input" type="text" value="DASHSCOPE_API_KEY" />
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.rerankApiBase">Rerank API Base</span>
+                <span class="config-help" data-i18n-help="help.knowledgeRerankApiBase">?</span>
+              </label>
+              <input id="config-knowledge-rerank-api-base" class="config-input" type="url" value="https://dashscope.aliyuncs.com/compatible-api/v1" />
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.rerankTopN">Rerank Top N</span>
+                <span class="config-help" data-i18n-help="help.knowledgeRerankTopN">?</span>
+              </label>
+              <input id="config-knowledge-rerank-top-n" class="config-input" type="number" min="0" max="50" value="0" />
             </div>
           </div>
 
@@ -640,7 +734,10 @@
           <h3 class="config-group-title clickable" data-group="embedding" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.embedding">Embedding 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content collapsed" id="config-embedding-group">
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.embedding.provider">Provider</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.embedding.provider">Provider</span>
+                <span class="config-help" data-i18n-help="help.embeddingProvider">?</span>
+              </label>
               <select id="config-embedding-provider" class="config-select">
                 <option value="local" data-i18n="settings.optionLocal">本地</option>
                 <option value="openai">openai</option>
@@ -649,15 +746,31 @@
               </select>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.embedding.modelName">Model Name</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.embedding.modelName">Model Name</span>
+                <span class="config-help" data-i18n-help="help.embeddingModelName">?</span>
+              </label>
               <input id="config-embedding-model-name" class="config-input" type="text" placeholder="all-MiniLM-L6-v2" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.embedding.apiKey">API Key</label>
-              <input id="config-embedding-api-key" class="config-input" type="password" placeholder="API密钥" />
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.embedding.apiKey">API Key</span>
+                <span class="config-help" data-i18n-help="help.embeddingApiKey">?</span>
+                <span class="config-sensitive-badge" data-i18n="settings.sensitive">敏感</span>
+              </label>
+              <div class="config-sensitive-group">
+                <input id="config-embedding-api-key" class="config-input config-sensitive-input" type="password" placeholder="API密钥" />
+                <button class="config-sensitive-toggle" type="button" data-target="config-embedding-api-key" aria-label="Toggle visibility">
+                  <svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="eye-off-icon" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
+              </div>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.embedding.apiBase">API Base</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.embedding.apiBase">API Base</span>
+                <span class="config-help" data-i18n-help="help.embeddingApiBase">?</span>
+              </label>
               <input id="config-embedding-api-base" class="config-input" type="text" placeholder="API地址" />
             </div>
           </div>
@@ -668,7 +781,10 @@
           <h3 class="config-group-title clickable" data-group="provider" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.provider">Provider 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content collapsed" id="config-provider-group">
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.provider.name">Provider名称</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.provider.name">Provider名称</span>
+                <span class="config-help" data-i18n-help="help.providerSelect">?</span>
+              </label>
               <select id="config-provider-select" class="config-select">
                 <option value="custom">custom</option>
                 <option value="openai">openai</option>
@@ -690,11 +806,24 @@
               </select>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.provider.apiKey">API Key</label>
-              <input id="config-api-key" class="config-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.provider.apiKey">API Key</span>
+                <span class="config-help" data-i18n-help="help.apiKey">?</span>
+                <span class="config-sensitive-badge" data-i18n="settings.sensitive">敏感</span>
+              </label>
+              <div class="config-sensitive-group">
+                <input id="config-api-key" class="config-input config-sensitive-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
+                <button class="config-sensitive-toggle" type="button" data-target="config-api-key" aria-label="Toggle visibility">
+                  <svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="eye-off-icon" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
+              </div>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.provider.apiBase">API Base</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.provider.apiBase">API Base</span>
+                <span class="config-help" data-i18n-help="help.apiBase">?</span>
+              </label>
               <input id="config-api-base" class="config-input" type="text" data-i18n-placeholder="settings.provider.apiBasePlaceholder" placeholder="API地址" />
             </div>
           </div>
@@ -710,14 +839,21 @@
                 <label class="config-checkbox-label">
                   <input id="config-web-enable" type="checkbox" />
                   <span data-i18n="settings.tools.webEnable">启用Web工具</span>
+                  <span class="config-help" data-i18n-help="help.webEnable">?</span>
                 </label>
               </div>
               <div class="config-field">
-                <label class="config-label" data-i18n="settings.tools.proxy">Proxy</label>
+                <label class="config-label config-label-with-help">
+                  <span data-i18n="settings.tools.proxy">Proxy</span>
+                  <span class="config-help" data-i18n-help="help.proxy">?</span>
+                </label>
                 <input id="config-web-proxy" class="config-input" type="text" data-i18n-placeholder="settings.tools.proxyPlaceholder" placeholder="HTTP/SOCKS5代理" />
               </div>
               <div class="config-field">
-                <label class="config-label" data-i18n="settings.tools.searchProvider">Search Provider</label>
+                <label class="config-label config-label-with-help">
+                  <span data-i18n="settings.tools.searchProvider">Search Provider</span>
+                  <span class="config-help" data-i18n-help="help.searchProvider">?</span>
+                </label>
                 <select id="config-search-provider" class="config-select">
                   <option value="duckduckgo">duckduckgo</option>
                   <option value="brave">brave</option>
@@ -733,10 +869,14 @@
                 <label class="config-checkbox-label">
                   <input id="config-exec-enable" type="checkbox" />
                   <span data-i18n="settings.tools.execEnable">启用Exec工具</span>
+                  <span class="config-help" data-i18n-help="help.execEnable">?</span>
                 </label>
               </div>
               <div class="config-field">
-                <label class="config-label" data-i18n="settings.tools.timeout">Timeout (秒)</label>
+                <label class="config-label config-label-with-help">
+                  <span data-i18n="settings.tools.timeout">Timeout (秒)</span>
+                  <span class="config-help" data-i18n-help="help.execTimeout">?</span>
+                </label>
                 <input id="config-exec-timeout" class="config-input" type="number" min="1" data-i18n-placeholder="settings.tools.timeoutPlaceholder" placeholder="执行超时" />
               </div>
             </div>
@@ -744,6 +884,7 @@
               <label class="config-checkbox-label">
                 <input id="config-restrict-workspace" type="checkbox" />
                 <span data-i18n="settings.tools.restrictWorkspace">限制在工作区</span>
+                <span class="config-help" data-i18n-help="help.restrictWorkspace">?</span>
               </label>
             </div>
           </div>
@@ -754,11 +895,17 @@
           <h3 class="config-group-title clickable" data-group="gateway" tabindex="0" role="button" aria-expanded="false"><span data-i18n="settings.gateway">Gateway 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content collapsed" id="config-gateway-group">
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.gateway.host">Host</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.gateway.host">Host</span>
+                <span class="config-help" data-i18n-help="help.gatewayHost">?</span>
+              </label>
               <input id="config-gateway-host" class="config-input" type="text" data-i18n-placeholder="settings.gateway.hostPlaceholder" placeholder="监听地址" />
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.gateway.port">Port</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.gateway.port">Port</span>
+                <span class="config-help" data-i18n-help="help.gatewayPort">?</span>
+              </label>
               <input id="config-gateway-port" class="config-input" type="number" min="1" data-i18n-placeholder="settings.gateway.portPlaceholder" placeholder="端口" />
             </div>
             <div class="config-subsection">
@@ -767,10 +914,14 @@
                 <label class="config-checkbox-label">
                   <input id="config-heartbeat-enable" type="checkbox" />
                   <span data-i18n="settings.gateway.heartbeatEnable">启用心跳</span>
+                  <span class="config-help" data-i18n-help="help.heartbeatEnable">?</span>
                 </label>
               </div>
               <div class="config-field">
-                <label class="config-label" data-i18n="settings.gateway.interval">Interval (秒)</label>
+                <label class="config-label config-label-with-help">
+                  <span data-i18n="settings.gateway.interval">Interval (秒)</span>
+                  <span class="config-help" data-i18n-help="help.heartbeatInterval">?</span>
+                </label>
                 <input id="config-heartbeat-interval" class="config-input" type="number" min="60" data-i18n-placeholder="settings.gateway.intervalPlaceholder" placeholder="心跳间隔" />
               </div>
             </div>
@@ -785,16 +936,21 @@
               <label class="config-checkbox-label">
                 <input id="config-send-progress" type="checkbox" />
                 <span data-i18n="settings.channels.sendProgress">发送进度消息</span>
+                <span class="config-help" data-i18n-help="help.sendProgress">?</span>
               </label>
             </div>
             <div class="config-field config-checkbox-group">
               <label class="config-checkbox-label">
                 <input id="config-send-tool-hints" type="checkbox" />
                 <span data-i18n="settings.channels.sendToolHints">发送工具提示</span>
+                <span class="config-help" data-i18n-help="help.sendToolHints">?</span>
               </label>
             </div>
             <div class="config-field">
-              <label class="config-label" data-i18n="settings.channels.maxRetries">Max Retries</label>
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.channels.maxRetries">Max Retries</span>
+                <span class="config-help" data-i18n-help="help.sendMaxRetries">?</span>
+              </label>
               <input id="config-send-retries" class="config-input" type="number" min="0" max="10" data-i18n-placeholder="settings.channels.maxRetriesPlaceholder" placeholder="发送重试次数" />
             </div>
           </div>
