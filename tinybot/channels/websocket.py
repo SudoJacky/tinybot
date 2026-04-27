@@ -269,12 +269,23 @@ class WebSocketChannel(BaseChannel):
     def _add_static_routes(self, app: web.Application) -> None:
         static_dir = Path(self.static_dir).expanduser() if self.static_dir else None
         index_path = static_dir / "index.html" if static_dir else None
+        docs_path = static_dir / "docs.html" if static_dir else None
         if not static_dir or not index_path or not index_path.is_file():
             return
 
         assets_dir = static_dir / "assets"
         if assets_dir.is_dir():
             app.router.add_static("/assets", assets_dir, show_index=False)
+
+        async def handle_docs(request: web.Request) -> web.FileResponse:
+            if docs_path and docs_path.is_file():
+                return web.FileResponse(
+                    docs_path,
+                    headers={
+                        "Cache-Control": "no-store",
+                    },
+                )
+            raise web.HTTPNotFound(text="docs.html not found")
 
         async def handle_index(request: web.Request) -> web.FileResponse:
             if request.path.startswith(("/api/", "/v1/")):
@@ -286,6 +297,8 @@ class WebSocketChannel(BaseChannel):
                 },
             )
 
+        # Add docs.html route before catch-all
+        app.router.add_get("/docs.html", handle_docs)
         app.router.add_get("/", handle_index)
         app.router.add_get("/{tail:.*}", handle_index)
 

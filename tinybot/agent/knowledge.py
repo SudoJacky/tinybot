@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import threading
 from bisect import bisect_right
@@ -462,12 +463,16 @@ class KnowledgeStore:
             tags or [],
         )
 
+        candidate_k = self._rerank_candidate_count(top_k)
+
         if mode == "dense":
-            results = self._query_dense(query_text, top_k, category, tags)
+            results = self._query_dense(query_text, candidate_k, category, tags)
         elif mode == "sparse":
-            results = self._query_sparse(query_text, top_k, category, tags)
+            results = self._query_sparse(query_text, candidate_k, category, tags)
         else:
-            results = self.query_hybrid(query_text, top_k, category, tags)
+            results = self.query_hybrid(query_text, candidate_k, category, tags)
+
+        results = self._maybe_rerank(query_text, results, top_k)
 
         logger.debug(
             "KnowledgeStore: query returned {} results (mode={})",
@@ -475,6 +480,12 @@ class KnowledgeStore:
             mode,
         )
         return results
+
+    def _rerank_candidate_count(self, top_k: int) -> int:
+        if not self.config or not self.config.rerank_enabled:
+            return top_k
+        requested = self.config.rerank_top_n or top_k
+        return max(top_k, min(max(requested * 3, top_k * 3), 50))
 
     def query_hybrid(
         self,
@@ -515,6 +526,117 @@ class KnowledgeStore:
         logger.debug("KnowledgeStore: hybrid RRF fusion produced {} results (rrf_k={})", len(fused), rrf_k)
 
         return fused[:top_k]
+
+    def _maybe_rerank(
+        self,
+        query_text: str,
+        results: list[dict[str, Any]],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        """Optionally rerank retrieved candidates with an OpenAI-compatible rerank API."""
+        if not results or not self.config or not self.config.rerank_enabled:
+            return results
+
+        api_key = self.config.rerank_api_key or os.environ.get(self.config.rerank_api_key_env_var, "")
+        if not api_key:
+            logger.warning(
+                "KnowledgeStore: rerank enabled but no API key configured (env={})",
+                self.config.rerank_api_key_env_var,
+            )
+            return results[:top_k]
+
+        documents = [r.get("content", "") for r in results]
+        if not any(documents):
+            return results[:top_k]
+
+        top_n = self.config.rerank_top_n or top_k
+        top_n = max(1, min(top_n, len(results)))
+
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(
+                api_key=api_key,
+                base_url=self.config.rerank_api_base,
+            )
+            response = client.post(
+                "/reranks",
+                body={
+                    "model": self.config.rerank_model,
+                    "query": query_text,
+                    "documents": documents,
+                    "top_n": top_n,
+                },
+                cast_to=object,
+            )
+            reranked = self._apply_rerank_response(results, response, top_n)
+            logger.debug(
+                "KnowledgeStore: reranked {} candidates to {} results with model={}",
+                len(results),
+                len(reranked),
+                self.config.rerank_model,
+            )
+            return reranked
+        except Exception as e:
+            logger.warning("KnowledgeStore: rerank failed, using original retrieval order: {}", e)
+            return results[:top_k]
+
+    def _apply_rerank_response(
+        self,
+        results: list[dict[str, Any]],
+        response: Any,
+        top_n: int,
+    ) -> list[dict[str, Any]]:
+        data = response if isinstance(response, dict) else self._object_to_dict(response)
+        raw_items = data.get("results") or data.get("data") or data.get("output", {}).get("results") or []
+        reranked: list[dict[str, Any]] = []
+        seen: set[int] = set()
+
+        for rank, item in enumerate(raw_items, 1):
+            item_data = item if isinstance(item, dict) else self._object_to_dict(item)
+            index = item_data.get("index")
+            if index is None:
+                index = item_data.get("document_index")
+            if index is None:
+                index = item_data.get("corpus_id")
+            if not isinstance(index, int) or index < 0 or index >= len(results):
+                continue
+
+            candidate = dict(results[index])
+            score = item_data.get("relevance_score")
+            if score is None:
+                score = item_data.get("score")
+            candidate["rerank_score"] = score
+            candidate["rerank_rank"] = rank
+            candidate["rerank_model"] = self.config.rerank_model if self.config else ""
+            candidate["pre_rerank_score"] = candidate.get("rrf_score") or candidate.get("bm25_score") or candidate.get("distance")
+            candidate["method"] = f"{candidate.get('method') or 'retrieval'}+rerank"
+            reranked.append(candidate)
+            seen.add(index)
+
+        if len(reranked) < top_n:
+            for index, candidate in enumerate(results):
+                if index in seen:
+                    continue
+                fallback = dict(candidate)
+                fallback["rerank_rank"] = len(reranked) + 1
+                fallback["rerank_model"] = self.config.rerank_model if self.config else ""
+                fallback["pre_rerank_score"] = fallback.get("rrf_score") or fallback.get("bm25_score") or fallback.get("distance")
+                reranked.append(fallback)
+                if len(reranked) >= top_n:
+                    break
+
+        return reranked[:top_n]
+
+    @staticmethod
+    def _object_to_dict(value: Any) -> dict[str, Any]:
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+        if hasattr(value, "to_dict"):
+            return value.to_dict()
+        if hasattr(value, "__dict__"):
+            return dict(value.__dict__)
+        return {}
 
     def _rrf_fusion(
         self,
