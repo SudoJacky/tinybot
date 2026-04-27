@@ -13,6 +13,21 @@
 ## 更新日志
 
 <details>
+<summary>2026.04.27 增加文档说明，并修复部分bug。</summary>
+
+![doc_home](./show/webui_doc_home.PNG)
+
+![startup](./show/webui_startup.PNG)
+
+</details>
+
+<details>
+<summary>2026.04.26 增加RAG模块，目前支持文本内容。</summary>
+
+![RAG](./show/webui_RAG.PNG)
+</details>
+
+<details>
 <summary>2026.04.24 新的 webui, 自定义skills, skills的自选激活。</summary>
 
 日间模式
@@ -23,12 +38,6 @@
 
 ![dark](./show/webui_2.PNG)
 
-</details>
-
-<details>
-<summary>2026.04.26 增加RAG模块，目前支持文本内容。</summary>
-
-![RAG](./show/webui_RAG.PNG)
 </details>
 
 ## ✨ 核心亮点
