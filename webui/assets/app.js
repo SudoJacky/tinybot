@@ -91,6 +91,7 @@ const elements = {
   configKnowledgeRerankApiKeyEnvVar: document.querySelector("#config-knowledge-rerank-api-key-env-var"),
   configKnowledgeRerankApiBase: document.querySelector("#config-knowledge-rerank-api-base"),
   configKnowledgeRerankTopN: document.querySelector("#config-knowledge-rerank-top-n"),
+  configKnowledgeGenerateSummary: document.querySelector("#config-knowledge-generate-summary"),
   // Embedding config elements
   configEmbeddingProvider: document.querySelector("#config-embedding-provider"),
   configEmbeddingModelName: document.querySelector("#config-embedding-model-name"),
@@ -1860,6 +1861,7 @@ function populateConfigForm(config) {
   elements.configKnowledgeRerankApiKeyEnvVar.value = knowledge.rerankApiKeyEnvVar || knowledge.rerank_api_key_env_var || "DASHSCOPE_API_KEY";
   elements.configKnowledgeRerankApiBase.value = knowledge.rerankApiBase || knowledge.rerank_api_base || "https://dashscope.aliyuncs.com/compatible-api/v1";
   elements.configKnowledgeRerankTopN.value = knowledge.rerankTopN || knowledge.rerank_top_n || 0;
+  elements.configKnowledgeGenerateSummary.checked = knowledge.generateSummary || knowledge.generate_summary === true;
 
   // Embedding config (nested in agents.defaults)
   const embedding = defaults.embedding || {};
@@ -2108,6 +2110,7 @@ async function saveConfig() {
       rerank_api_key_env_var: getValue(elements.configKnowledgeRerankApiKeyEnvVar),
       rerank_api_base: getValue(elements.configKnowledgeRerankApiBase),
       rerank_top_n: getValue(elements.configKnowledgeRerankTopN, "number"),
+      generate_summary: elements.configKnowledgeGenerateSummary.checked,
     },
     tools: {
       web: {

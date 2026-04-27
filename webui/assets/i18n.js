@@ -202,6 +202,7 @@ const translations = {
     "settings.knowledge.rerankApiKeyEnvVar": "Rerank API Key Env Var",
     "settings.knowledge.rerankApiBase": "Rerank API Base",
     "settings.knowledge.rerankTopN": "Rerank Top N",
+    "settings.knowledge.generateSummary": "生成摘要",
 
     // Embedding settings
     "settings.embedding": "Embedding 配置",
@@ -267,6 +268,7 @@ const translations = {
     "help.knowledgeRerankApiKeyEnvVar": "API密钥的环境变量名\n推荐用环境变量而非直接填写",
     "help.knowledgeRerankApiBase": "重排序服务的API地址",
     "help.knowledgeRerankTopN": "重排序后保留的结果数\n0=使用maxChunks",
+    "help.knowledgeGenerateSummary": "为每个片段生成AI摘要\n索引时调用LLM\n增加API成本",
     "help.embeddingProvider": "向量化服务\nlocal本地运行(免费)\nopenai/azure需API",
     "help.embeddingModelName": "向量化模型\nlocal: all-MiniLM-L6-v2\nAPI: text-embedding-3-small",
     "help.embeddingApiKey": "API服务的密钥\n建议用环境变量",
@@ -683,6 +685,7 @@ const translations = {
     "settings.knowledge.rerankApiKeyEnvVar": "Rerank API Key Env Var",
     "settings.knowledge.rerankApiBase": "Rerank API Base",
     "settings.knowledge.rerankTopN": "Rerank Top N",
+    "settings.knowledge.generateSummary": "Generate summary",
 
     // Embedding settings
     "settings.embedding": "Embedding Config",
@@ -749,6 +752,7 @@ const translations = {
     "help.knowledgeRerankApiKeyEnvVar": "Env var name for API key\nSafer than direct input",
     "help.knowledgeRerankApiBase": "Rerank API endpoint URL",
     "help.knowledgeRerankTopN": "Results after rerank\n0=use maxChunks",
+    "help.knowledgeGenerateSummary": "Generate AI summary for each chunk\nCalls LLM during indexing\nIncreases API cost",
     "help.embeddingProvider": "Embedding service\nlocal=free offline\nopenai/azure=API",
     "help.embeddingModelName": "Embedding model\nlocal: all-MiniLM-L6-v2\nAPI: text-embedding-3-small",
     "help.embeddingApiKey": "API service key\nPrefer env var",

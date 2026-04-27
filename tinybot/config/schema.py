@@ -333,6 +333,7 @@ class KnowledgeConfig(Base):
     rerank_api_key_env_var: str = "DASHSCOPE_API_KEY"  # Env var for rerank API key
     rerank_api_base: str = "https://dashscope.aliyuncs.com/compatible-api/v1"  # OpenAI-compatible base URL
     rerank_top_n: int = Field(default=0, ge=0)  # 0 means use query top_k
+    generate_summary: bool = False  # Generate summary for each chunk during indexing
 
 
 class Config(BaseSettings):

@@ -263,6 +263,7 @@ class AgentLoop:
                     workspace=workspace,
                     vector_store=self._vector_store,
                     config=knowledge_config,
+                    config_ref=self._config_ref,
                 )
                 self.context.knowledge_store = self.knowledge_store
             else:
