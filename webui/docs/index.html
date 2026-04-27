@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tinybot Documentation</title>
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/docs-styles.css">
+  <script src="/assets/i18n.js"></script>
+  <style>
+    /* Landing page specific styles */
+    .docs-landing {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      padding: 32px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .landing-hero {
+      text-align: center;
+      padding: 48px 32px;
+      background: var(--panel-gradient);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .landing-hero h2 {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    .landing-hero p {
+      font-size: 16px;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    .landing-actions {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 32px;
+    }
+
+    .landing-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 24px;
+      border-radius: var(--radius-md);
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all var(--transition-base);
+    }
+
+    .landing-btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+      color: white;
+      box-shadow: var(--shadow-md);
+    }
+
+    .landing-btn-primary:hover {
+      box-shadow: var(--shadow-lg), 0 0 20px var(--accent-glow);
+      transform: translateY(-2px);
+    }
+
+    .landing-btn-secondary {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .landing-btn-secondary:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .landing-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* Card grid */
+    .docs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .doc-card {
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      background: var(--panel-gradient);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      transition: all var(--transition-base);
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .doc-card:hover {
+      box-shadow: var(--shadow-md);
+      border-color: var(--accent);
+      transform: translateY(-3px);
+    }
+
+    .doc-card-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      background: var(--accent-soft);
+      border-radius: var(--radius-md);
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+
+    .doc-card-icon svg {
+      width: 24px;
+      height: 24px;
+      stroke: currentColor;
+    }
+
+    .doc-card-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .doc-card-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .doc-card-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .doc-card-link svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Quick start section */
+    .quickstart-section {
+      background: var(--panel-gradient);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-md);
+      padding: 32px;
+    }
+
+    .quickstart-section h3 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .quickstart-code {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      overflow-x: auto;
+      margin: 16px 0;
+    }
+
+    .quickstart-code code {
+      display: block;
+      white-space: pre;
+    }
+
+    .quickstart-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+    }
+
+    .quickstart-table th,
+    .quickstart-table td {
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+
+    .quickstart-table th {
+      background: var(--bg-subtle);
+      font-weight: 600;
+    }
+
+    .quickstart-table code {
+      background: var(--bg-subtle);
+      padding: 3px 8px;
+      border-radius: var(--radius-xs);
+      font-size: 13px;
+    }
+
+    @media (max-width: 640px) {
+      .docs-landing {
+        padding: 16px;
+      }
+
+      .landing-hero {
+        padding: 32px 16px;
+      }
+
+      .landing-hero h2 {
+        font-size: 24px;
+      }
+
+      .landing-actions {
+        flex-direction: column;
+      }
+
+      .docs-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .quickstart-section {
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="docs-shell">
+    <!-- Header -->
+    <header class="docs-header">
+      <a href="/" class="docs-brand">
+        <div class="brand-mark">T</div>
+        <div>
+          <h1 class="docs-title">Tinybot</h1>
+          <p class="docs-subtitle">Documentation</p>
+        </div>
+      </a>
+      <div class="docs-actions">
+        <button id="language-toggle" class="button" type="button">EN</button>
+        <button id="theme-toggle" class="theme-toggle" type="button">
+          <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <a href="/" class="docs-back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          <span data-i18n="docs.backToChat">返回聊天</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="docs-landing">
+      <!-- Hero Section -->
+      <section class="landing-hero">
+        <h2 data-i18n="docs.heroTitle">Tinybot 使用文档</h2>
+        <p data-i18n="docs.heroDesc">轻量级个人 AI 助手框架，集成大语言模型、多聊天平台、工具系统和自动化机制。</p>
+        <div class="landing-actions">
+          <a href="/docs/quickstart" class="landing-btn landing-btn-primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5.5-2 5.5s3.5-.5 5.5-2c.5-.5 1-1.5 1-2.5c0-1-.5-2-1-3c-1.5-2-4-3-4-3s-.5 2 0 3"/></svg>
+            <span data-i18n="docs.quickStart">快速开始</span>
+          </a>
+          <a href="https://github.com/SudoJacky/tinybot" target="_blank" class="landing-btn landing-btn-secondary">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            <span>GitHub</span>
+          </a>
+        </div>
+      </section>
+
+      <!-- Quick Start -->
+      <section class="quickstart-section">
+        <h3 data-i18n="docs.installation">安装与启动</h3>
+        <div class="quickstart-code">
+          <code># 安装依赖
+uv sync
+
+# 初始化配置
+uv run tinybot onboard
+
+# 交互聊天模式
+uv run tinybot agent
+
+# 启动 Gateway (WebUI)
+uv run tinybot gateway</code>
+        </div>
+        <table class="quickstart-table">
+          <thead>
+            <tr>
+              <th data-i18n="docs.command">命令</th>
+              <th data-i18n="docs.description">描述</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>uv run tinybot agent</code></td>
+              <td data-i18n="docs.agentMode">交互聊天模式</td>
+            </tr>
+            <tr>
+              <td><code>uv run tinybot gateway</code></td>
+              <td data-i18n="docs.gatewayMode">启动网关（WebUI + 多频道）</td>
+            </tr>
+            <tr>
+              <td><code>uv run tinybot api</code></td>
+              <td data-i18n="docs.apiMode">作为 OpenAI 兼容 API 服务</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- Documentation Cards -->
+      <section>
+        <h3 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;" data-i18n="docs.allDocs">所有文档</h3>
+        <div class="docs-grid">
+          <!-- Quick Start -->
+          <a href="/docs/quickstart" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5.5-2 5.5s3.5-.5 5.5-2c.5-.5 1-1.5 1-2.5c0-1-.5-2-1-3c-1.5-2-4-3-4-3s-.5 2 0 3"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.quickstart">快速开始</h4>
+            <p class="doc-card-desc" data-i18n="docs.quickstartDesc">安装配置和基本使用指南</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- WebUI -->
+          <a href="/docs/webui" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.webui">WebUI 指南</h4>
+            <p class="doc-card-desc" data-i18n="docs.webuiDesc">Web 界面功能和 API 端点</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- Tasks -->
+          <a href="/docs/tasks" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M5 9v3a3 3 0 0 0 3 3h4"/><path d="M19 9v3a3 3 0 0 1-3 3h-4"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.tasks">任务调度</h4>
+            <p class="doc-card-desc" data-i18n="docs.tasksDesc">Agentic DAG 任务分解系统</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- Knowledge -->
+          <a href="/docs/knowledge" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A6 6 0 0 1 12 21a6 6 0 0 1 9.967-5.517 4 4 0 0 0 .556-6.588 4 4 0 0 0-2.526-5.77A3 3 0 1 0 12 5"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.knowledge">知识库 RAG</h4>
+            <p class="doc-card-desc" data-i18n="docs.knowledgeDesc">向量检索和 Rerank 重排序</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- Tools -->
+          <a href="/docs/tools" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2 2 0 0 1-2.83-2.83l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.tools">工具系统</h4>
+            <p class="doc-card-desc" data-i18n="docs.toolsDesc">内置工具和 MCP 支持</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- Skills -->
+          <a href="/docs/skills" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3Z"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.skills">技能系统</h4>
+            <p class="doc-card-desc" data-i18n="docs.skillsDesc">Markdown 定义自定义技能</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- CLI -->
+          <a href="/docs/cli" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.cli">CLI 命令</h4>
+            <p class="doc-card-desc" data-i18n="docs.cliDesc">交互命令和配置编辑</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- Providers -->
+          <a href="/docs/providers" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.providers">Provider 配置</h4>
+            <p class="doc-card-desc" data-i18n="docs.providersDesc">14+ LLM 提供商支持</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- Gateway -->
+          <a href="/docs/gateway" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.gateway">Gateway 配置</h4>
+            <p class="doc-card-desc" data-i18n="docs.gatewayDesc">多频道接入和定时任务</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+
+          <!-- Config -->
+          <a href="/docs/config" class="doc-card">
+            <div class="doc-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </div>
+            <h4 class="doc-card-title" data-i18n="docs.nav.config">配置系统</h4>
+            <p class="doc-card-desc" data-i18n="docs.configDesc">配置文件和编辑器说明</p>
+            <span class="doc-card-link">
+              <span data-i18n="docs.readMore">阅读更多</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // Theme toggle functionality
+    function initTheme() {
+      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute("data-theme");
+      const newTheme = currentTheme === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", newTheme);
+      localStorage.setItem("tinybot-theme", newTheme);
+    }
+
+    // Language toggle functionality
+    function updateLanguageButton() {
+      const lang = getLanguage();
+      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
+    }
+
+    // Initialize
+    initTheme();
+    updateLanguageButton();
+
+    // Bind events
+    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+    document.getElementById("language-toggle").addEventListener("click", () => {
+      const newLang = getLanguage() === "zh" ? "en" : "zh";
+      setLanguage(newLang);
+      updateLanguageButton();
+    });
+  </script>
+</body>
+</html>

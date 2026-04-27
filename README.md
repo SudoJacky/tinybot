@@ -13,6 +13,21 @@ A lightweight personal AI assistant framework that integrates Large Language Mod
 ## Change log
 
 <details>
+<summary>2026.04.27 Add docs and fix some issue.</summary>
+
+![doc_home](./show/webui_doc_home.PNG)
+
+![startup](./show/webui_startup.PNG)
+
+</details>
+
+<details>
+<summary>2026.04.26 add RAG module, support text content for now</summary>
+
+![RAG](./show/webui_RAG.PNG)
+</details>
+
+<details>
 <summary>2026.04.24 new webui, human-create-skills, enable/disable skills,</summary>
 
 white mode
@@ -24,11 +39,7 @@ dark mode
 ![dark](./show/webui_2.PNG)
 </details>
 
-<details>
-<summary>2026.04.26 add RAG module, support text content for now</summary>
 
-![RAG](./show/webui_RAG.PNG)
-</details>
 
 ## ✨ Core Highlights
 

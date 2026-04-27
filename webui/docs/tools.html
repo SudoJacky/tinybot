@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>工具系统 - Tinybot Docs</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/docs-styles.css">
+  <script src="/assets/i18n.js"></script>
+</head>
+<body>
+  <div class="docs-shell">
+    <!-- Header -->
+    <header class="docs-header">
+      <a href="/" class="docs-brand">
+        <div class="brand-mark">T</div>
+        <div>
+          <h1 class="docs-title">Tinybot</h1>
+          <p class="docs-subtitle">Documentation</p>
+        </div>
+      </a>
+      <div class="docs-actions">
+        <button id="language-toggle" class="button" type="button">EN</button>
+        <button id="theme-toggle" class="theme-toggle" type="button">
+          <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <a href="/" class="docs-back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          <span data-i18n="docs.backToChat">返回聊天</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="docs-layout">
+      <!-- Left Navigation -->
+      <nav class="docs-nav">
+        <a href="/docs" class="nav-item" data-i18n-title="docs.nav.docs">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.docs">文档首页</span>
+        </a>
+        <a href="/docs/quickstart" class="nav-item" data-i18n-title="docs.nav.quickstart">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5.5-2 5.5s3.5-.5 5.5-2c.5-.5 1-1.5 1-2.5c0-1-.5-2-1-3c-1.5-2-4-3-4-3s-.5 2 0 3"/><path d="M12 12c-2-2-4-4-4-4s1-2 2-3c1-.5 2-1 3-1c1 0 2 .5 3 1c1 1 2 3 2 3s-2 2-4 4"/><path d="M12 12l3-3c2 0 4 0 6 2c-2 2-4 2-6 2l-3 3"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.quickstart">快速开始</span>
+        </a>
+        <a href="/docs/webui" class="nav-item" data-i18n-title="docs.nav.webui">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.webui">WebUI 指南</span>
+        </a>
+        <a href="/docs/tasks" class="nav-item" data-i18n-title="docs.nav.tasks">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><circle cx="19" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M5 9v3a3 3 0 0 0 3 3h4"/><path d="M19 9v3a3 3 0 0 1-3 3h-4"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.tasks">任务调度</span>
+        </a>
+        <a href="/docs/knowledge" class="nav-item" data-i18n-title="docs.nav.knowledge">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A6 6 0 0 1 12 21a6 6 0 0 1 9.967-5.517 4 4 0 0 0 .556-6.588 4 4 0 0 0-2.526-5.77A3 3 0 1 0 12 5"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.knowledge">知识库 RAG</span>
+        </a>
+        <a href="/docs/tools" class="nav-item active" data-i18n-title="docs.nav.tools">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2 2 0 0 1-2.83-2.83l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.tools">工具系统</span>
+        </a>
+        <a href="/docs/skills" class="nav-item" data-i18n-title="docs.nav.skills">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M3 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.skills">技能系统</span>
+        </a>
+        <a href="/docs/cli" class="nav-item" data-i18n-title="docs.nav.cli">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.cli">CLI 命令</span>
+        </a>
+        <a href="/docs/providers" class="nav-item" data-i18n-title="docs.nav.providers">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.providers">Provider 配置</span>
+        </a>
+        <a href="/docs/gateway" class="nav-item" data-i18n-title="docs.nav.gateway">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.gateway">Gateway 配置</span>
+        </a>
+        <a href="/docs/config" class="nav-item" data-i18n-title="docs.nav.config">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+            <span class="nav-title" data-i18n="docs.nav.config">配置系统</span>
+        </a></nav>
+
+      <!-- Content Area -->
+      <main class="docs-content">
+        <article class="docs-article">
+          <header class="article-header">
+            <h1 data-i18n="docs.pages.tools">工具系统</h1>
+          </header>
+          <div class="article-body">
+            <h1>工具功能</h1>
+<h2 id="ai-能做什么">AI 能做什么？</h2>
+<p>Tinybot 的 AI 可以使用多种工具来帮你完成任务：</p>
+<hr>
+<h2 id="文件操作">文件操作</h2>
+<table>
+<thead>
+<tr>
+<th>功能</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>读取文件</td>
+<td>查看文件内容</td>
+</tr>
+<tr>
+<td>编辑文件</td>
+<td>修改文件内容</td>
+</tr>
+<tr>
+<td>创建文件</td>
+<td>新建文件</td>
+</tr>
+<tr>
+<td>搜索文件</td>
+<td>按名称查找文件</td>
+</tr>
+<tr>
+<td>搜索内容</td>
+<td>在文件中搜索文字</td>
+</tr>
+</tbody>
+</table>
+<p><strong>示例：</strong></p>
+<pre><code class="language-">用户：读取 config.json 文件
+
+AI：[读取文件并显示内容]</code></pre>
+<hr>
+<h2 id="执行命令">执行命令</h2>
+<p>AI 可以在你的电脑上执行命令：</p>
+<pre><code class="language-">用户：列出当前目录的文件
+
+AI：[执行 ls 命令并显示结果]</code></pre>
+<h3 id="安全限制">安全限制</h3>
+<p>可以设置只允许在特定目录操作，防止 AI 修改重要系统文件。</p>
+<hr>
+<h2 id="网络搜索">网络搜索</h2>
+<p>AI 可以搜索互联网获取最新信息：</p>
+<pre><code class="language-">用户：搜索今天的科技新闻
+
+AI：[搜索并汇总结果]</code></pre>
+<h3 id="搜索引擎选择">搜索引擎选择</h3>
+<table>
+<thead>
+<tr>
+<th>选择</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DuckDuckGo</td>
+<td>默认，免费无需配置</td>
+</tr>
+<tr>
+<td>Brave</td>
+<td>需要API 密钥</td>
+</tr>
+<tr>
+<td>Tavily</td>
+<td>需要 API 密钥</td>
+</tr>
+</tbody>
+</table>
+<h3 id="代理设置">代理设置</h3>
+<p>如果网络受限，可以配置代理让 AI 能访问外网。</p>
+<hr>
+<h2 id="网页获取">网页获取</h2>
+<p>AI 可以访问网页并提取内容：</p>
+<pre><code class="language-">用户：帮我看看这个网页的内容
+
+AI：[访问网页并总结内容]</code></pre>
+<hr>
+<h2 id="定时任务">定时任务</h2>
+<p>设置定时提醒和任务：</p>
+<pre><code class="language-">用户：每天早上9点提醒我开会
+
+AI：[创建定时任务]</code></pre>
+<hr>
+<h2 id="工具设置">工具设置</h2>
+<h3 id="启用-禁用工具">启用/禁用工具</h3>
+<p>可以在配置中控制哪些工具可用：</p>
+<ul>
+<li>禁用网络搜索 → AI 不会搜索网页</li>
+<li>禁用命令执行 → AI 不能运行命令</li>
+</ul>
+<h3 id="安全设置">安全设置</h3>
+<table>
+<thead>
+<tr>
+<th>设置</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>工作区限制</td>
+<td>限制 AI 只在指定目录操作</td>
+</tr>
+<tr>
+<td>超时时间</td>
+<td>命令执行的最大时间</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="高级工具">高级工具</h2>
+<h3 id="mcp-工具">MCP 工具</h3>
+<p>可以连接外部工具服务，扩展 AI 的能力。</p>
+<h3 id="浏览器自动化">浏览器自动化</h3>
+<p>AI 可以操作浏览器：</p>
+<ul>
+<li>打开网页</li>
+<li>点击按钮</li>
+<li>输入文字</li>
+<li>提取信息</li>
+</ul>
+<p>需要额外安装浏览器扩展。</p>
+<hr>
+<h2 id="常见问题">常见问题</h2>
+<h3 id="ai-说没有权限">AI 说没有权限？</h3>
+<p>检查工作区限制设置，可能目录不在允许范围内。</p>
+<h3 id="网络搜索失败">网络搜索失败？</h3>
+<p>检查网络连接，或配置代理。</p>
+<h3 id="命令执行超时">命令执行超时？</h3>
+<p>可能是命令运行时间太长，可以增加超时时间设置。</p>
+<hr>
+<h2 id="下一步">下一步</h2>
+<ul>
+<li><a href="/docs/skills">技能系统</a> - 自定义 AI 行为</li>
+<li><a href="/docs/config">配置说明</a> - 详细配置选项</li>
+</ul>
+          </div>
+        </article>
+      </main>
+
+      <!-- Right Table of Contents -->
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#ai-能做什么" class="toc-item toc-h2">AI 能做什么？</a><a href="#文件操作" class="toc-item toc-h2">文件操作</a><a href="#执行命令" class="toc-item toc-h2">执行命令</a><a href="#安全限制" class="toc-item toc-h3">安全限制</a><a href="#网络搜索" class="toc-item toc-h2">网络搜索</a><a href="#搜索引擎选择" class="toc-item toc-h3">搜索引擎选择</a><a href="#代理设置" class="toc-item toc-h3">代理设置</a><a href="#网页获取" class="toc-item toc-h2">网页获取</a><a href="#定时任务" class="toc-item toc-h2">定时任务</a><a href="#工具设置" class="toc-item toc-h2">工具设置</a><a href="#启用-禁用工具" class="toc-item toc-h3">启用/禁用工具</a><a href="#安全设置" class="toc-item toc-h3">安全设置</a><a href="#高级工具" class="toc-item toc-h2">高级工具</a><a href="#mcp-工具" class="toc-item toc-h3">MCP 工具</a><a href="#浏览器自动化" class="toc-item toc-h3">浏览器自动化</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#ai-说没有权限" class="toc-item toc-h3">AI 说没有权限？</a><a href="#网络搜索失败" class="toc-item toc-h3">网络搜索失败？</a><a href="#命令执行超时" class="toc-item toc-h3">命令执行超时？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+    </div>
+  </div>
+
+    <script>
+    // Theme toggle
+    function initTheme() {
+      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute("data-theme");
+      const newTheme = currentTheme === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", newTheme);
+      localStorage.setItem("tinybot-theme", newTheme);
+    }
+
+    // Language toggle
+    function updateLanguageButton() {
+      const lang = getLanguage();
+      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
+    }
+
+    // Initialize
+    initTheme();
+    updateLanguageButton();
+
+    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+    document.getElementById("language-toggle").addEventListener("click", () => {
+      const newLang = getLanguage() === "zh" ? "en" : "zh";
+      setLanguage(newLang);
+      updateLanguageButton();
+    });
+
+    // Smooth scroll for TOC links
+    document.querySelectorAll('.toc-item').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>

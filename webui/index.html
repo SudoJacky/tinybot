@@ -178,7 +178,7 @@
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
         </button>
-        <a href="/docs.html" class="button button-icon" data-i18n-title="ui.docs" aria-label="Documentation">
+        <a href="/docs" class="button button-icon" data-i18n-title="ui.docs" aria-label="Documentation">
           <svg class="icon-docs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
@@ -187,6 +187,13 @@
             <line x1="8" y1="14" x2="12" y2="14"/>
           </svg>
         </a>
+        <button id="help-tour-button" class="button button-icon" type="button" data-i18n-title="ui.helpTour" aria-label="Help tour">
+          <svg class="icon-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 1 1 5.82 1c-.58 1.18-1.91 1.6-2.48 2.5"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </button>
         <button id="settings-button" class="button button-icon" type="button" data-i18n-title="ui.settings" aria-label="Settings">
           <svg class="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -472,7 +479,7 @@
           </div>
           <div class="config-field">
             <label class="config-label" data-i18n="knowledge.content">内容</label>
-            <textarea id="doc-view-content" class="doc-editor" readonly spellcheck="false"></textarea>
+            <div id="doc-view-content" class="doc-rendered message-text" role="document" tabindex="0"></div>
           </div>
         </div>
       </div>
