@@ -91,60 +91,66 @@
             <h1 data-i18n="docs.pages.quickstart">快速开始</h1>
           </header>
           <div class="article-body">
-            <h1 id="tinybot-documentation">Tinybot Documentation</h1>
-<h2 id="quick-start">快速开始 / Quick Start</h2>
-<h3 id="installation">安装 / Installation</h3>
-<p>使用 <code>uv</code> 进行依赖管理和安装：</p>
-<pre><code class="language-bash"># 安装依赖
-uv sync
-
-# 初始化配置
-uv run tinybot onboard
+            <h1>快速开始</h1>
+<h2 id="安装">安装</h2>
+<p>首先确保你已安装 Python 3.13 或更高版本。</p>
+<h3 id="步骤-1-安装依赖">步骤 1：安装依赖</h3>
+<pre><code class="language-bash">uv sync
 </code></pre>
-<h3 id="start-modes">启动模式 / Start Modes</h3>
-<table>
-<thead>
-<tr>
-<th>命令</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>uv run tinybot agent</code></td>
-<td>交互聊天模式</td>
-</tr>
-<tr>
-<td><code>uv run tinybot agent -m "Hello"</code></td>
-<td>发送单条消息</td>
-</tr>
-<tr>
-<td><code>uv run tinybot gateway</code></td>
-<td>启动网关（WebUI + 多频道 + 定时任务）</td>
-</tr>
-<tr>
-<td><code>uv run tinybot api</code></td>
-<td>作为 OpenAI 兼容 API 服务运行</td>
-</tr>
-</tbody>
-</table>
-<h3 id="requirements">系统要求 / Requirements</h3>
+<h3 id="步骤-2-初始化配置">步骤 2：初始化配置</h3>
+<pre><code class="language-bash">uv run tinybot onboard
+</code></pre>
+<p>这个命令会引导你完成初始配置，包括选择 AI 模型和设置 API 密钥。</p>
+<p>---</p>
+<h2 id="启动使用">启动使用</h2>
+<p>Tinybot 有几种使用方式：</p>
+<p>| 命令 | 说明 |
+|------|------|
+| <code>uv run tinybot agent</code> | 打开聊天界面，和 AI 对话 |
+| <code>uv run tinybot gateway</code> | 启动网页界面，可在浏览器中使用 |
+| <code>uv run tinybot api</code> | 作为 API 服务运行（高级用法） |</p>
+<h3 id="最简单的方式">最简单的方式</h3>
+<p>直接运行：</p>
+<pre><code class="language-bash">uv run tinybot agent
+</code></pre>
+<p>然后输入你的问题，AI 会回答并帮你完成任务。</p>
+<p>---</p>
+<h2 id="网页界面">网页界面</h2>
+<p>如果你更喜欢用浏览器，可以这样启动：</p>
+<pre><code class="language-bash">uv run tinybot gateway
+</code></pre>
+<p>然后打开浏览器访问 <code>http://127.0.0.1:18790</code></p>
+<p>---</p>
+<h2 id="常见问题">常见问题</h2>
+<h3 id="需要什么-ai-模型">需要什么 AI 模型？</h3>
+<p>Tinybot 支持多种 AI 服务。推荐使用：</p>
 <ul>
-<li>Python &gt;= 3.13</li>
+<li><strong>DeepSeek</strong> - 国内服务，性价比高</li>
+<li><strong>OpenAI (GPT-4)</strong> - 国际服务，功能强大</li>
+<li><strong>通义千问 (Qwen)</strong> - 阿里云服务</li>
 </ul>
-<h2 id="next-steps">下一步 / Next Steps</h2>
+<h3 id="如何获取-api-密钥">如何获取 API 密钥？</h3>
+<p>在对应 AI 服务的官网注册账号后获取：</p>
+<p>| 服务 | 获取地址 |
+|------|----------|
+| DeepSeek | https://platform.deepseek.com |
+| OpenAI | https://platform.openai.com |
+| 通义千问 | https://dashscope.aliyuncs.com |</p>
+<h3 id="必须要配置-api-密钥吗">必须要配置 API 密钥吗？</h3>
+<p>是的，大多数 AI 服务需要 API 密钥才能使用。本地模型（如 Ollama）不需要密钥，但需要你在本机部署模型。</p>
+<p>---</p>
+<h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/webui">WebUI 使用指南</a> - 了解 Web 界面功能</li>
-<li><a href="/docs/tasks">任务调度系统</a> - Agentic DAG 任务分解</li>
-<li><a href="/docs/knowledge">知识库 RAG</a> - 向量检索知识系统</li>
-<li><a href="/docs/tools">工具系统</a> - 内置工具详解</li>
-</ul>
+<li><a href="/docs/webui">网页界面使用</a> - 了解网页界面的功能</li>
+<li><a href="/docs/knowledge">知识库</a> - 让 AI 学习你的文档</li>
+<li><a href="/docs/tools">工具功能</a> - AI 能做什么</li>
+<li><a href="/docs/skills">技能系统</a> - 自定义 AI 的行为</li>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#安装" class="toc-item toc-h2">安装</a><a href="#步骤-1-安装依赖" class="toc-item toc-h3">步骤 1：安装依赖</a><a href="#步骤-2-初始化配置" class="toc-item toc-h3">步骤 2：初始化配置</a><a href="#启动使用" class="toc-item toc-h2">启动使用</a><a href="#最简单的方式" class="toc-item toc-h3">最简单的方式</a><a href="#网页界面" class="toc-item toc-h2">网页界面</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#需要什么-ai-模型" class="toc-item toc-h3">需要什么 AI 模型？</a><a href="#如何获取-api-密钥" class="toc-item toc-h3">如何获取 API 密钥？</a><a href="#必须要配置-api-密钥吗" class="toc-item toc-h3">必须要配置 API 密钥吗？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

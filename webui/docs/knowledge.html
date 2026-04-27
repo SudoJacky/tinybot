@@ -91,279 +91,142 @@
             <h1 data-i18n="docs.pages.knowledge">知识库 RAG</h1>
           </header>
           <div class="article-body">
-            <h1 id="rag">知识库 (RAG)</h1>
-<h2 id="_1">简介</h2>
-<p>Tinybot 的知识库系统基于向量存储，支持混合检索、Rerank 重排序，可以在对话中自动注入相关知识。</p>
-<h2 id="_2">功能特性</h2>
-<table>
-<thead>
-<tr>
-<th>特性</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>混合检索</strong></td>
-<td>Dense + Sparse (BM25) 组合检索</td>
-</tr>
-<tr>
-<td><strong>Rerank 重排序</strong></td>
-<td>可选的重排序提高检索精度</td>
-</tr>
-<tr>
-<td><strong>自动检索模式</strong></td>
-<td>对话中自动注入相关知识</td>
-</tr>
-<tr>
-<td><strong>本地 Embedding</strong></td>
-<td>无需外部 API</td>
-</tr>
-</tbody>
-</table>
-<h2 id="_3">配置</h2>
-<h3 id="_4">启用知识库</h3>
-<p>在 <code>config.json</code> 中配置：</p>
-<pre><code class="language-json">{
-  &quot;knowledge&quot;: {
-    &quot;enabled&quot;: true,
-    &quot;auto_retrieve&quot;: true,
-    &quot;max_chunks&quot;: 5,
-    &quot;chunk_size&quot;: 500,
-    &quot;chunk_overlap&quot;: 100,
-    &quot;retrieval_mode&quot;: &quot;hybrid&quot;
-  }
-}
-</code></pre>
-<h3 id="_5">配置项说明</h3>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>类型</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>enabled</code></td>
-<td>bool</td>
-<td>是否启用知识库</td>
-</tr>
-<tr>
-<td><code>auto_retrieve</code></td>
-<td>bool</td>
-<td>是否自动检索</td>
-</tr>
-<tr>
-<td><code>max_chunks</code></td>
-<td>int</td>
-<td>返回的最大片段数</td>
-</tr>
-<tr>
-<td><code>chunk_size</code></td>
-<td>int</td>
-<td>文本分块大小</td>
-</tr>
-<tr>
-<td><code>chunk_overlap</code></td>
-<td>int</td>
-<td>分块重叠大小</td>
-</tr>
-<tr>
-<td><code>retrieval_mode</code></td>
-<td>string</td>
-<td>检索模式：<code>hybrid</code>/<code>dense</code>/<code>sparse</code></td>
-</tr>
-</tbody>
-</table>
-<h3 id="rerank">Rerank 配置</h3>
-<pre><code class="language-json">{
-  &quot;knowledge&quot;: {
-    &quot;rerank_enabled&quot;: true,
-    &quot;rerank_model&quot;: &quot;qwen3-rerank&quot;,
-    &quot;rerank_api_key_env_var&quot;: &quot;DASHSCOPE_API_KEY&quot;,
-    &quot;rerank_api_base&quot;: &quot;https://dashscope.aliyuncs.com/compatible-api/v1&quot;,
-    &quot;rerank_top_n&quot;: 3
-  }
-}
-</code></pre>
-<h2 id="embedding">Embedding 配置</h2>
-<h3 id="embedding_1">本地 Embedding（推荐）</h3>
-<pre><code class="language-json">{
-  &quot;embedding&quot;: {
-    &quot;provider&quot;: &quot;local&quot;,
-    &quot;model_name&quot;: &quot;all-MiniLM-L6-v2&quot;
-  }
-}
-</code></pre>
-<p>本地模型无需 API Key，首次使用会自动下载。</p>
-<h3 id="embedding-api">外部 Embedding API</h3>
-<pre><code class="language-json">{
-  &quot;embedding&quot;: {
-    &quot;provider&quot;: &quot;openai&quot;,
-    &quot;model_name&quot;: &quot;text-embedding-3-small&quot;,
-    &quot;api_key&quot;: &quot;your-api-key&quot;,
-    &quot;api_base&quot;: &quot;https://api.openai.com/v1&quot;
-  }
-}
-</code></pre>
-<p>支持的 Provider：
-- <code>local</code> - 本地模型
-- <code>openai</code> - OpenAI API
-- <code>azure</code> - Azure OpenAI
-- <code>custom</code> - 自定义 API</p>
-<h2 id="_6">添加文档</h2>
-<h3 id="webui">通过 WebUI</h3>
+            <h1>知识库</h1>
+<h2 id="什么是知识库">什么是知识库？</h2>
+<p>知识库让你的 AI 能够学习和引用你提供的文档内容。比如：</p>
+<ul>
+<li>你添加了项目说明书，AI 就能回答关于项目的问题</li>
+<li>你添加了产品文档，AI 就能解答产品相关问题</li>
+<li>你添加了工作流程文档，AI 就能指导用户操作</li>
+</ul>
+<p>---</p>
+<h2 id="启用知识库">启用知识库</h2>
+<h3 id="方法一-网页界面设置">方法一：网页界面设置</h3>
 <ol>
-<li>打开知识库面板</li>
-<li>点击"添加"按钮</li>
-<li>填写文档信息：</li>
-<li>名称</li>
-<li>分类（可选）</li>
-<li>标签（可选）</li>
-<li>内容</li>
-</ol>
-<h3 id="api">通过 API</h3>
-<pre><code class="language-bash">curl -X POST http://127.0.0.1:18790/api/knowledge/docs \
-  -H &quot;Content-Type: application/json&quot; \
-  -d '{
-    &quot;name&quot;: &quot;项目说明&quot;,
-    &quot;category&quot;: &quot;guide&quot;,
-    &quot;tags&quot;: [&quot;tutorial&quot;, &quot;setup&quot;],
-    &quot;content&quot;: &quot;文档内容...&quot;
-  }'
+<li>打开网页界面</li>
+<li>点击右侧设置面板</li>
+<li>找到 Knowledge 配置</li>
+<li>将 <code>enabled</code> 设置为开启</li>
+</ul>
+<h3 id="方法二-修改配置文件">方法二：修改配置文件</h3>
+<p>在配置文件中设置：</p>
+<pre><code class="language-json">{
+  "knowledge": {
+    "enabled": true
+  }
+}
 </code></pre>
-<h3 id="_7">上传文件</h3>
+<p>---</p>
+<h2 id="添加文档">添加文档</h2>
+<h3 id="通过网页界面">通过网页界面</h3>
+<ol>
+<li>打开网页界面</li>
+<li>点击右侧"知识库"面板</li>
+<li>点击"添加"按钮</li>
+<li>输入文档名称和内容</li>
+<li>保存</li>
+</ul>
+<h3 id="上传文件">上传文件</h3>
 <p>支持上传 <code>.txt</code> 和 <code>.md</code> 文件：</p>
 <ol>
-<li>在 WebUI 点击"上传"按钮</li>
+<li>在知识库面板点击"上传"</li>
 <li>选择文件</li>
 <li>文件内容自动添加到知识库</li>
-</ol>
-<h2 id="_8">查询知识库</h2>
-<h3 id="webui_1">通过 WebUI</h3>
-<ol>
-<li>打开知识库面板</li>
-<li>在查询输入框输入问题</li>
-<li>选择检索模式（混合/密集/稀疏）</li>
-<li>设置 top_k 值</li>
-<li>点击"查询"</li>
-</ol>
-<h3 id="_9">检索模式对比</h3>
-<table>
-<thead>
-<tr>
-<th>模式</th>
-<th>描述</th>
-<th>适用场景</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>hybrid</code></td>
-<td>Dense + Sparse 组合</td>
-<td>通用场景，平衡语义和关键词</td>
-</tr>
-<tr>
-<td><code>dense</code></td>
-<td>仅向量检索</td>
-<td>语义相似性搜索</td>
-</tr>
-<tr>
-<td><code>sparse</code></td>
-<td>仅 BM25</td>
-<td>精确关键词匹配</td>
-</tr>
-</tbody>
-</table>
-<h2 id="_10">管理文档</h2>
-<h3 id="_11">查看文档列表</h3>
-<ul>
-<li>WebUI: 知识库面板 → 文档列表</li>
-<li>API: <code>GET /api/knowledge/docs</code></li>
 </ul>
-<h3 id="_12">删除文档</h3>
-<ul>
-<li>WebUI: 点击文档旁的删除按钮</li>
-<li>API: <code>DELETE /api/knowledge/docs/{doc_id}</code></li>
-</ul>
-<h3 id="_13">重建索引</h3>
-<p>当文档内容变更后，需要重建索引：</p>
-<ul>
-<li>WebUI: 点击"重建索引"按钮</li>
-<li>API: <code>POST /api/knowledge/rebuild</code></li>
-</ul>
-<h2 id="_14">自动检索模式</h2>
-<p>当 <code>auto_retrieve</code> 启用时：</p>
+<p>---</p>
+<h2 id="使用知识库">使用知识库</h2>
+<p>启用后，当你提问时：</p>
 <ol>
-<li>用户发送消息</li>
-<li>系统自动检索相关知识</li>
-<li>将知识注入到 Agent 上下文</li>
-<li>Agent 基于知识回答问题</li>
-</ol>
-<h3 id="_15">使用场景</h3>
-<pre><code>用户: 项目的任务调度是怎么工作的？
-
-系统: [自动检索 tasks.md 相关内容]
-
-Agent: 根据文档，任务调度系统的工作原理是...
-       [引用知识库内容]
-</code></pre>
-<h2 id="_16">经验工具</h2>
-<p>Agent 可以主动管理学习经验：</p>
-<table>
-<thead>
-<tr>
-<th>工具</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>query_experience</code></td>
-<td>搜索过去的问题解决经验</td>
-</tr>
-<tr>
-<td><code>save_experience</code></td>
-<td>保存新的解决方案</td>
-</tr>
-<tr>
-<td><code>feedback_experience</code></td>
-<td>标记经验是否有帮助</td>
-</tr>
-<tr>
-<td><code>delete_experience</code></td>
-<td>删除过期或错误的经验</td>
-</tr>
-</tbody>
-</table>
-<h3 id="_17">经验记录结构</h3>
-<pre><code class="language-json">{
-  &quot;id&quot;: &quot;exp_86788c0e&quot;,
-  &quot;tool_name&quot;: &quot;exec&quot;,
-  &quot;error_type&quot;: &quot;argument error&quot;,
-  &quot;outcome&quot;: &quot;resolved&quot;,
-  &quot;resolution&quot;: &quot;解决方案描述...&quot;,
-  &quot;confidence&quot;: 0.7,
-  &quot;category&quot;: &quot;api&quot;,
-  &quot;tags&quot;: [&quot;opencli&quot;, &quot;参数错误&quot;]
-}
-</code></pre>
-<h2 id="_18">最佳实践</h2>
+<li>AI 自动搜索相关文档</li>
+<li>找到相关内容后引用</li>
+<li>结合知识回答你的问题</li>
+</ul>
+<strong>示例：</strong>
+<pre><code class="language-">用户：项目的部署流程是什么？
+<p>AI：根据项目文档，部署流程如下：
 <ol>
-<li><strong>合理分块</strong> - <code>chunk_size</code> 500-1000 字符效果较好</li>
-<li><strong>使用 Rerank</strong> - 对精确度要求高时启用</li>
-<li><strong>定期重建</strong> - 文档更新后及时重建索引</li>
-<li><strong>分类管理</strong> - 使用 category 和 tags 组织文档</li>
-<li><strong>经验积累</strong> - 让 Agent 从错误中学习</li>
-</ol>
+<li>安装依赖</li>
+<li>配置环境变量</li>
+<li>运行启动命令</li>
+</ul>
+...
+</code></pre></p>
+<p>---</p>
+<h2 id="知识库设置说明">知识库设置说明</h2>
+<p>| 设置 | 说明 | 推荐值 |
+|------|------|--------|
+| 自动检索 | 对话时自动搜索知识 | 开启 |
+| 检索数量 | 每次搜索返回的片段数 | 5 |
+| 分块大小 | 文档切分的段落大小 | 500 |</p>
+<h3 id="检索数量">检索数量</h3>
+<p>控制每次搜索返回多少内容片段：
+<ul>
+<li>数值越小，返回内容越少，响应更快</li>
+<li>数值越大，返回内容越多，信息更全面</li>
+</ul></p>
+<h3 id="分块大小">分块大小</h3>
+<p>文档会被切分成小块存储：
+<ul>
+<li>小块适合精确匹配</li>
+<li>大块保留更多上下文</li>
+</ul></p>
+<p>---</p>
+<h2 id="检索模式">检索模式</h2>
+<p>| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| 混合模式 | 默认模式，结合语义和关键词 | 大多数情况 |
+| 语义模式 | 按意思相似度搜索 | 内容表达多样的文档 |
+| 关键词模式 | 按关键词精确匹配 | 技术文档、代码 |</p>
+<p>---</p>
+<h2 id="高级功能">高级功能</h2>
+<h3 id="重排序">重排序</h3>
+<p>开启后可以提高搜索准确性，但需要额外的 API 服务。</p>
+<strong>是否需要？</strong>
+<ul>
+<li>一般使用不需要开启</li>
+<li>如果搜索结果不准确，可以尝试开启</li>
+</ul>
+<h3 id="文档分类">文档分类</h3>
+<p>添加文档时可以设置分类和标签，方便管理：</p>
+<ul>
+<li>分类：如"产品文档"、"技术文档"</li>
+<li>标签：如"入门"、"高级"、"API"</li>
+</ul>
+<p>---</p>
+<h2 id="管理知识库">管理知识库</h2>
+<h3 id="查看文档列表">查看文档列表</h3>
+<p>在网页界面的知识库面板可以看到所有已添加的文档。</p>
+<h3 id="删除文档">删除文档</h3>
+<p>点击文档旁的删除按钮即可删除。</p>
+<h3 id="更新内容">更新内容</h3>
+<p>文档更新后，点击"重建索引"让知识库重新处理。</p>
+<p>---</p>
+<h2 id="常见问题">常见问题</h2>
+<h3 id="ai-没用到我的文档">AI 没用到我的文档？</h3>
+<p>检查：
+<ol>
+<li>知识库是否已启用</li>
+<li>问题是否和文档内容相关</li>
+<li>尝试重建索引</li>
+</ul></p>
+<h3 id="搜索结果不准确">搜索结果不准确？</h3>
+<p>尝试：
+<ol>
+<li>调整检索数量</li>
+<li>更换检索模式</li>
+<li>开启重排序功能</li>
+</ul></p>
+<p>---</p>
+<h2 id="下一步">下一步</h2>
+<ul>
+<li><a href="/docs/skills">技能系统</a> - 自定义 AI 行为</li>
+<li><a href="/docs/tools">工具功能</a> - AI 能做什么</li>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么是知识库" class="toc-item toc-h2">什么是知识库？</a><a href="#启用知识库" class="toc-item toc-h2">启用知识库</a><a href="#方法一-网页界面设置" class="toc-item toc-h3">方法一：网页界面设置</a><a href="#方法二-修改配置文件" class="toc-item toc-h3">方法二：修改配置文件</a><a href="#添加文档" class="toc-item toc-h2">添加文档</a><a href="#通过网页界面" class="toc-item toc-h3">通过网页界面</a><a href="#上传文件" class="toc-item toc-h3">上传文件</a><a href="#使用知识库" class="toc-item toc-h2">使用知识库</a><a href="#知识库设置说明" class="toc-item toc-h2">知识库设置说明</a><a href="#检索数量" class="toc-item toc-h3">检索数量</a><a href="#分块大小" class="toc-item toc-h3">分块大小</a><a href="#检索模式" class="toc-item toc-h2">检索模式</a><a href="#高级功能" class="toc-item toc-h2">高级功能</a><a href="#重排序" class="toc-item toc-h3">重排序</a><a href="#文档分类" class="toc-item toc-h3">文档分类</a><a href="#管理知识库" class="toc-item toc-h2">管理知识库</a><a href="#查看文档列表" class="toc-item toc-h3">查看文档列表</a><a href="#删除文档" class="toc-item toc-h3">删除文档</a><a href="#更新内容" class="toc-item toc-h3">更新内容</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#ai-没用到我的文档" class="toc-item toc-h3">AI 没用到我的文档？</a><a href="#搜索结果不准确" class="toc-item toc-h3">搜索结果不准确？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

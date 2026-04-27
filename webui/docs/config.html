@@ -91,370 +91,260 @@
             <h1 data-i18n="docs.pages.config">配置系统</h1>
           </header>
           <div class="article-body">
-            <h1 id="_1">配置系统</h1>
-<h2 id="_2">配置文件位置</h2>
-<p>配置文件存储在 <code>~/.tinybot/config.json</code></p>
-<pre><code class="language-bash"># 查看配置路径
-uv run tinybot config show
-
-# 编辑配置
-uv run tinybot config edit
+            <h1>配置说明</h1>
+<h2 id="配置文件位置">配置文件位置</h2>
+<p>配置文件在 <code>~/.tinybot/config.json</code></p>
+<h3 id="查看配置">查看配置</h3>
+<pre><code class="language-bash">uv run tinybot config show
 </code></pre>
-<h2 id="_3">配置编辑器</h2>
-<p>在交互模式下按 <code>Ctrl+O</code> 或输入 <code>/config</code> 打开全屏配置编辑器。</p>
-<h3 id="_4">功能</h3>
-<ul>
-<li>分组显示配置项</li>
-<li>实时编辑和保存</li>
-<li>验证配置格式</li>
-<li>查看当前值</li>
-</ul>
-<h2 id="_5">配置结构</h2>
-<pre><code class="language-json">{
-  &quot;agent&quot;: {
-    &quot;workspace&quot;: &quot;path/to/workspace&quot;,
-    &quot;model&quot;: &quot;gpt-4o&quot;,
-    &quot;provider&quot;: &quot;auto&quot;,
-    &quot;temperature&quot;: 0.7,
-    &quot;max_tokens&quot;: 4096,
-    &quot;context_window&quot;: 128000,
-    &quot;max_tool_iterations&quot;: 50
-  },
-  &quot;providers&quot;: {
-    &quot;openai&quot;: {
-      &quot;api_key&quot;: &quot;sk-...&quot;,
-      &quot;api_base&quot;: &quot;https://api.openai.com/v1&quot;
-    }
-  },
-  &quot;tools&quot;: {
-    &quot;web&quot;: {
-      &quot;enabled&quot;: true,
-      &quot;proxy&quot;: &quot;&quot;,
-      &quot;search_provider&quot;: &quot;duckduckgo&quot;
-    },
-    &quot;exec&quot;: {
-      &quot;enabled&quot;: true,
-      &quot;timeout&quot;: 120,
-      &quot;restrict_workspace&quot;: true
-    }
-  },
-  &quot;knowledge&quot;: {
-    &quot;enabled&quot;: true,
-    &quot;auto_retrieve&quot;: true,
-    &quot;max_chunks&quot;: 5
-  },
-  &quot;channels&quot;: {
-    &quot;websocket&quot;: {
-      &quot;enabled&quot;: true,
-      &quot;host&quot;: &quot;127.0.0.1&quot;,
-      &quot;port&quot;: 18790
-    }
-  },
-  &quot;gateway&quot;: {
-    &quot;host&quot;: &quot;127.0.0.1&quot;,
-    &quot;port&quot;: 18790
-  }
-}
+<h3 id="编辑配置">编辑配置</h3>
+<pre><code class="language-bash">uv run tinybot config edit
 </code></pre>
-<h2 id="_6">配置分组</h2>
-<h3 id="agent">Agent 配置</h3>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>类型</th>
-<th>默认值</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>workspace</code></td>
-<td>string</td>
-<td><code>./workspace</code></td>
-<td>工作区目录</td>
-</tr>
-<tr>
-<td><code>model</code></td>
-<td>string</td>
-<td>-</td>
-<td>模型名称</td>
-</tr>
-<tr>
-<td><code>provider</code></td>
-<td>string</td>
-<td><code>auto</code></td>
-<td>Provider 类型</td>
-</tr>
-<tr>
-<td><code>temperature</code></td>
-<td>float</td>
-<td><code>0.7</code></td>
-<td>温度参数</td>
-</tr>
-<tr>
-<td><code>max_tokens</code></td>
-<td>int</td>
-<td><code>4096</code></td>
-<td>最大输出长度</td>
-</tr>
-<tr>
-<td><code>context_window</code></td>
-<td>int</td>
-<td><code>128000</code></td>
-<td>上下文窗口</td>
-</tr>
-<tr>
-<td><code>max_tool_iterations</code></td>
-<td>int</td>
-<td><code>50</code></td>
-<td>最大工具调用次数</td>
-</tr>
-<tr>
-<td><code>reasoning_effort</code></td>
-<td>string</td>
-<td>-</td>
-<td>推理强度</td>
-</tr>
-<tr>
-<td><code>timezone</code></td>
-<td>string</td>
-<td><code>Asia/Shanghai</code></td>
-<td>时区</td>
-</tr>
-</tbody>
-</table>
-<h3 id="provider">Provider 配置</h3>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>类型</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>api_key</code></td>
-<td>string</td>
-<td>API 密钥</td>
-</tr>
-<tr>
-<td><code>api_base</code></td>
-<td>string</td>
-<td>API 地址</td>
-</tr>
-</tbody>
-</table>
-<h3 id="tools">Tools 配置</h3>
-<h4 id="web">Web 工具</h4>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>类型</th>
-<th>默认值</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>enabled</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>启用 Web 工具</td>
-</tr>
-<tr>
-<td><code>proxy</code></td>
-<td>string</td>
-<td>-</td>
-<td>代理地址</td>
-</tr>
-<tr>
-<td><code>search_provider</code></td>
-<td>string</td>
-<td><code>duckduckgo</code></td>
-<td>搜索引擎</td>
-</tr>
-</tbody>
-</table>
-<h4 id="exec">Exec 工具</h4>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>类型</th>
-<th>默认值</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>enabled</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>启用 Exec 工具</td>
-</tr>
-<tr>
-<td><code>timeout</code></td>
-<td>int</td>
-<td><code>120</code></td>
-<td>超时时间（秒）</td>
-</tr>
-<tr>
-<td><code>restrict_workspace</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>限制在工作区</td>
-</tr>
-</tbody>
-</table>
-<h3 id="knowledge">Knowledge 配置</h3>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>类型</th>
-<th>默认值</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>enabled</code></td>
-<td>bool</td>
-<td><code>false</code></td>
-<td>启用知识库</td>
-</tr>
-<tr>
-<td><code>auto_retrieve</code></td>
-<td>bool</td>
-<td><code>false</code></td>
-<td>自动检索</td>
-</tr>
-<tr>
-<td><code>max_chunks</code></td>
-<td>int</td>
-<td><code>5</code></td>
-<td>最大片段数</td>
-</tr>
-<tr>
-<td><code>chunk_size</code></td>
-<td>int</td>
-<td><code>500</code></td>
-<td>分块大小</td>
-</tr>
-<tr>
-<td><code>chunk_overlap</code></td>
-<td>int</td>
-<td><code>100</code></td>
-<td>分块重叠</td>
-</tr>
-<tr>
-<td><code>retrieval_mode</code></td>
-<td>string</td>
-<td><code>hybrid</code></td>
-<td>检索模式</td>
-</tr>
-</tbody>
-</table>
-<h3 id="channels">Channels 配置</h3>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>类型</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>enabled</code></td>
-<td>bool</td>
-<td>启用频道</td>
-</tr>
-<tr>
-<td><code>host</code></td>
-<td>string</td>
-<td>监听地址</td>
-</tr>
-<tr>
-<td><code>port</code></td>
-<td>int</td>
-<td>监听端口</td>
-</tr>
-</tbody>
-</table>
-<h3 id="gateway">Gateway 配置</h3>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>类型</th>
-<th>默认值</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>host</code></td>
-<td>string</td>
-<td><code>127.0.0.1</code></td>
-<td>监听地址</td>
-</tr>
-<tr>
-<td><code>port</code></td>
-<td>int</td>
-<td><code>18790</code></td>
-<td>监听端口</td>
-</tr>
-</tbody>
-</table>
-<h2 id="_7">环境变量</h2>
-<p>配置中的环境变量支持：</p>
+<p>或在聊天中输入 <code>/config</code> 打开配置编辑器。</p>
+<p>---</p>
+<h2 id="基础配置">基础配置</h2>
+<h3 id="选择-ai-模型">选择 AI 模型</h3>
+<p>最重要的配置是选择使用哪个 AI 模型：</p>
 <pre><code class="language-json">{
-  &quot;providers&quot;: {
-    &quot;openai&quot;: {
-      &quot;api_key_env_var&quot;: &quot;OPENAI_API_KEY&quot;
+  "agents": {
+    "defaults": {
+      "model": "deepseek-chat"
     }
   }
 }
 </code></pre>
-<p>系统会读取环境变量 <code>OPENAI_API_KEY</code> 作为 API 密钥。</p>
-<h2 id="_8">安全性</h2>
-<h3 id="api">API 密钥保护</h3>
+<strong>常用模型：</strong>
+<p>| 模型 | 说明 |
+|------|------|
+| <code>deepseek-chat</code> | DeepSeek 对话模型 |
+| <code>deepseek-reasoner</code> | DeepSeek 深度推理 |
+| <code>gpt-4o</code> | OpenAI 最新模型 |
+| <code>qwen-max</code> | 通义千问 |</p>
+<h3 id="配置-api-密钥">配置 API 密钥</h3>
+<strong>推荐方式：环境变量</strong>
+<p>设置环境变量更安全：</p>
+<pre><code class="language-bash">export DEEPSEEK_API_KEY="你的密钥"
+</code></pre>
+<strong>配置文件方式：</strong>
+<pre><code class="language-json">{
+  "providers": {
+    "deepseek": {
+      "api_key": "你的密钥"
+    }
+  }
+}
+</code></pre>
+<p>---</p>
+<h2 id="常用设置">常用设置</h2>
+<h3 id="工作目录">工作目录</h3>
+<p>设置 AI 操作文件的位置：</p>
+<pre><code class="language-json">{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.tinybot/workspace"
+    }
+  }
+}
+</code></pre>
+<h3 id="时区设置">时区设置</h3>
+<p>让 AI 知道你的时区：</p>
+<pre><code class="language-json">{
+  "agents": {
+    "defaults": {
+      "timezone": "Asia/Shanghai"
+    }
+  }
+}
+</code></pre>
+<strong>常用时区：</strong>
+<p>| 时区 | 地区 |
+|------|------|
+| <code>Asia/Shanghai</code> | 中国 |
+| <code>Asia/Tokyo</code> | 日本 |
+| <code>America/New_York</code> | 美国东部 |</p>
+<p>---</p>
+<h2 id="ai-行为设置">AI 行为设置</h2>
+<h3 id="回复长度">回复长度</h3>
+<p>控制 AI 单次回复的最大长度：</p>
+<pre><code class="language-json">{
+  "agents": {
+    "defaults": {
+      "max_tokens": 4096
+    }
+  }
+}
+</code></pre>
+<p>| 值 | 说明 |
+|----|------|
+| 1024 | 简短回复 |
+| 4096 | 中等长度 |
+| 8192 | 详细回复 |</p>
+<h3 id="创造性控制">创造性控制</h3>
+<p>控制 AI 回复的随机性：</p>
+<pre><code class="language-json">{
+  "agents": {
+    "defaults": {
+      "temperature": 0.1
+    }
+  }
+}
+</code></pre>
+<p>| 值 | 说明 | 适用场景 |
+|----|------|----------|
+| 0 ~ 0.3 | 稳定、确定 | 编程、问答 |
+| 0.5 ~ 0.7 | 平衡 | 一般对话 |
+| 0.8 ~ 1.0 | 有创意 | 写作、创意 |</p>
+<h3 id="深度思考模式">深度思考模式</h3>
+<p>让 AI 进行更深入的推理：</p>
+<pre><code class="language-json">{
+  "agents": {
+    "defaults": {
+      "reasoning_effort": "medium"
+    }
+  }
+}
+</code></pre>
+<p>| 值 | 说明 |
+|----|------|
+| <code>low</code> | 快速思考 |
+| <code>medium</code> | 平衡 |
+| <code>high</code> | 深度思考 |</p>
+<p>仅部分模型支持此功能。</p>
+<p>---</p>
+<h2 id="工具设置">工具设置</h2>
+<h3 id="网络搜索">网络搜索</h3>
+<p>控制 AI 能否搜索网络：</p>
+<pre><code class="language-json">{
+  "tools": {
+    "web": {
+      "enable": true
+    }
+  }
+}
+</code></pre>
+<h3 id="代理设置">代理设置</h3>
+<p>如果网络受限，配置代理：</p>
+<pre><code class="language-json">{
+  "tools": {
+    "web": {
+      "proxy": "http://127.0.0.1:7890"
+    }
+  }
+}
+</code></pre>
+<h3 id="安全限制">安全限制</h3>
+<p>限制 AI 只能在工作目录操作：</p>
+<pre><code class="language-json">{
+  "tools": {
+    "restrict_to_workspace": true
+  }
+}
+</code></pre>
+<p>---</p>
+<h2 id="知识库设置">知识库设置</h2>
+<p>启用知识库：</p>
+<pre><code class="language-json">{
+  "knowledge": {
+    "enabled": true,
+    "auto_retrieve": true
+  }
+}
+</code></pre>
+<p>| 设置 | 说明 |
+|------|------|
+| <code>enabled</code> | 是否启用知识库 |
+| <code>auto_retrieve</code> | 对话时自动搜索知识 |</p>
+<p>---</p>
+<h2 id="网关设置">网关设置</h2>
+<p>网页界面和端口设置：</p>
+<pre><code class="language-json">{
+  "gateway": {
+    "port": 18790
+  }
+}
+</code></pre>
+<p>---</p>
+<h2 id="ai-服务配置">AI 服务配置</h2>
+<p>不同 AI 服务需要配置对应的密钥：</p>
+<h3 id="deepseek">DeepSeek</h3>
+<pre><code class="language-json">{
+  "providers": {
+    "deepseek": {
+      "api_key": "你的密钥"
+    }
+  }
+}
+</code></pre>
+<p>环境变量：<code>DEEPSEEK_API_KEY</code></p>
+<h3 id="openai">OpenAI</h3>
+<pre><code class="language-json">{
+  "providers": {
+    "openai": {
+      "api_key": "你的密钥"
+    }
+  }
+}
+</code></pre>
+<p>环境变量：<code>OPENAI_API_KEY</code></p>
+<h3 id="通义千问">通义千问</h3>
+<pre><code class="language-json">{
+  "providers": {
+    "dashscope": {
+      "api_key": "你的密钥"
+    }
+  }
+}
+</code></pre>
+<p>环境变量：<code>DASHSCOPE_API_KEY</code></p>
+<h3 id="ollama-本地模型">Ollama 本地模型</h3>
+<pre><code class="language-json">{
+  "providers": {
+    "ollama": {
+      "api_base": "http://localhost:11434/v1"
+    }
+  }
+}
+</code></pre>
+<p>本地模型无需 API 密钥。</p>
+<p>---</p>
+<h2 id="配置编辑器">配置编辑器</h2>
+<p>在聊天中按 <code>Ctrl+O</code> 或输入 <code>/config</code> 打开配置界面：</p>
+<p>-分组显示各项设置
 <ul>
-<li>API 密钥在 WebUI 中显示为密码字段</li>
-<li>建议使用环境变量而非直接配置</li>
-</ul>
-<h3 id="_9">工作区限制</h3>
-<p>启用 <code>restrict_workspace</code> 后：</p>
-<ul>
-<li>文件操作限制在工作区</li>
-<li>Shell 命令限制在工作区</li>
-<li>防止意外操作</li>
-</ul>
-<h2 id="webui">WebUI 配置管理</h2>
-<p>在 WebUI 中点击设置按钮可以：</p>
+<li>可直接编辑修改</li>
+<li>自动验证格式</li>
+<li>按 <code>q</code> 保存退出</li>
+</ul></p>
+<p>---</p>
+<h2 id="网页界面配置">网页界面配置</h2>
+<p>在网页界面点击设置按钮：</p>
 <ul>
 <li>查看所有配置项</li>
-<li>实时编辑并保存</li>
-<li>分组折叠展开</li>
-<li>验证配置格式</li>
+<li>实时编辑保存</li>
+<li>分组折叠显示</li>
 </ul>
-<h2 id="_10">最佳实践</h2>
-<ol>
-<li><strong>使用环境变量</strong> - API Key 使用环境变量存储</li>
-<li><strong>限制工作区</strong> - 生产环境启用 <code>restrict_workspace</code></li>
-<li><strong>合理温度</strong> - 根据任务类型设置 temperature</li>
-<li><strong>定期检查</strong> - 检查配置是否过期</li>
-</ol>
+<p>---</p>
+<h2 id="常见问题">常见问题</h2>
+<h3 id="配置错误怎么办">配置错误怎么办？</h3>
+<p>删除配置文件重新初始化：</p>
+<pre><code class="language-bash">rm ~/.tinybot/config.json
+uv run tinybot onboard
+</code></pre>
+<h3 id="如何快速切换模型">如何快速切换模型？</h3>
+<p>在配置编辑器中修改 <code>model</code> 参数。</p>
+<h3 id="api-密钥泄露风险">API 密钥泄露风险？</h3>
+<p>使用环境变量而不是直接写在配置文件中。</p>
+<p>---</p>
+<h2 id="下一步">下一步</h2>
+<ul>
+<li><a href="/docs/providers">AI 服务配置</a> - 各服务详细说明</li>
+<li><a href="/docs/quickstart">快速开始</a> - 开始使用</li>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#配置文件位置" class="toc-item toc-h2">配置文件位置</a><a href="#查看配置" class="toc-item toc-h3">查看配置</a><a href="#编辑配置" class="toc-item toc-h3">编辑配置</a><a href="#基础配置" class="toc-item toc-h2">基础配置</a><a href="#选择-ai-模型" class="toc-item toc-h3">选择 AI 模型</a><a href="#配置-api-密钥" class="toc-item toc-h3">配置 API 密钥</a><a href="#常用设置" class="toc-item toc-h2">常用设置</a><a href="#工作目录" class="toc-item toc-h3">工作目录</a><a href="#时区设置" class="toc-item toc-h3">时区设置</a><a href="#ai-行为设置" class="toc-item toc-h2">AI 行为设置</a><a href="#回复长度" class="toc-item toc-h3">回复长度</a><a href="#创造性控制" class="toc-item toc-h3">创造性控制</a><a href="#深度思考模式" class="toc-item toc-h3">深度思考模式</a><a href="#工具设置" class="toc-item toc-h2">工具设置</a><a href="#网络搜索" class="toc-item toc-h3">网络搜索</a><a href="#代理设置" class="toc-item toc-h3">代理设置</a><a href="#安全限制" class="toc-item toc-h3">安全限制</a><a href="#知识库设置" class="toc-item toc-h2">知识库设置</a><a href="#网关设置" class="toc-item toc-h2">网关设置</a><a href="#ai-服务配置" class="toc-item toc-h2">AI 服务配置</a><a href="#deepseek" class="toc-item toc-h3">DeepSeek</a><a href="#openai" class="toc-item toc-h3">OpenAI</a><a href="#通义千问" class="toc-item toc-h3">通义千问</a><a href="#ollama-本地模型" class="toc-item toc-h3">Ollama 本地模型</a><a href="#配置编辑器" class="toc-item toc-h2">配置编辑器</a><a href="#网页界面配置" class="toc-item toc-h2">网页界面配置</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#配置错误怎么办" class="toc-item toc-h3">配置错误怎么办？</a><a href="#如何快速切换模型" class="toc-item toc-h3">如何快速切换模型？</a><a href="#api-密钥泄露风险" class="toc-item toc-h3">API 密钥泄露风险？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

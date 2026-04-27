@@ -1,188 +1,363 @@
-# 配置系统
+# 配置说明
 
 ## 配置文件位置
 
-配置文件存储在 `~/.tinybot/config.json`
+配置文件在 `~/.tinybot/config.json`
+
+### 查看配置
 
 ```bash
-# 查看配置路径
 uv run tinybot config show
+```
 
-# 编辑配置
+### 编辑配置
+
+```bash
 uv run tinybot config edit
 ```
 
-## 配置编辑器
+或在聊天中输入 `/config` 打开配置编辑器。
 
-在交互模式下按 `Ctrl+O` 或输入 `/config` 打开全屏配置编辑器。
+---
 
-### 功能
+## 基础配置
 
-- 分组显示配置项
-- 实时编辑和保存
-- 验证配置格式
-- 查看当前值
+### 选择 AI 模型
 
-## 配置结构
+最重要的配置是选择使用哪个 AI 模型：
 
 ```json
 {
-  "agent": {
-    "workspace": "path/to/workspace",
-    "model": "gpt-4o",
-    "provider": "auto",
-    "temperature": 0.7,
-    "max_tokens": 4096,
-    "context_window": 128000,
-    "max_tool_iterations": 50
-  },
-  "providers": {
-    "openai": {
-      "api_key": "sk-...",
-      "api_base": "https://api.openai.com/v1"
+  "agents": {
+    "defaults": {
+      "model": "deepseek-chat"
     }
-  },
+  }
+}
+```
+
+**常用模型：**
+
+| 模型 | 说明 |
+|------|------|
+| `deepseek-chat` | DeepSeek 对话模型 |
+| `deepseek-reasoner` | DeepSeek 深度推理 |
+| `gpt-4o` | OpenAI 最新模型 |
+| `qwen-max` | 通义千问 |
+
+### 配置 API 密钥
+
+**推荐方式：环境变量**
+
+设置环境变量更安全：
+
+```bash
+export DEEPSEEK_API_KEY="你的密钥"
+```
+
+**配置文件方式：**
+
+```json
+{
+  "providers": {
+    "deepseek": {
+      "api_key": "你的密钥"
+    }
+  }
+}
+```
+
+---
+
+## 常用设置
+
+### 工作目录
+
+设置 AI 操作文件的位置：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.tinybot/workspace"
+    }
+  }
+}
+```
+
+### 时区设置
+
+让 AI 知道你的时区：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "timezone": "Asia/Shanghai"
+    }
+  }
+}
+```
+
+**常用时区：**
+
+| 时区 | 地区 |
+|------|------|
+| `Asia/Shanghai` | 中国 |
+| `Asia/Tokyo` | 日本 |
+| `America/New_York` | 美国东部 |
+
+---
+
+## AI 行为设置
+
+### 回复长度
+
+控制 AI 单次回复的最大长度：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "max_tokens": 4096
+    }
+  }
+}
+```
+
+| 值 | 说明 |
+|----|------|
+| 1024 | 简短回复 |
+| 4096 | 中等长度 |
+| 8192 | 详细回复 |
+
+### 创造性控制
+
+控制 AI 回复的随机性：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "temperature": 0.1
+    }
+  }
+}
+```
+
+| 值 | 说明 | 适用场景 |
+|----|------|----------|
+| 0 ~ 0.3 | 稳定、确定 | 编程、问答 |
+| 0.5 ~ 0.7 | 平衡 | 一般对话 |
+| 0.8 ~ 1.0 | 有创意 | 写作、创意 |
+
+### 深度思考模式
+
+让 AI 进行更深入的推理：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "reasoning_effort": "medium"
+    }
+  }
+}
+```
+
+| 值 | 说明 |
+|----|------|
+| `low` | 快速思考 |
+| `medium` | 平衡 |
+| `high` | 深度思考 |
+
+仅部分模型支持此功能。
+
+---
+
+## 工具设置
+
+### 网络搜索
+
+控制 AI 能否搜索网络：
+
+```json
+{
   "tools": {
     "web": {
-      "enabled": true,
-      "proxy": "",
-      "search_provider": "duckduckgo"
-    },
-    "exec": {
-      "enabled": true,
-      "timeout": 120,
-      "restrict_workspace": true
+      "enable": true
     }
-  },
+  }
+}
+```
+
+### 代理设置
+
+如果网络受限，配置代理：
+
+```json
+{
+  "tools": {
+    "web": {
+      "proxy": "http://127.0.0.1:7890"
+    }
+  }
+}
+```
+
+### 安全限制
+
+限制 AI 只能在工作目录操作：
+
+```json
+{
+  "tools": {
+    "restrict_to_workspace": true
+  }
+}
+```
+
+---
+
+## 知识库设置
+
+启用知识库：
+
+```json
+{
   "knowledge": {
     "enabled": true,
-    "auto_retrieve": true,
-    "max_chunks": 5
-  },
-  "channels": {
-    "websocket": {
-      "enabled": true,
-      "host": "127.0.0.1",
-      "port": 18790
-    }
-  },
+    "auto_retrieve": true
+  }
+}
+```
+
+| 设置 | 说明 |
+|------|------|
+| `enabled` | 是否启用知识库 |
+| `auto_retrieve` | 对话时自动搜索知识 |
+
+---
+
+## 网关设置
+
+网页界面和端口设置：
+
+```json
+{
   "gateway": {
-    "host": "127.0.0.1",
     "port": 18790
   }
 }
 ```
 
-## 配置分组
+---
 
-### Agent 配置
+## AI 服务配置
 
-| 参数 | 类型 | 默认值 | 描述 |
-|------|------|--------|------|
-| `workspace` | string | `./workspace` | 工作区目录 |
-| `model` | string | - | 模型名称 |
-| `provider` | string | `auto` | Provider 类型 |
-| `temperature` | float | `0.7` | 温度参数 |
-| `max_tokens` | int | `4096` | 最大输出长度 |
-| `context_window` | int | `128000` | 上下文窗口 |
-| `max_tool_iterations` | int | `50` | 最大工具调用次数 |
-| `reasoning_effort` | string | - | 推理强度 |
-| `timezone` | string | `Asia/Shanghai` | 时区 |
+不同 AI 服务需要配置对应的密钥：
 
-### Provider 配置
-
-| 参数 | 类型 | 描述 |
-|------|------|------|
-| `api_key` | string | API 密钥 |
-| `api_base` | string | API 地址 |
-
-### Tools 配置
-
-#### Web 工具
-
-| 参数 | 类型 | 默认值 | 描述 |
-|------|------|--------|------|
-| `enabled` | bool | `true` | 启用 Web 工具 |
-| `proxy` | string | - | 代理地址 |
-| `search_provider` | string | `duckduckgo` | 搜索引擎 |
-
-#### Exec 工具
-
-| 参数 | 类型 | 默认值 | 描述 |
-|------|------|--------|------|
-| `enabled` | bool | `true` | 启用 Exec 工具 |
-| `timeout` | int | `120` | 超时时间（秒） |
-| `restrict_workspace` | bool | `true` | 限制在工作区 |
-
-### Knowledge 配置
-
-| 参数 | 类型 | 默认值 | 描述 |
-|------|------|--------|------|
-| `enabled` | bool | `false` | 启用知识库 |
-| `auto_retrieve` | bool | `false` | 自动检索 |
-| `max_chunks` | int | `5` | 最大片段数 |
-| `chunk_size` | int | `500` | 分块大小 |
-| `chunk_overlap` | int | `100` | 分块重叠 |
-| `retrieval_mode` | string | `hybrid` | 检索模式 |
-
-### Channels 配置
-
-| 参数 | 类型 | 描述 |
-|------|------|------|
-| `enabled` | bool | 启用频道 |
-| `host` | string | 监听地址 |
-| `port` | int | 监听端口 |
-
-### Gateway 配置
-
-| 参数 | 类型 | 默认值 | 描述 |
-|------|------|--------|------|
-| `host` | string | `127.0.0.1` | 监听地址 |
-| `port` | int | `18790` | 监听端口 |
-
-## 环境变量
-
-配置中的环境变量支持：
+### DeepSeek
 
 ```json
 {
   "providers": {
-    "openai": {
-      "api_key_env_var": "OPENAI_API_KEY"
+    "deepseek": {
+      "api_key": "你的密钥"
     }
   }
 }
 ```
 
-系统会读取环境变量 `OPENAI_API_KEY` 作为 API 密钥。
+环境变量：`DEEPSEEK_API_KEY`
 
-## 安全性
+### OpenAI
 
-### API 密钥保护
+```json
+{
+  "providers": {
+    "openai": {
+      "api_key": "你的密钥"
+    }
+  }
+}
+```
 
-- API 密钥在 WebUI 中显示为密码字段
-- 建议使用环境变量而非直接配置
+环境变量：`OPENAI_API_KEY`
 
-### 工作区限制
+### 通义千问
 
-启用 `restrict_workspace` 后：
+```json
+{
+  "providers": {
+    "dashscope": {
+      "api_key": "你的密钥"
+    }
+  }
+}
+```
 
-- 文件操作限制在工作区
-- Shell 命令限制在工作区
-- 防止意外操作
+环境变量：`DASHSCOPE_API_KEY`
 
-## WebUI 配置管理
+### Ollama 本地模型
 
-在 WebUI 中点击设置按钮可以：
+```json
+{
+  "providers": {
+    "ollama": {
+      "api_base": "http://localhost:11434/v1"
+    }
+  }
+}
+```
+
+本地模型无需 API 密钥。
+
+---
+
+## 配置编辑器
+
+在聊天中按 `Ctrl+O` 或输入 `/config` 打开配置界面：
+
+-分组显示各项设置
+- 可直接编辑修改
+- 自动验证格式
+- 按 `q` 保存退出
+
+---
+
+## 网页界面配置
+
+在网页界面点击设置按钮：
 
 - 查看所有配置项
-- 实时编辑并保存
-- 分组折叠展开
-- 验证配置格式
+- 实时编辑保存
+- 分组折叠显示
 
-## 最佳实践
+---
 
-1. **使用环境变量** - API Key 使用环境变量存储
-2. **限制工作区** - 生产环境启用 `restrict_workspace`
-3. **合理温度** - 根据任务类型设置 temperature
-4. **定期检查** - 检查配置是否过期
+## 常见问题
+
+### 配置错误怎么办？
+
+删除配置文件重新初始化：
+
+```bash
+rm ~/.tinybot/config.json
+uv run tinybot onboard
+```
+
+### 如何快速切换模型？
+
+在配置编辑器中修改 `model` 参数。
+
+### API 密钥泄露风险？
+
+使用环境变量而不是直接写在配置文件中。
+
+---
+
+## 下一步
+
+- [AI 服务配置](providers.md) - 各服务详细说明
+- [快速开始](quickstart.md) - 开始使用

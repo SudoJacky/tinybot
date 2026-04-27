@@ -1,189 +1,141 @@
-# Gateway 配置
+# 网关服务
 
-## 简介
+## 什么是网关？
 
-Gateway 模式提供多频道接入、定时任务和心跳服务。
+网关服务让你可以：
+
+- 使用网页界面和 AI 对话
+- 连接多个聊天平台（飞书、钉钉等）
+- 设置定时任务
+
+---
+
+## 启动网关
 
 ```bash
 uv run tinybot gateway
 ```
 
-## 配置结构
+然后打开浏览器访问 `http://127.0.0.1:18790`
+
+---
+
+## 网页界面设置
+
+### 访问地址
+
+默认地址：`http://127.0.0.1:18790`
+
+### 修改端口
+
+如果默认端口被占用，可以修改配置：
 
 ```json
 {
   "gateway": {
-    "host": "127.0.0.1",
-    "port": 18790,
-    "heartbeat": {
-      "enabled": true,
-      "interval": 300
-    }
+    "port": 8080
   }
 }
 ```
 
-| 参数 | 描述 |
-|------|------|
-| `host` | 监听地址 |
-| `port` | 监听端口 |
-| `heartbeat.enabled` | 是否启用心跳 |
-| `heartbeat.interval` | 心跳间隔（秒） |
+### 只允许本机访问
 
-## 频道配置
+使用 `127.0.0.1` 作为地址，只有本机能访问。
 
-### WebSocket 频道
+### 允许局域网访问
 
-```json
-{
-  "channels": {
-    "websocket": {
-      "enabled": true,
-      "host": "127.0.0.1",
-      "port": 18790
-    }
-  }
-}
-```
+使用 `0.0.0.0` 作为地址，局域网内其他设备可以访问。
 
-### 微信频道
+---
 
-```json
-{
-  "channels": {
-    "wechat": {
-      "enabled": true,
-      "token": "your-token"
-    }
-  }
-}
-```
+## 连接聊天平台
 
-### DingTalk 频道
+网关可以连接到多个聊天平台，让 AI 在这些平台回复消息。
 
-```json
-{
-  "channels": {
-    "dingtalk": {
-      "enabled": true,
-      "app_key": "...",
-      "app_secret": "..."
-    }
-  }
-}
-```
+### 飞书
 
-### Feishu 频道
+1. 在飞书开放平台创建应用
+2. 获取 App ID 和 App Secret
+3. 在配置中添加：
 
 ```json
 {
   "channels": {
     "feishu": {
       "enabled": true,
-      "app_id": "...",
-      "app_secret": "..."
+      "app_id": "你的App ID",
+      "app_secret": "你的App Secret"
     }
   }
 }
 ```
 
-## 消息发送配置
+### 钉钉
 
-```json
-{
-  "channels": {
-    "send_progress": true,
-    "send_tool_hints": true,
-    "max_retries": 3
-  }
-}
-```
+类似飞书，需要在钉钉开放平台创建应用。
 
-| 参数 | 描述 |
-|------|------|
-| `send_progress` | 发送任务进度消息 |
-| `send_tool_hints` | 发送工具调用提示 |
-| `max_retries` | 发送失败重试次数 |
+### 微信企业号
 
-## 心跳服务
+在微信公众平台创建应用后配置。
 
-心跳服务在空闲时执行自动任务：
-
-- 内存整理
-- 经验分析
-- 定期检查
-
-### 配置心跳
-
-```json
-{
-  "gateway": {
-    "heartbeat": {
-      "enabled": true,
-      "interval": 300
-    }
-  }
-}
-```
+---
 
 ## 定时任务
 
-Gateway 启动时会加载定时任务：
+网关支持设置定时任务，让 AI 定期执行某些操作。
 
-```json
-{
-  "cron_tasks": [
-    {
-      "id": "daily-reminder",
-      "schedule": "0 9 * * *",
-      "message": "每天提醒检查代码",
-      "session_key": "default"
-    }
-  ]
-}
+### 通过对话设置
+
+直接和 AI 说：
+
+```
+每天早上9点提醒我检查日程
 ```
 
-## API 模式
+AI 会帮你设置定时任务。
 
-作为 OpenAI 兼容 API 服务：
+### Cron 表达式
 
-```bash
-uv run tinybot api
-```
+定时任务使用 cron 表达式：
 
-### API 配置
+| 表达式 | 含义 |
+|--------|------|
+| `0 9 * * *` | 每天9点 |
+| `0 9 * * 1-5` | 工作日9点 |
+| `*/30 * * * *` | 每30分钟 |
 
-```json
-{
-  "api": {
-    "host": "127.0.0.1",
-    "port": 8000,
-    "api_key": "your-api-key"
-  }
-}
-```
+---
 
-### 使用方式
+## 心跳服务
 
-任何 OpenAI 客户端都可以连接：
+网关空闲时会自动执行一些维护任务：
 
-```python
-import openai
+- 整理对话历史
+- 分析和学习经验
 
-client = openai.OpenAI(
-    api_key="your-api-key",
-    base_url="http://127.0.0.1:8000/v1"
-)
+这个功能默认开启，可以保持 AI 的长期记忆。
 
-response = client.chat.completions.create(
-    model="tinybot",
-    messages=[{"role": "user", "content": "Hello"}]
-)
-```
+---
 
-## 最佳实践
+## 常见问题
 
-1. **心跳间隔** - 建议 5-10 分钟
-2. **错误重试** - 设置合理的重试次数
-3. **安全配置** - 生产环境使用 HTTPS
-4. **资源监控** - 监控 Gateway 内存和 CPU
+### 网页无法访问？
+
+检查：
+1. 网关服务是否启动
+2. 端口是否被占用
+3.防火墙是否拦截
+
+### 其他平台无法收到消息？
+
+检查：
+1. 平台配置是否正确
+2. 应用权限是否设置
+3. 网关服务是否运行
+
+---
+
+## 下一步
+
+- [网页界面](webui.md) - 详细使用说明
+- [配置说明](config.md) - 网关配置选项

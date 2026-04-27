@@ -20,6 +20,8 @@ const state = {
   knowledgeDocs: [],
   knowledgeStats: null,
   config: null,
+  helpOverlay: null,
+  activeTourIndex: 0,
   pendingMessage: null,  // 待发送的消息（创建新会话后发送）
   activeSkill: null,  // 当前编辑的 skill
   skillMode: "view",  // view, edit, create
@@ -62,6 +64,7 @@ const elements = {
   editorSection: document.querySelector("#editor-section"),
   editorToggle: document.querySelector("#editor-toggle"),
   settingsButton: document.querySelector("#settings-button"),
+  helpTourButton: document.querySelector("#help-tour-button"),
   languageToggle: document.querySelector("#language-toggle"),
   modal: document.querySelector("#settings-modal"),
   modalOverlay: document.querySelector("#modal-overlay"),
@@ -226,6 +229,15 @@ function setEditorStatus(text, kind = "idle") {
     elements.editorStatus.textContent = text;
     elements.editorStatus.className = `status status-${kind}`;
   }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function setFileError(text = "") {
@@ -2492,6 +2504,10 @@ function bindEvents() {
   document.addEventListener("keydown", (event) => {
     // ESC关闭弹窗
     if (event.key === "Escape") {
+      if (state.helpOverlay) {
+        closeHelpOverlay();
+        return;
+      }
       if (elements.modal.classList.contains("active")) {
         closeModal();
       }
@@ -2535,6 +2551,12 @@ function bindEvents() {
       }
 
       // Ctrl+/: 显示快捷键帮助
+      if (event.shiftKey && (event.key === "/" || event.key === "?")) {
+        event.preventDefault();
+        showPageHelp();
+        return;
+      }
+
       if (event.key === "/" || event.key === "?") {
         event.preventDefault();
         showShortcutHelp();
@@ -2587,6 +2609,9 @@ function bindEvents() {
 
   // 主题切换按钮
   elements.themeToggle.addEventListener("click", toggleTheme);
+  if (elements.helpTourButton) {
+    elements.helpTourButton.addEventListener("click", () => startFeatureTour(0));
+  }
 
   // 监听语言变化事件（来自 i18n.js）
   window.addEventListener("languagechange", () => {
@@ -2626,12 +2651,235 @@ function renderDynamicContent() {
 }
 
 // 快捷键帮助
+const helpTargets = [
+  { selector: ".sidebar", title: "tour.sidebar.title", desc: "tour.sidebar.desc" },
+  { selector: "#new-chat-button", title: "tour.newChat.title", desc: "tour.newChat.desc" },
+  { selector: "#session-list", title: "tour.sessions.title", desc: "tour.sessions.desc" },
+  { selector: "#system-status", title: "tour.status.title", desc: "tour.status.desc" },
+  { selector: ".chat-panel", title: "tour.chat.title", desc: "tour.chat.desc" },
+  { selector: "#message-list", title: "tour.messages.title", desc: "tour.messages.desc" },
+  { selector: "#composer-form", title: "tour.composer.title", desc: "tour.composer.desc" },
+  { selector: "#tools-toggle", title: "tour.tools.title", desc: "tour.tools.desc" },
+  { selector: "#knowledge-toggle", title: "tour.knowledge.title", desc: "tour.knowledge.desc" },
+  { selector: "#skills-toggle", title: "tour.skills.title", desc: "tour.skills.desc" },
+  { selector: "#workspace-toggle", title: "tour.workspace.title", desc: "tour.workspace.desc" },
+  { selector: ".settings-bar", title: "tour.settings.title", desc: "tour.settings.desc" },
+];
+
+function getVisibleHelpTargets() {
+  return helpTargets
+    .map((item) => ({ ...item, element: document.querySelector(item.selector) }))
+    .filter((item) => {
+      if (!item.element) {
+        return false;
+      }
+      const rect = item.element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+}
+
+function clamp(value, min, max) {
+  if (max < min) {
+    return min;
+  }
+  return Math.min(Math.max(value, min), max);
+}
+
+function closeHelpOverlay() {
+  if (state.helpOverlay) {
+    if (state.helpOverlayCleanup) {
+      state.helpOverlayCleanup();
+      state.helpOverlayCleanup = null;
+    }
+    state.helpOverlay.remove();
+    state.helpOverlay = null;
+  }
+}
+
+function createHelpOverlay(mode) {
+  closeHelpOverlay();
+  const overlay = document.createElement("div");
+  overlay.className = `help-overlay help-overlay-${mode}`;
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  document.body.appendChild(overlay);
+  state.helpOverlay = overlay;
+  return overlay;
+}
+
+function registerHelpOverlayRefresh(render) {
+  const refresh = () => {
+    if (!state.helpOverlay) {
+      return;
+    }
+    window.requestAnimationFrame(render);
+  };
+  window.addEventListener("resize", refresh);
+  window.addEventListener("scroll", refresh, true);
+  state.helpOverlayCleanup = () => {
+    window.removeEventListener("resize", refresh);
+    window.removeEventListener("scroll", refresh, true);
+  };
+}
+
+function renderPageHelp() {
+  const overlay = state.helpOverlay;
+  if (!overlay) {
+    return;
+  }
+  const targets = getVisibleHelpTargets();
+  overlay.innerHTML = `
+    <div class="help-backdrop"></div>
+    <div class="help-bar">
+      <div>
+        <h2>${escapeHtml(t("tour.pageHelp.title"))}</h2>
+        <p>${escapeHtml(t("tour.pageHelp.subtitle"))}</p>
+      </div>
+      <div class="help-actions">
+        <button class="button button-primary button-small" type="button" data-help-action="start-tour">${escapeHtml(t("tour.start"))}</button>
+        <button class="button button-ghost button-small" type="button" data-help-action="close">${escapeHtml(t("ui.close"))}</button>
+      </div>
+    </div>
+    <div class="help-items"></div>
+  `;
+
+  const items = overlay.querySelector(".help-items");
+  targets.forEach((target, index) => {
+    const rect = target.element.getBoundingClientRect();
+    const box = document.createElement("div");
+    box.className = "help-target-box";
+    box.style.left = `${Math.max(8, rect.left - 4)}px`;
+    box.style.top = `${Math.max(8, rect.top - 4)}px`;
+    box.style.width = `${rect.width + 8}px`;
+    box.style.height = `${rect.height + 8}px`;
+    items.appendChild(box);
+
+    const note = document.createElement("article");
+    note.className = "help-note";
+    note.innerHTML = `
+      <span class="help-note-index">${index + 1}</span>
+      <h3>${escapeHtml(t(target.title))}</h3>
+      <p>${escapeHtml(t(target.desc))}</p>
+    `;
+
+    const noteWidth = 240;
+    const left = clamp(rect.left, 12, window.innerWidth - noteWidth - 12);
+    const top = rect.top + rect.height + 10 <= window.innerHeight - 90
+      ? rect.top + rect.height + 10
+      : Math.max(12, rect.top - 102);
+    note.style.left = `${left}px`;
+    note.style.top = `${top}px`;
+    items.appendChild(note);
+  });
+
+  overlay.querySelector('[data-help-action="close"]').addEventListener("click", closeHelpOverlay);
+  overlay.querySelector('[data-help-action="start-tour"]').addEventListener("click", () => startFeatureTour(0));
+}
+
+function showPageHelp() {
+  createHelpOverlay("map");
+  renderPageHelp();
+  registerHelpOverlayRefresh(renderPageHelp);
+}
+
+function placeTourCard(card, rect) {
+  const gap = 16;
+  const width = Math.min(360, window.innerWidth - 24);
+  card.style.width = `${width}px`;
+
+  let left = rect.right + gap;
+  if (left + width > window.innerWidth - 12) {
+    left = rect.left - width - gap;
+  }
+  if (left < 12) {
+    left = clamp(rect.left, 12, window.innerWidth - width - 12);
+  }
+
+  let top = rect.top;
+  if (top + 230 > window.innerHeight - 12) {
+    top = window.innerHeight - 242;
+  }
+  top = Math.max(12, top);
+
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
+}
+
+function renderFeatureTour() {
+  const overlay = state.helpOverlay;
+  if (!overlay) {
+    return;
+  }
+
+  const targets = getVisibleHelpTargets();
+  if (!targets.length) {
+    closeHelpOverlay();
+    return;
+  }
+
+  state.activeTourIndex = clamp(state.activeTourIndex, 0, targets.length - 1);
+  const target = targets[state.activeTourIndex];
+  const rect = target.element.getBoundingClientRect();
+
+  overlay.innerHTML = `
+    <div class="help-backdrop"></div>
+    <div class="tour-spotlight"></div>
+    <article class="tour-card">
+      <div class="tour-step">${escapeHtml(t("tour.step"))} ${state.activeTourIndex + 1} / ${targets.length}</div>
+      <h2>${escapeHtml(t(target.title))}</h2>
+      <p>${escapeHtml(t(target.desc))}</p>
+      <div class="tour-actions">
+        <button class="button button-ghost button-small" type="button" data-tour-action="close">${escapeHtml(t("tour.skip"))}</button>
+        <button class="button button-small" type="button" data-tour-action="back" ${state.activeTourIndex === 0 ? "disabled" : ""}>${escapeHtml(t("tour.back"))}</button>
+        <button class="button button-primary button-small" type="button" data-tour-action="next">${escapeHtml(state.activeTourIndex === targets.length - 1 ? t("tour.done") : t("tour.next"))}</button>
+      </div>
+    </article>
+  `;
+
+  const spotlight = overlay.querySelector(".tour-spotlight");
+  spotlight.style.left = `${Math.max(8, rect.left - 6)}px`;
+  spotlight.style.top = `${Math.max(8, rect.top - 6)}px`;
+  spotlight.style.width = `${rect.width + 12}px`;
+  spotlight.style.height = `${rect.height + 12}px`;
+
+  placeTourCard(overlay.querySelector(".tour-card"), rect);
+
+  overlay.querySelector('[data-tour-action="close"]').addEventListener("click", closeHelpOverlay);
+  overlay.querySelector('[data-tour-action="back"]').addEventListener("click", () => {
+    state.activeTourIndex -= 1;
+    renderFeatureTour();
+  });
+  overlay.querySelector('[data-tour-action="next"]').addEventListener("click", () => {
+    if (state.activeTourIndex >= targets.length - 1) {
+      closeHelpOverlay();
+      return;
+    }
+    state.activeTourIndex += 1;
+    const next = targets[state.activeTourIndex];
+    next.element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+    window.setTimeout(renderFeatureTour, 180);
+  });
+}
+
+function startFeatureTour(index = 0) {
+  const targets = getVisibleHelpTargets();
+  if (!targets.length) {
+    return;
+  }
+  state.activeTourIndex = clamp(index, 0, targets.length - 1);
+  targets[state.activeTourIndex].element.scrollIntoView({ block: "center", inline: "center" });
+  createHelpOverlay("tour");
+  renderFeatureTour();
+  registerHelpOverlayRefresh(renderFeatureTour);
+}
+
 function showShortcutHelp() {
   const shortcuts = [
     { key: "Ctrl+N", desc: t("shortcuts.newChat") },
     { key: "Ctrl+L", desc: t("shortcuts.clearSession") },
     { key: "Ctrl+S", desc: t("shortcuts.saveEdit") },
     { key: "Ctrl+/", desc: t("shortcuts.showHelp") },
+    { key: "Ctrl+Shift+/", desc: t("shortcuts.showPageHelp") },
     { key: "Enter", desc: t("shortcuts.sendMessage") },
     { key: "Shift+Enter", desc: t("shortcuts.newLine") },
     { key: "Esc", desc: t("shortcuts.closeModal") },

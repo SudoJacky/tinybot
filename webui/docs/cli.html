@@ -91,154 +91,74 @@
             <h1 data-i18n="docs.pages.cli">CLI 命令</h1>
           </header>
           <div class="article-body">
-            <h1 id="cli">CLI 交互命令</h1>
-<h2 id="_1">启动方式</h2>
-<pre><code class="language-bash"># 交互聊天模式
-uv run tinybot agent
-
-# 发送单条消息
-uv run tinybot agent -m &quot;你好&quot;
-
-# 指定会话
-uv run tinybot agent -s session-key
+            <h1>命令行界面</h1>
+<h2 id="启动聊天">启动聊天</h2>
+<p>在终端运行：</p>
+<pre><code class="language-bash">uv run tinybot agent
 </code></pre>
-<h2 id="_2">内置命令</h2>
-<p>交互模式下可用以下命令：</p>
-<table>
-<thead>
-<tr>
-<th>命令</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>/config</code> 或 <code>Ctrl+O</code></td>
-<td>打开配置编辑器</td>
-</tr>
-<tr>
-<td><code>/help</code></td>
-<td>显示可用命令</td>
-</tr>
-<tr>
-<td><code>/clear</code></td>
-<td>清除对话历史</td>
-</tr>
-<tr>
-<td><code>/new</code></td>
-<td>开始新对话会话</td>
-</tr>
-<tr>
-<td><code>/exit</code> 或 <code>:q</code></td>
-<td>退出聊天</td>
-</tr>
-</tbody>
-</table>
-<h2 id="_3">配置编辑器</h2>
-<p>按 <code>Ctrl+O</code> 或输入 <code>/config</code> 打开全屏配置编辑器：</p>
+<p>进入聊天界面后，直接输入文字和 AI 对话。</p>
+<p>---</p>
+<h2 id="快捷键">快捷键</h2>
+<p>| 操作 | 快捷键 |
+|------|--------|
+| 发送消息 | 回车键 |
+| 输入多行 | Shift + 回车 |
+| 打开设置 | Ctrl + O 或输入 <code>/config</code> |
+| 中断回复 | Ctrl + C |
+| 退出程序 | Ctrl + D 或输入 <code>/exit</code> |</p>
+<p>---</p>
+<h2 id="内置命令">内置命令</h2>
+<p>在聊天中输入以下命令：</p>
+<p>| 命令 | 说明 |
+|------|------|
+| <code>/help</code> | 显示帮助信息 |
+| <code>/config</code> | 打开配置编辑器 |
+| <code>/clear</code> | 清除当前对话历史 |
+| <code>/new</code> | 开始新对话 |
+| <code>/exit</code> | 退出程序 |</p>
+<p>---</p>
+<h2 id="配置编辑器">配置编辑器</h2>
+<p>按 <code>Ctrl+O</code> 打开配置界面，可以：</p>
 <ul>
-<li>分组显示配置项</li>
-<li>可编辑 Agent、Provider、Tools 等设置</li>
-<li>按 <code>q</code> 保存并返回聊天</li>
+<li>查看当前配置</li>
+<li>修改 AI 模型</li>
+<li>设置 API 密钥</li>
+<li>调整其他参数</li>
 </ul>
-<h2 id="_4">实时进度显示</h2>
-<p>任务执行时在 CLI 显示实时进度：</p>
-<pre><code>┌──────────────────────────────────────────────┐
-│ Tasks: ████████████░░░░░░░░ 60%               │
-│                                                │
-│ Running: extract_features                      │
-│ Pending: generate_doc, write_summary           │
-│ Completed: scan_directory, analyze_structure   │
-└──────────────────────────────────────────────┘
+<p>修改后按 <code>q</code> 保存并返回聊天。</p>
+<p>---</p>
+<h2 id="发送单条消息">发送单条消息</h2>
+<p>不想进入聊天界面，只想快速问一个问题：</p>
+<pre><code class="language-bash">uv run tinybot agent -m "你的问题"
 </code></pre>
-<h2 id="_5">输入快捷键</h2>
-<table>
-<thead>
-<tr>
-<th>快捷键</th>
-<th>功能</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Enter</code></td>
-<td>发送消息</td>
-</tr>
-<tr>
-<td><code>Shift+Enter</code></td>
-<td>输入换行</td>
-</tr>
-<tr>
-<td><code>Ctrl+O</code></td>
-<td>打开配置</td>
-</tr>
-<tr>
-<td><code>Ctrl+C</code></td>
-<td>中断生成</td>
-</tr>
-<tr>
-<td><code>Ctrl+D</code></td>
-<td>退出</td>
-</tr>
-</tbody>
-</table>
-<h2 id="_6">消息格式</h2>
-<h3 id="markdown">Markdown 支持</h3>
-<p>输入支持 Markdown 格式：</p>
-<pre><code># 标题
-- 列表项
-**粗体**
-`代码`
+<p>AI 会回复后自动退出。</p>
+<p>---</p>
+<h2 id="任务进度显示">任务进度显示</h2>
+<p>当 AI 执行复杂任务时，会显示进度：</p>
+<pre><code class="language-">任务进度：60%
+正在执行：读取文件
+已完成：扫描目录、分析结构
+待执行：生成报告、保存文件
 </code></pre>
-<h3 id="_7">代码块</h3>
-<p>使用三引号包裹代码：</p>
-<pre><code>```python
-def hello():
-    print(&quot;Hello, World!&quot;)
-</code></pre>
-<pre><code>
-## 多行输入
-
-使用 `Shift+Enter` 输入多行内容，或粘贴完整代码块。
-
-## 会话管理
-
-### 查看会话
-
-会话保存在 `~/.tinybot/sessions/` 目录：
-
-</code></pre>
-<p>~/.tinybot/sessions/
-├── session-2026-04-20.json
-├── session-2026-04-21.json
-└── ...</p>
-<pre><code>
-### 继续会话
-
-```bash
-uv run tinybot agent -s session-key
-</code></pre>
-<h2 id="_8">输出格式</h2>
-<p>Agent 输出支持：</p>
+<p>---</p>
+<h2 id="常见问题">常见问题</h2>
+<h3 id="输入中文乱码">输入中文乱码？</h3>
+<p>确保终端支持 UTF-8 编码。Windows 用户建议使用 PowerShell 或 Windows Terminal。</p>
+<h3 id="ai-响应很慢">AI 响应很慢？</h3>
+<p>可能是网络问题或模型响应慢。可以尝试更换模型或检查网络。</p>
+<h3 id="如何中断-ai-回复">如何中断 AI 回复？</h3>
+<p>按 <code>Ctrl + C</code> 即可中断当前的 AI 回复。</p>
+<p>---</p>
+<h2 id="下一步">下一步</h2>
 <ul>
-<li>Markdown 渲染</li>
-<li>代码语法高亮</li>
-<li>表格显示</li>
-<li>工具调用展示</li>
-</ul>
-<h2 id="_9">最佳实践</h2>
-<ol>
-<li><strong>清晰描述</strong> - 任务描述越清晰，Agent 执行越准确</li>
-<li><strong>分步请求</strong> - 复杂任务分多步完成</li>
-<li><strong>检查进度</strong> - 关注任务进度显示</li>
-<li><strong>及时中断</strong> - 发现错误时 Ctrl+C 中断</li>
-</ol>
+<li><a href="/docs/webui">网页界面</a> - 使用浏览器界面</li>
+<li><a href="/docs/config">配置说明</a> - 详细配置选项</li>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#启动聊天" class="toc-item toc-h2">启动聊天</a><a href="#快捷键" class="toc-item toc-h2">快捷键</a><a href="#内置命令" class="toc-item toc-h2">内置命令</a><a href="#配置编辑器" class="toc-item toc-h2">配置编辑器</a><a href="#发送单条消息" class="toc-item toc-h2">发送单条消息</a><a href="#任务进度显示" class="toc-item toc-h2">任务进度显示</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#输入中文乱码" class="toc-item toc-h3">输入中文乱码？</a><a href="#ai-响应很慢" class="toc-item toc-h3">AI 响应很慢？</a><a href="#如何中断-ai-回复" class="toc-item toc-h3">如何中断 AI 回复？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

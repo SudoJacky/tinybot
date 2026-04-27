@@ -1,35 +1,88 @@
-# Tinybot Documentation
+# 快速开始
 
-## 快速开始 / Quick Start
+## 安装
 
-### 安装 / Installation
+首先确保你已安装 Python 3.13 或更高版本。
 
-使用 `uv` 进行依赖管理和安装：
+### 步骤 1：安装依赖
 
 ```bash
-# 安装依赖
 uv sync
+```
 
-# 初始化配置
+### 步骤 2：初始化配置
+
+```bash
 uv run tinybot onboard
 ```
 
-### 启动模式 / Start Modes
+这个命令会引导你完成初始配置，包括选择 AI 模型和设置 API 密钥。
 
-| 命令 | 描述 |
+---
+
+## 启动使用
+
+Tinybot 有几种使用方式：
+
+| 命令 | 说明 |
 |------|------|
-| `uv run tinybot agent` | 交互聊天模式 |
-| `uv run tinybot agent -m "Hello"` | 发送单条消息 |
-| `uv run tinybot gateway` | 启动网关（WebUI + 多频道 + 定时任务） |
-| `uv run tinybot api` | 作为 OpenAI 兼容 API 服务运行 |
+| `uv run tinybot agent` | 打开聊天界面，和 AI 对话 |
+| `uv run tinybot gateway` | 启动网页界面，可在浏览器中使用 |
+| `uv run tinybot api` | 作为 API 服务运行（高级用法） |
 
-### 系统要求 / Requirements
+### 最简单的方式
 
-- Python >= 3.13
+直接运行：
 
-## 下一步 / Next Steps
+```bash
+uv run tinybot agent
+```
 
-- [WebUI 使用指南](webui.md) - 了解 Web 界面功能
-- [任务调度系统](tasks.md) - Agentic DAG 任务分解
-- [知识库 RAG](knowledge.md) - 向量检索知识系统
-- [工具系统](tools.md) - 内置工具详解
+然后输入你的问题，AI 会回答并帮你完成任务。
+
+---
+
+## 网页界面
+
+如果你更喜欢用浏览器，可以这样启动：
+
+```bash
+uv run tinybot gateway
+```
+
+然后打开浏览器访问 `http://127.0.0.1:18790`
+
+---
+
+## 常见问题
+
+### 需要什么 AI 模型？
+
+Tinybot 支持多种 AI 服务。推荐使用：
+
+- **DeepSeek** - 国内服务，性价比高
+- **OpenAI (GPT-4)** - 国际服务，功能强大
+- **通义千问 (Qwen)** - 阿里云服务
+
+### 如何获取 API 密钥？
+
+在对应 AI 服务的官网注册账号后获取：
+
+| 服务 | 获取地址 |
+|------|----------|
+| DeepSeek | https://platform.deepseek.com |
+| OpenAI | https://platform.openai.com |
+| 通义千问 | https://dashscope.aliyuncs.com |
+
+### 必须要配置 API 密钥吗？
+
+是的，大多数 AI 服务需要 API 密钥才能使用。本地模型（如 Ollama）不需要密钥，但需要你在本机部署模型。
+
+---
+
+## 下一步
+
+- [网页界面使用](webui.md) - 了解网页界面的功能
+- [知识库](knowledge.md) - 让 AI 学习你的文档
+- [工具功能](tools.md) - AI 能做什么
+- [技能系统](skills.md) - 自定义 AI 的行为

@@ -91,128 +91,100 @@
             <h1 data-i18n="docs.pages.tasks">任务调度</h1>
           </header>
           <div class="article-body">
-            <h1 id="agentic-dag">任务调度系统 (Agentic DAG)</h1>
-<h2 id="_1">简介</h2>
-<p>Tinybot 的 Agentic DAG 任务调度系统可以将复杂任务自动分解为可执行的子任务 DAG（有向无环图），支持智能分解、自动链式执行、并行执行和动态调整。</p>
-<h2 id="_2">工作原理</h2>
-<h3 id="1">1. 智能分解</h3>
-<p>LLM 分析用户任务，自动生成带依赖关系的子任务图：</p>
-<pre><code>用户任务: &quot;帮我分析这个项目并写一个总结报告&quot;
-        ↓
-    [分析代码结构]
-        ↓
-    [提取关键功能] ← [检查依赖关系]
-        ↓               ↓
-    [生成报告大纲] ← [收集测试信息]
-        ↓
-    [编写报告内容]
-        ↓
-    [完成]
-</code></pre>
-<h3 id="2">2. 自动链式执行</h3>
-<p>SubAgent 完成子任务后，自动触发依赖它的下一个任务。</p>
-<h3 id="3">3. 并行执行</h3>
-<p>没有依赖关系的任务可以并行执行，最大化效率。</p>
-<h3 id="4">4. 动态调整</h3>
-<p>运行过程中可以：
-- 添加新的子任务
-- 移除不再需要的任务
-- 修改任务依赖关系</p>
-<h2 id="_3">使用示例</h2>
-<h3 id="_4">基本用法</h3>
-<p>直接在对话中提出复杂任务，Agent 会自动分解：</p>
-<pre><code>用户: 帮我分析 webui 目录的代码结构，生成一份技术文档
-
-Agent 会自动分解为：
-1. 扫描 webui 目录结构
-2. 分析 HTML/CSS/JS 文件
-3. 提取功能模块
-4. 生成文档框架
-5. 编写各章节内容
-</code></pre>
-<h3 id="_5">监控进度</h3>
-<p>任务执行时会在 CLI 显示实时进度：</p>
-<ul>
-<li>当前执行的任务</li>
-<li>已完成的任务</li>
-<li>等待中的任务</li>
-<li>整体进度百分比</li>
-</ul>
-<h2 id="_6">配置选项</h2>
-<p>在 <code>config.json</code> 中配置任务调度：</p>
-<pre><code class="language-json">{
-  &quot;agent&quot;: {
-    &quot;max_tool_iterations&quot;: 50,
-    &quot;max_subagent_concurrency&quot;: 3
-  }
-}
-</code></pre>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>描述</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>max_tool_iterations</code></td>
-<td>单个任务最大工具调用次数</td>
-</tr>
-<tr>
-<td><code>max_subagent_concurrency</code></td>
-<td>最大并行 SubAgent 数量</td>
-</tr>
-</tbody>
-</table>
-<h2 id="subagent">SubAgent 异步执行</h2>
-<h3 id="_7">特性</h3>
-<ul>
-<li><strong>非阻塞执行</strong> - 后台任务不阻塞主对话</li>
-<li><strong>并发控制</strong> - 可配置最大并发数防止过载</li>
-<li><strong>心跳监控</strong> - 自动检测超时任务，防止僵尸进程</li>
-<li><strong>自动通知</strong> - 完成后自动触发主 Agent 总结结果</li>
-</ul>
-<h3 id="_8">使用场景</h3>
-<pre><code class="language-python"># 主 Agent 继续对话，SubAgent 在后台执行耗时任务
-用户: 分析日志文件并找出错误模式
-
-Agent: 我将启动一个后台任务来分析日志...
-       [SubAgent 开始执行]
-       你可以继续和我聊天，任务完成后我会通知你。
-
-用户: 好的，那帮我查一下最近的提交记录
-
-Agent: [继续处理用户请求...]
-
-[SubAgent 完成] → Agent 收到通知 → 总结分析结果
-</code></pre>
-<h2 id="cli">CLI 实时进度</h2>
-<p>在交互模式下，任务执行会显示实时进度：</p>
-<pre><code>┌────────────────────────────────────────────┐
-│ Tasks Progress                              │
-│ ████████████░░░░░░░░ 60%                    │
-│                                              │
-│ ✓ scan_directory (completed)                │
-│ ✓ analyze_structure (completed)             │
-│ ● extract_features (running)                │
-│ ○ generate_doc (waiting)                    │
-│ ○ write_summary (waiting)                   │
-└────────────────────────────────────────────┘
-</code></pre>
-<h2 id="_9">最佳实践</h2>
+            <h1>任务系统</h1>
+<h2 id="什么是任务系统">什么是任务系统？</h2>
+<p>当你给 AI 一个复杂任务时，AI 会自动将它分解成多个小步骤，然后逐步完成。</p>
+<strong>示例：</strong>
+<pre><code class="language-">用户：分析这个项目，写一份技术文档
+<p>AI 自动分解为：
 <ol>
-<li><strong>任务描述清晰</strong> - 明确说明目标，有助于 Agent 正确分解</li>
-<li><strong>合理并发数</strong> - 根据系统资源设置 <code>max_subagent_concurrency</code></li>
-<li><strong>监控进度</strong> - 使用 CLI 或 WebUI 查看任务进度</li>
-<li><strong>及时调整</strong> - 发现分解不合理时可手动干预</li>
-</ol>
+<li>扫描项目结构</li>
+<li>分析代码文件</li>
+<li>提取关键信息</li>
+<li>组织文档大纲</li>
+<li>编写各章节</li>
+<li>保存文档</li>
+</ul>
+</code></pre></p>
+<p>---</p>
+<h2 id="如何使用">如何使用？</h2>
+<p>直接向 AI 描述你的任务即可，不需要特别操作。AI 会自动判断任务复杂度并分解。</p>
+<h3 id="适合分解的任务">适合分解的任务</h3>
+<ul>
+<li>分析项目并生成报告</li>
+<li>整理多个文件的内容</li>
+<li>执行多步骤的操作流程</li>
+<li>搜索和汇总信息</li>
+</ul>
+<h3 id="不需要分解的任务">不需要分解的任务</h3>
+<ul>
+<li>简单问答</li>
+<li>单个文件操作</li>
+<li>快速查询</li>
+</ul>
+<p>---</p>
+<h2 id="查看任务进度">查看任务进度</h2>
+<h3 id="命令行界面">命令行界面</h3>
+<p>任务执行时会显示进度：</p>
+<pre><code class="language-">任务进度：60%
+正在执行：分析代码
+已完成：扫描目录、读取配置
+待执行：生成报告、保存文件
+</code></pre>
+<h3 id="网页界面">网页界面</h3>
+<p>右侧面板会显示当前任务状态。</p>
+<p>---</p>
+<h2 id="任务设置">任务设置</h2>
+<h3 id="最大步骤数">最大步骤数</h3>
+<p>控制 AI 最多能执行多少步骤。默认值足够大多数任务使用。</p>
+<p>如果任务特别复杂，可以适当增加。</p>
+<h3 id="并行执行">并行执行</h3>
+<p>多个独立步骤可以同时执行，加快任务完成速度。</p>
+<p>---</p>
+<h2 id="后台任务">后台任务</h2>
+<p>某些耗时任务可以在后台执行：</p>
+<ul>
+<li>AI 开始后台任务</li>
+<li>你可以继续对话</li>
+<li>任务完成后 AI 会通知你</li>
+</ul>
+<strong>示例：</strong>
+<pre><code class="language-">用户：分析这个大型日志文件
+<p>AI：我会启动后台任务来分析...
+你可以继续和我聊天，完成后我会通知你。</p>
+<p>用户：好的，那帮我查一下最近的代码提交</p>
+<p>AI：[继续回答其他问题...]</p>
+<p>[后台任务完成] → AI总结日志分析结果
+</code></pre></p>
+<p>---</p>
+<h2 id="常见问题">常见问题</h2>
+<h3 id="任务卡住不动">任务卡住不动？</h3>
+<p>可能是某个步骤遇到问题。可以：
+<ol>
+<li>按 Ctrl+C 中断</li>
+<li>描述任务更清晰</li>
+<li>简化任务要求</li>
+</ul></p>
+<h3 id="任务执行太慢">任务执行太慢？</h3>
+<p>尝试：
+<ol>
+<li>描述任务更具体</li>
+<li>分成多个小任务</li>
+<li>检查网络连接</li>
+</ul></p>
+<h3 id="如何中断任务">如何中断任务？</h3>
+<p>命令行按 <code>Ctrl + C</code>，网页界面点击中断按钮。</p>
+<p>---</p>
+<h2 id="下一步">下一步</h2>
+<ul>
+<li><a href="/docs/tools">工具功能</a> - AI 能做什么</li>
+<li><a href="/docs/skills">技能系统</a> - 自定义 AI 行为</li>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么是任务系统" class="toc-item toc-h2">什么是任务系统？</a><a href="#如何使用" class="toc-item toc-h2">如何使用？</a><a href="#适合分解的任务" class="toc-item toc-h3">适合分解的任务</a><a href="#不需要分解的任务" class="toc-item toc-h3">不需要分解的任务</a><a href="#查看任务进度" class="toc-item toc-h2">查看任务进度</a><a href="#命令行界面" class="toc-item toc-h3">命令行界面</a><a href="#网页界面" class="toc-item toc-h3">网页界面</a><a href="#任务设置" class="toc-item toc-h2">任务设置</a><a href="#最大步骤数" class="toc-item toc-h3">最大步骤数</a><a href="#并行执行" class="toc-item toc-h3">并行执行</a><a href="#后台任务" class="toc-item toc-h2">后台任务</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#任务卡住不动" class="toc-item toc-h3">任务卡住不动？</a><a href="#任务执行太慢" class="toc-item toc-h3">任务执行太慢？</a><a href="#如何中断任务" class="toc-item toc-h3">如何中断任务？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 
