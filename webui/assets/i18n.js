@@ -245,6 +245,57 @@ const translations = {
     "settings.channels.maxRetries": "Max Retries",
     "settings.channels.maxRetriesPlaceholder": "发送重试次数",
 
+    // 配置参数说明 (help tooltips)
+    "help.workspace": "AI读写文件的位置\n默认 ~/.tinybot/workspace",
+    "help.model": "AI模型名称\n如 deepseek-chat、gpt-4o、qwen-max",
+    "help.provider": "AI服务商选择\nauto会根据模型名自动判断",
+    "help.temperature": "回复随机性\n0=稳定精确，1=更有创意\n建议编程用0.1",
+    "help.maxTokens": "单次回复最大长度\n更大=更详细，但消耗更多",
+    "help.contextWindow": "上下文记忆容量\n更大=记住更多对话历史",
+    "help.maxToolIterations": "AI调用工具的最大次数\n防止死循环",
+    "help.reasoningEffort": "思考深度\nlow快速响应\nhigh深度推理(部分模型)",
+    "help.timezone": "你的时区\n让AI知道当前时间\n如 Asia/Shanghai",
+    "help.knowledgeEnabled": "开启知识库\nAI可以从上传的文档中查找信息",
+    "help.knowledgeAutoRetrieve": "每次对话自动搜索相关知识\n无需手动提问",
+    "help.knowledgeMaxChunks": "每次检索返回的最大片段数\n建议5-10",
+    "help.knowledgeChunkSize": "文档分割的片段大小(字符)\n影响检索精度",
+    "help.knowledgeChunkOverlap": "相邻片段重叠字符数\n提高检索连贯性",
+    "help.knowledgeRetrievalMode": "检索方式\nhybrid混合最好\ndense语义匹配\nsparse关键词",
+    "help.knowledgeRerankEnabled": "对检索结果重新排序\n提高相关性",
+    "help.knowledgeRerankModel": "重排序模型名称\n默认 qwen3-rerank",
+    "help.knowledgeRerankApiKey": "重排序服务的API密钥\n建议用环境变量",
+    "help.knowledgeRerankApiKeyEnvVar": "API密钥的环境变量名\n推荐用环境变量而非直接填写",
+    "help.knowledgeRerankApiBase": "重排序服务的API地址",
+    "help.knowledgeRerankTopN": "重排序后保留的结果数\n0=使用maxChunks",
+    "help.embeddingProvider": "向量化服务\nlocal本地运行(免费)\nopenai/azure需API",
+    "help.embeddingModelName": "向量化模型\nlocal: all-MiniLM-L6-v2\nAPI: text-embedding-3-small",
+    "help.embeddingApiKey": "API服务的密钥\n建议用环境变量",
+    "help.embeddingApiBase": "API服务地址\nAzure需要填写",
+    "help.providerSelect": "选择要配置的AI服务商",
+    "help.apiKey": "API密钥\n建议用环境变量而不是直接填写",
+    "help.apiBase": "自定义API地址\n一般不需要修改",
+    "help.webEnable": "允许AI搜索网络\n获取最新信息",
+    "help.proxy": "网络代理地址\n如 http://127.0.0.1:7890\n或 socks5://127.0.0.1:1080",
+    "help.searchProvider": "搜索引擎\nduckduckgo免费\nbrave/tavily需API",
+    "help.execEnable": "允许AI执行shell命令\n有安全风险请谨慎",
+    "help.execTimeout": "命令执行超时秒数\n超时自动终止",
+    "help.restrictWorkspace": "AI只能在workspace目录操作文件\n更安全",
+    "help.gatewayHost": "WebUI监听地址\n0.0.0.0允许外网访问\n127.0.0.1仅本机",
+    "help.gatewayPort": "WebUI端口\n默认18790",
+    "help.heartbeatEnable": "定期发送状态更新\n保持连接稳定",
+    "help.heartbeatInterval": "心跳发送间隔秒数\n默认30分钟",
+    "help.sendProgress": "显示AI思考过程中的文字\n让回复更有过程感",
+    "help.sendToolHints": "显示AI正在调用的工具\n如\"正在读取文件...\"",
+    "help.sendMaxRetries": "消息发送失败时的重试次数\n包括首次发送",
+
+    // 敏感字段标签
+    "settings.sensitive": "敏感",
+    "settings.validation.urlError": "URL格式不正确",
+    "settings.validation.timezoneError": "无效的时区格式",
+    "settings.validation.modelEmpty": "模型名称不能为空",
+    "settings.validation.portRange": "端口范围 1-65535",
+    "settings.validation.valid": "格式正确",
+
     "settings.saved": "配置已保存",
     "settings.saveFailed": "保存失败",
     "settings.noValidFields": "no valid fields to update",
@@ -309,6 +360,14 @@ const translations = {
     "knowledge.rebuildConfirm": "确定要重建知识库索引吗？这将重新处理所有文档的BM25索引。",
     "knowledge.rebuildSuccess": "索引重建成功，共处理 {chunks} 个片段，{terms} 个词条",
     "knowledge.rebuildFailed": "重建索引失败",
+
+    // 功能配置提示
+    "knowledge.configHintTitle": "知识库功能未启用",
+    "knowledge.configHintDesc": "在 设置 → Knowledge配置 中启用「启用知识库」开关即可使用此功能。",
+    "knowledge.gotoConfig": "前往设置",
+    "tools.configHintTitle": "部分工具未启用",
+    "tools.configHintDesc": "Web搜索、Exec执行等工具可在 设置 → Tools配置 中单独启用或禁用。",
+    "tools.gotoConfig": "前往设置",
 
     // Docs page
     "docs.title": "Tinybot 使用教程",
@@ -668,6 +727,57 @@ const translations = {
     "settings.channels.maxRetries": "Max Retries",
     "settings.channels.maxRetriesPlaceholder": "Send retry count",
 
+    // Config parameter help tooltips
+    "help.workspace": "Where AI reads/writes files\nDefault: ~/.tinybot/workspace",
+    "help.model": "AI model name\ne.g. deepseek-chat, gpt-4o, qwen-max",
+    "help.provider": "AI service provider\nauto detects from model name",
+    "help.temperature": "Response randomness\n0=precise, 1=creative\nSuggest 0.1 for coding",
+    "help.maxTokens": "Max response length\nLonger = more detailed, more cost",
+    "help.contextWindow": "Context memory capacity\nLarger = remembers more history",
+    "help.maxToolIterations": "Max tool call attempts\nPrevents infinite loops",
+    "help.reasoningEffort": "Thinking depth\nlow=fast, high=deep reasoning\n(Some models only)",
+    "help.timezone": "Your timezone\nHelps AI know current time\ne.g. Asia/Shanghai",
+    "help.knowledgeEnabled": "Enable knowledge base\nAI can search uploaded docs",
+    "help.knowledgeAutoRetrieve": "Auto search knowledge each query\nNo manual prompt needed",
+    "help.knowledgeMaxChunks": "Max chunks per retrieval\nSuggest 5-10",
+    "help.knowledgeChunkSize": "Document chunk size (chars)\nAffects retrieval precision",
+    "help.knowledgeChunkOverlap": "Overlap chars between chunks\nImproves coherence",
+    "help.knowledgeRetrievalMode": "Retrieval method\nhybrid=best of both\ndense=semantic\nsparse=keyword",
+    "help.knowledgeRerankEnabled": "Reorder results\nImproves relevance",
+    "help.knowledgeRerankModel": "Rerank model name\nDefault: qwen3-rerank",
+    "help.knowledgeRerankApiKey": "Rerank API key\nPrefer env var",
+    "help.knowledgeRerankApiKeyEnvVar": "Env var name for API key\nSafer than direct input",
+    "help.knowledgeRerankApiBase": "Rerank API endpoint URL",
+    "help.knowledgeRerankTopN": "Results after rerank\n0=use maxChunks",
+    "help.embeddingProvider": "Embedding service\nlocal=free offline\nopenai/azure=API",
+    "help.embeddingModelName": "Embedding model\nlocal: all-MiniLM-L6-v2\nAPI: text-embedding-3-small",
+    "help.embeddingApiKey": "API service key\nPrefer env var",
+    "help.embeddingApiBase": "API endpoint URL\nRequired for Azure",
+    "help.providerSelect": "Select AI provider to configure",
+    "help.apiKey": "API key\nPrefer env var over direct input",
+    "help.apiBase": "Custom API endpoint\nUsually leave default",
+    "help.webEnable": "Allow AI to search web\nGet latest information",
+    "help.proxy": "Network proxy URL\ne.g. http://127.0.0.1:7890\nor socks5://127.0.0.1:1080",
+    "help.searchProvider": "Search engine\nduckduckgo=free\nbrave/tavily=require API",
+    "help.execEnable": "Allow AI to run shell commands\nSecurity risk - use carefully",
+    "help.execTimeout": "Command timeout in seconds\nAuto-kill on timeout",
+    "help.restrictWorkspace": "AI can only access workspace dir\nMore secure",
+    "help.gatewayHost": "WebUI listen address\n0.0.0.0=all interfaces\n127.0.0.1=localhost only",
+    "help.gatewayPort": "WebUI port\nDefault: 18790",
+    "help.heartbeatEnable": "Send periodic status updates\nKeeps connection stable",
+    "help.heartbeatInterval": "Heartbeat interval in seconds\nDefault: 30 minutes",
+    "help.sendProgress": "Show AI thinking process text\nMore engaging responses",
+    "help.sendToolHints": "Show active tool calls\ne.g. \"Reading file...\"",
+    "help.sendMaxRetries": "Retry count on send failure\nIncludes initial attempt",
+
+    // Sensitive field badge
+    "settings.sensitive": "Sensitive",
+    "settings.validation.urlError": "Invalid URL format",
+    "settings.validation.timezoneError": "Invalid timezone format",
+    "settings.validation.modelEmpty": "Model name required",
+    "settings.validation.portRange": "Port range 1-65535",
+    "settings.validation.valid": "Valid format",
+
     "settings.saved": "Config saved",
     "settings.saveFailed": "Save failed",
     "settings.noValidFields": "no valid fields to update",
@@ -723,6 +833,14 @@ const translations = {
     "knowledge.rebuildConfirm": "Are you sure you want to rebuild the knowledge index? This will re-process BM25 index for all documents.",
     "knowledge.rebuildSuccess": "Index rebuilt successfully. Processed {chunks} chunks, {terms} terms.",
     "knowledge.rebuildFailed": "Rebuild index failed",
+
+    // Feature config hints
+    "knowledge.configHintTitle": "Knowledge base not enabled",
+    "knowledge.configHintDesc": "Enable 'Enable knowledge base' in Settings → Knowledge Config to use this feature.",
+    "knowledge.gotoConfig": "Go to Settings",
+    "tools.configHintTitle": "Some tools not enabled",
+    "tools.configHintDesc": "Web search, Exec execution etc. can be enabled/disabled individually in Settings → Tools Config.",
+    "tools.gotoConfig": "Go to Settings",
 
     // Docs page
     "docs.title": "Tinybot Usage Guide",
@@ -886,6 +1004,12 @@ function applyTranslations() {
     const key = el.getAttribute("data-i18n-title");
     const text = t(key);
     el.title = text;
+  });
+  // Help tooltips for config fields
+  document.querySelectorAll("[data-i18n-help]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-help");
+    const text = t(key);
+    el.setAttribute("data-help", text);
   });
 }
 

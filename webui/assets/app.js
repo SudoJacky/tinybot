@@ -930,6 +930,18 @@ function closeToolModal() {
 // 打开工具列表弹窗
 function openToolsModal() {
   renderToolsModalList();
+
+  // 检查是否有工具未启用，显示配置提示
+  const tools = state.config?.tools || {};
+  const webEnabled = tools.web?.enable === true;
+  const execEnabled = tools.exec?.enable === true;
+  // 如果Web或Exec未启用，显示提示
+  const showHint = !webEnabled || !execEnabled;
+  const configHint = document.getElementById("tools-config-hint");
+  if (configHint) {
+    configHint.style.display = showHint ? "flex" : "none";
+  }
+
   elements.toolsModal.classList.add("active");
 }
 
@@ -1342,6 +1354,14 @@ function openKnowledgeModal() {
   // Update modal stats from sidebar stats
   elements.modalStatsDocs.textContent = elements.statsDocs.textContent;
   elements.modalStatsChunks.textContent = elements.statsChunks.textContent;
+
+  // 检查知识库是否启用，显示配置提示
+  const knowledgeEnabled = state.config?.knowledge?.enabled === true;
+  const configHint = document.getElementById("knowledge-config-hint");
+  if (configHint) {
+    configHint.style.display = knowledgeEnabled ? "none" : "flex";
+  }
+
   elements.knowledgeModal.classList.add("active");
 }
 
@@ -1812,7 +1832,13 @@ function populateConfigForm(config) {
   elements.configWorkspace.value = defaults.workspace || defaults.workspacePath || "~/.tinybot/workspace";
   elements.configModel.value = defaults.model || "";
   elements.configProvider.value = defaults.provider || "auto";
-  elements.configTemperature.value = defaults.temperature !== undefined ? defaults.temperature : 0.1;
+  const tempValue = defaults.temperature !== undefined ? defaults.temperature : 0.1;
+  elements.configTemperature.value = tempValue;
+  // 更新 Temperature Slider 显示值
+  const tempValueDisplay = document.getElementById("temperature-value");
+  if (tempValueDisplay) {
+    tempValueDisplay.textContent = tempValue;
+  }
   elements.configMaxTokens.value = defaults.maxTokens || defaults.max_tokens || 8192;
   elements.configContextWindow.value = defaults.contextWindowTokens || defaults.context_window_tokens || 65536;
   state.contextWindowTokens = defaults.contextWindowTokens || defaults.context_window_tokens || 65536;
@@ -1900,6 +1926,139 @@ function toggleConfigGroup(groupTitle) {
     groupTitle.classList.add("collapsed");
     groupTitle.setAttribute("aria-expanded", "false");
   }
+}
+
+// ========== 实时验证系统 ==========
+
+function setupValidation() {
+  // Model 验证 - 非空
+  if (elements.configModel) {
+    elements.configModel.addEventListener("input", () => {
+      validateField(elements.configModel, (val) => val.trim().length > 0, "modelEmpty");
+    });
+  }
+
+  // Timezone 验证 - 格式
+  if (elements.configTimezone) {
+    elements.configTimezone.addEventListener("input", () => {
+      validateField(elements.configTimezone, validateTimezone, "timezoneError");
+    });
+  }
+
+  // Gateway Port 验证 - 范围
+  if (elements.configGatewayPort) {
+    elements.configGatewayPort.addEventListener("input", () => {
+      validateField(elements.configGatewayPort, validatePortRange, "portRange");
+    });
+  }
+
+  // API Base URL 验证
+  if (elements.configApiBase) {
+    elements.configApiBase.addEventListener("input", () => {
+      const val = elements.configApiBase.value.trim();
+      if (val === "") {
+        setFieldState(elements.configApiBase, "neutral");
+      } else {
+        validateField(elements.configApiBase, validateUrl, "urlError");
+      }
+    });
+  }
+
+  // Embedding API Base URL 验证
+  const embeddingApiBase = document.getElementById("config-embedding-api-base");
+  if (embeddingApiBase) {
+    embeddingApiBase.addEventListener("input", () => {
+      const val = embeddingApiBase.value.trim();
+      if (val === "") {
+        setFieldState(embeddingApiBase, "neutral");
+      } else {
+        validateField(embeddingApiBase, validateUrl, "urlError");
+      }
+    });
+  }
+
+  // Rerank API Base URL 验证
+  const rerankApiBase = document.getElementById("config-knowledge-rerank-api-base");
+  if (rerankApiBase) {
+    rerankApiBase.addEventListener("input", () => {
+      const val = rerankApiBase.value.trim();
+      if (val === "") {
+        setFieldState(rerankApiBase, "neutral");
+      } else {
+        validateField(rerankApiBase, validateUrl, "urlError");
+      }
+    });
+  }
+}
+
+function validateField(input, validator, errorKey) {
+  const value = input.value.trim();
+  if (value === "" && errorKey !== "modelEmpty") {
+    setFieldState(input, "neutral");
+    return true;
+  }
+  const isValid = validator(value);
+  if (isValid) {
+    setFieldState(input, "success");
+  } else {
+    setFieldState(input, "error", errorKey);
+  }
+  return isValid;
+}
+
+function setFieldState(input, state, errorKey = null) {
+  // 清除之前的状态
+  input.classList.remove("error", "success");
+  // 移除验证提示
+  const parent = input.closest(".config-field") || input.closest(".config-sensitive-group");
+  if (parent) {
+    const existingMsg = parent.querySelector(".config-validation-msg");
+    if (existingMsg) {
+      existingMsg.remove();
+    }
+  }
+
+  if (state === "neutral") {
+    return;
+  }
+
+  input.classList.add(state);
+
+  // 添加验证提示
+  if (parent && (errorKey || state === "success")) {
+    const msgDiv = document.createElement("div");
+    msgDiv.className = `config-validation-msg ${state}`;
+    if (state === "success") {
+      msgDiv.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg><span>${t("settings.validation.valid")}</span>`;
+    } else if (errorKey) {
+      msgDiv.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><span>${t(`settings.validation.${errorKey}`)}</span>`;
+    }
+    parent.appendChild(msgDiv);
+  }
+}
+
+function validateTimezone(value) {
+  // 简单验证：格式应该是 Area/City 或 Area/SubArea/City
+  if (!value) return false;
+  const parts = value.split("/");
+  if (parts.length < 2) return false;
+  // 检查常见时区前缀
+  const validPrefixes = ["Africa", "America", "Asia", "Atlantic", "Australia", "Europe", "Indian", "Pacific", "UTC", "GMT"];
+  return validPrefixes.some(p => parts[0] === p) || parts[0] === "Etc";
+}
+
+function validateUrl(value) {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validatePortRange(value) {
+  const port = parseInt(value, 10);
+  return port >= 1 && port <= 65535;
 }
 
 async function saveConfig() {
@@ -2429,6 +2588,22 @@ function bindEvents() {
   elements.toolsModalOverlay.addEventListener("click", closeToolsModal);
   elements.toolsModalClose.addEventListener("click", closeToolsModal);
 
+  // 工具配置提示 - 前往设置按钮
+  const gotoToolsConfigBtn = document.getElementById("goto-tools-config");
+  if (gotoToolsConfigBtn) {
+    gotoToolsConfigBtn.addEventListener("click", () => {
+      closeToolsModal();
+      openModal();
+      // 展开Tools配置组
+      const toolsGroupTitle = document.querySelector('[data-group="tools"]');
+      if (toolsGroupTitle) {
+        const groupContent = toolsGroupTitle.nextElementSibling;
+        groupContent.classList.remove("collapsed");
+        toolsGroupTitle.setAttribute("aria-expanded", "true");
+      }
+    });
+  }
+
   // Skills modal events
   elements.skillsToggle.addEventListener("click", openSkillsModal);
   elements.skillsToggle.addEventListener("keydown", (event) => {
@@ -2486,6 +2661,22 @@ function bindEvents() {
   });
   elements.knowledgeModalOverlay.addEventListener("click", closeKnowledgeModal);
   elements.knowledgeModalClose.addEventListener("click", closeKnowledgeModal);
+
+  // 知识库配置提示 - 前往设置按钮
+  const gotoKnowledgeConfigBtn = document.getElementById("goto-knowledge-config");
+  if (gotoKnowledgeConfigBtn) {
+    gotoKnowledgeConfigBtn.addEventListener("click", () => {
+      closeKnowledgeModal();
+      openModal();
+      // 展开Knowledge配置组
+      const knowledgeGroupTitle = document.querySelector('[data-group="knowledge"]');
+      if (knowledgeGroupTitle) {
+        const groupContent = knowledgeGroupTitle.nextElementSibling;
+        groupContent.classList.remove("collapsed");
+        knowledgeGroupTitle.setAttribute("aria-expanded", "true");
+      }
+    });
+  }
 
   // Knowledge panel events
   elements.refreshDocsButton.addEventListener("click", async () => {
@@ -2645,6 +2836,40 @@ function bindEvents() {
       updateUsageDisplay(state.lastUsage);
     }
   });
+
+  // Temperature Slider 值显示
+  if (elements.configTemperature) {
+    elements.configTemperature.addEventListener("input", (e) => {
+      const valueEl = document.getElementById("temperature-value");
+      if (valueEl) {
+        valueEl.textContent = e.target.value;
+      }
+    });
+  }
+
+  // 敏感字段显示/隐藏按钮
+  document.querySelectorAll(".config-sensitive-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetId = btn.getAttribute("data-target");
+      const input = document.getElementById(targetId);
+      const eyeIcon = btn.querySelector(".eye-icon");
+      const eyeOffIcon = btn.querySelector(".eye-off-icon");
+      if (input && eyeIcon && eyeOffIcon) {
+        if (input.type === "password") {
+          input.type = "text";
+          eyeIcon.style.display = "none";
+          eyeOffIcon.style.display = "block";
+        } else {
+          input.type = "password";
+          eyeIcon.style.display = "block";
+          eyeOffIcon.style.display = "none";
+        }
+      }
+    });
+  });
+
+  // 实时验证逻辑
+  setupValidation();
 }
 
 function updateLanguageButton() {
