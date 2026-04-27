@@ -1980,12 +1980,36 @@ body {
   font-size: 12px;
   font-weight: 500;
   color: var(--accent);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .query-result-score {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.query-result-meta,
+.query-result-debug {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.query-result-meta {
+  margin-bottom: 6px;
+}
+
+.query-result-debug {
+  margin-top: 8px;
+  font-family: var(--font-mono);
 }
 
 .query-result-content {

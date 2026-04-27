@@ -1606,17 +1606,67 @@ function renderQueryResults(result) {
 
     const score = document.createElement("span");
     score.className = "query-result-score";
-    score.textContent = `${(item.score || 0).toFixed(3)}`;
+    score.textContent = formatKnowledgeScore(item);
 
     header.append(docName, score);
+
+    const meta = document.createElement("div");
+    meta.className = "query-result-meta";
+    const methods = item.matched_methods && item.matched_methods.length
+      ? item.matched_methods.join("+")
+      : (item.method || "unknown");
+    const lineText = item.line_start && item.line_end
+      ? `L${item.line_start}-${item.line_end}`
+      : "";
+    const parts = [
+      methods,
+      item.section_path || "",
+      lineText,
+      item.block_type || "",
+    ].filter(Boolean);
+    meta.textContent = parts.join(" · ");
 
     const content = document.createElement("div");
     content.className = "query-result-content";
     content.textContent = item.content || "";
 
-    resultItem.append(header, content);
+    const debug = document.createElement("div");
+    debug.className = "query-result-debug";
+    debug.textContent = formatKnowledgeDebug(item);
+
+    resultItem.append(header, meta, content, debug);
     elements.queryResults.append(resultItem);
   }
+}
+
+function formatKnowledgeScore(item) {
+  if (item.rrf_score != null) {
+    return `rrf ${Number(item.rrf_score).toFixed(4)}`;
+  }
+  if (item.bm25_score != null) {
+    return `bm25 ${Number(item.bm25_score).toFixed(3)}`;
+  }
+  if (item.dense_distance != null) {
+    return `dist ${Number(item.dense_distance).toFixed(3)}`;
+  }
+  return `${Number(item.score || 0).toFixed(3)}`;
+}
+
+function formatKnowledgeDebug(item) {
+  const parts = [];
+  if (item.dense_rank != null) {
+    const dense = item.dense_distance != null
+      ? `dense #${item.dense_rank} dist ${Number(item.dense_distance).toFixed(3)}`
+      : `dense #${item.dense_rank}`;
+    parts.push(dense);
+  }
+  if (item.sparse_rank != null) {
+    const sparse = item.bm25_score != null
+      ? `sparse #${item.sparse_rank} bm25 ${Number(item.bm25_score).toFixed(3)}`
+      : `sparse #${item.sparse_rank}`;
+    parts.push(sparse);
+  }
+  return parts.join(" · ");
 }
 
 function toggleKnowledgePanel() {
