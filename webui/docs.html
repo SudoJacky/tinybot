@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tinybot Usage Guide</title>
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/i18n.js"></script>
+  <style>
+    /* Docs page specific styles */
+    .docs-shell {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 24px;
+    }
+
+    .docs-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      padding: 20px 24px;
+      background: var(--panel-gradient);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-md);
+    }
+
+    .docs-title {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .docs-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .docs-content {
+      background: var(--panel-gradient);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-md);
+      padding: 32px;
+    }
+
+    .docs-section {
+      margin-bottom: 32px;
+    }
+
+    .docs-section:last-child {
+      margin-bottom: 0;
+    }
+
+    .docs-section-title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .docs-section-title .icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent-soft);
+      border-radius: var(--radius-sm);
+      color: var(--accent);
+    }
+
+    .docs-card {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .docs-card:last-child {
+      margin-bottom: 0;
+    }
+
+    .docs-card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+
+    .docs-card-content {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .docs-card-content p {
+      margin-bottom: 12px;
+    }
+
+    .docs-card-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    .docs-list {
+      margin: 12px 0;
+      padding-left: 20px;
+    }
+
+    .docs-list li {
+      margin-bottom: 8px;
+    }
+
+    .docs-code {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      overflow-x: auto;
+      margin: 12px 0;
+    }
+
+    .docs-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+    }
+
+    .docs-table th,
+    .docs-table td {
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+
+    .docs-table th {
+      background: var(--bg-subtle);
+      font-weight: 600;
+    }
+
+    .docs-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: var(--radius-xs);
+      font-size: 12px;
+      font-weight: 500;
+      margin-right: 8px;
+    }
+
+    .docs-badge.success {
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .docs-badge.warning {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    /* Back button */
+    .docs-back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      cursor: pointer;
+      transition: all var(--transition-base);
+    }
+
+    .docs-back-btn:hover {
+      background: var(--panel-strong);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .docs-back-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="docs-shell">
+    <!-- Header -->
+    <header class="docs-header">
+      <div>
+        <h1 class="docs-title" data-i18n="docs.title">Tinybot 使用教程</h1>
+        <p style="color: var(--text-muted); margin-top: 4px;" data-i18n="docs.subtitle">项目功能详细说明</p>
+      </div>
+      <div class="docs-actions">
+        <button id="language-toggle" class="button" type="button">EN</button>
+        <button id="theme-toggle" class="theme-toggle" type="button">
+          <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+        <a href="/" class="docs-back-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          <span data-i18n="docs.backToChat">返回聊天</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="docs-content">
+      <!-- 快速开始 -->
+      <section class="docs-section">
+        <h2 class="docs-section-title">
+          <span class="icon">1</span>
+          <span data-i18n="docs.quickStart">快速开始</span>
+        </h2>
+        <div class="docs-card">
+          <h3 class="docs-card-title" data-i18n="docs.installation">安装与初始化</h3>
+          <div class="docs-card-content">
+            <p data-i18n="docs.installDesc">使用 uv 进行依赖管理和安装：</p>
+            <div class="docs-code">
+              <code># 安装依赖
+uv sync
+
+# 初始化配置（交互式向导）
+uv run tinybot onboard</code>
+            </div>
+          </div>
+        </div>
+        <div class="docs-card">
+          <h3 class="docs-card-title" data-i18n="docs.startModes">启动模式</h3>
+          <div class="docs-card-content">
+            <div class="docs-table">
+              <thead>
+                <tr>
+                  <th data-i18n="docs.command">命令</th>
+                  <th data-i18n="docs.description">描述</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>uv run tinybot agent</code></td>
+                  <td data-i18n="docs.agentMode">交互聊天模式</td>
+                </tr>
+                <tr>
+                  <td><code>uv run tinybot gateway</code></td>
+                  <td data-i18n="docs.gatewayMode">启动网关（WebUI + 多频道）</td>
+                </tr>
+                <tr>
+                  <td><code>uv run tinybot api</code></td>
+                  <td data-i18n="docs.apiMode">作为 OpenAI 兼容 API 服务运行</td>
+                </tr>
+              </tbody>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- WebUI 使用 -->
+      <section class="docs-section">
+        <h2 class="docs-section-title">
+          <span class="icon">2</span>
+          <span data-i18n="docs.webuiSection">WebUI 使用指南</span>
+        </h2>
+        <div class="docs-card">
+          <h3 class="docs-card-title" data-i18n="docs.webuiSetup">启用 WebUI</h3>
+          <div class="docs-card-content">
+            <p data-i18n="docs.webuiSetupDesc">编辑配置文件启用 WebSocket 频道：</p>
+            <div class="docs-code">
+              <code>{
+  "channels": {
+    "websocket": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 18790
+    }
+  }
+}</code>
+            </div>
+            <p data-i18n="docs.webuiStart">启动 Gateway 后访问 <code>http://127.0.0.1:18790</code></p>
+          </div>
+        </div>
+        <div class="docs-card">
+          <h3 class="docs-card-title" data-i18n="docs.webuiFeatures">WebUI 功能</h3>
+          <div class="docs-card-content">
+            <ul class="docs-list">
+              <li data-i18n="docs.webuiFeature1">实时流式对话，支持 Markdown 渲染和代码高亮</li>
+              <li data-i18n="docs.webuiFeature2">会话管理：新建、切换、清空、删除会话</li>
+              <li data-i18n="docs.webuiFeature3">工具和技能查看与管理</li>
+              <li data-i18n="docs.webuiFeature4">知识库管理：添加文档、查询、重建索引</li>
+              <li data-i18n="docs.webuiFeature5">工作区文件编辑</li>
+              <li data-i18n="docs.webuiFeature6">配置管理：直接在界面修改所有设置</li>
+              <li data-i18n="docs.webuiFeature7">中英文双语支持</li>
+              <li data-i18n="docs.webuiFeature8">亮色/暗色主题切换</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- 核心功能 -->
+      <section class="docs-section">
+        <h2 class="docs-section-title">
+          <span class="icon">3</span>
+          <span data-i18n="docs.coreFeatures">核心功能</span>
+        </h2>
+
+        <!-- 任务调度 -->
+        <div class="docs-card">
+          <h3 class="docs-card-title">
+            <span class="docs-badge success">NEW</span>
+            <span data-i18n="docs.taskScheduling">Agentic DAG 任务调度</span>
+          </h3>
+          <div class="docs-card-content">
+            <p data-i18n="docs.taskSchedulingDesc">自动将复杂任务分解为可执行的子任务 DAG：</p>
+            <ul class="docs-list">
+              <li data-i18n="docs.taskFeature1">智能分解 — LLM 自动分析任务，生成带依赖关系的子任务图</li>
+              <li data-i18n="docs.taskFeature2">自动链式执行 — SubAgent 完成后自动触发依赖任务</li>
+              <li data-i18n="docs.taskFeature3">并行执行 — 并行安全的任务同时运行，最大化效率</li>
+              <li data-i18n="docs.taskFeature4">动态调整 — 运行中可添加/移除子任务</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 经验自进化 -->
+        <div class="docs-card">
+          <h3 class="docs-card-title" data-i18n="docs.experienceSystem">经验自进化系统</h3>
+          <div class="docs-card-content">
+            <p data-i18n="docs.experienceDesc">持续从问题解决经验中学习的自学习系统：</p>
+            <ul class="docs-list">
+              <li data-i18n="docs.experienceFeature1">语义经验搜索 — 向量搜索理解问题意图</li>
+              <li data-i18n="docs.experienceFeature2">自动上下文注入 — 相关历史解决方案自动出现</li>
+              <li data-i18n="docs.experienceFeature3">主动错误诊断 — 工具失败时自动触发已解决经验的建议</li>
+              <li data-i18n="docs.experienceFeature4">智能置信度模型 — 多维评分评估经验有效性</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 知识库 RAG -->
+        <div class="docs-card">
+          <h3 class="docs-card-title">
+            <span class="docs-badge success">NEW</span>
+            <span data-i18n="docs.knowledgeRAG">知识库 (RAG)</span>
+          </h3>
+          <div class="docs-card-content">
+            <p data-i18n="docs.knowledgeDesc">基于向量存储的知识检索系统：</p>
+            <ul class="docs-list">
+              <li data-i18n="docs.knowledgeFeature1">支持混合检索（dense + sparse/BM25）</li>
+              <li data-i18n="docs.knowledgeFeature2">可选 Rerank 重排序提高检索精度</li>
+              <li data-i18n="docs.knowledgeFeature3">自动检索模式：在对话中自动注入相关知识</li>
+              <li data-i18n="docs.knowledgeFeature4">本地 Embedding 支持，无需外部 API</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Skills 系统 -->
+        <div class="docs-card">
+          <h3 class="docs-card-title" data-i18n="docs.skillsSystem">Skills 技能系统</h3>
+          <div class="docs-card-content">
+            <p data-i18n="docs.skillsDesc">通过 Markdown 文件定义自定义技能，无需编码：</p>
+            <ul class="docs-list">
+              <li data-i18n="docs.skillsFeature1">技能自动加载，条件匹配时 Agent 遵循定义的工作流</li>
+              <li data-i18n="docs.skillsFeature2">可在 WebUI 中创建、编辑、启用/禁用技能</li>
+              <li data-i18n="docs.skillsFeature3">支持验证技能格式</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- 工具系统 -->
+      <section class="docs-section">
+        <h2 class="docs-section-title">
+          <span class="icon">4</span>
+          <span data-i18n="docs.toolsSection">工具系统</span>
+        </h2>
+        <div class="docs-card">
+          <h3 class="docs-card-title" data-i18n="docs.builtInTools">内置工具</h3>
+          <div class="docs-card-content">
+            <div class="docs-table">
+              <thead>
+                <tr>
+                  <th data-i18n="docs.tool">工具</th>
+                  <th data-i18n="docs.description">描述</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>read/write</td>
+                  <td data-i18n="docs.toolReadWrite">文件读写操作</td>
+                </tr>
+                <tr>
+                  <td>exec</td>
+                  <td data-i18n="docs.toolExec">Shell 命令执行</td>
+                </tr>
+                <tr>
+                  <td>web_search</td>
+                  <td data-i18n="docs.toolWebSearch">网络搜索（DuckDuckGo/Brave/Tavily等）</td>
+                </tr>
+                <tr>
+                  <td>browser</td>
+                  <td data-i18n="docs.toolBrowser">浏览器自动化（通过 OpenCLI）</td>
+                </tr>
+                <tr>
+                  <td>cron</td>
+                  <td data-i18n="docs.toolCron">定时任务管理</td>
+                </tr>
+                <tr>
+                  <td>mcp</td>
+                  <td data-i18n="docs.toolMcp">MCP 协议工具集成</td>
+                </tr>
+              </tbody>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CLI 命令 -->
+      <section class="docs-section">
+        <h2 class="docs-section-title">
+          <span class="icon">5</span>
+          <span data-i18n="docs.cliCommands">CLI 交互命令</span>
+        </h2>
+        <div class="docs-card">
+          <div class="docs-card-content">
+            <div class="docs-table">
+              <thead>
+                <tr>
+                  <th data-i18n="docs.command">命令</th>
+                  <th data-i18n="docs.description">描述</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>/config</code> 或 <code>Ctrl+O</code></td>
+                  <td data-i18n="docs.cmdConfig">打开配置编辑器</td>
+                </tr>
+                <tr>
+                  <td><code>/help</code></td>
+                  <td data-i18n="docs.cmdHelp">显示可用命令</td>
+                </tr>
+                <tr>
+                  <td><code>/clear</code></td>
+                  <td data-i18n="docs.cmdClear">清除对话历史</td>
+                </tr>
+                <tr>
+                  <td><code>/new</code></td>
+                  <td data-i18n="docs.cmdNew">开始新对话会话</td>
+                </tr>
+                <tr>
+                  <td><code>/exit</code> 或 <code>:q</code></td>
+                  <td data-i18n="docs.cmdExit">退出聊天</td>
+                </tr>
+              </tbody>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 多 LLM 支持 -->
+      <section class="docs-section">
+        <h2 class="docs-section-title">
+          <span class="icon">6</span>
+          <span data-i18n="docs.llmSupport">多 LLM 支持</span>
+        </h2>
+        <div class="docs-card">
+          <div class="docs-card-content">
+            <p data-i18n="docs.llmProviders">支持的提供商：</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;">
+              <span class="docs-badge">OpenAI</span>
+              <span class="docs-badge">DeepSeek</span>
+              <span class="docs-badge">智谱</span>
+              <span class="docs-badge">通义千问</span>
+              <span class="docs-badge">Gemini</span>
+              <span class="docs-badge">Groq</span>
+              <span class="docs-badge">Moonshot</span>
+              <span class="docs-badge">Minimax</span>
+              <span class="docs-badge">Mistral</span>
+              <span class="docs-badge">StepFun</span>
+              <span class="docs-badge">SiliconFlow</span>
+              <span class="docs-badge">火山引擎</span>
+              <span class="docs-badge">Ollama</span>
+              <span class="docs-badge">OpenRouter</span>
+              <span class="docs-badge">Custom</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 更多资源 -->
+      <section class="docs-section">
+        <h2 class="docs-section-title">
+          <span class="icon">7</span>
+          <span data-i18n="docs.moreResources">更多资源</span>
+        </h2>
+        <div class="docs-card">
+          <div class="docs-card-content">
+            <ul class="docs-list">
+              <li>
+                <a href="https://github.com/SudoJacky/tinybot" target="_blank" style="color: var(--accent);">GitHub 仓库</a>
+                — <span data-i18n="docs.githubDesc">源代码和最新更新</span>
+              </li>
+              <li>
+                <a href="https://github.com/SudoJacky/tinybot/issues" target="_blank" style="color: var(--accent);">Issues</a>
+                — <span data-i18n="docs.issuesDesc">问题反馈和功能建议</span>
+              </li>
+              <li>
+                <a href="https://github.com/SudoJacky/tinybot/releases" target="_blank" style="color: var(--accent);">Releases</a>
+                — <span data-i18n="docs.releasesDesc">版本发布记录</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // Theme toggle functionality
+    function initTheme() {
+      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute("data-theme");
+      const newTheme = currentTheme === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", newTheme);
+      localStorage.setItem("tinybot-theme", newTheme);
+    }
+
+    // Language toggle functionality
+    function updateLanguageButton() {
+      const lang = getLanguage();
+      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
+    }
+
+    // Initialize
+    initTheme();
+    updateLanguageButton();
+
+    // Bind events
+    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+    document.getElementById("language-toggle").addEventListener("click", () => {
+      const newLang = getLanguage() === "zh" ? "en" : "zh";
+      setLanguage(newLang);
+      updateLanguageButton();
+    });
+  </script>
+</body>
+</html>

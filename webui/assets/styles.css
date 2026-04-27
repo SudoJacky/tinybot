@@ -2913,6 +2913,13 @@ body {
   vertical-align: middle;
 }
 
+.icon-docs {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
 .modal-header h2 {
   display: flex;
   align-items: center;
