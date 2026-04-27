@@ -1159,6 +1159,7 @@ async function validateSkill() {
 async function loadKnowledgeStats() {
   try {
     const response = await fetch(`${state.knowledgeApiPath}/stats`, {
+      cache: "no-store",
       headers: { Authorization: `Bearer ${state.token}` },
     });
     if (!response.ok) {
@@ -1173,6 +1174,10 @@ async function loadKnowledgeStats() {
       throw new Error(`load knowledge stats failed: ${response.status}`);
     }
 
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error("knowledge stats API returned non-JSON response");
+    }
     const payload = await response.json();
     state.knowledgeStats = payload;
     elements.statsDocs.textContent = payload.total_documents || 0;
@@ -1191,6 +1196,7 @@ async function loadKnowledgeStats() {
 async function loadKnowledgeDocs() {
   try {
     const response = await fetch(`${state.knowledgeApiPath}/documents`, {
+      cache: "no-store",
       headers: { Authorization: `Bearer ${state.token}` },
     });
     if (!response.ok) {
@@ -1206,6 +1212,10 @@ async function loadKnowledgeDocs() {
       throw new Error(`load knowledge docs failed: ${response.status}`);
     }
 
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error("knowledge API returned non-JSON response");
+    }
     const payload = await response.json();
     state.knowledgeDocs = payload.data || [];
     renderKnowledgeDocs();

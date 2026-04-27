@@ -24,15 +24,15 @@
   --warning: #d97706;
   --warning-soft: rgba(217, 119, 6, 0.1);
   --shadow-xs: 0 1px 2px rgba(30, 37, 48, 0.04);
-  --shadow-sm: 0 2px 8px rgba(30, 37, 48, 0.06), 0 1px 3px rgba(30, 37, 48, 0.04);
-  --shadow-md: 0 4px 16px rgba(30, 37, 48, 0.08), 0 2px 6px rgba(30, 37, 48, 0.04);
-  --shadow-lg: 0 8px 32px rgba(30, 37, 48, 0.1), 0 4px 12px rgba(30, 37, 48, 0.05);
-  --shadow-xl: 0 16px 48px rgba(30, 37, 48, 0.12), 0 8px 24px rgba(30, 37, 48, 0.06);
+  --shadow-sm: 0 1px 4px rgba(30, 37, 48, 0.05), 0 1px 2px rgba(30, 37, 48, 0.04);
+  --shadow-md: 0 3px 10px rgba(30, 37, 48, 0.07), 0 1px 4px rgba(30, 37, 48, 0.04);
+  --shadow-lg: 0 8px 24px rgba(30, 37, 48, 0.08), 0 2px 8px rgba(30, 37, 48, 0.04);
+  --shadow-xl: 0 16px 40px rgba(30, 37, 48, 0.12), 0 6px 18px rgba(30, 37, 48, 0.06);
   --radius-xs: 6px;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --radius-xl: 28px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
   --radius-full: 9999px;
   --transition-fast: 120ms ease;
   --transition-base: 200ms ease;
@@ -68,10 +68,10 @@
   --warning: #f59e0b;
   --warning-soft: rgba(245, 158, 11, 0.15);
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.7), 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.32), 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 3px 12px rgba(0, 0, 0, 0.4), 0 1px 5px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 8px 26px rgba(0, 0, 0, 0.48), 0 2px 10px rgba(0, 0, 0, 0.34);
+  --shadow-xl: 0 16px 44px rgba(0, 0, 0, 0.6), 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
 /* Optimized transitions - only on interactive/visual elements, not layout */
@@ -144,21 +144,21 @@ body {
 /* ========== 主布局 ========== */
 .shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 320px;
-  gap: 20px;
+  grid-template-columns: 260px minmax(0, 1fr) 280px;
+  gap: 16px;
   height: 100vh;
-  padding: 20px;
+  padding: 16px;
 }
 
 /* ========== 通用面板样式 ========== */
 .sidebar,
 .chat-panel,
 .right-panel {
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(14px);
   background: var(--panel-gradient);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   min-height: 0;
   overflow: hidden;
   position: relative;
@@ -250,7 +250,7 @@ body {
   border: 1px solid var(--border);
   background: var(--panel-strong);
   color: var(--text);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
   padding: 10px 16px;
   font: inherit;
   font-size: 13px;
@@ -289,12 +289,12 @@ body {
   background: linear-gradient(135deg, var(--accent), var(--accent-hover));
   border-color: transparent;
   color: white;
-  box-shadow: var(--shadow-sm), 0 0 16px var(--accent-glow);
+  box-shadow: var(--shadow-sm);
 }
 
 .button-primary:hover {
-  box-shadow: var(--shadow-md), 0 0 24px var(--accent-glow-strong);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .button-primary:active {
@@ -347,12 +347,12 @@ body {
   background: linear-gradient(135deg, var(--accent), var(--accent-hover));
   border-color: transparent;
   color: white;
-  box-shadow: var(--shadow-sm), 0 0 16px var(--accent-glow);
+  box-shadow: var(--shadow-sm);
 }
 
 #settings-button:hover {
-  box-shadow: var(--shadow-md), 0 0 24px var(--accent-glow-strong);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 #settings-button:active {
@@ -399,7 +399,8 @@ body {
 }
 
 .session-item {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border: 1px solid transparent;
   background: var(--bg-subtle);
   border-radius: var(--radius-md);
@@ -446,6 +447,7 @@ body {
 }
 
 .session-delete {
+  flex: 0 0 auto;
   padding: 4px 8px;
   font-size: 14px;
   color: var(--danger);
@@ -598,7 +600,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 24px 28px 20px;
+  padding: 20px 24px 18px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--panel-strong);
 }
@@ -701,7 +703,7 @@ body {
   border-radius: var(--radius-lg);
   background: var(--panel-strong);
   border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   animation: message-appear 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
   transform-origin: bottom center;
 }
@@ -724,6 +726,7 @@ body {
   align-self: flex-end;
   background: var(--accent-soft);
   border-color: rgba(37, 99, 235, 0.15);
+  max-width: min(72%, 680px);
 }
 
 [data-theme="dark"] .message-user {
@@ -732,6 +735,12 @@ body {
 
 .message-assistant {
   align-self: flex-start;
+  max-width: min(92%, 860px);
+  width: min(92%, 860px);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  padding: 8px 4px;
 }
 
 .message-system {
@@ -746,8 +755,9 @@ body {
   align-self: flex-start;
   background: var(--bg-subtle);
   max-width: 60%;
+  width: fit-content;
   font-size: 13px;
-  opacity: 0.85;
+  opacity: 0.78;
 }
 
 .message-tool .message-role,
@@ -778,11 +788,15 @@ body {
 .message-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   margin-bottom: 8px;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.message-time {
+  margin-left: auto;
 }
 
 .message-role {
@@ -1049,17 +1063,21 @@ body {
 
 /* ========== 输入框 ========== */
 .composer {
-  padding: 20px 24px 24px;
+  padding: 16px 24px 20px;
   border-top: 1px solid var(--border-subtle);
   background: var(--panel-strong);
 }
 
 .composer-label {
-  display: block;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 500;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .composer-row {
@@ -1103,6 +1121,7 @@ body {
 .composer-send {
   align-self: end;
   min-width: 88px;
+  height: 52px;
   position: relative;
 }
 
@@ -1333,19 +1352,22 @@ body {
 .right-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 14px;
 }
 
 /* 紧凑面板通用样式 */
 .compact-panel {
   background: var(--bg-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
-  padding: 12px 14px;
+  padding: 10px 12px;
 }
 
 .compact-panel .section-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
   padding: 0;
   border-bottom: none;
 }
@@ -1357,6 +1379,7 @@ body {
 
 .compact-panel h2 {
   font-size: 14px;
+  line-height: 1.35;
 }
 
 .compact-count {
@@ -1368,6 +1391,9 @@ body {
 .compact-stats {
   font-size: 12px;
   color: var(--text-muted);
+  line-height: 1.35;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .compact-stats .separator {
@@ -1379,10 +1405,11 @@ body {
   font-size: 12px;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  max-width: 120px;
+  max-width: 96px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: right;
 }
 
 .compact-list {
@@ -2143,10 +2170,25 @@ body {
 .settings-bar {
   display: flex;
   justify-content: center;
+  align-items: center;
   gap: 10px;
   padding-top: 16px;
   border-top: 1px solid var(--border-subtle);
   margin-top: 16px;
+}
+
+.settings-bar .button,
+.settings-bar .theme-toggle {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-md);
+}
+
+.settings-bar #language-toggle {
+  font-size: 12px;
+  font-weight: 500;
 }
 
 /* ========== 弹窗 ========== */
@@ -2626,7 +2668,7 @@ body {
 /* ========== 响应式布局 ========== */
 @media (max-width: 1200px) {
   .shell {
-    grid-template-columns: 260px minmax(0, 1fr) 280px;
+    grid-template-columns: 240px minmax(0, 1fr) 260px;
     gap: 16px;
     padding: 16px;
   }
@@ -2635,24 +2677,26 @@ body {
 @media (max-width: 960px) {
   .shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
-    min-height: auto;
+    grid-template-rows: minmax(520px, 1fr) auto auto;
+    height: auto;
+    min-height: 100vh;
     gap: 12px;
   }
 
   .sidebar {
-    min-height: 200px;
-    order: 1;
+    max-height: 360px;
+    min-height: 0;
+    order: 2;
   }
 
   .chat-panel {
-    order: 2;
-    min-height: 400px;
+    order: 1;
+    min-height: 520px;
   }
 
   .right-panel {
     order: 3;
-    min-height: 300px;
+    min-height: 0;
   }
 
   .sessions-panel {
@@ -2685,13 +2729,16 @@ body {
   .sidebar-actions,
   .topbar,
   .status-group,
-  .composer-row,
   .section-header {
     flex-wrap: wrap;
   }
 
   .composer-row {
-    display: flex;
+    grid-template-columns: 1fr;
+  }
+
+  .composer-send {
+    width: 100%;
   }
 
   .editor-toolbar {
@@ -2700,6 +2747,13 @@ body {
   }
 
   .message {
+    max-width: 100%;
+  }
+
+  .message-user,
+  .message-assistant,
+  .message-tool,
+  .message-progress {
     max-width: 100%;
   }
 
@@ -2723,10 +2777,21 @@ body {
   position: relative;
 }
 
+[data-theme="dark"] .theme-toggle {
+  background: var(--panel-strong);
+  border-color: var(--border);
+  color: var(--text);
+}
+
 .theme-toggle:hover {
   background: var(--panel-strong);
   border-color: var(--border);
   box-shadow: var(--shadow-xs);
+}
+
+[data-theme="dark"] .theme-toggle:hover {
+  background: var(--bg-subtle);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 .theme-toggle svg {
@@ -2801,7 +2866,7 @@ body {
 }
 
 [data-theme="dark"] .theme-toggle svg {
-  stroke: var(--text-primary);
+  stroke: var(--text);
 }
 
 /* ========== Icon Styles ========== */
