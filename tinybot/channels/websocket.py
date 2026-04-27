@@ -276,8 +276,15 @@ class WebSocketChannel(BaseChannel):
         if assets_dir.is_dir():
             app.router.add_static("/assets", assets_dir, show_index=False)
 
-        async def handle_index(_: web.Request) -> web.FileResponse:
-            return web.FileResponse(index_path)
+        async def handle_index(request: web.Request) -> web.FileResponse:
+            if request.path.startswith(("/api/", "/v1/")):
+                raise web.HTTPNotFound(text="API route not found")
+            return web.FileResponse(
+                index_path,
+                headers={
+                    "Cache-Control": "no-store",
+                },
+            )
 
         app.router.add_get("/", handle_index)
         app.router.add_get("/{tail:.*}", handle_index)
