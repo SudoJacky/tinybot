@@ -1083,7 +1083,7 @@ def onboard(
         console.print(f"  2. Start gateway: [cyan]{gateway_cmd}[/cyan]")
     else:
         console.print(f"  1. Add your API key to [cyan]{config_path}[/cyan]")
-        console.print("     Get one at: https://openrouter.ai/keys")
+        console.print("     Supported providers: DeepSeek, DashScope, OpenAI")
         console.print(f"  2. Chat: [cyan]{agent_cmd}[/cyan]")
 
 def _merge_missing_defaults(existing: Any, defaults: Any) -> Any:

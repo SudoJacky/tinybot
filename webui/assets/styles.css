@@ -2690,11 +2690,13 @@ body {
   transition: transform var(--transition-base);
 }
 
-.config-group-title.collapsed .toggle-icon {
+.config-group-title.collapsed .toggle-icon,
+.config-group-title[aria-expanded="false"] .toggle-icon {
   transform: rotate(-90deg);
 }
 
-.config-group-title.collapsed {
+.config-group-title.collapsed,
+.config-group-title[aria-expanded="false"] {
   border-bottom: none;
 }
 

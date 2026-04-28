@@ -51,7 +51,7 @@ class TestProviderRegistry:
     def test_providers_tuple(self):
         """PROVIDERS should be a non-empty tuple."""
         assert isinstance(PROVIDERS, tuple)
-        assert len(PROVIDERS) > 0
+        assert {spec.name for spec in PROVIDERS} == {"openai", "deepseek", "dashscope"}
 
     def test_find_by_name_exists(self):
         """find_by_name should find existing provider."""
@@ -79,17 +79,12 @@ class TestProviderRegistry:
         assert spec.env_key == "DEEPSEEK_API_KEY"
         assert "deepseek" in spec.keywords
 
-    def test_gateway_provider(self):
-        """SiliconFlow should be marked as gateway."""
-        spec = find_by_name("siliconflow")
+    def test_dashscope_provider_spec(self):
+        """DashScope provider should have correct properties."""
+        spec = find_by_name("dashscope")
         assert spec is not None
-        assert spec.is_gateway is True
-
-    def test_ollama_local(self):
-        """Ollama should be marked as local."""
-        spec = find_by_name("ollama")
-        assert spec is not None
-        assert spec.is_local is True
+        assert spec.env_key == "DASHSCOPE_API_KEY"
+        assert "qwen" in spec.keywords
 
 
 class TestToolCallRequest:

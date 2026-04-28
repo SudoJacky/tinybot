@@ -1209,8 +1209,9 @@ class KnowledgeStore:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        if provider_config.extra_headers:
-            headers.update(provider_config.extra_headers)
+        extra_headers = getattr(provider_config, "extra_headers", None)
+        if extra_headers:
+            headers.update(extra_headers)
 
         summary_prompt = """请用1-2句话总结以下文本片段的核心内容，要求简洁准确，突出关键信息。不要添加任何解释或引言，直接输出总结内容。
 
@@ -3349,8 +3350,9 @@ class KnowledgeStore:
             "Authorization": f"Bearer {provider_config.api_key}",
             "Content-Type": "application/json",
         }
-        if provider_config.extra_headers:
-            headers.update(provider_config.extra_headers)
+        extra_headers = getattr(provider_config, "extra_headers", None)
+        if extra_headers:
+            headers.update(extra_headers)
 
         prompt = self._build_semantic_extraction_prompt(content, section_path, doc_name)
         try:
