@@ -382,6 +382,9 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
             "categories": stats.get("categories", {}),
             "indexed_dense": stats.get("indexed_dense", 0),
             "indexed_sparse": stats.get("indexed_sparse", 0),
+            "entity_count": stats.get("entity_count", 0),
+            "claim_count": stats.get("claim_count", 0),
+            "relation_count": stats.get("relation_count", 0),
         })
     except Exception as e:
         logger.exception("Error getting stats")
@@ -391,21 +394,55 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
 async def handle_rebuild_index(request: web.Request) -> web.Response:
     """POST /v1/knowledge/rebuild-index
 
-    Rebuild BM25 index from existing chunks.
-    Useful when tokenizer is updated and existing index needs to be refreshed.
+    Rebuild indexes from existing chunks.
+    Query params:
+    - type: Index type to rebuild (bm25/semantic/all, default bm25)
+
+    Useful when tokenizer is updated or semantic extraction rules change.
     """
     knowledge_store = request.app.get("knowledge_store")
     if not knowledge_store:
         return _error_json(503, "Knowledge store not initialized")
 
+    rebuild_type = request.query.get("type", "bm25")
+
     try:
-        result = knowledge_store.rebuild_bm25_index()
-        return _success_json({
-            "message": "BM25 index rebuilt successfully",
-            "chunks_indexed": result.get("chunks_indexed", 0),
-            "terms_created": result.get("terms_created", 0),
-            "total_docs": result.get("total_docs", 0),
-        })
+        if rebuild_type == "bm25":
+            result = knowledge_store.rebuild_bm25_index()
+            return _success_json({
+                "message": "BM25 index rebuilt successfully",
+                "chunks_indexed": result.get("chunks_indexed", 0),
+                "terms_created": result.get("terms_created", 0),
+                "total_docs": result.get("total_docs", 0),
+            })
+        elif rebuild_type == "semantic":
+            result = knowledge_store.rebuild_semantic_index()
+            return _success_json({
+                "message": "Semantic index rebuilt successfully",
+                "entities": result.get("entities", 0),
+                "claims": result.get("claims", 0),
+                "relations": result.get("relations", 0),
+                "mentions": result.get("mentions", 0),
+            })
+        elif rebuild_type == "all":
+            bm25_result = knowledge_store.rebuild_bm25_index()
+            semantic_result = knowledge_store.rebuild_semantic_index()
+            return _success_json({
+                "message": "All indexes rebuilt successfully",
+                "bm25": {
+                    "chunks_indexed": bm25_result.get("chunks_indexed", 0),
+                    "terms_created": bm25_result.get("terms_created", 0),
+                    "total_docs": bm25_result.get("total_docs", 0),
+                },
+                "semantic": {
+                    "entities": semantic_result.get("entities", 0),
+                    "claims": semantic_result.get("claims", 0),
+                    "relations": semantic_result.get("relations", 0),
+                    "mentions": semantic_result.get("mentions", 0),
+                },
+            })
+        else:
+            return _error_json(400, f"Invalid rebuild type '{rebuild_type}'. Valid options: bm25, semantic, all")
     except Exception as e:
         logger.exception("Error rebuilding index")
         return _error_json(500, f"Error rebuilding index: {e}", err_type="server_error")

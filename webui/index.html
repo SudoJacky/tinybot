@@ -358,6 +358,14 @@
               <span class="stats-label" data-i18n="knowledge.chunks">片段</span>
               <span id="modal-stats-chunks" class="stats-value">0</span>
             </span>
+            <span class="stats-item">
+              <span class="stats-label" data-i18n="knowledge.entities">实体</span>
+              <span id="modal-stats-entities" class="stats-value">0</span>
+            </span>
+            <span class="stats-item">
+              <span class="stats-label" data-i18n="knowledge.claims">断言</span>
+              <span id="modal-stats-claims" class="stats-value">0</span>
+            </span>
           </div>
         </div>
         <!-- 文档列表 -->
@@ -386,6 +394,7 @@
                 <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
                 <option value="dense" data-i18n="knowledge.modeDense">密集</option>
                 <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
+                <option value="semantic" data-i18n="knowledge.modeSemantic">语义</option>
               </select>
               <input id="query-top-k" class="query-num-input" type="number" min="1" max="20" value="5" title="top_k" />
               <button id="query-button" class="button button-primary button-small" type="button" data-i18n="knowledge.search">查询</button>
@@ -676,6 +685,7 @@
                 <option value="hybrid" data-i18n="knowledge.modeHybrid">混合</option>
                 <option value="dense" data-i18n="knowledge.modeDense">密集</option>
                 <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
+                <option value="semantic" data-i18n="knowledge.modeSemantic">语义</option>
               </select>
             </div>
             <div class="config-field config-checkbox-group">

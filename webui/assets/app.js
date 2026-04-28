@@ -206,6 +206,8 @@ const elements = {
   knowledgeModalClose: document.querySelector("#knowledge-modal-close"),
   modalStatsDocs: document.querySelector("#modal-stats-docs"),
   modalStatsChunks: document.querySelector("#modal-stats-chunks"),
+  modalStatsEntities: document.querySelector("#modal-stats-entities"),
+  modalStatsClaims: document.querySelector("#modal-stats-claims"),
   // Workspace modal elements
   workspaceModal: document.querySelector("#workspace-modal"),
   workspaceModalOverlay: document.querySelector("#workspace-modal-overlay"),
@@ -1223,6 +1225,8 @@ async function loadKnowledgeStats() {
         elements.statsChunks.textContent = "-";
         if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = "-";
         if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = "-";
+        if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = "-";
+        if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = "-";
         return;
       }
       throw new Error(`load knowledge stats failed: ${response.status}`);
@@ -1238,12 +1242,16 @@ async function loadKnowledgeStats() {
     elements.statsChunks.textContent = payload.total_chunks || 0;
     if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = payload.total_documents || 0;
     if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = payload.total_chunks || 0;
+    if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = payload.entity_count || 0;
+    if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = payload.claim_count || 0;
   } catch (error) {
     console.error(error);
     elements.statsDocs.textContent = "-";
     elements.statsChunks.textContent = "-";
     if (elements.modalStatsDocs) elements.modalStatsDocs.textContent = "-";
     if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = "-";
+    if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = "-";
+    if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = "-";
   }
 }
 
@@ -1565,7 +1573,7 @@ async function rebuildKnowledgeIndex() {
   }
 
   try {
-    const response = await fetch(`${state.knowledgeApiPath}/rebuild-index`, {
+    const response = await fetch(`${state.knowledgeApiPath}/rebuild-index?type=all`, {
       method: "POST",
       headers: authHeaders(),
     });
@@ -1576,9 +1584,10 @@ async function rebuildKnowledgeIndex() {
     }
 
     const result = await response.json();
-    const message = t("knowledge.rebuildSuccess")
-      .replace("{chunks}", result.chunks_indexed || 0)
-      .replace("{terms}", result.terms_created || 0);
+    let message = t("knowledge.rebuildSuccessAll") || "索引重建成功";
+    if (result.bm25 && result.semantic) {
+      message = `索引重建成功: BM25(${result.bm25.chunks_indexed || 0} chunks), 语义(${result.semantic.entities || 0} entities, ${result.semantic.claims || 0} claims)`;
+    }
 
     // Show success notification
     const successEl = document.createElement("div");
