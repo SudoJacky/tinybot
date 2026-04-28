@@ -328,7 +328,11 @@ async def handle_query_knowledge(request: web.Request) -> web.Response:
             "data": [
                 {
                     "id": r.get("id"),
+                    "parent_id": r.get("parent_id"),
+                    "chunk_type": r.get("chunk_type"),
                     "content": r.get("content"),
+                    "matched_child_ids": r.get("matched_child_ids", []),
+                    "matched_child_snippets": r.get("matched_child_snippets", []),
                     "doc_id": r.get("doc_id"),
                     "doc_name": r.get("doc_name"),
                     "file_path": r.get("file_path"),
@@ -382,30 +386,134 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
             "categories": stats.get("categories", {}),
             "indexed_dense": stats.get("indexed_dense", 0),
             "indexed_sparse": stats.get("indexed_sparse", 0),
+            "entity_count": stats.get("entity_count", 0),
+            "claim_count": stats.get("claim_count", 0),
+            "relation_count": stats.get("relation_count", 0),
         })
     except Exception as e:
         logger.exception("Error getting stats")
         return _error_json(500, f"Error getting stats: {e}", err_type="server_error")
 
 
-async def handle_rebuild_index(request: web.Request) -> web.Response:
-    """POST /v1/knowledge/rebuild-index
+async def handle_knowledge_graph(request: web.Request) -> web.Response:
+    """GET /v1/knowledge/graph
 
-    Rebuild BM25 index from existing chunks.
-    Useful when tokenizer is updated and existing index needs to be refreshed.
+    Query params:
+    - doc_id: Optional document id filter
+    - limit: Max nodes to return (default 80)
+    - edge_limit: Max grouped edges to return (default limit * 2)
+    - min_confidence: Minimum relation confidence (default 0)
+    - include_orphans: Include entities without relation edges (default false)
     """
     knowledge_store = request.app.get("knowledge_store")
     if not knowledge_store:
         return _error_json(503, "Knowledge store not initialized")
 
     try:
-        result = knowledge_store.rebuild_bm25_index()
-        return _success_json({
-            "message": "BM25 index rebuilt successfully",
-            "chunks_indexed": result.get("chunks_indexed", 0),
-            "terms_created": result.get("terms_created", 0),
-            "total_docs": result.get("total_docs", 0),
-        })
+        limit = int(request.query.get("limit", "80"))
+        edge_limit = int(request.query.get("edge_limit", str(limit * 2)))
+        min_confidence = float(request.query.get("min_confidence", "0"))
+    except ValueError:
+        return _error_json(400, "Invalid graph query params")
+
+    include_orphans = request.query.get("include_orphans", "false").lower() in {"1", "true", "yes", "on"}
+    doc_id = request.query.get("doc_id") or None
+
+    try:
+        graph = knowledge_store.get_entity_graph(
+            doc_id=doc_id,
+            limit=limit,
+            edge_limit=edge_limit,
+            min_confidence=min_confidence,
+            include_orphans=include_orphans,
+        )
+        return _success_json(graph)
+    except Exception as e:
+        logger.exception("Error getting knowledge graph")
+        return _error_json(500, f"Error getting knowledge graph: {e}", err_type="server_error")
+
+
+async def handle_knowledge_graphrag(request: web.Request) -> web.Response:
+    """GET /v1/knowledge/graphrag
+
+    Query params:
+    - doc_id: Optional document id filter
+    - min_confidence: Minimum entity/relation/claim confidence (default 0)
+    """
+    knowledge_store = request.app.get("knowledge_store")
+    if not knowledge_store:
+        return _error_json(503, "Knowledge store not initialized")
+
+    try:
+        min_confidence = float(request.query.get("min_confidence", "0"))
+    except ValueError:
+        return _error_json(400, "Invalid min_confidence query param")
+
+    doc_id = request.query.get("doc_id") or None
+
+    try:
+        index = knowledge_store.get_graphrag_index(
+            doc_id=doc_id,
+            min_confidence=min_confidence,
+        )
+        return _success_json(index)
+    except Exception as e:
+        logger.exception("Error getting GraphRAG index")
+        return _error_json(500, f"Error getting GraphRAG index: {e}", err_type="server_error")
+
+
+async def handle_rebuild_index(request: web.Request) -> web.Response:
+    """POST /v1/knowledge/rebuild-index
+
+    Rebuild indexes from existing chunks.
+    Query params:
+    - type: Index type to rebuild (bm25/semantic/all, default bm25)
+
+    Useful when tokenizer is updated or semantic extraction rules change.
+    """
+    knowledge_store = request.app.get("knowledge_store")
+    if not knowledge_store:
+        return _error_json(503, "Knowledge store not initialized")
+
+    rebuild_type = request.query.get("type", "bm25")
+
+    try:
+        if rebuild_type == "bm25":
+            result = knowledge_store.rebuild_bm25_index()
+            return _success_json({
+                "message": "BM25 index rebuilt successfully",
+                "chunks_indexed": result.get("chunks_indexed", 0),
+                "terms_created": result.get("terms_created", 0),
+                "total_docs": result.get("total_docs", 0),
+            })
+        elif rebuild_type == "semantic":
+            result = knowledge_store.rebuild_semantic_index()
+            return _success_json({
+                "message": "Semantic index rebuilt successfully",
+                "entities": result.get("entities", 0),
+                "claims": result.get("claims", 0),
+                "relations": result.get("relations", 0),
+                "mentions": result.get("mentions", 0),
+            })
+        elif rebuild_type == "all":
+            bm25_result = knowledge_store.rebuild_bm25_index()
+            semantic_result = knowledge_store.rebuild_semantic_index()
+            return _success_json({
+                "message": "All indexes rebuilt successfully",
+                "bm25": {
+                    "chunks_indexed": bm25_result.get("chunks_indexed", 0),
+                    "terms_created": bm25_result.get("terms_created", 0),
+                    "total_docs": bm25_result.get("total_docs", 0),
+                },
+                "semantic": {
+                    "entities": semantic_result.get("entities", 0),
+                    "claims": semantic_result.get("claims", 0),
+                    "relations": semantic_result.get("relations", 0),
+                    "mentions": semantic_result.get("mentions", 0),
+                },
+            })
+        else:
+            return _error_json(400, f"Invalid rebuild type '{rebuild_type}'. Valid options: bm25, semantic, all")
     except Exception as e:
         logger.exception("Error rebuilding index")
         return _error_json(500, f"Error rebuilding index: {e}", err_type="server_error")
@@ -424,4 +532,6 @@ def register_knowledge_routes(app: web.Application) -> None:
     app.router.add_delete("/v1/knowledge/documents/{doc_id}", handle_delete_document)
     app.router.add_post("/v1/knowledge/query", handle_query_knowledge)
     app.router.add_get("/v1/knowledge/stats", handle_knowledge_stats)
+    app.router.add_get("/v1/knowledge/graph", handle_knowledge_graph)
+    app.router.add_get("/v1/knowledge/graphrag", handle_knowledge_graphrag)
     app.router.add_post("/v1/knowledge/rebuild-index", handle_rebuild_index)

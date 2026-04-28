@@ -319,8 +319,10 @@ class KnowledgeConfig(Base):
     enabled: bool = False  # Feature flag for RAG
     auto_retrieve: bool = True  # Auto-inject relevant knowledge on each query
     max_chunks: int = 5  # Max chunks to retrieve per query
-    chunk_size: int = 500  # Characters per chunk when splitting documents
-    chunk_overlap: int = 100  # Overlap between adjacent chunks
+    chunk_size: int = 500  # Parent chunk target size; kept for compatibility
+    chunk_overlap: int = 0  # Parent chunks do not overlap by default
+    child_chunk_size: int = 120  # Child chunk target size used for dense/BM25 matching
+    child_chunk_overlap: int = 20  # Small overlap between adjacent child chunks
     retrieval_mode: str = "hybrid"  # "dense", "sparse", "hybrid"
     rrf_k: int = Field(default=60, ge=1)  # RRF constant
     bm25_k: float = Field(default=1.2, ge=0.0)  # BM25 k parameter
@@ -334,6 +336,9 @@ class KnowledgeConfig(Base):
     rerank_api_base: str = "https://dashscope.aliyuncs.com/compatible-api/v1"  # OpenAI-compatible base URL
     rerank_top_n: int = Field(default=0, ge=0)  # 0 means use query top_k
     generate_summary: bool = False  # Generate summary for each chunk during indexing
+    semantic_extraction_mode: str = "rule"  # "rule", "llm", or "hybrid"
+    semantic_llm_max_tokens: int = Field(default=1200, ge=100)  # Max tokens for semantic extraction
+    semantic_llm_timeout: float = Field(default=30.0, ge=1.0)  # Timeout for semantic extraction API calls
 
 
 class Config(BaseSettings):
