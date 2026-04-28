@@ -21,6 +21,7 @@ const state = {
   knowledgeStats: null,
   knowledgeGraph: null,
   knowledgeGraphView: { scale: 1, x: 0, y: 0 },
+  knowledgeGraphRuntime: null,
   config: null,
   helpOverlay: null,
   activeTourIndex: 0,
@@ -1344,6 +1345,10 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
     return;
   }
 
+  if (state.knowledgeGraphRuntime?.destroy) {
+    state.knowledgeGraphRuntime.destroy();
+    state.knowledgeGraphRuntime = null;
+  }
   elements.knowledgeGraph.textContent = "";
   const nodes = graph?.nodes || [];
   const edges = graph?.edges || [];
@@ -1367,20 +1372,27 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
   const zoomOut = createKnowledgeGraphControlButton("-", "Zoom out");
   const zoomReset = createKnowledgeGraphControlButton("1:1", "Reset view");
   const zoomIn = createKnowledgeGraphControlButton("+", "Zoom in");
-  controls.append(zoomOut, zoomReset, zoomIn);
+  const layoutToggle = createKnowledgeGraphControlButton("Freeze", "Freeze layout");
+  controls.append(zoomOut, zoomReset, zoomIn, layoutToggle);
 
   const hint = document.createElement("div");
   hint.className = "graph-hint";
-  hint.textContent = "Scroll to zoom, drag canvas to pan, drag nodes to rearrange";
+  hint.textContent = "Scroll to zoom, drag background to pan, drag nodes to shape the map";
 
-  const svg = renderKnowledgeGraphSvg(nodes, edges, {
+  const canvasSurface = document.createElement("canvas");
+  canvasSurface.className = "knowledge-graph-canvas";
+  canvasSurface.setAttribute("aria-label", "Interactive knowledge graph");
+  canvasSurface.setAttribute("role", "img");
+  canvasSurface.tabIndex = 0;
+  canvas.append(canvasSurface, controls, hint);
+  const evidenceList = renderKnowledgeGraphEvidence(nodes, edges);
+  elements.knowledgeGraph.append(canvas, evidenceList);
+  state.knowledgeGraphRuntime = renderKnowledgeGraphCanvas(canvasSurface, nodes, edges, {
     zoomIn,
     zoomOut,
     zoomReset,
+    layoutToggle,
   });
-  canvas.append(svg, controls, hint);
-  const evidenceList = renderKnowledgeGraphEvidence(nodes, edges);
-  elements.knowledgeGraph.append(canvas, evidenceList);
 }
 
 function createKnowledgeGraphControlButton(label, title) {
@@ -1393,312 +1405,162 @@ function createKnowledgeGraphControlButton(label, title) {
   return button;
 }
 
-function renderKnowledgeGraphSvg(nodes, edges, controls = {}) {
-  const svgNs = "http://www.w3.org/2000/svg";
-  const width = 720;
-  const height = 340;
-  const positions = layoutKnowledgeGraph(nodes, edges, width, height);
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
-  const edgeElements = new Map();
-  const nodeElements = new Map();
+function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
+  const ctx = canvas.getContext("2d");
+  const nodeMap = new Map();
+  const graphNodes = nodes.map((node, index) => {
+    const angle = (index / Math.max(1, nodes.length)) * Math.PI * 2;
+    const radius = 90 + Math.sqrt(Math.max(1, nodes.length)) * 24;
+    const item = {
+      ...node,
+      x: Math.cos(angle) * radius + (Math.random() - 0.5) * 40,
+      y: Math.sin(angle) * radius + (Math.random() - 0.5) * 40,
+      vx: 0,
+      vy: 0,
+      radius: Math.min(16, 5 + Math.sqrt((node.degree || 0) + (node.mention_count || 0)) * 2.4),
+      color: knowledgeGraphNodeColor(node),
+    };
+    nodeMap.set(node.id, item);
+    return item;
+  });
+  const links = edges
+    .map((edge) => ({
+      ...edge,
+      id: edge.id || `${edge.source}:${edge.predicate}:${edge.target}`,
+      sourceNode: nodeMap.get(edge.source),
+      targetNode: nodeMap.get(edge.target),
+    }))
+    .filter((edge) => edge.sourceNode && edge.targetNode);
 
-  const svg = document.createElementNS(svgNs, "svg");
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.setAttribute("class", "knowledge-graph-svg");
-  svg.setAttribute("role", "img");
-  svg.setAttribute("tabindex", "0");
-  svg.setAttribute("aria-label", "Interactive knowledge graph");
-
-  const defs = document.createElementNS(svgNs, "defs");
-  const marker = document.createElementNS(svgNs, "marker");
-  marker.setAttribute("id", "graph-arrow");
-  marker.setAttribute("viewBox", "0 0 10 10");
-  marker.setAttribute("refX", "8");
-  marker.setAttribute("refY", "5");
-  marker.setAttribute("markerWidth", "5");
-  marker.setAttribute("markerHeight", "5");
-  marker.setAttribute("orient", "auto-start-reverse");
-  const arrow = document.createElementNS(svgNs, "path");
-  arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
-  marker.append(arrow);
-  defs.append(marker);
-  svg.append(defs);
-
-  const edgeLayer = document.createElementNS(svgNs, "g");
-  edgeLayer.setAttribute("class", "graph-edge-layer");
-  for (const edge of edges) {
-    const source = positions.get(edge.source);
-    const target = positions.get(edge.target);
-    if (!source || !target) continue;
-
-    const path = document.createElementNS(svgNs, "path");
-    path.setAttribute("class", "graph-edge");
-    path.setAttribute("stroke-width", String(Math.min(4, 1 + Math.sqrt(edge.count || 1))));
-    path.setAttribute("marker-end", "url(#graph-arrow)");
-    path.dataset.edgeId = edge.id || `${edge.source}:${edge.predicate}:${edge.target}`;
-    path.dataset.source = edge.source;
-    path.dataset.target = edge.target;
-    const title = document.createElementNS(svgNs, "title");
-    title.textContent = `${nodeMap.get(edge.source)?.label || edge.source} -[${edge.predicate}]-> ${nodeMap.get(edge.target)?.label || edge.target}`;
-    path.append(title);
-    edgeLayer.append(path);
-
-    const label = document.createElementNS(svgNs, "text");
-    label.setAttribute("class", "graph-edge-label");
-    label.dataset.edgeId = path.dataset.edgeId;
-    label.textContent = edge.predicate;
-    edgeLayer.append(label);
-    edgeElements.set(path.dataset.edgeId, { edge, path, label });
+  const neighbors = new Map();
+  for (const node of graphNodes) {
+    neighbors.set(node.id, new Set());
+  }
+  for (const edge of links) {
+    neighbors.get(edge.source)?.add(edge.target);
+    neighbors.get(edge.target)?.add(edge.source);
   }
 
-  const nodeLayer = document.createElementNS(svgNs, "g");
-  nodeLayer.setAttribute("class", "graph-node-layer");
-  for (const node of nodes) {
-    const pos = positions.get(node.id);
-    if (!pos) continue;
-    const group = document.createElementNS(svgNs, "g");
-    group.setAttribute("class", `graph-node graph-node-${(node.type || "concept").toLowerCase()}`);
-    group.setAttribute("transform", `translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)})`);
-    group.dataset.nodeId = node.id;
-    group.setAttribute("tabindex", "0");
-
-    const radius = Math.min(24, 9 + Math.sqrt((node.degree || 0) + (node.mention_count || 0)) * 3);
-    const circle = document.createElementNS(svgNs, "circle");
-    circle.setAttribute("r", String(radius));
-    group.append(circle);
-
-    const label = document.createElementNS(svgNs, "text");
-    label.setAttribute("class", "graph-node-label");
-    label.setAttribute("y", String(radius + 14));
-    label.textContent = compactGraphLabel(node.label || node.id);
-    group.append(label);
-
-    const title = document.createElementNS(svgNs, "title");
-    title.textContent = `${node.label}\n${node.type || "concept"} · degree ${node.degree || 0} · mentions ${node.mention_count || 0}`;
-    group.append(title);
-    nodeLayer.append(group);
-    nodeElements.set(node.id, group);
-  }
-
-  const viewportLayer = document.createElementNS(svgNs, "g");
-  viewportLayer.setAttribute("class", "graph-viewport-layer");
-  viewportLayer.append(edgeLayer, nodeLayer);
-  svg.append(viewportLayer);
-
-  for (const item of edgeElements.values()) {
-    updateKnowledgeGraphEdge(item, positions);
-  }
-  wireKnowledgeGraphInteractions(svg, viewportLayer, positions, edgeElements, nodeElements, controls, width, height);
-  return svg;
-}
-
-function updateKnowledgeGraphEdge(item, positions) {
-  const source = positions.get(item.edge.source);
-  const target = positions.get(item.edge.target);
-  if (!source || !target) return;
-
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-  const offsetX = (-dy / distance) * 18;
-  const offsetY = (dx / distance) * 18;
-  const midX = (source.x + target.x) / 2 + offsetX;
-  const midY = (source.y + target.y) / 2 + offsetY;
-
-  item.path.setAttribute("d", `M ${source.x.toFixed(1)} ${source.y.toFixed(1)} Q ${midX.toFixed(1)} ${midY.toFixed(1)} ${target.x.toFixed(1)} ${target.y.toFixed(1)}`);
-  item.label.setAttribute("x", String(midX));
-  item.label.setAttribute("y", String(midY - 3));
-}
-
-function wireKnowledgeGraphInteractions(svg, viewportLayer, positions, edgeElements, nodeElements, controls, width, height) {
   const view = {
     scale: state.knowledgeGraphView?.scale || 1,
     x: state.knowledgeGraphView?.x || 0,
     y: state.knowledgeGraphView?.y || 0,
   };
-  let activePointer = null;
-  let selectedEdgeId = "";
-  let selectedNodeId = "";
+  const runtime = {
+    frame: 0,
+    destroyed: false,
+    frozen: false,
+    alpha: 1,
+    selectedNodeId: "",
+    selectedEdgeId: "",
+    hoverNodeId: "",
+    hoverEdgeId: "",
+    drag: null,
+    width: 1,
+    height: 1,
+    dpr: 1,
+  };
 
-  function applyTransform() {
-    viewportLayer.setAttribute("transform", `translate(${view.x.toFixed(2)} ${view.y.toFixed(2)}) scale(${view.scale.toFixed(4)})`);
-    state.knowledgeGraphView = { ...view };
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    runtime.width = Math.max(320, rect.width || 720);
+    runtime.height = Math.max(260, rect.height || 420);
+    runtime.dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(runtime.width * runtime.dpr);
+    canvas.height = Math.floor(runtime.height * runtime.dpr);
+    ctx.setTransform(runtime.dpr, 0, 0, runtime.dpr, 0, 0);
   }
 
-  function clampScale(value) {
-    return Math.min(4, Math.max(0.35, value));
-  }
-
-  function pointerToSvgPoint(event) {
-    const rect = svg.getBoundingClientRect();
+  function screenToWorld(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
     return {
-      x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * width,
-      y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * height,
+      x: (clientX - rect.left - runtime.width / 2 - view.x) / view.scale,
+      y: (clientY - rect.top - runtime.height / 2 - view.y) / view.scale,
     };
   }
 
-  function pointerToGraphPoint(event) {
-    const point = pointerToSvgPoint(event);
+  function worldToScreen(node) {
     return {
-      x: (point.x - view.x) / view.scale,
-      y: (point.y - view.y) / view.scale,
+      x: runtime.width / 2 + view.x + node.x * view.scale,
+      y: runtime.height / 2 + view.y + node.y * view.scale,
     };
   }
 
-  function setZoom(nextScale, anchor) {
+  function findNodeAt(clientX, clientY) {
+    const point = screenToWorld(clientX, clientY);
+    for (let i = graphNodes.length - 1; i >= 0; i -= 1) {
+      const node = graphNodes[i];
+      const dx = point.x - node.x;
+      const dy = point.y - node.y;
+      const hitRadius = Math.max(12 / view.scale, node.radius + 5 / view.scale);
+      if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+        return node;
+      }
+    }
+    return null;
+  }
+
+  function findEdgeAt(clientX, clientY) {
+    const point = screenToWorld(clientX, clientY);
+    let best = null;
+    let bestDistance = 12 / view.scale;
+    for (const edge of links) {
+      const distance = distanceToSegment(point, edge.sourceNode, edge.targetNode);
+      if (distance < bestDistance) {
+        best = edge;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  function updateEvidenceHighlight() {
+    document.querySelectorAll(".graph-evidence-item").forEach((row) => {
+      row.classList.toggle("is-selected", !!runtime.selectedEdgeId && row.dataset.edgeId === runtime.selectedEdgeId);
+      row.classList.toggle("is-connected", !!runtime.selectedNodeId && (row.dataset.source === runtime.selectedNodeId || row.dataset.target === runtime.selectedNodeId));
+    });
+  }
+
+  function setSelection({ nodeId = "", edgeId = "" }) {
+    runtime.selectedNodeId = nodeId;
+    runtime.selectedEdgeId = edgeId;
+    updateEvidenceHighlight();
+  }
+
+  function setZoom(nextScale, anchorX = runtime.width / 2, anchorY = runtime.height / 2) {
     const oldScale = view.scale;
-    const scale = clampScale(nextScale);
-    const graphX = (anchor.x - view.x) / oldScale;
-    const graphY = (anchor.y - view.y) / oldScale;
-    view.scale = scale;
-    view.x = anchor.x - graphX * scale;
-    view.y = anchor.y - graphY * scale;
-    applyTransform();
+    view.scale = Math.min(5, Math.max(0.25, nextScale));
+    const worldX = (anchorX - runtime.width / 2 - view.x) / oldScale;
+    const worldY = (anchorY - runtime.height / 2 - view.y) / oldScale;
+    view.x = anchorX - runtime.width / 2 - worldX * view.scale;
+    view.y = anchorY - runtime.height / 2 - worldY * view.scale;
+    state.knowledgeGraphView = { ...view };
   }
 
   function resetView() {
     view.scale = 1;
     view.x = 0;
     view.y = 0;
-    applyTransform();
+    runtime.alpha = Math.max(runtime.alpha, 0.4);
+    state.knowledgeGraphView = { ...view };
   }
 
-  function setSelected({ nodeId = "", edgeId = "" }) {
-    selectedNodeId = nodeId;
-    selectedEdgeId = edgeId;
-    for (const [id, group] of nodeElements.entries()) {
-      const connected = selectedEdgeId
-        ? [...edgeElements.values()].some((item) => item.path.dataset.edgeId === selectedEdgeId && (item.edge.source === id || item.edge.target === id))
-        : false;
-      group.classList.toggle("is-selected", id === selectedNodeId);
-      group.classList.toggle("is-connected", connected || (!!selectedNodeId && [...edgeElements.values()].some((item) => (item.edge.source === selectedNodeId || item.edge.target === selectedNodeId) && (item.edge.source === id || item.edge.target === id))));
+  function tickPhysics() {
+    if (runtime.frozen) {
+      return;
     }
-    for (const [id, item] of edgeElements.entries()) {
-      const connected = selectedNodeId && (item.edge.source === selectedNodeId || item.edge.target === selectedNodeId);
-      item.path.classList.toggle("is-selected", id === selectedEdgeId || connected);
-      item.label.classList.toggle("is-selected", id === selectedEdgeId || connected);
-    }
-    document.querySelectorAll(".graph-evidence-item").forEach((row) => {
-      row.classList.toggle("is-selected", !!selectedEdgeId && row.dataset.edgeId === selectedEdgeId);
-      row.classList.toggle("is-connected", !!selectedNodeId && (row.dataset.source === selectedNodeId || row.dataset.target === selectedNodeId));
-    });
-  }
-
-  svg.addEventListener("wheel", (event) => {
-    event.preventDefault();
-    const anchor = pointerToSvgPoint(event);
-    const direction = event.deltaY < 0 ? 1.12 : 0.88;
-    setZoom(view.scale * direction, anchor);
-  }, { passive: false });
-
-  svg.addEventListener("dblclick", (event) => {
-    event.preventDefault();
-    resetView();
-  });
-
-  svg.addEventListener("pointerdown", (event) => {
-    const nodeElement = event.target.closest?.(".graph-node");
-    const edgeElement = event.target.closest?.(".graph-edge");
-    svg.setPointerCapture(event.pointerId);
-    svg.classList.add("is-dragging");
-
-    if (nodeElement?.dataset.nodeId) {
-      const point = pointerToGraphPoint(event);
-      const nodeId = nodeElement.dataset.nodeId;
-      const pos = positions.get(nodeId);
-      activePointer = {
-        type: "node",
-        id: nodeId,
-        offsetX: point.x - pos.x,
-        offsetY: point.y - pos.y,
-      };
-      setSelected({ nodeId });
-    } else {
-      if (edgeElement?.dataset.edgeId) {
-        setSelected({ edgeId: edgeElement.dataset.edgeId });
-      }
-      activePointer = {
-        type: "pan",
-        startX: event.clientX,
-        startY: event.clientY,
-        originX: view.x,
-        originY: view.y,
-      };
-    }
-  });
-
-  svg.addEventListener("pointermove", (event) => {
-    if (!activePointer) return;
-    if (activePointer.type === "node") {
-      const point = pointerToGraphPoint(event);
-      const pos = positions.get(activePointer.id);
-      pos.x = Math.min(width - 36, Math.max(36, point.x - activePointer.offsetX));
-      pos.y = Math.min(height - 32, Math.max(32, point.y - activePointer.offsetY));
-      const nodeElement = nodeElements.get(activePointer.id);
-      nodeElement.setAttribute("transform", `translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)})`);
-      for (const item of edgeElements.values()) {
-        if (item.edge.source === activePointer.id || item.edge.target === activePointer.id) {
-          updateKnowledgeGraphEdge(item, positions);
-        }
-      }
-    } else {
-      const rect = svg.getBoundingClientRect();
-      const scaleX = width / Math.max(1, rect.width);
-      const scaleY = height / Math.max(1, rect.height);
-      view.x = activePointer.originX + (event.clientX - activePointer.startX) * scaleX;
-      view.y = activePointer.originY + (event.clientY - activePointer.startY) * scaleY;
-      applyTransform();
-    }
-  });
-
-  svg.addEventListener("pointerup", (event) => {
-    activePointer = null;
-    svg.classList.remove("is-dragging");
-    if (svg.hasPointerCapture(event.pointerId)) {
-      svg.releasePointerCapture(event.pointerId);
-    }
-  });
-
-  svg.addEventListener("pointercancel", () => {
-    activePointer = null;
-    svg.classList.remove("is-dragging");
-  });
-
-  controls.zoomIn?.addEventListener("click", () => setZoom(view.scale * 1.2, { x: width / 2, y: height / 2 }));
-  controls.zoomOut?.addEventListener("click", () => setZoom(view.scale / 1.2, { x: width / 2, y: height / 2 }));
-  controls.zoomReset?.addEventListener("click", resetView);
-  applyTransform();
-}
-
-function layoutKnowledgeGraph(nodes, edges, width, height) {
-  const positions = new Map();
-  const nodeIds = nodes.map((node) => node.id);
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const radius = Math.min(width, height) * 0.34;
-
-  nodeIds.forEach((id, index) => {
-    const angle = (Math.PI * 2 * index) / Math.max(1, nodeIds.length);
-    positions.set(id, {
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
-      vx: 0,
-      vy: 0,
-    });
-  });
-
-  for (let step = 0; step < 90; step += 1) {
-    for (let i = 0; i < nodeIds.length; i += 1) {
-      for (let j = i + 1; j < nodeIds.length; j += 1) {
-        const a = positions.get(nodeIds[i]);
-        const b = positions.get(nodeIds[j]);
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-        const distSq = Math.max(120, dx * dx + dy * dy);
-        const force = 900 / distSq;
-        const dist = Math.sqrt(distSq);
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
+    const alpha = runtime.alpha;
+    for (let i = 0; i < graphNodes.length; i += 1) {
+      for (let j = i + 1; j < graphNodes.length; j += 1) {
+        const a = graphNodes[i];
+        const b = graphNodes[j];
+        const dx = a.x - b.x || 0.01;
+        const dy = a.y - b.y || 0.01;
+        const distanceSq = Math.max(80, dx * dx + dy * dy);
+        const force = (4600 * alpha) / distanceSq;
+        const distance = Math.sqrt(distanceSq);
+        const fx = (dx / distance) * force;
+        const fy = (dy / distance) * force;
         a.vx += fx;
         a.vy += fy;
         b.vx -= fx;
@@ -1706,34 +1568,286 @@ function layoutKnowledgeGraph(nodes, edges, width, height) {
       }
     }
 
-    for (const edge of edges) {
-      const a = positions.get(edge.source);
-      const b = positions.get(edge.target);
-      if (!a || !b) continue;
+    for (const edge of links) {
+      const a = edge.sourceNode;
+      const b = edge.targetNode;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
-      const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-      const force = (dist - 120) * 0.006 * Math.min(3, edge.count || 1);
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
+      const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      const preferred = 80 + Math.min(90, 18 * Math.sqrt(edge.count || 1));
+      const force = (distance - preferred) * 0.012 * alpha;
+      const fx = (dx / distance) * force;
+      const fy = (dy / distance) * force;
       a.vx += fx;
       a.vy += fy;
       b.vx -= fx;
       b.vy -= fy;
     }
 
-    for (const id of nodeIds) {
-      const pos = positions.get(id);
-      pos.vx += (centerX - pos.x) * 0.002;
-      pos.vy += (centerY - pos.y) * 0.002;
-      pos.x = Math.min(width - 56, Math.max(56, pos.x + pos.vx));
-      pos.y = Math.min(height - 52, Math.max(42, pos.y + pos.vy));
-      pos.vx *= 0.72;
-      pos.vy *= 0.72;
+    for (const node of graphNodes) {
+      node.vx += -node.x * 0.004 * alpha;
+      node.vy += -node.y * 0.004 * alpha;
+      node.vx *= 0.82;
+      node.vy *= 0.82;
+      if (runtime.drag?.node !== node) {
+        node.x += node.vx;
+        node.y += node.vy;
+      }
+    }
+    runtime.alpha = Math.max(0.018, runtime.alpha * 0.986);
+  }
+
+  function drawGrid() {
+    const spacing = 36 * view.scale;
+    if (spacing < 9) {
+      return;
+    }
+    const offsetX = ((runtime.width / 2 + view.x) % spacing + spacing) % spacing;
+    const offsetY = ((runtime.height / 2 + view.y) % spacing + spacing) % spacing;
+    ctx.fillStyle = "rgba(148, 163, 184, 0.16)";
+    for (let x = offsetX; x < runtime.width; x += spacing) {
+      for (let y = offsetY; y < runtime.height; y += spacing) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
 
-  return positions;
+  function isNodeActive(node) {
+    const focusNodeId = runtime.hoverNodeId || runtime.selectedNodeId;
+    const focusEdgeId = runtime.hoverEdgeId || runtime.selectedEdgeId;
+    if (node.id === focusNodeId) return true;
+    if (focusNodeId && neighbors.get(focusNodeId)?.has(node.id)) return true;
+    if (focusEdgeId) {
+      const edge = links.find((item) => item.id === focusEdgeId);
+      return edge && (edge.source === node.id || edge.target === node.id);
+    }
+    return false;
+  }
+
+  function isEdgeActive(edge) {
+    const focusNodeId = runtime.hoverNodeId || runtime.selectedNodeId;
+    const focusEdgeId = runtime.hoverEdgeId || runtime.selectedEdgeId;
+    return edge.id === focusEdgeId || (!!focusNodeId && (edge.source === focusNodeId || edge.target === focusNodeId));
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, runtime.width, runtime.height);
+    const gradient = ctx.createRadialGradient(runtime.width * 0.52, runtime.height * 0.46, 40, runtime.width * 0.5, runtime.height * 0.5, Math.max(runtime.width, runtime.height) * 0.72);
+    gradient.addColorStop(0, "#151a26");
+    gradient.addColorStop(1, "#090b10");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, runtime.width, runtime.height);
+    drawGrid();
+
+    ctx.save();
+    ctx.translate(runtime.width / 2 + view.x, runtime.height / 2 + view.y);
+    ctx.scale(view.scale, view.scale);
+
+    for (const edge of links) {
+      const active = isEdgeActive(edge);
+      ctx.beginPath();
+      ctx.moveTo(edge.sourceNode.x, edge.sourceNode.y);
+      ctx.lineTo(edge.targetNode.x, edge.targetNode.y);
+      ctx.strokeStyle = active ? "rgba(125, 173, 255, 0.9)" : "rgba(116, 129, 154, 0.28)";
+      ctx.lineWidth = (active ? 1.8 : 0.8) / view.scale + Math.min(1.4, Math.sqrt(edge.count || 1) * 0.18);
+      ctx.stroke();
+    }
+
+    for (const node of graphNodes) {
+      const active = isNodeActive(node);
+      const selected = node.id === runtime.selectedNodeId || node.id === runtime.hoverNodeId;
+      const radius = node.radius * (selected ? 1.18 : 1);
+      if (active) {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius + 7 / view.scale, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(96, 165, 250, 0.16)";
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = node.color;
+      ctx.fill();
+      ctx.lineWidth = selected ? 2.2 / view.scale : 1.2 / view.scale;
+      ctx.strokeStyle = selected ? "rgba(219, 234, 254, 0.98)" : "rgba(226, 232, 240, 0.56)";
+      ctx.stroke();
+    }
+
+    const shouldShowAllLabels = view.scale > 0.78 || graphNodes.length <= 28;
+    for (const node of graphNodes) {
+      const active = isNodeActive(node);
+      if (!active && !shouldShowAllLabels && (node.degree || 0) < 2) {
+        continue;
+      }
+      ctx.font = `${active ? 600 : 500} ${Math.max(10, 11 / view.scale)}px Inter, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      const label = compactGraphLabel(node.label || node.id);
+      const labelY = node.y + node.radius + 5 / view.scale;
+      ctx.lineWidth = 4 / view.scale;
+      ctx.strokeStyle = "rgba(9, 11, 16, 0.92)";
+      ctx.strokeText(label, node.x, labelY);
+      ctx.fillStyle = active ? "#f8fafc" : "rgba(226, 232, 240, 0.82)";
+      ctx.fillText(label, node.x, labelY);
+    }
+    ctx.restore();
+
+    if (runtime.hoverNodeId) {
+      const node = nodeMap.get(runtime.hoverNodeId);
+      drawGraphTooltip(node?.label || "", node?.type || "concept", node ? worldToScreen(node) : null);
+    }
+  }
+
+  function drawGraphTooltip(title, subtitle, point) {
+    if (!point || !title) return;
+    const text = `${title} · ${subtitle}`;
+    ctx.font = "12px Inter, system-ui, sans-serif";
+    const width = Math.min(280, ctx.measureText(text).width + 18);
+    const x = Math.min(runtime.width - width - 12, Math.max(12, point.x + 12));
+    const y = Math.min(runtime.height - 34, Math.max(12, point.y - 28));
+    ctx.fillStyle = "rgba(15, 23, 42, 0.94)";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.28)";
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, 26);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#e5e7eb";
+    ctx.fillText(text, x + 9, y + 8);
+  }
+
+  function frame() {
+    if (runtime.destroyed) return;
+    tickPhysics();
+    draw();
+    runtime.frame = requestAnimationFrame(frame);
+  }
+
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const direction = event.deltaY < 0 ? 1.12 : 0.88;
+    setZoom(view.scale * direction, event.clientX - rect.left, event.clientY - rect.top);
+  }, { passive: false });
+
+  canvas.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    resetView();
+  });
+
+  canvas.addEventListener("pointerdown", (event) => {
+    canvas.setPointerCapture(event.pointerId);
+    canvas.classList.add("is-dragging");
+    const node = findNodeAt(event.clientX, event.clientY);
+    if (node) {
+      const point = screenToWorld(event.clientX, event.clientY);
+      runtime.drag = { type: "node", node, offsetX: point.x - node.x, offsetY: point.y - node.y };
+      runtime.alpha = 0.8;
+      setSelection({ nodeId: node.id });
+      return;
+    }
+    const edge = findEdgeAt(event.clientX, event.clientY);
+    if (edge) {
+      setSelection({ edgeId: edge.id });
+    } else {
+      setSelection({});
+    }
+    runtime.drag = {
+      type: "pan",
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: view.x,
+      originY: view.y,
+    };
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    if (runtime.drag?.type === "node") {
+      const point = screenToWorld(event.clientX, event.clientY);
+      runtime.drag.node.x = point.x - runtime.drag.offsetX;
+      runtime.drag.node.y = point.y - runtime.drag.offsetY;
+      runtime.drag.node.vx = 0;
+      runtime.drag.node.vy = 0;
+      runtime.alpha = 0.55;
+      return;
+    }
+    if (runtime.drag?.type === "pan") {
+      view.x = runtime.drag.originX + event.clientX - runtime.drag.startX;
+      view.y = runtime.drag.originY + event.clientY - runtime.drag.startY;
+      state.knowledgeGraphView = { ...view };
+      return;
+    }
+
+    const node = findNodeAt(event.clientX, event.clientY);
+    const edge = node ? null : findEdgeAt(event.clientX, event.clientY);
+    runtime.hoverNodeId = node?.id || "";
+    runtime.hoverEdgeId = edge?.id || "";
+    canvas.style.cursor = node ? "grab" : edge ? "pointer" : "grab";
+  });
+
+  canvas.addEventListener("pointerup", (event) => {
+    runtime.drag = null;
+    canvas.classList.remove("is-dragging");
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  });
+
+  canvas.addEventListener("pointerleave", () => {
+    runtime.hoverNodeId = "";
+    runtime.hoverEdgeId = "";
+  });
+
+  controls.zoomIn?.addEventListener("click", () => setZoom(view.scale * 1.2));
+  controls.zoomOut?.addEventListener("click", () => setZoom(view.scale / 1.2));
+  controls.zoomReset?.addEventListener("click", resetView);
+  controls.layoutToggle?.addEventListener("click", () => {
+    runtime.frozen = !runtime.frozen;
+    controls.layoutToggle.textContent = runtime.frozen ? "Release" : "Freeze";
+    controls.layoutToggle.title = runtime.frozen ? "Release layout" : "Freeze layout";
+    runtime.alpha = runtime.frozen ? runtime.alpha : 0.8;
+  });
+
+  const resizeObserver = new ResizeObserver(resizeCanvas);
+  resizeObserver.observe(canvas);
+  resizeCanvas();
+  frame();
+
+  return {
+    destroy() {
+      runtime.destroyed = true;
+      cancelAnimationFrame(runtime.frame);
+      resizeObserver.disconnect();
+    },
+  };
+}
+
+function knowledgeGraphNodeColor(node) {
+  const type = (node.type || "concept").toLowerCase();
+  if (["technology", "system", "product", "module", "api"].includes(type)) {
+    return "#60a5fa";
+  }
+  if (["person", "organization", "team"].includes(type)) {
+    return "#34d399";
+  }
+  if (["file", "location", "document"].includes(type)) {
+    return "#f59e0b";
+  }
+  return "#a78bfa";
+}
+
+function distanceToSegment(point, start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) {
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  }
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq));
+  const x = start.x + t * dx;
+  const y = start.y + t * dy;
+  return Math.hypot(point.x - x, point.y - y);
 }
 
 function renderKnowledgeGraphEvidence(nodes, edges) {

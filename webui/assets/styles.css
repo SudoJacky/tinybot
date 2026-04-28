@@ -1799,11 +1799,16 @@ body {
 .knowledge-graph {
   min-height: 280px;
   padding: 10px;
-  background: var(--bg-subtle);
+  background: #090b10;
 }
 
 .graph-canvas {
   position: relative;
+  min-height: 420px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #64748b 28%, transparent);
+  background: #090b10;
 }
 
 .graph-controls {
@@ -1813,19 +1818,20 @@ body {
   display: flex;
   gap: 4px;
   padding: 4px;
-  background: color-mix(in srgb, var(--panel-strong) 92%, transparent);
-  border: 1px solid var(--border-subtle);
+  background: rgba(15, 23, 42, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-xs);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
 }
 
 .graph-control-button {
-  min-width: 30px;
+  min-width: 34px;
   height: 28px;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: var(--radius-xs);
-  background: var(--bg-subtle);
-  color: var(--text);
+  background: rgba(30, 41, 59, 0.78);
+  color: #e5e7eb;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -1834,9 +1840,9 @@ body {
 }
 
 .graph-control-button:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: rgba(37, 99, 235, 0.32);
+  border-color: rgba(96, 165, 250, 0.68);
+  color: #dbeafe;
 }
 
 .graph-control-button:focus-visible {
@@ -1851,119 +1857,28 @@ body {
   max-width: min(420px, calc(100% - 24px));
   padding: 5px 8px;
   border-radius: var(--radius-xs);
-  background: color-mix(in srgb, var(--panel-strong) 90%, transparent);
-  color: var(--text-muted);
+  background: rgba(15, 23, 42, 0.78);
+  color: rgba(226, 232, 240, 0.72);
   font-size: 11px;
   pointer-events: none;
 }
 
-.knowledge-graph-svg {
+.knowledge-graph-canvas {
   display: block;
   width: 100%;
-  height: 320px;
-  border-radius: var(--radius-sm);
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--border-subtle) 34%, transparent) 1px, transparent 1px),
-    linear-gradient(color-mix(in srgb, var(--border-subtle) 34%, transparent) 1px, transparent 1px),
-    var(--panel-strong);
-  background-size: 28px 28px;
+  height: 420px;
   cursor: grab;
   touch-action: none;
   user-select: none;
 }
 
-.knowledge-graph-svg.is-dragging {
+.knowledge-graph-canvas.is-dragging {
   cursor: grabbing;
 }
 
-.graph-viewport-layer {
-  transform-box: fill-box;
-}
-
-.graph-edge {
-  fill: none;
-  stroke: color-mix(in srgb, var(--accent) 48%, var(--text-muted));
-  stroke-linecap: round;
-  opacity: 0.64;
-  cursor: pointer;
-  transition: opacity var(--transition-fast), stroke var(--transition-fast), stroke-width var(--transition-fast);
-}
-
-.graph-edge:hover,
-.graph-edge.is-selected {
-  opacity: 0.95;
-  stroke: var(--accent);
-}
-
-#graph-arrow path {
-  fill: color-mix(in srgb, var(--accent) 48%, var(--text-muted));
-}
-
-.graph-edge-label {
-  fill: var(--text-muted);
-  paint-order: stroke;
-  stroke: var(--panel-strong);
-  stroke-width: 4px;
-  stroke-linejoin: round;
-  text-anchor: middle;
-  font-size: 10px;
-  font-family: var(--font-mono);
-  pointer-events: none;
-}
-
-.graph-edge-label.is-selected {
-  fill: var(--accent);
-}
-
-.graph-node circle {
-  fill: color-mix(in srgb, var(--accent) 82%, #ffffff);
-  stroke: var(--panel-strong);
-  stroke-width: 2px;
-  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.14));
-  transition: stroke var(--transition-fast), stroke-width var(--transition-fast), filter var(--transition-fast);
-}
-
-.graph-node {
-  cursor: move;
-}
-
-.graph-node:hover circle,
-.graph-node.is-connected circle {
-  stroke: var(--accent);
-  stroke-width: 3px;
-}
-
-.graph-node.is-selected circle {
-  stroke: var(--accent);
-  stroke-width: 4px;
-  filter: drop-shadow(0 6px 16px rgba(37, 99, 235, 0.28));
-}
-
-.graph-node-technology circle,
-.graph-node-system circle,
-.graph-node-product circle {
-  fill: #2f80ed;
-}
-
-.graph-node-person circle,
-.graph-node-organization circle {
-  fill: #2d9d78;
-}
-
-.graph-node-location circle,
-.graph-node-file circle {
-  fill: #b66a12;
-}
-
-.graph-node-label {
-  fill: var(--text);
-  paint-order: stroke;
-  stroke: var(--panel-strong);
-  stroke-width: 5px;
-  stroke-linejoin: round;
-  text-anchor: middle;
-  font-size: 11px;
-  font-weight: 600;
+.knowledge-graph-canvas:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
 }
 
 .graph-evidence-list {
