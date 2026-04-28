@@ -45,9 +45,9 @@ _EN_ENTITY_RE = re.compile(
     r"\b(?:[A-Z][A-Za-z0-9_./+-]*|[A-Z0-9]{2,})"
     r"(?:\s+(?:[A-Z][A-Za-z0-9_./+-]*|[A-Z0-9]{2,})){0,4}\b"
 )
-_CLAIM_SPLIT_RE = re.compile(r"(?<=[。！？.!?；;])\s+|\n+")
+_CLAIM_SPLIT_RE = re.compile(r"(?<=[。！？.!?；;])\s*|\n+")
 _RELATION_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("defined_as", r"(.{2,40}?)(?:是|指|定义为|means|is defined as|refers to)(.{2,80})"),
+    ("defined_as", r"(.{2,40}?)(?:是一种|是一类|是一个|指的是|定义为|means|is defined as|refers to)(.{2,80})"),
     ("part_of", r"(.{2,40}?)(?:属于|隶属于|是.+?的一部分|part of|belongs to)(.{2,80})"),
     ("contains", r"(.{2,40}?)(?:包含|包括|由.+?组成|contains|includes|consists of)(.{2,80})"),
     ("depends_on", r"(.{2,40}?)(?:依赖|依靠|取决于|depends on|relies on|requires)(.{2,80})"),
@@ -117,6 +117,114 @@ _ENTITY_ACTION_MARKERS = (
     "contains",
     "depends",
 )
+_ENTITY_NOISE_PHRASES = {
+    "大家好",
+    "阿巴阿巴",
+    "也就",
+    "就只能",
+    "讲清楚",
+    "一次性给大家讲清楚",
+    "我的理解",
+    "我的理解上",
+    "我们常说的幻觉",
+    "现在的大模型不",
+    "而且用得比以前更多了",
+}
+_ENTITY_NOISE_MARKERS = (
+    "大家",
+    "小伙伴",
+    "朋友",
+    "我会",
+    "我认为",
+    "我的",
+    "我们",
+    "你们",
+    "咱们",
+    "一次性",
+    "讲清楚",
+    "看完",
+    "听起来",
+    "背景交代",
+    "正式进入",
+    "有朋友",
+    "可能会问",
+    "也就",
+    "就只能",
+    "其实",
+    "不过",
+    "所以",
+    "然后",
+    "当然",
+    "这个",
+    "这种",
+    "那个",
+    "这篇",
+    "下面",
+    "上面",
+    "前面",
+    "后面",
+    "现在的",
+    "以前",
+    "以后",
+    "已经",
+    "而且",
+    "用得",
+    "比以前",
+)
+_CJK_ENTITY_BAD_PREFIXES = (
+    "现在",
+    "以前",
+    "以后",
+    "而且",
+    "并且",
+    "同时",
+    "如果",
+    "那么",
+    "但是",
+    "不过",
+    "因为",
+    "所以",
+    "对于",
+    "关于",
+    "比如",
+    "例如",
+    "有些",
+    "很多",
+    "这些",
+    "那些",
+    "这种",
+    "这个",
+    "那个",
+    "我们",
+    "大家",
+)
+_CJK_ENTITY_BAD_SUFFIXES = (
+    "了",
+    "的",
+    "地",
+    "得",
+    "不",
+    "吗",
+    "呢",
+    "吧",
+    "啦",
+    "呀",
+    "哦",
+    "哈",
+    "嘛",
+)
+_RELATION_ENDPOINT_TYPE_RULES: dict[str, tuple[set[str], set[str]]] = {
+    "part_of": ({"person", "organization", "product", "module", "api", "file", "technology", "concept", "business_object", "proper_noun", "acronym"}, {"organization", "product", "module", "technology", "concept", "business_object", "proper_noun", "acronym"}),
+    "contains": ({"organization", "product", "module", "technology", "concept", "business_object", "proper_noun", "acronym"}, {"product", "module", "api", "file", "technology", "concept", "business_object", "proper_noun", "acronym"}),
+    "depends_on": ({"product", "module", "api", "file", "technology", "concept", "business_object", "proper_noun", "acronym"}, {"product", "module", "api", "file", "protocol", "algorithm", "technology", "concept", "proper_noun", "acronym"}),
+    "requires": ({"product", "module", "api", "file", "technology", "concept", "business_object", "proper_noun", "acronym"}, {"product", "module", "api", "file", "protocol", "algorithm", "technology", "concept", "proper_noun", "acronym"}),
+    "supports": ({"organization", "product", "module", "api", "file", "technology", "concept", "proper_noun", "acronym"}, {"product", "module", "api", "file", "technology", "concept", "business_object", "proper_noun", "acronym"}),
+    "used_for": ({"product", "module", "api", "file", "protocol", "algorithm", "technology", "concept", "proper_noun", "acronym"}, {"technology", "concept", "business_object", "proper_noun", "acronym"}),
+    "causes": ({"technology", "concept", "business_object", "proper_noun", "acronym"}, {"technology", "concept", "business_object", "proper_noun", "acronym"}),
+    "owned_by": ({"product", "module", "api", "file", "business_object", "proper_noun", "acronym"}, {"person", "organization", "proper_noun"}),
+    "located_in": ({"organization", "product", "module", "api", "file", "proper_noun", "acronym"}, {"organization", "business_object", "proper_noun"}),
+    "defined_as": ({"product", "module", "api", "file", "protocol", "algorithm", "technology", "concept", "business_object", "proper_noun", "acronym"}, {"technology", "concept", "business_object", "proper_noun", "acronym"}),
+}
 _MARKDOWN_ENTITY_RE = re.compile(r"(?:`([^`]{2,60})`|\*\*([^*\n]{2,60})\*\*)")
 _ENTITY_STOPWORDS = {
     "the",
@@ -136,6 +244,10 @@ _ENTITY_STOPWORDS = {
     "content",
     "document",
     "section",
+    "hello",
+    "hi",
+    "thanks",
+    "thank you",
 }
 
 
@@ -2086,6 +2198,289 @@ class KnowledgeStore:
             },
         }
 
+    def get_graphrag_index(
+        self,
+        doc_id: str | None = None,
+        min_confidence: float = 0.0,
+    ) -> dict[str, Any]:
+        """Return GraphRAG-style knowledge model tables.
+
+        This keeps TinyBot's JSONL storage as the source of truth, while
+        exposing an entity/relationship model shaped like GraphRAG outputs:
+        text units, entities, relationships, and claim covariates.
+        """
+        min_confidence = max(0.0, min(float(min_confidence or 0.0), 1.0))
+
+        documents = [
+            document
+            for document in self._read_documents()
+            if not doc_id or document.id == doc_id
+        ]
+        document_ids = {document.id for document in documents}
+
+        chunks = [
+            chunk
+            for chunk in self._read_chunks()
+            if chunk.chunk_type == "parent"
+            and (not doc_id or chunk.doc_id == doc_id)
+        ]
+        chunk_ids = {chunk.id for chunk in chunks}
+
+        entities = [
+            entity
+            for entity in self._read_entities()
+            if (not doc_id or doc_id in entity.doc_ids)
+            and entity.confidence >= min_confidence
+        ]
+        entity_map = {entity.id: entity for entity in entities}
+
+        mentions = [
+            mention
+            for mention in self._read_mentions()
+            if mention.chunk_id in chunk_ids and mention.entity_id in entity_map
+        ]
+        claims = [
+            claim
+            for claim in self._read_claims()
+            if claim.chunk_id in chunk_ids and claim.confidence >= min_confidence
+        ]
+        relations = [
+            relation
+            for relation in self._read_relations()
+            if relation.evidence_chunk_id in chunk_ids
+            and relation.subject_entity_id in entity_map
+            and relation.object_entity_id in entity_map
+            and relation.confidence >= min_confidence
+        ]
+
+        entity_text_units: dict[str, set[str]] = {entity.id: set() for entity in entities}
+        entity_claims: dict[str, list[str]] = {entity.id: [] for entity in entities}
+        entity_degrees: dict[str, int] = {entity.id: 0 for entity in entities}
+        relationship_ids_by_chunk: dict[str, list[str]] = {}
+        covariate_ids_by_chunk: dict[str, list[str]] = {}
+        entity_ids_by_chunk: dict[str, set[str]] = {chunk.id: set() for chunk in chunks}
+
+        for mention in mentions:
+            entity_text_units.setdefault(mention.entity_id, set()).add(mention.chunk_id)
+            entity_ids_by_chunk.setdefault(mention.chunk_id, set()).add(mention.entity_id)
+
+        for claim in claims:
+            covariate_ids_by_chunk.setdefault(claim.chunk_id, []).append(claim.id)
+            for entity_id in claim.entity_ids:
+                if entity_id in entity_map:
+                    entity_text_units.setdefault(entity_id, set()).add(claim.chunk_id)
+                    entity_ids_by_chunk.setdefault(claim.chunk_id, set()).add(entity_id)
+                    if claim.text and claim.text not in entity_claims.setdefault(entity_id, []):
+                        entity_claims[entity_id].append(claim.text)
+
+        relationship_groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+        claims_by_id = {claim.id: claim for claim in claims}
+        chunks_by_id = {chunk.id: chunk for chunk in chunks}
+
+        for relation in relations:
+            key = (relation.subject_entity_id, relation.predicate, relation.object_entity_id)
+            source = entity_map[relation.subject_entity_id]
+            target = entity_map[relation.object_entity_id]
+            relationship_id = self._graphrag_relationship_id(*key)
+            group = relationship_groups.setdefault(
+                key,
+                {
+                    "id": relationship_id,
+                    "source": source.name,
+                    "target": target.name,
+                    "predicate": relation.predicate,
+                    "description_parts": [],
+                    "weight": 0.0,
+                    "text_unit_ids": set(),
+                    "relation_ids": [],
+                    "confidence": 0.0,
+                },
+            )
+            evidence = self._relation_evidence_text(relation, claims_by_id, chunks_by_id)
+            if evidence and evidence not in group["description_parts"]:
+                group["description_parts"].append(evidence)
+            group["weight"] += relation.confidence or 1.0
+            group["confidence"] = max(group["confidence"], relation.confidence)
+            group["text_unit_ids"].add(relation.evidence_chunk_id)
+            group["relation_ids"].append(relation.id)
+            relationship_ids_by_chunk.setdefault(relation.evidence_chunk_id, []).append(relationship_id)
+            entity_text_units.setdefault(relation.subject_entity_id, set()).add(relation.evidence_chunk_id)
+            entity_text_units.setdefault(relation.object_entity_id, set()).add(relation.evidence_chunk_id)
+            entity_ids_by_chunk.setdefault(relation.evidence_chunk_id, set()).update(
+                [relation.subject_entity_id, relation.object_entity_id]
+            )
+
+        for source_id, _predicate, target_id in relationship_groups:
+            entity_degrees[source_id] = entity_degrees.get(source_id, 0) + 1
+            entity_degrees[target_id] = entity_degrees.get(target_id, 0) + 1
+
+        relationship_rows = []
+        for (source_id, _predicate, target_id), group in sorted(
+            relationship_groups.items(),
+            key=lambda item: (item[1]["weight"], item[1]["confidence"]),
+            reverse=True,
+        ):
+            description = self._summarize_graph_texts(group["description_parts"])
+            relationship_rows.append({
+                "id": group["id"],
+                "source": group["source"],
+                "target": group["target"],
+                "predicate": group["predicate"],
+                "description": description,
+                "weight": round(float(group["weight"]), 6),
+                "combined_degree": entity_degrees.get(source_id, 0) + entity_degrees.get(target_id, 0),
+                "text_unit_ids": sorted(group["text_unit_ids"]),
+                "relation_ids": group["relation_ids"],
+                "confidence": group["confidence"],
+            })
+
+        entity_rows = []
+        for entity in sorted(
+            entities,
+            key=lambda item: (
+                len(entity_text_units.get(item.id, set())),
+                entity_degrees.get(item.id, 0),
+                item.confidence,
+                item.name.lower(),
+            ),
+            reverse=True,
+        ):
+            text_unit_ids = sorted(entity_text_units.get(entity.id, set()))
+            entity_rows.append({
+                "id": entity.id,
+                "title": entity.name,
+                "type": entity.type,
+                "description": self._entity_description(entity, entity_claims.get(entity.id, [])),
+                "text_unit_ids": text_unit_ids,
+                "frequency": len(text_unit_ids),
+                "degree": entity_degrees.get(entity.id, 0),
+                "aliases": entity.aliases,
+                "doc_ids": [item for item in entity.doc_ids if item in document_ids],
+                "confidence": entity.confidence,
+            })
+
+        document_rows = []
+        chunks_by_doc: dict[str, list[str]] = {}
+        for chunk in chunks:
+            chunks_by_doc.setdefault(chunk.doc_id, []).append(chunk.id)
+        for document in documents:
+            document_rows.append({
+                "id": document.id,
+                "title": document.name,
+                "text": document.content,
+                "text_unit_ids": chunks_by_doc.get(document.id, []),
+                "metadata": document.metadata,
+                "source": document.source,
+                "file_type": document.file_type,
+            })
+
+        covariate_rows = []
+        for claim in claims:
+            subject_id, object_id = self._claim_subject_object_ids(claim, entity_map)
+            covariate_rows.append({
+                "id": claim.id,
+                "covariate_type": "claim",
+                "type": "fact",
+                "description": claim.text,
+                "subject_id": subject_id,
+                "object_id": object_id,
+                "status": "TRUE",
+                "start_date": "",
+                "end_date": "",
+                "source_text": claim.text,
+                "text_unit_id": claim.chunk_id,
+                "confidence": claim.confidence,
+            })
+
+        text_unit_rows = []
+        for chunk in chunks:
+            text_unit_rows.append({
+                "id": chunk.id,
+                "text": chunk.context_content or chunk.content,
+                "n_tokens": len(_tokenize(chunk.context_content or chunk.content)),
+                "document_id": chunk.doc_id,
+                "entity_ids": sorted(entity_ids_by_chunk.get(chunk.id, set())),
+                "relationship_ids": sorted(set(relationship_ids_by_chunk.get(chunk.id, []))),
+                "covariate_ids": sorted(set(covariate_ids_by_chunk.get(chunk.id, []))),
+                "section_path": chunk.section_path,
+                "line_start": chunk.line_start,
+                "line_end": chunk.line_end,
+                "page": chunk.page,
+            })
+
+        return {
+            "object": "graphrag_index",
+            "documents": document_rows,
+            "text_units": text_unit_rows,
+            "entities": entity_rows,
+            "relationships": relationship_rows,
+            "covariates": covariate_rows,
+            "communities": [],
+            "community_reports": [],
+            "stats": {
+                "document_count": len(document_rows),
+                "text_unit_count": len(text_unit_rows),
+                "entity_count": len(entity_rows),
+                "relationship_count": len(relationship_rows),
+                "covariate_count": len(covariate_rows),
+                "doc_id": doc_id or "",
+                "min_confidence": min_confidence,
+            },
+        }
+
+    @staticmethod
+    def _graphrag_relationship_id(source_id: str, predicate: str, target_id: str) -> str:
+        value = f"{source_id}:{predicate}:{target_id}"
+        return f"grel_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _summarize_graph_texts(texts: list[str], limit: int = 420) -> str:
+        seen: set[str] = set()
+        parts: list[str] = []
+        for text in texts:
+            clean = re.sub(r"\s+", " ", text).strip()
+            if not clean or clean in seen:
+                continue
+            parts.append(clean)
+            seen.add(clean)
+            if sum(len(part) for part in parts) >= limit:
+                break
+        summary = " ".join(parts).strip()
+        return summary[:limit].rstrip()
+
+    def _entity_description(self, entity: KnowledgeEntity, claims: list[str]) -> str:
+        if claims:
+            return self._summarize_graph_texts(claims)
+        if entity.aliases:
+            aliases = [alias for alias in entity.aliases if alias != entity.name]
+            if aliases:
+                return f"{entity.name} ({entity.type}); aliases: {', '.join(aliases[:5])}."
+        return f"{entity.name} ({entity.type})."
+
+    @staticmethod
+    def _relation_evidence_text(
+        relation: KnowledgeRelation,
+        claims_by_id: dict[str, KnowledgeClaim],
+        chunks_by_id: dict[str, KnowledgeChunk],
+    ) -> str:
+        claim = claims_by_id.get(relation.claim_id)
+        if claim and claim.text:
+            return claim.text
+        chunk = chunks_by_id.get(relation.evidence_chunk_id)
+        if chunk:
+            return (chunk.context_content or chunk.content)[:360]
+        return ""
+
+    @staticmethod
+    def _claim_subject_object_ids(
+        claim: KnowledgeClaim,
+        entity_map: dict[str, KnowledgeEntity],
+    ) -> tuple[str, str]:
+        entity_ids = [entity_id for entity_id in claim.entity_ids if entity_id in entity_map]
+        subject_id = entity_map[entity_ids[0]].name if entity_ids else ""
+        object_id = entity_map[entity_ids[1]].name if len(entity_ids) > 1 else ""
+        return subject_id, object_id
+
     def rebuild_bm25_index(self) -> dict[str, Any]:
         """Rebuild BM25 index from existing chunks.
 
@@ -2981,38 +3376,43 @@ class KnowledgeStore:
         parsed = self._parse_json_object(raw_content)
         if not parsed:
             return None
+        raw_entities = parsed.get("entities", parsed.get("e", []))
+        raw_claims = parsed.get("claims", [])
+        raw_relations = parsed.get("relations", parsed.get("r", []))
         return {
-            "entities": parsed.get("entities", []) if isinstance(parsed.get("entities", []), list) else [],
-            "claims": parsed.get("claims", []) if isinstance(parsed.get("claims", []), list) else [],
-            "relations": parsed.get("relations", []) if isinstance(parsed.get("relations", []), list) else [],
+            "entities": raw_entities if isinstance(raw_entities, list) else [],
+            "claims": raw_claims if isinstance(raw_claims, list) else [],
+            "relations": raw_relations if isinstance(raw_relations, list) else [],
         }
 
     @staticmethod
     def _build_semantic_extraction_prompt(content: str, section_path: str, doc_name: str) -> str:
         return f"""You are a strict knowledge graph extraction engine.
-Extract reusable entities, atomic claims, and typed relations from the chunk.
-Return only a JSON object with keys: entities, claims, relations.
+Extract only KG-worthy entities and typed relations from the chunk.
+Return compact JSON only: {{"e":[...],"r":[...]}}.
 
 Rules:
-- Entities must be reusable named objects or concepts: people, organizations, products, modules, APIs, files, protocols, algorithms, technologies, business objects.
+- Entity types: person, organization, product, module, api, file, protocol, algorithm, technology, concept, business_object.
+- Entities must be reusable named objects, terms, products, technologies, algorithms, modules, files, organizations, people, or business objects.
 - Do not turn full sentences, marketing copy, feature descriptions, or verb phrases into entities.
-- If text is only a factual statement, put it in claims, not entities.
+- Do not extract greetings, filler words, narration, first-person phrases, teaching transitions, or casual commentary as entities.
+- Bad entities: "大家好", "阿巴阿巴", "也就", "现在的大模型不", "而且用得比以前更多了", "我会一次性给大家讲清楚", "我们常说的幻觉", "这个问题".
+- Good entities: "RAG", "GraphRAG", "BM25", "向量数据库", "知识图谱", "Self-RAG".
 - Every relation must use one predicate from:
   is_a, part_of, contains, depends_on, requires, supports, used_for, causes, precedes, owned_by, located_in, similar_to, contradicts, defined_as.
 - subject and object must be entity names.
 - evidence must be a short exact excerpt from the chunk.
+- Only output a relation when both endpoints are explicit entities in the evidence.
 - Prefer fewer high-quality entities over many weak entities.
+- Do not output claims; claims will be derived from relation evidence locally.
 
 JSON schema:
 {{
-  "entities": [
-    {{"name": "RAG", "type": "technology", "aliases": ["Retrieval-Augmented Generation"], "confidence": 0.9}}
+  "e": [
+    {{"n": "RAG", "t": "technology", "a": ["Retrieval-Augmented Generation"], "c": 0.9}}
   ],
-  "claims": [
-    {{"text": "RAG depends on embeddings.", "entity_names": ["RAG", "embeddings"], "confidence": 0.85}}
-  ],
-  "relations": [
-    {{"subject": "RAG", "predicate": "depends_on", "object": "embeddings", "evidence": "RAG depends on embeddings.", "confidence": 0.85}}
+  "r": [
+    {{"s": "RAG", "p": "depends_on", "o": "embeddings", "e": "RAG depends on embeddings.", "c": 0.85}}
   ]
 }}
 
@@ -3065,6 +3465,7 @@ Chunk:
         units: dict[str, list[dict[str, Any]]],
         content: str,
     ) -> dict[str, list[dict[str, Any]]]:
+        normalized_content = re.sub(r"\s+", " ", content).strip()
         entities: list[dict[str, Any]] = []
         entity_names: set[str] = set()
         for raw in units.get("entities", []):
@@ -3072,22 +3473,32 @@ Chunk:
                 raw = {"name": raw}
             if not isinstance(raw, dict):
                 continue
-            name = self._clean_entity_name(str(raw.get("name", "")))
+            name = self._clean_entity_name(str(raw.get("name", raw.get("n", ""))))
             if not name:
                 continue
             key = self._normalize_entity_name(name)
             if key in entity_names:
                 continue
+            raw_aliases = raw.get("aliases", raw.get("a", []))
+            if not isinstance(raw_aliases, list):
+                raw_aliases = []
             aliases = [
                 alias
-                for alias in (self._clean_entity_name(str(alias)) for alias in raw.get("aliases", []))
+                for alias in (self._clean_entity_name(str(alias)) for alias in raw_aliases)
                 if alias
             ]
+            confidence = self._coerce_confidence(raw.get("confidence", raw.get("c")), 0.55)
+            if confidence < 0.35:
+                continue
+            if not self._is_meaningful_entity_name(name):
+                continue
+            if not self._entity_has_text_evidence(name, aliases, normalized_content):
+                continue
             entities.append({
                 "name": name,
-                "type": self._normalize_entity_type(str(raw.get("type", ""))) or self._infer_entity_type(name),
+                "type": self._normalize_entity_type(str(raw.get("type", raw.get("t", "")))) or self._infer_entity_type(name),
                 "aliases": aliases,
-                "confidence": self._coerce_confidence(raw.get("confidence"), 0.55),
+                "confidence": confidence,
             })
             entity_names.add(key)
 
@@ -3106,35 +3517,65 @@ Chunk:
             claim_entities = [
                 name
                 for name in (self._clean_entity_name(str(name)) for name in raw_entity_names)
-                if name
+                if (
+                    name
+                    and self._is_meaningful_entity_name(name)
+                    and self._entity_has_text_evidence(name, [], text)
+                )
             ]
             if not claim_entities:
-                claim_entities = self._extract_entity_names(text)
+                claim_entities = [
+                    name
+                    for name in self._extract_entity_names(text)
+                    if self._is_meaningful_entity_name(name)
+                ]
             claims.append({
                 "text": text,
                 "entity_names": claim_entities,
-                "confidence": self._coerce_confidence(raw.get("confidence"), 0.5),
+                "confidence": self._coerce_confidence(raw.get("confidence", raw.get("c")), 0.5),
             })
 
         relations: list[dict[str, Any]] = []
+        content_for_evidence = re.sub(r"\s+", " ", content)
         for raw in units.get("relations", []):
             if not isinstance(raw, dict):
                 continue
-            subject = self._clean_entity_name(str(raw.get("subject", "")))
-            obj = self._clean_entity_name(str(raw.get("object", "")))
-            predicate = self._normalize_predicate(str(raw.get("predicate", "")))
-            evidence = re.sub(r"\s+", " ", str(raw.get("evidence", "")).strip())
+            subject = self._clean_entity_name(str(raw.get("subject", raw.get("s", ""))))
+            obj = self._clean_entity_name(str(raw.get("object", raw.get("o", ""))))
+            predicate = self._normalize_predicate(str(raw.get("predicate", raw.get("p", ""))))
+            evidence = re.sub(r"\s+", " ", str(raw.get("evidence", raw.get("e", ""))).strip())
             if not subject or not obj or not predicate or subject == obj:
                 continue
-            if evidence and evidence not in re.sub(r"\s+", " ", content):
+            if not self._is_meaningful_entity_name(subject) or not self._is_meaningful_entity_name(obj):
+                continue
+            if not self._relation_matches_ontology(subject, predicate, obj):
+                continue
+            if evidence and evidence not in content_for_evidence:
+                continue
+            evidence_scope = evidence or normalized_content
+            if not self._entity_has_text_evidence(subject, [], evidence_scope):
+                continue
+            if not self._entity_has_text_evidence(obj, [], evidence_scope):
                 continue
             relations.append({
                 "subject": subject,
                 "predicate": predicate,
                 "object": obj,
                 "evidence": evidence,
-                "confidence": self._coerce_confidence(raw.get("confidence"), 0.65),
+                "confidence": self._coerce_confidence(raw.get("confidence", raw.get("c")), 0.65),
             })
+
+        seen_claim_text = {claim["text"] for claim in claims}
+        for relation in relations:
+            evidence = relation.get("evidence", "")
+            if not evidence or evidence in seen_claim_text:
+                continue
+            claims.append({
+                "text": evidence,
+                "entity_names": [relation["subject"], relation["object"]],
+                "confidence": relation.get("confidence", 0.65),
+            })
+            seen_claim_text.add(evidence)
 
         return {"entities": entities, "claims": claims, "relations": relations}
 
@@ -3206,6 +3647,18 @@ Chunk:
                 semantic_units = self._extract_semantic_units(content, section_path, doc_name)
 
                 for entity_spec in semantic_units["entities"]:
+                    mention_text = ""
+                    local_start = -1
+                    for candidate in [entity_spec["name"], *entity_spec.get("aliases", [])]:
+                        candidate = self._clean_entity_name(str(candidate))
+                        if not candidate:
+                            continue
+                        local_start = content.find(candidate)
+                        if local_start >= 0:
+                            mention_text = candidate
+                            break
+                    if local_start < 0:
+                        continue
                     entity = ensure_entity(
                         entity_spec["name"],
                         doc_id,
@@ -3214,19 +3667,16 @@ Chunk:
                         aliases=entity_spec.get("aliases", []),
                     )
                     if entity:
-                        local_start = content.find(entity.name)
-                        if local_start < 0:
-                            continue
                         mention_id = self._mention_id(entity.id, chunk_id, local_start)
                         if mention_id not in existing_mention_ids:
                             start_char = chunk.get("start_char", 0) + local_start
-                            end_char = start_char + len(entity.name)
+                            end_char = start_char + len(mention_text)
                             new_mentions.append(KnowledgeMention(
                                 id=mention_id,
                                 entity_id=entity.id,
                                 chunk_id=chunk_id,
                                 doc_id=doc_id,
-                                text=entity.name,
+                                text=mention_text,
                                 start_char=start_char,
                                 end_char=end_char,
                                 confidence=entity.confidence,
@@ -3797,6 +4247,74 @@ Chunk:
         name = name.strip(" \t\r\n-_*`~:：,，.。;；()（）[]【】{}")
         return name
 
+    def _entity_has_text_evidence(
+        self,
+        name: str,
+        aliases: list[str],
+        text: str,
+    ) -> bool:
+        if not text:
+            return False
+        text_norm = self._normalize_entity_name(text)
+        compact_text = re.sub(r"\s+", "", text_norm)
+        for value in [name, *aliases]:
+            candidate = self._normalize_entity_name(value)
+            if not candidate:
+                continue
+            if _SEMANTIC_CJK_RE.search(candidate) and re.sub(r"\s+", "", candidate) in compact_text:
+                return True
+            if not _SEMANTIC_CJK_RE.search(candidate):
+                pattern = rf"(?<![A-Za-z0-9_]){re.escape(candidate)}(?![A-Za-z0-9_])"
+                if re.search(pattern, text_norm, flags=re.IGNORECASE):
+                    return True
+        return False
+
+    def _is_meaningful_entity_name(self, name: str) -> bool:
+        clean = self._clean_entity_name(name)
+        if not clean:
+            return False
+
+        normalized = self._normalize_entity_name(clean)
+        compact = re.sub(r"\s+", "", normalized)
+        if normalized in _ENTITY_STOPWORDS or compact in _ENTITY_NOISE_PHRASES:
+            return False
+        if re.fullmatch(r"(.{1,3})\1{1,}", compact):
+            return False
+        if _SEMANTIC_CJK_RE.search(clean):
+            if any(compact.startswith(prefix) for prefix in _CJK_ENTITY_BAD_PREFIXES):
+                return False
+            if any(compact.endswith(suffix) for suffix in _CJK_ENTITY_BAD_SUFFIXES):
+                return False
+            if any(marker in compact for marker in _ENTITY_NOISE_MARKERS):
+                return False
+            if re.search(r"(什么|怎么|为什么|怎么办|是不是|有没有|能不能)", compact):
+                return False
+            if re.search(r"(更|最|很|非常|比较|已经|正在|不会|不是|不能|需要|应该|可以|可能|就是)", compact):
+                return False
+            if len(compact) <= 3 and compact in {"这个", "那个", "这种", "一种", "很多", "一些", "大家"}:
+                return False
+            if len(compact) >= 8 and not re.search(r"(RAG|BM25|LLM|API|SDK|SQL|KG|Graph|Agent|AI)", clean, flags=re.IGNORECASE):
+                if not re.search(r"(图谱|模型|算法|数据库|向量|检索|索引|实体|关系|本体|产品|机构|模块|接口|协议|系统|框架|文档|知识库)$", compact):
+                    return False
+        else:
+            words = normalized.split()
+            if words and words[0] in {"i", "we", "you", "our", "your", "this", "that", "these", "those"}:
+                return False
+            if any(word in words for word in {"more", "less", "before", "after", "maybe", "actually", "because"}):
+                return False
+            if len(words) == 1 and not re.search(r"[a-z0-9]", normalized):
+                return False
+        return True
+
+    def _relation_matches_ontology(self, subject: str, predicate: str, obj: str) -> bool:
+        rules = _RELATION_ENDPOINT_TYPE_RULES.get(predicate)
+        if not rules:
+            return True
+        subject_type = self._infer_entity_type(subject)
+        object_type = self._infer_entity_type(obj)
+        allowed_subjects, allowed_objects = rules
+        return subject_type in allowed_subjects and object_type in allowed_objects
+
     def _clean_entity_name(self, name: str) -> str:
         name = re.sub(r"\s+", " ", name.strip())
         name = re.sub(r"^#{1,6}\s*", "", name)
@@ -3839,23 +4357,23 @@ Chunk:
 
         for match in _MARKDOWN_ENTITY_RE.finditer(text):
             clean = self._clean_entity_name(match.group(1) or match.group(2) or "")
-            if clean:
+            if clean and self._is_meaningful_entity_name(clean):
                 found.append(clean)
 
         for match in _QUOTED_ENTITY_RE.finditer(text):
             clean = self._clean_entity_name(match.group(1))
-            if clean:
+            if clean and self._is_meaningful_entity_name(clean):
                 found.append(clean)
 
         for match in _EN_ENTITY_RE.finditer(text):
             clean = self._clean_entity_name(match.group(0))
-            if clean:
+            if clean and self._is_meaningful_entity_name(clean):
                 found.append(clean)
 
         for raw_relation in self._extract_relations(text):
             for key in ("subject", "object"):
                 clean = self._clean_entity_name(raw_relation[key])
-                if clean:
+                if clean and self._is_meaningful_entity_name(clean):
                     found.append(clean)
 
         deduped: list[str] = []

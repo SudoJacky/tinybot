@@ -1316,28 +1316,166 @@ async function loadKnowledgeGraph() {
     loading.textContent = t("status.loading");
     elements.knowledgeGraph.append(loading);
 
-    const response = await fetch(`${state.knowledgeApiPath}/graph?limit=80&edge_limit=160`, {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${state.token}` },
-    });
-    if (!response.ok) {
-      if (response.status === 503) {
-        renderKnowledgeGraph(null, t("status.unavailable"));
-        return;
-      }
-      throw new Error(`load knowledge graph failed: ${response.status}`);
+    state.knowledgeGraph = await loadKnowledgeGraphPayload();
+    if (!state.knowledgeGraph) {
+      return;
     }
-
-    const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      throw new Error("knowledge graph API returned non-JSON response");
-    }
-    state.knowledgeGraph = await response.json();
     renderKnowledgeGraph(state.knowledgeGraph);
   } catch (error) {
     console.error(error);
     renderKnowledgeGraph(null, t("status.loadFailed"));
   }
+}
+
+async function loadKnowledgeGraphPayload() {
+  const graphragResponse = await fetch(`${state.knowledgeApiPath}/graphrag?min_confidence=0`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+
+  if (graphragResponse.ok) {
+    const graphragPayload = await parseKnowledgeJsonResponse(graphragResponse, "GraphRAG index");
+    const graph = normalizeGraphRagIndex(graphragPayload);
+    if (graph.nodes.length || graph.edges.length) {
+      return graph;
+    }
+  } else if (graphragResponse.status === 503) {
+    renderKnowledgeGraph(null, t("status.unavailable"));
+    return null;
+  } else if (![404, 405].includes(graphragResponse.status)) {
+    console.warn(`load GraphRAG index failed: ${graphragResponse.status}; falling back to graph API`);
+  }
+
+  const graphResponse = await fetch(`${state.knowledgeApiPath}/graph?limit=80&edge_limit=160`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (!graphResponse.ok) {
+    if (graphResponse.status === 503) {
+      renderKnowledgeGraph(null, t("status.unavailable"));
+      return null;
+    }
+    throw new Error(`load knowledge graph failed: ${graphResponse.status}`);
+  }
+  return parseKnowledgeJsonResponse(graphResponse, "knowledge graph");
+}
+
+async function parseKnowledgeJsonResponse(response, label) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(`${label} API returned non-JSON response`);
+  }
+  return response.json();
+}
+
+function normalizeGraphRagIndex(index) {
+  if (!index || index.object !== "graphrag_index") {
+    return index || { nodes: [], edges: [], stats: {} };
+  }
+
+  const documents = new Map((index.documents || []).map((doc) => [doc.id, doc]));
+  const textUnits = new Map((index.text_units || []).map((unit) => [unit.id, unit]));
+  const claims = new Map((index.covariates || []).map((claim) => [claim.id, claim]));
+  const entityByName = new Map();
+
+  const nodes = (index.entities || []).map((entity) => {
+    const node = {
+      id: entity.id,
+      label: entity.title || entity.id,
+      canonical_name: entity.title || entity.id,
+      type: entity.type || "concept",
+      aliases: entity.aliases || [],
+      doc_ids: entity.doc_ids || [],
+      doc_names: (entity.doc_ids || []).map((docId) => documents.get(docId)?.title || docId),
+      mention_count: entity.frequency || 0,
+      degree: entity.degree || 0,
+      confidence: entity.confidence || 0,
+      description: entity.description || "",
+      score: (entity.degree || 0) + (entity.frequency || 0),
+    };
+    entityByName.set(node.label, node);
+    return node;
+  });
+
+  const edges = (index.relationships || [])
+    .map((relationship) => {
+      const source = entityByName.get(relationship.source);
+      const target = entityByName.get(relationship.target);
+      const evidence = buildGraphRagEvidence(relationship, textUnits, documents, claims);
+      return {
+        id: relationship.id || `${source?.id || relationship.source}:${relationship.predicate}:${target?.id || relationship.target}`,
+        source: source?.id || relationship.source,
+        target: target?.id || relationship.target,
+        predicate: relationship.predicate || "related_to",
+        count: relationship.relation_ids?.length || Math.max(1, Math.round(relationship.weight || 1)),
+        confidence: relationship.confidence || 0,
+        confidence_avg: relationship.confidence || 0,
+        weight: relationship.weight || 0,
+        combined_degree: relationship.combined_degree || 0,
+        text_unit_ids: relationship.text_unit_ids || [],
+        evidence,
+        doc_names: Array.from(new Set(evidence.map((item) => item.doc_name).filter(Boolean))),
+        description: relationship.description || "",
+      };
+    })
+    .filter((edge) => edge.source && edge.target);
+
+  return {
+    object: "knowledge_graph",
+    source: "graphrag_index",
+    nodes,
+    edges,
+    stats: {
+      ...(index.stats || {}),
+      node_count: nodes.length,
+      edge_count: edges.length,
+    },
+  };
+}
+
+function buildGraphRagEvidence(relationship, textUnits, documents, claims) {
+  const evidence = [];
+  for (const textUnitId of relationship.text_unit_ids || []) {
+    const textUnit = textUnits.get(textUnitId);
+    const document = textUnit ? documents.get(textUnit.document_id) : null;
+    const claimTexts = (textUnit?.covariate_ids || [])
+      .map((claimId) => claims.get(claimId)?.source_text || claims.get(claimId)?.description || "")
+      .filter(Boolean);
+    evidence.push({
+      relation_id: relationship.id,
+      claim_id: textUnit?.covariate_ids?.[0] || "",
+      chunk_id: textUnitId,
+      doc_id: textUnit?.document_id || "",
+      doc_name: document?.title || textUnit?.document_id || "",
+      file_path: "",
+      line_start: textUnit?.line_start || 0,
+      line_end: textUnit?.line_end || 0,
+      page: textUnit?.page || null,
+      section_path: textUnit?.section_path || "",
+      text: claimTexts[0] || relationship.description || textUnit?.text || "",
+      confidence: relationship.confidence || 0,
+    });
+    if (evidence.length >= 4) {
+      break;
+    }
+  }
+  if (!evidence.length && relationship.description) {
+    evidence.push({
+      relation_id: relationship.id,
+      claim_id: "",
+      chunk_id: "",
+      doc_id: "",
+      doc_name: "",
+      file_path: "",
+      line_start: 0,
+      line_end: 0,
+      page: null,
+      section_path: "",
+      text: relationship.description,
+      confidence: relationship.confidence || 0,
+    });
+  }
+  return evidence;
 }
 
 function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {

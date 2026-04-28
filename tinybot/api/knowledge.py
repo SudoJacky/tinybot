@@ -433,6 +433,35 @@ async def handle_knowledge_graph(request: web.Request) -> web.Response:
         return _error_json(500, f"Error getting knowledge graph: {e}", err_type="server_error")
 
 
+async def handle_knowledge_graphrag(request: web.Request) -> web.Response:
+    """GET /v1/knowledge/graphrag
+
+    Query params:
+    - doc_id: Optional document id filter
+    - min_confidence: Minimum entity/relation/claim confidence (default 0)
+    """
+    knowledge_store = request.app.get("knowledge_store")
+    if not knowledge_store:
+        return _error_json(503, "Knowledge store not initialized")
+
+    try:
+        min_confidence = float(request.query.get("min_confidence", "0"))
+    except ValueError:
+        return _error_json(400, "Invalid min_confidence query param")
+
+    doc_id = request.query.get("doc_id") or None
+
+    try:
+        index = knowledge_store.get_graphrag_index(
+            doc_id=doc_id,
+            min_confidence=min_confidence,
+        )
+        return _success_json(index)
+    except Exception as e:
+        logger.exception("Error getting GraphRAG index")
+        return _error_json(500, f"Error getting GraphRAG index: {e}", err_type="server_error")
+
+
 async def handle_rebuild_index(request: web.Request) -> web.Response:
     """POST /v1/knowledge/rebuild-index
 
@@ -504,4 +533,5 @@ def register_knowledge_routes(app: web.Application) -> None:
     app.router.add_post("/v1/knowledge/query", handle_query_knowledge)
     app.router.add_get("/v1/knowledge/stats", handle_knowledge_stats)
     app.router.add_get("/v1/knowledge/graph", handle_knowledge_graph)
+    app.router.add_get("/v1/knowledge/graphrag", handle_knowledge_graphrag)
     app.router.add_post("/v1/knowledge/rebuild-index", handle_rebuild_index)
