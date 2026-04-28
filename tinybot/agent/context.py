@@ -382,6 +382,7 @@ class ContextBuilder:
             matched_claims = result.get("matched_claims", [])
             matched_relations = result.get("matched_relations", [])
             matched_entities = result.get("matched_entities", [])
+            matched_child_snippets = result.get("matched_child_snippets", [])
 
             # Build metadata line
             meta_parts = [f"文档: {doc_name}"]
@@ -404,6 +405,8 @@ class ContextBuilder:
                 semantic_parts.append("Relations: " + "; ".join(matched_relations[:3]))
             if matched_claims:
                 semantic_parts.append("Claims: " + " | ".join(matched_claims[:3]))
+            if matched_child_snippets:
+                semantic_parts.append("Matched snippets: " + " | ".join(matched_child_snippets[:2]))
             semantic_text = "\n".join(semantic_parts)
             semantic_block = f"\n{semantic_text}" if semantic_text else ""
 

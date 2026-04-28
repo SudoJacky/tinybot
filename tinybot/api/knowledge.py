@@ -328,7 +328,11 @@ async def handle_query_knowledge(request: web.Request) -> web.Response:
             "data": [
                 {
                     "id": r.get("id"),
+                    "parent_id": r.get("parent_id"),
+                    "chunk_type": r.get("chunk_type"),
                     "content": r.get("content"),
+                    "matched_child_ids": r.get("matched_child_ids", []),
+                    "matched_child_snippets": r.get("matched_child_snippets", []),
                     "doc_id": r.get("doc_id"),
                     "doc_name": r.get("doc_name"),
                     "file_path": r.get("file_path"),
@@ -389,6 +393,44 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
     except Exception as e:
         logger.exception("Error getting stats")
         return _error_json(500, f"Error getting stats: {e}", err_type="server_error")
+
+
+async def handle_knowledge_graph(request: web.Request) -> web.Response:
+    """GET /v1/knowledge/graph
+
+    Query params:
+    - doc_id: Optional document id filter
+    - limit: Max nodes to return (default 80)
+    - edge_limit: Max grouped edges to return (default limit * 2)
+    - min_confidence: Minimum relation confidence (default 0)
+    - include_orphans: Include entities without relation edges (default false)
+    """
+    knowledge_store = request.app.get("knowledge_store")
+    if not knowledge_store:
+        return _error_json(503, "Knowledge store not initialized")
+
+    try:
+        limit = int(request.query.get("limit", "80"))
+        edge_limit = int(request.query.get("edge_limit", str(limit * 2)))
+        min_confidence = float(request.query.get("min_confidence", "0"))
+    except ValueError:
+        return _error_json(400, "Invalid graph query params")
+
+    include_orphans = request.query.get("include_orphans", "false").lower() in {"1", "true", "yes", "on"}
+    doc_id = request.query.get("doc_id") or None
+
+    try:
+        graph = knowledge_store.get_entity_graph(
+            doc_id=doc_id,
+            limit=limit,
+            edge_limit=edge_limit,
+            min_confidence=min_confidence,
+            include_orphans=include_orphans,
+        )
+        return _success_json(graph)
+    except Exception as e:
+        logger.exception("Error getting knowledge graph")
+        return _error_json(500, f"Error getting knowledge graph: {e}", err_type="server_error")
 
 
 async def handle_rebuild_index(request: web.Request) -> web.Response:
@@ -461,4 +503,5 @@ def register_knowledge_routes(app: web.Application) -> None:
     app.router.add_delete("/v1/knowledge/documents/{doc_id}", handle_delete_document)
     app.router.add_post("/v1/knowledge/query", handle_query_knowledge)
     app.router.add_get("/v1/knowledge/stats", handle_knowledge_stats)
+    app.router.add_get("/v1/knowledge/graph", handle_knowledge_graph)
     app.router.add_post("/v1/knowledge/rebuild-index", handle_rebuild_index)

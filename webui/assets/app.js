@@ -19,6 +19,8 @@ const state = {
   skills: [],
   knowledgeDocs: [],
   knowledgeStats: null,
+  knowledgeGraph: null,
+  knowledgeGraphView: { scale: 1, x: 0, y: 0 },
   config: null,
   helpOverlay: null,
   activeTourIndex: 0,
@@ -92,6 +94,9 @@ const elements = {
   configKnowledgeRerankApiBase: document.querySelector("#config-knowledge-rerank-api-base"),
   configKnowledgeRerankTopN: document.querySelector("#config-knowledge-rerank-top-n"),
   configKnowledgeGenerateSummary: document.querySelector("#config-knowledge-generate-summary"),
+  configKnowledgeSemanticExtractionMode: document.querySelector("#config-knowledge-semantic-extraction-mode"),
+  configKnowledgeSemanticLlmMaxTokens: document.querySelector("#config-knowledge-semantic-llm-max-tokens"),
+  configKnowledgeSemanticLlmTimeout: document.querySelector("#config-knowledge-semantic-llm-timeout"),
   // Embedding config elements
   configEmbeddingProvider: document.querySelector("#config-embedding-provider"),
   configEmbeddingModelName: document.querySelector("#config-embedding-model-name"),
@@ -145,6 +150,9 @@ const elements = {
   docsList: document.querySelector("#docs-list"),
   refreshDocsButton: document.querySelector("#refresh-docs-button"),
   rebuildIndexButton: document.querySelector("#rebuild-index-button"),
+  refreshGraphButton: document.querySelector("#refresh-graph-button"),
+  knowledgeGraph: document.querySelector("#knowledge-graph"),
+  knowledgeGraphMeta: document.querySelector("#knowledge-graph-meta"),
   addDocButton: document.querySelector("#add-doc-button"),
   uploadDocButton: document.querySelector("#upload-doc-button"),
   docFileUpload: document.querySelector("#doc-file-upload"),
@@ -208,6 +216,7 @@ const elements = {
   modalStatsChunks: document.querySelector("#modal-stats-chunks"),
   modalStatsEntities: document.querySelector("#modal-stats-entities"),
   modalStatsClaims: document.querySelector("#modal-stats-claims"),
+  modalStatsRelations: document.querySelector("#modal-stats-relations"),
   // Workspace modal elements
   workspaceModal: document.querySelector("#workspace-modal"),
   workspaceModalOverlay: document.querySelector("#workspace-modal-overlay"),
@@ -1227,6 +1236,7 @@ async function loadKnowledgeStats() {
         if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = "-";
         if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = "-";
         if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = "-";
+        if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = "-";
         return;
       }
       throw new Error(`load knowledge stats failed: ${response.status}`);
@@ -1244,6 +1254,7 @@ async function loadKnowledgeStats() {
     if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = payload.total_chunks || 0;
     if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = payload.entity_count || 0;
     if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = payload.claim_count || 0;
+    if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = payload.relation_count || 0;
   } catch (error) {
     console.error(error);
     elements.statsDocs.textContent = "-";
@@ -1252,6 +1263,7 @@ async function loadKnowledgeStats() {
     if (elements.modalStatsChunks) elements.modalStatsChunks.textContent = "-";
     if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = "-";
     if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = "-";
+    if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = "-";
   }
 }
 
@@ -1289,6 +1301,476 @@ async function loadKnowledgeDocs() {
     empty.textContent = t("status.loadFailed");
     elements.docsList.append(empty);
   }
+}
+
+async function loadKnowledgeGraph() {
+  if (!elements.knowledgeGraph) {
+    return;
+  }
+
+  try {
+    elements.knowledgeGraph.textContent = "";
+    const loading = document.createElement("div");
+    loading.className = "empty-state";
+    loading.textContent = t("status.loading");
+    elements.knowledgeGraph.append(loading);
+
+    const response = await fetch(`${state.knowledgeApiPath}/graph?limit=80&edge_limit=160`, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) {
+      if (response.status === 503) {
+        renderKnowledgeGraph(null, t("status.unavailable"));
+        return;
+      }
+      throw new Error(`load knowledge graph failed: ${response.status}`);
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error("knowledge graph API returned non-JSON response");
+    }
+    state.knowledgeGraph = await response.json();
+    renderKnowledgeGraph(state.knowledgeGraph);
+  } catch (error) {
+    console.error(error);
+    renderKnowledgeGraph(null, t("status.loadFailed"));
+  }
+}
+
+function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
+  if (!elements.knowledgeGraph) {
+    return;
+  }
+
+  elements.knowledgeGraph.textContent = "";
+  const nodes = graph?.nodes || [];
+  const edges = graph?.edges || [];
+  if (elements.knowledgeGraphMeta) {
+    elements.knowledgeGraphMeta.textContent = `${nodes.length} nodes / ${edges.length} edges`;
+  }
+
+  if (!nodes.length || !edges.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = fallbackText;
+    elements.knowledgeGraph.append(empty);
+    return;
+  }
+
+  const canvas = document.createElement("div");
+  canvas.className = "graph-canvas";
+
+  const controls = document.createElement("div");
+  controls.className = "graph-controls";
+  const zoomOut = createKnowledgeGraphControlButton("-", "Zoom out");
+  const zoomReset = createKnowledgeGraphControlButton("1:1", "Reset view");
+  const zoomIn = createKnowledgeGraphControlButton("+", "Zoom in");
+  controls.append(zoomOut, zoomReset, zoomIn);
+
+  const hint = document.createElement("div");
+  hint.className = "graph-hint";
+  hint.textContent = "Scroll to zoom, drag canvas to pan, drag nodes to rearrange";
+
+  const svg = renderKnowledgeGraphSvg(nodes, edges, {
+    zoomIn,
+    zoomOut,
+    zoomReset,
+  });
+  canvas.append(svg, controls, hint);
+  const evidenceList = renderKnowledgeGraphEvidence(nodes, edges);
+  elements.knowledgeGraph.append(canvas, evidenceList);
+}
+
+function createKnowledgeGraphControlButton(label, title) {
+  const button = document.createElement("button");
+  button.className = "graph-control-button";
+  button.type = "button";
+  button.textContent = label;
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  return button;
+}
+
+function renderKnowledgeGraphSvg(nodes, edges, controls = {}) {
+  const svgNs = "http://www.w3.org/2000/svg";
+  const width = 720;
+  const height = 340;
+  const positions = layoutKnowledgeGraph(nodes, edges, width, height);
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const edgeElements = new Map();
+  const nodeElements = new Map();
+
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("class", "knowledge-graph-svg");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("tabindex", "0");
+  svg.setAttribute("aria-label", "Interactive knowledge graph");
+
+  const defs = document.createElementNS(svgNs, "defs");
+  const marker = document.createElementNS(svgNs, "marker");
+  marker.setAttribute("id", "graph-arrow");
+  marker.setAttribute("viewBox", "0 0 10 10");
+  marker.setAttribute("refX", "8");
+  marker.setAttribute("refY", "5");
+  marker.setAttribute("markerWidth", "5");
+  marker.setAttribute("markerHeight", "5");
+  marker.setAttribute("orient", "auto-start-reverse");
+  const arrow = document.createElementNS(svgNs, "path");
+  arrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+  marker.append(arrow);
+  defs.append(marker);
+  svg.append(defs);
+
+  const edgeLayer = document.createElementNS(svgNs, "g");
+  edgeLayer.setAttribute("class", "graph-edge-layer");
+  for (const edge of edges) {
+    const source = positions.get(edge.source);
+    const target = positions.get(edge.target);
+    if (!source || !target) continue;
+
+    const path = document.createElementNS(svgNs, "path");
+    path.setAttribute("class", "graph-edge");
+    path.setAttribute("stroke-width", String(Math.min(4, 1 + Math.sqrt(edge.count || 1))));
+    path.setAttribute("marker-end", "url(#graph-arrow)");
+    path.dataset.edgeId = edge.id || `${edge.source}:${edge.predicate}:${edge.target}`;
+    path.dataset.source = edge.source;
+    path.dataset.target = edge.target;
+    const title = document.createElementNS(svgNs, "title");
+    title.textContent = `${nodeMap.get(edge.source)?.label || edge.source} -[${edge.predicate}]-> ${nodeMap.get(edge.target)?.label || edge.target}`;
+    path.append(title);
+    edgeLayer.append(path);
+
+    const label = document.createElementNS(svgNs, "text");
+    label.setAttribute("class", "graph-edge-label");
+    label.dataset.edgeId = path.dataset.edgeId;
+    label.textContent = edge.predicate;
+    edgeLayer.append(label);
+    edgeElements.set(path.dataset.edgeId, { edge, path, label });
+  }
+
+  const nodeLayer = document.createElementNS(svgNs, "g");
+  nodeLayer.setAttribute("class", "graph-node-layer");
+  for (const node of nodes) {
+    const pos = positions.get(node.id);
+    if (!pos) continue;
+    const group = document.createElementNS(svgNs, "g");
+    group.setAttribute("class", `graph-node graph-node-${(node.type || "concept").toLowerCase()}`);
+    group.setAttribute("transform", `translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)})`);
+    group.dataset.nodeId = node.id;
+    group.setAttribute("tabindex", "0");
+
+    const radius = Math.min(24, 9 + Math.sqrt((node.degree || 0) + (node.mention_count || 0)) * 3);
+    const circle = document.createElementNS(svgNs, "circle");
+    circle.setAttribute("r", String(radius));
+    group.append(circle);
+
+    const label = document.createElementNS(svgNs, "text");
+    label.setAttribute("class", "graph-node-label");
+    label.setAttribute("y", String(radius + 14));
+    label.textContent = compactGraphLabel(node.label || node.id);
+    group.append(label);
+
+    const title = document.createElementNS(svgNs, "title");
+    title.textContent = `${node.label}\n${node.type || "concept"} · degree ${node.degree || 0} · mentions ${node.mention_count || 0}`;
+    group.append(title);
+    nodeLayer.append(group);
+    nodeElements.set(node.id, group);
+  }
+
+  const viewportLayer = document.createElementNS(svgNs, "g");
+  viewportLayer.setAttribute("class", "graph-viewport-layer");
+  viewportLayer.append(edgeLayer, nodeLayer);
+  svg.append(viewportLayer);
+
+  for (const item of edgeElements.values()) {
+    updateKnowledgeGraphEdge(item, positions);
+  }
+  wireKnowledgeGraphInteractions(svg, viewportLayer, positions, edgeElements, nodeElements, controls, width, height);
+  return svg;
+}
+
+function updateKnowledgeGraphEdge(item, positions) {
+  const source = positions.get(item.edge.source);
+  const target = positions.get(item.edge.target);
+  if (!source || !target) return;
+
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+  const offsetX = (-dy / distance) * 18;
+  const offsetY = (dx / distance) * 18;
+  const midX = (source.x + target.x) / 2 + offsetX;
+  const midY = (source.y + target.y) / 2 + offsetY;
+
+  item.path.setAttribute("d", `M ${source.x.toFixed(1)} ${source.y.toFixed(1)} Q ${midX.toFixed(1)} ${midY.toFixed(1)} ${target.x.toFixed(1)} ${target.y.toFixed(1)}`);
+  item.label.setAttribute("x", String(midX));
+  item.label.setAttribute("y", String(midY - 3));
+}
+
+function wireKnowledgeGraphInteractions(svg, viewportLayer, positions, edgeElements, nodeElements, controls, width, height) {
+  const view = {
+    scale: state.knowledgeGraphView?.scale || 1,
+    x: state.knowledgeGraphView?.x || 0,
+    y: state.knowledgeGraphView?.y || 0,
+  };
+  let activePointer = null;
+  let selectedEdgeId = "";
+  let selectedNodeId = "";
+
+  function applyTransform() {
+    viewportLayer.setAttribute("transform", `translate(${view.x.toFixed(2)} ${view.y.toFixed(2)}) scale(${view.scale.toFixed(4)})`);
+    state.knowledgeGraphView = { ...view };
+  }
+
+  function clampScale(value) {
+    return Math.min(4, Math.max(0.35, value));
+  }
+
+  function pointerToSvgPoint(event) {
+    const rect = svg.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * width,
+      y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * height,
+    };
+  }
+
+  function pointerToGraphPoint(event) {
+    const point = pointerToSvgPoint(event);
+    return {
+      x: (point.x - view.x) / view.scale,
+      y: (point.y - view.y) / view.scale,
+    };
+  }
+
+  function setZoom(nextScale, anchor) {
+    const oldScale = view.scale;
+    const scale = clampScale(nextScale);
+    const graphX = (anchor.x - view.x) / oldScale;
+    const graphY = (anchor.y - view.y) / oldScale;
+    view.scale = scale;
+    view.x = anchor.x - graphX * scale;
+    view.y = anchor.y - graphY * scale;
+    applyTransform();
+  }
+
+  function resetView() {
+    view.scale = 1;
+    view.x = 0;
+    view.y = 0;
+    applyTransform();
+  }
+
+  function setSelected({ nodeId = "", edgeId = "" }) {
+    selectedNodeId = nodeId;
+    selectedEdgeId = edgeId;
+    for (const [id, group] of nodeElements.entries()) {
+      const connected = selectedEdgeId
+        ? [...edgeElements.values()].some((item) => item.path.dataset.edgeId === selectedEdgeId && (item.edge.source === id || item.edge.target === id))
+        : false;
+      group.classList.toggle("is-selected", id === selectedNodeId);
+      group.classList.toggle("is-connected", connected || (!!selectedNodeId && [...edgeElements.values()].some((item) => (item.edge.source === selectedNodeId || item.edge.target === selectedNodeId) && (item.edge.source === id || item.edge.target === id))));
+    }
+    for (const [id, item] of edgeElements.entries()) {
+      const connected = selectedNodeId && (item.edge.source === selectedNodeId || item.edge.target === selectedNodeId);
+      item.path.classList.toggle("is-selected", id === selectedEdgeId || connected);
+      item.label.classList.toggle("is-selected", id === selectedEdgeId || connected);
+    }
+    document.querySelectorAll(".graph-evidence-item").forEach((row) => {
+      row.classList.toggle("is-selected", !!selectedEdgeId && row.dataset.edgeId === selectedEdgeId);
+      row.classList.toggle("is-connected", !!selectedNodeId && (row.dataset.source === selectedNodeId || row.dataset.target === selectedNodeId));
+    });
+  }
+
+  svg.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const anchor = pointerToSvgPoint(event);
+    const direction = event.deltaY < 0 ? 1.12 : 0.88;
+    setZoom(view.scale * direction, anchor);
+  }, { passive: false });
+
+  svg.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    resetView();
+  });
+
+  svg.addEventListener("pointerdown", (event) => {
+    const nodeElement = event.target.closest?.(".graph-node");
+    const edgeElement = event.target.closest?.(".graph-edge");
+    svg.setPointerCapture(event.pointerId);
+    svg.classList.add("is-dragging");
+
+    if (nodeElement?.dataset.nodeId) {
+      const point = pointerToGraphPoint(event);
+      const nodeId = nodeElement.dataset.nodeId;
+      const pos = positions.get(nodeId);
+      activePointer = {
+        type: "node",
+        id: nodeId,
+        offsetX: point.x - pos.x,
+        offsetY: point.y - pos.y,
+      };
+      setSelected({ nodeId });
+    } else {
+      if (edgeElement?.dataset.edgeId) {
+        setSelected({ edgeId: edgeElement.dataset.edgeId });
+      }
+      activePointer = {
+        type: "pan",
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: view.x,
+        originY: view.y,
+      };
+    }
+  });
+
+  svg.addEventListener("pointermove", (event) => {
+    if (!activePointer) return;
+    if (activePointer.type === "node") {
+      const point = pointerToGraphPoint(event);
+      const pos = positions.get(activePointer.id);
+      pos.x = Math.min(width - 36, Math.max(36, point.x - activePointer.offsetX));
+      pos.y = Math.min(height - 32, Math.max(32, point.y - activePointer.offsetY));
+      const nodeElement = nodeElements.get(activePointer.id);
+      nodeElement.setAttribute("transform", `translate(${pos.x.toFixed(1)} ${pos.y.toFixed(1)})`);
+      for (const item of edgeElements.values()) {
+        if (item.edge.source === activePointer.id || item.edge.target === activePointer.id) {
+          updateKnowledgeGraphEdge(item, positions);
+        }
+      }
+    } else {
+      const rect = svg.getBoundingClientRect();
+      const scaleX = width / Math.max(1, rect.width);
+      const scaleY = height / Math.max(1, rect.height);
+      view.x = activePointer.originX + (event.clientX - activePointer.startX) * scaleX;
+      view.y = activePointer.originY + (event.clientY - activePointer.startY) * scaleY;
+      applyTransform();
+    }
+  });
+
+  svg.addEventListener("pointerup", (event) => {
+    activePointer = null;
+    svg.classList.remove("is-dragging");
+    if (svg.hasPointerCapture(event.pointerId)) {
+      svg.releasePointerCapture(event.pointerId);
+    }
+  });
+
+  svg.addEventListener("pointercancel", () => {
+    activePointer = null;
+    svg.classList.remove("is-dragging");
+  });
+
+  controls.zoomIn?.addEventListener("click", () => setZoom(view.scale * 1.2, { x: width / 2, y: height / 2 }));
+  controls.zoomOut?.addEventListener("click", () => setZoom(view.scale / 1.2, { x: width / 2, y: height / 2 }));
+  controls.zoomReset?.addEventListener("click", resetView);
+  applyTransform();
+}
+
+function layoutKnowledgeGraph(nodes, edges, width, height) {
+  const positions = new Map();
+  const nodeIds = nodes.map((node) => node.id);
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.min(width, height) * 0.34;
+
+  nodeIds.forEach((id, index) => {
+    const angle = (Math.PI * 2 * index) / Math.max(1, nodeIds.length);
+    positions.set(id, {
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+      vx: 0,
+      vy: 0,
+    });
+  });
+
+  for (let step = 0; step < 90; step += 1) {
+    for (let i = 0; i < nodeIds.length; i += 1) {
+      for (let j = i + 1; j < nodeIds.length; j += 1) {
+        const a = positions.get(nodeIds[i]);
+        const b = positions.get(nodeIds[j]);
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const distSq = Math.max(120, dx * dx + dy * dy);
+        const force = 900 / distSq;
+        const dist = Math.sqrt(distSq);
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        a.vx += fx;
+        a.vy += fy;
+        b.vx -= fx;
+        b.vy -= fy;
+      }
+    }
+
+    for (const edge of edges) {
+      const a = positions.get(edge.source);
+      const b = positions.get(edge.target);
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      const force = (dist - 120) * 0.006 * Math.min(3, edge.count || 1);
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      a.vx += fx;
+      a.vy += fy;
+      b.vx -= fx;
+      b.vy -= fy;
+    }
+
+    for (const id of nodeIds) {
+      const pos = positions.get(id);
+      pos.vx += (centerX - pos.x) * 0.002;
+      pos.vy += (centerY - pos.y) * 0.002;
+      pos.x = Math.min(width - 56, Math.max(56, pos.x + pos.vx));
+      pos.y = Math.min(height - 52, Math.max(42, pos.y + pos.vy));
+      pos.vx *= 0.72;
+      pos.vy *= 0.72;
+    }
+  }
+
+  return positions;
+}
+
+function renderKnowledgeGraphEvidence(nodes, edges) {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const list = document.createElement("div");
+  list.className = "graph-evidence-list";
+  for (const edge of edges.slice(0, 6)) {
+    const row = document.createElement("div");
+    row.className = "graph-evidence-item";
+    row.dataset.edgeId = edge.id || `${edge.source}:${edge.predicate}:${edge.target}`;
+    row.dataset.source = edge.source;
+    row.dataset.target = edge.target;
+
+    const title = document.createElement("div");
+    title.className = "graph-evidence-title";
+    title.textContent = `${nodeMap.get(edge.source)?.label || edge.source} -[${edge.predicate}]-> ${nodeMap.get(edge.target)?.label || edge.target}`;
+
+    const evidence = edge.evidence?.[0];
+    const meta = document.createElement("div");
+    meta.className = "graph-evidence-meta";
+    meta.textContent = evidence
+      ? [evidence.doc_name, evidence.line_start ? `L${evidence.line_start}-${evidence.line_end || evidence.line_start}` : ""].filter(Boolean).join(" · ")
+      : "";
+
+    const text = document.createElement("div");
+    text.className = "graph-evidence-text";
+    text.textContent = evidence?.text || "";
+
+    row.append(title, meta, text);
+    list.append(row);
+  }
+  return list;
+}
+
+function compactGraphLabel(label) {
+  const text = String(label || "");
+  return text.length > 18 ? `${text.slice(0, 16)}…` : text;
 }
 
 function renderKnowledgeDocs() {
@@ -1372,6 +1854,7 @@ function openKnowledgeModal() {
   }
 
   elements.knowledgeModal.classList.add("active");
+  loadKnowledgeGraph();
 }
 
 function closeKnowledgeModal() {
@@ -1480,6 +1963,7 @@ async function addDoc() {
 
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
+    await loadKnowledgeGraph();
   } catch (error) {
     console.error(error);
     elements.docError.textContent = error.message || t("status.failed");
@@ -1532,6 +2016,7 @@ async function uploadDoc() {
     // Refresh docs list
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
+    await loadKnowledgeGraph();
   } catch (error) {
     console.error(error);
     elements.docError.textContent = error.message || t("status.failed");
@@ -1561,6 +2046,7 @@ async function deleteDoc(docId, docName) {
 
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
+    await loadKnowledgeGraph();
   } catch (error) {
     console.error(error);
     setError(error.message || t("status.failed"));
@@ -1599,6 +2085,7 @@ async function rebuildKnowledgeIndex() {
 
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
+    await loadKnowledgeGraph();
   } catch (error) {
     console.error(error);
     setError(error.message || t("status.failed"));
@@ -1871,6 +2358,9 @@ function populateConfigForm(config) {
   elements.configKnowledgeRerankApiBase.value = knowledge.rerankApiBase || knowledge.rerank_api_base || "https://dashscope.aliyuncs.com/compatible-api/v1";
   elements.configKnowledgeRerankTopN.value = knowledge.rerankTopN || knowledge.rerank_top_n || 0;
   elements.configKnowledgeGenerateSummary.checked = knowledge.generateSummary || knowledge.generate_summary === true;
+  elements.configKnowledgeSemanticExtractionMode.value = knowledge.semanticExtractionMode || knowledge.semantic_extraction_mode || "rule";
+  elements.configKnowledgeSemanticLlmMaxTokens.value = knowledge.semanticLlmMaxTokens || knowledge.semantic_llm_max_tokens || 1200;
+  elements.configKnowledgeSemanticLlmTimeout.value = knowledge.semanticLlmTimeout || knowledge.semantic_llm_timeout || 30.0;
 
   // Embedding config (nested in agents.defaults)
   const embedding = defaults.embedding || {};
@@ -2101,7 +2591,7 @@ async function saveConfig() {
         embedding: {
           provider: getValue(elements.configEmbeddingProvider),
           model_name: getValue(elements.configEmbeddingModelName),
-          api_key: getValue(elements.configEmbeddingApiKey),
+          api_key: (() => { const v = getValue(elements.configEmbeddingApiKey); return v === null ? "" : v; })(),  // api_key schema requires string
           api_base: getValue(elements.configEmbeddingApiBase),
         },
       },
@@ -2120,6 +2610,9 @@ async function saveConfig() {
       rerank_api_base: getValue(elements.configKnowledgeRerankApiBase),
       rerank_top_n: getValue(elements.configKnowledgeRerankTopN, "number"),
       generate_summary: elements.configKnowledgeGenerateSummary.checked,
+      semantic_extraction_mode: getValue(elements.configKnowledgeSemanticExtractionMode),
+      semantic_llm_max_tokens: getValue(elements.configKnowledgeSemanticLlmMaxTokens, "number"),
+      semantic_llm_timeout: getValue(elements.configKnowledgeSemanticLlmTimeout, "number"),
     },
     tools: {
       web: {
@@ -2153,8 +2646,9 @@ async function saveConfig() {
 
   // Add selected provider config
   const providerName = elements.configProviderSelect.value;
+  const apiKeyValue = getValue(elements.configApiKey);
   payload.providers[providerName] = {
-    api_key: getValue(elements.configApiKey),
+    api_key: apiKeyValue === null ? "" : apiKeyValue,  // api_key schema requires string, not None
     api_base: getValue(elements.configApiBase),
   };
 
@@ -2694,7 +3188,11 @@ function bindEvents() {
   elements.refreshDocsButton.addEventListener("click", async () => {
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
+    await loadKnowledgeGraph();
   });
+  if (elements.refreshGraphButton) {
+    elements.refreshGraphButton.addEventListener("click", loadKnowledgeGraph);
+  }
   elements.rebuildIndexButton.addEventListener("click", rebuildKnowledgeIndex);
   elements.addDocButton.addEventListener("click", openDocModal);
   elements.uploadDocButton.addEventListener("click", () => {
@@ -3195,6 +3693,7 @@ async function init() {
     await loadSkills();
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
+    await loadKnowledgeGraph();
     await loadConfig();
     if (state.activeFilePath) {
       sendSocketMessage({ type: "subscribe_file", path: state.activeFilePath });

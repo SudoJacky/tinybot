@@ -366,6 +366,23 @@
               <span class="stats-label" data-i18n="knowledge.claims">断言</span>
               <span id="modal-stats-claims" class="stats-value">0</span>
             </span>
+            <span class="stats-item">
+              <span class="stats-label">关系</span>
+              <span id="modal-stats-relations" class="stats-value">0</span>
+            </span>
+          </div>
+        </div>
+        <!-- 实体关系图谱 -->
+        <div class="knowledge-graph-panel">
+          <div class="graph-header">
+            <span>关系图谱</span>
+            <div class="graph-actions">
+              <span id="knowledge-graph-meta" class="graph-meta">0 nodes / 0 edges</span>
+              <button id="refresh-graph-button" class="button button-ghost button-small" type="button">刷新图谱</button>
+            </div>
+          </div>
+          <div id="knowledge-graph" class="knowledge-graph">
+            <div class="empty-state">暂无关系图谱</div>
           </div>
         </div>
         <!-- 文档列表 -->
@@ -373,7 +390,7 @@
           <div class="docs-header">
             <span data-i18n="knowledge.documents">文档列表</span>
             <div class="docs-actions">
-              <input id="doc-file-upload" type="file" accept=".txt,.md" style="display: none;" />
+              <input id="doc-file-upload" type="file" accept=".txt,.md,.pdf" style="display: none;" />
               <button id="upload-doc-button" class="button button-ghost button-small" type="button" data-i18n="knowledge.upload">上传</button>
               <button id="refresh-docs-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
               <button id="rebuild-index-button" class="button button-ghost button-small" type="button" data-i18n="knowledge.rebuildIndex">重建索引</button>
@@ -743,6 +760,31 @@
                 <span data-i18n="settings.knowledge.generateSummary">生成摘要</span>
                 <span class="config-help" data-i18n-help="help.knowledgeGenerateSummary">?</span>
               </label>
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.semanticExtractionMode">语义抽取模式</span>
+                <span class="config-help" data-i18n-help="help.knowledgeSemanticExtractionMode">?</span>
+              </label>
+              <select id="config-knowledge-semantic-extraction-mode" class="config-select">
+                <option value="rule" data-i18n="settings.semanticExtraction.rule">规则</option>
+                <option value="llm" data-i18n="settings.semanticExtraction.llm">LLM</option>
+                <option value="hybrid" data-i18n="settings.semanticExtraction.hybrid">混合</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.semanticLlmMaxTokens">语义抽取 Max Tokens</span>
+                <span class="config-help" data-i18n-help="help.knowledgeSemanticLlmMaxTokens">?</span>
+              </label>
+              <input id="config-knowledge-semantic-llm-max-tokens" class="config-input" type="number" min="100" max="4000" value="1200" />
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.knowledge.semanticLlmTimeout">语义抽取超时(秒)</span>
+                <span class="config-help" data-i18n-help="help.knowledgeSemanticLlmTimeout">?</span>
+              </label>
+              <input id="config-knowledge-semantic-llm-timeout" class="config-input" type="number" min="1" max="120" value="30" />
             </div>
           </div>
 
