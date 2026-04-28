@@ -28,7 +28,7 @@ class ChannelsConfig(Base):
     model_config = ConfigDict(extra="allow")
 
     send_progress: bool = True  # stream agent's text progress to the channel
-    send_tool_hints: bool = True  # stream tool-call hints (e.g. read_file("…"))
+    send_tool_hints: bool = True  # stream tool-call hints (e.g. read_file("..."))
     send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
 
     def is_enabled(self, name: str) -> bool:
@@ -91,7 +91,7 @@ class AgentDefaults(Base):
 
     workspace: str = "~/.tinybot/workspace"
     model: str = "deepseek-reasoner"
-    provider: str = (
+    provider: Literal["auto", "openai", "deepseek", "dashscope"] = (
         "auto"  # Provider name "auto" for auto-detection
     )
     max_tokens: int = 8192
@@ -114,6 +114,17 @@ class AgentDefaults(Base):
         if not v or v.strip() == "":
             raise ValueError("model cannot be empty")
         return v.strip()
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def normalize_provider(cls, v: str | None) -> str:
+        """Map removed legacy providers back to auto routing."""
+        if v is None:
+            return "auto"
+        normalized = str(v).strip().lower().replace("-", "_")
+        if normalized in {"auto", "openai", "deepseek", "dashscope"}:
+            return normalized
+        return "auto"
 
     @field_validator("timezone")
     @classmethod
@@ -183,37 +194,15 @@ class ProviderConfig(Base):
 
     api_key: str = ""
     api_base: str | None = None
-    extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
     enable_search: bool = False  # DashScope/Qwen online search switch via OpenAI-compatible extra_body
 
 
 class ProvidersConfig(Base):
     """Configuration for LLM providers."""
 
-    custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
-    openrouter: ProviderConfig = Field(default_factory=ProviderConfig)
     deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
-    groq: ProviderConfig = Field(default_factory=ProviderConfig)
-    zhipu: ProviderConfig = Field(default_factory=ProviderConfig)
     dashscope: ProviderConfig = Field(default_factory=ProviderConfig)
-    vllm: ProviderConfig = Field(default_factory=ProviderConfig)
-    ollama: ProviderConfig = Field(default_factory=ProviderConfig)  # Ollama local models
-    ovms: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenVINO Model Server (OVMS)
-    gemini: ProviderConfig = Field(default_factory=ProviderConfig)
-    moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
-    minimax: ProviderConfig = Field(default_factory=ProviderConfig)
-    mistral: ProviderConfig = Field(default_factory=ProviderConfig)
-    stepfun: ProviderConfig = Field(default_factory=ProviderConfig)  # Step Fun (阶跃星辰)
-    xiaomi_mimo: ProviderConfig = Field(default_factory=ProviderConfig)  # Xiaomi MIMO (小米)
-    aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
-    siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow (硅基流动)
-    volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine (火山引擎)
-    volcengine_coding_plan: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine Coding Plan
-    byteplus: ProviderConfig = Field(default_factory=ProviderConfig)  # BytePlus (VolcEngine international)
-    byteplus_coding_plan: ProviderConfig = Field(default_factory=ProviderConfig)  # BytePlus Coding Plan
-    openai_codex: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)  # OpenAI Codex (OAuth)
-    github_copilot: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)  # GitHub Copilot (OAuth)
 
 
 class HeartbeatConfig(Base):
@@ -381,7 +370,7 @@ class Config(BaseSettings):
             kw = kw.lower()
             return kw in model_lower or kw.replace("-", "_") in model_normalized
 
-        # Explicit provider prefix wins — prevents `github-copilot/...codex` matching openai_codex.
+        # Explicit provider prefix wins.
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
             if p and model_prefix and normalized_prefix == spec.name:
@@ -396,9 +385,7 @@ class Config(BaseSettings):
                     return p, spec.name
 
         # Fallback: configured local providers can route models without
-        # provider-specific keywords (for example plain "llama3.2" on Ollama).
-        # Prefer providers whose detect_by_base_keyword matches the configured api_base
-        # (e.g. Ollama's "11434" in "http://localhost:11434") over plain registry order.
+        # provider-specific keywords.
         local_fallback: tuple[ProviderConfig, str] | None = None
         for spec in PROVIDERS:
             if not spec.is_local:
@@ -413,8 +400,7 @@ class Config(BaseSettings):
         if local_fallback:
             return local_fallback
 
-        # Fallback: gateways first, then others (follows registry order)
-        # OAuth providers are NOT valid fallbacks — they require explicit model selection
+        # Fallback follows registry order.
         for spec in PROVIDERS:
             if spec.is_oauth:
                 continue
@@ -424,12 +410,12 @@ class Config(BaseSettings):
         return None, None
 
     def get_provider(self, model: str | None = None) -> ProviderConfig | None:
-        """Get matched provider config (api_key, api_base, extra_headers). Falls back to first available."""
+        """Get matched provider config (api_key, api_base). Falls back to first available."""
         p, _ = self._match_provider(model)
         return p
 
     def get_provider_name(self, model: str | None = None) -> str | None:
-        """Get the registry name of the matched provider (e.g. "deepseek", "openrouter")."""
+        """Get the registry name of the matched provider (e.g. "deepseek", "openai")."""
         _, name = self._match_provider(model)
         return name
 

@@ -34,6 +34,8 @@ const state = {
   lastUsage: null,  // 最后一次的usage数据
 };
 
+const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
+
 const elements = {
   sessionList: document.querySelector("#session-list"),
   sessionCount: document.querySelector("#session-count"),
@@ -2580,7 +2582,6 @@ function populateConfigForm(config) {
   // 填充所有字段，使用当前配置值（兼容camelCase和snake_case）
   elements.configWorkspace.value = defaults.workspace || defaults.workspacePath || "~/.tinybot/workspace";
   elements.configModel.value = defaults.model || "";
-  elements.configProvider.value = defaults.provider || "auto";
   const tempValue = defaults.temperature !== undefined ? defaults.temperature : 0.1;
   elements.configTemperature.value = tempValue;
   // 更新 Temperature Slider 显示值
@@ -2623,10 +2624,14 @@ function populateConfigForm(config) {
 
   // Providers - 根据当前provider选择加载对应的配置
   const providers = config.providers || {};
-  const currentProviderName = defaults.provider || "auto";
+  const rawProviderName = defaults.provider || "auto";
+  const currentProviderName = rawProviderName === "auto" || LLM_PROVIDERS.includes(rawProviderName)
+    ? rawProviderName
+    : "auto";
+  elements.configProvider.value = currentProviderName;
 
-  // 如果是auto模式，Provider配置区域显示custom的配置
-  const displayProvider = currentProviderName === "auto" ? "custom" : currentProviderName;
+  // Auto mode keeps model-based routing; show DeepSeek credentials by default.
+  const displayProvider = currentProviderName === "auto" ? "deepseek" : currentProviderName;
   elements.configProviderSelect.value = displayProvider;
   loadProviderConfig(providers, displayProvider);
 
@@ -2679,6 +2684,26 @@ function toggleConfigGroup(groupTitle) {
     groupTitle.classList.add("collapsed");
     groupTitle.setAttribute("aria-expanded", "false");
   }
+}
+
+function setConfigGroupExpanded(groupTitle, expanded) {
+  const groupContent = groupTitle.nextElementSibling;
+  if (!groupContent) {
+    return;
+  }
+  groupContent.classList.toggle("collapsed", !expanded);
+  groupTitle.classList.toggle("collapsed", !expanded);
+  groupTitle.setAttribute("aria-expanded", expanded ? "true" : "false");
+}
+
+function syncConfigGroupStates() {
+  document.querySelectorAll(".config-group-title.clickable").forEach((title) => {
+    const groupContent = title.nextElementSibling;
+    if (!groupContent) {
+      return;
+    }
+    setConfigGroupExpanded(title, !groupContent.classList.contains("collapsed"));
+  });
 }
 
 // ========== 实时验证系统 ==========
@@ -2897,7 +2922,9 @@ async function saveConfig() {
   };
 
   // Add selected provider config
-  const providerName = elements.configProviderSelect.value;
+  const providerName = LLM_PROVIDERS.includes(elements.configProviderSelect.value)
+    ? elements.configProviderSelect.value
+    : "deepseek";
   const apiKeyValue = getValue(elements.configApiKey);
   payload.providers[providerName] = {
     api_key: apiKeyValue === null ? "" : apiKeyValue,  // api_key schema requires string, not None
@@ -3355,9 +3382,7 @@ function bindEvents() {
       // 展开Tools配置组
       const toolsGroupTitle = document.querySelector('[data-group="tools"]');
       if (toolsGroupTitle) {
-        const groupContent = toolsGroupTitle.nextElementSibling;
-        groupContent.classList.remove("collapsed");
-        toolsGroupTitle.setAttribute("aria-expanded", "true");
+        setConfigGroupExpanded(toolsGroupTitle, true);
       }
     });
   }
@@ -3429,9 +3454,7 @@ function bindEvents() {
       // 展开Knowledge配置组
       const knowledgeGroupTitle = document.querySelector('[data-group="knowledge"]');
       if (knowledgeGroupTitle) {
-        const groupContent = knowledgeGroupTitle.nextElementSibling;
-        groupContent.classList.remove("collapsed");
-        knowledgeGroupTitle.setAttribute("aria-expanded", "true");
+        setConfigGroupExpanded(knowledgeGroupTitle, true);
       }
     });
   }
@@ -3542,6 +3565,7 @@ function bindEvents() {
   });
 
   // 配置组折叠
+  syncConfigGroupStates();
   document.querySelectorAll(".config-group-title.clickable").forEach((title) => {
     title.addEventListener("click", () => {
       toggleConfigGroup(title);
@@ -3563,8 +3587,8 @@ function bindEvents() {
   // Agent Provider select change - 同步更新Provider配置区域的选择
   elements.configProvider.addEventListener("change", () => {
     const selectedProvider = elements.configProvider.value;
-    // 如果是auto，Provider配置区域显示custom
-    const displayProvider = selectedProvider === "auto" ? "custom" : selectedProvider;
+    // Auto mode keeps model-based routing; show DeepSeek credentials by default.
+    const displayProvider = selectedProvider === "auto" ? "deepseek" : selectedProvider;
     elements.configProviderSelect.value = displayProvider;
     const providers = state.config?.providers || {};
     loadProviderConfig(providers, displayProvider);

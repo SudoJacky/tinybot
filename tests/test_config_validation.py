@@ -16,8 +16,14 @@ class TestAgentDefaultsValidation:
         """Test valid default configuration."""
         defaults = AgentDefaults()
         assert defaults.model == "deepseek-reasoner"
+        assert defaults.provider == "auto"
         assert defaults.timezone == "UTC"
         assert defaults.temperature == 0.1
+
+    def test_removed_provider_normalizes_to_auto(self):
+        """Legacy provider names should not break existing config files."""
+        defaults = AgentDefaults(provider="openrouter")
+        assert defaults.provider == "auto"
 
     def test_invalid_model_empty(self):
         """Test empty model raises validation error."""

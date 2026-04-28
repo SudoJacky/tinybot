@@ -1189,6 +1189,13 @@ class WebSocketChannel(BaseChannel):
 
         return updated
 
+    def _restore_config(self, snapshot: Any) -> None:
+        """Restore config_ref in place after a failed update."""
+        if self.config_ref is None:
+            return
+        for name in self.config_ref.model_fields:
+            setattr(self.config_ref, name, getattr(snapshot, name))
+
     async def handle_patch_config(self, request: web.Request) -> web.Response:
         """Update configuration and save to file.
 
@@ -1209,6 +1216,8 @@ class WebSocketChannel(BaseChannel):
         if not isinstance(payload, dict):
             return web.json_response({"error": "payload must be a dict"}, status=400)
 
+        original_config = self.config_ref.model_copy(deep=True)
+
         # Apply updates recursively
         updated_fields = self._apply_config_update(self.config_ref, payload)
 
@@ -1221,6 +1230,7 @@ class WebSocketChannel(BaseChannel):
             data = self.config_ref.model_dump(mode="json", by_alias=True)
             self.config_ref.model_validate(data)
         except Exception as e:
+            self._restore_config(original_config)
             return web.json_response({
                 "error": f"validation failed: {e}",
                 "updated_fields": updated_fields,

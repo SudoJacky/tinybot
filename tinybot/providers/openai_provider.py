@@ -27,13 +27,6 @@ _ALNUM = string.ascii_letters + string.digits
 
 _STANDARD_TC_KEYS = frozenset({"id", "type", "index", "function"})
 _STANDARD_FN_KEYS = frozenset({"name", "arguments"})
-_DEFAULT_OPENROUTER_HEADERS = {
-    "HTTP-Referer": "https://github.com/SudoJacky/tinybot",
-    "X-OpenRouter-Title": "tinybot",
-    "X-OpenRouter-Categories": "cli-agent,personal-agent",
-}
-
-
 def _short_tool_id() -> str:
     """9-char alphanumeric ID compatible with all providers (incl. Mistral)."""
     return "".join(secrets.choice(_ALNUM) for _ in range(9))
@@ -95,13 +88,6 @@ def _extract_tc_extras(tc: Any) -> tuple[
     return extra_content, prov, fn_prov
 
 
-def _uses_openrouter_attribution(spec: ProviderSpec | None, api_base: str | None) -> bool:
-    """Apply tinybot attribution headers to OpenRouter requests by default."""
-    if spec and spec.name == "openrouter":
-        return True
-    return bool(api_base and "openrouter" in api_base.lower())
-
-
 class OpenAIProvider(LLMProvider):
     """Unified provider for all OpenAI-compatible APIs.
 
@@ -129,8 +115,6 @@ class OpenAIProvider(LLMProvider):
 
         effective_base = api_base or (spec.default_api_base if spec else None) or None
         default_headers = {"x-session-affinity": uuid.uuid4().hex}
-        if _uses_openrouter_attribution(spec, effective_base):
-            default_headers.update(_DEFAULT_OPENROUTER_HEADERS)
         if extra_headers:
             default_headers.update(extra_headers)
 
