@@ -22,6 +22,7 @@ const state = {
   knowledgeGraph: null,
   knowledgeGraphView: { scale: 1, x: 0, y: 0 },
   knowledgeGraphRuntime: null,
+  knowledgeIndexing: false,
   config: null,
   helpOverlay: null,
   activeTourIndex: 0,
@@ -220,6 +221,9 @@ const elements = {
   modalStatsEntities: document.querySelector("#modal-stats-entities"),
   modalStatsClaims: document.querySelector("#modal-stats-claims"),
   modalStatsRelations: document.querySelector("#modal-stats-relations"),
+  modalStatsCommunities: document.querySelector("#modal-stats-communities"),
+  modalStatsReports: document.querySelector("#modal-stats-reports"),
+  knowledgeIndexingStatus: document.querySelector("#knowledge-indexing-status"),
   // Workspace modal elements
   workspaceModal: document.querySelector("#workspace-modal"),
   workspaceModalOverlay: document.querySelector("#workspace-modal-overlay"),
@@ -1240,6 +1244,8 @@ async function loadKnowledgeStats() {
         if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = "-";
         if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = "-";
         if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = "-";
+        if (elements.modalStatsCommunities) elements.modalStatsCommunities.textContent = "-";
+        if (elements.modalStatsReports) elements.modalStatsReports.textContent = "-";
         return;
       }
       throw new Error(`load knowledge stats failed: ${response.status}`);
@@ -1258,6 +1264,8 @@ async function loadKnowledgeStats() {
     if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = payload.entity_count || 0;
     if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = payload.claim_count || 0;
     if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = payload.relation_count || 0;
+    if (elements.modalStatsCommunities) elements.modalStatsCommunities.textContent = payload.community_count || 0;
+    if (elements.modalStatsReports) elements.modalStatsReports.textContent = payload.community_report_count || 0;
   } catch (error) {
     console.error(error);
     elements.statsDocs.textContent = "-";
@@ -1267,6 +1275,8 @@ async function loadKnowledgeStats() {
     if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = "-";
     if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = "-";
     if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = "-";
+    if (elements.modalStatsCommunities) elements.modalStatsCommunities.textContent = "-";
+    if (elements.modalStatsReports) elements.modalStatsReports.textContent = "-";
   }
 }
 
@@ -1303,6 +1313,43 @@ async function loadKnowledgeDocs() {
     empty.className = "empty-state";
     empty.textContent = t("status.loadFailed");
     elements.docsList.append(empty);
+  }
+}
+
+function setKnowledgeIndexingState(active, message = "") {
+  state.knowledgeIndexing = active;
+  if (elements.knowledgeIndexingStatus) {
+    elements.knowledgeIndexingStatus.hidden = !active;
+    const desc = elements.knowledgeIndexingStatus.querySelector(".indexing-desc");
+    if (desc && message) {
+      desc.textContent = message;
+    } else if (desc) {
+      desc.textContent = t("knowledge.indexingDesc");
+    }
+  }
+
+  const disabledButtons = [
+    elements.refreshDocsButton,
+    elements.refreshGraphButton,
+    elements.rebuildIndexButton,
+    elements.uploadDocButton,
+    elements.docSaveButton,
+    elements.queryButton,
+  ];
+  for (const button of disabledButtons) {
+    if (button) {
+      button.disabled = active;
+      button.setAttribute("aria-busy", active ? "true" : "false");
+    }
+  }
+  if (elements.queryInput) {
+    elements.queryInput.disabled = active;
+  }
+  if (elements.queryMode) {
+    elements.queryMode.disabled = active;
+  }
+  if (elements.queryTopK) {
+    elements.queryTopK.disabled = active;
   }
 }
 
@@ -1378,9 +1425,24 @@ function normalizeGraphRagIndex(index) {
   const documents = new Map((index.documents || []).map((doc) => [doc.id, doc]));
   const textUnits = new Map((index.text_units || []).map((unit) => [unit.id, unit]));
   const claims = new Map((index.covariates || []).map((claim) => [claim.id, claim]));
+  const reportByCommunity = new Map((index.community_reports || []).map((report) => [report.community, report]));
+  const communities = (index.communities || []).map((community) => ({
+    ...community,
+    report: reportByCommunity.get(community.community) || null,
+  }));
+  const communityByEntity = new Map();
+  for (const community of communities) {
+    for (const entityId of community.entity_ids || []) {
+      if (!communityByEntity.has(entityId)) {
+        communityByEntity.set(entityId, community);
+      }
+    }
+  }
   const entityByName = new Map();
 
   const nodes = (index.entities || []).map((entity) => {
+    const community = communityByEntity.get(entity.id);
+    const report = community?.report || null;
     const node = {
       id: entity.id,
       label: entity.title || entity.id,
@@ -1393,6 +1455,10 @@ function normalizeGraphRagIndex(index) {
       degree: entity.degree || 0,
       confidence: entity.confidence || 0,
       description: entity.description || "",
+      community_id: community?.community ?? null,
+      community_title: community?.title || "",
+      community_report_id: report?.id || "",
+      community_report_summary: report?.summary || "",
       score: (entity.degree || 0) + (entity.frequency || 0),
     };
     entityByName.set(node.label, node);
@@ -1415,6 +1481,8 @@ function normalizeGraphRagIndex(index) {
         weight: relationship.weight || 0,
         combined_degree: relationship.combined_degree || 0,
         text_unit_ids: relationship.text_unit_ids || [],
+        community_id: source?.community_id === target?.community_id ? source?.community_id : null,
+        community_title: source?.community_id === target?.community_id ? source?.community_title : "",
         evidence,
         doc_names: Array.from(new Set(evidence.map((item) => item.doc_name).filter(Boolean))),
         description: relationship.description || "",
@@ -1427,6 +1495,8 @@ function normalizeGraphRagIndex(index) {
     source: "graphrag_index",
     nodes,
     edges,
+    communities,
+    community_reports: index.community_reports || [],
     stats: {
       ...(index.stats || {}),
       node_count: nodes.length,
@@ -1493,7 +1563,12 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
   const nodes = graph?.nodes || [];
   const edges = graph?.edges || [];
   if (elements.knowledgeGraphMeta) {
-    elements.knowledgeGraphMeta.textContent = `${nodes.length} nodes / ${edges.length} edges`;
+    const communityCount = graph?.stats?.community_count || 0;
+    const reportCount = graph?.stats?.community_report_count || 0;
+    const graphMeta = [`${nodes.length} nodes`, `${edges.length} edges`];
+    if (communityCount) graphMeta.push(`${communityCount} communities`);
+    if (reportCount) graphMeta.push(`${reportCount} reports`);
+    elements.knowledgeGraphMeta.textContent = graphMeta.join(" / ");
   }
 
   if (!nodes.length || !edges.length) {
@@ -1526,7 +1601,8 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
   canvasSurface.tabIndex = 0;
   canvas.append(canvasSurface, controls, hint);
   const evidenceList = renderKnowledgeGraphEvidence(nodes, edges);
-  elements.knowledgeGraph.append(canvas, evidenceList);
+  const communityPanel = renderKnowledgeGraphCommunities(graph?.communities || [], nodes);
+  elements.knowledgeGraph.append(canvas, communityPanel, evidenceList);
   state.knowledgeGraphRuntime = renderKnowledgeGraphCanvas(canvasSurface, nodes, edges, {
     zoomIn,
     zoomOut,
@@ -1559,6 +1635,7 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
       vy: 0,
       radius: Math.min(16, 5 + Math.sqrt((node.degree || 0) + (node.mention_count || 0)) * 2.4),
       color: knowledgeGraphNodeColor(node),
+      communityColor: knowledgeGraphCommunityColor(node.community_id),
     };
     nodeMap.set(node.id, item);
     return item;
@@ -1757,8 +1834,10 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
   function isNodeActive(node) {
     const focusNodeId = runtime.hoverNodeId || runtime.selectedNodeId;
     const focusEdgeId = runtime.hoverEdgeId || runtime.selectedEdgeId;
+    const selectedNode = focusNodeId ? nodeMap.get(focusNodeId) : null;
     if (node.id === focusNodeId) return true;
     if (focusNodeId && neighbors.get(focusNodeId)?.has(node.id)) return true;
+    if (selectedNode && selectedNode.community_id != null && selectedNode.community_id === node.community_id) return true;
     if (focusEdgeId) {
       const edge = links.find((item) => item.id === focusEdgeId);
       return edge && (edge.source === node.id || edge.target === node.id);
@@ -1769,7 +1848,10 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
   function isEdgeActive(edge) {
     const focusNodeId = runtime.hoverNodeId || runtime.selectedNodeId;
     const focusEdgeId = runtime.hoverEdgeId || runtime.selectedEdgeId;
-    return edge.id === focusEdgeId || (!!focusNodeId && (edge.source === focusNodeId || edge.target === focusNodeId));
+    const selectedNode = focusNodeId ? nodeMap.get(focusNodeId) : null;
+    return edge.id === focusEdgeId
+      || (!!focusNodeId && (edge.source === focusNodeId || edge.target === focusNodeId))
+      || (!!selectedNode && selectedNode.community_id != null && edge.community_id === selectedNode.community_id);
   }
 
   function draw() {
@@ -1790,7 +1872,7 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
       ctx.beginPath();
       ctx.moveTo(edge.sourceNode.x, edge.sourceNode.y);
       ctx.lineTo(edge.targetNode.x, edge.targetNode.y);
-      ctx.strokeStyle = active ? "rgba(125, 173, 255, 0.9)" : "rgba(116, 129, 154, 0.28)";
+      ctx.strokeStyle = active ? knowledgeGraphCommunityStroke(edge.community_id) : "rgba(116, 129, 154, 0.28)";
       ctx.lineWidth = (active ? 1.8 : 0.8) / view.scale + Math.min(1.4, Math.sqrt(edge.count || 1) * 0.18);
       ctx.stroke();
     }
@@ -1808,7 +1890,7 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
 
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = node.color;
+      ctx.fillStyle = node.community_id != null ? node.communityColor : node.color;
       ctx.fill();
       ctx.lineWidth = selected ? 2.2 / view.scale : 1.2 / view.scale;
       ctx.strokeStyle = selected ? "rgba(219, 234, 254, 0.98)" : "rgba(226, 232, 240, 0.56)";
@@ -1834,10 +1916,11 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
     }
     ctx.restore();
 
-    if (runtime.hoverNodeId) {
-      const node = nodeMap.get(runtime.hoverNodeId);
-      drawGraphTooltip(node?.label || "", node?.type || "concept", node ? worldToScreen(node) : null);
-    }
+  if (runtime.hoverNodeId) {
+    const node = nodeMap.get(runtime.hoverNodeId);
+    const subtitle = node?.community_title || node?.type || "concept";
+    drawGraphTooltip(node?.label || "", subtitle, node ? worldToScreen(node) : null);
+  }
   }
 
   function drawGraphTooltip(title, subtitle, point) {
@@ -1977,6 +2060,31 @@ function knowledgeGraphNodeColor(node) {
   return "#a78bfa";
 }
 
+const KNOWLEDGE_COMMUNITY_COLORS = [
+  "#60a5fa",
+  "#34d399",
+  "#f59e0b",
+  "#f472b6",
+  "#a78bfa",
+  "#2dd4bf",
+  "#fb7185",
+  "#c084fc",
+  "#22c55e",
+  "#eab308",
+];
+
+function knowledgeGraphCommunityColor(communityId) {
+  if (communityId == null || Number.isNaN(Number(communityId))) {
+    return "";
+  }
+  return KNOWLEDGE_COMMUNITY_COLORS[Math.abs(Number(communityId)) % KNOWLEDGE_COMMUNITY_COLORS.length];
+}
+
+function knowledgeGraphCommunityStroke(communityId) {
+  const color = knowledgeGraphCommunityColor(communityId);
+  return color ? `${color}cc` : "rgba(125, 173, 255, 0.9)";
+}
+
 function distanceToSegment(point, start, end) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
@@ -2020,6 +2128,57 @@ function renderKnowledgeGraphEvidence(nodes, edges) {
     list.append(row);
   }
   return list;
+}
+
+function renderKnowledgeGraphCommunities(communities, nodes) {
+  const panel = document.createElement("div");
+  panel.className = "graph-community-panel";
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const visibleCommunities = (communities || [])
+    .map((community) => {
+      const entityCount = (community.entity_ids || []).filter((entityId) => nodeById.has(entityId)).length;
+      return { ...community, entityCount };
+    })
+    .filter((community) => community.entityCount > 0)
+    .sort((a, b) => b.entityCount - a.entityCount)
+    .slice(0, 6);
+
+  if (!visibleCommunities.length) {
+    return panel;
+  }
+
+  const title = document.createElement("div");
+  title.className = "graph-community-panel-title";
+  title.textContent = t("knowledge.communityReports") || "Community reports";
+  panel.append(title);
+
+  for (const community of visibleCommunities) {
+    const report = community.report || {};
+    const item = document.createElement("div");
+    item.className = "graph-community-item";
+    item.dataset.communityId = String(community.community);
+
+    const header = document.createElement("div");
+    header.className = "graph-community-header";
+    const swatch = document.createElement("span");
+    swatch.className = "graph-community-swatch";
+    swatch.style.background = knowledgeGraphCommunityColor(community.community);
+    const name = document.createElement("span");
+    name.className = "graph-community-name";
+    name.textContent = community.title || report.title || `Community ${community.community}`;
+    const count = document.createElement("span");
+    count.className = "graph-community-count";
+    count.textContent = `${community.entityCount} entities`;
+    header.append(swatch, name, count);
+
+    const summary = document.createElement("div");
+    summary.className = "graph-community-summary";
+    summary.textContent = report.summary || "";
+
+    item.append(header, summary);
+    panel.append(item);
+  }
+  return panel;
 }
 
 function compactGraphLabel(label) {
@@ -2192,6 +2351,8 @@ async function addDoc() {
   const fileType = elements.docFileTypeSelect.value;
 
   try {
+    setKnowledgeIndexingState(true, t("knowledge.indexingAddDoc"));
+    elements.docSuccess.textContent = t("knowledge.indexingAddDoc");
     const response = await fetch(`${state.knowledgeApiPath}/documents`, {
       method: "POST",
       headers: authHeaders(),
@@ -2221,6 +2382,8 @@ async function addDoc() {
   } catch (error) {
     console.error(error);
     elements.docError.textContent = error.message || t("status.failed");
+  } finally {
+    setKnowledgeIndexingState(false);
   }
 }
 
@@ -2249,6 +2412,8 @@ async function uploadDoc() {
   }
 
   try {
+    setKnowledgeIndexingState(true, t("knowledge.indexingUploadDoc"));
+    elements.docSuccess.textContent = t("knowledge.indexingUploadDoc");
     const response = await fetch(`${state.knowledgeApiPath}/documents/upload`, {
       method: "POST",
       headers: {
@@ -2274,6 +2439,8 @@ async function uploadDoc() {
   } catch (error) {
     console.error(error);
     elements.docError.textContent = error.message || t("status.failed");
+  } finally {
+    setKnowledgeIndexingState(false);
   }
 }
 
@@ -2313,6 +2480,7 @@ async function rebuildKnowledgeIndex() {
   }
 
   try {
+    setKnowledgeIndexingState(true, t("knowledge.indexingRebuild"));
     const response = await fetch(`${state.knowledgeApiPath}/rebuild-index?type=all`, {
       method: "POST",
       headers: authHeaders(),
@@ -2326,7 +2494,7 @@ async function rebuildKnowledgeIndex() {
     const result = await response.json();
     let message = t("knowledge.rebuildSuccessAll") || "索引重建成功";
     if (result.bm25 && result.semantic) {
-      message = `索引重建成功: BM25(${result.bm25.chunks_indexed || 0} chunks), 语义(${result.semantic.entities || 0} entities, ${result.semantic.claims || 0} claims)`;
+      message = `索引重建成功: BM25(${result.bm25.chunks_indexed || 0} chunks), 语义(${result.semantic.entities || 0} entities, ${result.semantic.claims || 0} claims, ${result.semantic.communities || 0} communities)`;
     }
 
     // Show success notification
@@ -2343,10 +2511,15 @@ async function rebuildKnowledgeIndex() {
   } catch (error) {
     console.error(error);
     setError(error.message || t("status.failed"));
+  } finally {
+    setKnowledgeIndexingState(false);
   }
 }
 
 async function queryKnowledge() {
+  if (state.knowledgeIndexing) {
+    return;
+  }
   const query = elements.queryInput.value.trim();
   if (!query) {
     elements.queryResults.textContent = "";
@@ -2459,6 +2632,12 @@ function formatKnowledgeScore(item) {
   if (item.rrf_score != null) {
     return `rrf ${Number(item.rrf_score).toFixed(4)}`;
   }
+  if (item.semantic_fusion_score != null) {
+    return `graph ${Number(item.semantic_fusion_score).toFixed(4)}`;
+  }
+  if (item.semantic_score != null) {
+    return `semantic ${Number(item.semantic_score).toFixed(3)}`;
+  }
   if (item.bm25_score != null) {
     return `bm25 ${Number(item.bm25_score).toFixed(3)}`;
   }
@@ -2487,6 +2666,24 @@ function formatKnowledgeDebug(item) {
       ? `sparse #${item.sparse_rank} bm25 ${Number(item.bm25_score).toFixed(3)}`
       : `sparse #${item.sparse_rank}`;
     parts.push(sparse);
+  }
+  if (item.semantic_rank != null) {
+    const semantic = item.semantic_score != null
+      ? `semantic #${item.semantic_rank} score ${Number(item.semantic_score).toFixed(3)}`
+      : `semantic #${item.semantic_rank}`;
+    parts.push(semantic);
+  }
+  if (item.matched_communities?.length) {
+    parts.push(`communities: ${item.matched_communities.slice(0, 3).join("; ")}`);
+  }
+  if (item.matched_entities?.length) {
+    parts.push(`entities: ${item.matched_entities.slice(0, 5).join(", ")}`);
+  }
+  if (item.matched_relations?.length) {
+    parts.push(`relations: ${item.matched_relations.slice(0, 3).join("; ")}`);
+  }
+  if (item.matched_claims?.length) {
+    parts.push(`claims: ${item.matched_claims.slice(0, 3).join(" | ")}`);
   }
   return parts.join(" · ");
 }

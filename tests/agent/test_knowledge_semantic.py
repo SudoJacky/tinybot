@@ -153,6 +153,10 @@ def test_graphrag_index_exports_aggregated_knowledge_model_tables() -> None:
     assert index["entities"]
     assert index["relationships"]
     assert index["covariates"]
+    assert index["communities"]
+    assert index["community_reports"]
+    assert index["stats"]["community_count"] >= 1
+    assert index["stats"]["community_report_count"] >= 1
 
     tinybot = next(entity for entity in index["entities"] if entity["title"] == "TinyBot")
     assert tinybot["frequency"] == 1
@@ -178,6 +182,32 @@ def test_graphrag_index_exports_aggregated_knowledge_model_tables() -> None:
     assert text_unit["entity_ids"]
     assert text_unit["relationship_ids"]
     assert text_unit["covariate_ids"]
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_graphrag_local_global_and_drift_modes_use_graph_context() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    store.add_document(
+        name="GraphRAG Query Modes",
+        content=("TinyBot supports RAG. RAG depends on embeddings. GraphRAG supports community reports."),
+        file_type="txt",
+    )
+
+    local_results = store.query("What does TinyBot support?", mode="local", top_k=3)
+    global_results = store.query("summarize community reports", mode="global", top_k=3)
+    drift_results = store.query("RAG and community reports", mode="drift", top_k=3)
+
+    assert local_results
+    assert global_results
+    assert drift_results
+    assert "local" in local_results[0]["matched_methods"]
+    assert "global" in global_results[0]["matched_methods"]
+    assert "drift" in drift_results[0]["matched_methods"]
+    assert global_results[0]["matched_communities"]
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
