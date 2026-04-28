@@ -379,6 +379,9 @@ class ContextBuilder:
             line_start = result.get("line_start", 0)
             line_end = result.get("line_end", 0)
             page = result.get("page")
+            matched_claims = result.get("matched_claims", [])
+            matched_relations = result.get("matched_relations", [])
+            matched_entities = result.get("matched_entities", [])
 
             # Build metadata line
             meta_parts = [f"文档: {doc_name}"]
@@ -394,12 +397,21 @@ class ContextBuilder:
             if page is not None:
                 meta_parts.append(f"页码: {page}")
             meta_str = " | ".join(meta_parts)
+            semantic_parts = []
+            if matched_entities:
+                semantic_parts.append("Entities: " + ", ".join(matched_entities[:5]))
+            if matched_relations:
+                semantic_parts.append("Relations: " + "; ".join(matched_relations[:3]))
+            if matched_claims:
+                semantic_parts.append("Claims: " + " | ".join(matched_claims[:3]))
+            semantic_text = "\n".join(semantic_parts)
+            semantic_block = f"\n{semantic_text}" if semantic_text else ""
 
             # Include summary if available
             if summary:
-                lines.append(f"[{idx}] {meta_str}\n摘要: {summary}\n内容: {content}\n\n")
+                lines.append(f"[{idx}] {meta_str}{semantic_block}\n摘要: {summary}\n内容: {content}\n\n")
             else:
-                lines.append(f"[{idx}] {meta_str}\n{content}\n\n")
+                lines.append(f"[{idx}] {meta_str}{semantic_block}\n{content}\n\n")
 
         lines.append("注意: 如果引用了上述知识内容，请在对应的回答中附上知识的来源（文档名称，第几页，第几行，文档路径在哪）。\n---")
         return "".join(lines)

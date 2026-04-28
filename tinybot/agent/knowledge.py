@@ -39,6 +39,42 @@ _CJK_PATTERN = re.compile(r"[一-鿿぀-ゟ゠-ヿ가-힯]")
 _NGRAM_SIZE = 2
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_SEMANTIC_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_QUOTED_ENTITY_RE = re.compile(r"[\"'“”‘’《》](.{2,40}?)[\"'“”‘’《》]")
+_EN_ENTITY_RE = re.compile(
+    r"\b(?:[A-Z][A-Za-z0-9_./+-]*|[A-Z0-9]{2,})"
+    r"(?:\s+(?:[A-Z][A-Za-z0-9_./+-]*|[A-Z0-9]{2,})){0,4}\b"
+)
+_CLAIM_SPLIT_RE = re.compile(r"(?<=[。！？.!?；;])\s+|\n+")
+_RELATION_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("defined_as", r"(.{2,40}?)(?:是|指|定义为|means|is defined as|refers to)(.{2,80})"),
+    ("part_of", r"(.{2,40}?)(?:属于|隶属于|是.+?的一部分|part of|belongs to)(.{2,80})"),
+    ("contains", r"(.{2,40}?)(?:包含|包括|由.+?组成|contains|includes|consists of)(.{2,80})"),
+    ("depends_on", r"(.{2,40}?)(?:依赖|依靠|取决于|depends on|relies on|requires)(.{2,80})"),
+    ("supports", r"(.{2,40}?)(?:支持|提供|实现|用于|supports|provides|implements|is used for)(.{2,80})"),
+    ("causes", r"(.{2,40}?)(?:导致|引起|造成|causes|leads to|results in)(.{2,80})"),
+    ("owned_by", r"(.{2,40}?)(?:负责|归属|owned by|managed by|maintained by)(.{2,80})"),
+    ("located_in", r"(.{2,40}?)(?:位于|部署在|located in|hosted in|deployed in)(.{2,80})"),
+)
+_ENTITY_STOPWORDS = {
+    "the",
+    "this",
+    "that",
+    "there",
+    "these",
+    "those",
+    "and",
+    "or",
+    "but",
+    "with",
+    "from",
+    "into",
+    "about",
+    "summary",
+    "content",
+    "document",
+    "section",
+}
 
 
 def _tokenize(text: str) -> list[str]:
@@ -278,6 +314,62 @@ class KnowledgeChunk:
     block_type: str = "text"
 
 
+@dataclass
+class KnowledgeEntity:
+    """A canonical entity extracted from knowledge chunks."""
+
+    id: str = ""
+    name: str = ""
+    canonical_name: str = ""
+    type: str = "concept"
+    aliases: list[str] = field(default_factory=list)
+    doc_ids: list[str] = field(default_factory=list)
+    created_at: str = ""
+    confidence: float = 0.5
+
+
+@dataclass
+class KnowledgeMention:
+    """A concrete mention of an entity in a source chunk."""
+
+    id: str = ""
+    entity_id: str = ""
+    chunk_id: str = ""
+    doc_id: str = ""
+    text: str = ""
+    start_char: int = 0
+    end_char: int = 0
+    confidence: float = 0.5
+
+
+@dataclass
+class KnowledgeClaim:
+    """An atomic factual statement extracted from a chunk."""
+
+    id: str = ""
+    chunk_id: str = ""
+    doc_id: str = ""
+    text: str = ""
+    entity_ids: list[str] = field(default_factory=list)
+    confidence: float = 0.5
+    created_at: str = ""
+
+
+@dataclass
+class KnowledgeRelation:
+    """A typed edge between two entities, backed by source evidence."""
+
+    id: str = ""
+    subject_entity_id: str = ""
+    predicate: str = ""
+    object_entity_id: str = ""
+    evidence_chunk_id: str = ""
+    doc_id: str = ""
+    claim_id: str = ""
+    confidence: float = 0.5
+    created_at: str = ""
+
+
 class KnowledgeStore:
     """File-based storage for knowledge documents with hybrid retrieval.
 
@@ -304,6 +396,10 @@ class KnowledgeStore:
         self.files_dir = ensure_dir(self.knowledge_dir / "files")
         self.documents_file = self.knowledge_dir / "documents.jsonl"
         self.chunks_file = self.knowledge_dir / "chunks.jsonl"
+        self.entities_file = self.knowledge_dir / "entities.jsonl"
+        self.mentions_file = self.knowledge_dir / "mentions.jsonl"
+        self.claims_file = self.knowledge_dir / "claims.jsonl"
+        self.relations_file = self.knowledge_dir / "relations.jsonl"
         self.bm25_index_file = self.knowledge_dir / "bm25_index.json"
         self._cursor_file = self.knowledge_dir / ".cursor"
         self._indexed_ids: set[str] = set()
@@ -445,6 +541,9 @@ class KnowledgeStore:
         # Index to sparse collection (BM25, independent of vector_store)
         self._index_chunks_sparse(doc_id, name, str(file_path), chunks, ts, category, tags or [])
 
+        # Build semantic side indexes (claims, entities, relations, mentions)
+        self._index_chunks_semantic(doc_id, name, chunks, ts)
+
         logger.info(
             "KnowledgeStore: added document '{}' (id={}, {} chunks, {} chars)",
             name,
@@ -578,6 +677,9 @@ class KnowledgeStore:
 
         # Index to sparse collection (BM25, independent of vector_store)
         self._index_chunks_sparse(doc_id, name, str(file_path), chunks, ts, category, tags or [])
+
+        # Build semantic side indexes (claims, entities, relations, mentions)
+        self._index_chunks_semantic(doc_id, name, chunks, ts)
 
         logger.info(
             "KnowledgeStore: added PDF document '{}' (id={}, {} chunks, {} pages)",
@@ -917,8 +1019,12 @@ class KnowledgeStore:
             results = self._query_dense(query_text, candidate_k, category, tags)
         elif mode == "sparse":
             results = self._query_sparse(query_text, candidate_k, category, tags)
+        elif mode == "semantic":
+            results = self._query_semantic(query_text, candidate_k, category, tags)
         else:
             results = self.query_hybrid(query_text, candidate_k, category, tags)
+            semantic_results = self._query_semantic(query_text, candidate_k, category, tags)
+            results = self._merge_semantic_results(results, semantic_results, candidate_k)
 
         results = self._maybe_rerank(query_text, results, top_k)
 
@@ -1433,6 +1539,9 @@ class KnowledgeStore:
         # Remove from BM25 index
         self._delete_from_bm25_index(doc_id)
 
+        # Remove semantic side-index entries
+        self._remove_semantic_for_doc(doc_id)
+
         with self._lock:
             self._indexed_ids.discard(doc_id)
 
@@ -1452,6 +1561,9 @@ class KnowledgeStore:
         return {
             "document_count": len(documents),
             "chunk_count": len(chunks),
+            "entity_count": len(self._read_entities()),
+            "claim_count": len(self._read_claims()),
+            "relation_count": len(self._read_relations()),
             "total_chars": total_chars,
             "categories": categories,
             "indexed_dense": len(self._indexed_ids),
@@ -1501,6 +1613,36 @@ class KnowledgeStore:
             "chunks_indexed": indexed_count,
             "terms_created": len(self._bm25_index._inverted_index),
             "total_docs": self._bm25_index._total_docs,
+        }
+
+    def rebuild_semantic_index(self) -> dict[str, Any]:
+        """Rebuild semantic side indexes from existing chunks."""
+        self._write_entities([])
+        self._write_mentions([])
+        self._write_claims([])
+        self._write_relations([])
+
+        documents = {doc.id: doc for doc in self._read_documents()}
+        chunks_by_doc: dict[str, list[dict[str, Any]]] = {}
+        for chunk in self._read_chunks():
+            chunks_by_doc.setdefault(chunk.doc_id, []).append({
+                "index": chunk.chunk_index,
+                "content": chunk.content,
+                "section_path": chunk.section_path,
+                "start_char": chunk.start_char,
+            })
+
+        for doc_id, chunks in chunks_by_doc.items():
+            doc = documents.get(doc_id)
+            doc_name = doc.name if doc else doc_id
+            ts = doc.created_at if doc else datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            self._index_chunks_semantic(doc_id, doc_name, chunks, ts)
+
+        return {
+            "entities": len(self._read_entities()),
+            "claims": len(self._read_claims()),
+            "relations": len(self._read_relations()),
+            "mentions": len(self._read_mentions()),
         }
 
     def _save_document_file(
@@ -1828,6 +1970,301 @@ class KnowledgeStore:
             start = end if next_start <= start else next_start
         return chunks
 
+    def _index_chunks_semantic(
+        self,
+        doc_id: str,
+        doc_name: str,
+        chunks: list[dict[str, Any]],
+        ts: str,
+    ) -> None:
+        """Build claim, entity, mention, and relation indexes for chunks.
+
+        This is a deterministic first pass. LLM extraction can be added later
+        without changing the storage contract.
+        """
+        try:
+            existing_entities = {entity.id: entity for entity in self._read_entities()}
+            existing_claim_ids = {claim.id for claim in self._read_claims()}
+            existing_relation_ids = {relation.id for relation in self._read_relations()}
+            existing_mention_ids = {mention.id for mention in self._read_mentions()}
+
+            new_claims: list[KnowledgeClaim] = []
+            new_relations: list[KnowledgeRelation] = []
+            new_mentions: list[KnowledgeMention] = []
+
+            def ensure_entity(name: str, source_doc_id: str, confidence: float = 0.5) -> KnowledgeEntity | None:
+                clean_name = self._clean_entity_name(name)
+                if not clean_name:
+                    return None
+                canonical = self._normalize_entity_name(clean_name)
+                entity_id = self._entity_id(canonical)
+                entity = existing_entities.get(entity_id)
+                if entity is None:
+                    entity = KnowledgeEntity(
+                        id=entity_id,
+                        name=clean_name,
+                        canonical_name=canonical,
+                        type=self._infer_entity_type(clean_name),
+                        aliases=[clean_name],
+                        doc_ids=[source_doc_id],
+                        created_at=ts,
+                        confidence=confidence,
+                    )
+                    existing_entities[entity_id] = entity
+                else:
+                    if clean_name not in entity.aliases:
+                        entity.aliases.append(clean_name)
+                    if source_doc_id not in entity.doc_ids:
+                        entity.doc_ids.append(source_doc_id)
+                    entity.confidence = max(entity.confidence, confidence)
+                return entity
+
+            for chunk in chunks:
+                chunk_id = f"chunk_{doc_id}_{chunk['index']}"
+                content = chunk.get("content", "")
+                section_path = chunk.get("section_path", "")
+                entity_names = self._extract_entity_names(content)
+                entity_names.extend(self._extract_entity_names(section_path))
+                entity_names.extend(self._extract_entity_names(doc_name))
+
+                for entity_name in entity_names:
+                    entity = ensure_entity(entity_name, doc_id, confidence=0.55)
+                    if entity:
+                        local_start = content.find(entity.name)
+                        if local_start < 0:
+                            continue
+                        mention_id = self._mention_id(entity.id, chunk_id, local_start)
+                        if mention_id not in existing_mention_ids:
+                            start_char = chunk.get("start_char", 0) + local_start
+                            end_char = start_char + len(entity.name)
+                            new_mentions.append(KnowledgeMention(
+                                id=mention_id,
+                                entity_id=entity.id,
+                                chunk_id=chunk_id,
+                                doc_id=doc_id,
+                                text=entity.name,
+                                start_char=start_char,
+                                end_char=end_char,
+                                confidence=0.55,
+                            ))
+                            existing_mention_ids.add(mention_id)
+
+                for claim_index, claim_text in enumerate(self._extract_claims(content)):
+                    claim_entity_ids: list[str] = []
+                    for entity_name in self._extract_entity_names(claim_text):
+                        entity = ensure_entity(entity_name, doc_id, confidence=0.55)
+                        if entity and entity.id not in claim_entity_ids:
+                            claim_entity_ids.append(entity.id)
+
+                    claim_id = self._claim_id(chunk_id, claim_index, claim_text)
+                    if claim_id not in existing_claim_ids:
+                        new_claims.append(KnowledgeClaim(
+                            id=claim_id,
+                            chunk_id=chunk_id,
+                            doc_id=doc_id,
+                            text=claim_text,
+                            entity_ids=claim_entity_ids,
+                            confidence=0.5 + min(len(claim_entity_ids), 4) * 0.05,
+                            created_at=ts,
+                        ))
+                        existing_claim_ids.add(claim_id)
+
+                    for raw_relation in self._extract_relations(claim_text):
+                        subject = ensure_entity(raw_relation["subject"], doc_id, confidence=0.6)
+                        obj = ensure_entity(raw_relation["object"], doc_id, confidence=0.6)
+                        if not subject or not obj or subject.id == obj.id:
+                            continue
+                        relation_id = self._relation_id(
+                            subject.id,
+                            raw_relation["predicate"],
+                            obj.id,
+                            chunk_id,
+                        )
+                        if relation_id in existing_relation_ids:
+                            continue
+                        new_relations.append(KnowledgeRelation(
+                            id=relation_id,
+                            subject_entity_id=subject.id,
+                            predicate=raw_relation["predicate"],
+                            object_entity_id=obj.id,
+                            evidence_chunk_id=chunk_id,
+                            doc_id=doc_id,
+                            claim_id=claim_id,
+                            confidence=0.65,
+                            created_at=ts,
+                        ))
+                        existing_relation_ids.add(relation_id)
+
+            self._write_entities(list(existing_entities.values()))
+            self._append_jsonl(self.claims_file, new_claims)
+            self._append_jsonl(self.mentions_file, new_mentions)
+            self._append_jsonl(self.relations_file, new_relations)
+
+            logger.debug(
+                "KnowledgeStore: semantic index for doc '{}' added {} claims, {} mentions, {} relations",
+                doc_name,
+                len(new_claims),
+                len(new_mentions),
+                len(new_relations),
+            )
+        except Exception as e:
+            logger.warning("KnowledgeStore: semantic indexing failed for doc '{}': {}", doc_name, e)
+
+    def _query_semantic(
+        self,
+        query_text: str,
+        top_k: int,
+        category: str | None = None,
+        tags: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Retrieve chunks through extracted entities, claims, and relations."""
+        chunks = self._read_chunks()
+        if not chunks:
+            return []
+
+        chunk_meta_map = {chunk.id: chunk for chunk in chunks}
+        entities = {entity.id: entity for entity in self._read_entities()}
+        claims = self._read_claims()
+        relations = self._read_relations()
+        mentions = self._read_mentions()
+        if not entities and not claims:
+            return []
+
+        query_entities = {
+            self._normalize_entity_name(name)
+            for name in self._extract_entity_names(query_text)
+            if self._normalize_entity_name(name)
+        }
+        query_terms = set(self._semantic_terms(query_text))
+
+        matched_entity_ids: set[str] = set()
+        for entity in entities.values():
+            aliases = [entity.name, *entity.aliases, entity.canonical_name]
+            alias_norms = {self._normalize_entity_name(alias) for alias in aliases if alias}
+            if alias_norms.intersection(query_entities):
+                matched_entity_ids.add(entity.id)
+                continue
+            for alias_norm in alias_norms:
+                if len(alias_norm) >= 3 and alias_norm in self._normalize_entity_name(query_text):
+                    matched_entity_ids.add(entity.id)
+                    break
+
+        chunk_scores: dict[str, float] = {}
+        chunk_matches: dict[str, dict[str, list[str]]] = {}
+
+        def add_score(chunk_id: str, score: float, key: str, value: str) -> None:
+            meta = chunk_meta_map.get(chunk_id)
+            if not meta:
+                return
+            if category and meta.category != category:
+                return
+            if tags and not set(meta.tags or []).intersection(set(tags)):
+                return
+            chunk_scores[chunk_id] = chunk_scores.get(chunk_id, 0.0) + score
+            matches = chunk_matches.setdefault(
+                chunk_id,
+                {"entities": [], "claims": [], "relations": []},
+            )
+            if value and value not in matches[key]:
+                matches[key].append(value)
+
+        for mention in mentions:
+            if mention.entity_id in matched_entity_ids:
+                entity = entities.get(mention.entity_id)
+                add_score(mention.chunk_id, 1.2, "entities", entity.name if entity else mention.text)
+
+        for claim in claims:
+            claim_terms = set(self._semantic_terms(claim.text))
+            term_overlap = len(query_terms.intersection(claim_terms))
+            entity_overlap = len(matched_entity_ids.intersection(set(claim.entity_ids)))
+            if term_overlap or entity_overlap:
+                score = min(term_overlap * 0.25, 1.5) + entity_overlap * 0.9 + claim.confidence
+                add_score(claim.chunk_id, score, "claims", claim.text)
+
+        for relation in relations:
+            subject = entities.get(relation.subject_entity_id)
+            obj = entities.get(relation.object_entity_id)
+            relation_text = self._format_relation(subject, relation.predicate, obj)
+            entity_hit = (
+                relation.subject_entity_id in matched_entity_ids
+                or relation.object_entity_id in matched_entity_ids
+            )
+            predicate_hit = relation.predicate in query_text or relation.predicate in query_terms
+            if entity_hit or predicate_hit:
+                score = relation.confidence + (1.2 if entity_hit else 0.0) + (0.5 if predicate_hit else 0.0)
+                add_score(relation.evidence_chunk_id, score, "relations", relation_text)
+
+        sorted_chunk_ids = sorted(chunk_scores, key=chunk_scores.get, reverse=True)
+        results: list[dict[str, Any]] = []
+        for rank, chunk_id in enumerate(sorted_chunk_ids[:top_k], 1):
+            meta = chunk_meta_map[chunk_id]
+            matches = chunk_matches.get(chunk_id, {})
+            results.append({
+                "id": chunk_id,
+                "content": meta.content,
+                "summary": meta.summary,
+                "doc_id": meta.doc_id,
+                "doc_name": meta.doc_name,
+                "file_path": meta.file_path,
+                "start_char": meta.start_char,
+                "end_char": meta.end_char,
+                "line_start": meta.line_start,
+                "line_end": meta.line_end,
+                "page": meta.page,
+                "section_path": meta.section_path,
+                "block_type": meta.block_type,
+                "semantic_score": chunk_scores[chunk_id],
+                "semantic_rank": rank,
+                "matched_entities": matches.get("entities", [])[:5],
+                "matched_claims": matches.get("claims", [])[:3],
+                "matched_relations": matches.get("relations", [])[:3],
+                "method": "semantic",
+                "matched_methods": ["semantic"],
+            })
+        return results
+
+    def _merge_semantic_results(
+        self,
+        base_results: list[dict[str, Any]],
+        semantic_results: list[dict[str, Any]],
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        if not semantic_results:
+            return base_results[:top_k]
+        if not base_results:
+            return semantic_results[:top_k]
+
+        rrf_k = self.config.rrf_k if self.config else 60
+        scores: dict[str, float] = {}
+        merged: dict[str, dict[str, Any]] = {}
+
+        for rank, result in enumerate(base_results, 1):
+            chunk_id = result["id"]
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (rrf_k + rank)
+            merged[chunk_id] = dict(result)
+
+        for rank, result in enumerate(semantic_results, 1):
+            chunk_id = result["id"]
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.15 / (rrf_k + rank)
+            target = merged.setdefault(chunk_id, dict(result))
+            target["semantic_rank"] = rank
+            target["semantic_score"] = result.get("semantic_score")
+            target["matched_entities"] = result.get("matched_entities", [])
+            target["matched_claims"] = result.get("matched_claims", [])
+            target["matched_relations"] = result.get("matched_relations", [])
+            methods = set(target.get("matched_methods") or [])
+            methods.add("semantic")
+            target["matched_methods"] = sorted(methods)
+            target["method"] = "hybrid+semantic" if target.get("method") != "semantic" else "semantic"
+
+        sorted_ids = sorted(scores, key=scores.get, reverse=True)
+        out: list[dict[str, Any]] = []
+        for chunk_id in sorted_ids[:top_k]:
+            result = merged[chunk_id]
+            result["semantic_fusion_score"] = scores[chunk_id]
+            out.append(result)
+        return out
+
     def _index_chunks_dense(
         self,
         doc_id: str,
@@ -1991,6 +2428,28 @@ class KnowledgeStore:
         except Exception as e:
             logger.warning("KnowledgeStore: failed to delete from BM25: {}", e)
 
+    def _remove_semantic_for_doc(self, doc_id: str) -> None:
+        """Remove semantic index records for a document."""
+        claims = [claim for claim in self._read_claims() if claim.doc_id != doc_id]
+        mentions = [mention for mention in self._read_mentions() if mention.doc_id != doc_id]
+        relations = [relation for relation in self._read_relations() if relation.doc_id != doc_id]
+
+        entities = [
+            KnowledgeEntity(
+                **{
+                    **asdict(entity),
+                    "doc_ids": [item for item in entity.doc_ids if item != doc_id],
+                }
+            )
+            for entity in self._read_entities()
+        ]
+        entities = [entity for entity in entities if entity.doc_ids]
+
+        self._write_claims(claims)
+        self._write_mentions(mentions)
+        self._write_relations(relations)
+        self._write_entities(entities)
+
     def _read_documents(self) -> list[KnowledgeDocument]:
         """Read all documents from the JSONL file."""
         documents: list[KnowledgeDocument] = []
@@ -2027,6 +2486,37 @@ class KnowledgeStore:
             pass
         return chunks
 
+    def _read_entities(self) -> list[KnowledgeEntity]:
+        return self._read_jsonl_dataclass(self.entities_file, KnowledgeEntity)
+
+    def _read_mentions(self) -> list[KnowledgeMention]:
+        return self._read_jsonl_dataclass(self.mentions_file, KnowledgeMention)
+
+    def _read_claims(self) -> list[KnowledgeClaim]:
+        return self._read_jsonl_dataclass(self.claims_file, KnowledgeClaim)
+
+    def _read_relations(self) -> list[KnowledgeRelation]:
+        return self._read_jsonl_dataclass(self.relations_file, KnowledgeRelation)
+
+    def _read_jsonl_dataclass(self, path: Path, cls: Any) -> list[Any]:
+        items: list[Any] = []
+        try:
+            field_names = set(cls.__dataclass_fields__.keys())
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        filtered = {key: value for key, value in data.items() if key in field_names}
+                        items.append(cls(**filtered))
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+        except FileNotFoundError:
+            pass
+        return items
+
     def _remove_chunks_for_doc(self, doc_id: str) -> None:
         """Remove chunks for a document from chunks file."""
         chunks = self._read_chunks()
@@ -2049,6 +2539,30 @@ class KnowledgeStore:
             for chunk in chunks:
                 f.write(json.dumps(asdict(chunk), ensure_ascii=False) + "\n")
 
+    def _write_entities(self, entities: list[KnowledgeEntity]) -> None:
+        self._write_jsonl(self.entities_file, entities)
+
+    def _write_mentions(self, mentions: list[KnowledgeMention]) -> None:
+        self._write_jsonl(self.mentions_file, mentions)
+
+    def _write_claims(self, claims: list[KnowledgeClaim]) -> None:
+        self._write_jsonl(self.claims_file, claims)
+
+    def _write_relations(self, relations: list[KnowledgeRelation]) -> None:
+        self._write_jsonl(self.relations_file, relations)
+
+    def _write_jsonl(self, path: Path, items: list[Any]) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            for item in items:
+                f.write(json.dumps(asdict(item), ensure_ascii=False) + "\n")
+
+    def _append_jsonl(self, path: Path, items: list[Any]) -> None:
+        if not items:
+            return
+        with open(path, "a", encoding="utf-8") as f:
+            for item in items:
+                f.write(json.dumps(asdict(item), ensure_ascii=False) + "\n")
+
     def _next_cursor(self) -> int:
         """Read the current cursor counter and return next value."""
         if self._cursor_file.exists():
@@ -2057,3 +2571,149 @@ class KnowledgeStore:
             except (ValueError, OSError):
                 pass
         return len(self._read_documents()) + 1
+
+    @staticmethod
+    def _entity_id(canonical_name: str) -> str:
+        return f"ent_{hashlib.sha1(canonical_name.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _claim_id(chunk_id: str, index: int, text: str) -> str:
+        value = f"{chunk_id}:{index}:{text}"
+        return f"claim_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _relation_id(subject_id: str, predicate: str, object_id: str, chunk_id: str) -> str:
+        value = f"{subject_id}:{predicate}:{object_id}:{chunk_id}"
+        return f"rel_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _mention_id(entity_id: str, chunk_id: str, start_char: int) -> str:
+        value = f"{entity_id}:{chunk_id}:{start_char}"
+        return f"mention_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _normalize_entity_name(name: str) -> str:
+        name = re.sub(r"\s+", " ", name.strip().lower())
+        name = name.strip(" \t\r\n-_*`~:：,，.。;；()（）[]【】{}")
+        return name
+
+    @staticmethod
+    def _clean_entity_name(name: str) -> str:
+        name = re.sub(r"\s+", " ", name.strip())
+        name = name.strip(" \t\r\n-_*`~:：,，.。;；!?！？()（）[]【】{}<>")
+        if not name or len(name) < 2 or len(name) > 60:
+            return ""
+        normalized = name.lower()
+        if normalized in _ENTITY_STOPWORDS:
+            return ""
+        if normalized.isdigit():
+            return ""
+        return name
+
+    @staticmethod
+    def _infer_entity_type(name: str) -> str:
+        if name.isupper() and len(name) <= 8:
+            return "acronym"
+        if any(token in name.lower() for token in ("api", "sdk", "rag", "bm25", "llm", "http")):
+            return "technology"
+        if _SEMANTIC_CJK_RE.search(name):
+            return "concept"
+        return "proper_noun"
+
+    def _extract_entity_names(self, text: str) -> list[str]:
+        if not text:
+            return []
+        found: list[str] = []
+
+        for match in _QUOTED_ENTITY_RE.finditer(text):
+            clean = self._clean_entity_name(match.group(1))
+            if clean:
+                found.append(clean)
+
+        for match in _EN_ENTITY_RE.finditer(text):
+            clean = self._clean_entity_name(match.group(0))
+            if clean:
+                found.append(clean)
+
+        for raw_relation in self._extract_relations(text):
+            for key in ("subject", "object"):
+                clean = self._clean_entity_name(raw_relation[key])
+                if clean:
+                    found.append(clean)
+
+        # Markdown section paths often carry high-quality concept names.
+        for part in re.split(r">\s*|[/\\|]", text):
+            clean = self._clean_entity_name(part)
+            if clean and (len(clean.split()) <= 6 or _SEMANTIC_CJK_RE.search(clean)):
+                if clean.startswith("#"):
+                    clean = clean.lstrip("#").strip()
+                if clean:
+                    found.append(clean)
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for name in found:
+            key = self._normalize_entity_name(name)
+            if key and key not in seen:
+                deduped.append(name)
+                seen.add(key)
+        return deduped[:40]
+
+    def _extract_claims(self, text: str) -> list[str]:
+        claims: list[str] = []
+        for part in _CLAIM_SPLIT_RE.split(text):
+            claim = re.sub(r"\s+", " ", part.strip())
+            if 12 <= len(claim) <= 320:
+                claims.append(claim)
+        if not claims and 12 <= len(text.strip()) <= 320:
+            claims.append(re.sub(r"\s+", " ", text.strip()))
+        return claims[:20]
+
+    def _extract_relations(self, text: str) -> list[dict[str, str]]:
+        relations: list[dict[str, str]] = []
+        compact = re.sub(r"\s+", " ", text.strip())
+        if not compact:
+            return relations
+        for predicate, pattern in _RELATION_PATTERNS:
+            for match in re.finditer(pattern, compact, flags=re.IGNORECASE):
+                subject = self._clean_relation_endpoint(match.group(1))
+                obj = self._clean_relation_endpoint(match.group(2))
+                if subject and obj:
+                    relations.append({
+                        "subject": subject,
+                        "predicate": predicate,
+                        "object": obj,
+                    })
+        return relations[:8]
+
+    def _clean_relation_endpoint(self, text: str) -> str:
+        text = re.split(r"[。！？.!?；;\n]", text, maxsplit=1)[0]
+        text = re.sub(r"^(因此|所以|其中|并且|同时|而且|the|a|an)\s*", "", text.strip(), flags=re.IGNORECASE)
+        pieces = re.split(r"[,，、:：]", text)
+        if pieces:
+            text = pieces[-1].strip() if len(pieces[-1].strip()) >= 2 else pieces[0].strip()
+        words = text.split()
+        if len(words) > 8 and not _SEMANTIC_CJK_RE.search(text):
+            text = " ".join(words[-8:])
+        if _SEMANTIC_CJK_RE.search(text) and len(text) > 30:
+            text = text[-30:]
+        return self._clean_entity_name(text)
+
+    @staticmethod
+    def _semantic_terms(text: str) -> list[str]:
+        terms = [term.lower() for term in re.findall(r"[A-Za-z0-9_./+-]{2,}", text)]
+        cjk_chars = "".join(ch for ch in text if _SEMANTIC_CJK_RE.match(ch))
+        for size in (2, 3):
+            for i in range(max(0, len(cjk_chars) - size + 1)):
+                terms.append(cjk_chars[i:i + size])
+        return terms
+
+    @staticmethod
+    def _format_relation(
+        subject: KnowledgeEntity | None,
+        predicate: str,
+        obj: KnowledgeEntity | None,
+    ) -> str:
+        subject_name = subject.name if subject else "unknown"
+        object_name = obj.name if obj else "unknown"
+        return f"{subject_name} -[{predicate}]-> {object_name}"
