@@ -370,6 +370,21 @@
               <span class="stats-label">关系</span>
               <span id="modal-stats-relations" class="stats-value">0</span>
             </span>
+            <span class="stats-item">
+              <span class="stats-label" data-i18n="knowledge.communities">社区</span>
+              <span id="modal-stats-communities" class="stats-value">0</span>
+            </span>
+            <span class="stats-item">
+              <span class="stats-label" data-i18n="knowledge.reports">报告</span>
+              <span id="modal-stats-reports" class="stats-value">0</span>
+            </span>
+          </div>
+        </div>
+        <div id="knowledge-indexing-status" class="knowledge-indexing-status" hidden>
+          <div class="indexing-spinner" aria-hidden="true"></div>
+          <div>
+            <div class="indexing-title" data-i18n="knowledge.indexingTitle">正在生成知识图谱</div>
+            <div class="indexing-desc" data-i18n="knowledge.indexingDesc">实体、关系、社区和报告正在构建中。数据较多时可能需要一些时间，可以稍后回来查看。</div>
           </div>
         </div>
         <!-- 实体关系图谱 -->
@@ -412,6 +427,9 @@
                 <option value="dense" data-i18n="knowledge.modeDense">密集</option>
                 <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
                 <option value="semantic" data-i18n="knowledge.modeSemantic">语义</option>
+                <option value="local" data-i18n="knowledge.modeLocal">Local</option>
+                <option value="global" data-i18n="knowledge.modeGlobal">Global</option>
+                <option value="drift" data-i18n="knowledge.modeDrift">DRIFT</option>
               </select>
               <input id="query-top-k" class="query-num-input" type="number" min="1" max="20" value="5" title="top_k" />
               <button id="query-button" class="button button-primary button-small" type="button" data-i18n="knowledge.search">查询</button>
@@ -690,6 +708,9 @@
                 <option value="dense" data-i18n="knowledge.modeDense">密集</option>
                 <option value="sparse" data-i18n="knowledge.modeSparse">稀疏</option>
                 <option value="semantic" data-i18n="knowledge.modeSemantic">语义</option>
+                <option value="local" data-i18n="knowledge.modeLocal">Local</option>
+                <option value="global" data-i18n="knowledge.modeGlobal">Global</option>
+                <option value="drift" data-i18n="knowledge.modeDrift">DRIFT</option>
               </select>
             </div>
             <div class="config-field config-checkbox-group">

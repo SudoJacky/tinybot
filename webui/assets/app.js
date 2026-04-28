@@ -22,6 +22,13 @@ const state = {
   knowledgeGraph: null,
   knowledgeGraphView: { scale: 1, x: 0, y: 0 },
   knowledgeGraphRuntime: null,
+  knowledgeGraphFilterDocId: "",
+  knowledgeGraphFilterDocName: "",
+  knowledgeGraphHighlight: null,
+  knowledgeGraphSelection: null,
+  activeKnowledgeTab: "overview",
+  knowledgeWorkbenchReady: false,
+  knowledgeIndexing: false,
   config: null,
   helpOverlay: null,
   activeTourIndex: 0,
@@ -220,6 +227,21 @@ const elements = {
   modalStatsEntities: document.querySelector("#modal-stats-entities"),
   modalStatsClaims: document.querySelector("#modal-stats-claims"),
   modalStatsRelations: document.querySelector("#modal-stats-relations"),
+  modalStatsCommunities: document.querySelector("#modal-stats-communities"),
+  modalStatsReports: document.querySelector("#modal-stats-reports"),
+  knowledgeIndexingStatus: document.querySelector("#knowledge-indexing-status"),
+  knowledgeGraphInspector: null,
+  knowledgeGraphScope: null,
+  clearGraphFilterButton: null,
+  globalKnowledgeToast: null,
+  globalKnowledgeToastTitle: null,
+  globalKnowledgeToastDesc: null,
+  knowledgeHealthTitle: null,
+  knowledgeHealthScore: null,
+  knowledgeHealthBar: null,
+  knowledgeHealthDesc: null,
+  knowledgeOverviewInsights: null,
+  queryModeHint: null,
   // Workspace modal elements
   workspaceModal: document.querySelector("#workspace-modal"),
   workspaceModalOverlay: document.querySelector("#workspace-modal-overlay"),
@@ -1240,6 +1262,8 @@ async function loadKnowledgeStats() {
         if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = "-";
         if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = "-";
         if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = "-";
+        if (elements.modalStatsCommunities) elements.modalStatsCommunities.textContent = "-";
+        if (elements.modalStatsReports) elements.modalStatsReports.textContent = "-";
         return;
       }
       throw new Error(`load knowledge stats failed: ${response.status}`);
@@ -1258,6 +1282,9 @@ async function loadKnowledgeStats() {
     if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = payload.entity_count || 0;
     if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = payload.claim_count || 0;
     if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = payload.relation_count || 0;
+    if (elements.modalStatsCommunities) elements.modalStatsCommunities.textContent = payload.community_count || 0;
+    if (elements.modalStatsReports) elements.modalStatsReports.textContent = payload.community_report_count || 0;
+    renderKnowledgeOverview();
   } catch (error) {
     console.error(error);
     elements.statsDocs.textContent = "-";
@@ -1267,6 +1294,81 @@ async function loadKnowledgeStats() {
     if (elements.modalStatsEntities) elements.modalStatsEntities.textContent = "-";
     if (elements.modalStatsClaims) elements.modalStatsClaims.textContent = "-";
     if (elements.modalStatsRelations) elements.modalStatsRelations.textContent = "-";
+    if (elements.modalStatsCommunities) elements.modalStatsCommunities.textContent = "-";
+    if (elements.modalStatsReports) elements.modalStatsReports.textContent = "-";
+  }
+}
+
+function renderKnowledgeOverview() {
+  if (!state.knowledgeWorkbenchReady) {
+    return;
+  }
+  const stats = state.knowledgeStats || {};
+  const docs = Number(stats.total_documents || 0);
+  const chunks = Number(stats.total_chunks || 0);
+  const entities = Number(stats.entity_count || 0);
+  const relations = Number(stats.relation_count || 0);
+  const communities = Number(stats.community_count || 0);
+  const reports = Number(stats.community_report_count || 0);
+  const indexedDense = Number(stats.indexed_dense || 0);
+  const indexedSparse = Number(stats.indexed_sparse || 0);
+
+  const checks = [
+    docs > 0,
+    chunks > 0,
+    indexedDense > 0 || indexedSparse > 0,
+    entities > 0,
+    relations > 0,
+    communities > 0,
+    reports > 0,
+  ];
+  const score = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  if (elements.knowledgeHealthScore) elements.knowledgeHealthScore.textContent = `${score}%`;
+  if (elements.knowledgeHealthBar) elements.knowledgeHealthBar.style.width = `${score}%`;
+  if (elements.knowledgeHealthTitle) {
+    elements.knowledgeHealthTitle.textContent = score >= 85
+      ? "Knowledge graph is ready"
+      : score >= 55
+        ? "Knowledge base is searchable"
+        : docs > 0
+          ? "Documents need semantic indexing"
+          : "No knowledge loaded";
+  }
+  if (elements.knowledgeHealthDesc) {
+    elements.knowledgeHealthDesc.textContent = docs
+      ? `${docs} documents, ${chunks} chunks, ${entities} entities, ${relations} relationships, ${communities} communities.`
+      : "Add documents, then rebuild indexes to create retrieval and graph signals.";
+  }
+
+  if (!elements.knowledgeOverviewInsights) {
+    return;
+  }
+  elements.knowledgeOverviewInsights.textContent = "";
+  const insights = [
+    {
+      title: "Retrieval index",
+      text: indexedDense || indexedSparse
+        ? `${indexedDense} dense documents and ${indexedSparse} sparse chunks are indexed.`
+        : "No retrieval index is visible yet. Rebuild the index after adding documents.",
+    },
+    {
+      title: "Semantic model",
+      text: entities
+        ? `${entities} entities and ${relations} relationships were extracted from source chunks.`
+        : "No entities extracted yet. Semantic rebuild will unlock graph exploration.",
+    },
+    {
+      title: "GraphRAG layer",
+      text: communities
+        ? `${communities} communities and ${reports} reports are available for global/drift search.`
+        : "No communities yet. Relationships are needed before community reports can form.",
+    },
+  ];
+  for (const insight of insights) {
+    const item = document.createElement("div");
+    item.className = "knowledge-insight-item";
+    item.innerHTML = `<strong>${escapeHtml(insight.title)}</strong><span>${escapeHtml(insight.text)}</span>`;
+    elements.knowledgeOverviewInsights.append(item);
   }
 }
 
@@ -1306,6 +1408,241 @@ async function loadKnowledgeDocs() {
   }
 }
 
+function setKnowledgeIndexingState(active, message = "") {
+  state.knowledgeIndexing = active;
+  if (elements.knowledgeIndexingStatus) {
+    elements.knowledgeIndexingStatus.hidden = !active;
+    const desc = elements.knowledgeIndexingStatus.querySelector(".indexing-desc");
+    if (desc && message) {
+      desc.textContent = message;
+    } else if (desc) {
+      desc.textContent = t("knowledge.indexingDesc");
+    }
+  }
+  setGlobalKnowledgeToast(active, message);
+
+  const disabledButtons = [
+    elements.refreshDocsButton,
+    elements.refreshGraphButton,
+    elements.rebuildIndexButton,
+    elements.uploadDocButton,
+    elements.docSaveButton,
+    elements.queryButton,
+  ];
+  for (const button of disabledButtons) {
+    if (button) {
+      button.disabled = active;
+      button.setAttribute("aria-busy", active ? "true" : "false");
+    }
+  }
+  if (elements.queryInput) {
+    elements.queryInput.disabled = active;
+  }
+  if (elements.queryMode) {
+    elements.queryMode.disabled = active;
+  }
+  if (elements.queryTopK) {
+    elements.queryTopK.disabled = active;
+  }
+}
+
+function ensureGlobalKnowledgeToast() {
+  if (elements.globalKnowledgeToast) {
+    return;
+  }
+  const toast = document.createElement("div");
+  toast.id = "global-knowledge-toast";
+  toast.className = "global-knowledge-toast";
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
+  toast.hidden = true;
+  toast.innerHTML = `
+    <div class="global-knowledge-spinner" aria-hidden="true"></div>
+    <div class="global-knowledge-copy">
+      <div id="global-knowledge-toast-title" class="global-knowledge-title">Building knowledge graph</div>
+      <div id="global-knowledge-toast-desc" class="global-knowledge-desc">Entities, relationships, communities, and reports are being generated. This may take a while.</div>
+    </div>
+  `;
+  document.body.append(toast);
+  elements.globalKnowledgeToast = toast;
+  elements.globalKnowledgeToastTitle = toast.querySelector("#global-knowledge-toast-title");
+  elements.globalKnowledgeToastDesc = toast.querySelector("#global-knowledge-toast-desc");
+}
+
+function setGlobalKnowledgeToast(active, message = "") {
+  ensureGlobalKnowledgeToast();
+  const toast = elements.globalKnowledgeToast;
+  if (!toast) {
+    return;
+  }
+  if (active) {
+    if (elements.globalKnowledgeToastTitle) {
+      elements.globalKnowledgeToastTitle.textContent = "Building knowledge graph";
+    }
+    if (elements.globalKnowledgeToastDesc) {
+      elements.globalKnowledgeToastDesc.textContent = message || "Entities, relationships, communities, and reports are being generated. This may take a while.";
+    }
+    toast.hidden = false;
+    requestAnimationFrame(() => toast.classList.add("active"));
+    return;
+  }
+  toast.classList.remove("active");
+  window.setTimeout(() => {
+    if (!state.knowledgeIndexing) {
+      toast.hidden = true;
+    }
+  }, 240);
+}
+
+function setupKnowledgeWorkbench() {
+  if (state.knowledgeWorkbenchReady || !elements.knowledgeModal) {
+    return;
+  }
+
+  const body = elements.knowledgeModal.querySelector(".modal-body");
+  const stats = body?.querySelector(".knowledge-stats");
+  const graphPanel = body?.querySelector(".knowledge-graph-panel");
+  const docsPanel = body?.querySelector(".knowledge-docs-panel");
+  const queryPanel = body?.querySelector(".knowledge-query-panel");
+  if (!body || !stats || !graphPanel || !docsPanel || !queryPanel) {
+    return;
+  }
+
+  const tabs = document.createElement("div");
+  tabs.className = "knowledge-tabs";
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "Knowledge views");
+  const tabItems = [
+    ["overview", "Overview"],
+    ["graph", "Graph"],
+    ["documents", "Documents"],
+    ["query", "Query"],
+  ];
+  for (const [key, label] of tabItems) {
+    const button = document.createElement("button");
+    button.className = `knowledge-tab${key === state.activeKnowledgeTab ? " active" : ""}`;
+    button.type = "button";
+    button.dataset.knowledgeTab = key;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", key === state.activeKnowledgeTab ? "true" : "false");
+    button.textContent = label;
+    button.addEventListener("click", () => setKnowledgeTab(key));
+    tabs.append(button);
+  }
+
+  const panels = document.createElement("div");
+  panels.className = "knowledge-tab-panels";
+
+  const overviewPanel = createKnowledgeTabPanel("overview");
+  const overviewGrid = document.createElement("div");
+  overviewGrid.className = "knowledge-overview-grid";
+  overviewGrid.innerHTML = `
+    <div class="knowledge-health-card">
+      <div class="knowledge-health-main">
+        <div>
+          <div class="knowledge-card-kicker">Knowledge readiness</div>
+          <div id="knowledge-health-title" class="knowledge-health-title">No knowledge loaded</div>
+        </div>
+        <div id="knowledge-health-score" class="knowledge-health-score">0%</div>
+      </div>
+      <div class="knowledge-health-track"><div id="knowledge-health-bar" class="knowledge-health-bar" style="width: 0%"></div></div>
+      <p id="knowledge-health-desc" class="knowledge-health-desc">Add documents and rebuild indexes to create a searchable knowledge graph.</p>
+    </div>
+    <div class="knowledge-insight-list" id="knowledge-overview-insights"></div>
+  `;
+  overviewPanel.append(stats, overviewGrid);
+
+  const graphPanelWrap = createKnowledgeTabPanel("graph");
+  const graphHeader = graphPanel.querySelector(".graph-header");
+  if (graphHeader) {
+    const title = graphHeader.firstElementChild;
+    if (title) {
+      const scope = document.createElement("span");
+      scope.id = "knowledge-graph-scope";
+      scope.className = "graph-scope";
+      scope.textContent = "All knowledge";
+      title.append(scope);
+      elements.knowledgeGraphScope = scope;
+    }
+    const actions = graphHeader.querySelector(".graph-actions");
+    if (actions) {
+      const clear = document.createElement("button");
+      clear.id = "clear-graph-filter-button";
+      clear.className = "button button-ghost button-small";
+      clear.type = "button";
+      clear.hidden = true;
+      clear.textContent = "Clear filter";
+      clear.addEventListener("click", () => setKnowledgeGraphDocumentFilter("", ""));
+      actions.insertBefore(clear, actions.firstChild);
+      elements.clearGraphFilterButton = clear;
+    }
+  }
+
+  const graphWorkspace = document.createElement("div");
+  graphWorkspace.className = "knowledge-graph-workspace";
+  const graphHost = elements.knowledgeGraph;
+  const inspector = document.createElement("aside");
+  inspector.id = "knowledge-graph-inspector";
+  inspector.className = "knowledge-graph-inspector";
+  graphWorkspace.append(graphHost, inspector);
+  elements.knowledgeGraphInspector = inspector;
+  graphPanel.append(graphWorkspace);
+  graphPanelWrap.append(graphPanel);
+
+  const docsPanelWrap = createKnowledgeTabPanel("documents");
+  docsPanelWrap.append(docsPanel);
+
+  const queryPanelWrap = createKnowledgeTabPanel("query");
+  const queryHeader = queryPanel.querySelector(".query-header");
+  if (queryHeader) {
+    const hint = document.createElement("span");
+    hint.id = "query-mode-hint";
+    hint.className = "query-mode-hint";
+    queryHeader.append(hint);
+    elements.queryModeHint = hint;
+  }
+  queryPanelWrap.append(queryPanel);
+
+  panels.append(overviewPanel, graphPanelWrap, docsPanelWrap, queryPanelWrap);
+  body.append(tabs, panels);
+  elements.knowledgeHealthTitle = document.querySelector("#knowledge-health-title");
+  elements.knowledgeHealthScore = document.querySelector("#knowledge-health-score");
+  elements.knowledgeHealthBar = document.querySelector("#knowledge-health-bar");
+  elements.knowledgeHealthDesc = document.querySelector("#knowledge-health-desc");
+  elements.knowledgeOverviewInsights = document.querySelector("#knowledge-overview-insights");
+  state.knowledgeWorkbenchReady = true;
+  setKnowledgeTab(state.activeKnowledgeTab);
+  renderKnowledgeOverview();
+  renderKnowledgeGraphInspector();
+  updateQueryModeHint();
+}
+
+function createKnowledgeTabPanel(key) {
+  const panel = document.createElement("section");
+  panel.className = `knowledge-tab-panel${key === state.activeKnowledgeTab ? " active" : ""}`;
+  panel.dataset.knowledgePanel = key;
+  panel.setAttribute("role", "tabpanel");
+  return panel;
+}
+
+function setKnowledgeTab(key) {
+  state.activeKnowledgeTab = key;
+  document.querySelectorAll(".knowledge-tab").forEach((tab) => {
+    const active = tab.dataset.knowledgeTab === key;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  document.querySelectorAll(".knowledge-tab-panel").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.knowledgePanel === key);
+  });
+  if (key === "graph") {
+    loadKnowledgeGraph();
+  }
+  if (key === "overview") {
+    renderKnowledgeOverview();
+  }
+}
+
 async function loadKnowledgeGraph() {
   if (!elements.knowledgeGraph) {
     return;
@@ -1330,7 +1667,10 @@ async function loadKnowledgeGraph() {
 }
 
 async function loadKnowledgeGraphPayload() {
-  const graphragResponse = await fetch(`${state.knowledgeApiPath}/graphrag?min_confidence=0`, {
+  const docParam = state.knowledgeGraphFilterDocId
+    ? `&doc_id=${encodeURIComponent(state.knowledgeGraphFilterDocId)}`
+    : "";
+  const graphragResponse = await fetch(`${state.knowledgeApiPath}/graphrag?min_confidence=0${docParam}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${state.token}` },
   });
@@ -1348,7 +1688,7 @@ async function loadKnowledgeGraphPayload() {
     console.warn(`load GraphRAG index failed: ${graphragResponse.status}; falling back to graph API`);
   }
 
-  const graphResponse = await fetch(`${state.knowledgeApiPath}/graph?limit=80&edge_limit=160`, {
+  const graphResponse = await fetch(`${state.knowledgeApiPath}/graph?limit=80&edge_limit=160${docParam}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${state.token}` },
   });
@@ -1378,9 +1718,24 @@ function normalizeGraphRagIndex(index) {
   const documents = new Map((index.documents || []).map((doc) => [doc.id, doc]));
   const textUnits = new Map((index.text_units || []).map((unit) => [unit.id, unit]));
   const claims = new Map((index.covariates || []).map((claim) => [claim.id, claim]));
+  const reportByCommunity = new Map((index.community_reports || []).map((report) => [report.community, report]));
+  const communities = (index.communities || []).map((community) => ({
+    ...community,
+    report: reportByCommunity.get(community.community) || null,
+  }));
+  const communityByEntity = new Map();
+  for (const community of communities) {
+    for (const entityId of community.entity_ids || []) {
+      if (!communityByEntity.has(entityId)) {
+        communityByEntity.set(entityId, community);
+      }
+    }
+  }
   const entityByName = new Map();
 
   const nodes = (index.entities || []).map((entity) => {
+    const community = communityByEntity.get(entity.id);
+    const report = community?.report || null;
     const node = {
       id: entity.id,
       label: entity.title || entity.id,
@@ -1393,6 +1748,10 @@ function normalizeGraphRagIndex(index) {
       degree: entity.degree || 0,
       confidence: entity.confidence || 0,
       description: entity.description || "",
+      community_id: community?.community ?? null,
+      community_title: community?.title || "",
+      community_report_id: report?.id || "",
+      community_report_summary: report?.summary || "",
       score: (entity.degree || 0) + (entity.frequency || 0),
     };
     entityByName.set(node.label, node);
@@ -1415,6 +1774,8 @@ function normalizeGraphRagIndex(index) {
         weight: relationship.weight || 0,
         combined_degree: relationship.combined_degree || 0,
         text_unit_ids: relationship.text_unit_ids || [],
+        community_id: source?.community_id === target?.community_id ? source?.community_id : null,
+        community_title: source?.community_id === target?.community_id ? source?.community_title : "",
         evidence,
         doc_names: Array.from(new Set(evidence.map((item) => item.doc_name).filter(Boolean))),
         description: relationship.description || "",
@@ -1427,6 +1788,8 @@ function normalizeGraphRagIndex(index) {
     source: "graphrag_index",
     nodes,
     edges,
+    communities,
+    community_reports: index.community_reports || [],
     stats: {
       ...(index.stats || {}),
       node_count: nodes.length,
@@ -1493,8 +1856,23 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
   const nodes = graph?.nodes || [];
   const edges = graph?.edges || [];
   if (elements.knowledgeGraphMeta) {
-    elements.knowledgeGraphMeta.textContent = `${nodes.length} nodes / ${edges.length} edges`;
+    const communityCount = graph?.stats?.community_count || 0;
+    const reportCount = graph?.stats?.community_report_count || 0;
+    const graphMeta = [`${nodes.length} nodes`, `${edges.length} edges`];
+    if (communityCount) graphMeta.push(`${communityCount} communities`);
+    if (reportCount) graphMeta.push(`${reportCount} reports`);
+    elements.knowledgeGraphMeta.textContent = graphMeta.join(" / ");
   }
+  if (elements.knowledgeGraphScope) {
+    elements.knowledgeGraphScope.textContent = state.knowledgeGraphFilterDocName
+      ? `Filtered: ${state.knowledgeGraphFilterDocName}`
+      : "All knowledge";
+  }
+  if (elements.clearGraphFilterButton) {
+    elements.clearGraphFilterButton.hidden = !state.knowledgeGraphFilterDocId;
+  }
+  state.knowledgeGraphSelection = null;
+  renderKnowledgeGraphInspector();
 
   if (!nodes.length || !edges.length) {
     const empty = document.createElement("div");
@@ -1526,12 +1904,14 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
   canvasSurface.tabIndex = 0;
   canvas.append(canvasSurface, controls, hint);
   const evidenceList = renderKnowledgeGraphEvidence(nodes, edges);
-  elements.knowledgeGraph.append(canvas, evidenceList);
+  const communityPanel = renderKnowledgeGraphCommunities(graph?.communities || [], nodes);
+  elements.knowledgeGraph.append(canvas, communityPanel, evidenceList);
   state.knowledgeGraphRuntime = renderKnowledgeGraphCanvas(canvasSurface, nodes, edges, {
     zoomIn,
     zoomOut,
     zoomReset,
     layoutToggle,
+    onSelect: renderKnowledgeGraphSelection,
   });
 }
 
@@ -1543,6 +1923,144 @@ function createKnowledgeGraphControlButton(label, title) {
   button.title = title;
   button.setAttribute("aria-label", title);
   return button;
+}
+
+function renderKnowledgeGraphSelection(selection) {
+  state.knowledgeGraphSelection = selection?.node || selection?.edge
+    ? { node: selection.node || null, edge: selection.edge || null }
+    : null;
+  renderKnowledgeGraphInspector();
+}
+
+function renderKnowledgeGraphInspector() {
+  const inspector = elements.knowledgeGraphInspector;
+  if (!inspector) {
+    return;
+  }
+  inspector.textContent = "";
+  const selection = state.knowledgeGraphSelection;
+  if (!selection?.node && !selection?.edge) {
+    const graph = state.knowledgeGraph || {};
+    const nodes = graph.nodes || [];
+    const edges = graph.edges || [];
+    const topNodes = [...nodes]
+      .sort((a, b) => ((b.degree || 0) + (b.mention_count || 0)) - ((a.degree || 0) + (a.mention_count || 0)))
+      .slice(0, 5);
+    const empty = document.createElement("div");
+    empty.className = "inspector-empty";
+    empty.innerHTML = `
+      <div class="inspector-title">Graph overview</div>
+      <p>${nodes.length} entities, ${edges.length} relationships. Select any node or edge to inspect evidence.</p>
+    `;
+    inspector.append(empty);
+    if (topNodes.length) {
+      inspector.append(createInspectorSection("Core entities", topNodes.map((node) => `${node.label} (${node.degree || 0})`)));
+    }
+    const communities = graph.communities || [];
+    if (communities.length) {
+      inspector.append(createInspectorSection("Communities", communities.slice(0, 5).map((item) => item.title || `Community ${item.community}`)));
+    }
+    return;
+  }
+
+  if (selection.node) {
+    const node = selection.node;
+    inspector.append(createInspectorTitle(node.label || node.id, node.type || "entity"));
+    inspector.append(createInspectorText(node.description || node.community_report_summary || "No description available."));
+    inspector.append(createInspectorMetrics([
+      ["Degree", node.degree || 0],
+      ["Frequency", node.mention_count || 0],
+      ["Confidence", formatInspectorNumber(node.confidence)],
+    ]));
+    if (node.community_title) {
+      inspector.append(createInspectorSection("Community", [node.community_title]));
+    }
+    if (node.doc_names?.length) {
+      inspector.append(createInspectorSection("Source documents", node.doc_names.slice(0, 6)));
+    }
+    return;
+  }
+
+  if (selection.edge) {
+    const edge = selection.edge;
+    inspector.append(createInspectorTitle(edge.predicate || "relationship", "relationship"));
+    inspector.append(createInspectorText(edge.description || "No relationship description available."));
+    inspector.append(createInspectorMetrics([
+      ["Weight", formatInspectorNumber(edge.weight || edge.count)],
+      ["Confidence", formatInspectorNumber(edge.confidence || edge.confidence_avg)],
+      ["Evidence", edge.evidence?.length || 0],
+    ]));
+    if (edge.doc_names?.length) {
+      inspector.append(createInspectorSection("Source documents", edge.doc_names.slice(0, 6)));
+    }
+    if (edge.evidence?.length) {
+      const evidence = edge.evidence.slice(0, 4).map((item) => {
+        const where = [item.doc_name, item.line_start ? `L${item.line_start}-${item.line_end || item.line_start}` : ""].filter(Boolean).join(" / ");
+        return `${where ? `${where}: ` : ""}${item.text || ""}`;
+      });
+      inspector.append(createInspectorSection("Evidence", evidence));
+    }
+  }
+}
+
+function createInspectorTitle(title, kicker) {
+  const block = document.createElement("div");
+  block.className = "inspector-heading";
+  const small = document.createElement("div");
+  small.className = "inspector-kicker";
+  small.textContent = kicker;
+  const main = document.createElement("div");
+  main.className = "inspector-title";
+  main.textContent = title;
+  block.append(small, main);
+  return block;
+}
+
+function createInspectorText(text) {
+  const item = document.createElement("p");
+  item.className = "inspector-text";
+  item.textContent = text;
+  return item;
+}
+
+function createInspectorMetrics(items) {
+  const grid = document.createElement("div");
+  grid.className = "inspector-metrics";
+  for (const [label, value] of items) {
+    const metric = document.createElement("div");
+    metric.className = "inspector-metric";
+    metric.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>`;
+    grid.append(metric);
+  }
+  return grid;
+}
+
+function createInspectorSection(title, rows) {
+  const section = document.createElement("div");
+  section.className = "inspector-section";
+  const heading = document.createElement("div");
+  heading.className = "inspector-section-title";
+  heading.textContent = title;
+  section.append(heading);
+  for (const row of rows) {
+    const item = document.createElement("div");
+    item.className = "inspector-row";
+    item.textContent = row;
+    section.append(item);
+  }
+  return section;
+}
+
+function formatInspectorNumber(value) {
+  if (value == null || value === "") {
+    return "-";
+  }
+  const num = Number(value);
+  return Number.isFinite(num) ? num.toFixed(num >= 10 ? 0 : 3) : String(value);
+}
+
+function normalizeKnowledgeMatchText(value) {
+  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
@@ -1559,6 +2077,7 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
       vy: 0,
       radius: Math.min(16, 5 + Math.sqrt((node.degree || 0) + (node.mention_count || 0)) * 2.4),
       color: knowledgeGraphNodeColor(node),
+      communityColor: knowledgeGraphCommunityColor(node.community_id),
     };
     nodeMap.set(node.id, item);
     return item;
@@ -1579,6 +2098,36 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
   for (const edge of links) {
     neighbors.get(edge.source)?.add(edge.target);
     neighbors.get(edge.target)?.add(edge.source);
+  }
+
+  function highlightMatches(kind, value) {
+    const terms = Array.isArray(value) ? value : [value];
+    const normalized = terms.map((item) => normalizeKnowledgeMatchText(item)).filter(Boolean);
+    if (!normalized.length) {
+      return () => false;
+    }
+    if (kind === "node") {
+      return (node) => normalized.some((term) => normalizeKnowledgeMatchText([
+        node.label,
+        node.canonical_name,
+        node.description,
+        ...(node.aliases || []),
+      ].join(" ")).includes(term));
+    }
+    if (kind === "edge") {
+      return (edge) => normalized.some((term) => normalizeKnowledgeMatchText([
+        edge.predicate,
+        edge.description,
+        ...(edge.evidence || []).map((item) => item.text).join(" "),
+      ].join(" ")).includes(term));
+    }
+    if (kind === "community") {
+      return (node) => normalized.some((term) => normalizeKnowledgeMatchText([
+        node.community_title,
+        node.community_report_summary,
+      ].join(" ")).includes(term));
+    }
+    return () => false;
   }
 
   const view = {
@@ -1665,6 +2214,13 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
     runtime.selectedNodeId = nodeId;
     runtime.selectedEdgeId = edgeId;
     updateEvidenceHighlight();
+    const selectedNode = nodeId ? nodeMap.get(nodeId) : null;
+    const selectedEdge = edgeId ? links.find((item) => item.id === edgeId) : null;
+    controls.onSelect?.({
+      node: selectedNode || null,
+      edge: selectedEdge || null,
+      graph: { nodes: graphNodes, edges: links },
+    });
   }
 
   function setZoom(nextScale, anchorX = runtime.width / 2, anchorY = runtime.height / 2) {
@@ -1755,10 +2311,19 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
   }
 
   function isNodeActive(node) {
+    const highlight = state.knowledgeGraphHighlight;
+    if (highlight) {
+      const entityTerms = highlight.entities?.length ? highlight.entities : highlight.query;
+      const communityTerms = highlight.communities?.length ? highlight.communities : "";
+      if (highlightMatches("node", entityTerms || "")(node)) return true;
+      if (highlightMatches("community", communityTerms)(node)) return true;
+    }
     const focusNodeId = runtime.hoverNodeId || runtime.selectedNodeId;
     const focusEdgeId = runtime.hoverEdgeId || runtime.selectedEdgeId;
+    const selectedNode = focusNodeId ? nodeMap.get(focusNodeId) : null;
     if (node.id === focusNodeId) return true;
     if (focusNodeId && neighbors.get(focusNodeId)?.has(node.id)) return true;
+    if (selectedNode && selectedNode.community_id != null && selectedNode.community_id === node.community_id) return true;
     if (focusEdgeId) {
       const edge = links.find((item) => item.id === focusEdgeId);
       return edge && (edge.source === node.id || edge.target === node.id);
@@ -1767,9 +2332,19 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
   }
 
   function isEdgeActive(edge) {
+    const highlight = state.knowledgeGraphHighlight;
+    if (highlight) {
+      const relationTerms = highlight.relations?.length ? highlight.relations : highlight.query;
+      if (highlightMatches("edge", relationTerms || "")(edge)) {
+        return true;
+      }
+    }
     const focusNodeId = runtime.hoverNodeId || runtime.selectedNodeId;
     const focusEdgeId = runtime.hoverEdgeId || runtime.selectedEdgeId;
-    return edge.id === focusEdgeId || (!!focusNodeId && (edge.source === focusNodeId || edge.target === focusNodeId));
+    const selectedNode = focusNodeId ? nodeMap.get(focusNodeId) : null;
+    return edge.id === focusEdgeId
+      || (!!focusNodeId && (edge.source === focusNodeId || edge.target === focusNodeId))
+      || (!!selectedNode && selectedNode.community_id != null && edge.community_id === selectedNode.community_id);
   }
 
   function draw() {
@@ -1790,7 +2365,7 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
       ctx.beginPath();
       ctx.moveTo(edge.sourceNode.x, edge.sourceNode.y);
       ctx.lineTo(edge.targetNode.x, edge.targetNode.y);
-      ctx.strokeStyle = active ? "rgba(125, 173, 255, 0.9)" : "rgba(116, 129, 154, 0.28)";
+      ctx.strokeStyle = active ? knowledgeGraphCommunityStroke(edge.community_id) : "rgba(116, 129, 154, 0.28)";
       ctx.lineWidth = (active ? 1.8 : 0.8) / view.scale + Math.min(1.4, Math.sqrt(edge.count || 1) * 0.18);
       ctx.stroke();
     }
@@ -1808,7 +2383,7 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
 
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = node.color;
+      ctx.fillStyle = node.community_id != null ? node.communityColor : node.color;
       ctx.fill();
       ctx.lineWidth = selected ? 2.2 / view.scale : 1.2 / view.scale;
       ctx.strokeStyle = selected ? "rgba(219, 234, 254, 0.98)" : "rgba(226, 232, 240, 0.56)";
@@ -1834,10 +2409,11 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
     }
     ctx.restore();
 
-    if (runtime.hoverNodeId) {
-      const node = nodeMap.get(runtime.hoverNodeId);
-      drawGraphTooltip(node?.label || "", node?.type || "concept", node ? worldToScreen(node) : null);
-    }
+  if (runtime.hoverNodeId) {
+    const node = nodeMap.get(runtime.hoverNodeId);
+    const subtitle = node?.community_title || node?.type || "concept";
+    drawGraphTooltip(node?.label || "", subtitle, node ? worldToScreen(node) : null);
+  }
   }
 
   function drawGraphTooltip(title, subtitle, point) {
@@ -1977,6 +2553,31 @@ function knowledgeGraphNodeColor(node) {
   return "#a78bfa";
 }
 
+const KNOWLEDGE_COMMUNITY_COLORS = [
+  "#60a5fa",
+  "#34d399",
+  "#f59e0b",
+  "#f472b6",
+  "#a78bfa",
+  "#2dd4bf",
+  "#fb7185",
+  "#c084fc",
+  "#22c55e",
+  "#eab308",
+];
+
+function knowledgeGraphCommunityColor(communityId) {
+  if (communityId == null || Number.isNaN(Number(communityId))) {
+    return "";
+  }
+  return KNOWLEDGE_COMMUNITY_COLORS[Math.abs(Number(communityId)) % KNOWLEDGE_COMMUNITY_COLORS.length];
+}
+
+function knowledgeGraphCommunityStroke(communityId) {
+  const color = knowledgeGraphCommunityColor(communityId);
+  return color ? `${color}cc` : "rgba(125, 173, 255, 0.9)";
+}
+
 function distanceToSegment(point, start, end) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
@@ -2022,6 +2623,57 @@ function renderKnowledgeGraphEvidence(nodes, edges) {
   return list;
 }
 
+function renderKnowledgeGraphCommunities(communities, nodes) {
+  const panel = document.createElement("div");
+  panel.className = "graph-community-panel";
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const visibleCommunities = (communities || [])
+    .map((community) => {
+      const entityCount = (community.entity_ids || []).filter((entityId) => nodeById.has(entityId)).length;
+      return { ...community, entityCount };
+    })
+    .filter((community) => community.entityCount > 0)
+    .sort((a, b) => b.entityCount - a.entityCount)
+    .slice(0, 6);
+
+  if (!visibleCommunities.length) {
+    return panel;
+  }
+
+  const title = document.createElement("div");
+  title.className = "graph-community-panel-title";
+  title.textContent = t("knowledge.communityReports") || "Community reports";
+  panel.append(title);
+
+  for (const community of visibleCommunities) {
+    const report = community.report || {};
+    const item = document.createElement("div");
+    item.className = "graph-community-item";
+    item.dataset.communityId = String(community.community);
+
+    const header = document.createElement("div");
+    header.className = "graph-community-header";
+    const swatch = document.createElement("span");
+    swatch.className = "graph-community-swatch";
+    swatch.style.background = knowledgeGraphCommunityColor(community.community);
+    const name = document.createElement("span");
+    name.className = "graph-community-name";
+    name.textContent = community.title || report.title || `Community ${community.community}`;
+    const count = document.createElement("span");
+    count.className = "graph-community-count";
+    count.textContent = `${community.entityCount} entities`;
+    header.append(swatch, name, count);
+
+    const summary = document.createElement("div");
+    summary.className = "graph-community-summary";
+    summary.textContent = report.summary || "";
+
+    item.append(header, summary);
+    panel.append(item);
+  }
+  return panel;
+}
+
 function compactGraphLabel(label) {
   const text = String(label || "");
   return text.length > 18 ? `${text.slice(0, 16)}…` : text;
@@ -2063,13 +2715,20 @@ function renderKnowledgeDocs() {
     chunks.className = "doc-chunks";
     chunks.textContent = `${doc.chunk_count || 0} ${t("knowledge.chunks")}`;
 
+    const graphBtn = document.createElement("button");
+    graphBtn.className = "doc-graph-btn";
+    graphBtn.type = "button";
+    graphBtn.textContent = "Graph";
+    graphBtn.title = "View this document in the graph";
+    graphBtn.addEventListener("click", () => setKnowledgeGraphDocumentFilter(doc.id, doc.name));
+
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "doc-delete-btn";
     deleteBtn.textContent = "×";
     deleteBtn.title = t("ui.delete");
     deleteBtn.addEventListener("click", () => deleteDoc(doc.id, doc.name));
 
-    metaSection.append(chunks, deleteBtn);
+    metaSection.append(chunks, graphBtn, deleteBtn);
     headerRow.append(nameSection, metaSection);
 
     const descRow = document.createElement("div");
@@ -2095,7 +2754,20 @@ function renderKnowledgeDocs() {
   }
 }
 
+async function setKnowledgeGraphDocumentFilter(docId, docName) {
+  state.knowledgeGraphFilterDocId = docId || "";
+  state.knowledgeGraphFilterDocName = docName || "";
+  state.knowledgeGraphHighlight = null;
+  state.knowledgeGraphSelection = null;
+  if (state.activeKnowledgeTab === "graph") {
+    await loadKnowledgeGraph();
+  } else {
+    setKnowledgeTab("graph");
+  }
+}
+
 function openKnowledgeModal() {
+  setupKnowledgeWorkbench();
   // Update modal stats from sidebar stats
   elements.modalStatsDocs.textContent = elements.statsDocs.textContent;
   elements.modalStatsChunks.textContent = elements.statsChunks.textContent;
@@ -2192,6 +2864,8 @@ async function addDoc() {
   const fileType = elements.docFileTypeSelect.value;
 
   try {
+    setKnowledgeIndexingState(true, t("knowledge.indexingAddDoc"));
+    elements.docSuccess.textContent = t("knowledge.indexingAddDoc");
     const response = await fetch(`${state.knowledgeApiPath}/documents`, {
       method: "POST",
       headers: authHeaders(),
@@ -2221,6 +2895,8 @@ async function addDoc() {
   } catch (error) {
     console.error(error);
     elements.docError.textContent = error.message || t("status.failed");
+  } finally {
+    setKnowledgeIndexingState(false);
   }
 }
 
@@ -2249,6 +2925,8 @@ async function uploadDoc() {
   }
 
   try {
+    setKnowledgeIndexingState(true, t("knowledge.indexingUploadDoc"));
+    elements.docSuccess.textContent = t("knowledge.indexingUploadDoc");
     const response = await fetch(`${state.knowledgeApiPath}/documents/upload`, {
       method: "POST",
       headers: {
@@ -2274,6 +2952,8 @@ async function uploadDoc() {
   } catch (error) {
     console.error(error);
     elements.docError.textContent = error.message || t("status.failed");
+  } finally {
+    setKnowledgeIndexingState(false);
   }
 }
 
@@ -2313,6 +2993,7 @@ async function rebuildKnowledgeIndex() {
   }
 
   try {
+    setKnowledgeIndexingState(true, t("knowledge.indexingRebuild"));
     const response = await fetch(`${state.knowledgeApiPath}/rebuild-index?type=all`, {
       method: "POST",
       headers: authHeaders(),
@@ -2326,7 +3007,7 @@ async function rebuildKnowledgeIndex() {
     const result = await response.json();
     let message = t("knowledge.rebuildSuccessAll") || "索引重建成功";
     if (result.bm25 && result.semantic) {
-      message = `索引重建成功: BM25(${result.bm25.chunks_indexed || 0} chunks), 语义(${result.semantic.entities || 0} entities, ${result.semantic.claims || 0} claims)`;
+      message = `索引重建成功: BM25(${result.bm25.chunks_indexed || 0} chunks), 语义(${result.semantic.entities || 0} entities, ${result.semantic.claims || 0} claims, ${result.semantic.communities || 0} communities)`;
     }
 
     // Show success notification
@@ -2343,10 +3024,15 @@ async function rebuildKnowledgeIndex() {
   } catch (error) {
     console.error(error);
     setError(error.message || t("status.failed"));
+  } finally {
+    setKnowledgeIndexingState(false);
   }
 }
 
 async function queryKnowledge() {
+  if (state.knowledgeIndexing) {
+    return;
+  }
   const query = elements.queryInput.value.trim();
   if (!query) {
     elements.queryResults.textContent = "";
@@ -2447,8 +3133,35 @@ function renderQueryResults(result) {
     debug.className = "query-result-debug";
     debug.textContent = formatKnowledgeDebug(item);
 
-    resultItem.append(header, meta, content, debug);
+    const actions = document.createElement("div");
+    actions.className = "query-result-actions";
+    const locate = document.createElement("button");
+    locate.className = "button button-ghost button-small";
+    locate.type = "button";
+    locate.textContent = "Highlight in graph";
+    locate.addEventListener("click", () => highlightKnowledgeQueryResult(item, result.query));
+    actions.append(locate);
+
+    resultItem.append(header, meta, content, debug, actions);
     elements.queryResults.append(resultItem);
+  }
+}
+
+function highlightKnowledgeQueryResult(item, query) {
+  state.knowledgeGraphHighlight = {
+    query,
+    entities: item.matched_entities || [],
+    relations: item.matched_relations || [],
+    communities: item.matched_communities || [],
+  };
+  if (item.doc_id) {
+    state.knowledgeGraphFilterDocId = item.doc_id;
+    state.knowledgeGraphFilterDocName = item.doc_name || item.doc_id;
+  }
+  if (state.activeKnowledgeTab === "graph") {
+    loadKnowledgeGraph();
+  } else {
+    setKnowledgeTab("graph");
   }
 }
 
@@ -2458,6 +3171,12 @@ function formatKnowledgeScore(item) {
   }
   if (item.rrf_score != null) {
     return `rrf ${Number(item.rrf_score).toFixed(4)}`;
+  }
+  if (item.semantic_fusion_score != null) {
+    return `graph ${Number(item.semantic_fusion_score).toFixed(4)}`;
+  }
+  if (item.semantic_score != null) {
+    return `semantic ${Number(item.semantic_score).toFixed(3)}`;
   }
   if (item.bm25_score != null) {
     return `bm25 ${Number(item.bm25_score).toFixed(3)}`;
@@ -2488,7 +3207,41 @@ function formatKnowledgeDebug(item) {
       : `sparse #${item.sparse_rank}`;
     parts.push(sparse);
   }
+  if (item.semantic_rank != null) {
+    const semantic = item.semantic_score != null
+      ? `semantic #${item.semantic_rank} score ${Number(item.semantic_score).toFixed(3)}`
+      : `semantic #${item.semantic_rank}`;
+    parts.push(semantic);
+  }
+  if (item.matched_communities?.length) {
+    parts.push(`communities: ${item.matched_communities.slice(0, 3).join("; ")}`);
+  }
+  if (item.matched_entities?.length) {
+    parts.push(`entities: ${item.matched_entities.slice(0, 5).join(", ")}`);
+  }
+  if (item.matched_relations?.length) {
+    parts.push(`relations: ${item.matched_relations.slice(0, 3).join("; ")}`);
+  }
+  if (item.matched_claims?.length) {
+    parts.push(`claims: ${item.matched_claims.slice(0, 3).join(" | ")}`);
+  }
   return parts.join(" · ");
+}
+
+function updateQueryModeHint() {
+  if (!elements.queryModeHint || !elements.queryMode) {
+    return;
+  }
+  const hints = {
+    hybrid: "Blends vector, keyword, semantic, and graph signals. Best default.",
+    dense: "Vector similarity over embedded chunks.",
+    sparse: "Keyword/BM25 matching over child chunks.",
+    semantic: "Entity, claim, and relationship matching.",
+    local: "Starts from matched entities, then expands nearby graph neighbors.",
+    global: "Searches community reports for broad topic answers.",
+    drift: "Uses communities to guide local graph expansion.",
+  };
+  elements.queryModeHint.textContent = hints[elements.queryMode.value] || "";
 }
 
 function toggleKnowledgePanel() {
@@ -3475,6 +4228,7 @@ function bindEvents() {
   });
   elements.docFileUpload.addEventListener("change", uploadDoc);
   elements.queryButton.addEventListener("click", queryKnowledge);
+  elements.queryMode.addEventListener("change", updateQueryModeHint);
   elements.queryInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();

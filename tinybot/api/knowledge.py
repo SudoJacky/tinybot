@@ -290,7 +290,7 @@ async def handle_query_knowledge(request: web.Request) -> web.Response:
     Body:
     - query: Query text (required)
     - top_k: Max results (default 5)
-    - mode: Retrieval mode (dense/sparse/hybrid, default hybrid)
+    - mode: Retrieval mode (dense/sparse/hybrid/semantic/local/global/drift, default hybrid)
     - category: Optional category filter
     - tags: Optional tags filter
     """
@@ -342,12 +342,22 @@ async def handle_query_knowledge(request: web.Request) -> web.Response:
                     "line_end": r.get("line_end"),
                     "section_path": r.get("section_path"),
                     "block_type": r.get("block_type"),
-                    "score": r.get("rerank_score") or r.get("rrf_score") or r.get("bm25_score") or r.get("distance"),
+                    "score": (
+                        r.get("rerank_score")
+                        or r.get("semantic_fusion_score")
+                        or r.get("semantic_score")
+                        or r.get("rrf_score")
+                        or r.get("bm25_score")
+                        or r.get("distance")
+                    ),
                     "rerank_score": r.get("rerank_score"),
                     "rerank_rank": r.get("rerank_rank"),
                     "rerank_model": r.get("rerank_model"),
                     "pre_rerank_score": r.get("pre_rerank_score"),
                     "rrf_score": r.get("rrf_score"),
+                    "semantic_score": r.get("semantic_score"),
+                    "semantic_rank": r.get("semantic_rank"),
+                    "semantic_fusion_score": r.get("semantic_fusion_score"),
                     "bm25_score": r.get("bm25_score"),
                     "dense_distance": r.get("dense_distance") if r.get("dense_distance") is not None else r.get("distance"),
                     "dense_rank": r.get("dense_rank"),
@@ -356,6 +366,10 @@ async def handle_query_knowledge(request: web.Request) -> web.Response:
                     "sparse_contribution": r.get("sparse_contribution"),
                     "method": r.get("method"),
                     "matched_methods": r.get("matched_methods", []),
+                    "matched_entities": r.get("matched_entities", []),
+                    "matched_claims": r.get("matched_claims", []),
+                    "matched_relations": r.get("matched_relations", []),
+                    "matched_communities": r.get("matched_communities", []),
                 }
                 for r in results
             ],
@@ -389,6 +403,8 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
             "entity_count": stats.get("entity_count", 0),
             "claim_count": stats.get("claim_count", 0),
             "relation_count": stats.get("relation_count", 0),
+            "community_count": stats.get("community_count", 0),
+            "community_report_count": stats.get("community_report_count", 0),
         })
     except Exception as e:
         logger.exception("Error getting stats")
@@ -494,6 +510,8 @@ async def handle_rebuild_index(request: web.Request) -> web.Response:
                 "claims": result.get("claims", 0),
                 "relations": result.get("relations", 0),
                 "mentions": result.get("mentions", 0),
+                "communities": result.get("communities", 0),
+                "community_reports": result.get("community_reports", 0),
             })
         elif rebuild_type == "all":
             bm25_result = knowledge_store.rebuild_bm25_index()
@@ -510,6 +528,8 @@ async def handle_rebuild_index(request: web.Request) -> web.Response:
                     "claims": semantic_result.get("claims", 0),
                     "relations": semantic_result.get("relations", 0),
                     "mentions": semantic_result.get("mentions", 0),
+                    "communities": semantic_result.get("communities", 0),
+                    "community_reports": semantic_result.get("community_reports", 0),
                 },
             })
         else:

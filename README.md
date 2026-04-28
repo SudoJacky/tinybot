@@ -15,6 +15,8 @@ A lightweight personal AI assistant framework that integrates Large Language Mod
 <details>
 <summary>2026.04.28 Add beta RAG relation graph.</summary>
 
+![rag_graph_beta_gif](./show/webui_rag_graph_beta1.gif)
+
 ![rag_graph_beta](./show/webui_rag_graph_beta1.PNG)
 
 </details>

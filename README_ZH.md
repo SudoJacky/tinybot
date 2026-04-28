@@ -15,6 +15,8 @@
 <details>
 <summary>2026.04.28 新增测试版RAG实体关系图。</summary>
 
+![rag_graph_beta_gif](./show/webui_rag_graph_beta1.gif)
+
 ![rag_graph_beta](./show/webui_rag_graph_beta1.PNG)
 
 </details>
