@@ -2130,6 +2130,7 @@ class KnowledgeStore:
                     "predicate": relation.predicate,
                     "count": 0,
                     "confidence": 0.0,
+                    "strength": 0.0,
                     "confidence_total": 0.0,
                     "weight": 0.0,
                     "relation_ids": [],
@@ -2140,7 +2141,9 @@ class KnowledgeStore:
             group["count"] += 1
             group["confidence"] = max(group["confidence"], relation.confidence)
             group["confidence_total"] += relation.confidence
-            group["weight"] = group.get("weight", 0.0) + (relation.weight or relation.confidence or 1.0)
+            relation_strength = relation.weight or relation.confidence or 1.0
+            group["weight"] = group.get("weight", 0.0) + relation_strength
+            group["strength"] = group.get("strength", 0.0) + relation_strength
             group["relation_ids"].append(relation.id)
             if relation.doc_id and relation.doc_id not in group["doc_ids"]:
                 group["doc_ids"].append(relation.doc_id)
@@ -2170,7 +2173,7 @@ class KnowledgeStore:
 
         grouped_edges = sorted(
             edge_groups.values(),
-            key=lambda edge: (edge["count"], edge["confidence"]),
+            key=lambda edge: (edge["weight"], edge["count"], edge["confidence"]),
             reverse=True,
         )[:edge_limit]
 
@@ -2217,6 +2220,7 @@ class KnowledgeStore:
             edge["confidence_avg"] = (
                 edge["confidence_total"] / edge["count"] if edge["count"] else edge["confidence"]
             )
+            edge["strength"] = edge.get("strength", edge.get("weight", 0.0))
             edge["doc_names"] = [
                 documents[edge_doc_id].name
                 for edge_doc_id in edge["doc_ids"]
@@ -2368,6 +2372,7 @@ class KnowledgeStore:
                     "predicate": relation.predicate,
                     "description_parts": [],
                     "weight": 0.0,
+                    "strength": 0.0,
                     "text_unit_ids": set(),
                     "relation_ids": [],
                     "confidence": 0.0,
@@ -2377,6 +2382,7 @@ class KnowledgeStore:
             if evidence and evidence not in group["description_parts"]:
                 group["description_parts"].append(evidence)
             group["weight"] += relation.weight or relation.confidence or 1.0
+            group["strength"] += relation.weight or relation.confidence or 1.0
             group["confidence"] = max(group["confidence"], relation.confidence)
             for text_unit_id in [relation.evidence_chunk_id, *relation.text_unit_ids]:
                 if text_unit_id:
@@ -2408,6 +2414,7 @@ class KnowledgeStore:
                 "predicate": group["predicate"],
                 "description": description,
                 "weight": round(float(group["weight"]), 6),
+                "strength": round(float(group["strength"]), 6),
                 "combined_degree": entity_degrees.get(source_id, 0) + entity_degrees.get(target_id, 0),
                 "text_unit_ids": sorted(group["text_unit_ids"]),
                 "relation_ids": group["relation_ids"],
@@ -2929,8 +2936,9 @@ class KnowledgeStore:
         if llm_report:
             return llm_report
         full_content = self._community_full_content(community, ranked_entities, relations, claims, chunks, summary)
+        relationship_strength = sum(relation.weight or 1.0 for relation in relations)
         rank = round(
-            sum((relation.weight or 1.0) * (relation.confidence or 0.5) for relation in relations)
+            relationship_strength
             + len(community.text_unit_ids) * 0.2
             + len(community.entity_ids) * 0.1,
             6,
@@ -2945,7 +2953,7 @@ class KnowledgeStore:
             summary=summary,
             full_content=full_content,
             rank=rank,
-            rating_explanation="Rank is based on relationship weight, confidence, and supporting text units.",
+            rating_explanation="Rank is based on relationship weight, entity count, and supporting text units.",
             findings=findings,
             full_content_json={
                 "title": community.title,
@@ -4036,7 +4044,9 @@ Rules:
   is_a, part_of, contains, depends_on, requires, supports, used_for, causes, precedes, owned_by, located_in, similar_to, contradicts, defined_as.
 - subject and object must be entity names.
 - each entity should include a short description grounded in the chunk when useful.
-- each relation should include source, target, description, evidence, confidence, and optional weight.
+- each relation should include source, target, description, evidence, and weight/strength.
+- Relationship weight is the GraphRAG edge strength from this text unit on a 0-10 scale; use higher values for strong, explicit relationships.
+- confidence is optional TinyBot debugging metadata, not a GraphRAG schema field.
 - evidence must be a short exact excerpt from the chunk.
 - Only output a relation when both endpoints are explicit entities in the evidence.
 - Covariates are factual claims grounded in the text unit; include subject, description, status, start_date, end_date, and source_text.
@@ -4048,7 +4058,7 @@ JSON schema:
     {{"title": "RAG", "type": "technology", "aliases": ["Retrieval-Augmented Generation"], "description": "Retrieval-augmented generation technique.", "confidence": 0.9}}
   ],
   "relationships": [
-    {{"source": "RAG", "predicate": "depends_on", "target": "embeddings", "description": "RAG depends on embeddings for semantic retrieval.", "evidence": "RAG depends on embeddings.", "weight": 1.0, "confidence": 0.85}}
+    {{"source": "RAG", "predicate": "depends_on", "target": "embeddings", "description": "RAG depends on embeddings for semantic retrieval.", "evidence": "RAG depends on embeddings.", "weight": 8.0}}
   ],
   "covariates": [
     {{"subject": "RAG", "description": "RAG depends on embeddings.", "status": "TRUE", "start_date": "", "end_date": "", "source_text": "RAG depends on embeddings.", "confidence": 0.85}}
@@ -4214,7 +4224,7 @@ Chunk:
                 "object": obj,
                 "evidence": evidence,
                 "description": re.sub(r"\s+", " ", str(raw.get("description", raw.get("d", evidence))).strip())[:500],
-                "weight": self._coerce_weight(raw.get("weight", raw.get("w")), 1.0),
+                "weight": self._coerce_weight(raw.get("weight", raw.get("strength", raw.get("w"))), 1.0),
                 "confidence": self._coerce_confidence(raw.get("confidence", raw.get("c")), 0.65),
             })
 

@@ -173,6 +173,7 @@ def test_graphrag_index_exports_aggregated_knowledge_model_tables() -> None:
     ]
     assert len(supports_edges) == 1
     assert supports_edges[0]["weight"] > 0
+    assert supports_edges[0]["strength"] == supports_edges[0]["weight"]
     assert supports_edges[0]["combined_degree"] >= 2
     assert supports_edges[0]["text_unit_ids"]
     assert "TinyBot supports RAG" in supports_edges[0]["description"]
@@ -182,6 +183,8 @@ def test_graphrag_index_exports_aggregated_knowledge_model_tables() -> None:
     assert text_unit["entity_ids"]
     assert text_unit["relationship_ids"]
     assert text_unit["covariate_ids"]
+    assert index["community_reports"][0]["rank"] > 0
+    assert "relationship weight" in index["community_reports"][0]["rating_explanation"]
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
@@ -540,7 +543,7 @@ def test_llm_semantic_extraction_accepts_graphrag_subgraph_schema(monkeypatch) -
                                 '"relationships": ['
                                 '{"source": "GraphRAG", "predicate": "supports", "target": "community reports", '
                                 '"description": "GraphRAG supports community reports.", '
-                                '"evidence": "GraphRAG supports community reports.", "weight": 2.0, "confidence": 0.9}'
+                                '"evidence": "GraphRAG supports community reports.", "strength": 2.0, "confidence": 0.9}'
                                 "],"
                                 '"covariates": ['
                                 '{"subject": "GraphRAG", "description": "GraphRAG supports community reports.", '
@@ -592,6 +595,7 @@ def test_llm_semantic_extraction_accepts_graphrag_subgraph_schema(monkeypatch) -
     assert index["relationships"][0]["source"] == "GraphRAG"
     assert index["relationships"][0]["target"] == "community reports"
     assert index["relationships"][0]["weight"] >= 2.0
+    assert index["relationships"][0]["strength"] >= 2.0
     assert index["covariates"][0]["status"] == "TRUE"
     assert index["covariates"][0]["start_date"] == "2024"
     assert index["community_reports"] == []

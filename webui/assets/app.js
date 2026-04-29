@@ -1807,6 +1807,7 @@ function normalizeGraphRagIndex(index) {
         confidence: relationship.confidence || 0,
         confidence_avg: relationship.confidence || 0,
         weight: relationship.weight || 0,
+        strength: relationship.strength || relationship.weight || 0,
         combined_degree: relationship.combined_degree || 0,
         text_unit_ids: relationship.text_unit_ids || [],
         community_id: source?.community_id === target?.community_id ? source?.community_id : null,
@@ -2011,7 +2012,7 @@ function renderKnowledgeGraphInspector() {
     inspector.append(createInspectorMetrics([
       ["Degree", node.degree || 0],
       ["Frequency", node.mention_count || 0],
-      ["Confidence", formatInspectorNumber(node.confidence)],
+      ["Community", node.community_level == null ? "-" : `L${node.community_level}`],
     ]));
     if (node.community_title) {
       inspector.append(createInspectorSection("Community", [node.community_title]));
@@ -2028,7 +2029,7 @@ function renderKnowledgeGraphInspector() {
     inspector.append(createInspectorText(edge.description || "No relationship description available."));
     inspector.append(createInspectorMetrics([
       ["Weight", formatInspectorNumber(edge.weight || edge.count)],
-      ["Confidence", formatInspectorNumber(edge.confidence || edge.confidence_avg)],
+      ["Strength", formatInspectorNumber(edge.strength || edge.weight || edge.count)],
       ["Evidence", edge.evidence?.length || 0],
     ]));
     if (edge.doc_names?.length) {
@@ -2650,9 +2651,11 @@ function renderKnowledgeGraphEvidence(nodes, edges) {
     const evidence = edge.evidence?.[0];
     const meta = document.createElement("div");
     meta.className = "graph-evidence-meta";
+    const metricText = edge.weight ? `weight ${formatInspectorNumber(edge.weight)}` : "";
     meta.textContent = evidence
       ? [evidence.doc_name, evidence.line_start ? `L${evidence.line_start}-${evidence.line_end || evidence.line_start}` : ""].filter(Boolean).join(" · ")
       : "";
+    meta.textContent = [meta.textContent, metricText].filter(Boolean).join(" · ");
 
     const text = document.createElement("div");
     text.className = "graph-evidence-text";
@@ -2704,6 +2707,9 @@ function renderKnowledgeGraphCommunities(communities, nodes) {
     count.className = "graph-community-count";
     const childCount = (community.children || []).length;
     const countParts = [`L${community.level || 0}`, `${community.entityCount} entities`];
+    if (report.rank != null) {
+      countParts.push(`rank ${formatInspectorNumber(report.rank)}`);
+    }
     if (childCount) {
       countParts.push(`${childCount} child`);
     } else if (community.parent != null && community.parent >= 0) {
