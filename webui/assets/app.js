@@ -22,6 +22,7 @@ const state = {
   knowledgeGraph: null,
   knowledgeGraphView: { scale: 1, x: 0, y: 0 },
   knowledgeGraphRuntime: null,
+  knowledgeGraphLevel: 0,
   knowledgeGraphFilterDocId: "",
   knowledgeGraphFilterDocName: "",
   knowledgeGraphHighlight: null,
@@ -107,6 +108,11 @@ const elements = {
   configKnowledgeSemanticExtractionMode: document.querySelector("#config-knowledge-semantic-extraction-mode"),
   configKnowledgeSemanticLlmMaxTokens: document.querySelector("#config-knowledge-semantic-llm-max-tokens"),
   configKnowledgeSemanticLlmTimeout: document.querySelector("#config-knowledge-semantic-llm-timeout"),
+  configKnowledgeGraphRagCommunityAlgorithm: document.querySelector("#config-knowledge-graphrag-community-algorithm"),
+  configKnowledgeGraphRagCommunityLevel: document.querySelector("#config-knowledge-graphrag-community-level"),
+  configKnowledgeGraphRagReportLlmEnabled: document.querySelector("#config-knowledge-graphrag-report-llm-enabled"),
+  configKnowledgeGraphRagReportMaxTokens: document.querySelector("#config-knowledge-graphrag-report-max-tokens"),
+  configKnowledgeGraphRagEntitySummaryEnabled: document.querySelector("#config-knowledge-graphrag-entity-summary-enabled"),
   // Embedding config elements
   configEmbeddingProvider: document.querySelector("#config-embedding-provider"),
   configEmbeddingModelName: document.querySelector("#config-embedding-model-name"),
@@ -232,6 +238,7 @@ const elements = {
   knowledgeIndexingStatus: document.querySelector("#knowledge-indexing-status"),
   knowledgeGraphInspector: null,
   knowledgeGraphScope: null,
+  knowledgeGraphLevelSelect: null,
   clearGraphFilterButton: null,
   globalKnowledgeToast: null,
   globalKnowledgeToastTitle: null,
@@ -1310,6 +1317,11 @@ function renderKnowledgeOverview() {
   const relations = Number(stats.relation_count || 0);
   const communities = Number(stats.community_count || 0);
   const reports = Number(stats.community_report_count || 0);
+  const communityLevels = stats.community_count_by_level || stats.communityCountByLevel || {};
+  const communityLevelText = Object.entries(communityLevels)
+    .sort(([left], [right]) => Number(left) - Number(right))
+    .map(([level, count]) => `L${level}: ${count}`)
+    .join(", ");
   const indexedDense = Number(stats.indexed_dense || 0);
   const indexedSparse = Number(stats.indexed_sparse || 0);
 
@@ -1360,7 +1372,7 @@ function renderKnowledgeOverview() {
     {
       title: "GraphRAG layer",
       text: communities
-        ? `${communities} communities and ${reports} reports are available for global/drift search.`
+        ? `${communities} communities${communityLevelText ? ` (${communityLevelText})` : ""} and ${reports} reports are available for global/drift search.`
         : "No communities yet. Relationships are needed before community reports can form.",
     },
   ];
@@ -1424,6 +1436,7 @@ function setKnowledgeIndexingState(active, message = "") {
   const disabledButtons = [
     elements.refreshDocsButton,
     elements.refreshGraphButton,
+    elements.knowledgeGraphLevelSelect,
     elements.rebuildIndexButton,
     elements.uploadDocButton,
     elements.docSaveButton,
@@ -1566,6 +1579,25 @@ function setupKnowledgeWorkbench() {
     }
     const actions = graphHeader.querySelector(".graph-actions");
     if (actions) {
+      const levelSelect = document.createElement("select");
+      levelSelect.id = "knowledge-graph-level";
+      levelSelect.className = "graph-level-select";
+      levelSelect.setAttribute("aria-label", "GraphRAG community level");
+      for (const level of [0, 1]) {
+        const option = document.createElement("option");
+        option.value = String(level);
+        option.textContent = `Level ${level}`;
+        levelSelect.append(option);
+      }
+      levelSelect.value = String(state.knowledgeGraphLevel);
+      levelSelect.addEventListener("change", () => {
+        state.knowledgeGraphLevel = Number.parseInt(levelSelect.value, 10) || 0;
+        state.knowledgeGraphSelection = null;
+        loadKnowledgeGraph();
+      });
+      actions.insertBefore(levelSelect, actions.firstChild);
+      elements.knowledgeGraphLevelSelect = levelSelect;
+
       const clear = document.createElement("button");
       clear.id = "clear-graph-filter-button";
       clear.className = "button button-ghost button-small";
@@ -1670,7 +1702,8 @@ async function loadKnowledgeGraphPayload() {
   const docParam = state.knowledgeGraphFilterDocId
     ? `&doc_id=${encodeURIComponent(state.knowledgeGraphFilterDocId)}`
     : "";
-  const graphragResponse = await fetch(`${state.knowledgeApiPath}/graphrag?min_confidence=0${docParam}`, {
+  const levelParam = `&level=${encodeURIComponent(String(state.knowledgeGraphLevel || 0))}`;
+  const graphragResponse = await fetch(`${state.knowledgeApiPath}/graphrag?min_confidence=0&include_reports=true&include_covariates=true${levelParam}${docParam}`, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${state.token}` },
   });
@@ -1750,6 +1783,8 @@ function normalizeGraphRagIndex(index) {
       description: entity.description || "",
       community_id: community?.community ?? null,
       community_title: community?.title || "",
+      community_level: community?.level ?? null,
+      community_parent: community?.parent ?? null,
       community_report_id: report?.id || "",
       community_report_summary: report?.summary || "",
       score: (entity.degree || 0) + (entity.frequency || 0),
@@ -1794,6 +1829,7 @@ function normalizeGraphRagIndex(index) {
       ...(index.stats || {}),
       node_count: nodes.length,
       edge_count: edges.length,
+      level: index.stats?.level ?? state.knowledgeGraphLevel ?? 0,
     },
   };
 }
@@ -1858,15 +1894,20 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
   if (elements.knowledgeGraphMeta) {
     const communityCount = graph?.stats?.community_count || 0;
     const reportCount = graph?.stats?.community_report_count || 0;
-    const graphMeta = [`${nodes.length} nodes`, `${edges.length} edges`];
+    const graphLevel = graph?.stats?.level ?? state.knowledgeGraphLevel ?? 0;
+    const graphMeta = [`level ${graphLevel}`, `${nodes.length} nodes`, `${edges.length} edges`];
     if (communityCount) graphMeta.push(`${communityCount} communities`);
     if (reportCount) graphMeta.push(`${reportCount} reports`);
     elements.knowledgeGraphMeta.textContent = graphMeta.join(" / ");
   }
+  if (elements.knowledgeGraphLevelSelect) {
+    elements.knowledgeGraphLevelSelect.value = String(state.knowledgeGraphLevel || 0);
+  }
   if (elements.knowledgeGraphScope) {
+    const levelText = `Level ${state.knowledgeGraphLevel || 0}`;
     elements.knowledgeGraphScope.textContent = state.knowledgeGraphFilterDocName
-      ? `Filtered: ${state.knowledgeGraphFilterDocName}`
-      : "All knowledge";
+      ? `Filtered: ${state.knowledgeGraphFilterDocName} / ${levelText}`
+      : `All knowledge / ${levelText}`;
   }
   if (elements.clearGraphFilterButton) {
     elements.clearGraphFilterButton.hidden = !state.knowledgeGraphFilterDocId;
@@ -2661,7 +2702,14 @@ function renderKnowledgeGraphCommunities(communities, nodes) {
     name.textContent = community.title || report.title || `Community ${community.community}`;
     const count = document.createElement("span");
     count.className = "graph-community-count";
-    count.textContent = `${community.entityCount} entities`;
+    const childCount = (community.children || []).length;
+    const countParts = [`L${community.level || 0}`, `${community.entityCount} entities`];
+    if (childCount) {
+      countParts.push(`${childCount} child`);
+    } else if (community.parent != null && community.parent >= 0) {
+      countParts.push(`parent ${community.parent}`);
+    }
+    count.textContent = countParts.join(" / ");
     header.append(swatch, name, count);
 
     const summary = document.createElement("div");
@@ -3223,7 +3271,8 @@ function formatKnowledgeDebug(item) {
     parts.push(`relations: ${item.matched_relations.slice(0, 3).join("; ")}`);
   }
   if (item.matched_claims?.length) {
-    parts.push(`claims: ${item.matched_claims.slice(0, 3).join(" | ")}`);
+    const label = ["global", "drift"].includes(item.method) ? "findings" : "claims";
+    parts.push(`${label}: ${item.matched_claims.slice(0, 3).join(" | ")}`);
   }
   return parts.join(" · ");
 }
@@ -3367,6 +3416,23 @@ function populateConfigForm(config) {
   elements.configKnowledgeSemanticExtractionMode.value = knowledge.semanticExtractionMode || knowledge.semantic_extraction_mode || "rule";
   elements.configKnowledgeSemanticLlmMaxTokens.value = knowledge.semanticLlmMaxTokens || knowledge.semantic_llm_max_tokens || 1200;
   elements.configKnowledgeSemanticLlmTimeout.value = knowledge.semanticLlmTimeout || knowledge.semantic_llm_timeout || 30.0;
+  if (elements.configKnowledgeGraphRagCommunityAlgorithm) {
+    elements.configKnowledgeGraphRagCommunityAlgorithm.value = knowledge.graphragCommunityAlgorithm || knowledge.graphrag_community_algorithm || "greedy";
+  }
+  if (elements.configKnowledgeGraphRagCommunityLevel) {
+    const level = knowledge.graphragCommunityLevel ?? knowledge.graphrag_community_level ?? 0;
+    elements.configKnowledgeGraphRagCommunityLevel.value = level;
+    state.knowledgeGraphLevel = Number.parseInt(String(level), 10) || 0;
+  }
+  if (elements.configKnowledgeGraphRagReportLlmEnabled) {
+    elements.configKnowledgeGraphRagReportLlmEnabled.checked = knowledge.graphragReportLlmEnabled || knowledge.graphrag_report_llm_enabled === true;
+  }
+  if (elements.configKnowledgeGraphRagReportMaxTokens) {
+    elements.configKnowledgeGraphRagReportMaxTokens.value = knowledge.graphragReportMaxTokens || knowledge.graphrag_report_max_tokens || 1200;
+  }
+  if (elements.configKnowledgeGraphRagEntitySummaryEnabled) {
+    elements.configKnowledgeGraphRagEntitySummaryEnabled.checked = knowledge.graphragEntitySummaryEnabled ?? knowledge.graphrag_entity_summary_enabled ?? true;
+  }
 
   // Embedding config (nested in agents.defaults)
   const embedding = defaults.embedding || {};
@@ -3643,6 +3709,11 @@ async function saveConfig() {
       semantic_extraction_mode: getValue(elements.configKnowledgeSemanticExtractionMode),
       semantic_llm_max_tokens: getValue(elements.configKnowledgeSemanticLlmMaxTokens, "number"),
       semantic_llm_timeout: getValue(elements.configKnowledgeSemanticLlmTimeout, "number"),
+      graphrag_community_algorithm: getValue(elements.configKnowledgeGraphRagCommunityAlgorithm),
+      graphrag_community_level: getValue(elements.configKnowledgeGraphRagCommunityLevel, "number"),
+      graphrag_report_llm_enabled: elements.configKnowledgeGraphRagReportLlmEnabled?.checked === true,
+      graphrag_report_max_tokens: getValue(elements.configKnowledgeGraphRagReportMaxTokens, "number"),
+      graphrag_entity_summary_enabled: elements.configKnowledgeGraphRagEntitySummaryEnabled?.checked !== false,
     },
     tools: {
       web: {

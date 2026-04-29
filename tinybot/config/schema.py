@@ -332,6 +332,11 @@ class KnowledgeConfig(Base):
     graphrag_max_community_size: int = Field(default=12, ge=2)  # Soft cap when forming local graph communities
     graphrag_local_depth: int = Field(default=1, ge=0, le=3)  # Entity-neighborhood expansion depth for local search
     graphrag_community_top_k: int = Field(default=5, ge=1)  # Number of community reports considered by global/drift search
+    graphrag_community_algorithm: str = "greedy"  # greedy fallback; reserved: leiden, louvain
+    graphrag_community_level: int = Field(default=0, ge=0, le=3)  # Default community level for GraphRAG exports/query
+    graphrag_report_llm_enabled: bool = False  # Generate community reports through the configured LLM when available
+    graphrag_report_max_tokens: int = Field(default=1200, ge=100)  # Max tokens for LLM community report generation
+    graphrag_entity_summary_enabled: bool = True  # Summarize merged entity and relationship descriptions after indexing
 
 
 class Config(BaseSettings):

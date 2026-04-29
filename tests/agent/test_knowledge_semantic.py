@@ -208,6 +208,39 @@ def test_graphrag_local_global_and_drift_modes_use_graph_context() -> None:
     assert "global" in global_results[0]["matched_methods"]
     assert "drift" in drift_results[0]["matched_methods"]
     assert global_results[0]["matched_communities"]
+    assert global_results[0]["matched_claims"]
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_graphrag_communities_export_hierarchy_levels() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=1000,
+            chunk_overlap=0,
+            graphrag_max_community_size=2,
+        ),
+    )
+    doc_id = store.add_document(
+        name="Community hierarchy",
+        content=("Alpha supports Beta. Beta supports Gamma. Gamma supports Delta."),
+        file_type="txt",
+    )
+
+    level0 = store.get_graphrag_index(doc_id=doc_id, level=0)
+    level1 = store.get_graphrag_index(doc_id=doc_id, level=1)
+    stats = store.get_stats()
+
+    assert level0["communities"]
+    assert stats["community_count_by_level"]["0"] >= 1
+    assert stats["community_count_by_level"]["1"] >= 1
+    assert level0["communities"][0]["level"] == 0
+    assert level0["communities"][0]["children"]
+    assert level1["communities"]
+    assert all(community["level"] == 1 for community in level1["communities"])
+    assert all(community["parent"] == level0["communities"][0]["community"] for community in level1["communities"])
+    assert sum(community["size"] for community in level1["communities"]) == level0["communities"][0]["size"]
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
@@ -463,4 +496,103 @@ def test_llm_semantic_extraction_accepts_compact_kg_schema(monkeypatch) -> None:
     assert entity_names == {"GraphRAG", "知识图谱"}
     assert store.get_stats()["claim_count"] == 1
     assert store.get_stats()["relation_count"] == 1
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_llm_semantic_extraction_accepts_graphrag_subgraph_schema(monkeypatch) -> None:
+    workspace = _workspace()
+
+    class Provider:
+        api_key = "test-key"
+        api_base = "https://example.test/v1"
+        extra_headers = {}
+
+    class Defaults:
+        model = "test-model"
+
+    class Agents:
+        defaults = Defaults()
+
+    class ConfigRef:
+        agents = Agents()
+
+        def get_provider(self, model):
+            return Provider()
+
+        def get_api_base(self, model):
+            return "https://example.test/v1"
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "{"
+                                '"entities": ['
+                                '{"title": "GraphRAG", "type": "technology", "description": "GraphRAG uses graph indexing.", "confidence": 0.9},'
+                                '{"title": "community reports", "type": "business_object", "description": "Summaries for graph communities.", "confidence": 0.8}'
+                                "],"
+                                '"relationships": ['
+                                '{"source": "GraphRAG", "predicate": "supports", "target": "community reports", '
+                                '"description": "GraphRAG supports community reports.", '
+                                '"evidence": "GraphRAG supports community reports.", "weight": 2.0, "confidence": 0.9}'
+                                "],"
+                                '"covariates": ['
+                                '{"subject": "GraphRAG", "description": "GraphRAG supports community reports.", '
+                                '"status": "TRUE", "start_date": "2024", "end_date": "", '
+                                '"source_text": "GraphRAG supports community reports.", "confidence": 0.9}'
+                                "]"
+                                "}"
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=1000,
+            chunk_overlap=0,
+            semantic_extraction_mode="llm",
+        ),
+        config_ref=ConfigRef(),
+    )
+    store.add_document(
+        name="GraphRAG schema",
+        content="GraphRAG supports community reports.",
+        file_type="txt",
+    )
+
+    index = store.get_graphrag_index(include_reports=False)
+
+    assert {entity["title"] for entity in index["entities"]} == {"GraphRAG", "community reports"}
+    assert index["relationships"][0]["source"] == "GraphRAG"
+    assert index["relationships"][0]["target"] == "community reports"
+    assert index["relationships"][0]["weight"] >= 2.0
+    assert index["covariates"][0]["status"] == "TRUE"
+    assert index["covariates"][0]["start_date"] == "2024"
+    assert index["community_reports"] == []
     shutil.rmtree(workspace.parent, ignore_errors=True)
