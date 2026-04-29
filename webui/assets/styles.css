@@ -2044,6 +2044,17 @@ body {
   gap: 8px;
 }
 
+.graph-level-select {
+  height: 28px;
+  padding: 0 28px 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
 .graph-meta {
   color: var(--text-muted);
   font-family: var(--font-mono);

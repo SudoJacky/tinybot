@@ -404,6 +404,7 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
             "claim_count": stats.get("claim_count", 0),
             "relation_count": stats.get("relation_count", 0),
             "community_count": stats.get("community_count", 0),
+            "community_count_by_level": stats.get("community_count_by_level", {}),
             "community_report_count": stats.get("community_report_count", 0),
         })
     except Exception as e:
@@ -455,6 +456,9 @@ async def handle_knowledge_graphrag(request: web.Request) -> web.Response:
     Query params:
     - doc_id: Optional document id filter
     - min_confidence: Minimum entity/relation/claim confidence (default 0)
+    - level: Community level to return (default config)
+    - include_reports: Include community_reports table (default true)
+    - include_covariates: Include covariates table (default true)
     """
     knowledge_store = request.app.get("knowledge_store")
     if not knowledge_store:
@@ -462,15 +466,21 @@ async def handle_knowledge_graphrag(request: web.Request) -> web.Response:
 
     try:
         min_confidence = float(request.query.get("min_confidence", "0"))
+        level = int(request.query["level"]) if "level" in request.query else None
     except ValueError:
-        return _error_json(400, "Invalid min_confidence query param")
+        return _error_json(400, "Invalid GraphRAG query params")
 
     doc_id = request.query.get("doc_id") or None
+    include_reports = request.query.get("include_reports", "true").lower() in {"1", "true", "yes", "on"}
+    include_covariates = request.query.get("include_covariates", "true").lower() in {"1", "true", "yes", "on"}
 
     try:
         index = knowledge_store.get_graphrag_index(
             doc_id=doc_id,
             min_confidence=min_confidence,
+            level=level,
+            include_reports=include_reports,
+            include_covariates=include_covariates,
         )
         return _success_json(index)
     except Exception as e:

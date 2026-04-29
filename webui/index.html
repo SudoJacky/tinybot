@@ -794,6 +794,44 @@
               </label>
               <input id="config-knowledge-semantic-llm-timeout" class="config-input" type="number" min="1" max="120" value="30" />
             </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span>GraphRAG Community Algorithm</span>
+                <span class="config-help" data-i18n-help="help.knowledgeGraphRagCommunityAlgorithm">?</span>
+              </label>
+              <select id="config-knowledge-graphrag-community-algorithm" class="config-select">
+                <option value="greedy">greedy</option>
+                <option value="connected">connected</option>
+              </select>
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span>GraphRAG Community Level</span>
+                <span class="config-help" data-i18n-help="help.knowledgeGraphRagCommunityLevel">?</span>
+              </label>
+              <input id="config-knowledge-graphrag-community-level" class="config-input" type="number" min="0" max="3" value="0" />
+            </div>
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-knowledge-graphrag-report-llm-enabled" type="checkbox" />
+                <span>GraphRAG LLM Reports</span>
+                <span class="config-help" data-i18n-help="help.knowledgeGraphRagReportLlmEnabled">?</span>
+              </label>
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span>GraphRAG Report Max Tokens</span>
+                <span class="config-help" data-i18n-help="help.knowledgeGraphRagReportMaxTokens">?</span>
+              </label>
+              <input id="config-knowledge-graphrag-report-max-tokens" class="config-input" type="number" min="100" max="8000" value="1200" />
+            </div>
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-knowledge-graphrag-entity-summary-enabled" type="checkbox" />
+                <span>GraphRAG Entity Summaries</span>
+                <span class="config-help" data-i18n-help="help.knowledgeGraphRagEntitySummaryEnabled">?</span>
+              </label>
+            </div>
           </div>
         </div>
 

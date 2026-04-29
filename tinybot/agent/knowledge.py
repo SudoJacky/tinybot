@@ -535,6 +535,10 @@ class KnowledgeClaim:
     entity_ids: list[str] = field(default_factory=list)
     confidence: float = 0.5
     created_at: str = ""
+    status: str = "TRUE"
+    start_date: str = ""
+    end_date: str = ""
+    source_text: str = ""
 
 
 @dataclass
@@ -552,6 +556,7 @@ class KnowledgeRelation:
     weight: float = 1.0
     confidence: float = 0.5
     created_at: str = ""
+    text_unit_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -2038,6 +2043,11 @@ class KnowledgeStore:
         categories: dict[str, int] = {}
         for doc in documents:
             categories[doc.category or "uncategorized"] = categories.get(doc.category or "uncategorized", 0) + 1
+        communities = self._read_communities()
+        community_count_by_level: dict[str, int] = {}
+        for community in communities:
+            key = str(community.level)
+            community_count_by_level[key] = community_count_by_level.get(key, 0) + 1
 
         return {
             "document_count": len(documents),
@@ -2047,7 +2057,8 @@ class KnowledgeStore:
             "entity_count": len(self._read_entities()),
             "claim_count": len(self._read_claims()),
             "relation_count": len(self._read_relations()),
-            "community_count": len(self._read_communities()),
+            "community_count": len(communities),
+            "community_count_by_level": community_count_by_level,
             "community_report_count": len(self._read_community_reports()),
             "total_chars": total_chars,
             "categories": categories,
@@ -2119,6 +2130,7 @@ class KnowledgeStore:
                     "predicate": relation.predicate,
                     "count": 0,
                     "confidence": 0.0,
+                    "strength": 0.0,
                     "confidence_total": 0.0,
                     "weight": 0.0,
                     "relation_ids": [],
@@ -2129,7 +2141,9 @@ class KnowledgeStore:
             group["count"] += 1
             group["confidence"] = max(group["confidence"], relation.confidence)
             group["confidence_total"] += relation.confidence
-            group["weight"] = group.get("weight", 0.0) + (relation.weight or relation.confidence or 1.0)
+            relation_strength = relation.weight or relation.confidence or 1.0
+            group["weight"] = group.get("weight", 0.0) + relation_strength
+            group["strength"] = group.get("strength", 0.0) + relation_strength
             group["relation_ids"].append(relation.id)
             if relation.doc_id and relation.doc_id not in group["doc_ids"]:
                 group["doc_ids"].append(relation.doc_id)
@@ -2159,7 +2173,7 @@ class KnowledgeStore:
 
         grouped_edges = sorted(
             edge_groups.values(),
-            key=lambda edge: (edge["count"], edge["confidence"]),
+            key=lambda edge: (edge["weight"], edge["count"], edge["confidence"]),
             reverse=True,
         )[:edge_limit]
 
@@ -2206,6 +2220,7 @@ class KnowledgeStore:
             edge["confidence_avg"] = (
                 edge["confidence_total"] / edge["count"] if edge["count"] else edge["confidence"]
             )
+            edge["strength"] = edge.get("strength", edge.get("weight", 0.0))
             edge["doc_names"] = [
                 documents[edge_doc_id].name
                 for edge_doc_id in edge["doc_ids"]
@@ -2261,6 +2276,9 @@ class KnowledgeStore:
         self,
         doc_id: str | None = None,
         min_confidence: float = 0.0,
+        level: int | None = None,
+        include_reports: bool = True,
+        include_covariates: bool = True,
     ) -> dict[str, Any]:
         """Return GraphRAG-style knowledge model tables.
 
@@ -2269,6 +2287,9 @@ class KnowledgeStore:
         text units, entities, relationships, and claim covariates.
         """
         min_confidence = max(0.0, min(float(min_confidence or 0.0), 1.0))
+        if level is None:
+            level = self.config.graphrag_community_level if self.config else 0
+        level = max(0, int(level))
 
         documents = [
             document
@@ -2351,6 +2372,7 @@ class KnowledgeStore:
                     "predicate": relation.predicate,
                     "description_parts": [],
                     "weight": 0.0,
+                    "strength": 0.0,
                     "text_unit_ids": set(),
                     "relation_ids": [],
                     "confidence": 0.0,
@@ -2360,8 +2382,11 @@ class KnowledgeStore:
             if evidence and evidence not in group["description_parts"]:
                 group["description_parts"].append(evidence)
             group["weight"] += relation.weight or relation.confidence or 1.0
+            group["strength"] += relation.weight or relation.confidence or 1.0
             group["confidence"] = max(group["confidence"], relation.confidence)
-            group["text_unit_ids"].add(relation.evidence_chunk_id)
+            for text_unit_id in [relation.evidence_chunk_id, *relation.text_unit_ids]:
+                if text_unit_id:
+                    group["text_unit_ids"].add(text_unit_id)
             group["relation_ids"].append(relation.id)
             relation_row_ids[relation.id] = relationship_id
             relationship_ids_by_chunk.setdefault(relation.evidence_chunk_id, []).append(relationship_id)
@@ -2389,6 +2414,7 @@ class KnowledgeStore:
                 "predicate": group["predicate"],
                 "description": description,
                 "weight": round(float(group["weight"]), 6),
+                "strength": round(float(group["strength"]), 6),
                 "combined_degree": entity_degrees.get(source_id, 0) + entity_degrees.get(target_id, 0),
                 "text_unit_ids": sorted(group["text_unit_ids"]),
                 "relation_ids": group["relation_ids"],
@@ -2436,22 +2462,25 @@ class KnowledgeStore:
             })
 
         covariate_rows = []
-        for claim in claims:
-            subject_id, object_id = self._claim_subject_object_ids(claim, entity_map)
-            covariate_rows.append({
-                "id": claim.id,
-                "covariate_type": "claim",
-                "type": "fact",
-                "description": claim.text,
-                "subject_id": subject_id,
-                "object_id": object_id,
-                "status": "TRUE",
-                "start_date": "",
-                "end_date": "",
-                "source_text": claim.text,
-                "text_unit_id": claim.chunk_id,
-                "confidence": claim.confidence,
-            })
+        if include_covariates:
+            for claim in claims:
+                subject_id, object_id = self._claim_subject_object_ids(claim, entity_map)
+                covariate_rows.append({
+                    "id": claim.id,
+                    "covariate_type": "claim",
+                    "type": "fact",
+                    "description": claim.text,
+                    "subject_id": subject_id,
+                    "object_id": object_id,
+                    "subject": subject_id,
+                    "status": claim.status or "TRUE",
+                    "start_date": claim.start_date,
+                    "end_date": claim.end_date,
+                    "time_bound": {"start_date": claim.start_date, "end_date": claim.end_date},
+                    "source_text": claim.source_text or claim.text,
+                    "text_unit_id": claim.chunk_id,
+                    "confidence": claim.confidence,
+                })
 
         text_unit_rows = []
         for chunk in chunks:
@@ -2474,12 +2503,13 @@ class KnowledgeStore:
             for community in self._read_communities()
             if not doc_id or set(community.text_unit_ids).intersection(chunk_ids)
         ]
+        communities = [community for community in communities if community.level == level]
         community_ids = {community.community for community in communities}
         reports = [
             report
             for report in self._read_community_reports()
             if report.community in community_ids
-        ]
+        ] if include_reports else []
         community_rows = [
             {
                 "id": community.id,
@@ -2539,6 +2569,9 @@ class KnowledgeStore:
                 "community_report_count": len(report_rows),
                 "doc_id": doc_id or "",
                 "min_confidence": min_confidence,
+                "level": level,
+                "include_reports": include_reports,
+                "include_covariates": include_covariates,
             },
         }
 
@@ -2618,9 +2651,19 @@ class KnowledgeStore:
             return
 
         adjacency: dict[str, set[str]] = {entity_id: set() for entity_id in entities}
+        weighted_adjacency: dict[str, dict[str, float]] = {entity_id: {} for entity_id in entities}
         for relation in relations:
             adjacency.setdefault(relation.subject_entity_id, set()).add(relation.object_entity_id)
             adjacency.setdefault(relation.object_entity_id, set()).add(relation.subject_entity_id)
+            weight = max(relation.weight or relation.confidence or 1.0, 0.1)
+            weighted_adjacency.setdefault(relation.subject_entity_id, {})
+            weighted_adjacency.setdefault(relation.object_entity_id, {})
+            weighted_adjacency[relation.subject_entity_id][relation.object_entity_id] = (
+                weighted_adjacency[relation.subject_entity_id].get(relation.object_entity_id, 0.0) + weight
+            )
+            weighted_adjacency[relation.object_entity_id][relation.subject_entity_id] = (
+                weighted_adjacency[relation.object_entity_id].get(relation.subject_entity_id, 0.0) + weight
+            )
 
         components: list[list[str]] = []
         seen: set[str] = set()
@@ -2642,14 +2685,21 @@ class KnowledgeStore:
                     if neighbor not in seen:
                         seen.add(neighbor)
                         stack.append(neighbor)
-            components.extend(self._split_large_community(component, adjacency))
+            components.append(component)
 
         ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         communities: list[KnowledgeCommunity] = []
         reports: list[KnowledgeCommunityReport] = []
-        for index, entity_ids in enumerate(
-            sorted(components, key=lambda item: (len(item), self._community_edge_count(item, adjacency)), reverse=True)
+        next_community_id = 0
+        child_groups_by_parent: list[tuple[KnowledgeCommunity, list[list[str]]]] = []
+
+        for entity_ids in sorted(
+            components,
+            key=lambda item: (len(item), self._community_edge_count(item, adjacency)),
+            reverse=True,
         ):
+            community_number = next_community_id
+            next_community_id += 1
             entity_set = set(entity_ids)
             community_relations = [
                 relation
@@ -2667,8 +2717,8 @@ class KnowledgeStore:
             })
             title = self._community_title(entity_ids, entities, adjacency)
             community = KnowledgeCommunity(
-                id=self._community_id(index, entity_ids),
-                community=index,
+                id=self._community_id(community_number, entity_ids),
+                community=community_number,
                 parent=-1,
                 level=0,
                 title=title,
@@ -2679,6 +2729,9 @@ class KnowledgeStore:
                 size=len(entity_ids),
             )
             communities.append(community)
+            child_groups = self._split_weighted_community(entity_ids, weighted_adjacency)
+            if len(child_groups) > 1:
+                child_groups_by_parent.append((community, child_groups))
 
             report = self._build_community_report(
                 community,
@@ -2690,8 +2743,71 @@ class KnowledgeStore:
             )
             reports.append(report)
 
+        for parent, child_groups in child_groups_by_parent:
+            child_numbers: list[int] = []
+            for entity_ids in child_groups:
+                if not entity_ids:
+                    continue
+                community_number = next_community_id
+                next_community_id += 1
+                child_numbers.append(community_number)
+                entity_set = set(entity_ids)
+                community_relations = [
+                    relation
+                    for relation in relations
+                    if relation.subject_entity_id in entity_set and relation.object_entity_id in entity_set
+                ]
+                text_unit_ids = sorted({
+                    relation.evidence_chunk_id
+                    for relation in community_relations
+                    if relation.evidence_chunk_id
+                } | {
+                    chunk_id
+                    for entity_id in entity_ids
+                    for chunk_id in entities[entity_id].text_unit_ids
+                })
+                community = KnowledgeCommunity(
+                    id=self._community_id(community_number, entity_ids),
+                    community=community_number,
+                    parent=parent.community,
+                    level=1,
+                    title=self._community_title(entity_ids, entities, adjacency),
+                    entity_ids=entity_ids,
+                    relationship_ids=[relation.id for relation in community_relations],
+                    text_unit_ids=text_unit_ids,
+                    period=ts,
+                    size=len(entity_ids),
+                )
+                communities.append(community)
+                reports.append(self._build_community_report(
+                    community,
+                    entities,
+                    community_relations,
+                    claims,
+                    chunks,
+                    ts,
+                ))
+            parent.children = child_numbers
+            for report in reports:
+                if report.community == parent.community:
+                    report.children = child_numbers
+                    report.full_content_json["children"] = child_numbers
+
         self._write_communities(communities)
         self._write_community_reports(reports)
+
+    def _split_weighted_community(
+        self,
+        component: list[str],
+        weighted_adjacency: dict[str, dict[str, float]],
+    ) -> list[list[str]]:
+        max_size = self.config.graphrag_max_community_size if self.config else 12
+        if len(component) <= max_size:
+            return [component]
+        algorithm = (self.config.graphrag_community_algorithm if self.config else "greedy").lower()
+        if algorithm in {"connected", "component", "components"}:
+            return self._split_large_community(component, {entity_id: set(weighted_adjacency.get(entity_id, {})) for entity_id in component})
+        return self._split_large_community_weighted(component, weighted_adjacency, max_size)
 
     def _split_large_community(
         self,
@@ -2718,6 +2834,40 @@ class KnowledgeStore:
                 for neighbor in adjacency.get(candidate, set()) & remaining:
                     if neighbor not in frontier:
                         frontier.append(neighbor)
+            groups.append(group)
+        return groups
+
+    @staticmethod
+    def _split_large_community_weighted(
+        component: list[str],
+        weighted_adjacency: dict[str, dict[str, float]],
+        max_size: int,
+    ) -> list[list[str]]:
+        remaining = set(component)
+        groups: list[list[str]] = []
+        while remaining:
+            seed = max(
+                remaining,
+                key=lambda entity_id: (
+                    sum(weight for neighbor, weight in weighted_adjacency.get(entity_id, {}).items() if neighbor in remaining),
+                    entity_id,
+                ),
+            )
+            group = [seed]
+            remaining.remove(seed)
+            while remaining and len(group) < max_size:
+                candidate = max(
+                    remaining,
+                    key=lambda entity_id: (
+                        sum(weighted_adjacency.get(entity_id, {}).get(member, 0.0) for member in group),
+                        sum(weight for neighbor, weight in weighted_adjacency.get(entity_id, {}).items() if neighbor in remaining),
+                        entity_id,
+                    ),
+                )
+                if sum(weighted_adjacency.get(candidate, {}).get(member, 0.0) for member in group) <= 0:
+                    break
+                group.append(candidate)
+                remaining.remove(candidate)
             groups.append(group)
         return groups
 
@@ -2782,9 +2932,13 @@ class KnowledgeStore:
         )
         if not summary:
             summary = "Community focused on " + ", ".join(entity.name for entity in ranked_entities[:6]) + "."
+        llm_report = self._build_community_report_llm(community, ranked_entities, relations, claims, chunks, summary)
+        if llm_report:
+            return llm_report
         full_content = self._community_full_content(community, ranked_entities, relations, claims, chunks, summary)
+        relationship_strength = sum(relation.weight or 1.0 for relation in relations)
         rank = round(
-            sum((relation.weight or 1.0) * (relation.confidence or 0.5) for relation in relations)
+            relationship_strength
             + len(community.text_unit_ids) * 0.2
             + len(community.entity_ids) * 0.1,
             6,
@@ -2799,7 +2953,7 @@ class KnowledgeStore:
             summary=summary,
             full_content=full_content,
             rank=rank,
-            rating_explanation="Rank is based on relationship weight, confidence, and supporting text units.",
+            rating_explanation="Rank is based on relationship weight, entity count, and supporting text units.",
             findings=findings,
             full_content_json={
                 "title": community.title,
@@ -2809,6 +2963,125 @@ class KnowledgeStore:
                 "relationship_ids": community.relationship_ids,
             },
             period=ts,
+            size=community.size,
+        )
+
+    def _build_community_report_llm(
+        self,
+        community: KnowledgeCommunity,
+        entities: list[KnowledgeEntity],
+        relations: list[KnowledgeRelation],
+        claims: dict[str, KnowledgeClaim],
+        chunks: dict[str, KnowledgeChunk],
+        fallback_summary: str,
+    ) -> KnowledgeCommunityReport | None:
+        if not (self.config and getattr(self.config, "graphrag_report_llm_enabled", False) and self.config_ref):
+            return None
+        agent_defaults = self.config_ref.agents.defaults
+        model = agent_defaults.model
+        provider_config = self.config_ref.get_provider(model)
+        if not provider_config or not provider_config.api_key:
+            return None
+        try:
+            import httpx
+        except ImportError:
+            return None
+
+        relation_lines = []
+        entity_map = {entity.id: entity for entity in entities}
+        for relation in relations[:20]:
+            relation_lines.append(
+                self._format_relation(
+                    entity_map.get(relation.subject_entity_id),
+                    relation.predicate,
+                    entity_map.get(relation.object_entity_id),
+                )
+                + ": "
+                + (relation.description or self._relation_evidence_text(relation, claims, chunks))[:300]
+            )
+        claim_lines = [
+            claims[relation.claim_id].text
+            for relation in relations[:20]
+            if relation.claim_id in claims and claims[relation.claim_id].text
+        ]
+        snippet_lines = [
+            (chunks[text_unit_id].context_content or chunks[text_unit_id].content)[:360]
+            for text_unit_id in community.text_unit_ids[:8]
+            if text_unit_id in chunks
+        ]
+        prompt = (
+            "Create a concise GraphRAG community report as JSON only. "
+            "Schema: {\"title\": str, \"summary\": str, \"findings\": [{\"summary\": str, \"explanation\": str}], "
+            "\"rank\": number, \"rating_explanation\": str}.\n"
+            f"Community title: {community.title}\n"
+            f"Entities: {', '.join(entity.name for entity in entities[:20])}\n"
+            f"Relationships:\n" + "\n".join(relation_lines) + "\n"
+            f"Claims:\n" + "\n".join(claim_lines[:20]) + "\n"
+            f"Text snippets:\n" + "\n---\n".join(snippet_lines)
+        )
+        api_base = provider_config.api_base or self.config_ref.get_api_base(model) or "https://api.openai.com/v1"
+        headers = {"Authorization": f"Bearer {provider_config.api_key}", "Content-Type": "application/json"}
+        extra_headers = getattr(provider_config, "extra_headers", None)
+        if extra_headers:
+            headers.update(extra_headers)
+        try:
+            with httpx.Client(timeout=self.config.semantic_llm_timeout) as client:
+                response = client.post(
+                    f"{api_base}/chat/completions",
+                    headers=headers,
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": self.config.graphrag_report_max_tokens,
+                        "temperature": 0.1,
+                        "response_format": {"type": "json_object"},
+                    },
+                )
+                response.raise_for_status()
+                result = response.json()
+        except Exception as e:
+            logger.warning("KnowledgeStore: GraphRAG report LLM generation failed: {}", e)
+            return None
+        parsed = self._parse_json_object(result.get("choices", [{}])[0].get("message", {}).get("content", ""))
+        if not parsed:
+            return None
+        findings = parsed.get("findings", [])
+        if not isinstance(findings, list):
+            findings = []
+        clean_findings = [
+            {
+                "summary": re.sub(r"\s+", " ", str(item.get("summary", "")).strip())[:240],
+                "explanation": re.sub(r"\s+", " ", str(item.get("explanation", "")).strip())[:600],
+            }
+            for item in findings
+            if isinstance(item, dict)
+        ][:12]
+        summary = re.sub(r"\s+", " ", str(parsed.get("summary", fallback_summary)).strip())[:1200]
+        title = re.sub(r"\s+", " ", str(parsed.get("title", community.title)).strip())[:160] or community.title
+        full_content_json = {
+            "title": title,
+            "summary": summary,
+            "findings": clean_findings,
+            "entity_ids": community.entity_ids,
+            "relationship_ids": community.relationship_ids,
+        }
+        return KnowledgeCommunityReport(
+            id=f"crep_{hashlib.sha1(community.id.encode()).hexdigest()[:12]}",
+            community=community.community,
+            parent=community.parent,
+            children=community.children,
+            level=community.level,
+            title=title,
+            summary=summary,
+            full_content=self._summarize_graph_texts(
+                [summary, *(item.get("summary", "") for item in clean_findings)],
+                limit=1600,
+            ),
+            rank=float(parsed.get("rank", max(1.0, len(community.entity_ids) * 0.2))),
+            rating_explanation=str(parsed.get("rating_explanation", "Rank is generated from the community report."))[:500],
+            findings=clean_findings,
+            full_content_json=full_content_json,
+            period=community.period,
             size=community.size,
         )
 
@@ -3746,7 +4019,7 @@ class KnowledgeStore:
         if not parsed:
             return None
         raw_entities = parsed.get("entities", parsed.get("e", []))
-        raw_claims = parsed.get("claims", [])
+        raw_claims = parsed.get("claims", parsed.get("covariates", parsed.get("c", [])))
         raw_relations = parsed.get("relations", parsed.get("relationships", parsed.get("r", [])))
         return {
             "entities": raw_entities if isinstance(raw_entities, list) else [],
@@ -3757,8 +4030,8 @@ class KnowledgeStore:
     @staticmethod
     def _build_semantic_extraction_prompt(content: str, section_path: str, doc_name: str) -> str:
         return f"""You are a strict knowledge graph extraction engine.
-Extract only KG-worthy entities and typed relations from the chunk.
-Return compact JSON only: {{"e":[...],"r":[...]}}.
+Extract one GraphRAG-style subgraph from this text unit.
+Return compact JSON only with entities, relationships, and covariates.
 
 Rules:
 - Entity types: person, organization, product, module, api, file, protocol, algorithm, technology, concept, business_object.
@@ -3771,19 +4044,24 @@ Rules:
   is_a, part_of, contains, depends_on, requires, supports, used_for, causes, precedes, owned_by, located_in, similar_to, contradicts, defined_as.
 - subject and object must be entity names.
 - each entity should include a short description grounded in the chunk when useful.
-- each relation should include a short description, evidence, confidence, and optional weight.
+- each relation should include source, target, description, evidence, and weight/strength.
+- Relationship weight is the GraphRAG edge strength from this text unit on a 0-10 scale; use higher values for strong, explicit relationships.
+- confidence is optional TinyBot debugging metadata, not a GraphRAG schema field.
 - evidence must be a short exact excerpt from the chunk.
 - Only output a relation when both endpoints are explicit entities in the evidence.
+- Covariates are factual claims grounded in the text unit; include subject, description, status, start_date, end_date, and source_text.
 - Prefer fewer high-quality entities over many weak entities.
-- Do not output claims; claims will be derived from relation evidence locally.
 
 JSON schema:
 {{
-  "e": [
-    {{"n": "RAG", "t": "technology", "a": ["Retrieval-Augmented Generation"], "d": "Retrieval-augmented generation technique.", "c": 0.9}}
+  "entities": [
+    {{"title": "RAG", "type": "technology", "aliases": ["Retrieval-Augmented Generation"], "description": "Retrieval-augmented generation technique.", "confidence": 0.9}}
   ],
-  "r": [
-    {{"s": "RAG", "p": "depends_on", "o": "embeddings", "d": "RAG depends on embeddings for semantic retrieval.", "e": "RAG depends on embeddings.", "w": 1.0, "c": 0.85}}
+  "relationships": [
+    {{"source": "RAG", "predicate": "depends_on", "target": "embeddings", "description": "RAG depends on embeddings for semantic retrieval.", "evidence": "RAG depends on embeddings.", "weight": 8.0}}
+  ],
+  "covariates": [
+    {{"subject": "RAG", "description": "RAG depends on embeddings.", "status": "TRUE", "start_date": "", "end_date": "", "source_text": "RAG depends on embeddings.", "confidence": 0.85}}
   ]
 }}
 
@@ -3844,7 +4122,7 @@ Chunk:
                 raw = {"name": raw}
             if not isinstance(raw, dict):
                 continue
-            name = self._clean_entity_name(str(raw.get("name", raw.get("n", ""))))
+            name = self._clean_entity_name(str(raw.get("title", raw.get("name", raw.get("n", "")))))
             if not name:
                 continue
             key = self._normalize_entity_name(name)
@@ -3880,10 +4158,17 @@ Chunk:
                 raw = {"text": raw}
             if not isinstance(raw, dict):
                 continue
-            text = re.sub(r"\s+", " ", str(raw.get("text", "")).strip())
+            text = re.sub(
+                r"\s+",
+                " ",
+                str(raw.get("text", raw.get("description", raw.get("source_text", "")))).strip(),
+            )
             if not 12 <= len(text) <= 360:
                 continue
             raw_entity_names = raw.get("entity_names", [])
+            subject_name = raw.get("subject", raw.get("subject_id", ""))
+            if subject_name and not raw_entity_names:
+                raw_entity_names = [subject_name]
             if not isinstance(raw_entity_names, list):
                 raw_entity_names = []
             claim_entities = [
@@ -3905,6 +4190,10 @@ Chunk:
                 "text": text,
                 "entity_names": claim_entities,
                 "confidence": self._coerce_confidence(raw.get("confidence", raw.get("c")), 0.5),
+                "status": str(raw.get("status", "TRUE")).strip()[:40] or "TRUE",
+                "start_date": str(raw.get("start_date", "")).strip()[:40],
+                "end_date": str(raw.get("end_date", "")).strip()[:40],
+                "source_text": re.sub(r"\s+", " ", str(raw.get("source_text", text)).strip())[:500],
             })
 
         relations: list[dict[str, Any]] = []
@@ -3912,8 +4201,8 @@ Chunk:
         for raw in units.get("relations", []):
             if not isinstance(raw, dict):
                 continue
-            subject = self._clean_entity_name(str(raw.get("subject", raw.get("s", ""))))
-            obj = self._clean_entity_name(str(raw.get("object", raw.get("o", ""))))
+            subject = self._clean_entity_name(str(raw.get("source", raw.get("subject", raw.get("s", "")))))
+            obj = self._clean_entity_name(str(raw.get("target", raw.get("object", raw.get("o", "")))))
             predicate = self._normalize_predicate(str(raw.get("predicate", raw.get("p", ""))))
             evidence = re.sub(r"\s+", " ", str(raw.get("evidence", raw.get("e", ""))).strip())
             if not subject or not obj or not predicate or subject == obj:
@@ -3935,7 +4224,7 @@ Chunk:
                 "object": obj,
                 "evidence": evidence,
                 "description": re.sub(r"\s+", " ", str(raw.get("description", raw.get("d", evidence))).strip())[:500],
-                "weight": self._coerce_weight(raw.get("weight", raw.get("w")), 1.0),
+                "weight": self._coerce_weight(raw.get("weight", raw.get("strength", raw.get("w"))), 1.0),
                 "confidence": self._coerce_confidence(raw.get("confidence", raw.get("c")), 0.65),
             })
 
@@ -4088,6 +4377,10 @@ Chunk:
                             entity_ids=claim_entity_ids,
                             confidence=claim_spec.get("confidence", 0.5 + min(len(claim_entity_ids), 4) * 0.05),
                             created_at=ts,
+                            status=claim_spec.get("status", "TRUE"),
+                            start_date=claim_spec.get("start_date", ""),
+                            end_date=claim_spec.get("end_date", ""),
+                            source_text=claim_spec.get("source_text", claim_text),
                         ))
                         existing_claim_ids.add(claim_id)
 
@@ -4120,9 +4413,12 @@ Chunk:
                         weight=raw_relation.get("weight", 1.0),
                         confidence=raw_relation.get("confidence", 0.65),
                         created_at=ts,
+                        text_unit_ids=[chunk_id],
                     ))
                     existing_relation_ids.add(relation_id)
 
+            if self.config is None or getattr(self.config, "graphrag_entity_summary_enabled", True):
+                self._summarize_entities_and_relationships(existing_entities, new_relations, new_claims)
             self._write_entities(list(existing_entities.values()))
             self._append_jsonl(self.claims_file, new_claims)
             self._append_jsonl(self.mentions_file, new_mentions)
@@ -4137,6 +4433,48 @@ Chunk:
             )
         except Exception as e:
             logger.warning("KnowledgeStore: semantic indexing failed for doc '{}': {}", doc_name, e)
+
+    def _summarize_entities_and_relationships(
+        self,
+        entities: dict[str, KnowledgeEntity],
+        relations: list[KnowledgeRelation],
+        claims: list[KnowledgeClaim] | None = None,
+    ) -> None:
+        """Collapse repeated GraphRAG extraction descriptions into stable summaries."""
+        claim_texts_by_entity: dict[str, list[str]] = {entity_id: [] for entity_id in entities}
+        for claim in [*self._read_claims(), *(claims or [])]:
+            for entity_id in claim.entity_ids:
+                if entity_id in entities:
+                    claim_texts_by_entity.setdefault(entity_id, []).append(claim.text)
+
+        for entity in entities.values():
+            descriptions = [entity.description, *claim_texts_by_entity.get(entity.id, [])]
+            entity.description = self._summarize_graph_texts(descriptions, limit=500) or self._entity_description(entity, [])
+
+        grouped_relations: dict[tuple[str, str, str], list[KnowledgeRelation]] = {}
+        for relation in [*self._read_relations(), *relations]:
+            key = (relation.subject_entity_id, relation.predicate, relation.object_entity_id)
+            grouped_relations.setdefault(key, []).append(relation)
+
+        summaries: dict[tuple[str, str, str], str] = {}
+        weights: dict[tuple[str, str, str], float] = {}
+        text_units: dict[tuple[str, str, str], list[str]] = {}
+        for key, grouped in grouped_relations.items():
+            summaries[key] = self._summarize_graph_texts([relation.description for relation in grouped], limit=500)
+            weights[key] = round(sum(relation.weight or relation.confidence or 1.0 for relation in grouped), 6)
+            seen_units: list[str] = []
+            for relation in grouped:
+                for chunk_id in [relation.evidence_chunk_id, *relation.text_unit_ids]:
+                    if chunk_id and chunk_id not in seen_units:
+                        seen_units.append(chunk_id)
+            text_units[key] = seen_units
+
+        for relation in relations:
+            key = (relation.subject_entity_id, relation.predicate, relation.object_entity_id)
+            if summaries.get(key):
+                relation.description = summaries[key]
+            relation.weight = weights.get(key, relation.weight)
+            relation.text_unit_ids = text_units.get(key, relation.text_unit_ids)
 
     def _query_semantic(
         self,
@@ -4268,6 +4606,8 @@ Chunk:
         claims = self._read_claims()
         relations = self._read_relations()
         mentions = self._read_mentions()
+        communities = self._read_communities()
+        reports_by_community = {report.community: report for report in self._read_community_reports()}
         if not chunks or not entities:
             return []
 
@@ -4352,6 +4692,23 @@ Chunk:
                 score = relation.confidence + (relation.weight or 1.0) + (1.0 if endpoint_hit else 0.0) + min(term_overlap * 0.2, 0.8)
                 add_score(relation.evidence_chunk_id, score, "relations", relation.description or relation_text)
 
+        for community in communities:
+            entity_overlap = len(expanded_entity_ids & set(community.entity_ids))
+            report = reports_by_community.get(community.community)
+            if not entity_overlap and report:
+                report_terms = set(self._semantic_terms(" ".join([
+                    report.title,
+                    report.summary,
+                    " ".join(item.get("summary", "") for item in report.findings),
+                ])))
+                entity_overlap = 1 if query_terms & report_terms else 0
+            if not entity_overlap:
+                continue
+            label = report.title if report else community.title
+            report_bonus = (report.rank * 0.08) if report else 0.0
+            for chunk_id in community.text_unit_ids:
+                add_score(chunk_id, entity_overlap * 0.8 + report_bonus, "communities", label)
+
         sorted_chunk_ids = sorted(chunk_scores, key=chunk_scores.get, reverse=True)
         results: list[dict[str, Any]] = []
         for rank, chunk_id in enumerate(sorted_chunk_ids[:top_k], 1):
@@ -4401,11 +4758,16 @@ Chunk:
         chunks = {chunk.id: chunk for chunk in self._read_chunks() if chunk.chunk_type == "parent"}
         communities = {community.community: community for community in self._read_communities()}
         chunk_scores: dict[str, float] = {}
-        chunk_matches: dict[str, list[str]] = {}
+        chunk_matches: dict[str, dict[str, list[str]]] = {}
         for report, report_score in reports[: self._community_query_count(top_k)]:
             community = communities.get(report.community)
             if not community:
                 continue
+            findings = [
+                item.get("summary", "")
+                for item in report.findings
+                if item.get("summary")
+            ][:5]
             for chunk_id in community.text_unit_ids:
                 chunk = chunks.get(chunk_id)
                 if not chunk:
@@ -4415,7 +4777,15 @@ Chunk:
                 if tags and not set(chunk.tags or []).intersection(set(tags)):
                     continue
                 chunk_scores[chunk_id] = chunk_scores.get(chunk_id, 0.0) + report_score + report.rank
-                chunk_matches.setdefault(chunk_id, []).append(report.title)
+                matches = chunk_matches.setdefault(
+                    chunk_id,
+                    {"entities": [], "claims": [], "relations": [], "communities": []},
+                )
+                if report.title not in matches["communities"]:
+                    matches["communities"].append(report.title)
+                for finding in findings:
+                    if finding not in matches["claims"]:
+                        matches["claims"].append(finding)
 
         return self._community_chunk_results(chunks, chunk_scores, chunk_matches, top_k, "global")
 
@@ -4435,7 +4805,26 @@ Chunk:
                 seed_entity_ids.update(community.entity_ids)
         local_results = self._query_graphrag_local(query_text, top_k, category, tags, seed_entity_ids=seed_entity_ids)
         global_results = self._query_graphrag_global(query_text, top_k, category, tags)
+        followup_results: list[dict[str, Any]] = []
+        for report, _score in reports[: min(self._community_query_count(top_k), 3)]:
+            followup_parts = [report.title]
+            followup_parts.extend(item.get("summary", "") for item in report.findings[:2])
+            followup_query = " ".join(part for part in followup_parts if part).strip()
+            if not followup_query:
+                continue
+            community = communities.get(report.community)
+            followup_seed_ids = set(community.entity_ids) if community else seed_entity_ids
+            followup_results.extend(
+                self._query_graphrag_local(
+                    followup_query,
+                    top_k,
+                    category,
+                    tags,
+                    seed_entity_ids=followup_seed_ids,
+                )
+            )
         merged = self._merge_semantic_results(global_results, local_results, top_k)
+        merged = self._merge_semantic_results(merged, followup_results, top_k)
         for result in merged:
             methods = set(result.get("matched_methods") or [])
             methods.add("drift")
@@ -4467,13 +4856,14 @@ Chunk:
         self,
         chunks: dict[str, KnowledgeChunk],
         chunk_scores: dict[str, float],
-        chunk_matches: dict[str, list[str]],
+        chunk_matches: dict[str, dict[str, list[str]]],
         top_k: int,
         method: str,
     ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for rank, chunk_id in enumerate(sorted(chunk_scores, key=chunk_scores.get, reverse=True)[:top_k], 1):
             chunk = chunks[chunk_id]
+            matches = chunk_matches.get(chunk_id, {})
             results.append({
                 "id": chunk.id,
                 "parent_id": chunk.id,
@@ -4495,10 +4885,10 @@ Chunk:
                 "block_type": chunk.block_type,
                 "semantic_score": chunk_scores[chunk_id],
                 "semantic_rank": rank,
-                "matched_entities": [],
-                "matched_claims": [],
-                "matched_relations": [],
-                "matched_communities": chunk_matches.get(chunk_id, [])[:5],
+                "matched_entities": matches.get("entities", [])[:5],
+                "matched_claims": matches.get("claims", [])[:5],
+                "matched_relations": matches.get("relations", [])[:5],
+                "matched_communities": matches.get("communities", [])[:5],
                 "method": method,
                 "matched_methods": [method, "semantic"],
             })
