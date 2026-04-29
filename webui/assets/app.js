@@ -43,6 +43,8 @@ const state = {
 };
 
 const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
+const REASONING_COLLAPSE_CHARS = 600;
+const REASONING_COLLAPSE_LINES = 8;
 
 const elements = {
   sessionList: document.querySelector("#session-list"),
@@ -413,6 +415,53 @@ function sessionKeyForChat(chatId) {
   return chatId ? `websocket:${chatId}` : "";
 }
 
+function messageContentText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") return item.text || item.content || "";
+        return "";
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+  return content == null ? "" : String(content);
+}
+
+function compactSessionTitleFromMessages(messages) {
+  for (const message of messages || []) {
+    if (message.role !== "user") {
+      continue;
+    }
+    const text = messageContentText(message.content)
+      .replace(/[`#*_>~-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) {
+      continue;
+    }
+    return text.length > 36 ? `${text.slice(0, 36).trim()}...` : text;
+  }
+  return "";
+}
+
+function sessionTitleForKey(sessionKey) {
+  const item = state.sessionItems.find((entry) => entry.key === sessionKey);
+  const messages = state.messages.get(sessionKey) || [];
+  return compactSessionTitleFromMessages(messages) || item?.title || t("ui.newSessionTitle");
+}
+
+function updateActiveChatTitle() {
+  elements.chatTitle.textContent = state.activeSessionKey
+    ? sessionTitleForKey(state.activeSessionKey)
+    : t("ui.notConnected");
+  elements.chatTitle.title = state.activeChatId || "";
+}
+
 function roleLabel(role) {
   if (role === "assistant") {
     return "assistant";
@@ -429,9 +478,175 @@ function roleLabel(role) {
   return "system";
 }
 
-function renderMessages() {
+function shouldCollapseReasoning(text) {
+  const normalized = text || "";
+  return normalized.length > REASONING_COLLAPSE_CHARS || normalized.split(/\r?\n/).length > REASONING_COLLAPSE_LINES;
+}
+
+function formatToolArguments(args) {
+  if (args == null || args === "") {
+    return "";
+  }
+  if (typeof args === "string") {
+    const trimmed = args.trim();
+    if (!trimmed) {
+      return "";
+    }
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      return trimmed;
+    }
+  }
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+function summarizeToolArguments(argsText) {
+  if (!argsText) {
+    return t("message.toolNoArgs");
+  }
+  const compact = argsText.replace(/\s+/g, " ").trim();
+  return compact.length > 120 ? `${compact.slice(0, 120)}...` : compact;
+}
+
+function createReasoningNode(reasoningText, previousState = {}) {
+  const collapse = shouldCollapseReasoning(reasoningText);
+  const details = document.createElement("details");
+  details.className = "message-reasoning message-reasoning-details";
+  const keepManualState = previousState.manual === true;
+  details.open = collapse ? (keepManualState && previousState.open === true) : true;
+  if (keepManualState) {
+    details.dataset.reasoningManual = "true";
+  }
+
+  const summary = document.createElement("summary");
+  summary.className = "message-reasoning-summary";
+  summary.addEventListener("click", () => {
+    details.dataset.reasoningManual = "true";
+  });
+
+  const title = document.createElement("span");
+  title.className = "message-reasoning-title";
+  title.textContent = t("message.thinking");
+
+  const meta = document.createElement("span");
+  meta.className = "message-reasoning-meta";
+  const updateMeta = () => {
+    meta.textContent = details.open ? t("message.thinkingVisible") : t("message.thinkingCollapsed");
+  };
+  updateMeta();
+  details.addEventListener("toggle", updateMeta);
+
+  summary.append(title, meta);
+
+  const body = document.createElement("div");
+  body.className = "message-reasoning-body";
+  body.textContent = reasoningText;
+
+  details.append(summary, body);
+  return details;
+}
+
+function getToolName(message) {
+  return message?._tool_name || message?.name || "";
+}
+
+function createToolActivityNode({ name, argsText = "", responseText = "", kind = "call" }) {
+  const callEl = document.createElement("details");
+  callEl.className = "tool-activity";
+
+  const summary = document.createElement("summary");
+  summary.className = "tool-activity-summary";
+
+  const icon = document.createElement("span");
+  icon.className = "tool-activity-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = ">";
+
+  const main = document.createElement("span");
+  main.className = "tool-activity-main";
+
+  const title = document.createElement("span");
+  title.className = "tool-activity-title";
+  title.textContent = name || "unknown";
+
+  const preview = document.createElement("span");
+  preview.className = "tool-activity-preview";
+  preview.textContent = responseText ? summarizeToolArguments(responseText) : summarizeToolArguments(argsText);
+
+  main.append(title, preview);
+
+  const badge = document.createElement("span");
+  badge.className = "tool-activity-badge";
+  badge.textContent = kind === "result" ? t("message.toolResult") : t("message.toolCall");
+
+  summary.append(icon, main, badge);
+  callEl.append(summary);
+
+  const body = document.createElement("div");
+  body.className = "tool-activity-body";
+
+  if (argsText) {
+    const argsLabel = document.createElement("div");
+    argsLabel.className = "tool-activity-label";
+    argsLabel.textContent = t("message.toolArgs");
+
+    const argsBody = document.createElement("pre");
+    argsBody.className = "tool-activity-pre";
+    argsBody.textContent = argsText;
+
+    body.append(argsLabel, argsBody);
+  }
+
+  if (responseText) {
+    const responseLabel = document.createElement("div");
+    responseLabel.className = "tool-activity-label";
+    responseLabel.textContent = t("message.toolResponse");
+
+    const responseBody = document.createElement("pre");
+    responseBody.className = "tool-activity-pre";
+    responseBody.textContent = responseText;
+
+    body.append(responseLabel, responseBody);
+  }
+
+  if (!argsText && !responseText) {
+    const empty = document.createElement("div");
+    empty.className = "tool-activity-empty";
+    empty.textContent = t("message.toolNoArgs");
+    body.append(empty);
+  }
+
+  callEl.append(body);
+  return callEl;
+}
+
+function createToolCallNode(toolCall, relatedMessages = []) {
+  const name = toolCall.function?.name || toolCall.name || "unknown";
+  const args = toolCall.function?.arguments ?? toolCall.arguments ?? "";
+  const argsText = formatToolArguments(args);
+  const responseText = relatedMessages.map((message) => message.content || "").filter(Boolean).join("\n\n");
+  return createToolActivityNode({ name, argsText, responseText, kind: responseText ? "result" : "call" });
+}
+
+function createToolMessageNode(message) {
+  return createToolActivityNode({
+    name: getToolName(message) || "tool",
+    responseText: message.content || "",
+    kind: message._tool_result || message.role === "tool" ? "result" : "call",
+  });
+}
+
+function renderMessages(forceScroll = true) {
   const key = state.activeSessionKey;
   const messages = state.messages.get(key) || [];
+  const previousBottomOffset =
+    elements.messageList.scrollHeight - elements.messageList.scrollTop - elements.messageList.clientHeight;
+  const wasNearBottom = previousBottomOffset < 120;
   elements.messageList.textContent = "";
 
   if (!key) {
@@ -450,12 +665,38 @@ function renderMessages() {
     return;
   }
 
-  for (const message of messages) {
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
+      message._relatedToolMessages = [];
+      const toolNames = new Set(message.tool_calls.map((tc) => tc.function?.name || tc.name || "").filter(Boolean));
+      let nextIndex = index + 1;
+      while (nextIndex < messages.length) {
+        const nextMessage = messages[nextIndex];
+        if (nextMessage.role !== "tool" && nextMessage.role !== "progress") {
+          break;
+        }
+        const nextToolName = getToolName(nextMessage);
+        if (toolNames.size > 0 && nextToolName && !toolNames.has(nextToolName)) {
+          break;
+        }
+        message._relatedToolMessages.push(nextMessage);
+        nextIndex += 1;
+      }
+      index = nextIndex - 1;
+    }
     const node = createMessageNode(message);
     elements.messageList.append(node);
   }
 
-  scrollMessagesToBottom(true);
+  if (forceScroll || wasNearBottom) {
+    scrollMessagesToBottom(true);
+  } else {
+    elements.messageList.scrollTop = Math.max(
+      0,
+      elements.messageList.scrollHeight - elements.messageList.clientHeight - previousBottomOffset,
+    );
+  }
 }
 
 function createMessageNode(message) {
@@ -511,28 +752,38 @@ function createMessageNode(message) {
 }
 
 function updateMessageContent(contentEl, message) {
+  const previousReasoning = contentEl.querySelector(".message-reasoning-details");
+  const previousReasoningState = previousReasoning
+    ? { open: previousReasoning.open, manual: previousReasoning.dataset.reasoningManual === "true" }
+    : {};
   contentEl.textContent = "";
 
   if (message.reasoning_content && message.reasoning_content.trim()) {
-    const reasoningEl = document.createElement("div");
-    reasoningEl.className = "message-reasoning";
-    reasoningEl.textContent = message.reasoning_content;
-    contentEl.append(reasoningEl);
+    contentEl.append(createReasoningNode(message.reasoning_content, previousReasoningState));
   }
 
   // Handle tool_calls for assistant messages
   if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
     const toolCallsEl = document.createElement("div");
-    toolCallsEl.className = "tool-calls";
+    toolCallsEl.className = "tool-activities";
+    const relatedMessages = message._relatedToolMessages || [];
     for (const tc of message.tool_calls) {
-      const callEl = document.createElement("div");
-      callEl.className = "tool-call";
-      const name = tc.function?.name || tc.name || "unknown";
-      const args = tc.function?.arguments || tc.arguments || "";
-      callEl.textContent = `▸ ${name}(${args.length > 100 ? args.slice(0, 100) + "..." : args})`;
-      toolCallsEl.append(callEl);
+      const name = tc.function?.name || tc.name || "";
+      const related = relatedMessages.filter((relatedMessage) => {
+        const relatedName = getToolName(relatedMessage);
+        return !name || !relatedName || relatedName === name;
+      });
+      toolCallsEl.append(createToolCallNode(tc, related));
     }
     contentEl.append(toolCallsEl);
+  }
+
+  if (message.role === "tool" || message.role === "progress") {
+    const toolCallsEl = document.createElement("div");
+    toolCallsEl.className = "tool-activities";
+    toolCallsEl.append(createToolMessageNode(message));
+    contentEl.append(toolCallsEl);
+    return;
   }
 
   if (message.content && message.content.trim()) {
@@ -622,7 +873,8 @@ function renderSessions() {
 
     const key = document.createElement("span");
     key.className = "session-key";
-    key.textContent = item.chat_id;
+    key.textContent = sessionTitleForKey(item.key);
+    key.title = item.chat_id;
 
     const time = document.createElement("span");
     time.className = "session-time";
@@ -659,7 +911,7 @@ function renderEditableFiles() {
 function activateChat(chatId) {
   state.activeChatId = chatId;
   state.activeSessionKey = sessionKeyForChat(chatId);
-  elements.chatTitle.textContent = chatId || t("ui.notConnected");
+  updateActiveChatTitle();
   renderSessions();
   renderMessages();
 }
@@ -703,6 +955,8 @@ async function loadMessages(sessionKey) {
   }
   const payload = await response.json();
   state.messages.set(sessionKey, payload.messages || []);
+  updateActiveChatTitle();
+  renderSessions();
   renderMessages();
 }
 
@@ -715,6 +969,8 @@ async function clearSession(sessionKey) {
     throw new Error(`clear session failed: ${response.status}`);
   }
   state.messages.set(sessionKey, []);
+  updateActiveChatTitle();
+  renderSessions();
   renderMessages();
   setEditorStatus(t("status.cleared"), "connected");
 }
@@ -739,7 +995,7 @@ async function deleteSession(sessionKey, chatId) {
     } else {
       state.activeChatId = "";
       state.activeSessionKey = "";
-      elements.chatTitle.textContent = t("ui.notConnected");
+      updateActiveChatTitle();
     }
   }
 
@@ -1320,7 +1576,7 @@ function renderKnowledgeOverview() {
   const communityLevels = stats.community_count_by_level || stats.communityCountByLevel || {};
   const communityLevelText = Object.entries(communityLevels)
     .sort(([left], [right]) => Number(left) - Number(right))
-    .map(([level, count]) => `L${level}: ${count}`)
+    .map(([level, count]) => t("knowledge.graphLevelCount").replace("{level}", level).replace("{count}", count))
     .join(", ");
   const indexedDense = Number(stats.indexed_dense || 0);
   const indexedSparse = Number(stats.indexed_sparse || 0);
@@ -1339,17 +1595,22 @@ function renderKnowledgeOverview() {
   if (elements.knowledgeHealthBar) elements.knowledgeHealthBar.style.width = `${score}%`;
   if (elements.knowledgeHealthTitle) {
     elements.knowledgeHealthTitle.textContent = score >= 85
-      ? "Knowledge graph is ready"
+      ? t("knowledge.healthReady")
       : score >= 55
-        ? "Knowledge base is searchable"
+        ? t("knowledge.healthSearchable")
         : docs > 0
-          ? "Documents need semantic indexing"
-          : "No knowledge loaded";
+          ? t("knowledge.healthNeedsSemantic")
+          : t("knowledge.healthEmpty");
   }
   if (elements.knowledgeHealthDesc) {
     elements.knowledgeHealthDesc.textContent = docs
-      ? `${docs} documents, ${chunks} chunks, ${entities} entities, ${relations} relationships, ${communities} communities.`
-      : "Add documents, then rebuild indexes to create retrieval and graph signals.";
+      ? t("knowledge.healthDesc")
+        .replace("{docs}", docs)
+        .replace("{chunks}", chunks)
+        .replace("{entities}", entities)
+        .replace("{relations}", relations)
+        .replace("{communities}", communities)
+      : t("knowledge.healthDescEmpty");
   }
 
   if (!elements.knowledgeOverviewInsights) {
@@ -1358,22 +1619,25 @@ function renderKnowledgeOverview() {
   elements.knowledgeOverviewInsights.textContent = "";
   const insights = [
     {
-      title: "Retrieval index",
+      title: t("knowledge.insightRetrievalIndex"),
       text: indexedDense || indexedSparse
-        ? `${indexedDense} dense documents and ${indexedSparse} sparse chunks are indexed.`
-        : "No retrieval index is visible yet. Rebuild the index after adding documents.",
+        ? t("knowledge.insightRetrievalReady").replace("{dense}", indexedDense).replace("{sparse}", indexedSparse)
+        : t("knowledge.insightRetrievalEmpty"),
     },
     {
-      title: "Semantic model",
+      title: t("knowledge.insightSemanticModel"),
       text: entities
-        ? `${entities} entities and ${relations} relationships were extracted from source chunks.`
-        : "No entities extracted yet. Semantic rebuild will unlock graph exploration.",
+        ? t("knowledge.insightSemanticReady").replace("{entities}", entities).replace("{relations}", relations)
+        : t("knowledge.insightSemanticEmpty"),
     },
     {
-      title: "GraphRAG layer",
+      title: t("knowledge.insightGraphRagLayer"),
       text: communities
-        ? `${communities} communities${communityLevelText ? ` (${communityLevelText})` : ""} and ${reports} reports are available for global/drift search.`
-        : "No communities yet. Relationships are needed before community reports can form.",
+        ? t("knowledge.insightGraphRagReady")
+          .replace("{communities}", communities)
+          .replace("{levels}", communityLevelText ? ` (${communityLevelText})` : "")
+          .replace("{reports}", reports)
+        : t("knowledge.insightGraphRagEmpty"),
     },
   ];
   for (const insight of insights) {
@@ -1473,7 +1737,7 @@ function ensureGlobalKnowledgeToast() {
     <div class="global-knowledge-spinner" aria-hidden="true"></div>
     <div class="global-knowledge-copy">
       <div id="global-knowledge-toast-title" class="global-knowledge-title">Building knowledge graph</div>
-      <div id="global-knowledge-toast-desc" class="global-knowledge-desc">Entities, relationships, communities, and reports are being generated. This may take a while.</div>
+      <div id="global-knowledge-toast-desc" class="global-knowledge-desc"></div>
     </div>
   `;
   document.body.append(toast);
@@ -1490,10 +1754,10 @@ function setGlobalKnowledgeToast(active, message = "") {
   }
   if (active) {
     if (elements.globalKnowledgeToastTitle) {
-      elements.globalKnowledgeToastTitle.textContent = "Building knowledge graph";
+      elements.globalKnowledgeToastTitle.textContent = t("knowledge.indexingTitle");
     }
     if (elements.globalKnowledgeToastDesc) {
-      elements.globalKnowledgeToastDesc.textContent = message || "Entities, relationships, communities, and reports are being generated. This may take a while.";
+      elements.globalKnowledgeToastDesc.textContent = message || t("knowledge.indexingDesc");
     }
     toast.hidden = false;
     requestAnimationFrame(() => toast.classList.add("active"));
@@ -1524,12 +1788,12 @@ function setupKnowledgeWorkbench() {
   const tabs = document.createElement("div");
   tabs.className = "knowledge-tabs";
   tabs.setAttribute("role", "tablist");
-  tabs.setAttribute("aria-label", "Knowledge views");
+  tabs.setAttribute("aria-label", t("knowledge.views"));
   const tabItems = [
-    ["overview", "Overview"],
-    ["graph", "Graph"],
-    ["documents", "Documents"],
-    ["query", "Query"],
+    ["overview", t("knowledge.overview")],
+    ["graph", t("knowledge.graph")],
+    ["documents", t("knowledge.documents")],
+    ["query", t("knowledge.query")],
   ];
   for (const [key, label] of tabItems) {
     const button = document.createElement("button");
@@ -1553,13 +1817,13 @@ function setupKnowledgeWorkbench() {
     <div class="knowledge-health-card">
       <div class="knowledge-health-main">
         <div>
-          <div class="knowledge-card-kicker">Knowledge readiness</div>
-          <div id="knowledge-health-title" class="knowledge-health-title">No knowledge loaded</div>
+          <div class="knowledge-card-kicker">${escapeHtml(t("knowledge.readiness"))}</div>
+          <div id="knowledge-health-title" class="knowledge-health-title">${escapeHtml(t("knowledge.healthEmpty"))}</div>
         </div>
         <div id="knowledge-health-score" class="knowledge-health-score">0%</div>
       </div>
       <div class="knowledge-health-track"><div id="knowledge-health-bar" class="knowledge-health-bar" style="width: 0%"></div></div>
-      <p id="knowledge-health-desc" class="knowledge-health-desc">Add documents and rebuild indexes to create a searchable knowledge graph.</p>
+      <p id="knowledge-health-desc" class="knowledge-health-desc">${escapeHtml(t("knowledge.healthDescEmpty"))}</p>
     </div>
     <div class="knowledge-insight-list" id="knowledge-overview-insights"></div>
   `;
@@ -1573,7 +1837,7 @@ function setupKnowledgeWorkbench() {
       const scope = document.createElement("span");
       scope.id = "knowledge-graph-scope";
       scope.className = "graph-scope";
-      scope.textContent = "All knowledge";
+      scope.textContent = t("knowledge.allKnowledge");
       title.append(scope);
       elements.knowledgeGraphScope = scope;
     }
@@ -1582,11 +1846,11 @@ function setupKnowledgeWorkbench() {
       const levelSelect = document.createElement("select");
       levelSelect.id = "knowledge-graph-level";
       levelSelect.className = "graph-level-select";
-      levelSelect.setAttribute("aria-label", "GraphRAG community level");
+      levelSelect.setAttribute("aria-label", t("settings.knowledge.graphRagCommunityLevel"));
       for (const level of [0, 1]) {
         const option = document.createElement("option");
         option.value = String(level);
-        option.textContent = `Level ${level}`;
+        option.textContent = t("knowledge.graphLevel").replace("{level}", level);
         levelSelect.append(option);
       }
       levelSelect.value = String(state.knowledgeGraphLevel);
@@ -1603,7 +1867,7 @@ function setupKnowledgeWorkbench() {
       clear.className = "button button-ghost button-small";
       clear.type = "button";
       clear.hidden = true;
-      clear.textContent = "Clear filter";
+      clear.textContent = t("knowledge.clearFilter");
       clear.addEventListener("click", () => setKnowledgeGraphDocumentFilter("", ""));
       actions.insertBefore(clear, actions.firstChild);
       elements.clearGraphFilterButton = clear;
@@ -1880,7 +2144,7 @@ function buildGraphRagEvidence(relationship, textUnits, documents, claims) {
   return evidence;
 }
 
-function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
+function renderKnowledgeGraph(graph, fallbackText = t("knowledge.noGraph")) {
   if (!elements.knowledgeGraph) {
     return;
   }
@@ -1896,19 +2160,23 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
     const communityCount = graph?.stats?.community_count || 0;
     const reportCount = graph?.stats?.community_report_count || 0;
     const graphLevel = graph?.stats?.level ?? state.knowledgeGraphLevel ?? 0;
-    const graphMeta = [`level ${graphLevel}`, `${nodes.length} nodes`, `${edges.length} edges`];
-    if (communityCount) graphMeta.push(`${communityCount} communities`);
-    if (reportCount) graphMeta.push(`${reportCount} reports`);
+    const graphMeta = [
+      t("knowledge.graphMetaLevel").replace("{level}", graphLevel),
+      t("knowledge.graphMetaNodes").replace("{count}", nodes.length),
+      t("knowledge.graphMetaEdges").replace("{count}", edges.length),
+    ];
+    if (communityCount) graphMeta.push(t("knowledge.graphMetaCommunities").replace("{count}", communityCount));
+    if (reportCount) graphMeta.push(t("knowledge.graphMetaReports").replace("{count}", reportCount));
     elements.knowledgeGraphMeta.textContent = graphMeta.join(" / ");
   }
   if (elements.knowledgeGraphLevelSelect) {
     elements.knowledgeGraphLevelSelect.value = String(state.knowledgeGraphLevel || 0);
   }
   if (elements.knowledgeGraphScope) {
-    const levelText = `Level ${state.knowledgeGraphLevel || 0}`;
+    const levelText = t("knowledge.graphLevel").replace("{level}", state.knowledgeGraphLevel || 0);
     elements.knowledgeGraphScope.textContent = state.knowledgeGraphFilterDocName
-      ? `Filtered: ${state.knowledgeGraphFilterDocName} / ${levelText}`
-      : `All knowledge / ${levelText}`;
+      ? t("knowledge.filteredScope").replace("{name}", state.knowledgeGraphFilterDocName).replace("{level}", levelText)
+      : `${t("knowledge.allKnowledge")} / ${levelText}`;
   }
   if (elements.clearGraphFilterButton) {
     elements.clearGraphFilterButton.hidden = !state.knowledgeGraphFilterDocId;
@@ -1932,16 +2200,16 @@ function renderKnowledgeGraph(graph, fallbackText = "暂无关系图谱") {
   const zoomOut = createKnowledgeGraphControlButton("-", "Zoom out");
   const zoomReset = createKnowledgeGraphControlButton("1:1", "Reset view");
   const zoomIn = createKnowledgeGraphControlButton("+", "Zoom in");
-  const layoutToggle = createKnowledgeGraphControlButton("Freeze", "Freeze layout");
+  const layoutToggle = createKnowledgeGraphControlButton(t("knowledge.freeze"), t("knowledge.freezeLayout"));
   controls.append(zoomOut, zoomReset, zoomIn, layoutToggle);
 
   const hint = document.createElement("div");
   hint.className = "graph-hint";
-  hint.textContent = "Scroll to zoom, drag background to pan, drag nodes to shape the map";
+  hint.textContent = t("knowledge.graphHint");
 
   const canvasSurface = document.createElement("canvas");
   canvasSurface.className = "knowledge-graph-canvas";
-  canvasSurface.setAttribute("aria-label", "Interactive knowledge graph");
+  canvasSurface.setAttribute("aria-label", t("knowledge.interactiveGraph"));
   canvasSurface.setAttribute("role", "img");
   canvasSurface.tabIndex = 0;
   canvas.append(canvasSurface, controls, hint);
@@ -1990,17 +2258,21 @@ function renderKnowledgeGraphInspector() {
       .slice(0, 5);
     const empty = document.createElement("div");
     empty.className = "inspector-empty";
-    empty.innerHTML = `
-      <div class="inspector-title">Graph overview</div>
-      <p>${nodes.length} entities, ${edges.length} relationships. Select any node or edge to inspect evidence.</p>
-    `;
+    const overviewTitle = document.createElement("div");
+    overviewTitle.className = "inspector-title";
+    overviewTitle.textContent = t("knowledge.graphOverview");
+    const overviewDesc = document.createElement("p");
+    overviewDesc.textContent = t("knowledge.graphOverviewDesc")
+      .replace("{entities}", nodes.length)
+      .replace("{relationships}", edges.length);
+    empty.append(overviewTitle, overviewDesc);
     inspector.append(empty);
     if (topNodes.length) {
-      inspector.append(createInspectorSection("Core entities", topNodes.map((node) => `${node.label} (${node.degree || 0})`)));
+      inspector.append(createInspectorSection(t("knowledge.coreEntities"), topNodes.map((node) => `${node.label} (${node.degree || 0})`)));
     }
     const communities = graph.communities || [];
     if (communities.length) {
-      inspector.append(createInspectorSection("Communities", communities.slice(0, 5).map((item) => item.title || `Community ${item.community}`)));
+      inspector.append(createInspectorSection(t("knowledge.communities"), communities.slice(0, 5).map((item) => item.title || t("knowledge.communityName").replace("{id}", item.community))));
     }
     return;
   }
@@ -2008,39 +2280,39 @@ function renderKnowledgeGraphInspector() {
   if (selection.node) {
     const node = selection.node;
     inspector.append(createInspectorTitle(node.label || node.id, node.type || "entity"));
-    inspector.append(createInspectorText(node.description || node.community_report_summary || "No description available."));
+    inspector.append(createInspectorText(node.description || node.community_report_summary || t("knowledge.noDescriptionAvailable")));
     inspector.append(createInspectorMetrics([
-      ["Degree", node.degree || 0],
-      ["Frequency", node.mention_count || 0],
-      ["Community", node.community_level == null ? "-" : `L${node.community_level}`],
+      [t("knowledge.degree"), node.degree || 0],
+      [t("knowledge.frequency"), node.mention_count || 0],
+      [t("knowledge.community"), node.community_level == null ? "-" : `L${node.community_level}`],
     ]));
     if (node.community_title) {
-      inspector.append(createInspectorSection("Community", [node.community_title]));
+      inspector.append(createInspectorSection(t("knowledge.community"), [node.community_title]));
     }
     if (node.doc_names?.length) {
-      inspector.append(createInspectorSection("Source documents", node.doc_names.slice(0, 6)));
+      inspector.append(createInspectorSection(t("knowledge.sourceDocuments"), node.doc_names.slice(0, 6)));
     }
     return;
   }
 
   if (selection.edge) {
     const edge = selection.edge;
-    inspector.append(createInspectorTitle(edge.predicate || "relationship", "relationship"));
-    inspector.append(createInspectorText(edge.description || "No relationship description available."));
+    inspector.append(createInspectorTitle(edge.predicate || t("knowledge.relationship"), t("knowledge.relationship")));
+    inspector.append(createInspectorText(edge.description || t("knowledge.noRelationshipDescription")));
     inspector.append(createInspectorMetrics([
-      ["Weight", formatInspectorNumber(edge.weight || edge.count)],
-      ["Strength", formatInspectorNumber(edge.strength || edge.weight || edge.count)],
-      ["Evidence", edge.evidence?.length || 0],
+      [t("knowledge.weight"), formatInspectorNumber(edge.weight || edge.count)],
+      [t("knowledge.strength"), formatInspectorNumber(edge.strength || edge.weight || edge.count)],
+      [t("knowledge.evidence"), edge.evidence?.length || 0],
     ]));
     if (edge.doc_names?.length) {
-      inspector.append(createInspectorSection("Source documents", edge.doc_names.slice(0, 6)));
+      inspector.append(createInspectorSection(t("knowledge.sourceDocuments"), edge.doc_names.slice(0, 6)));
     }
     if (edge.evidence?.length) {
       const evidence = edge.evidence.slice(0, 4).map((item) => {
         const where = [item.doc_name, item.line_start ? `L${item.line_start}-${item.line_end || item.line_start}` : ""].filter(Boolean).join(" / ");
         return `${where ? `${where}: ` : ""}${item.text || ""}`;
       });
-      inspector.append(createInspectorSection("Evidence", evidence));
+      inspector.append(createInspectorSection(t("knowledge.evidence"), evidence));
     }
   }
 }
@@ -2562,8 +2834,8 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
   controls.zoomReset?.addEventListener("click", resetView);
   controls.layoutToggle?.addEventListener("click", () => {
     runtime.frozen = !runtime.frozen;
-    controls.layoutToggle.textContent = runtime.frozen ? "Release" : "Freeze";
-    controls.layoutToggle.title = runtime.frozen ? "Release layout" : "Freeze layout";
+    controls.layoutToggle.textContent = runtime.frozen ? t("knowledge.release") : t("knowledge.freeze");
+    controls.layoutToggle.title = runtime.frozen ? t("knowledge.releaseLayout") : t("knowledge.freezeLayout");
     runtime.alpha = runtime.frozen ? runtime.alpha : 0.8;
   });
 
@@ -2686,7 +2958,7 @@ function renderKnowledgeGraphCommunities(communities, nodes) {
 
   const title = document.createElement("div");
   title.className = "graph-community-panel-title";
-  title.textContent = t("knowledge.communityReports") || "Community reports";
+  title.textContent = t("knowledge.communityReports");
   panel.append(title);
 
   for (const community of visibleCommunities) {
@@ -2702,18 +2974,21 @@ function renderKnowledgeGraphCommunities(communities, nodes) {
     swatch.style.background = knowledgeGraphCommunityColor(community.community);
     const name = document.createElement("span");
     name.className = "graph-community-name";
-    name.textContent = community.title || report.title || `Community ${community.community}`;
+    name.textContent = community.title || report.title || t("knowledge.communityName").replace("{id}", community.community);
     const count = document.createElement("span");
     count.className = "graph-community-count";
     const childCount = (community.children || []).length;
-    const countParts = [`L${community.level || 0}`, `${community.entityCount} entities`];
+    const countParts = [
+      t("knowledge.graphLevelShort").replace("{level}", community.level || 0),
+      t("knowledge.graphMetaEntities").replace("{count}", community.entityCount),
+    ];
     if (report.rank != null) {
-      countParts.push(`rank ${formatInspectorNumber(report.rank)}`);
+      countParts.push(t("knowledge.rank").replace("{rank}", formatInspectorNumber(report.rank)));
     }
     if (childCount) {
-      countParts.push(`${childCount} child`);
+      countParts.push(t("knowledge.childCount").replace("{count}", childCount));
     } else if (community.parent != null && community.parent >= 0) {
-      countParts.push(`parent ${community.parent}`);
+      countParts.push(t("knowledge.parentCommunity").replace("{id}", community.parent));
     }
     count.textContent = countParts.join(" / ");
     header.append(swatch, name, count);
@@ -2772,8 +3047,8 @@ function renderKnowledgeDocs() {
     const graphBtn = document.createElement("button");
     graphBtn.className = "doc-graph-btn";
     graphBtn.type = "button";
-    graphBtn.textContent = "Graph";
-    graphBtn.title = "View this document in the graph";
+    graphBtn.textContent = t("knowledge.graphButton");
+    graphBtn.title = t("knowledge.viewDocGraph");
     graphBtn.addEventListener("click", () => setKnowledgeGraphDocumentFilter(doc.id, doc.name));
 
     const deleteBtn = document.createElement("button");
@@ -3059,9 +3334,13 @@ async function rebuildKnowledgeIndex() {
     }
 
     const result = await response.json();
-    let message = t("knowledge.rebuildSuccessAll") || "索引重建成功";
+    let message = t("knowledge.rebuildSuccessAll");
     if (result.bm25 && result.semantic) {
-      message = `索引重建成功: BM25(${result.bm25.chunks_indexed || 0} chunks), 语义(${result.semantic.entities || 0} entities, ${result.semantic.claims || 0} claims, ${result.semantic.communities || 0} communities)`;
+      message = t("knowledge.rebuildSuccessDetailed")
+        .replace("{chunks}", result.bm25.chunks_indexed || 0)
+        .replace("{entities}", result.semantic.entities || 0)
+        .replace("{claims}", result.semantic.claims || 0)
+        .replace("{communities}", result.semantic.communities || 0);
     }
 
     // Show success notification
@@ -3192,7 +3471,7 @@ function renderQueryResults(result) {
     const locate = document.createElement("button");
     locate.className = "button button-ghost button-small";
     locate.type = "button";
-    locate.textContent = "Highlight in graph";
+    locate.textContent = t("knowledge.highlightInGraph");
     locate.addEventListener("click", () => highlightKnowledgeQueryResult(item, result.query));
     actions.append(locate);
 
@@ -3288,13 +3567,13 @@ function updateQueryModeHint() {
     return;
   }
   const hints = {
-    hybrid: "Blends vector, keyword, semantic, and graph signals. Best default.",
-    dense: "Vector similarity over embedded chunks.",
-    sparse: "Keyword/BM25 matching over child chunks.",
-    semantic: "Entity, claim, and relationship matching.",
-    local: "Starts from matched entities, then expands nearby graph neighbors.",
-    global: "Searches community reports for broad topic answers.",
-    drift: "Uses communities to guide local graph expansion.",
+    hybrid: t("knowledge.queryHintHybrid"),
+    dense: t("knowledge.queryHintDense"),
+    sparse: t("knowledge.queryHintSparse"),
+    semantic: t("knowledge.queryHintSemantic"),
+    local: t("knowledge.queryHintLocal"),
+    global: t("knowledge.queryHintGlobal"),
+    drift: t("knowledge.queryHintDrift"),
   };
   elements.queryModeHint.textContent = hints[elements.queryMode.value] || "";
 }
@@ -3866,8 +4145,14 @@ function ensureMessageBucket(sessionKey) {
 function pushMessage(sessionKey, message) {
   const bucket = ensureMessageBucket(sessionKey);
   bucket.push(message);
+  const item = state.sessionItems.find((entry) => entry.key === sessionKey);
+  if (item && !item.title && message.role === "user") {
+    item.title = compactSessionTitleFromMessages(bucket);
+  }
   if (sessionKey === state.activeSessionKey) {
-    renderMessages();
+    updateActiveChatTitle();
+    renderSessions();
+    renderMessages(false);
   }
 }
 
@@ -3890,7 +4175,7 @@ function upsertStreamMessage(chatId, messageId, deltaText, isReasoning = false) 
 
     // Only render full list when adding a new message
     if (sessionKey === state.activeSessionKey) {
-      renderMessages();
+      renderMessages(false);
     }
   } else {
     // Append to appropriate content field
@@ -4492,6 +4777,7 @@ function bindEvents() {
 function updateLanguageButton() {
   const lang = getLanguage();
   elements.languageToggle.textContent = lang === "zh" ? "EN" : "中文";
+  elements.languageToggle.setAttribute("aria-label", t("ui.switchLanguage"));
 }
 
 function renderDynamicContent() {
@@ -4509,9 +4795,9 @@ function renderDynamicContent() {
   }
   // 更新聊天标题
   if (state.activeChatId) {
-    elements.chatTitle.textContent = state.activeChatId;
+    updateActiveChatTitle();
   } else {
-    elements.chatTitle.textContent = t("ui.notConnected");
+    updateActiveChatTitle();
   }
 }
 
@@ -4835,7 +5121,7 @@ function showInitSkeleton() {
           </div>
           <div class="skeleton skeleton-content" style="width: 80%;"></div>
         </div>
-        <div class="init-loading-text">${getLanguage() === "zh" ? "正在初始化..." : "Initializing..."}</div>
+        <div class="init-loading-text">${t("ui.initializing")}</div>
       </div>
     </div>
   `;

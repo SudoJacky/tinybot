@@ -494,6 +494,9 @@ body {
   font-size: 13px;
   font-weight: 500;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-time {
@@ -674,6 +677,10 @@ body {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  max-width: min(560px, 60vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-group {
@@ -761,22 +768,6 @@ body {
   background: var(--panel-strong);
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-xs);
-  animation: message-appear 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
-  transform-origin: bottom center;
-}
-
-@keyframes message-appear {
-  0% {
-    opacity: 0;
-    transform: translateY(12px) scale(0.92);
-  }
-  60% {
-    transform: translateY(-2px) scale(1.02);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 .message-user {
@@ -810,11 +801,14 @@ body {
 .message-tool,
 .message-progress {
   align-self: flex-start;
-  background: var(--bg-subtle);
-  max-width: 60%;
-  width: fit-content;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  max-width: min(92%, 860px);
+  width: min(92%, 860px);
+  padding: 0 4px;
   font-size: 13px;
-  opacity: 0.78;
+  opacity: 1;
 }
 
 .message-tool .message-role,
@@ -823,23 +817,118 @@ body {
 }
 
 /* Tool calls display */
-.tool-calls {
+.tool-activities {
+  display: grid;
+  gap: 8px;
   margin-bottom: 12px;
-  font-family: var(--font-mono);
   font-size: 13px;
 }
 
-.tool-call {
-  padding: 8px 12px;
-  margin-bottom: 6px;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-sm);
+.tool-activity {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-subtle) 76%, transparent);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
-  color: var(--text-muted);
+  color: var(--text);
 }
 
-.tool-call:last-child {
-  margin-bottom: 0;
+.tool-activity summary {
+  list-style: none;
+}
+
+.tool-activity summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-activity-summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.tool-activity-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  transition: transform var(--transition-fast);
+}
+
+.tool-activity[open] .tool-activity-icon {
+  transform: rotate(90deg);
+}
+
+.tool-activity-main {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.tool-activity-title {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-activity-preview {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-activity-badge {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tool-activity-body {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px 40px;
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 54%, transparent);
+}
+
+.tool-activity-label {
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tool-activity-pre,
+.tool-activity-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
 }
 
 .message-meta {
@@ -1108,14 +1197,66 @@ body {
 }
 
 .message-reasoning {
-  white-space: pre-wrap;
-  padding: 12px 16px;
   margin-bottom: 12px;
   background: var(--bg-subtle);
   border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-muted);
   border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.message-reasoning summary {
+  list-style: none;
+}
+
+.message-reasoning summary::-webkit-details-marker {
+  display: none;
+}
+
+.message-reasoning-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.message-reasoning-summary::before {
+  content: ">";
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  transition: transform var(--transition-fast);
+}
+
+.message-reasoning[open] .message-reasoning-summary::before {
+  transform: rotate(90deg);
+}
+
+.message-reasoning-title {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.message-reasoning-meta {
+  margin-left: auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+.message-reasoning-body {
+  max-height: 360px;
+  padding: 0 14px 14px 40px;
+  overflow-y: auto;
+  white-space: pre-wrap;
 }
 
 /* ========== 输入框 ========== */
@@ -3988,6 +4129,23 @@ body {
   .message-tool,
   .message-progress {
     max-width: 100%;
+  }
+
+  .tool-activity-summary {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .tool-activity-badge {
+    display: none;
+  }
+
+  .message-reasoning-summary {
+    align-items: flex-start;
+  }
+
+  .message-reasoning-meta {
+    max-width: 46%;
+    text-align: right;
   }
 
   .file-editor {

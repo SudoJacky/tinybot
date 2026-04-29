@@ -39,6 +39,32 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if text:
+                    parts.append(str(text))
+        return " ".join(parts)
+    return str(content or "")
+
+
+def _compact_session_title(messages: list[dict[str, Any]], fallback: str = "") -> str:
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        text = " ".join(_message_text(message.get("content")).split())
+        text = text.strip("`#*_> -\t\r\n")
+        if not text:
+            continue
+        return text[:36].rstrip() + ("..." if len(text) > 36 else "")
+    return fallback
+
+
 def _extract_bearer_token(request: web.Request) -> str | None:
     auth = request.headers.get("Authorization", "")
     if auth.lower().startswith("bearer "):
@@ -421,10 +447,12 @@ class WebSocketChannel(BaseChannel):
             key = entry.get("key", "")
             if not key.startswith("websocket:"):
                 continue
+            session = self.session_manager.get(key)
             items.append(
                 {
                     "key": key,
                     "chat_id": key.split(":", 1)[1],
+                    "title": _compact_session_title(session.messages if session else []),
                     "created_at": entry.get("created_at"),
                     "updated_at": entry.get("updated_at"),
                 }

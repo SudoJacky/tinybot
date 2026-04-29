@@ -18,7 +18,7 @@
 </head>
 <body>
   <!-- Skip to main content link for accessibility -->
-  <a href="#message-list" class="skip-link">Skip to chat</a>
+  <a href="#message-list" class="skip-link" data-i18n="ui.skipToChat">Skip to chat</a>
   <div class="shell">
     <!-- 左侧边栏：会话列表 + 系统状态 -->
     <aside class="sidebar">
@@ -367,7 +367,7 @@
               <span id="modal-stats-claims" class="stats-value">0</span>
             </span>
             <span class="stats-item">
-              <span class="stats-label">关系</span>
+              <span class="stats-label" data-i18n="knowledge.relations">关系</span>
               <span id="modal-stats-relations" class="stats-value">0</span>
             </span>
             <span class="stats-item">
@@ -390,14 +390,14 @@
         <!-- 实体关系图谱 -->
         <div class="knowledge-graph-panel">
           <div class="graph-header">
-            <span>关系图谱</span>
+            <span data-i18n="knowledge.graph">关系图谱</span>
             <div class="graph-actions">
               <span id="knowledge-graph-meta" class="graph-meta">0 nodes / 0 edges</span>
-              <button id="refresh-graph-button" class="button button-ghost button-small" type="button">刷新图谱</button>
+              <button id="refresh-graph-button" class="button button-ghost button-small" type="button" data-i18n="knowledge.refreshGraph">刷新图谱</button>
             </div>
           </div>
           <div id="knowledge-graph" class="knowledge-graph">
-            <div class="empty-state">暂无关系图谱</div>
+            <div class="empty-state" data-i18n="knowledge.noGraph">暂无关系图谱</div>
           </div>
         </div>
         <!-- 文档列表 -->
@@ -608,8 +608,8 @@
               <div class="config-slider-group">
                 <div class="config-slider-header">
                   <div class="config-slider-labels">
-                    <span class="config-slider-label-left">精确 0</span>
-                    <span class="config-slider-label-right">创意 2</span>
+                    <span class="config-slider-label-left" data-i18n="settings.temperaturePrecise">精确 0</span>
+                    <span class="config-slider-label-right" data-i18n="settings.temperatureCreative">创意 2</span>
                   </div>
                   <span class="config-slider-value" id="temperature-value">0.1</span>
                 </div>
@@ -796,7 +796,7 @@
             </div>
             <div class="config-field">
               <label class="config-label config-label-with-help">
-                <span>GraphRAG Community Algorithm</span>
+                <span data-i18n="settings.knowledge.graphRagCommunityAlgorithm">GraphRAG Community Algorithm</span>
                 <span class="config-help" data-i18n-help="help.knowledgeGraphRagCommunityAlgorithm">?</span>
               </label>
               <select id="config-knowledge-graphrag-community-algorithm" class="config-select">
@@ -806,7 +806,7 @@
             </div>
             <div class="config-field">
               <label class="config-label config-label-with-help">
-                <span>GraphRAG Community Level</span>
+                <span data-i18n="settings.knowledge.graphRagCommunityLevel">GraphRAG Community Level</span>
                 <span class="config-help" data-i18n-help="help.knowledgeGraphRagCommunityLevel">?</span>
               </label>
               <input id="config-knowledge-graphrag-community-level" class="config-input" type="number" min="0" max="3" value="0" />
@@ -814,13 +814,13 @@
             <div class="config-field config-checkbox-group">
               <label class="config-checkbox-label">
                 <input id="config-knowledge-graphrag-report-llm-enabled" type="checkbox" />
-                <span>GraphRAG LLM Reports</span>
+                <span data-i18n="settings.knowledge.graphRagReportLlmEnabled">GraphRAG LLM Reports</span>
                 <span class="config-help" data-i18n-help="help.knowledgeGraphRagReportLlmEnabled">?</span>
               </label>
             </div>
             <div class="config-field">
               <label class="config-label config-label-with-help">
-                <span>GraphRAG Report Max Tokens</span>
+                <span data-i18n="settings.knowledge.graphRagReportMaxTokens">GraphRAG Report Max Tokens</span>
                 <span class="config-help" data-i18n-help="help.knowledgeGraphRagReportMaxTokens">?</span>
               </label>
               <input id="config-knowledge-graphrag-report-max-tokens" class="config-input" type="number" min="100" max="8000" value="1200" />
@@ -828,7 +828,7 @@
             <div class="config-field config-checkbox-group">
               <label class="config-checkbox-label">
                 <input id="config-knowledge-graphrag-entity-summary-enabled" type="checkbox" />
-                <span>GraphRAG Entity Summaries</span>
+                <span data-i18n="settings.knowledge.graphRagEntitySummaryEnabled">GraphRAG Entity Summaries</span>
                 <span class="config-help" data-i18n-help="help.knowledgeGraphRagEntitySummaryEnabled">?</span>
               </label>
             </div>
