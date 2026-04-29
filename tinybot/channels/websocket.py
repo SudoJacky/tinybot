@@ -232,6 +232,7 @@ class WebSocketChannel(BaseChannel):
                     "chat_id": chat_id,
                     "message_id": metadata.get("_stream_id"),
                     "reason": "stop",
+                    "resuming": metadata.get("_resuming", False),
                 },
             )
             return

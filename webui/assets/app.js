@@ -44,7 +44,8 @@ const state = {
 
 const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
 const REASONING_COLLAPSE_CHARS = 600;
-const REASONING_COLLAPSE_LINES = 8;
+const REASONING_COLLAPSE_LINES = 5;
+const AUTO_COLLAPSE_MIN_MESSAGES = 1;
 
 const elements = {
   sessionList: document.querySelector("#session-list"),
@@ -555,6 +556,178 @@ function getToolName(message) {
   return message?._tool_name || message?.name || "";
 }
 
+function hasToolCalls(message) {
+  return Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
+}
+
+function isToolProcessMessage(message) {
+  return message?.role === "tool" || message?.role === "progress" || hasToolCalls(message);
+}
+
+function isFinalAssistantContent(message) {
+  return (
+    message?.role === "assistant" &&
+    !hasToolCalls(message) &&
+    !message._stream_resuming &&
+    !state.streamBuffers.has(message.message_id || "") &&
+    Boolean((message.content || "").trim())
+  );
+}
+
+function shouldAutoCollapseTurn(messages, startIndex, finalIndex) {
+  const collapsibleCount = finalIndex - startIndex;
+  if (collapsibleCount < AUTO_COLLAPSE_MIN_MESSAGES) {
+    return false;
+  }
+
+  for (let index = startIndex; index < finalIndex; index += 1) {
+    if (isToolProcessMessage(messages[index])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function findFinalAssistantIndex(messages, startIndex) {
+  let finalIndex = -1;
+  for (let index = startIndex; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message.role === "user") {
+      break;
+    }
+    if (isFinalAssistantContent(message)) {
+      finalIndex = index;
+    }
+  }
+  return finalIndex;
+}
+
+function prepareMessageRelationships(messages) {
+  for (const message of messages) {
+    if (message && "_relatedToolMessages" in message) {
+      delete message._relatedToolMessages;
+    }
+  }
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (!hasToolCalls(message)) {
+      continue;
+    }
+
+    message._relatedToolMessages = [];
+    const toolNames = new Set(message.tool_calls.map((tc) => tc.function?.name || tc.name || "").filter(Boolean));
+    let nextIndex = index + 1;
+    while (nextIndex < messages.length) {
+      const nextMessage = messages[nextIndex];
+      if (nextMessage.role !== "tool" && nextMessage.role !== "progress") {
+        break;
+      }
+      const nextToolName = getToolName(nextMessage);
+      if (toolNames.size > 0 && nextToolName && !toolNames.has(nextToolName)) {
+        break;
+      }
+      message._relatedToolMessages.push(nextMessage);
+      nextIndex += 1;
+    }
+  }
+}
+
+function relatedToolMessagesEndIndex(messages, startIndex) {
+  const message = messages[startIndex];
+  if (!hasToolCalls(message)) {
+    return startIndex;
+  }
+
+  const toolNames = new Set(message.tool_calls.map((tc) => tc.function?.name || tc.name || "").filter(Boolean));
+  let nextIndex = startIndex + 1;
+  while (nextIndex < messages.length) {
+    const nextMessage = messages[nextIndex];
+    if (nextMessage.role !== "tool" && nextMessage.role !== "progress") {
+      break;
+    }
+    const nextToolName = getToolName(nextMessage);
+    if (toolNames.size > 0 && nextToolName && !toolNames.has(nextToolName)) {
+      break;
+    }
+    nextIndex += 1;
+  }
+  return nextIndex - 1;
+}
+
+function createMessageDisplayItems(messages) {
+  const items = [];
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    const finalIndex = message?.role === "user" ? -1 : findFinalAssistantIndex(messages, index);
+
+    if (finalIndex > index && shouldAutoCollapseTurn(messages, index, finalIndex)) {
+      items.push({
+        type: "collapse",
+        messages: messages.slice(index, finalIndex),
+      });
+      items.push({
+        type: "message",
+        message: messages[finalIndex],
+      });
+      index = finalIndex;
+      continue;
+    }
+
+    items.push({
+      type: "message",
+      message,
+    });
+
+    if (hasToolCalls(message)) {
+      index = relatedToolMessagesEndIndex(messages, index);
+    }
+  }
+
+  return items;
+}
+
+function createCollapsedMessagesNode(collapsedMessages) {
+  const wrapper = document.createElement("article");
+  wrapper.className = "message-collapse-group";
+
+  const button = document.createElement("button");
+  button.className = "message-collapse-summary";
+  button.type = "button";
+  button.setAttribute("aria-expanded", "false");
+
+  const icon = document.createElement("span");
+  icon.className = "message-collapse-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = ">";
+
+  const labelText = t("message.collapsedCount").replace("{count}", String(collapsedMessages.length));
+  const label = document.createElement("span");
+  label.className = "message-collapse-label";
+  label.textContent = `${labelText} · ${t("message.collapsedHint")}`;
+
+  button.append(icon, label);
+
+  const body = document.createElement("div");
+  body.className = "message-collapse-body";
+  body.hidden = true;
+  for (const message of collapsedMessages) {
+    body.append(createMessageNode(message));
+  }
+
+  button.addEventListener("click", () => {
+    const expanded = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", expanded ? "false" : "true");
+    wrapper.classList.toggle("expanded", !expanded);
+    body.hidden = expanded;
+    label.textContent = `${labelText} · ${expanded ? t("message.collapsedHint") : t("message.collapseAgain")}`;
+  });
+
+  wrapper.append(button, body);
+  return wrapper;
+}
+
 function createToolActivityNode({ name, argsText = "", responseText = "", kind = "call" }) {
   const callEl = document.createElement("details");
   callEl.className = "tool-activity";
@@ -665,27 +838,12 @@ function renderMessages(forceScroll = true) {
     return;
   }
 
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index];
-    if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
-      message._relatedToolMessages = [];
-      const toolNames = new Set(message.tool_calls.map((tc) => tc.function?.name || tc.name || "").filter(Boolean));
-      let nextIndex = index + 1;
-      while (nextIndex < messages.length) {
-        const nextMessage = messages[nextIndex];
-        if (nextMessage.role !== "tool" && nextMessage.role !== "progress") {
-          break;
-        }
-        const nextToolName = getToolName(nextMessage);
-        if (toolNames.size > 0 && nextToolName && !toolNames.has(nextToolName)) {
-          break;
-        }
-        message._relatedToolMessages.push(nextMessage);
-        nextIndex += 1;
-      }
-      index = nextIndex - 1;
-    }
-    const node = createMessageNode(message);
+  prepareMessageRelationships(messages);
+  const displayItems = createMessageDisplayItems(messages);
+  for (const item of displayItems) {
+    const node = item.type === "collapse"
+      ? createCollapsedMessagesNode(item.messages)
+      : createMessageNode(item.message);
     elements.messageList.append(node);
   }
 
@@ -4160,8 +4318,10 @@ function upsertStreamMessage(chatId, messageId, deltaText, isReasoning = false) 
   const sessionKey = sessionKeyForChat(chatId);
   const bucket = ensureMessageBucket(sessionKey);
   let streamState = state.streamBuffers.get(messageId);
+  const isNewMessage = !streamState;
+  const hadContentBefore = Boolean((streamState?.entry?.content || "").trim());
 
-  if (!streamState) {
+  if (isNewMessage) {
     const entry = {
       role: "assistant",
       content: "",
@@ -4172,21 +4332,19 @@ function upsertStreamMessage(chatId, messageId, deltaText, isReasoning = false) 
     bucket.push(entry);
     streamState = { sessionKey, entry };
     state.streamBuffers.set(messageId, streamState);
+  }
 
-    // Only render full list when adding a new message
-    if (sessionKey === state.activeSessionKey) {
-      renderMessages(false);
-    }
+  if (isReasoning) {
+    streamState.entry.reasoning_content += deltaText;
   } else {
-    // Append to appropriate content field
-    if (isReasoning) {
-      streamState.entry.reasoning_content += deltaText;
-    } else {
-      streamState.entry.content += deltaText;
-    }
+    streamState.entry.content += deltaText;
+  }
 
-    // Only update the specific DOM element for incremental updates
-    if (sessionKey === state.activeSessionKey) {
+  if (sessionKey === state.activeSessionKey) {
+    if (isNewMessage || (!hadContentBefore && !isReasoning && deltaText.trim())) {
+      // Render the list when a new visible answer starts so the streaming node is placed.
+      renderMessages(false);
+    } else {
       updateStreamMessageDOM(messageId);
     }
   }
@@ -4273,7 +4431,14 @@ async function connectWebSocket() {
 
       if (payload.event === "stream_end") {
         if (payload.message_id) {
+          const streamState = state.streamBuffers.get(payload.message_id);
+          if (streamState?.entry) {
+            streamState.entry._stream_resuming = payload.resuming === true;
+          }
           state.streamBuffers.delete(payload.message_id);
+          if (payload.resuming !== true && streamState?.sessionKey === state.activeSessionKey) {
+            renderMessages(false);
+          }
         }
         return;
       }
