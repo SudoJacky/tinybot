@@ -13,6 +13,13 @@
 ## 更新日志
 
 <details>
+<summary>2026.04.29 修复多个ui，新增浏览器操控界面示意。</summary>
+
+![auto_snapshot](./show/snapshot.gif)
+
+</details>
+
+<details>
 <summary>2026.04.28 新增测试版RAG实体关系图。</summary>
 
 ![rag_graph_beta_gif](./show/webui_rag_graph_beta1.gif)

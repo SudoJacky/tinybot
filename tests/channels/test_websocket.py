@@ -8,6 +8,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from tinybot.bus.queue import MessageBus
+from tinybot.bus.events import OutboundMessage
 from tinybot.channels.websocket import WebSocketChannel
 from tinybot.session.manager import SessionManager
 
@@ -112,6 +113,42 @@ async def test_websocket_chat_flow(web_channel, web_client):
         assert end["event"] == "stream_end"
         assert end["chat_id"] == chat_id
         assert end["message_id"] == "stream-1"
+    finally:
+        await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_websocket_browser_snapshot_event(web_channel, web_client):
+    channel, _, _ = web_channel
+    token = await _bootstrap_token(web_client)
+
+    ws = await web_client.ws_connect(f"/ws?token={token}")
+    try:
+        await ws.receive_json()
+        await ws.send_json({"type": "new_chat"})
+        created = await ws.receive_json()
+        chat_id = created["chat_id"]
+
+        await channel.send(
+            OutboundMessage(
+                channel="websocket",
+                chat_id=chat_id,
+                content="",
+                metadata={
+                    "_browser_snapshot": True,
+                    "image_url": "data:image/png;base64,abc",
+                    "source_command": "opencli browser state",
+                },
+            )
+        )
+
+        event = await ws.receive_json()
+        assert event == {
+            "event": "browser_snapshot",
+            "chat_id": chat_id,
+            "image_url": "data:image/png;base64,abc",
+            "source_command": "opencli browser state",
+        }
     finally:
         await ws.close()
 

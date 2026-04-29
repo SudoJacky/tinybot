@@ -920,6 +920,29 @@ function updateMessageContent(contentEl, message) {
     contentEl.append(createReasoningNode(message.reasoning_content, previousReasoningState));
   }
 
+  if (message._browser_snapshot) {
+    const snapshotEl = document.createElement("figure");
+    snapshotEl.className = "browser-snapshot";
+
+    if (message.image_url) {
+      const img = document.createElement("img");
+      img.className = "browser-snapshot-image";
+      img.src = message.image_url;
+      img.alt = "Browser snapshot";
+      snapshotEl.append(img);
+    }
+
+    if (message.source_command) {
+      const caption = document.createElement("figcaption");
+      caption.className = "browser-snapshot-caption";
+      caption.textContent = message.source_command;
+      snapshotEl.append(caption);
+    }
+
+    contentEl.append(snapshotEl);
+    return;
+  }
+
   // Handle tool_calls for assistant messages
   if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
     const toolCallsEl = document.createElement("div");
@@ -4426,6 +4449,19 @@ async function connectWebSocket() {
             timestamp: new Date().toISOString(),
           });
         }
+        return;
+      }
+
+      if (payload.event === "browser_snapshot") {
+        pushMessage(sessionKeyForChat(payload.chat_id), {
+          role: "progress",
+          content: payload.source_command || "",
+          timestamp: new Date().toISOString(),
+          _browser_snapshot: true,
+          image_url: payload.image_url || "",
+          source_command: payload.source_command || "",
+          _tool_name: "browser",
+        });
         return;
       }
 

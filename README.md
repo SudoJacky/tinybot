@@ -13,6 +13,13 @@ A lightweight personal AI assistant framework that integrates Large Language Mod
 ## Change log
 
 <details>
+<summary>2026.04.29 Fixed multiple UI issues and added a browser control interface demonstration。</summary>
+
+![auto_snapshot](./show/snapshot.gif)
+
+</details>
+
+<details>
 <summary>2026.04.28 Add beta RAG relation graph.</summary>
 
 ![rag_graph_beta_gif](./show/webui_rag_graph_beta1.gif)

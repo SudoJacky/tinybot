@@ -4,6 +4,7 @@ import pytest
 from tinybot.agent.tool_executor import (
     format_tool_hint,
     format_tool_call_detail,
+    is_opencli_command,
     ToolContextManager,
 )
 
@@ -100,3 +101,31 @@ class TestToolContextManager:
         assert channel == "api"
         assert chat_id == "session789"
         assert message_id is None
+
+
+class TestOpenCliDetection:
+    """Tests for OpenCLI command detection."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "opencli browser open https://example.com",
+            "opencli op state",
+            "opencli bilibili hot --limit 5 -f json",
+            "cd /tmp && opencli browser click 1",
+            "opencli.cmd browser screenshot out.png",
+        ],
+    )
+    def test_detects_opencli_commands(self, command):
+        assert is_opencli_command(command)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "",
+            "python -m opencli browser state",
+            "echo opencli browser state",
+        ],
+    )
+    def test_ignores_non_opencli_commands(self, command):
+        assert not is_opencli_command(command)
