@@ -80,7 +80,7 @@ from tinybot.providers.base import LLMProvider
 from tinybot.agent.dependencies import AgentDependencies
 from tinybot.agent.session_handler import SessionHandler
 from tinybot.agent.stream_handler import StreamHandler, StreamHookChain
-from tinybot.agent.tool_executor import ToolContextManager, format_tool_call_detail
+from tinybot.agent.tool_executor import BrowserSnapshotHook, ToolContextManager, format_tool_call_detail
 from tinybot.session.manager import Session, SessionManager
 from tinybot.utils.prompt_templates import render_template
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
@@ -655,9 +655,16 @@ class AgentLoop:
             chat_id=chat_id,
             message_id=message_id,
         )
+        extra_hooks = list(self._extra_hooks)
+        if channel == "websocket":
+            extra_hooks.append(BrowserSnapshotHook(
+                bus=self.bus,
+                channel=channel,
+                chat_id=chat_id,
+            ))
         hook: AgentHook = (
-            StreamHookChain(loop_hook, self._extra_hooks)
-            if self._extra_hooks
+            StreamHookChain(loop_hook, extra_hooks)
+            if extra_hooks
             else loop_hook
         )
 

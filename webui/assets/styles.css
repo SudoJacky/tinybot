@@ -1056,6 +1056,35 @@ body {
   white-space: pre-wrap;
 }
 
+.browser-snapshot {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-subtle) 76%, transparent);
+}
+
+.browser-snapshot-image {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.browser-snapshot-caption {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message-meta {
   display: flex;
   align-items: center;

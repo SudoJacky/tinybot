@@ -202,6 +202,19 @@ class WebSocketChannel(BaseChannel):
             self._site = None
 
     async def send(self, msg: OutboundMessage) -> None:
+        meta = msg.metadata or {}
+        if meta.get("_browser_snapshot"):
+            await self._broadcast(
+                msg.chat_id,
+                {
+                    "event": "browser_snapshot",
+                    "chat_id": msg.chat_id,
+                    "image_url": meta.get("image_url", ""),
+                    "source_command": meta.get("source_command", ""),
+                },
+            )
+            return
+
         payload = {
             "event": "message",
             "chat_id": msg.chat_id,
@@ -209,7 +222,6 @@ class WebSocketChannel(BaseChannel):
             "text": msg.content,
         }
         # Include metadata flags for progress/tool messages
-        meta = msg.metadata or {}
         if meta.get("_progress"):
             payload["_progress"] = True
         if meta.get("_tool_hint"):

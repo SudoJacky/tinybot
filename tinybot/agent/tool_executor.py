@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import re
+import subprocess
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+
+from tinybot.agent.hook import AgentHook, AgentHookContext
+from tinybot.bus.events import OutboundMessage
+from tinybot.config.paths import get_media_dir
 
 if TYPE_CHECKING:
     from tinybot.agent.tools.message import MessageTool
+    from tinybot.bus.queue import MessageBus
 
 
 def format_tool_hint(tool_calls: list) -> str:
@@ -76,3 +89,107 @@ class ToolContextManager:
             # Check if the tool has set_context method (MessageTool interface)
             if hasattr(message_tool, "set_context"):
                 message_tool.set_context(self._channel, self._chat_id, self._message_id)
+
+
+_OPENCLI_RE = re.compile(
+    r"(?:^|[;&|]\s*)opencli(?:\.(?:cmd|ps1|bat|exe))?\b",
+    re.IGNORECASE,
+)
+
+
+def is_opencli_command(command: str | None) -> bool:
+    """Return whether a shell command appears to invoke OpenCLI."""
+    if not command:
+        return False
+    return bool(_OPENCLI_RE.search(command))
+
+
+class BrowserSnapshotHook(AgentHook):
+    """Capture OpenCLI browser state after OpenCLI exec calls."""
+
+    def __init__(
+        self,
+        *,
+        bus: "MessageBus",
+        channel: str,
+        chat_id: str,
+        timeout: float = 20.0,
+    ) -> None:
+        self._bus = bus
+        self._channel = channel
+        self._chat_id = chat_id
+        self._timeout = timeout
+        self._pending_commands: list[str] = []
+
+    async def on_tool_start(
+        self,
+        context: AgentHookContext,
+        tool_name: str,
+        args: dict[str, Any],
+    ) -> None:
+        if tool_name != "exec":
+            return
+        command = args.get("command")
+        if isinstance(command, str) and is_opencli_command(command):
+            self._pending_commands.append(command)
+
+    async def on_tool_end(
+        self,
+        context: AgentHookContext,
+        tool_name: str,
+        result: Any,
+    ) -> None:
+        if tool_name != "exec" or not self._pending_commands:
+            return
+        command = self._pending_commands.pop(0)
+        await self._capture_and_send(command)
+
+    async def _capture_and_send(self, source_command: str) -> None:
+        snapshot_dir = get_media_dir("browser_snapshots")
+        snapshot_path = snapshot_dir / f"opencli-{uuid.uuid4().hex}.png"
+        try:
+            command = subprocess.list2cmdline([
+                "opencli",
+                "browser",
+                "screenshot",
+                str(snapshot_path),
+            ])
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self._timeout,
+            )
+            if process.returncode != 0 or not snapshot_path.is_file():
+                detail = (stderr or stdout or b"").decode("utf-8", errors="replace").strip()
+                logger.debug("OpenCLI browser snapshot skipped: {}", detail[:300])
+                return
+
+            raw = snapshot_path.read_bytes()
+            image_url = "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
+            await self._bus.publish_outbound(OutboundMessage(
+                channel=self._channel,
+                chat_id=self._chat_id,
+                content="",
+                metadata={
+                    "_browser_snapshot": True,
+                    "image_url": image_url,
+                    "source_command": source_command,
+                },
+            ))
+        except TimeoutError:
+            logger.debug("OpenCLI browser snapshot timed out")
+        except Exception as exc:
+            logger.debug("OpenCLI browser snapshot failed: {}", exc)
+        finally:
+            self._safe_unlink(snapshot_path)
+
+    @staticmethod
+    def _safe_unlink(path: Path) -> None:
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            logger.debug("Failed to remove temporary browser snapshot {}", path)
