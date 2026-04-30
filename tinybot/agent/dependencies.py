@@ -78,6 +78,7 @@ class AgentDependencies:
         context_window_tokens: int | None,
         timezone: str | None,
         enable_vector_store: bool,
+        context_block_limit: int | None = None,
         session_manager: SessionManager | None = None,
         on_task_progress: Any | None = None,
     ) -> AgentDependencies:
@@ -143,6 +144,7 @@ class AgentDependencies:
             model=model,
             sessions=sessions,
             context_window_tokens=context_window_tokens,
+            context_block_limit=context_block_limit,
             build_messages=context_builder.build_messages,
             get_tool_definitions=lambda: [],
             max_completion_tokens=provider.generation.max_tokens,

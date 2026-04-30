@@ -168,7 +168,7 @@ class MemoryStore:
                 read_size = min(size, 4096)
                 f.seek(size - read_size)
                 data = f.read().decode("utf-8")
-                lines = [l for l in data.split("\n") if l.strip()]
+                lines = [line for line in data.split("\n") if line.strip()]
                 if not lines:
                     return None
                 return json.loads(lines[-1])
@@ -249,6 +249,7 @@ class Consolidator:
         build_messages: Callable[..., list[dict[str, Any]]],
         get_tool_definitions: Callable[[], list[dict[str, Any]]],
         max_completion_tokens: int = 4096,
+        context_block_limit: int | None = None,
         vector_store: VectorStore | None = None,
     ):
         self.store = store
@@ -260,6 +261,7 @@ class Consolidator:
         self.vector_store = vector_store
         self._build_messages = build_messages
         self._get_tool_definitions = get_tool_definitions
+        self.context_block_limit = context_block_limit
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
             weakref.WeakValueDictionary()
         )
@@ -401,7 +403,13 @@ class Consolidator:
 
         lock = self.get_lock(session.key)
         async with lock:
-            budget = self.context_window_tokens - self.max_completion_tokens - self._SAFETY_BUFFER
+            budget = self.context_block_limit or (
+                self.context_window_tokens
+                - self.max_completion_tokens
+                - self._SAFETY_BUFFER
+            )
+            if budget <= 0:
+                return
             target = budget // 2
             estimated, source = self.estimate_session_prompt_tokens(session)
             if estimated <= 0:
