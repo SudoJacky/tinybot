@@ -27,6 +27,7 @@ const state = {
   knowledgeGraphFilterDocName: "",
   knowledgeGraphHighlight: null,
   knowledgeGraphSelection: null,
+  configBaseline: null,
   activeKnowledgeTab: "overview",
   knowledgeWorkbenchReady: false,
   knowledgeIndexing: false,
@@ -123,6 +124,13 @@ const elements = {
   configEmbeddingApiBase: document.querySelector("#config-embedding-api-base"),
   // Provider config elements
   configProviderSelect: document.querySelector("#config-provider-select"),
+  configSearch: document.querySelector("#config-search"),
+  configQuickNav: document.querySelector("#config-quick-nav"),
+  configExpandAll: document.querySelector("#config-expand-all"),
+  configCollapseAll: document.querySelector("#config-collapse-all"),
+  configEmptySearch: document.querySelector("#config-empty-search"),
+  configDirtySummary: document.querySelector("#config-dirty-summary"),
+  resetConfigButton: document.querySelector("#reset-config-button"),
   configApiKey: document.querySelector("#config-api-key"),
   configApiBase: document.querySelector("#config-api-base"),
   configWebEnable: document.querySelector("#config-web-enable"),
@@ -130,6 +138,7 @@ const elements = {
   configSearchProvider: document.querySelector("#config-search-provider"),
   configExecEnable: document.querySelector("#config-exec-enable"),
   configExecTimeout: document.querySelector("#config-exec-timeout"),
+  configMcpServers: document.querySelector("#config-mcp-servers"),
   configRestrictWorkspace: document.querySelector("#config-restrict-workspace"),
   configGatewayHost: document.querySelector("#config-gateway-host"),
   configGatewayPort: document.querySelector("#config-gateway-port"),
@@ -3890,6 +3899,9 @@ function openModal() {
   elements.modal.classList.add("active");
   elements.configError.textContent = "";
   elements.configSuccess.textContent = "";
+  applyConfigSearch();
+  updateConfigDirtyState();
+  window.setTimeout(() => elements.configSearch?.focus(), 80);
 }
 
 function closeModal() {
@@ -3998,6 +4010,13 @@ function populateConfigForm(config) {
   elements.configExecEnable.checked = exec.enable === true;
   elements.configExecTimeout.value = exec.timeout || 60;
 
+  const mcpServers = tools.mcpServers || tools.mcp_servers || {};
+  if (elements.configMcpServers) {
+    elements.configMcpServers.value = Object.keys(mcpServers).length
+      ? JSON.stringify(mcpServers, null, 2)
+      : "";
+  }
+
   elements.configRestrictWorkspace.checked = tools.restrictToWorkspace || tools.restrict_to_workspace === true;
 
   // Gateway
@@ -4014,6 +4033,8 @@ function populateConfigForm(config) {
   elements.configSendProgress.checked = channels.sendProgress || channels.send_progress === true;
   elements.configSendToolHints.checked = channels.sendToolHints || channels.send_tool_hints === true;
   elements.configSendRetries.value = channels.sendMaxRetries || channels.send_max_retries || 3;
+  markConfigClean();
+  applyConfigSearch();
 }
 
 function loadProviderConfig(providers, providerName) {
@@ -4021,6 +4042,139 @@ function loadProviderConfig(providers, providerName) {
   // API返回的是camelCase格式 (apiKey, apiBase)
   elements.configApiKey.value = provider.apiKey || provider.api_key || "";
   elements.configApiBase.value = provider.apiBase || provider.api_base || "";
+}
+
+function getConfigGroups() {
+  return Array.from(elements.modal.querySelectorAll(".config-group"));
+}
+
+function getConfigFields() {
+  return Array.from(elements.modal.querySelectorAll("input, select, textarea"))
+    .filter((field) => field.id && field.id.startsWith("config-") && field.id !== "config-search");
+}
+
+function getConfigFieldValue(field) {
+  if (field.type === "checkbox") {
+    return field.checked ? "1" : "0";
+  }
+  return field.value;
+}
+
+function captureConfigSnapshot() {
+  const snapshot = {};
+  getConfigFields().forEach((field) => {
+    snapshot[field.id] = getConfigFieldValue(field);
+  });
+  return snapshot;
+}
+
+function getConfigGroupTitle(group) {
+  const title = group.querySelector(".config-group-title");
+  const label = title?.querySelector("[data-i18n]") || title;
+  return label?.textContent?.trim() || "";
+}
+
+function markConfigClean() {
+  state.configBaseline = captureConfigSnapshot();
+  updateConfigDirtyState();
+}
+
+function getChangedConfigFields() {
+  const baseline = state.configBaseline || {};
+  return getConfigFields().filter((field) => baseline[field.id] !== getConfigFieldValue(field));
+}
+
+function updateConfigDirtyState() {
+  const changedFields = getChangedConfigFields();
+  const changedIds = new Set(changedFields.map((field) => field.id));
+  const dirtyGroups = new Set();
+
+  getConfigFields().forEach((field) => {
+    const isDirty = changedIds.has(field.id);
+    field.closest(".config-field")?.classList.toggle("dirty", isDirty);
+    if (isDirty) {
+      const groupTitle = field.closest(".config-group")?.querySelector(".config-group-title");
+      if (groupTitle) {
+        dirtyGroups.add(getConfigGroupTitle(field.closest(".config-group")));
+      }
+    }
+  });
+
+  getConfigGroups().forEach((group) => {
+    const title = group.querySelector(".config-group-title");
+    title?.classList.toggle("dirty", dirtyGroups.has(getConfigGroupTitle(group)));
+  });
+
+  if (elements.saveConfigButton) {
+    elements.saveConfigButton.disabled = changedFields.length === 0;
+  }
+  if (elements.resetConfigButton) {
+    elements.resetConfigButton.disabled = changedFields.length === 0;
+  }
+  if (elements.configDirtySummary) {
+    if (!changedFields.length) {
+      elements.configDirtySummary.textContent = t("settings.noChanges");
+    } else {
+      const groupText = Array.from(dirtyGroups).filter(Boolean).slice(0, 3).join(", ");
+      elements.configDirtySummary.textContent = `${t("settings.unsavedChanges")} ${changedFields.length}${groupText ? ` · ${groupText}` : ""}`;
+    }
+  }
+}
+
+function applyConfigSearch() {
+  const query = (elements.configSearch?.value || "").trim().toLowerCase();
+  let visibleGroups = 0;
+
+  getConfigGroups().forEach((group) => {
+    const title = group.querySelector(".config-group-title");
+    const groupText = getConfigGroupTitle(group).toLowerCase();
+    const fields = Array.from(group.querySelectorAll(".config-field"));
+    let visibleFields = 0;
+
+    fields.forEach((field) => {
+      const fieldText = [
+        field.textContent,
+        field.querySelector("input, select, textarea")?.value,
+        field.querySelector("input, select, textarea")?.placeholder,
+        field.querySelector(".config-help")?.getAttribute("data-help"),
+      ].filter(Boolean).join(" ").toLowerCase();
+      const isVisible = !query || groupText.includes(query) || fieldText.includes(query);
+      field.hidden = !isVisible;
+      if (isVisible) {
+        visibleFields += 1;
+      }
+    });
+
+    const groupVisible = !query || visibleFields > 0 || groupText.includes(query);
+    group.hidden = !groupVisible;
+    if (groupVisible) {
+      visibleGroups += 1;
+      if (query && title) {
+        setConfigGroupExpanded(title, true);
+      }
+    }
+  });
+
+  if (elements.configEmptySearch) {
+    elements.configEmptySearch.hidden = visibleGroups > 0;
+  }
+}
+
+function jumpToConfigGroup(groupName) {
+  if (elements.configSearch?.value) {
+    elements.configSearch.value = "";
+    applyConfigSearch();
+  }
+  const title = elements.modal.querySelector(`.config-group-title[data-group="${groupName}"]`);
+  if (!title) {
+    return;
+  }
+  setConfigGroupExpanded(title, true);
+  elements.configQuickNav?.querySelectorAll(".config-nav-chip").forEach((button) => {
+    button.classList.toggle("active", button.dataset.configJump === groupName);
+  });
+  title.closest(".config-group")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  title.focus({ preventScroll: true });
 }
 
 function toggleConfigGroup(groupTitle) {
@@ -4078,6 +4232,17 @@ function setupValidation() {
   if (elements.configGatewayPort) {
     elements.configGatewayPort.addEventListener("input", () => {
       validateField(elements.configGatewayPort, validatePortRange, "portRange");
+    });
+  }
+
+  if (elements.configMcpServers) {
+    elements.configMcpServers.addEventListener("input", () => {
+      const val = elements.configMcpServers.value.trim();
+      if (val === "") {
+        setFieldState(elements.configMcpServers, "neutral");
+        return;
+      }
+      validateField(elements.configMcpServers, validateJsonObject, "jsonObjectError");
     });
   }
 
@@ -4190,9 +4355,20 @@ function validatePortRange(value) {
   return port >= 1 && port <= 65535;
 }
 
+function validateJsonObject(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}
+
 async function saveConfig() {
   elements.configError.textContent = "";
   elements.configSuccess.textContent = "";
+  elements.saveConfigButton.disabled = true;
+  elements.saveConfigButton.classList.add("loading");
 
   // Helper: only include non-empty values
   const getValue = (el, type = "string") => {
@@ -4201,6 +4377,30 @@ async function saveConfig() {
     if (type === "number" && (val === null || val === "" || isNaN(val))) val = null;
     return val;
   };
+
+  const parseJsonObject = (el, fallback = {}) => {
+    if (!el || el.value.trim() === "") {
+      return fallback;
+    }
+    const parsed = JSON.parse(el.value);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(t("settings.validation.jsonObjectError"));
+    }
+    return parsed;
+  };
+
+  let mcpServers = {};
+  try {
+    mcpServers = parseJsonObject(elements.configMcpServers, {});
+  } catch (error) {
+    elements.configError.textContent = error.message || t("settings.validation.jsonObjectError");
+    if (elements.configMcpServers) {
+      setFieldState(elements.configMcpServers, "error", "jsonObjectError");
+    }
+    updateConfigDirtyState();
+    elements.saveConfigButton.classList.remove("loading");
+    return;
+  }
 
   // Build payload - matching backend schema structure
   // agents.defaults contains the actual agent config fields
@@ -4259,6 +4459,7 @@ async function saveConfig() {
         enable: elements.configExecEnable.checked,
         timeout: getValue(elements.configExecTimeout, "number"),
       },
+      mcp_servers: mcpServers,
       restrict_to_workspace: elements.configRestrictWorkspace.checked,
     },
     gateway: {
@@ -4302,9 +4503,13 @@ async function saveConfig() {
     const result = await response.json();
     elements.configSuccess.textContent = t("settings.saved");
     state.config = result.config;
+    markConfigClean();
     await loadSystemStatus();
   } catch (error) {
     elements.configError.textContent = error.message || t("settings.saveFailed");
+    updateConfigDirtyState();
+  } finally {
+    elements.saveConfigButton.classList.remove("loading");
   }
 }
 
@@ -4961,10 +5166,52 @@ function bindEvents() {
     });
   });
 
+  if (elements.configSearch) {
+    elements.configSearch.addEventListener("input", applyConfigSearch);
+  }
+  if (elements.configExpandAll) {
+    elements.configExpandAll.addEventListener("click", () => {
+      elements.modal.querySelectorAll(".config-group-title.clickable").forEach((title) => {
+        setConfigGroupExpanded(title, true);
+      });
+    });
+  }
+  if (elements.configCollapseAll) {
+    elements.configCollapseAll.addEventListener("click", () => {
+      elements.modal.querySelectorAll(".config-group-title.clickable").forEach((title) => {
+        setConfigGroupExpanded(title, false);
+      });
+    });
+  }
+  if (elements.configQuickNav) {
+    elements.configQuickNav.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-config-jump]");
+      if (!button) {
+        return;
+      }
+      jumpToConfigGroup(button.dataset.configJump);
+    });
+  }
+  if (elements.resetConfigButton) {
+    elements.resetConfigButton.addEventListener("click", () => {
+      if (!state.config) {
+        return;
+      }
+      populateConfigForm(state.config);
+      elements.configError.textContent = "";
+      elements.configSuccess.textContent = "";
+    });
+  }
+  getConfigFields().forEach((field) => {
+    field.addEventListener("input", updateConfigDirtyState);
+    field.addEventListener("change", updateConfigDirtyState);
+  });
+
   // Provider select change - 更新Provider配置区域
   elements.configProviderSelect.addEventListener("change", () => {
     const providers = state.config?.providers || {};
     loadProviderConfig(providers, elements.configProviderSelect.value);
+    updateConfigDirtyState();
   });
 
   // Agent Provider select change - 同步更新Provider配置区域的选择
@@ -4975,6 +5222,7 @@ function bindEvents() {
     elements.configProviderSelect.value = displayProvider;
     const providers = state.config?.providers || {};
     loadProviderConfig(providers, displayProvider);
+    updateConfigDirtyState();
   });
 
   elements.saveConfigButton.addEventListener("click", async () => {
@@ -5000,6 +5248,8 @@ function bindEvents() {
   window.addEventListener("languagechange", () => {
     updateLanguageButton();
     renderDynamicContent();
+    updateConfigDirtyState();
+    applyConfigSearch();
     // 重新渲染usage显示
     if (state.lastUsage) {
       updateUsageDisplay(state.lastUsage);

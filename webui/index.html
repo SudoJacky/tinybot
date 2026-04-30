@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css?v=collapse-20260429c">
+  <link rel="stylesheet" href="/assets/styles.css?v=config-ux-20260430b">
   <!-- Highlight.js for code syntax highlighting -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light-theme">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-dark-theme" disabled>
@@ -570,7 +570,26 @@
         </h2>
         <button id="modal-close" class="button button-ghost" type="button" aria-label="Close settings modal">✕</button>
       </header>
-      <div class="modal-body">
+      <div class="config-toolbar">
+        <div class="config-search-wrap">
+          <input id="config-search" class="config-search" type="search" data-i18n-placeholder="settings.searchPlaceholder" placeholder="Search settings..." autocomplete="off" />
+        </div>
+        <div class="config-toolbar-actions">
+          <button id="config-expand-all" class="button button-ghost button-small" type="button" data-i18n="settings.expandAll">Expand all</button>
+          <button id="config-collapse-all" class="button button-ghost button-small" type="button" data-i18n="settings.collapseAll">Collapse all</button>
+        </div>
+        <div id="config-quick-nav" class="config-quick-nav" aria-label="Config sections">
+          <button class="config-nav-chip active" type="button" data-config-jump="agent" data-i18n="settings.agent">Agent 配置</button>
+          <button class="config-nav-chip" type="button" data-config-jump="knowledge" data-i18n="settings.knowledge">Knowledge 配置</button>
+          <button class="config-nav-chip" type="button" data-config-jump="embedding" data-i18n="settings.embedding">Embedding 配置</button>
+          <button class="config-nav-chip" type="button" data-config-jump="provider" data-i18n="settings.provider">Provider 配置</button>
+          <button class="config-nav-chip" type="button" data-config-jump="tools" data-i18n="settings.tools">Tools 配置</button>
+          <button class="config-nav-chip" type="button" data-config-jump="gateway" data-i18n="settings.gateway">Gateway 配置</button>
+          <button class="config-nav-chip" type="button" data-config-jump="channels" data-i18n="settings.channels">Channels 配置</button>
+        </div>
+      </div>
+      <div class="modal-body config-modal-body" id="config-modal-body">
+        <div id="config-empty-search" class="config-empty-search" hidden data-i18n="settings.noSearchResults">No matching settings</div>
         <div class="config-group">
           <h3 class="config-group-title clickable" data-group="agent" tabindex="0" role="button" aria-expanded="true"><span data-i18n="settings.agent">Agent 配置</span> <span class="toggle-icon">▼</span></h3>
           <div class="config-group-content" id="config-agent-group">
@@ -972,6 +991,16 @@
                 <input id="config-exec-timeout" class="config-input" type="number" min="1" data-i18n-placeholder="settings.tools.timeoutPlaceholder" placeholder="执行超时" />
               </div>
             </div>
+            <div class="config-subsection">
+              <h4 data-i18n="settings.tools.mcp">MCP Servers</h4>
+              <div class="config-field">
+                <label class="config-label config-label-with-help">
+                  <span data-i18n="settings.tools.mcpServers">MCP Servers JSON</span>
+                  <span class="config-help" data-i18n-help="help.mcpServers">?</span>
+                </label>
+                <textarea id="config-mcp-servers" class="config-input" rows="8" spellcheck="false" data-i18n-placeholder="settings.tools.mcpServersPlaceholder" placeholder='{"filesystem":{"type":"stdio","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","D:/tmp"],"enabledTools":["*"],"toolTimeout":30}}'></textarea>
+              </div>
+            </div>
             <div class="config-field config-checkbox-group">
               <label class="config-checkbox-label">
                 <input id="config-restrict-workspace" type="checkbox" />
@@ -1049,8 +1078,12 @@
         </div>
       </div>
       <footer class="modal-footer">
-        <span id="config-error" class="error-text"></span>
-        <span id="config-success" class="success-text"></span>
+        <div class="config-save-state">
+          <span id="config-dirty-summary" class="config-dirty-summary" data-i18n="settings.noChanges">No unsaved changes</span>
+          <span id="config-error" class="error-text"></span>
+          <span id="config-success" class="success-text"></span>
+        </div>
+        <button id="reset-config-button" class="button button-ghost" type="button" data-i18n="settings.resetChanges">Reset</button>
         <button id="save-config-button" class="button button-primary" type="button" data-i18n="ui.save">保存</button>
       </footer>
     </div>
@@ -1066,6 +1099,6 @@
     </article>
   </template>
 
-  <script src="/assets/app.js?v=collapse-20260429c" defer></script>
+  <script src="/assets/app.js?v=config-ux-20260430b" defer></script>
 </body>
 </html>

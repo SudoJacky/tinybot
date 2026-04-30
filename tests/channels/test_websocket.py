@@ -10,6 +10,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from tinybot.bus.queue import MessageBus
 from tinybot.bus.events import OutboundMessage
 from tinybot.channels.websocket import WebSocketChannel
+from tinybot.config.schema import Config, MCPServerConfig
 from tinybot.session.manager import SessionManager
 
 
@@ -151,6 +152,74 @@ async def test_websocket_browser_snapshot_event(web_channel, web_client):
         }
     finally:
         await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_config_patch_updates_mcp_servers_and_reconnects(web_channel, web_client, web_workspace):
+    channel, _, session_manager = web_channel
+
+    class FakeTools:
+        def __init__(self):
+            self.tool_names = ["read_file", "mcp_old_echo"]
+            self.unregistered: list[str] = []
+
+        def unregister(self, name: str) -> None:
+            self.unregistered.append(name)
+            self.tool_names.remove(name)
+
+    class FakeAgentLoop:
+        def __init__(self):
+            self.tools = FakeTools()
+            self._mcp_servers = {}
+            self._mcp_connected = True
+            self._mcp_connecting = False
+            self.closed = False
+            self.connected = False
+
+        async def close_mcp(self) -> None:
+            self.closed = True
+
+        async def _connect_mcp(self) -> None:
+            self.connected = True
+
+    config = Config()
+    fake_loop = FakeAgentLoop()
+    config_path = web_workspace / "config.json"
+    channel.bind_runtime(
+        workspace=web_workspace,
+        session_manager=session_manager,
+        agent_loop=fake_loop,
+        config=config,
+        config_path=config_path,
+    )
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await web_client.patch(
+        "/api/config",
+        headers=headers,
+        json={
+            "tools": {
+                "mcp_servers": {
+                    "filesystem": {
+                        "type": "stdio",
+                        "command": "npx",
+                        "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["config"]["tools"]["mcpServers"]["filesystem"]["command"] == "npx"
+    assert isinstance(config.tools.mcp_servers["filesystem"], MCPServerConfig)
+    assert fake_loop._mcp_servers == config.tools.mcp_servers
+    assert fake_loop.closed is True
+    assert fake_loop.connected is True
+    assert fake_loop.tools.unregistered == ["mcp_old_echo"]
+    assert config_path.exists()
 
 
 @pytest.mark.asyncio
