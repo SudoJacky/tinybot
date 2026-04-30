@@ -4,11 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tinybot Web UI</title>
+  <meta name="description" content="Tinybot is a lightweight personal AI assistant framework with Web UI, tools, and automation.">
+  <meta property="og:title" content="Tinybot">
+  <meta property="og:description" content="A lightweight personal AI assistant framework with Web UI, tools, and automation.">
+  <meta property="og:image" content="/assets/social-preview.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Tinybot">
+  <meta name="twitter:description" content="A lightweight personal AI assistant framework with Web UI, tools, and automation.">
+  <meta name="twitter:image" content="/assets/social-preview.svg">
+  <link rel="icon" type="image/svg+xml" href="/assets/logo-mark.svg">
   <!-- Inter font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css?v=browser-panel-20260430a">
+  <link rel="stylesheet" href="/assets/styles.css?v=sidebar-polish-20260430a">
   <!-- Highlight.js for code syntax highlighting -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light-theme">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-dark-theme" disabled>
@@ -23,7 +32,9 @@
     <!-- 左侧边栏：会话列表 + 系统状态 -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">T</div>
+        <div class="brand-mark" aria-hidden="true">
+          <img class="brand-logo" src="/assets/logo-mark.svg" alt="">
+        </div>
         <div>
           <h1 data-i18n="brand.title">Tinybot</h1>
           <p data-i18n="brand.subtitle">Minimal Web UI</p>

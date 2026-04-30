@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Tinybot social preview</title>
+  <desc id="desc">Social preview card for Tinybot, a lightweight personal AI assistant framework.</desc>
+  <defs>
+    <linearGradient id="bg" x1="90" y1="40" x2="1070" y2="620" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#eef4ff"/>
+    </linearGradient>
+    <linearGradient id="mark-bg" x1="426" y1="118" x2="594" y2="302" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <radialGradient id="mark-glow" cx="566" cy="150" r="130" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="card-shadow" x="-8%" y="-12%" width="116%" height="130%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#1e3a8a" flood-opacity="0.12"/>
+    </filter>
+    <filter id="mark-shadow" x="-20%" y="-14%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#1d4ed8" flood-opacity="0.26"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="90" y="72" width="1020" height="486" rx="34" fill="#fff" opacity="0.9" filter="url(#card-shadow)"/>
+  <rect x="90.5" y="72.5" width="1019" height="485" rx="33.5" fill="none" stroke="#dbe7fb"/>
+  <rect x="438" y="116" width="168" height="178" rx="42" fill="url(#mark-bg)" filter="url(#mark-shadow)"/>
+  <rect x="438" y="116" width="168" height="178" rx="42" fill="url(#mark-glow)"/>
+  <path d="M480 148h84a22 22 0 0 1 22 22v66a22 22 0 0 1-22 22h-84a22 22 0 0 1-22-22v-66a22 22 0 0 1 22-22Z" fill="#fff" opacity="0.15" stroke="#fff" stroke-opacity="0.5" stroke-width="7"/>
+  <path d="M486 186c14-18 30-27 49-27 29 0 47 19 47 45 0 31-25 54-61 54h-32" fill="none" stroke="#fff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M490 230h60M490 207h76M490 185h44" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.74"/>
+  <circle cx="571" cy="166" r="15" fill="#fff"/>
+  <text x="600" y="380" text-anchor="middle" fill="#0f172a" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="76" font-weight="700">Tinybot</text>
+  <text x="600" y="436" text-anchor="middle" fill="#64748b" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="500">Personal AI assistant framework</text>
+  <text x="600" y="484" text-anchor="middle" fill="#2563eb" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="24" font-weight="600">LLM tools · Web UI · Automation</text>
+</svg>

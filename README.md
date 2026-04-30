@@ -1,5 +1,9 @@
 # Tinybot
 
+<p align="center">
+  <img src="./webui/assets/logo.svg" width="96" alt="Tinybot logo">
+</p>
+
 [![Python](https://img.shields.io/badge/Python-3.13%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?logo=opensourceinitiative&logoColor=white)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/SudoJacky/tinybot?style=social&logo=github)](https://github.com/SudoJacky/tinybot/stargazers)
@@ -10,7 +14,23 @@
 
 A lightweight personal AI assistant framework that integrates Large Language Models with multiple chat platforms, tool systems, and automation mechanisms.
 
+## Brand assets
+
+- README logo: [`webui/assets/logo.svg`](webui/assets/logo.svg)
+- Favicon / app mark: [`webui/assets/logo-mark.svg`](webui/assets/logo-mark.svg)
+- Social preview source: [`webui/assets/social-preview.svg`](webui/assets/social-preview.svg)
+- Installer icon source: use `webui/assets/logo.svg` for square app icons, or `webui/assets/logo-mark.svg` for compact launcher icons.
+
 ## Change log
+
+<details>
+<summary>2026.04.30 Fixed multiple UI issues, revised the browser control interface demonstration, and added task display functionality.</summary>
+
+![browser_snapshot2](./show/browser_snapshot2.png)
+
+![task_webui1](./show/task_webui1.png)
+
+</details>
 
 <details>
 <summary>2026.04.29 Fixed multiple UI issues and added a browser control interface demonstration。</summary>

@@ -49,6 +49,8 @@ const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
 const REASONING_COLLAPSE_CHARS = 600;
 const REASONING_COLLAPSE_LINES = 5;
 const AUTO_COLLAPSE_MIN_MESSAGES = 1;
+const TOOL_CONTENT_COLLAPSE_CHARS = 900;
+const TOOL_CONTENT_COLLAPSE_LINES = 14;
 
 const elements = {
   sessionList: document.querySelector("#session-list"),
@@ -550,6 +552,11 @@ function shouldCollapseReasoning(text) {
   return normalized.length > REASONING_COLLAPSE_CHARS || normalized.split(/\r?\n/).length > REASONING_COLLAPSE_LINES;
 }
 
+function shouldCollapseToolContent(text) {
+  const normalized = text || "";
+  return normalized.length > TOOL_CONTENT_COLLAPSE_CHARS || normalized.split(/\r?\n/).length > TOOL_CONTENT_COLLAPSE_LINES;
+}
+
 function formatToolArguments(args) {
   if (args == null || args === "") {
     return "";
@@ -687,6 +694,14 @@ function hasToolCalls(message) {
   return Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
 }
 
+function isProgressToolDetail(message) {
+  return message?.role === "progress" && message?._tool_detail;
+}
+
+function isProgressToolResult(message) {
+  return message?.role === "progress" && message?._tool_result;
+}
+
 function isToolProcessMessage(message) {
   return message?.role === "tool" || message?.role === "progress" || hasToolCalls(message);
 }
@@ -734,6 +749,12 @@ function prepareMessageRelationships(messages) {
     if (message && "_relatedToolMessages" in message) {
       delete message._relatedToolMessages;
     }
+    if (message && "_pairedToolResponse" in message) {
+      delete message._pairedToolResponse;
+    }
+    if (message && "_pairedToolResponseConsumed" in message) {
+      delete message._pairedToolResponseConsumed;
+    }
   }
 
   for (let index = 0; index < messages.length; index += 1) {
@@ -756,6 +777,39 @@ function prepareMessageRelationships(messages) {
       }
       message._relatedToolMessages.push(nextMessage);
       nextIndex += 1;
+    }
+  }
+
+  const pendingDetailsByName = new Map();
+  for (const message of messages) {
+    if (message?.role !== "progress") {
+      pendingDetailsByName.clear();
+      continue;
+    }
+
+    if (isProgressToolDetail(message)) {
+      const name = getToolName(message) || "";
+      const queue = pendingDetailsByName.get(name) || [];
+      queue.push(message);
+      pendingDetailsByName.set(name, queue);
+      continue;
+    }
+
+    if (!isProgressToolResult(message)) {
+      continue;
+    }
+
+    const name = getToolName(message) || "";
+    const queue = pendingDetailsByName.get(name) || [];
+    const detailMessage = queue.shift();
+    if (!detailMessage) {
+      continue;
+    }
+
+    detailMessage._pairedToolResponse = message;
+    message._pairedToolResponseConsumed = true;
+    if (queue.length === 0) {
+      pendingDetailsByName.delete(name);
     }
   }
 }
@@ -830,6 +884,9 @@ function createMessageDisplayItems(messages) {
 
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
+    if (message?._pairedToolResponseConsumed) {
+      continue;
+    }
     const finalIndex = message?.role === "user" ? -1 : findFinalAssistantIndex(messages, index);
 
     if (finalIndex > index && shouldAutoCollapseTurn(messages, index, finalIndex)) {
@@ -883,7 +940,8 @@ function createCollapsedMessagesNode(collapsedMessages) {
   icon.setAttribute("aria-hidden", "true");
   icon.textContent = ">";
 
-  const labelText = t("message.collapsedCount").replace("{count}", String(collapsedMessages.length));
+  const displayCount = collapsedMessages.filter((message) => !message?._pairedToolResponseConsumed).length;
+  const labelText = t("message.collapsedCount").replace("{count}", String(displayCount));
   const label = document.createElement("span");
   label.className = "message-collapse-label";
   label.textContent = `${labelText} · ${t("message.collapsedHint")}`;
@@ -895,6 +953,9 @@ function createCollapsedMessagesNode(collapsedMessages) {
   body.hidden = true;
   for (let index = 0; index < collapsedMessages.length; index += 1) {
     const message = collapsedMessages[index];
+    if (message?._pairedToolResponseConsumed) {
+      continue;
+    }
     body.append(createMessageNode(message));
     if (hasToolCalls(message)) {
       index = relatedToolMessagesEndIndex(collapsedMessages, index);
@@ -911,6 +972,43 @@ function createCollapsedMessagesNode(collapsedMessages) {
 
   wrapper.append(button, body);
   return wrapper;
+}
+
+function createToolActivitySection({ label, text, className = "" }) {
+  const section = document.createElement("div");
+  section.className = `tool-activity-section ${className}`.trim();
+
+  const labelEl = document.createElement("div");
+  labelEl.className = "tool-activity-label";
+  labelEl.textContent = label;
+
+  const pre = document.createElement("pre");
+  pre.className = "tool-activity-pre";
+  pre.textContent = text;
+
+  if (!shouldCollapseToolContent(text)) {
+    section.append(labelEl, pre);
+    return section;
+  }
+
+  const details = document.createElement("details");
+  details.className = "tool-activity-content-details";
+
+  const summary = document.createElement("summary");
+  summary.className = "tool-activity-content-summary";
+
+  const summaryLabel = document.createElement("span");
+  summaryLabel.className = "tool-activity-label";
+  summaryLabel.textContent = label;
+
+  const summaryPreview = document.createElement("span");
+  summaryPreview.className = "tool-activity-content-preview";
+  summaryPreview.textContent = summarizeToolArguments(text);
+
+  summary.append(summaryLabel, summaryPreview);
+  details.append(summary, pre);
+  section.append(details);
+  return section;
 }
 
 function createToolActivityNode({ name, argsText = "", responseText = "", kind = "call" }) {
@@ -952,34 +1050,20 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
   body.className = "tool-activity-body";
 
   if (argsText) {
-    const argsSection = document.createElement("div");
-    argsSection.className = "tool-activity-section tool-activity-section-call";
-
-    const argsLabel = document.createElement("div");
-    argsLabel.className = "tool-activity-label";
-    argsLabel.textContent = t("message.toolArgs");
-
-    const argsBody = document.createElement("pre");
-    argsBody.className = "tool-activity-pre";
-    argsBody.textContent = argsText;
-
-    argsSection.append(argsLabel, argsBody);
+    const argsSection = createToolActivitySection({
+      label: t("message.toolArgs"),
+      text: argsText,
+      className: "tool-activity-section-call",
+    });
     body.append(argsSection);
   }
 
   if (responseText) {
-    const responseSection = document.createElement("div");
-    responseSection.className = "tool-activity-section tool-activity-section-response";
-
-    const responseLabel = document.createElement("div");
-    responseLabel.className = "tool-activity-label";
-    responseLabel.textContent = t("message.toolResponse");
-
-    const responseBody = document.createElement("pre");
-    responseBody.className = "tool-activity-pre";
-    responseBody.textContent = responseText;
-
-    responseSection.append(responseLabel, responseBody);
+    const responseSection = createToolActivitySection({
+      label: t("message.toolResponse"),
+      text: responseText,
+      className: "tool-activity-section-response",
+    });
     body.append(responseSection);
   }
 
@@ -1020,10 +1104,12 @@ function createToolCallNode(toolCall, relatedMessages = []) {
 }
 
 function createToolMessageNode(message) {
+  const isResult = message._tool_result || message.role === "tool";
   return createToolActivityNode({
     name: getToolName(message) || "tool",
-    responseText: message.content || "",
-    kind: message._tool_result || message.role === "tool" ? "result" : "call",
+    argsText: isResult ? "" : message.content || "",
+    responseText: isResult ? message.content || "" : message._pairedToolResponse?.content || "",
+    kind: isResult || message._pairedToolResponse ? "result" : "call",
   });
 }
 
