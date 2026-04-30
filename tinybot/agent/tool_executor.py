@@ -7,6 +7,7 @@ import base64
 import re
 import subprocess
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -110,7 +111,7 @@ class BrowserSnapshotHook(AgentHook):
     def __init__(
         self,
         *,
-        bus: "MessageBus",
+        bus: MessageBus,
         channel: str,
         chat_id: str,
         timeout: float = 20.0,
@@ -178,6 +179,7 @@ class BrowserSnapshotHook(AgentHook):
                     "_browser_snapshot": True,
                     "image_url": image_url,
                     "source_command": source_command,
+                    "captured_at": datetime.now(UTC).isoformat(),
                 },
             ))
         except TimeoutError:

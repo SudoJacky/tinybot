@@ -41,6 +41,8 @@ const state = {
   theme: "light",  // 当前主题
   contextWindowTokens: 65536,  // 默认上下文窗口大小
   lastUsage: null,  // 最后一次的usage数据
+  browserFrame: null,
+  browserPanelCollapsed: false,
 };
 
 const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
@@ -269,6 +271,13 @@ const elements = {
   workspaceToggle: document.querySelector("#workspace-toggle"),
   currentFileName: document.querySelector("#current-file-name"),
   toolsCount: document.querySelector("#tools-count"),
+  browserPanel: document.querySelector("#browser-panel"),
+  browserPanelToggle: document.querySelector("#browser-panel-toggle"),
+  browserFrameImage: document.querySelector("#browser-frame-image"),
+  browserFrameEmpty: document.querySelector("#browser-frame-empty"),
+  browserFrameStatus: document.querySelector("#browser-frame-status"),
+  browserFrameTime: document.querySelector("#browser-frame-time"),
+  browserFrameCommand: document.querySelector("#browser-frame-command"),
 };
 
 function setStatus(text, kind = "idle") {
@@ -381,6 +390,54 @@ function updateUsageDisplay(usage) {
       </div>
     </div>
   `;
+}
+
+function setBrowserPanelCollapsed(collapsed) {
+  state.browserPanelCollapsed = collapsed;
+  if (!elements.browserPanel) {
+    return;
+  }
+  elements.browserPanel.classList.toggle("collapsed", collapsed);
+  if (elements.browserPanelToggle) {
+    elements.browserPanelToggle.setAttribute("aria-label", collapsed ? "Expand browser view" : "Collapse browser view");
+    elements.browserPanelToggle.title = collapsed ? "Expand browser view" : "Collapse browser view";
+  }
+}
+
+function updateBrowserFrame(payload) {
+  if (!elements.browserPanel) {
+    return;
+  }
+
+  const receivedAt = payload.captured_at || new Date().toISOString();
+  state.browserFrame = {
+    imageUrl: payload.image_url || "",
+    sourceCommand: payload.source_command || "",
+    capturedAt: receivedAt,
+  };
+
+  const hasImage = Boolean(state.browserFrame.imageUrl);
+
+  if (elements.browserFrameImage) {
+    if (hasImage) {
+      elements.browserFrameImage.src = state.browserFrame.imageUrl;
+    }
+    elements.browserFrameImage.hidden = !hasImage;
+  }
+  if (elements.browserFrameEmpty) {
+    elements.browserFrameEmpty.hidden = hasImage;
+  }
+  if (elements.browserFrameStatus) {
+    elements.browserFrameStatus.textContent = hasImage ? "Live frame" : "Waiting for browser activity";
+  }
+  if (elements.browserFrameTime) {
+    elements.browserFrameTime.textContent = formatTime(receivedAt);
+  }
+  if (elements.browserFrameCommand) {
+    elements.browserFrameCommand.textContent = state.browserFrame.sourceCommand || "";
+    elements.browserFrameCommand.title = state.browserFrame.sourceCommand || "";
+  }
+  elements.browserPanel.classList.toggle("has-frame", hasImage);
 }
 
 function authHeaders() {
@@ -4723,16 +4780,8 @@ async function connectWebSocket() {
         return;
       }
 
-      if (payload.event === "browser_snapshot") {
-        pushMessage(sessionKeyForChat(payload.chat_id), {
-          role: "progress",
-          content: payload.source_command || "",
-          timestamp: new Date().toISOString(),
-          _browser_snapshot: true,
-          image_url: payload.image_url || "",
-          source_command: payload.source_command || "",
-          _tool_name: "browser",
-        });
+      if (payload.event === "browser_frame" || payload.event === "browser_snapshot") {
+        updateBrowserFrame(payload);
         return;
       }
 
@@ -4997,6 +5046,12 @@ function bindEvents() {
   elements.workspaceModalClose.addEventListener("click", closeWorkspaceModal);
 
   // 设置弹窗事件
+  if (elements.browserPanelToggle) {
+    elements.browserPanelToggle.addEventListener("click", () => {
+      setBrowserPanelCollapsed(!state.browserPanelCollapsed);
+    });
+  }
+
   elements.settingsButton.addEventListener("click", openModal);
   elements.modalOverlay.addEventListener("click", closeModal);
   elements.modalClose.addEventListener("click", closeModal);

@@ -119,7 +119,7 @@ async def test_websocket_chat_flow(web_channel, web_client):
 
 
 @pytest.mark.asyncio
-async def test_websocket_browser_snapshot_event(web_channel, web_client):
+async def test_websocket_browser_frame_event(web_channel, web_client):
     channel, _, _ = web_channel
     token = await _bootstrap_token(web_client)
 
@@ -145,10 +145,11 @@ async def test_websocket_browser_snapshot_event(web_channel, web_client):
 
         event = await ws.receive_json()
         assert event == {
-            "event": "browser_snapshot",
+            "event": "browser_frame",
             "chat_id": chat_id,
             "image_url": "data:image/png;base64,abc",
             "source_command": "opencli browser state",
+            "captured_at": None,
         }
     finally:
         await ws.close()
