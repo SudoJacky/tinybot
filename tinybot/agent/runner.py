@@ -208,7 +208,7 @@ class AgentRunner:
                     await hook.after_iteration(context)
                     break
                 completed_tool_results: list[dict[str, Any]] = []
-                for tool_call, result in zip(response.tool_calls, results):
+                for tool_call, result in zip(response.tool_calls, results, strict=False):
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -809,16 +809,30 @@ class AgentRunner:
         if estimate <= budget:
             return messages
 
-        system_messages = [dict(msg) for msg in messages if msg.get("role") == "system"]
-        non_system = [dict(msg) for msg in messages if msg.get("role") != "system"]
-        if not non_system:
+        # Only the first system message is the durable agent contract. Later
+        # system messages are dynamic retrieval/context blocks, so they must be
+        # allowed to fall out of the prompt when the turn is over budget.
+        core_system: list[dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
+        seen_core_system = False
+        for msg in messages:
+            entry = dict(msg)
+            if entry.get("role") == "system" and not seen_core_system:
+                core_system.append(entry)
+                seen_core_system = True
+            else:
+                candidates.append(entry)
+
+        if not candidates:
             return messages
 
-        system_tokens = sum(estimate_message_tokens(msg, model=spec.model) for msg in system_messages)
-        remaining_budget = max(128, budget - system_tokens)
+        core_system_tokens = sum(
+            estimate_message_tokens(msg, model=spec.model) for msg in core_system
+        )
+        remaining_budget = max(128, budget - core_system_tokens)
         kept: list[dict[str, Any]] = []
         kept_tokens = 0
-        for message in reversed(non_system):
+        for message in reversed(candidates):
             msg_tokens = estimate_message_tokens(message, model=spec.model)
 
             if kept and kept_tokens + msg_tokens > remaining_budget:
@@ -828,19 +842,23 @@ class AgentRunner:
         kept.reverse()
 
         if kept:
-            for i, message in enumerate(kept):
+            kept_dynamic_system = [msg for msg in kept if msg.get("role") == "system"]
+            kept_turn_messages = [msg for msg in kept if msg.get("role") != "system"]
+            for i, message in enumerate(kept_turn_messages):
                 if message.get("role") == "user":
-                    kept = kept[i:]
+                    kept_turn_messages = kept_turn_messages[i:]
                     break
-            start = find_legal_message_start(kept)
+            start = find_legal_message_start(kept_turn_messages)
             if start:
-                kept = kept[start:]
+                kept_turn_messages = kept_turn_messages[start:]
+            kept = kept_dynamic_system + kept_turn_messages
         if not kept:
-            kept = non_system[-min(len(non_system), 4) :]
+            fallback = [msg for msg in candidates if msg.get("role") != "system"]
+            kept = fallback[-min(len(fallback), 4) :]
             start = find_legal_message_start(kept)
             if start:
                 kept = kept[start:]
-        return system_messages + kept
+        return core_system + kept
 
     def _partition_tool_batches(
         self,

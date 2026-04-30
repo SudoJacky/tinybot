@@ -288,6 +288,7 @@ class AgentLoop:
                 model=self.model,
                 sessions=self.sessions,
                 context_window_tokens=context_window_tokens,
+                context_block_limit=self.context_block_limit,
                 build_messages=self.context.build_messages,
                 get_tool_definitions=self.tools.get_definitions,
                 max_completion_tokens=provider.generation.max_tokens,
