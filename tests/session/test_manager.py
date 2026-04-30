@@ -120,3 +120,22 @@ class TestSessionDataclass:
 
         history = session.get_history(max_messages=10)
         assert len(history) <= 10
+
+    def test_get_history_skips_task_progress_records(self):
+        """Task progress cards are UI history, not model context."""
+        session = Session(key="test")
+        session.add_message("user", "run a task")
+        session.add_message(
+            "progress",
+            "Task Progress: example",
+            _progress=True,
+            _task_event=True,
+            _task_plan_id="plan-1",
+            _task_progress={"plan_id": "plan-1"},
+        )
+        session.add_message("assistant", "done")
+
+        assert session.get_history() == [
+            {"role": "user", "content": "run a task"},
+            {"role": "assistant", "content": "done"},
+        ]

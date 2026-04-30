@@ -8,6 +8,7 @@ import importlib.util
 import ipaddress
 import io
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,16 +28,55 @@ except ImportError as e:  # pragma: no cover - exercised only when optional dep 
     raise ImportError("aiohttp is required for websocket channel") from e
 
 
+_TASK_PLAN_ID_RE = re.compile(r"\*\*Plan ID:\*\*\s*([A-Za-z0-9_-]+)")
+
+
 def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "role": message.get("role", ""),
         "content": message.get("content", ""),
         "timestamp": message.get("timestamp"),
     }
-    for key in ("tool_calls", "tool_call_id", "name", "reasoning_content"):
+    for key in (
+        "tool_calls",
+        "tool_call_id",
+        "name",
+        "reasoning_content",
+        "_progress",
+        "_tool_hint",
+        "_tool_detail",
+        "_tool_result",
+        "_tool_name",
+        "_task_event",
+        "_task_progress",
+        "_task_plan_id",
+    ):
         if key in message:
             payload[key] = message[key]
     return payload
+
+
+def _is_internal_task_notification(message: dict[str, Any]) -> bool:
+    """Identify synthetic subagent task notifications that should not be shown as user chat."""
+    if message.get("role") != "user":
+        return False
+    content = _message_text(message.get("content"))
+    if not content:
+        return False
+    return (
+        "A multi-step task plan has finished execution" in content
+        and "## Plan:" in content
+        and "## Results Summary" in content
+    ) or (
+        "[后台任务" in content
+        and "## Plan:" in content
+    )
+
+
+def _extract_task_plan_id(message: dict[str, Any]) -> str:
+    content = _message_text(message.get("content"))
+    match = _TASK_PLAN_ID_RE.search(content)
+    return match.group(1) if match else ""
 
 
 def _message_text(content: Any) -> str:
@@ -55,6 +95,8 @@ def _message_text(content: Any) -> str:
 
 def _compact_session_title(messages: list[dict[str, Any]], fallback: str = "") -> str:
     for message in messages:
+        if _is_internal_task_notification(message):
+            continue
         if message.get("role") != "user":
             continue
         text = " ".join(_message_text(message.get("content")).split())
@@ -233,6 +275,12 @@ class WebSocketChannel(BaseChannel):
             payload["_tool_result"] = True
         if meta.get("_tool_name"):
             payload["_tool_name"] = meta.get("_tool_name")
+        if meta.get("_task_event"):
+            payload["_task_event"] = True
+        if meta.get("_task_progress"):
+            payload["_task_progress"] = meta.get("_task_progress")
+        if meta.get("_task_plan_id"):
+            payload["_task_plan_id"] = meta.get("_task_plan_id")
         await self._broadcast(msg.chat_id, payload)
 
     async def send_delta(self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None) -> None:
@@ -483,12 +531,70 @@ class WebSocketChannel(BaseChannel):
         if session is None:
             return web.json_response({"error": "session not found"}, status=404)
 
+        messages: list[dict[str, Any]] = []
+        emitted_task_plan_ids = {
+            str(message.get("_task_plan_id"))
+            for message in session.messages
+            if message.get("_task_event") and message.get("_task_plan_id")
+        }
+        for message in session.messages:
+            if _is_internal_task_notification(message):
+                plan_id = _extract_task_plan_id(message)
+                if plan_id and plan_id not in emitted_task_plan_ids:
+                    task_message = self._task_progress_message_from_plan(plan_id)
+                    if task_message:
+                        messages.append(_serialize_message(task_message))
+                        emitted_task_plan_ids.add(plan_id)
+                continue
+            messages.append(_serialize_message(message))
+
         return web.json_response(
             {
                 "key": session.key,
-                "messages": [_serialize_message(message) for message in session.messages],
+                "messages": messages,
             }
         )
+
+    def _task_progress_message_from_plan(self, plan_id: str) -> dict[str, Any] | None:
+        task_manager = getattr(self.agent_loop, "task_manager", None)
+        if task_manager is None:
+            return None
+        plan = task_manager.get_plan(plan_id)
+        if plan is None:
+            return None
+        progress = task_manager.get_progress(plan_id)
+        if progress is None:
+            return None
+
+        payload = {
+            "event": "restored",
+            "plan_id": plan.id,
+            "plan_title": plan.title,
+            "plan_status": plan.status,
+            "progress": progress,
+            "subtasks": [
+                {
+                    "id": subtask.id,
+                    "title": subtask.title,
+                    "status": subtask.status,
+                    "dependencies": subtask.dependencies,
+                    "parallel_safe": subtask.parallel_safe,
+                    "result": subtask.result,
+                    "error": subtask.error,
+                }
+                for subtask in plan.subtasks
+            ],
+        }
+        return {
+            "role": "progress",
+            "content": f"Task Progress: {plan.title}",
+            "timestamp": plan.updated_at.isoformat(),
+            "_progress": True,
+            "_tool_name": "task",
+            "_task_event": True,
+            "_task_progress": payload,
+            "_task_plan_id": plan.id,
+        }
 
     async def handle_delete_session(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):

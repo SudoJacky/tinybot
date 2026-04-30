@@ -580,6 +580,55 @@ function summarizeToolArguments(argsText) {
   return compact.length > 120 ? `${compact.slice(0, 120)}...` : compact;
 }
 
+function parseToolArguments(args) {
+  if (!args) {
+    return {};
+  }
+  if (typeof args === "object") {
+    return args;
+  }
+  if (typeof args === "string") {
+    try {
+      const parsed = JSON.parse(args);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function clampPercent(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, value));
+}
+
+function taskStatusLabel(status) {
+  const labels = {
+    planning: "Planning",
+    executing: "Executing",
+    completed: "Completed",
+    failed: "Failed",
+    paused: "Paused",
+    pending: "Pending",
+    in_progress: "Running",
+    skipped: "Skipped",
+  };
+  return labels[status] || status || "Task";
+}
+
+function taskStatusClass(status) {
+  return String(status || "unknown").replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
+}
+
+function taskProgressPayload(message) {
+  return message?._task_progress && typeof message._task_progress === "object"
+    ? message._task_progress
+    : null;
+}
+
 function createReasoningNode(reasoningText, previousState = {}) {
   const collapse = shouldCollapseReasoning(reasoningText);
   const details = document.createElement("details");
@@ -784,10 +833,21 @@ function createMessageDisplayItems(messages) {
     const finalIndex = message?.role === "user" ? -1 : findFinalAssistantIndex(messages, index);
 
     if (finalIndex > index && shouldAutoCollapseTurn(messages, index, finalIndex)) {
-      items.push({
-        type: "collapse",
-        messages: messages.slice(index, finalIndex),
-      });
+      const turnMessages = messages.slice(index, finalIndex);
+      const taskMessages = turnMessages.filter((item) => item._task_event);
+      const collapsedMessages = turnMessages.filter((item) => !item._task_event);
+      if (collapsedMessages.length) {
+        items.push({
+          type: "collapse",
+          messages: collapsedMessages,
+        });
+      }
+      for (const taskMessage of taskMessages) {
+        items.push({
+          type: "message",
+          message: taskMessage,
+        });
+      }
       items.push({
         type: "message",
         message: messages[finalIndex],
@@ -934,11 +994,28 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
   return callEl;
 }
 
+function createTaskToolCallNode(toolCall, argsText, responseText) {
+  const args = parseToolArguments(toolCall.function?.arguments ?? toolCall.arguments ?? "");
+  const action = args.action || "task";
+  const titleParts = ["task", action].filter(Boolean);
+  const node = createToolActivityNode({
+    name: titleParts.join(":"),
+    argsText,
+    responseText,
+    kind: responseText ? "result" : "call",
+  });
+  node.classList.add("task-tool-activity");
+  return node;
+}
+
 function createToolCallNode(toolCall, relatedMessages = []) {
   const name = getToolCallName(toolCall) || "unknown";
   const args = toolCall.function?.arguments ?? toolCall.arguments ?? "";
   const argsText = formatToolArguments(args);
   const responseText = relatedMessages.map((message) => message.content || "").filter(Boolean).join("\n\n");
+  if (name === "task") {
+    return createTaskToolCallNode(toolCall, argsText, responseText);
+  }
   return createToolActivityNode({ name, argsText, responseText, kind: responseText ? "result" : "call" });
 }
 
@@ -1045,6 +1122,129 @@ function createMessageNode(message) {
   return node;
 }
 
+function createTaskMetric(label, value) {
+  const item = document.createElement("span");
+  item.className = "task-progress-metric";
+
+  const labelEl = document.createElement("span");
+  labelEl.className = "task-progress-metric-label";
+  labelEl.textContent = label;
+
+  const valueEl = document.createElement("span");
+  valueEl.className = "task-progress-metric-value";
+  valueEl.textContent = String(value ?? 0);
+
+  item.append(labelEl, valueEl);
+  return item;
+}
+
+function createTaskProgressNode(message) {
+  const data = taskProgressPayload(message) || {};
+  const progress = data.progress || {};
+  const planId = data.plan_id || progress.plan_id || message._task_plan_id || "";
+  const title = data.plan_title || progress.title || "Task";
+  const status = data.plan_status || progress.status || "executing";
+  const total = Number(progress.total || 0);
+  const completed = Number(progress.completed || 0);
+  const percent = total > 0 ? clampPercent((completed / total) * 100) : 0;
+  const subtasks = Array.isArray(data.subtasks) ? data.subtasks : [];
+
+  const details = document.createElement("details");
+  details.className = `task-progress-card task-progress-${taskStatusClass(status)}`;
+  details.open = status !== "completed";
+
+  const summary = document.createElement("summary");
+  summary.className = "task-progress-summary";
+
+  const marker = document.createElement("span");
+  marker.className = `task-progress-status-dot task-status-${taskStatusClass(status)}`;
+  marker.setAttribute("aria-hidden", "true");
+
+  const main = document.createElement("span");
+  main.className = "task-progress-main";
+
+  const titleRow = document.createElement("span");
+  titleRow.className = "task-progress-title-row";
+
+  const titleEl = document.createElement("span");
+  titleEl.className = "task-progress-title";
+  titleEl.textContent = title;
+
+  const badge = document.createElement("span");
+  badge.className = `task-progress-badge task-badge-${taskStatusClass(status)}`;
+  badge.textContent = taskStatusLabel(status);
+
+  titleRow.append(titleEl, badge);
+
+  const meta = document.createElement("span");
+  meta.className = "task-progress-meta";
+  const planText = planId ? `Plan ${planId}` : "Task plan";
+  meta.textContent = `${planText} · ${completed}/${total || subtasks.length || 0}`;
+
+  const bar = document.createElement("span");
+  bar.className = "task-progress-bar";
+  const fill = document.createElement("span");
+  fill.className = "task-progress-bar-fill";
+  fill.style.width = `${percent}%`;
+  bar.append(fill);
+
+  main.append(titleRow, meta, bar);
+  summary.append(marker, main);
+  details.append(summary);
+
+  const body = document.createElement("div");
+  body.className = "task-progress-body";
+
+  const metrics = document.createElement("div");
+  metrics.className = "task-progress-metrics";
+  metrics.append(
+    createTaskMetric("Done", progress.completed),
+    createTaskMetric("Running", progress.in_progress),
+    createTaskMetric("Pending", progress.pending),
+    createTaskMetric("Failed", progress.failed),
+  );
+  body.append(metrics);
+
+  if (subtasks.length) {
+    const list = document.createElement("div");
+    list.className = "task-progress-subtasks";
+    subtasks.forEach((subtask) => {
+      const row = document.createElement("div");
+      row.className = `task-progress-subtask task-subtask-${taskStatusClass(subtask.status)}`;
+
+      const subtaskDot = document.createElement("span");
+      subtaskDot.className = `task-progress-subtask-dot task-status-${taskStatusClass(subtask.status)}`;
+      subtaskDot.setAttribute("aria-hidden", "true");
+
+      const text = document.createElement("span");
+      text.className = "task-progress-subtask-text";
+
+      const subtaskTitle = document.createElement("span");
+      subtaskTitle.className = "task-progress-subtask-title";
+      subtaskTitle.textContent = subtask.title || subtask.id || "Subtask";
+
+      const subtaskMeta = document.createElement("span");
+      subtaskMeta.className = "task-progress-subtask-meta";
+      const metaParts = [subtask.id, taskStatusLabel(subtask.status)];
+      if (Array.isArray(subtask.dependencies) && subtask.dependencies.length) {
+        metaParts.push(`after ${subtask.dependencies.join(", ")}`);
+      }
+      if (subtask.parallel_safe === false) {
+        metaParts.push("sequential");
+      }
+      subtaskMeta.textContent = metaParts.filter(Boolean).join(" · ");
+
+      text.append(subtaskTitle, subtaskMeta);
+      row.append(subtaskDot, text);
+      list.append(row);
+    });
+    body.append(list);
+  }
+
+  details.append(body);
+  return details;
+}
+
 function updateMessageContent(contentEl, message) {
   const previousReasoning = contentEl.querySelector(".message-reasoning-details");
   const previousReasoningState = previousReasoning
@@ -1076,6 +1276,11 @@ function updateMessageContent(contentEl, message) {
     }
 
     contentEl.append(snapshotEl);
+    return;
+  }
+
+  if (message._task_event) {
+    contentEl.append(createTaskProgressNode(message));
     return;
   }
 
@@ -4665,6 +4870,37 @@ function pushMessage(sessionKey, message) {
   }
 }
 
+function upsertTaskProgressMessage(sessionKey, message) {
+  const bucket = ensureMessageBucket(sessionKey);
+  const data = taskProgressPayload(message) || {};
+  const progress = data.progress || {};
+  const planId = data.plan_id || progress.plan_id || message._task_plan_id || "";
+  let existing = null;
+  if (planId) {
+    for (let index = bucket.length - 1; index >= 0; index -= 1) {
+      if (bucket[index]._task_event && bucket[index]._task_plan_id === planId) {
+        existing = bucket[index];
+        break;
+      }
+    }
+  }
+
+  if (existing) {
+    Object.assign(existing, message, {
+      timestamp: new Date().toISOString(),
+      message_id: existing.message_id || message.message_id,
+    });
+  } else {
+    bucket.push(message);
+  }
+
+  if (sessionKey === state.activeSessionKey) {
+    updateActiveChatTitle();
+    renderSessions();
+    renderMessages(false);
+  }
+}
+
 function upsertStreamMessage(chatId, messageId, deltaText, isReasoning = false) {
   const sessionKey = sessionKeyForChat(chatId);
   const bucket = ensureMessageBucket(sessionKey);
@@ -4759,6 +4995,21 @@ async function connectWebSocket() {
       if (payload.event === "message") {
         // Check if this is a progress/tool hint message
         if (payload._progress) {
+          const taskProgress = payload._task_progress || null;
+          const planId = taskProgress?.plan_id || taskProgress?.progress?.plan_id || "";
+          if (payload._task_event) {
+            upsertTaskProgressMessage(sessionKeyForChat(payload.chat_id), {
+              role: "progress",
+              content: payload.text || "",
+              timestamp: new Date().toISOString(),
+              message_id: payload.message_id || (planId ? `task-${planId}` : crypto.randomUUID()),
+              _task_event: true,
+              _task_progress: taskProgress,
+              _task_plan_id: planId,
+              _tool_name: "task",
+            });
+            return;
+          }
           // Progress messages are temporary hints, not persisted messages
           pushMessage(sessionKeyForChat(payload.chat_id), {
             role: "progress",

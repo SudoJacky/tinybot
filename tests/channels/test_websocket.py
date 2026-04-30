@@ -12,6 +12,7 @@ from tinybot.bus.events import OutboundMessage
 from tinybot.channels.websocket import WebSocketChannel
 from tinybot.config.schema import Config, MCPServerConfig
 from tinybot.session.manager import SessionManager
+from tinybot.task.types import SubTask, TaskPlan
 
 
 @pytest.fixture
@@ -75,6 +76,182 @@ async def test_session_rest_endpoints(web_channel, web_client):
     response = await web_client.delete("/api/sessions/websocket:chat-1", headers=headers)
     assert response.status == 200
     assert session_manager.get("websocket:chat-1") is None
+
+
+@pytest.mark.asyncio
+async def test_session_messages_hide_internal_task_notifications(web_channel, web_client):
+    _, _, session_manager = web_channel
+    session = session_manager.get_or_create("websocket:chat-task")
+    session.add_message(
+        "user",
+        "Run three exercises",
+    )
+    session.add_message(
+        "user",
+        (
+            "[后台任务状态通知]\n\n"
+            "A multi-step task plan has finished execution (may be completed or paused due to failure).\n\n"
+            "## Plan: Three Python exercises\n"
+            "**Status:** completed\n"
+            "**Plan ID:** abc12345\n\n"
+            "## Results Summary\nDone."
+        ),
+    )
+    session.add_message("assistant", "The task finished.")
+    session_manager.save(session)
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await web_client.get("/api/sessions", headers=headers)
+    assert response.status == 200
+    payload = await response.json()
+    item = next(entry for entry in payload["items"] if entry["chat_id"] == "chat-task")
+    assert item["title"] == "Run three exercises"
+
+    response = await web_client.get("/api/sessions/websocket:chat-task/messages", headers=headers)
+    assert response.status == 200
+    payload = await response.json()
+    assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
+    assert "后台任务" not in "\n".join(message["content"] for message in payload["messages"])
+
+
+@pytest.mark.asyncio
+async def test_session_messages_restore_task_progress_from_legacy_notification(
+    web_channel,
+    web_client,
+):
+    channel, _, session_manager = web_channel
+    plan = TaskPlan(
+        id="abc12345",
+        title="Three Python exercises",
+        original_request="Run three exercises",
+        subtasks=[
+            SubTask(id="1", title="First", description="first", status="completed"),
+            SubTask(id="2", title="Second", description="second", status="completed"),
+        ],
+        status="completed",
+    )
+
+    class FakeTaskManager:
+        def get_plan(self, plan_id):
+            return plan if plan_id == plan.id else None
+
+        def get_progress(self, plan_id):
+            if plan_id != plan.id:
+                return None
+            return {
+                "plan_id": plan.id,
+                "title": plan.title,
+                "status": plan.status,
+                "total": 2,
+                "completed": 2,
+                "in_progress": 0,
+                "pending": 0,
+                "failed": 0,
+                "skipped": 0,
+                "current": None,
+                "current_all": [],
+                "next": None,
+            }
+
+    class FakeAgentLoop:
+        task_manager = FakeTaskManager()
+
+    channel.agent_loop = FakeAgentLoop()
+    session = session_manager.get_or_create("websocket:chat-legacy-task")
+    session.add_message("user", "Run three exercises")
+    session.add_message(
+        "user",
+        (
+            "[后台任务状态通知]\n\n"
+            "A multi-step task plan has finished execution (may be completed or paused due to failure).\n\n"
+            "## Plan: Three Python exercises\n"
+            "**Status:** completed\n"
+            "**Plan ID:** abc12345\n\n"
+            "## Results Summary\nDone."
+        ),
+    )
+    session.add_message("assistant", "The task finished.")
+    session_manager.save(session)
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await web_client.get(
+        "/api/sessions/websocket:chat-legacy-task/messages",
+        headers=headers,
+    )
+    assert response.status == 200
+    payload = await response.json()
+
+    assert [message["role"] for message in payload["messages"]] == [
+        "user",
+        "progress",
+        "assistant",
+    ]
+    task_message = payload["messages"][1]
+    assert task_message["_task_event"] is True
+    assert task_message["_task_plan_id"] == "abc12345"
+    assert task_message["_task_progress"]["progress"]["completed"] == 2
+    assert "后台任务" not in "\n".join(message["content"] for message in payload["messages"])
+
+
+@pytest.mark.asyncio
+async def test_session_messages_preserve_task_progress_records(web_channel, web_client):
+    _, _, session_manager = web_channel
+    progress = {
+        "event": "completed",
+        "plan_id": "abc12345",
+        "plan_title": "Three Python exercises",
+        "plan_status": "completed",
+        "progress": {
+            "plan_id": "abc12345",
+            "title": "Three Python exercises",
+            "status": "completed",
+            "total": 2,
+            "completed": 2,
+            "in_progress": 0,
+            "pending": 0,
+            "failed": 0,
+            "skipped": 0,
+        },
+        "subtasks": [
+            {"id": "1", "title": "First", "status": "completed"},
+            {"id": "2", "title": "Second", "status": "completed"},
+        ],
+    }
+    session = session_manager.get_or_create("websocket:chat-progress")
+    session.add_message("user", "Run three exercises")
+    session.add_message(
+        "progress",
+        "Task Progress: Three Python exercises",
+        _progress=True,
+        _tool_name="task",
+        _task_event=True,
+        _task_progress=progress,
+        _task_plan_id="abc12345",
+    )
+    session.add_message("assistant", "The task finished.")
+    session_manager.save(session)
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await web_client.get("/api/sessions/websocket:chat-progress/messages", headers=headers)
+    assert response.status == 200
+    payload = await response.json()
+
+    assert [message["role"] for message in payload["messages"]] == [
+        "user",
+        "progress",
+        "assistant",
+    ]
+    task_message = payload["messages"][1]
+    assert task_message["_task_event"] is True
+    assert task_message["_tool_name"] == "task"
+    assert task_message["_task_plan_id"] == "abc12345"
+    assert task_message["_task_progress"]["progress"]["completed"] == 2
 
 
 @pytest.mark.asyncio

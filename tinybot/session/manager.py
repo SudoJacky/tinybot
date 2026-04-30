@@ -65,6 +65,8 @@ class Session:
 
         out: list[dict[str, Any]] = []
         for message in sliced:
+            if message.get("role") == "progress" or message.get("_task_event"):
+                continue
             entry: dict[str, Any] = {"role": message["role"], "content": message.get("content", "")}
             for key in ("tool_calls", "tool_call_id", "name", "reasoning_content"):
                 if key in message:
