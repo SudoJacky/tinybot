@@ -317,6 +317,11 @@ class TaskManager:
             original_request=request,
             subtasks=subtasks,
             status="planning",
+            context={
+                "channel": channel,
+                "chat_id": chat_id,
+                "session_key": f"{channel}:{chat_id}",
+            },
         )
 
         # Validate DAG
@@ -555,7 +560,7 @@ class TaskManager:
 
             # Process results
             still_pending = []
-            for subtask, result in zip([s for s in pending if s.id in tasks], done_results):
+            for subtask, result in zip([s for s in pending if s.id in tasks], done_results, strict=False):
                 if cancel_event.is_set():
                     break
 
@@ -682,6 +687,8 @@ class TaskManager:
                     "id": s.id,
                     "title": s.title,
                     "status": s.status,
+                    "dependencies": s.dependencies,
+                    "parallel_safe": s.parallel_safe,
                     "result": s.result,
                     "error": s.error,
                 }

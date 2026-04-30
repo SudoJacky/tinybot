@@ -568,11 +568,53 @@ class AgentLoop:
             else:
                 msg = f"📋 {subtask_title}"
 
+            self._persist_task_progress(progress, f"📋 **Task Progress**\n\n{msg}")
             await self.bus.publish_outbound(OutboundMessage(
                 channel=self._task_progress_channel,
                 chat_id=self._task_progress_chat_id,
                 content=f"📋 **Task Progress**\n\n{msg}",
+                metadata={
+                    "_progress": True,
+                    "_task_event": True,
+                    "_task_progress": progress,
+                    "_task_plan_id": progress.get("plan_id"),
+                    "_tool_name": "task",
+                },
             ))
+
+    def _persist_task_progress(self, progress: dict[str, Any], content: str) -> None:
+        """Persist the latest task progress card into the owning chat session."""
+        plan_id = str(progress.get("plan_id") or "")
+        if not plan_id:
+            return
+        if not self._task_progress_channel or self._task_progress_channel == "cli":
+            return
+        if not self._task_progress_chat_id:
+            return
+
+        session_key = f"{self._task_progress_channel}:{self._task_progress_chat_id}"
+        session = self.sessions.get_or_create(session_key)
+        entry = {
+            "role": "progress",
+            "content": content,
+            "timestamp": datetime.now().isoformat(),
+            "_progress": True,
+            "_task_event": True,
+            "_task_progress": progress,
+            "_task_plan_id": plan_id,
+            "_tool_name": "task",
+        }
+
+        for message in session.messages:
+            if message.get("_task_event") and message.get("_task_plan_id") == plan_id:
+                message.update(entry)
+                session.updated_at = datetime.now()
+                self.sessions.save(session)
+                return
+
+        session.messages.append(entry)
+        session.updated_at = datetime.now()
+        self.sessions.save(session)
 
     async def _execute_subtask_via_agent(self, subtask, plan) -> str:
         """Execute a subtask by running the agent with the subtask description."""
@@ -1048,6 +1090,14 @@ class AgentLoop:
                 on_reasoning_stream=on_reasoning_stream,
                 on_stream_end=on_stream_end,
             )
+            if msg.sender_id == "subagent":
+                all_msgs = [
+                    entry for entry in all_msgs
+                    if not (
+                        entry.get("role") == "user"
+                        and entry.get("content") == notification_content
+                    )
+                ]
             skip_count = len(session.messages)
             self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
             self.session_handler.clear_checkpoint(session)
