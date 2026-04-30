@@ -556,6 +556,18 @@ function getToolName(message) {
   return message?._tool_name || message?.name || "";
 }
 
+function getToolCallName(toolCall) {
+  return toolCall?.function?.name || toolCall?.name || "";
+}
+
+function getToolCallId(toolCall) {
+  return toolCall?.id || toolCall?.tool_call_id || "";
+}
+
+function getToolMessageCallId(message) {
+  return message?.tool_call_id || message?._tool_call_id || "";
+}
+
 function hasToolCalls(message) {
   return Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
 }
@@ -655,6 +667,49 @@ function relatedToolMessagesEndIndex(messages, startIndex) {
   return nextIndex - 1;
 }
 
+function relatedToolMessageGroups(toolCalls, relatedMessages) {
+  const groups = toolCalls.map(() => []);
+  const usedMessageIndexes = new Set();
+  const callIdToIndex = new Map();
+
+  toolCalls.forEach((toolCall, index) => {
+    const id = getToolCallId(toolCall);
+    if (id) {
+      callIdToIndex.set(id, index);
+    }
+  });
+
+  relatedMessages.forEach((message, index) => {
+    const messageCallId = getToolMessageCallId(message);
+    const callIndex = messageCallId ? callIdToIndex.get(messageCallId) : undefined;
+    if (callIndex !== undefined) {
+      groups[callIndex].push(message);
+      usedMessageIndexes.add(index);
+    }
+  });
+
+  let fallbackCursor = 0;
+  relatedMessages.forEach((message, messageIndex) => {
+    if (usedMessageIndexes.has(messageIndex)) {
+      return;
+    }
+
+    const messageName = getToolName(message);
+    for (let offset = 0; offset < toolCalls.length; offset += 1) {
+      const callIndex = (fallbackCursor + offset) % toolCalls.length;
+      const callName = getToolCallName(toolCalls[callIndex]);
+      if (!messageName || !callName || messageName === callName) {
+        groups[callIndex].push(message);
+        usedMessageIndexes.add(messageIndex);
+        fallbackCursor = (callIndex + 1) % toolCalls.length;
+        return;
+      }
+    }
+  });
+
+  return groups;
+}
+
 function createMessageDisplayItems(messages) {
   const items = [];
 
@@ -712,8 +767,12 @@ function createCollapsedMessagesNode(collapsedMessages) {
   const body = document.createElement("div");
   body.className = "message-collapse-body";
   body.hidden = true;
-  for (const message of collapsedMessages) {
+  for (let index = 0; index < collapsedMessages.length; index += 1) {
+    const message = collapsedMessages[index];
     body.append(createMessageNode(message));
+    if (hasToolCalls(message)) {
+      index = relatedToolMessagesEndIndex(collapsedMessages, index);
+    }
   }
 
   button.addEventListener("click", () => {
@@ -731,6 +790,9 @@ function createCollapsedMessagesNode(collapsedMessages) {
 function createToolActivityNode({ name, argsText = "", responseText = "", kind = "call" }) {
   const callEl = document.createElement("details");
   callEl.className = "tool-activity";
+  if (argsText && responseText) {
+    callEl.classList.add("tool-activity-paired");
+  }
 
   const summary = document.createElement("summary");
   summary.className = "tool-activity-summary";
@@ -749,7 +811,7 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
 
   const preview = document.createElement("span");
   preview.className = "tool-activity-preview";
-  preview.textContent = responseText ? summarizeToolArguments(responseText) : summarizeToolArguments(argsText);
+  preview.textContent = summarizeToolArguments(argsText || responseText);
 
   main.append(title, preview);
 
@@ -764,6 +826,9 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
   body.className = "tool-activity-body";
 
   if (argsText) {
+    const argsSection = document.createElement("div");
+    argsSection.className = "tool-activity-section tool-activity-section-call";
+
     const argsLabel = document.createElement("div");
     argsLabel.className = "tool-activity-label";
     argsLabel.textContent = t("message.toolArgs");
@@ -772,10 +837,14 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
     argsBody.className = "tool-activity-pre";
     argsBody.textContent = argsText;
 
-    body.append(argsLabel, argsBody);
+    argsSection.append(argsLabel, argsBody);
+    body.append(argsSection);
   }
 
   if (responseText) {
+    const responseSection = document.createElement("div");
+    responseSection.className = "tool-activity-section tool-activity-section-response";
+
     const responseLabel = document.createElement("div");
     responseLabel.className = "tool-activity-label";
     responseLabel.textContent = t("message.toolResponse");
@@ -784,7 +853,8 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
     responseBody.className = "tool-activity-pre";
     responseBody.textContent = responseText;
 
-    body.append(responseLabel, responseBody);
+    responseSection.append(responseLabel, responseBody);
+    body.append(responseSection);
   }
 
   if (!argsText && !responseText) {
@@ -799,7 +869,7 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
 }
 
 function createToolCallNode(toolCall, relatedMessages = []) {
-  const name = toolCall.function?.name || toolCall.name || "unknown";
+  const name = getToolCallName(toolCall) || "unknown";
   const args = toolCall.function?.arguments ?? toolCall.arguments ?? "";
   const argsText = formatToolArguments(args);
   const responseText = relatedMessages.map((message) => message.content || "").filter(Boolean).join("\n\n");
@@ -948,14 +1018,10 @@ function updateMessageContent(contentEl, message) {
     const toolCallsEl = document.createElement("div");
     toolCallsEl.className = "tool-activities";
     const relatedMessages = message._relatedToolMessages || [];
-    for (const tc of message.tool_calls) {
-      const name = tc.function?.name || tc.name || "";
-      const related = relatedMessages.filter((relatedMessage) => {
-        const relatedName = getToolName(relatedMessage);
-        return !name || !relatedName || relatedName === name;
-      });
-      toolCallsEl.append(createToolCallNode(tc, related));
-    }
+    const relatedGroups = relatedToolMessageGroups(message.tool_calls, relatedMessages);
+    message.tool_calls.forEach((tc, index) => {
+      toolCallsEl.append(createToolCallNode(tc, relatedGroups[index] || []));
+    });
     contentEl.append(toolCallsEl);
   }
 
