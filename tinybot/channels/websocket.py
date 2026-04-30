@@ -9,7 +9,7 @@ import ipaddress
 import io
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -83,7 +83,7 @@ def _is_loopback_request(request: web.Request) -> bool:
 
 
 def _iso_mtime(path: Path) -> str:
-    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
 
 
 class WebSocketChannel(BaseChannel):
@@ -207,10 +207,11 @@ class WebSocketChannel(BaseChannel):
             await self._broadcast(
                 msg.chat_id,
                 {
-                    "event": "browser_snapshot",
+                    "event": "browser_frame",
                     "chat_id": msg.chat_id,
                     "image_url": meta.get("image_url", ""),
                     "source_command": meta.get("source_command", ""),
+                    "captured_at": meta.get("captured_at"),
                 },
             )
             return
@@ -985,9 +986,9 @@ class WebSocketChannel(BaseChannel):
                     else:
                         frontmatter_lines.append(f"{key}: {value}")
             # Add new fields if not in existing frontmatter
-            if "description" in payload and not any(l.startswith("description:") for l in frontmatter_lines):
+            if "description" in payload and not any(line.startswith("description:") for line in frontmatter_lines):
                 frontmatter_lines.append(f"description: {payload['description']}")
-            if "always" in payload and not any(l.startswith("always:") for l in frontmatter_lines):
+            if "always" in payload and not any(line.startswith("always:") for line in frontmatter_lines):
                 frontmatter_lines.append(f"always: {str(payload['always']).lower()}")
         else:
             # No frontmatter, create one

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css?v=config-ux-20260430b">
+  <link rel="stylesheet" href="/assets/styles.css?v=browser-panel-20260430a">
   <!-- Highlight.js for code syntax highlighting -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light-theme">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-dark-theme" disabled>
@@ -155,6 +155,34 @@
           </div>
           <span class="compact-file" id="current-file-name">-</span>
         </header>
+      </section>
+
+      <!-- Browser view panel -->
+      <section class="browser-panel compact-panel" id="browser-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Browser</p>
+            <h2>Browser View</h2>
+          </div>
+          <div class="browser-panel-actions">
+            <button id="browser-panel-toggle" class="button button-icon browser-panel-button" type="button" aria-label="Collapse browser view" title="Collapse browser view">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+        <div class="browser-frame-wrap" id="browser-frame-wrap">
+          <div class="browser-frame-empty" id="browser-frame-empty">
+            <span>No browser frame yet</span>
+          </div>
+          <img id="browser-frame-image" class="browser-frame-image" alt="Browser view" hidden>
+        </div>
+        <div class="browser-frame-meta">
+          <span id="browser-frame-status">Waiting for browser activity</span>
+          <span id="browser-frame-time" class="browser-frame-time">-</span>
+        </div>
+        <div id="browser-frame-command" class="browser-frame-command" title=""></div>
       </section>
 
       <!-- 语言切换 + 主题切换 + 文档 + 设置按钮 -->
@@ -1099,6 +1127,6 @@
     </article>
   </template>
 
-  <script src="/assets/app.js?v=config-ux-20260430b" defer></script>
+  <script src="/assets/app.js?v=browser-panel-20260430a" defer></script>
 </body>
 </html>
