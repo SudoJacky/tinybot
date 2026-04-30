@@ -3496,8 +3496,119 @@ body {
 }
 
 .settings-modal-content {
-  width: min(90vw, 650px);
-  max-height: 80vh;
+  width: min(94vw, 860px);
+  max-height: 88vh;
+}
+
+.settings-modal-content .modal-header {
+  flex-shrink: 0;
+}
+
+.config-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 12px;
+  padding: 14px 24px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 92%, var(--bg-subtle));
+}
+
+.config-search-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.config-search-wrap::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--text-subtle);
+  border-radius: var(--radius-full);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.config-search-wrap::after {
+  content: "";
+  position: absolute;
+  left: 25px;
+  top: 24px;
+  width: 7px;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--text-subtle);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.config-search {
+  width: 100%;
+  height: 38px;
+  padding: 9px 12px 9px 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.config-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: var(--panel-strong);
+}
+
+.config-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-quick-nav {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.config-nav-chip {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--panel-strong);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.config-nav-chip:hover,
+.config-nav-chip.active {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.config-modal-body {
+  background: var(--bg-subtle);
+}
+
+.config-empty-search {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-strong);
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .config-group-title {
@@ -3513,6 +3624,21 @@ body {
   user-select: none;
   border-bottom: 1px solid var(--border-subtle);
   transition: background var(--transition-fast);
+}
+
+.config-group-title.dirty::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  order: 1;
+}
+
+.config-group-title .toggle-icon {
+  order: 2;
 }
 
 .config-group-title:hover {
@@ -3568,10 +3694,25 @@ body {
 
 .config-field {
   margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .config-field:last-child {
   margin-bottom: 0;
+}
+
+.config-field.dirty {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-soft) 48%, transparent);
+}
+
+.config-field[hidden],
+.config-group[hidden],
+.config-empty-search[hidden] {
+  display: none;
 }
 
 .config-label {
@@ -3694,6 +3835,34 @@ body {
   height: 16px;
   accent-color: var(--accent);
   cursor: pointer;
+}
+
+.config-save-state {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-right: auto;
+}
+
+.config-dirty-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+#save-config-button.loading {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+#save-config-button:disabled,
+#reset-config-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+  box-shadow: none;
 }
 
 /* ========== Config Slider (Temperature) ========== */
@@ -4362,6 +4531,32 @@ body {
 
   .file-editor {
     margin: 12px;
+  }
+
+  .settings-modal-content {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+  }
+
+  .config-toolbar {
+    grid-template-columns: 1fr;
+    padding: 12px 16px;
+  }
+
+  .config-toolbar-actions {
+    justify-content: stretch;
+  }
+
+  .config-toolbar-actions .button {
+    flex: 1;
+  }
+
+  .modal-footer {
+    flex-wrap: wrap;
+  }
+
+  .config-save-state {
+    flex-basis: 100%;
   }
 }
 

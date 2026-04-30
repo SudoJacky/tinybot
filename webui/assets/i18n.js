@@ -338,6 +338,13 @@ const translations = {
     "settings.saved": "配置已保存",
     "settings.saveFailed": "保存失败",
     "settings.noValidFields": "no valid fields to update",
+    "settings.searchPlaceholder": "搜索配置项、说明或当前值",
+    "settings.expandAll": "全部展开",
+    "settings.collapseAll": "全部收起",
+    "settings.noSearchResults": "没有匹配的配置项",
+    "settings.noChanges": "没有未保存的更改",
+    "settings.unsavedChanges": "未保存更改",
+    "settings.resetChanges": "重置",
 
     // 角色标签
     "role.assistant": "assistant",
@@ -959,6 +966,13 @@ const translations = {
     "settings.saved": "Config saved",
     "settings.saveFailed": "Save failed",
     "settings.noValidFields": "no valid fields to update",
+    "settings.searchPlaceholder": "Search settings, help text, or current values",
+    "settings.expandAll": "Expand all",
+    "settings.collapseAll": "Collapse all",
+    "settings.noSearchResults": "No matching settings",
+    "settings.noChanges": "No unsaved changes",
+    "settings.unsavedChanges": "Unsaved changes",
+    "settings.resetChanges": "Reset",
 
     // Role labels
     "role.assistant": "assistant",
