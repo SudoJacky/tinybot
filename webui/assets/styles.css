@@ -806,14 +806,14 @@ body {
   box-shadow: none;
   max-width: min(92%, 860px);
   width: min(92%, 860px);
-  padding: 0 4px;
-  font-size: 13px;
-  opacity: 1;
+  padding: 0 4px 0 18px;
+  font-size: 12px;
+  opacity: 0.72;
 }
 
 .message-tool .message-role,
 .message-progress .message-role {
-  color: var(--accent);
+  color: var(--text-subtle);
 }
 
 .message-collapse-group {
@@ -944,47 +944,62 @@ body {
 /* Tool calls display */
 .tool-activities {
   display: grid;
-  gap: 8px;
-  margin-bottom: 12px;
-  font-size: 13px;
+  gap: 5px;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  opacity: 0.82;
 }
 
 .tool-activity {
   overflow: hidden;
-  background: color-mix(in srgb, var(--bg-subtle) 76%, transparent);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  color: var(--text);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+  color: var(--text-muted);
+}
+
+.tool-activity-paired {
+  border-color: color-mix(in srgb, var(--border-subtle) 58%, transparent);
 }
 
 .tool-activity summary {
   list-style: none;
+  outline: none;
 }
 
 .tool-activity summary::-webkit-details-marker {
   display: none;
 }
 
+.tool-activity:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border-subtle));
+}
+
+.tool-activity-summary:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  outline-offset: -1px;
+}
+
 .tool-activity-summary {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  min-height: 36px;
-  padding: 7px 10px;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 8px;
   cursor: pointer;
 }
 
 .tool-activity-icon {
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: var(--radius-xs);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+  color: var(--text-subtle);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   transition: transform var(--transition-fast);
 }
@@ -1001,10 +1016,10 @@ body {
 
 .tool-activity-title {
   overflow: hidden;
-  color: var(--text);
+  color: var(--text-subtle);
   font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1012,36 +1027,69 @@ body {
 .tool-activity-preview {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tool-activity-badge {
-  padding: 2px 7px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
   border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--accent);
-  font-size: 11px;
+  background: transparent;
+  color: var(--text-subtle);
+  font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .tool-activity-body {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px 12px 40px;
-  border-top: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--panel-strong) 54%, transparent);
+  gap: 0;
+  padding: 6px 10px 10px 32px;
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-subtle) 36%, transparent);
+}
+
+.tool-activity-section {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  padding: 4px 0 8px 14px;
+  border-left: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
+}
+
+.tool-activity-section::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 11px;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--text-subtle) 72%, transparent);
+}
+
+.tool-activity-section-response {
+  margin-top: -2px;
+  padding-top: 6px;
+}
+
+.tool-activity-section-response::before {
+  background: color-mix(in srgb, var(--accent) 58%, var(--text-subtle));
+}
+
+.tool-activity-section-response .tool-activity-label::before {
+  content: "- ";
+  color: var(--text-subtle);
 }
 
 .tool-activity-label {
   color: var(--text-subtle);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -1050,7 +1098,7 @@ body {
   margin: 0;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
   overflow-x: auto;
   white-space: pre-wrap;
