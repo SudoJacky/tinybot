@@ -252,6 +252,9 @@ const translations = {
     "settings.tools.execEnable": "启用Exec工具",
     "settings.tools.timeout": "Timeout (秒)",
     "settings.tools.timeoutPlaceholder": "执行超时",
+    "settings.tools.mcp": "MCP Servers",
+    "settings.tools.mcpServers": "MCP Servers JSON",
+    "settings.tools.mcpServersPlaceholder": "外部 MCP Server 配置 JSON",
     "settings.tools.restrictWorkspace": "限制在工作区",
 
     "settings.gateway": "Gateway 配置",
@@ -313,6 +316,7 @@ const translations = {
     "help.searchProvider": "搜索引擎\nduckduckgo免费\nbrave/tavily需API",
     "help.execEnable": "允许AI执行shell命令\n有安全风险请谨慎",
     "help.execTimeout": "命令执行超时秒数\n超时自动终止",
+    "help.mcpServers": "配置外部 MCP Server\n支持 stdio、sse、streamableHttp\n保存后会重新连接",
     "help.restrictWorkspace": "AI只能在workspace目录操作文件\n更安全",
     "help.gatewayHost": "WebUI监听地址\n0.0.0.0允许外网访问\n127.0.0.1仅本机",
     "help.gatewayPort": "WebUI端口\n默认18790",
@@ -328,6 +332,7 @@ const translations = {
     "settings.validation.timezoneError": "无效的时区格式",
     "settings.validation.modelEmpty": "模型名称不能为空",
     "settings.validation.portRange": "端口范围 1-65535",
+    "settings.validation.jsonObjectError": "必须是有效的 JSON 对象",
     "settings.validation.valid": "格式正确",
 
     "settings.saved": "配置已保存",
@@ -868,6 +873,9 @@ const translations = {
     "settings.tools.execEnable": "Enable exec tools",
     "settings.tools.timeout": "Timeout (seconds)",
     "settings.tools.timeoutPlaceholder": "Execution timeout",
+    "settings.tools.mcp": "MCP Servers",
+    "settings.tools.mcpServers": "MCP Servers JSON",
+    "settings.tools.mcpServersPlaceholder": "External MCP server config JSON",
     "settings.tools.restrictWorkspace": "Restrict to workspace",
 
     "settings.gateway": "Gateway Config",
@@ -929,6 +937,7 @@ const translations = {
     "help.searchProvider": "Search engine\nduckduckgo=free\nbrave/tavily=require API",
     "help.execEnable": "Allow AI to run shell commands\nSecurity risk - use carefully",
     "help.execTimeout": "Command timeout in seconds\nAuto-kill on timeout",
+    "help.mcpServers": "Configure external MCP servers\nSupports stdio, sse, streamableHttp\nReconnects after saving",
     "help.restrictWorkspace": "AI can only access workspace dir\nMore secure",
     "help.gatewayHost": "WebUI listen address\n0.0.0.0=all interfaces\n127.0.0.1=localhost only",
     "help.gatewayPort": "WebUI port\nDefault: 18790",
@@ -944,6 +953,7 @@ const translations = {
     "settings.validation.timezoneError": "Invalid timezone format",
     "settings.validation.modelEmpty": "Model name required",
     "settings.validation.portRange": "Port range 1-65535",
+    "settings.validation.jsonObjectError": "Must be a valid JSON object",
     "settings.validation.valid": "Valid format",
 
     "settings.saved": "Config saved",

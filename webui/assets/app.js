@@ -130,6 +130,7 @@ const elements = {
   configSearchProvider: document.querySelector("#config-search-provider"),
   configExecEnable: document.querySelector("#config-exec-enable"),
   configExecTimeout: document.querySelector("#config-exec-timeout"),
+  configMcpServers: document.querySelector("#config-mcp-servers"),
   configRestrictWorkspace: document.querySelector("#config-restrict-workspace"),
   configGatewayHost: document.querySelector("#config-gateway-host"),
   configGatewayPort: document.querySelector("#config-gateway-port"),
@@ -3998,6 +3999,13 @@ function populateConfigForm(config) {
   elements.configExecEnable.checked = exec.enable === true;
   elements.configExecTimeout.value = exec.timeout || 60;
 
+  const mcpServers = tools.mcpServers || tools.mcp_servers || {};
+  if (elements.configMcpServers) {
+    elements.configMcpServers.value = Object.keys(mcpServers).length
+      ? JSON.stringify(mcpServers, null, 2)
+      : "";
+  }
+
   elements.configRestrictWorkspace.checked = tools.restrictToWorkspace || tools.restrict_to_workspace === true;
 
   // Gateway
@@ -4078,6 +4086,17 @@ function setupValidation() {
   if (elements.configGatewayPort) {
     elements.configGatewayPort.addEventListener("input", () => {
       validateField(elements.configGatewayPort, validatePortRange, "portRange");
+    });
+  }
+
+  if (elements.configMcpServers) {
+    elements.configMcpServers.addEventListener("input", () => {
+      const val = elements.configMcpServers.value.trim();
+      if (val === "") {
+        setFieldState(elements.configMcpServers, "neutral");
+        return;
+      }
+      validateField(elements.configMcpServers, validateJsonObject, "jsonObjectError");
     });
   }
 
@@ -4190,6 +4209,15 @@ function validatePortRange(value) {
   return port >= 1 && port <= 65535;
 }
 
+function validateJsonObject(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}
+
 async function saveConfig() {
   elements.configError.textContent = "";
   elements.configSuccess.textContent = "";
@@ -4201,6 +4229,28 @@ async function saveConfig() {
     if (type === "number" && (val === null || val === "" || isNaN(val))) val = null;
     return val;
   };
+
+  const parseJsonObject = (el, fallback = {}) => {
+    if (!el || el.value.trim() === "") {
+      return fallback;
+    }
+    const parsed = JSON.parse(el.value);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(t("settings.validation.jsonObjectError"));
+    }
+    return parsed;
+  };
+
+  let mcpServers = {};
+  try {
+    mcpServers = parseJsonObject(elements.configMcpServers, {});
+  } catch (error) {
+    elements.configError.textContent = error.message || t("settings.validation.jsonObjectError");
+    if (elements.configMcpServers) {
+      setFieldState(elements.configMcpServers, "error", "jsonObjectError");
+    }
+    return;
+  }
 
   // Build payload - matching backend schema structure
   // agents.defaults contains the actual agent config fields
@@ -4259,6 +4309,7 @@ async function saveConfig() {
         enable: elements.configExecEnable.checked,
         timeout: getValue(elements.configExecTimeout, "number"),
       },
+      mcp_servers: mcpServers,
       restrict_to_workspace: elements.configRestrictWorkspace.checked,
     },
     gateway: {

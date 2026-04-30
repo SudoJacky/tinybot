@@ -1268,8 +1268,9 @@ class WebSocketChannel(BaseChannel):
         # Validate the updated config
         try:
             # Re-validate by dumping and reloading
-            data = self.config_ref.model_dump(mode="json", by_alias=True)
-            self.config_ref.model_validate(data)
+            data = self.config_ref.model_dump(mode="json", by_alias=True, warnings=False)
+            validated_config = type(self.config_ref).model_validate(data)
+            self._restore_config(validated_config)
         except Exception as e:
             self._restore_config(original_config)
             return web.json_response({
@@ -1285,6 +1286,7 @@ class WebSocketChannel(BaseChannel):
         provider_updated = any("providers" in f or "provider" in f for f in updated_fields)
         model_updated = any("model" in f for f in updated_fields)
         embedding_updated = any("embedding" in f for f in updated_fields)
+        mcp_updated = any("mcp_servers" in f or "mcpServers" in f for f in updated_fields)
 
         if self.agent_loop and (provider_updated or model_updated):
             try:
@@ -1309,6 +1311,20 @@ class WebSocketChannel(BaseChannel):
                 logger.info("Embedding config updated, will reload on next use")
             except Exception as e:
                 logger.warning(f"Failed to reset embedding after config change: {e}")
+
+        if mcp_updated and self.agent_loop:
+            try:
+                await self.agent_loop.close_mcp()
+                for tool_name in list(self.agent_loop.tools.tool_names):
+                    if tool_name.startswith("mcp_"):
+                        self.agent_loop.tools.unregister(tool_name)
+                self.agent_loop._mcp_servers = self.config_ref.tools.mcp_servers
+                self.agent_loop._mcp_connected = False
+                self.agent_loop._mcp_connecting = False
+                await self.agent_loop._connect_mcp()
+                logger.info("MCP config updated, reconnected configured servers")
+            except Exception as e:
+                logger.warning(f"Failed to reconnect MCP servers after config change: {e}")
 
         data = self.config_ref.model_dump(mode="json", by_alias=True)
         return web.json_response({
