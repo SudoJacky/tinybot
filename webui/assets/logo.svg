@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">Tinybot logo</title>
+  <desc id="desc">A blue rounded app icon with a compact conversational agent mark.</desc>
+  <defs>
+    <linearGradient id="tinybot-bg" x1="18" y1="12" x2="82" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <radialGradient id="tinybot-glow" cx="69" cy="24" r="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="0.44" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="tinybot-shadow" x="-18%" y="-12%" width="136%" height="136%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="9" flood-color="#1e40af" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <rect x="12" y="10" width="72" height="76" rx="18" fill="url(#tinybot-bg)" filter="url(#tinybot-shadow)"/>
+  <rect x="12" y="10" width="72" height="76" rx="18" fill="url(#tinybot-glow)"/>
+  <path d="M30 24h36a10 10 0 0 1 10 10v28a10 10 0 0 1-10 10H30a10 10 0 0 1-10-10V34a10 10 0 0 1 10-10Z" fill="#fff" opacity="0.15" stroke="#fff" stroke-opacity="0.5" stroke-width="3"/>
+  <path d="M32 40c6-8 13-12 21-12 12.5 0 20 8.2 20 19.2C73 60.3 62.1 70 47 70H33" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M33 58h26M33 48h33M33 38h19" fill="none" stroke="#fff" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.74"/>
+  <circle cx="68" cy="31" r="6.4" fill="#fff"/>
+</svg>

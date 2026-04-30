@@ -1,5 +1,9 @@
 # Tinybot
 
+<p align="center">
+  <img src="./webui/assets/logo.svg" width="96" alt="Tinybot logo">
+</p>
+
 [![Python](https://img.shields.io/badge/Python-3.13%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green?logo=opensourceinitiative&logoColor=white)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/SudoJacky/tinybot?style=social&logo=github)](https://github.com/SudoJacky/tinybot/stargazers)
@@ -10,7 +14,23 @@
 
 一个轻量的个人 AI 助手框架，将大语言模型与多种聊天平台、工具系统和自动化机制集成在一起。
 
+## 品牌资产
+
+- README logo: [`webui/assets/logo.svg`](webui/assets/logo.svg)
+- Favicon / app mark: [`webui/assets/logo-mark.svg`](webui/assets/logo-mark.svg)
+- Social preview source: [`webui/assets/social-preview.svg`](webui/assets/social-preview.svg)
+- Installer icon source: use `webui/assets/logo.svg` for square app icons, or `webui/assets/logo-mark.svg` for compact launcher icons.
+
 ## 更新日志
+
+<details>
+<summary>2026.04.30 修复多个ui，修改浏览器操控界面示意，新增task任务显示。</summary>
+
+![browser_snapshot2](./show/browser_snapshot2.png)
+
+![task_webui1](./show/task_webui1.png)
+
+</details>
 
 <details>
 <summary>2026.04.29 修复多个ui，新增浏览器操控界面示意。</summary>

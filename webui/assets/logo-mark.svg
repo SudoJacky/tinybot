@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title desc">
+  <title id="title">Tinybot mark</title>
+  <desc id="desc">Compact Tinybot conversational agent mark.</desc>
+  <defs>
+    <linearGradient id="tinybot-mark-bg" x1="8" y1="6" x2="41" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <radialGradient id="tinybot-mark-glow" cx="35" cy="12" r="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="3" width="40" height="42" rx="10" fill="url(#tinybot-mark-bg)"/>
+  <rect x="4" y="3" width="40" height="42" rx="10" fill="url(#tinybot-mark-glow)"/>
+  <path d="M12 8h24a6 6 0 0 1 6 6v20a6 6 0 0 1-6 6H12a6 6 0 0 1-6-6V14a6 6 0 0 1 6-6Z" fill="#fff" opacity="0.16" stroke="#fff" stroke-opacity="0.52" stroke-width="1.6"/>
+  <path d="M14 18c3.3-4 7.1-6 11.4-6 6.6 0 10.6 4.4 10.6 10.2 0 7-5.8 12.2-13.8 12.2H15" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15 30h14M15 24h18M15 18h10" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.74"/>
+  <circle cx="34" cy="14" r="3.2" fill="#fff"/>
+</svg>
