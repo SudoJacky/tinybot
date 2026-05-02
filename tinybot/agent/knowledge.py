@@ -17,6 +17,7 @@ import os
 import re
 import threading
 from bisect import bisect_right
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -4379,6 +4380,11 @@ Chunk:
             new_relations: list[KnowledgeRelation] = []
             new_mentions: list[KnowledgeMention] = []
 
+            def extract_chunk_semantic(chunk: dict[str, Any]) -> tuple[str, dict[str, list[dict[str, Any]]]]:
+                content = chunk.get("semantic_text") or chunk.get("context_content") or chunk.get("content", "")
+                section_path = chunk.get("section_path", "")
+                return content, self._extract_semantic_units(content, section_path, doc_name)
+
             def ensure_entity(
                 name: str,
                 source_doc_id: str,
@@ -4430,12 +4436,32 @@ Chunk:
                 return entity
 
             total_chunks = len(chunks)
+            semantic_units_by_index: dict[int, tuple[str, dict[str, list[dict[str, Any]]]]] = {}
+            mode = (self.config.semantic_extraction_mode if self.config else "rule").lower()
+            llm_concurrency = self.config.semantic_llm_concurrency if self.config else 1
+            if mode in {"llm", "hybrid"} and llm_concurrency > 1 and total_chunks > 1:
+                workers = min(llm_concurrency, total_chunks)
+                completed_chunks = 0
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="knowledge-llm") as executor:
+                    futures = {
+                        executor.submit(extract_chunk_semantic, chunk): index
+                        for index, chunk in enumerate(chunks)
+                    }
+                    for future in as_completed(futures):
+                        index = futures[future]
+                        semantic_units_by_index[index] = future.result()
+                        completed_chunks += 1
+                        if progress_callback:
+                            progress_callback(completed_chunks, total_chunks)
+
             for chunk_number, chunk in enumerate(chunks, start=1):
                 chunk_id = f"chunk_{doc_id}_{chunk['index']}"
-                content = chunk.get("semantic_text") or chunk.get("context_content") or chunk.get("content", "")
-                section_path = chunk.get("section_path", "")
-                semantic_units = self._extract_semantic_units(content, section_path, doc_name)
-                if progress_callback:
+                precomputed = semantic_units_by_index.get(chunk_number - 1)
+                if precomputed:
+                    content, semantic_units = precomputed
+                else:
+                    content, semantic_units = extract_chunk_semantic(chunk)
+                if progress_callback and not semantic_units_by_index:
                     progress_callback(chunk_number, total_chunks)
 
                 for entity_spec in semantic_units["entities"]:

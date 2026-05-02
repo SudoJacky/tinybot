@@ -1,5 +1,7 @@
 from pathlib import Path
 import shutil
+import threading
+import time
 import uuid
 
 from tinybot.agent.knowledge import KnowledgeStore
@@ -631,4 +633,108 @@ def test_llm_semantic_extraction_accepts_graphrag_subgraph_schema(monkeypatch) -
     assert index["covariates"][0]["status"] == "TRUE"
     assert index["covariates"][0]["start_date"] == "2024"
     assert index["community_reports"] == []
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_llm_semantic_extraction_runs_chunks_concurrently(monkeypatch) -> None:
+    workspace = _workspace()
+
+    class Provider:
+        api_key = "test-key"
+        api_base = "https://example.test/v1"
+        extra_headers = {}
+
+    class Defaults:
+        model = "test-model"
+
+    class Agents:
+        defaults = Defaults()
+
+    class ConfigRef:
+        agents = Agents()
+
+        def get_provider(self, model):
+            return Provider()
+
+        def get_api_base(self, model):
+            return "https://example.test/v1"
+
+    active_calls = 0
+    max_active_calls = 0
+    lock = threading.Lock()
+
+    class FakeResponse:
+        def __init__(self, content: str):
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": self.content}}]}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            nonlocal active_calls, max_active_calls
+            prompt = kwargs["json"]["messages"][0]["content"]
+            with lock:
+                active_calls += 1
+                max_active_calls = max(max_active_calls, active_calls)
+            time.sleep(0.05)
+            with lock:
+                active_calls -= 1
+            if "GraphRAG supports community reports" in prompt:
+                content = (
+                    "{"
+                    '"entities": [{"title": "GraphRAG", "type": "technology", "confidence": 0.9},'
+                    '{"title": "community reports", "type": "business_object", "confidence": 0.9}],'
+                    '"relationships": [{"source": "GraphRAG", "predicate": "supports", '
+                    '"target": "community reports", "evidence": "GraphRAG supports community reports.", '
+                    '"confidence": 0.9}]'
+                    "}"
+                )
+            else:
+                content = (
+                    "{"
+                    '"entities": [{"title": "TinyBot", "type": "product", "confidence": 0.9},'
+                    '{"title": "RAG", "type": "technology", "confidence": 0.9}],'
+                    '"relationships": [{"source": "TinyBot", "predicate": "supports", '
+                    '"target": "RAG", "evidence": "TinyBot supports RAG.", "confidence": 0.9}]'
+                    "}"
+                )
+            return FakeResponse(content)
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=32,
+            chunk_overlap=0,
+            semantic_extraction_mode="llm",
+            semantic_llm_concurrency=2,
+        ),
+        config_ref=ConfigRef(),
+    )
+    store.add_document(
+        name="Concurrent LLM extraction",
+        content="TinyBot supports RAG.\n\nGraphRAG supports community reports.",
+        file_type="txt",
+    )
+
+    entity_names = {entity.name for entity in store._read_entities()}
+    assert {"TinyBot", "RAG", "GraphRAG", "community reports"}.issubset(entity_names)
+    assert store.get_stats()["relation_count"] == 2
+    assert max_active_calls > 1
     shutil.rmtree(workspace.parent, ignore_errors=True)
