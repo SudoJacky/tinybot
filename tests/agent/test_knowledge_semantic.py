@@ -5,6 +5,7 @@ import time
 import uuid
 
 from tinybot.agent.knowledge import KnowledgeStore
+from tinybot.api.knowledge import _start_rebuild_job
 from tinybot.config.schema import KnowledgeConfig
 
 
@@ -737,4 +738,33 @@ def test_llm_semantic_extraction_runs_chunks_concurrently(monkeypatch) -> None:
     assert {"TinyBot", "RAG", "GraphRAG", "community reports"}.issubset(entity_names)
     assert store.get_stats()["relation_count"] == 2
     assert max_active_calls > 1
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_rebuild_job_runs_in_background() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    store.add_document(
+        name="Background rebuild",
+        content="TinyBot supports RAG. RAG depends on embeddings.",
+        file_type="txt",
+    )
+
+    class Request:
+        app = {"knowledge_store": store}
+
+    job = _start_rebuild_job(Request(), rebuild_type="all")
+
+    deadline = time.time() + 5
+    jobs = Request.app["knowledge_jobs"]
+    while time.time() < deadline and jobs[job["id"]]["status"] not in {"completed", "failed"}:
+        time.sleep(0.02)
+
+    assert jobs[job["id"]]["status"] == "completed"
+    assert jobs[job["id"]]["stage"] == "completed"
+    assert jobs[job["id"]]["processed"] == jobs[job["id"]]["total"]
+    assert "semantic" in jobs[job["id"]]["result"]
     shutil.rmtree(workspace.parent, ignore_errors=True)

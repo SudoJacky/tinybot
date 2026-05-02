@@ -34,7 +34,7 @@ def _now_iso() -> str:
 
 
 def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
-    return {
+    snapshot = {
         "id": job.get("id", ""),
         "doc_id": job.get("doc_id", ""),
         "name": job.get("name", ""),
@@ -48,6 +48,9 @@ def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
         "updated_at": job.get("updated_at", ""),
         "completed_at": job.get("completed_at", ""),
     }
+    if "result" in job:
+        snapshot["result"] = job.get("result", {})
+    return snapshot
 
 
 def _knowledge_jobs(app: web.Application) -> tuple[dict[str, dict[str, Any]], threading.Lock]:
@@ -119,6 +122,90 @@ def _start_index_job(
                     })
 
     thread = threading.Thread(target=run, name=f"knowledge-index-{job_id}", daemon=True)
+    thread.start()
+    return _job_snapshot(job)
+
+
+def _start_rebuild_job(
+    request: web.Request,
+    *,
+    rebuild_type: str,
+) -> dict[str, Any]:
+    knowledge_store = request.app["knowledge_store"]
+    jobs, lock = _knowledge_jobs(request.app)
+    job_id = f"kjob_{uuid.uuid4().hex[:12]}"
+    job = {
+        "id": job_id,
+        "doc_id": "",
+        "name": f"rebuild:{rebuild_type}",
+        "status": "queued",
+        "stage": "queued",
+        "message": "Queued for knowledge index rebuild",
+        "processed": 0,
+        "total": 3 if rebuild_type == "all" else 2,
+        "error": "",
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+        "completed_at": "",
+        "result": {},
+    }
+    with lock:
+        jobs[job_id] = job
+
+    def update(stage: str, message: str, processed: int, total: int | None = None) -> None:
+        with lock:
+            current = jobs.get(job_id)
+            if not current:
+                return
+            current.update({
+                "status": "running" if stage != "completed" else "completed",
+                "stage": stage,
+                "message": message,
+                "processed": processed,
+                "total": max(1, total or current.get("total", 1)),
+                "updated_at": _now_iso(),
+            })
+            if stage == "completed":
+                current["completed_at"] = current["updated_at"]
+
+    def run() -> None:
+        try:
+            result: dict[str, Any] = {}
+            if rebuild_type == "bm25":
+                update("bm25", "Rebuilding keyword index", 0, 2)
+                result = knowledge_store.rebuild_bm25_index()
+            elif rebuild_type == "semantic":
+                update("semantic", "Rebuilding semantic index and knowledge graph", 0, 2)
+                result = knowledge_store.rebuild_semantic_index()
+            elif rebuild_type == "all":
+                update("bm25", "Rebuilding keyword index", 0, 3)
+                bm25_result = knowledge_store.rebuild_bm25_index()
+                update("semantic", "Rebuilding semantic index and knowledge graph", 1, 3)
+                semantic_result = knowledge_store.rebuild_semantic_index()
+                result = {"bm25": bm25_result, "semantic": semantic_result}
+            else:
+                raise ValueError(f"Invalid rebuild type '{rebuild_type}'. Valid options: bm25, semantic, all")
+
+            with lock:
+                current = jobs.get(job_id)
+                if current:
+                    current["result"] = result
+            update("completed", "Knowledge index rebuild is complete", job["total"], job["total"])
+        except Exception as e:
+            logger.exception("Knowledge rebuild job {} failed", job_id)
+            with lock:
+                current = jobs.get(job_id)
+                if current:
+                    current.update({
+                        "status": "failed",
+                        "stage": "failed",
+                        "message": "Knowledge index rebuild failed",
+                        "error": str(e),
+                        "updated_at": _now_iso(),
+                        "completed_at": _now_iso(),
+                    })
+
+    thread = threading.Thread(target=run, name=f"knowledge-rebuild-{job_id}", daemon=True)
     thread.start()
     return _job_snapshot(job)
 
@@ -639,8 +726,19 @@ async def handle_rebuild_index(request: web.Request) -> web.Response:
         return _error_json(503, "Knowledge store not initialized")
 
     rebuild_type = request.query.get("type", "bm25")
+    async_index = request.query.get("async_index", "").lower() in {"1", "true", "yes", "on"}
 
     try:
+        if rebuild_type not in {"bm25", "semantic", "all"}:
+            return _error_json(400, f"Invalid rebuild type '{rebuild_type}'. Valid options: bm25, semantic, all")
+        if async_index:
+            job = _start_rebuild_job(request, rebuild_type=rebuild_type)
+            return web.json_response({
+                "message": "Knowledge index rebuild started",
+                "job": job,
+                "job_id": job["id"],
+                "type": rebuild_type,
+            }, status=202)
         if rebuild_type == "bm25":
             result = knowledge_store.rebuild_bm25_index()
             return _success_json({
@@ -679,8 +777,6 @@ async def handle_rebuild_index(request: web.Request) -> web.Response:
                     "community_reports": semantic_result.get("community_reports", 0),
                 },
             })
-        else:
-            return _error_json(400, f"Invalid rebuild type '{rebuild_type}'. Valid options: bm25, semantic, all")
     except Exception as e:
         logger.exception("Error rebuilding index")
         return _error_json(500, f"Error rebuilding index: {e}", err_type="server_error")

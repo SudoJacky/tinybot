@@ -122,7 +122,7 @@ body {
   align-items: center;
   gap: 12px;
   width: min(520px, calc(100vw - 28px));
-  padding: 12px 14px;
+  padding: 12px 14px 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--panel-strong) 92%, var(--accent-soft));
@@ -155,6 +155,7 @@ body {
 }
 
 .global-knowledge-copy {
+  flex: 1;
   min-width: 0;
 }
 
@@ -168,6 +169,22 @@ body {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.global-knowledge-progress {
+  height: 4px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--border-subtle));
+}
+
+.global-knowledge-progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
 }
 
 /* 自定义滚动条 */

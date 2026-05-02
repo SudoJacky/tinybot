@@ -31,6 +31,7 @@ const state = {
   activeKnowledgeTab: "overview",
   knowledgeWorkbenchReady: false,
   knowledgeIndexing: false,
+  knowledgeRebuilding: false,
   activeKnowledgeJobId: "",
   knowledgeJobPollTimer: null,
   config: null,
@@ -261,6 +262,7 @@ const elements = {
   globalKnowledgeToast: null,
   globalKnowledgeToastTitle: null,
   globalKnowledgeToastDesc: null,
+  globalKnowledgeProgressBar: null,
   knowledgeHealthTitle: null,
   knowledgeHealthScore: null,
   knowledgeHealthBar: null,
@@ -2172,6 +2174,10 @@ function renderKnowledgeOverview() {
   if (!state.knowledgeWorkbenchReady) {
     return;
   }
+  if (state.knowledgeRebuilding) {
+    renderKnowledgeRebuildPlaceholder();
+    return;
+  }
   const stats = state.knowledgeStats || {};
   const docs = Number(stats.total_documents || 0);
   const chunks = Number(stats.total_chunks || 0);
@@ -2310,28 +2316,7 @@ function formatKnowledgeJobMessage(job, fallback = "") {
 function setKnowledgeIndexingState(active, message = "", job = null) {
   state.knowledgeIndexing = active;
   if (elements.knowledgeIndexingStatus) {
-    elements.knowledgeIndexingStatus.hidden = !active;
-    let progress = elements.knowledgeIndexingStatus.querySelector(".indexing-progress");
-    if (!progress) {
-      progress = document.createElement("div");
-      progress.className = "indexing-progress";
-      progress.innerHTML = `<div class="indexing-progress-bar"></div>`;
-      elements.knowledgeIndexingStatus.append(progress);
-    }
-    const progressBar = progress.querySelector(".indexing-progress-bar");
-    const processed = Number(job?.processed || 0);
-    const total = Math.max(1, Number(job?.total || 1));
-    const percent = active ? Math.min(100, Math.max(0, Math.round((processed / total) * 100))) : 0;
-    progress.hidden = !active;
-    if (progressBar) {
-      progressBar.style.width = `${percent}%`;
-    }
-    const desc = elements.knowledgeIndexingStatus.querySelector(".indexing-desc");
-    if (desc && (message || job)) {
-      desc.textContent = formatKnowledgeJobMessage(job, message);
-    } else if (desc) {
-      desc.textContent = t("knowledge.indexingDesc");
-    }
+    elements.knowledgeIndexingStatus.hidden = true;
   }
   setGlobalKnowledgeToast(active, message, job);
 
@@ -2363,12 +2348,16 @@ function ensureGlobalKnowledgeToast() {
     <div class="global-knowledge-copy">
       <div id="global-knowledge-toast-title" class="global-knowledge-title">Building knowledge graph</div>
       <div id="global-knowledge-toast-desc" class="global-knowledge-desc"></div>
+      <div class="global-knowledge-progress" aria-hidden="true">
+        <div id="global-knowledge-progress-bar" class="global-knowledge-progress-bar"></div>
+      </div>
     </div>
   `;
   document.body.append(toast);
   elements.globalKnowledgeToast = toast;
   elements.globalKnowledgeToastTitle = toast.querySelector("#global-knowledge-toast-title");
   elements.globalKnowledgeToastDesc = toast.querySelector("#global-knowledge-toast-desc");
+  elements.globalKnowledgeProgressBar = toast.querySelector("#global-knowledge-progress-bar");
 }
 
 function setGlobalKnowledgeToast(active, message = "", job = null) {
@@ -2383,6 +2372,12 @@ function setGlobalKnowledgeToast(active, message = "", job = null) {
     }
     if (elements.globalKnowledgeToastDesc) {
       elements.globalKnowledgeToastDesc.textContent = formatKnowledgeJobMessage(job, message);
+    }
+    if (elements.globalKnowledgeProgressBar) {
+      const processed = Number(job?.processed || 0);
+      const total = Math.max(1, Number(job?.total || 1));
+      const percent = job ? Math.min(100, Math.max(0, Math.round((processed / total) * 100))) : 8;
+      elements.globalKnowledgeProgressBar.style.width = `${percent}%`;
     }
     toast.hidden = false;
     requestAnimationFrame(() => toast.classList.add("active"));
@@ -2424,6 +2419,7 @@ function scheduleKnowledgeJobPoll(jobId, message = "") {
       setKnowledgeIndexingState(job.status !== "completed" && job.status !== "failed", message, job);
       if (job.status === "completed") {
         stopKnowledgeJobPolling();
+        state.knowledgeRebuilding = false;
         elements.docSuccess.textContent = t("knowledge.indexingDone");
         await loadKnowledgeStats();
         await loadKnowledgeDocs();
@@ -2432,7 +2428,10 @@ function scheduleKnowledgeJobPoll(jobId, message = "") {
       }
       if (job.status === "failed") {
         stopKnowledgeJobPolling();
+        state.knowledgeRebuilding = false;
         elements.docError.textContent = formatKnowledgeJobMessage(job, t("knowledge.indexingFailed"));
+        await loadKnowledgeStats();
+        await loadKnowledgeGraph();
         return;
       }
       state.knowledgeJobPollTimer = window.setTimeout(poll, 1200);
@@ -4015,8 +4014,9 @@ async function rebuildKnowledgeIndex() {
   }
 
   try {
+    setKnowledgeRebuildUi(true);
     setKnowledgeIndexingState(true, t("knowledge.indexingRebuild"));
-    const response = await fetch(`${state.knowledgeApiPath}/rebuild-index?type=all`, {
+    const response = await fetch(`${state.knowledgeApiPath}/rebuild-index?type=all&async_index=true`, {
       method: "POST",
       headers: authHeaders(),
     });
@@ -4027,22 +4027,11 @@ async function rebuildKnowledgeIndex() {
     }
 
     const result = await response.json();
-    let message = t("knowledge.rebuildSuccessAll");
-    if (result.bm25 && result.semantic) {
-      message = t("knowledge.rebuildSuccessDetailed")
-        .replace("{chunks}", result.bm25.chunks_indexed || 0)
-        .replace("{entities}", result.semantic.entities || 0)
-        .replace("{claims}", result.semantic.claims || 0)
-        .replace("{communities}", result.semantic.communities || 0);
+    if (result.job_id) {
+      elements.docSuccess.textContent = t("knowledge.rebuildAccepted");
+      scheduleKnowledgeJobPoll(result.job_id, t("knowledge.indexingRebuild"));
+      return;
     }
-
-    // Show success notification
-    const successEl = document.createElement("div");
-    successEl.className = "success-toast";
-    successEl.textContent = message;
-    successEl.style.cssText = "position:fixed;top:20px;right:20px;padding:12px 20px;background:#2e7d32;color:#fff;border-radius:4px;z-index:1000;";
-    document.body.appendChild(successEl);
-    setTimeout(() => successEl.remove(), 3000);
 
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
@@ -4050,9 +4039,85 @@ async function rebuildKnowledgeIndex() {
   } catch (error) {
     console.error(error);
     setError(error.message || t("status.failed"));
-  } finally {
+    state.knowledgeRebuilding = false;
+    await loadKnowledgeStats();
+    await loadKnowledgeGraph();
     setKnowledgeIndexingState(false);
+  } finally {
+    if (!state.activeKnowledgeJobId) {
+      setKnowledgeIndexingState(false);
+    }
   }
+}
+
+function setKnowledgeStatsPending() {
+  const fields = [
+    elements.statsDocs,
+    elements.statsChunks,
+    elements.modalStatsDocs,
+    elements.modalStatsChunks,
+    elements.modalStatsEntities,
+    elements.modalStatsClaims,
+    elements.modalStatsRelations,
+    elements.modalStatsCommunities,
+    elements.modalStatsReports,
+  ];
+  for (const field of fields) {
+    if (field) field.textContent = "-";
+  }
+}
+
+function renderKnowledgeRebuildPlaceholder() {
+  if (elements.knowledgeHealthScore) elements.knowledgeHealthScore.textContent = "0%";
+  if (elements.knowledgeHealthBar) elements.knowledgeHealthBar.style.width = "0%";
+  if (elements.knowledgeHealthTitle) elements.knowledgeHealthTitle.textContent = t("knowledge.rebuildingTitle");
+  if (elements.knowledgeHealthDesc) elements.knowledgeHealthDesc.textContent = t("knowledge.rebuildingDesc");
+  if (!elements.knowledgeOverviewInsights) {
+    return;
+  }
+  elements.knowledgeOverviewInsights.textContent = "";
+  const insights = [
+    [t("knowledge.insightRetrievalIndex"), t("knowledge.rebuildingRetrieval")],
+    [t("knowledge.insightSemanticModel"), t("knowledge.rebuildingSemantic")],
+    [t("knowledge.insightGraphRagLayer"), t("knowledge.rebuildingGraph")],
+  ];
+  for (const [title, text] of insights) {
+    const item = document.createElement("div");
+    item.className = "knowledge-insight-item";
+    item.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span>`;
+    elements.knowledgeOverviewInsights.append(item);
+  }
+}
+
+function renderKnowledgeGraphRebuildPlaceholder() {
+  if (!elements.knowledgeGraph) {
+    return;
+  }
+  if (state.knowledgeGraphRuntime?.destroy) {
+    state.knowledgeGraphRuntime.destroy();
+    state.knowledgeGraphRuntime = null;
+  }
+  elements.knowledgeGraph.textContent = "";
+  const empty = document.createElement("div");
+  empty.className = "empty-state";
+  empty.textContent = t("knowledge.rebuildingGraph");
+  elements.knowledgeGraph.append(empty);
+  if (elements.knowledgeGraphMeta) {
+    elements.knowledgeGraphMeta.textContent = t("knowledge.indexingRebuild");
+  }
+}
+
+function setKnowledgeRebuildUi(active) {
+  state.knowledgeRebuilding = active;
+  if (!active) {
+    return;
+  }
+  state.knowledgeStats = null;
+  state.knowledgeGraph = null;
+  state.knowledgeGraphSelection = null;
+  setKnowledgeStatsPending();
+  renderKnowledgeOverview();
+  renderKnowledgeGraphRebuildPlaceholder();
 }
 
 async function queryKnowledge() {
