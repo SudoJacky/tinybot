@@ -10,6 +10,7 @@ const state = {
   activeSessionKey: "",
   messages: new Map(),
   sessionItems: [],
+  sessionFiles: new Map(),
   streamBuffers: new Map(),
   editableFiles: [],
   activeFilePath: "",
@@ -63,6 +64,10 @@ const elements = {
   messageList: document.querySelector("#message-list"),
   composerForm: document.querySelector("#composer-form"),
   composerInput: document.querySelector("#composer-input"),
+  temporaryFileButton: document.querySelector("#temporary-file-button"),
+  temporaryFileUpload: document.querySelector("#temporary-file-upload"),
+  sessionFilesStrip: document.querySelector("#session-files-strip"),
+  persistentRagToggle: document.querySelector("#persistent-rag-toggle"),
   newChatButton: document.querySelector("#new-chat-button"),
   refreshButton: document.querySelector("#refresh-button"),
   clearMessagesButton: document.querySelector("#clear-messages-button"),
@@ -428,8 +433,8 @@ function updateUsageDisplay(usage) {
         <div class="usage-bar-fill ${colorClass}" style="width: ${percent}%"></div>
       </div>
       <div class="usage-bar-text">
-        <span class="usage-detail">${labelText}</span>
         <span class="usage-total">${totalText} (${percent}%)</span>
+        <span class="usage-detail">${labelText}</span>
         ${cachedText ? `<span class="usage-cached">${cachedText}</span>` : ""}
       </div>
     </div>
@@ -926,6 +931,9 @@ function createMessageDisplayItems(messages) {
 
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
+    if (isSessionFileProgressMessage(message)) {
+      continue;
+    }
     if (message?._pairedToolResponseConsumed) {
       continue;
     }
@@ -966,6 +974,14 @@ function createMessageDisplayItems(messages) {
   }
 
   return items;
+}
+
+function isSessionFileProgressMessage(message) {
+  if (!message || message.role !== "progress") {
+    return false;
+  }
+  const content = String(message.content || "");
+  return content.startsWith(t("sessionFiles.uploaded")) || content.startsWith("临时文件已加入当前会话");
 }
 
 function createCollapsedMessagesNode(collapsedMessages) {
@@ -1554,12 +1570,76 @@ function renderEditableFiles() {
   }
 }
 
+function sessionFileIcon(fileType = "") {
+  const value = fileType.toLowerCase();
+  if (value === "md" || value === "markdown") return "MD";
+  if (value === "pdf") return "PDF";
+  return "TXT";
+}
+
+function renderSessionFiles() {
+  const strip = elements.sessionFilesStrip;
+  if (!strip) {
+    return;
+  }
+  const items = state.sessionFiles.get(state.activeSessionKey) || [];
+  strip.textContent = "";
+  strip.hidden = items.length === 0;
+  if (!items.length) {
+    return;
+  }
+
+  const title = document.createElement("span");
+  title.className = "session-files-label";
+  title.textContent = t("sessionFiles.contextLabel");
+  strip.append(title);
+
+  for (const item of items) {
+    const chip = document.createElement("span");
+    chip.className = "session-file-chip";
+
+    const icon = document.createElement("span");
+    icon.className = "session-file-icon";
+    icon.textContent = sessionFileIcon(item.file_type);
+
+    const name = document.createElement("span");
+    name.className = "session-file-name";
+    name.textContent = item.name || t("sessionFiles.unnamed");
+    name.title = item.name || "";
+
+    const meta = document.createElement("span");
+    meta.className = "session-file-meta";
+    meta.textContent = `${item.chunk_count || 0} ${t("knowledge.chunks")}`;
+
+    chip.append(icon, name, meta);
+    strip.append(chip);
+  }
+}
+
+async function loadSessionFiles(sessionKey) {
+  if (!sessionKey) {
+    return;
+  }
+  const response = await fetch(`${state.sessionsPath}/${encodeURIComponent(sessionKey)}/temporary-files`, {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (!response.ok) {
+    state.sessionFiles.set(sessionKey, []);
+    renderSessionFiles();
+    return;
+  }
+  const payload = await response.json();
+  state.sessionFiles.set(sessionKey, payload.items || []);
+  renderSessionFiles();
+}
+
 function activateChat(chatId) {
   state.activeChatId = chatId;
   state.activeSessionKey = sessionKeyForChat(chatId);
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
+  renderSessionFiles();
 }
 
 async function bootstrap() {
@@ -1604,6 +1684,7 @@ async function loadMessages(sessionKey) {
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
+  await loadSessionFiles(sessionKey);
 }
 
 async function clearSession(sessionKey) {
@@ -1615,9 +1696,11 @@ async function clearSession(sessionKey) {
     throw new Error(`clear session failed: ${response.status}`);
   }
   state.messages.set(sessionKey, []);
+  state.sessionFiles.set(sessionKey, []);
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
+  renderSessionFiles();
   setEditorStatus(t("status.cleared"), "connected");
 }
 
@@ -1632,6 +1715,7 @@ async function deleteSession(sessionKey, chatId) {
 
   // Remove from local state
   state.messages.delete(sessionKey);
+  state.sessionFiles.delete(sessionKey);
   state.sessionItems = state.sessionItems.filter((item) => item.key !== sessionKey);
 
   // If deleted session was active, switch to another
@@ -4016,6 +4100,59 @@ async function uploadDoc() {
   }
 }
 
+async function uploadTemporaryFile() {
+  const fileInput = elements.temporaryFileUpload;
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    return;
+  }
+  fileInput.value = "";
+
+  if (!state.activeSessionKey) {
+    setError(t("msg.noSession"));
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    setError("");
+    setStatus(t("sessionFiles.uploading"), "idle");
+    if (elements.temporaryFileButton) {
+      elements.temporaryFileButton.disabled = true;
+    }
+    const response = await fetch(
+      `${state.sessionsPath}/${encodeURIComponent(state.activeSessionKey)}/temporary-files`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${state.token}`,
+        },
+        body: formData,
+      },
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || t("sessionFiles.uploadFailed"));
+    }
+
+    const result = await response.json();
+    const currentItems = state.sessionFiles.get(state.activeSessionKey) || [];
+    state.sessionFiles.set(state.activeSessionKey, [...currentItems, result]);
+    renderSessionFiles();
+    setStatus(t("status.connected"), "connected");
+  } catch (error) {
+    console.error(error);
+    setError(error.message || t("sessionFiles.uploadFailed"));
+  } finally {
+    if (elements.temporaryFileButton) {
+      elements.temporaryFileButton.disabled = false;
+    }
+  }
+}
+
 async function deleteDoc(docId, docName) {
   if (!confirm(`${t("ui.confirmDelete")} ${docName}?`)) {
     return;
@@ -5254,6 +5391,7 @@ async function connectWebSocket() {
             type: "message",
             chat_id: state.activeChatId,
             content,
+            use_persistent_rag: elements.persistentRagToggle?.checked !== false,
           });
         }
         return;
@@ -5419,6 +5557,7 @@ async function submitMessage() {
     type: "message",
     chat_id: state.activeChatId,
     content,
+    use_persistent_rag: elements.persistentRagToggle?.checked !== false,
   });
 }
 
@@ -5434,6 +5573,18 @@ function bindEvents() {
   elements.composerForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitMessage();
+  });
+
+  elements.temporaryFileButton?.addEventListener("click", () => {
+    if (!state.activeSessionKey) {
+      setError(t("msg.noSession"));
+      return;
+    }
+    elements.temporaryFileUpload?.click();
+  });
+
+  elements.temporaryFileUpload?.addEventListener("change", async () => {
+    await uploadTemporaryFile();
   });
 
   elements.newChatButton.addEventListener("click", async () => {
