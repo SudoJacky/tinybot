@@ -1,8 +1,11 @@
 from pathlib import Path
 import shutil
+import threading
+import time
 import uuid
 
 from tinybot.agent.knowledge import KnowledgeStore
+from tinybot.api.knowledge import _start_rebuild_job
 from tinybot.config.schema import KnowledgeConfig
 
 
@@ -104,6 +107,38 @@ def test_rebuild_semantic_index_from_existing_chunks() -> None:
     assert stats["entities"] >= 2
     assert stats["claims"] >= 2
     assert stats["relations"] >= 1
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_deferred_document_indexing_from_persisted_chunks() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Deferred",
+        content="TinyBot supports RAG. RAG depends on embeddings.",
+        file_type="txt",
+        defer_index=True,
+    )
+
+    assert store.get_document(doc_id) is not None
+    assert store._read_chunks()
+    assert store._read_entities() == []
+
+    progress: list[tuple[str, int, int]] = []
+    store.index_document(
+        doc_id,
+        progress_callback=lambda stage, _message, processed, total: progress.append((stage, processed, total)),
+    )
+
+    entity_names = {entity.name for entity in store._read_entities()}
+    assert "TinyBot" in entity_names
+    assert "RAG" in entity_names
+    assert store.get_stats()["relation_count"] >= 1
+    assert progress
+    assert progress[-1][0] == "completed"
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
@@ -599,4 +634,137 @@ def test_llm_semantic_extraction_accepts_graphrag_subgraph_schema(monkeypatch) -
     assert index["covariates"][0]["status"] == "TRUE"
     assert index["covariates"][0]["start_date"] == "2024"
     assert index["community_reports"] == []
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_llm_semantic_extraction_runs_chunks_concurrently(monkeypatch) -> None:
+    workspace = _workspace()
+
+    class Provider:
+        api_key = "test-key"
+        api_base = "https://example.test/v1"
+        extra_headers = {}
+
+    class Defaults:
+        model = "test-model"
+
+    class Agents:
+        defaults = Defaults()
+
+    class ConfigRef:
+        agents = Agents()
+
+        def get_provider(self, model):
+            return Provider()
+
+        def get_api_base(self, model):
+            return "https://example.test/v1"
+
+    active_calls = 0
+    max_active_calls = 0
+    lock = threading.Lock()
+
+    class FakeResponse:
+        def __init__(self, content: str):
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": self.content}}]}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            nonlocal active_calls, max_active_calls
+            prompt = kwargs["json"]["messages"][0]["content"]
+            with lock:
+                active_calls += 1
+                max_active_calls = max(max_active_calls, active_calls)
+            time.sleep(0.05)
+            with lock:
+                active_calls -= 1
+            if "GraphRAG supports community reports" in prompt:
+                content = (
+                    "{"
+                    '"entities": [{"title": "GraphRAG", "type": "technology", "confidence": 0.9},'
+                    '{"title": "community reports", "type": "business_object", "confidence": 0.9}],'
+                    '"relationships": [{"source": "GraphRAG", "predicate": "supports", '
+                    '"target": "community reports", "evidence": "GraphRAG supports community reports.", '
+                    '"confidence": 0.9}]'
+                    "}"
+                )
+            else:
+                content = (
+                    "{"
+                    '"entities": [{"title": "TinyBot", "type": "product", "confidence": 0.9},'
+                    '{"title": "RAG", "type": "technology", "confidence": 0.9}],'
+                    '"relationships": [{"source": "TinyBot", "predicate": "supports", '
+                    '"target": "RAG", "evidence": "TinyBot supports RAG.", "confidence": 0.9}]'
+                    "}"
+                )
+            return FakeResponse(content)
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=32,
+            chunk_overlap=0,
+            semantic_extraction_mode="llm",
+            semantic_llm_concurrency=2,
+        ),
+        config_ref=ConfigRef(),
+    )
+    store.add_document(
+        name="Concurrent LLM extraction",
+        content="TinyBot supports RAG.\n\nGraphRAG supports community reports.",
+        file_type="txt",
+    )
+
+    entity_names = {entity.name for entity in store._read_entities()}
+    assert {"TinyBot", "RAG", "GraphRAG", "community reports"}.issubset(entity_names)
+    assert store.get_stats()["relation_count"] == 2
+    assert max_active_calls > 1
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_rebuild_job_runs_in_background() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    store.add_document(
+        name="Background rebuild",
+        content="TinyBot supports RAG. RAG depends on embeddings.",
+        file_type="txt",
+    )
+
+    class Request:
+        app = {"knowledge_store": store}
+
+    job = _start_rebuild_job(Request(), rebuild_type="all")
+
+    deadline = time.time() + 5
+    jobs = Request.app["knowledge_jobs"]
+    while time.time() < deadline and jobs[job["id"]]["status"] not in {"completed", "failed"}:
+        time.sleep(0.02)
+
+    assert jobs[job["id"]]["status"] == "completed"
+    assert jobs[job["id"]]["stage"] == "completed"
+    assert jobs[job["id"]]["processed"] == jobs[job["id"]]["total"]
+    assert "semantic" in jobs[job["id"]]["result"]
     shutil.rmtree(workspace.parent, ignore_errors=True)

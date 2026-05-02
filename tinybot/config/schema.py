@@ -328,6 +328,7 @@ class KnowledgeConfig(Base):
     semantic_extraction_mode: str = "rule"  # "rule", "llm", or "hybrid"
     semantic_llm_max_tokens: int = Field(default=1200, ge=100)  # Max tokens for semantic extraction
     semantic_llm_timeout: float = Field(default=30.0, ge=1.0)  # Timeout for semantic extraction API calls
+    semantic_llm_concurrency: int = Field(default=4, ge=1, le=16)  # Parallel chunk LLM extraction workers
     graphrag_enabled: bool = True  # Build GraphRAG-style communities and reports
     graphrag_max_community_size: int = Field(default=12, ge=2)  # Soft cap when forming local graph communities
     graphrag_local_depth: int = Field(default=1, ge=0, le=3)  # Entity-neighborhood expansion depth for local search

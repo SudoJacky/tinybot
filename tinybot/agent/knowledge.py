@@ -17,6 +17,7 @@ import os
 import re
 import threading
 from bisect import bisect_right
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -649,6 +650,8 @@ class KnowledgeStore:
         file_type: str = "txt",
         original_path: str | None = None,
         metadata: dict[str, Any] | None = None,
+        defer_index: bool = False,
+        progress_callback: Any | None = None,
     ) -> str:
         """Add a document to the knowledge base.
 
@@ -680,6 +683,8 @@ class KnowledgeStore:
                 source=source,
                 original_path=original_path,
                 metadata=metadata,
+                defer_index=defer_index,
+                progress_callback=progress_callback,
             )
 
         # Handle text files (txt, md)
@@ -774,16 +779,18 @@ class KnowledgeStore:
             len(content),
         )
 
-        # Index to dense collection (requires vector_store)
-        if self.vector_store is not None:
-            self._index_chunks_dense(doc_id, name, str(file_path), child_chunks, ts, category, tags or [])
-
-        # Index to sparse collection (BM25, independent of vector_store)
-        self._index_chunks_sparse(doc_id, name, str(file_path), child_chunks, ts, category, tags or [])
-
-        # Build semantic side indexes (claims, entities, relations, mentions)
-        self._index_chunks_semantic(doc_id, name, parent_chunks, ts)
-        self._rebuild_graphrag_communities()
+        if not defer_index:
+            self._index_prepared_document(
+                doc_id=doc_id,
+                doc_name=name,
+                file_path=str(file_path),
+                parent_chunks=parent_chunks,
+                child_chunks=child_chunks,
+                ts=ts,
+                category=category,
+                tags=tags or [],
+                progress_callback=progress_callback,
+            )
 
         logger.info(
             "KnowledgeStore: added document '{}' (id={}, {} chunks, {} chars)",
@@ -804,6 +811,8 @@ class KnowledgeStore:
         source: str = "manual_upload",
         original_path: str | None = None,
         metadata: dict[str, Any] | None = None,
+        defer_index: bool = False,
+        progress_callback: Any | None = None,
     ) -> str:
         """Add a PDF document to the knowledge base.
 
@@ -925,16 +934,18 @@ class KnowledgeStore:
             len(pdf_pages),
         )
 
-        # Index to dense collection (requires vector_store)
-        if self.vector_store is not None:
-            self._index_chunks_dense(doc_id, name, str(file_path), child_chunks, ts, category, tags or [])
-
-        # Index to sparse collection (BM25, independent of vector_store)
-        self._index_chunks_sparse(doc_id, name, str(file_path), child_chunks, ts, category, tags or [])
-
-        # Build semantic side indexes (claims, entities, relations, mentions)
-        self._index_chunks_semantic(doc_id, name, parent_chunks, ts)
-        self._rebuild_graphrag_communities()
+        if not defer_index:
+            self._index_prepared_document(
+                doc_id=doc_id,
+                doc_name=name,
+                file_path=str(file_path),
+                parent_chunks=parent_chunks,
+                child_chunks=child_chunks,
+                ts=ts,
+                category=category,
+                tags=tags or [],
+                progress_callback=progress_callback,
+            )
 
         logger.info(
             "KnowledgeStore: added PDF document '{}' (id={}, {} chunks, {} pages)",
@@ -945,6 +956,106 @@ class KnowledgeStore:
         )
 
         return doc_id
+
+    def index_document(
+        self,
+        doc_id: str,
+        progress_callback: Any | None = None,
+    ) -> dict[str, Any]:
+        """Index an already persisted document.
+
+        This supports background indexing after an upload has returned to the UI.
+        """
+        doc = self.get_document(doc_id)
+        if doc is None:
+            raise ValueError(f"Document {doc_id} not found")
+        chunks = [chunk for chunk in self._read_chunks() if chunk.doc_id == doc_id]
+        parent_chunks = [
+            self._chunk_record_to_index_dict(chunk)
+            for chunk in chunks
+            if chunk.chunk_type == "parent"
+        ]
+        child_chunks = [
+            self._chunk_record_to_index_dict(chunk)
+            for chunk in chunks
+            if chunk.chunk_type == "child"
+        ]
+        self._index_prepared_document(
+            doc_id=doc.id,
+            doc_name=doc.name,
+            file_path=doc.file_path,
+            parent_chunks=parent_chunks,
+            child_chunks=child_chunks,
+            ts=doc.created_at,
+            category=doc.category,
+            tags=doc.tags,
+            progress_callback=progress_callback,
+        )
+        return {
+            "doc_id": doc.id,
+            "parent_chunks": len(parent_chunks),
+            "child_chunks": len(child_chunks),
+        }
+
+    @staticmethod
+    def _chunk_record_to_index_dict(chunk: KnowledgeChunk) -> dict[str, Any]:
+        return {
+            "content": chunk.content,
+            "retrieval_text": chunk.retrieval_text,
+            "semantic_text": chunk.semantic_text,
+            "context_content": chunk.context_content,
+            "summary": chunk.summary,
+            "index": chunk.chunk_index,
+            "parent_index": int(chunk.parent_id.rsplit("_", 1)[-1]) if chunk.chunk_type == "child" and "_" in chunk.parent_id else chunk.chunk_index,
+            "child_index": chunk.child_index,
+            "chunk_type": chunk.chunk_type,
+            "start_char": chunk.start_char,
+            "end_char": chunk.end_char,
+            "line_start": chunk.line_start,
+            "line_end": chunk.line_end,
+            "page": chunk.page,
+            "section_path": chunk.section_path,
+            "block_type": chunk.block_type,
+        }
+
+    def _index_prepared_document(
+        self,
+        doc_id: str,
+        doc_name: str,
+        file_path: str,
+        parent_chunks: list[dict[str, Any]],
+        child_chunks: list[dict[str, Any]],
+        ts: str,
+        category: str,
+        tags: list[str],
+        progress_callback: Any | None = None,
+    ) -> None:
+        total = max(1, len(parent_chunks) + 3)
+
+        def notify(stage: str, message: str, processed: int) -> None:
+            if progress_callback:
+                progress_callback(stage, message, min(processed, total), total)
+
+        notify("dense", "Indexing retrieval vectors", 0)
+        if self.vector_store is not None:
+            self._index_chunks_dense(doc_id, doc_name, file_path, child_chunks, ts, category, tags)
+        notify("sparse", "Building keyword index", 1)
+        self._index_chunks_sparse(doc_id, doc_name, file_path, child_chunks, ts, category, tags)
+        notify("semantic", "Extracting entities and relationships", 2)
+        self._index_chunks_semantic(
+            doc_id,
+            doc_name,
+            parent_chunks,
+            ts,
+            progress_callback=lambda processed, semantic_total: notify(
+                "semantic",
+                f"Extracting entities and relationships ({processed}/{semantic_total})",
+                2 + processed,
+            ),
+        )
+        notify("graph", "Building communities and graph reports", 2 + len(parent_chunks))
+        self._rebuild_graphrag_communities()
+        notify("completed", "Knowledge graph is ready", total)
 
     def _parse_pdf(self, pdf_content: str | bytes) -> list[dict[str, Any]]:
         """Parse PDF and extract text from each page.
@@ -3913,14 +4024,18 @@ class KnowledgeStore:
         if mode not in {"rule", "llm", "hybrid"}:
             mode = "rule"
 
-        rule_units = self._extract_semantic_units_rule(content, section_path, doc_name)
         if mode == "rule":
+            rule_units = self._extract_semantic_units_rule(content, section_path, doc_name)
             return self._validate_semantic_units(rule_units, content)
 
         llm_units = self._extract_semantic_units_llm(content, section_path, doc_name)
         if mode == "llm":
-            return self._validate_semantic_units(llm_units or rule_units, content)
+            if llm_units:
+                return self._validate_semantic_units(llm_units, content)
+            rule_units = self._extract_semantic_units_rule(content, section_path, doc_name)
+            return self._validate_semantic_units(rule_units, content)
 
+        rule_units = self._extract_semantic_units_rule(content, section_path, doc_name)
         merged = self._merge_semantic_units(rule_units, llm_units or {})
         return self._validate_semantic_units(merged, content)
 
@@ -4248,6 +4363,7 @@ Chunk:
         doc_name: str,
         chunks: list[dict[str, Any]],
         ts: str,
+        progress_callback: Any | None = None,
     ) -> None:
         """Build claim, entity, mention, and relation indexes for chunks.
 
@@ -4263,6 +4379,11 @@ Chunk:
             new_claims: list[KnowledgeClaim] = []
             new_relations: list[KnowledgeRelation] = []
             new_mentions: list[KnowledgeMention] = []
+
+            def extract_chunk_semantic(chunk: dict[str, Any]) -> tuple[str, dict[str, list[dict[str, Any]]]]:
+                content = chunk.get("semantic_text") or chunk.get("context_content") or chunk.get("content", "")
+                section_path = chunk.get("section_path", "")
+                return content, self._extract_semantic_units(content, section_path, doc_name)
 
             def ensure_entity(
                 name: str,
@@ -4314,11 +4435,34 @@ Chunk:
                     entity.confidence = max(entity.confidence, confidence)
                 return entity
 
-            for chunk in chunks:
+            total_chunks = len(chunks)
+            semantic_units_by_index: dict[int, tuple[str, dict[str, list[dict[str, Any]]]]] = {}
+            mode = (self.config.semantic_extraction_mode if self.config else "rule").lower()
+            llm_concurrency = self.config.semantic_llm_concurrency if self.config else 1
+            if mode in {"llm", "hybrid"} and llm_concurrency > 1 and total_chunks > 1:
+                workers = min(llm_concurrency, total_chunks)
+                completed_chunks = 0
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="knowledge-llm") as executor:
+                    futures = {
+                        executor.submit(extract_chunk_semantic, chunk): index
+                        for index, chunk in enumerate(chunks)
+                    }
+                    for future in as_completed(futures):
+                        index = futures[future]
+                        semantic_units_by_index[index] = future.result()
+                        completed_chunks += 1
+                        if progress_callback:
+                            progress_callback(completed_chunks, total_chunks)
+
+            for chunk_number, chunk in enumerate(chunks, start=1):
                 chunk_id = f"chunk_{doc_id}_{chunk['index']}"
-                content = chunk.get("semantic_text") or chunk.get("context_content") or chunk.get("content", "")
-                section_path = chunk.get("section_path", "")
-                semantic_units = self._extract_semantic_units(content, section_path, doc_name)
+                precomputed = semantic_units_by_index.get(chunk_number - 1)
+                if precomputed:
+                    content, semantic_units = precomputed
+                else:
+                    content, semantic_units = extract_chunk_semantic(chunk)
+                if progress_callback and not semantic_units_by_index:
+                    progress_callback(chunk_number, total_chunks)
 
                 for entity_spec in semantic_units["entities"]:
                     mention_text = ""
