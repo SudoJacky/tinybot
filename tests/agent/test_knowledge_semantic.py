@@ -107,6 +107,38 @@ def test_rebuild_semantic_index_from_existing_chunks() -> None:
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
+def test_deferred_document_indexing_from_persisted_chunks() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Deferred",
+        content="TinyBot supports RAG. RAG depends on embeddings.",
+        file_type="txt",
+        defer_index=True,
+    )
+
+    assert store.get_document(doc_id) is not None
+    assert store._read_chunks()
+    assert store._read_entities() == []
+
+    progress: list[tuple[str, int, int]] = []
+    store.index_document(
+        doc_id,
+        progress_callback=lambda stage, _message, processed, total: progress.append((stage, processed, total)),
+    )
+
+    entity_names = {entity.name for entity in store._read_entities()}
+    assert "TinyBot" in entity_names
+    assert "RAG" in entity_names
+    assert store.get_stats()["relation_count"] >= 1
+    assert progress
+    assert progress[-1][0] == "completed"
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
 def test_entity_graph_returns_grouped_edges_with_evidence() -> None:
     workspace = _workspace()
     store = KnowledgeStore(

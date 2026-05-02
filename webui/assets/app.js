@@ -31,6 +31,8 @@ const state = {
   activeKnowledgeTab: "overview",
   knowledgeWorkbenchReady: false,
   knowledgeIndexing: false,
+  activeKnowledgeJobId: "",
+  knowledgeJobPollTimer: null,
   config: null,
   helpOverlay: null,
   activeTourIndex: 0,
@@ -2288,42 +2290,61 @@ async function loadKnowledgeDocs() {
   }
 }
 
-function setKnowledgeIndexingState(active, message = "") {
+function formatKnowledgeJobMessage(job, fallback = "") {
+  if (!job) {
+    return fallback || t("knowledge.indexingDesc");
+  }
+  const processed = Number(job.processed || 0);
+  const total = Math.max(1, Number(job.total || 1));
+  const percent = Math.min(100, Math.max(0, Math.round((processed / total) * 100)));
+  const base = job.message || fallback || t("knowledge.indexingDesc");
+  if (job.status === "failed") {
+    return job.error ? `${base}: ${job.error}` : base;
+  }
+  if (job.status === "completed") {
+    return t("knowledge.indexingDone");
+  }
+  return `${base} (${percent}%)`;
+}
+
+function setKnowledgeIndexingState(active, message = "", job = null) {
   state.knowledgeIndexing = active;
   if (elements.knowledgeIndexingStatus) {
     elements.knowledgeIndexingStatus.hidden = !active;
+    let progress = elements.knowledgeIndexingStatus.querySelector(".indexing-progress");
+    if (!progress) {
+      progress = document.createElement("div");
+      progress.className = "indexing-progress";
+      progress.innerHTML = `<div class="indexing-progress-bar"></div>`;
+      elements.knowledgeIndexingStatus.append(progress);
+    }
+    const progressBar = progress.querySelector(".indexing-progress-bar");
+    const processed = Number(job?.processed || 0);
+    const total = Math.max(1, Number(job?.total || 1));
+    const percent = active ? Math.min(100, Math.max(0, Math.round((processed / total) * 100))) : 0;
+    progress.hidden = !active;
+    if (progressBar) {
+      progressBar.style.width = `${percent}%`;
+    }
     const desc = elements.knowledgeIndexingStatus.querySelector(".indexing-desc");
-    if (desc && message) {
-      desc.textContent = message;
+    if (desc && (message || job)) {
+      desc.textContent = formatKnowledgeJobMessage(job, message);
     } else if (desc) {
       desc.textContent = t("knowledge.indexingDesc");
     }
   }
-  setGlobalKnowledgeToast(active, message);
+  setGlobalKnowledgeToast(active, message, job);
 
   const disabledButtons = [
-    elements.refreshDocsButton,
-    elements.refreshGraphButton,
-    elements.knowledgeGraphLevelSelect,
     elements.rebuildIndexButton,
     elements.uploadDocButton,
     elements.docSaveButton,
-    elements.queryButton,
   ];
   for (const button of disabledButtons) {
     if (button) {
       button.disabled = active;
       button.setAttribute("aria-busy", active ? "true" : "false");
     }
-  }
-  if (elements.queryInput) {
-    elements.queryInput.disabled = active;
-  }
-  if (elements.queryMode) {
-    elements.queryMode.disabled = active;
-  }
-  if (elements.queryTopK) {
-    elements.queryTopK.disabled = active;
   }
 }
 
@@ -2350,7 +2371,7 @@ function ensureGlobalKnowledgeToast() {
   elements.globalKnowledgeToastDesc = toast.querySelector("#global-knowledge-toast-desc");
 }
 
-function setGlobalKnowledgeToast(active, message = "") {
+function setGlobalKnowledgeToast(active, message = "", job = null) {
   ensureGlobalKnowledgeToast();
   const toast = elements.globalKnowledgeToast;
   if (!toast) {
@@ -2361,7 +2382,7 @@ function setGlobalKnowledgeToast(active, message = "") {
       elements.globalKnowledgeToastTitle.textContent = t("knowledge.indexingTitle");
     }
     if (elements.globalKnowledgeToastDesc) {
-      elements.globalKnowledgeToastDesc.textContent = message || t("knowledge.indexingDesc");
+      elements.globalKnowledgeToastDesc.textContent = formatKnowledgeJobMessage(job, message);
     }
     toast.hidden = false;
     requestAnimationFrame(() => toast.classList.add("active"));
@@ -2373,6 +2394,55 @@ function setGlobalKnowledgeToast(active, message = "") {
       toast.hidden = true;
     }
   }, 240);
+}
+
+function stopKnowledgeJobPolling() {
+  if (state.knowledgeJobPollTimer) {
+    window.clearTimeout(state.knowledgeJobPollTimer);
+    state.knowledgeJobPollTimer = null;
+  }
+  state.activeKnowledgeJobId = "";
+}
+
+function scheduleKnowledgeJobPoll(jobId, message = "") {
+  stopKnowledgeJobPolling();
+  if (!jobId) {
+    return;
+  }
+  state.activeKnowledgeJobId = jobId;
+
+  const poll = async () => {
+    try {
+      const response = await fetch(`${state.knowledgeApiPath}/jobs/${encodeURIComponent(jobId)}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${state.token}` },
+      });
+      if (!response.ok) {
+        throw new Error(`load knowledge job failed: ${response.status}`);
+      }
+      const job = await response.json();
+      setKnowledgeIndexingState(job.status !== "completed" && job.status !== "failed", message, job);
+      if (job.status === "completed") {
+        stopKnowledgeJobPolling();
+        elements.docSuccess.textContent = t("knowledge.indexingDone");
+        await loadKnowledgeStats();
+        await loadKnowledgeDocs();
+        await loadKnowledgeGraph();
+        return;
+      }
+      if (job.status === "failed") {
+        stopKnowledgeJobPolling();
+        elements.docError.textContent = formatKnowledgeJobMessage(job, t("knowledge.indexingFailed"));
+        return;
+      }
+      state.knowledgeJobPollTimer = window.setTimeout(poll, 1200);
+    } catch (error) {
+      console.error(error);
+      state.knowledgeJobPollTimer = window.setTimeout(poll, 2500);
+    }
+  };
+
+  poll();
 }
 
 function setupKnowledgeWorkbench() {
@@ -3799,7 +3869,7 @@ async function addDoc() {
   try {
     setKnowledgeIndexingState(true, t("knowledge.indexingAddDoc"));
     elements.docSuccess.textContent = t("knowledge.indexingAddDoc");
-    const response = await fetch(`${state.knowledgeApiPath}/documents`, {
+    const response = await fetch(`${state.knowledgeApiPath}/documents?async_index=true`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
@@ -3816,7 +3886,8 @@ async function addDoc() {
       throw new Error(errorData.error?.message || errorData.error || t("knowledge.addFailed"));
     }
 
-    elements.docSuccess.textContent = t("knowledge.docAdded");
+    const result = await response.json();
+    elements.docSuccess.textContent = result.job_id ? t("knowledge.uploadAccepted") : t("knowledge.docAdded");
     elements.docNameInput.value = "";
     elements.docCategoryInput.value = "";
     elements.docTagsInput.value = "";
@@ -3824,12 +3895,20 @@ async function addDoc() {
 
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
-    await loadKnowledgeGraph();
+    if (result.job_id) {
+      scheduleKnowledgeJobPoll(result.job_id, t("knowledge.indexingAddDoc"));
+    } else {
+      await loadKnowledgeGraph();
+      setKnowledgeIndexingState(false);
+    }
   } catch (error) {
     console.error(error);
     elements.docError.textContent = error.message || t("status.failed");
-  } finally {
     setKnowledgeIndexingState(false);
+  } finally {
+    if (!state.activeKnowledgeJobId) {
+      setKnowledgeIndexingState(false);
+    }
   }
 }
 
@@ -3860,7 +3939,7 @@ async function uploadDoc() {
   try {
     setKnowledgeIndexingState(true, t("knowledge.indexingUploadDoc"));
     elements.docSuccess.textContent = t("knowledge.indexingUploadDoc");
-    const response = await fetch(`${state.knowledgeApiPath}/documents/upload`, {
+    const response = await fetch(`${state.knowledgeApiPath}/documents/upload?async_index=true`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${state.token}`,
@@ -3876,17 +3955,27 @@ async function uploadDoc() {
     const result = await response.json();
 
     // Show success feedback
-    elements.docSuccess.textContent = t("knowledge.uploadSuccess") || `File "${result.name}" uploaded (${result.size_bytes} bytes)`;
+    elements.docSuccess.textContent = result.job_id
+      ? t("knowledge.uploadAccepted")
+      : (t("knowledge.uploadSuccess") || `File "${result.name}" uploaded (${result.size_bytes} bytes)`);
 
     // Refresh docs list
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
-    await loadKnowledgeGraph();
+    if (result.job_id) {
+      scheduleKnowledgeJobPoll(result.job_id, t("knowledge.indexingUploadDoc"));
+    } else {
+      await loadKnowledgeGraph();
+      setKnowledgeIndexingState(false);
+    }
   } catch (error) {
     console.error(error);
     elements.docError.textContent = error.message || t("status.failed");
-  } finally {
     setKnowledgeIndexingState(false);
+  } finally {
+    if (!state.activeKnowledgeJobId) {
+      setKnowledgeIndexingState(false);
+    }
   }
 }
 

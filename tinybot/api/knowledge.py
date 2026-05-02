@@ -8,6 +8,9 @@ Provides REST endpoints for RAG operations:
 
 from __future__ import annotations
 
+import threading
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +27,100 @@ def _error_json(status: int, message: str, err_type: str = "invalid_request_erro
 
 def _success_json(data: dict[str, Any]) -> web.Response:
     return web.json_response(data, status=200)
+
+
+def _now_iso() -> str:
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": job.get("id", ""),
+        "doc_id": job.get("doc_id", ""),
+        "name": job.get("name", ""),
+        "status": job.get("status", "queued"),
+        "stage": job.get("stage", "queued"),
+        "message": job.get("message", ""),
+        "processed": job.get("processed", 0),
+        "total": job.get("total", 1),
+        "error": job.get("error", ""),
+        "created_at": job.get("created_at", ""),
+        "updated_at": job.get("updated_at", ""),
+        "completed_at": job.get("completed_at", ""),
+    }
+
+
+def _knowledge_jobs(app: web.Application) -> tuple[dict[str, dict[str, Any]], threading.Lock]:
+    if "knowledge_jobs" not in app:
+        app["knowledge_jobs"] = {}
+    if "knowledge_jobs_lock" not in app:
+        app["knowledge_jobs_lock"] = threading.Lock()
+    return app["knowledge_jobs"], app["knowledge_jobs_lock"]
+
+
+def _start_index_job(
+    request: web.Request,
+    *,
+    doc_id: str,
+    name: str,
+) -> dict[str, Any]:
+    knowledge_store = request.app["knowledge_store"]
+    jobs, lock = _knowledge_jobs(request.app)
+    job_id = f"kjob_{uuid.uuid4().hex[:12]}"
+    job = {
+        "id": job_id,
+        "doc_id": doc_id,
+        "name": name,
+        "status": "queued",
+        "stage": "queued",
+        "message": "Queued for knowledge graph indexing",
+        "processed": 0,
+        "total": 1,
+        "error": "",
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+        "completed_at": "",
+    }
+    with lock:
+        jobs[job_id] = job
+
+    def update(stage: str, message: str, processed: int, total: int) -> None:
+        with lock:
+            current = jobs.get(job_id)
+            if not current:
+                return
+            current.update({
+                "status": "running" if stage != "completed" else "completed",
+                "stage": stage,
+                "message": message,
+                "processed": processed,
+                "total": max(1, total),
+                "updated_at": _now_iso(),
+            })
+            if stage == "completed":
+                current["completed_at"] = current["updated_at"]
+
+    def run() -> None:
+        try:
+            update("starting", "Starting knowledge indexing", 0, 1)
+            knowledge_store.index_document(doc_id, progress_callback=update)
+        except Exception as e:
+            logger.exception("Knowledge index job {} failed", job_id)
+            with lock:
+                current = jobs.get(job_id)
+                if current:
+                    current.update({
+                        "status": "failed",
+                        "stage": "failed",
+                        "message": "Knowledge indexing failed",
+                        "error": str(e),
+                        "updated_at": _now_iso(),
+                        "completed_at": _now_iso(),
+                    })
+
+    thread = threading.Thread(target=run, name=f"knowledge-index-{job_id}", daemon=True)
+    thread.start()
+    return _job_snapshot(job)
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +200,10 @@ async def handle_add_document(request: web.Request) -> web.Response:
     category = body.get("category", "")
     file_type = body.get("file_type", "txt")
     original_path = body.get("original_path")
+    async_index = (
+        request.query.get("async_index", "").lower() in {"1", "true", "yes", "on"}
+        or body.get("async_index") is True
+    )
 
     try:
         doc_id = knowledge_store.add_document(
@@ -112,13 +213,23 @@ async def handle_add_document(request: web.Request) -> web.Response:
             category=category,
             file_type=file_type,
             original_path=original_path,
+            defer_index=async_index,
         )
+        job = _start_index_job(request, doc_id=doc_id, name=name) if async_index else None
 
-        return _success_json({
+        payload = {
             "id": doc_id,
             "name": name,
-            "message": f"Document '{name}' added successfully",
-        })
+            "message": (
+                f"Document '{name}' saved; knowledge indexing is running"
+                if async_index
+                else f"Document '{name}' added successfully"
+            ),
+        }
+        if job:
+            payload["job"] = job
+            payload["job_id"] = job["id"]
+        return web.json_response(payload, status=202 if async_index else 200)
     except ValueError as e:
         return _error_json(400, str(e))
     except Exception as e:
@@ -194,6 +305,8 @@ async def handle_upload_document(request: web.Request) -> web.Response:
         if not content.strip():
             return _error_json(400, "File content is empty")
 
+    async_index = request.query.get("async_index", "").lower() in {"1", "true", "yes", "on"}
+
     try:
         doc_id = knowledge_store.add_document(
             name=filename,
@@ -202,15 +315,25 @@ async def handle_upload_document(request: web.Request) -> web.Response:
             category=category,
             file_type=file_ext,
             source="file_upload",
+            defer_index=async_index,
         )
+        job = _start_index_job(request, doc_id=doc_id, name=filename) if async_index else None
 
-        return _success_json({
+        payload = {
             "id": doc_id,
             "name": filename,
             "file_type": file_ext,
             "size_bytes": len(file_content),
-            "message": f"File '{filename}' uploaded and indexed successfully",
-        })
+            "message": (
+                f"File '{filename}' uploaded; knowledge indexing is running"
+                if async_index
+                else f"File '{filename}' uploaded and indexed successfully"
+            ),
+        }
+        if job:
+            payload["job"] = job
+            payload["job_id"] = job["id"]
+        return web.json_response(payload, status=202 if async_index else 200)
     except ValueError as e:
         return _error_json(400, str(e))
     except Exception as e:
@@ -488,6 +611,20 @@ async def handle_knowledge_graphrag(request: web.Request) -> web.Response:
         return _error_json(500, f"Error getting GraphRAG index: {e}", err_type="server_error")
 
 
+async def handle_knowledge_job(request: web.Request) -> web.Response:
+    """GET /v1/knowledge/jobs/{job_id}
+
+    Return progress for a background knowledge indexing job.
+    """
+    job_id = request.match_info.get("job_id", "")
+    jobs, lock = _knowledge_jobs(request.app)
+    with lock:
+        job = jobs.get(job_id)
+        if not job:
+            return _error_json(404, f"Knowledge job {job_id} not found")
+        return _success_json(_job_snapshot(job))
+
+
 async def handle_rebuild_index(request: web.Request) -> web.Response:
     """POST /v1/knowledge/rebuild-index
 
@@ -555,6 +692,7 @@ async def handle_rebuild_index(request: web.Request) -> web.Response:
 
 def register_knowledge_routes(app: web.Application) -> None:
     """Register all knowledge API routes."""
+    _knowledge_jobs(app)
     app.router.add_get("/v1/knowledge/documents", handle_list_documents)
     app.router.add_post("/v1/knowledge/documents", handle_add_document)
     app.router.add_post("/v1/knowledge/documents/upload", handle_upload_document)
@@ -564,4 +702,5 @@ def register_knowledge_routes(app: web.Application) -> None:
     app.router.add_get("/v1/knowledge/stats", handle_knowledge_stats)
     app.router.add_get("/v1/knowledge/graph", handle_knowledge_graph)
     app.router.add_get("/v1/knowledge/graphrag", handle_knowledge_graphrag)
+    app.router.add_get("/v1/knowledge/jobs/{job_id}", handle_knowledge_job)
     app.router.add_post("/v1/knowledge/rebuild-index", handle_rebuild_index)
