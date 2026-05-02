@@ -325,24 +325,26 @@ body {
 /* 侧边栏操作区 */
 .sidebar-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: repeat(2, 44px);
   gap: 8px;
-  align-items: stretch;
+  align-items: center;
+  justify-content: start;
 }
 
 .sidebar-actions .button {
   min-height: 44px;
-  padding-inline: 14px;
   white-space: nowrap;
 }
 
-.sidebar-actions .button-primary {
-  width: 100%;
+.sidebar-actions .sidebar-action-icon {
+  width: 44px;
+  height: 44px;
+  padding: 0;
 }
 
-.sidebar-actions #refresh-button {
-  min-width: 72px;
-  padding-inline: 18px;
+.sidebar-actions .sidebar-action-icon svg {
+  width: 19px;
+  height: 19px;
 }
 
 /* ========== 按钮系统 ========== */

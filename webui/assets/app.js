@@ -343,6 +343,44 @@ function setFileError(text = "") {
   elements.fileError.textContent = text;
 }
 
+function renderSidebarActionIcons() {
+  const buttons = [
+    {
+      element: elements.newChatButton,
+      title: t("ui.newChat"),
+      className: "sidebar-icon-new-chat",
+      svg: `
+        <svg class="icon-chat-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h7"></path>
+          <path d="M19 3v8"></path>
+          <path d="M15 7h8"></path>
+        </svg>
+      `,
+    },
+    {
+      element: elements.refreshButton,
+      title: t("ui.refresh"),
+      className: "sidebar-icon-refresh",
+      svg: `
+        <svg class="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12a9 9 0 0 1-15.2 6.5"></path>
+          <path d="M3 12A9 9 0 0 1 18.2 5.5"></path>
+          <path d="M18 2v4h4"></path>
+          <path d="M6 22v-4H2"></path>
+        </svg>
+      `,
+    },
+  ];
+  for (const button of buttons) {
+    if (!button.element) continue;
+    button.element.classList.add("button-icon", "sidebar-action-icon", button.className);
+    button.element.removeAttribute("data-i18n");
+    button.element.setAttribute("title", button.title);
+    button.element.setAttribute("aria-label", button.title);
+    button.element.innerHTML = button.svg;
+  }
+}
+
 function updateUsageDisplay(usage) {
   state.lastUsage = usage;
   const container = document.querySelector("#status-usage");
@@ -5776,6 +5814,7 @@ function bindEvents() {
   });
 
   // 语言切换按钮
+  renderSidebarActionIcons();
   updateLanguageButton();
   elements.languageToggle.addEventListener("click", () => {
     const newLang = getLanguage() === "zh" ? "en" : "zh";
@@ -5792,6 +5831,7 @@ function bindEvents() {
 
   // 监听语言变化事件（来自 i18n.js）
   window.addEventListener("languagechange", () => {
+    renderSidebarActionIcons();
     updateLanguageButton();
     renderDynamicContent();
     updateConfigDirtyState();
