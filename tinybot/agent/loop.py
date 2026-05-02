@@ -49,6 +49,7 @@ from tinybot.agent.hook import AgentHook
 from tinybot.agent.knowledge import KnowledgeStore
 from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
+from tinybot.agent.session_knowledge import SessionKnowledgeStore
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
 from tinybot.agent.subagent import SubagentManager
 from tinybot.agent.tools.cron import CronTool
@@ -221,6 +222,10 @@ class AgentLoop:
             self.entity_extractor = deps.entity_extractor
             self.experience_store = deps.experience_store
             self.experience_summarizer = deps.experience_summarizer
+            self.session_knowledge_store = getattr(deps, "session_knowledge_store", None)
+            if self.session_knowledge_store is None:
+                self.session_knowledge_store = SessionKnowledgeStore()
+            self.context.session_knowledge_store = self.session_knowledge_store
         else:
             # Create dependencies inline (backward compatible)
             self.task_manager = TaskManager(
@@ -241,6 +246,19 @@ class AgentLoop:
                 task_manager=self.task_manager, session_manager=self.sessions,
                 config=self._config_ref,
             )
+            self.session_knowledge_store = SessionKnowledgeStore(
+                chunk_size=(
+                    self._config_ref.knowledge.chunk_size
+                    if self._config_ref and hasattr(self._config_ref, "knowledge")
+                    else 900
+                ),
+                chunk_overlap=(
+                    self._config_ref.knowledge.chunk_overlap
+                    if self._config_ref and hasattr(self._config_ref, "knowledge")
+                    else 120
+                ),
+            )
+            self.context.session_knowledge_store = self.session_knowledge_store
 
             if enable_vector_store:
                 from tinybot.agent.vector_store import VectorStore
@@ -1137,6 +1155,7 @@ class AgentLoop:
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
             user_profile=session.user_profile,
+            use_persistent_knowledge=msg.metadata.get("_use_persistent_rag"),
         )
 
         # Save user message to session before running agent loop

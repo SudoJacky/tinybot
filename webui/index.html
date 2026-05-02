@@ -41,15 +41,16 @@
         </div>
       </div>
 
-      <div class="sidebar-actions">
-        <button id="new-chat-button" class="button button-primary" type="button" data-i18n="ui.newChat">新建会话</button>
-        <button id="refresh-button" class="button" type="button" data-i18n="ui.refresh">刷新</button>
-      </div>
-
       <section class="sessions-panel">
-        <div class="panel-header">
-          <h2 data-i18n="ui.sessions">会话</h2>
-          <span id="session-count" class="muted" style="color: var(--text-muted);">0</span>
+        <div class="panel-header sessions-header">
+          <div class="panel-title-row">
+            <h2 data-i18n="ui.sessions">会话</h2>
+            <span id="session-count" class="muted" style="color: var(--text-muted);">0</span>
+          </div>
+          <div class="sidebar-actions">
+            <button id="new-chat-button" class="button button-primary" type="button" data-i18n="ui.newChat">新建会话</button>
+            <button id="refresh-button" class="button" type="button" data-i18n="ui.refresh">刷新</button>
+          </div>
         </div>
         <div id="session-list" class="session-list"></div>
       </section>
@@ -97,6 +98,12 @@
       <form id="composer-form" class="composer">
         <label class="composer-label" for="composer-input" data-i18n="ui.enterMessage">输入消息</label>
         <div class="composer-row">
+          <input id="temporary-file-upload" type="file" accept=".txt,.md,.pdf" hidden />
+          <button id="temporary-file-button" class="button button-ghost composer-file" type="button" data-i18n-title="sessionFiles.upload" aria-label="Upload temporary file">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M21.4 11.6 12 21a6.5 6.5 0 0 1-9.2-9.2l9.7-9.7a4.4 4.4 0 0 1 6.2 6.2l-9.8 9.8a2.4 2.4 0 0 1-3.4-3.4l8.7-8.7" />
+            </svg>
+          </button>
           <textarea
             id="composer-input"
             class="composer-input"
@@ -107,7 +114,14 @@
           <button id="send-button" class="button button-primary composer-send" type="submit" data-i18n="ui.send">发送</button>
         </div>
         <div class="composer-meta">
-          <span id="error-text" class="error-text"></span>
+          <div class="composer-meta-left">
+            <span id="error-text" class="error-text"></span>
+            <div id="session-files-strip" class="session-files-strip" hidden></div>
+          </div>
+          <label class="session-rag-toggle">
+            <input id="persistent-rag-toggle" type="checkbox" checked />
+            <span data-i18n="sessionFiles.useRag">使用知识库 RAG</span>
+          </label>
         </div>
       </form>
     </section>

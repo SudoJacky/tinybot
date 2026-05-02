@@ -336,6 +336,8 @@ class WebSocketChannel(BaseChannel):
         app.router.add_patch(f"{self.sessions_path}/{{key}}", self.handle_patch_session)
         app.router.add_post(f"{self.sessions_path}/{{key}}/clear", self.handle_clear_session)
         app.router.add_get(f"{self.sessions_path}/{{key}}/profile", self.handle_get_profile)
+        app.router.add_get(f"{self.sessions_path}/{{key}}/temporary-files", self.handle_list_temporary_files)
+        app.router.add_post(f"{self.sessions_path}/{{key}}/temporary-files", self.handle_upload_temporary_file)
         app.router.add_get("/api/config", self.handle_get_config)
         app.router.add_patch("/api/config", self.handle_patch_config)
         app.router.add_get("/api/status", self.handle_get_status)
@@ -605,6 +607,7 @@ class WebSocketChannel(BaseChannel):
         deleted = self.session_manager.delete(key)
         if not deleted:
             return web.json_response({"error": "session not found"}, status=404)
+        self._clear_temporary_files(key)
         return web.json_response({"deleted": True, "key": key})
 
     async def handle_websocket(self, request: web.Request) -> web.StreamResponse:
@@ -769,7 +772,16 @@ class WebSocketChannel(BaseChannel):
             if current_chat != chat_id:
                 await ws.send_json({"event": "error", "message": "chat is not attached", "chat_id": chat_id})
                 return
-            await self._handle_message(sender_id=client_id, chat_id=chat_id, content=content)
+            use_persistent_rag = payload.get("use_persistent_rag")
+            metadata = {}
+            if isinstance(use_persistent_rag, bool):
+                metadata["_use_persistent_rag"] = use_persistent_rag
+            await self._handle_message(
+                sender_id=client_id,
+                chat_id=chat_id,
+                content=content,
+                metadata=metadata,
+            )
             return
 
         if msg_type == "subscribe_file":
@@ -1272,10 +1284,87 @@ class WebSocketChannel(BaseChannel):
 
         session.clear()
         self.session_manager.save(session)
+        self._clear_temporary_files(key)
         return web.json_response({
             "key": session.key,
             "cleared": True,
             "updated_at": session.updated_at.isoformat(),
+        })
+
+    def _clear_temporary_files(self, session_key: str) -> None:
+        store = getattr(self.agent_loop, "session_knowledge_store", None)
+        if store:
+            store.clear_session(session_key)
+
+    async def handle_list_temporary_files(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        key = request.match_info["key"]
+        store = getattr(self.agent_loop, "session_knowledge_store", None)
+        items = store.list_documents(key) if store else []
+        return web.json_response({"items": items})
+
+    async def handle_upload_temporary_file(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        key = request.match_info["key"]
+        if not key.startswith(f"{self.name}:"):
+            return web.json_response({"error": "temporary files are only supported for websocket sessions"}, status=400)
+
+        store = getattr(self.agent_loop, "session_knowledge_store", None)
+        if store is None:
+            return web.json_response({"error": "temporary knowledge store is not available"}, status=503)
+
+        try:
+            reader = await request.multipart()
+            file_content: bytes | None = None
+            filename = ""
+            while True:
+                field = await reader.next()
+                if field is None:
+                    break
+                if field.filename:
+                    filename = field.filename
+                    file_content = await field.read()
+        except Exception as exc:
+            return web.json_response({"error": f"failed to parse upload: {exc}"}, status=400)
+
+        if not filename or file_content is None:
+            return web.json_response({"error": "file is required"}, status=400)
+
+        file_type = Path(filename).suffix.lower().lstrip(".")
+        if file_type not in {"txt", "md", "pdf"}:
+            return web.json_response({"error": "supported temporary file types: txt, md, pdf"}, status=400)
+
+        try:
+            if file_type == "pdf":
+                content: str | bytes = file_content
+            else:
+                content = file_content.decode("utf-8")
+            doc = store.add_upload(
+                key,
+                name=filename,
+                content=content,
+                file_type=file_type,
+                metadata={"size_bytes": len(file_content)},
+            )
+        except UnicodeDecodeError as exc:
+            return web.json_response({"error": f"expected UTF-8 text file: {exc}"}, status=400)
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            logger.exception("Failed to upload temporary file for {}", key)
+            return web.json_response({"error": f"failed to upload temporary file: {exc}"}, status=500)
+
+        return web.json_response({
+            "id": doc.id,
+            "name": doc.name,
+            "file_type": doc.file_type,
+            "chunk_count": doc.chunk_count,
+            "size_bytes": len(file_content),
+            "temporary": True,
         })
 
     async def handle_get_profile(self, request: web.Request) -> web.Response:

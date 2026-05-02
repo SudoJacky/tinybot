@@ -15,6 +15,7 @@ from tinybot.utils.prompt_templates import render_template
 if TYPE_CHECKING:
     from tinybot.agent.experience import ExperienceStore
     from tinybot.agent.knowledge import KnowledgeStore
+    from tinybot.agent.session_knowledge import SessionKnowledgeStore
     from tinybot.agent.vector_store import VectorStore
     from tinybot.session.manager import SessionManager
     from tinybot.task.service import TaskManager
@@ -35,6 +36,7 @@ class ContextBuilder:
         session_manager: SessionManager | None = None,
         experience_store: ExperienceStore | None = None,
         knowledge_store: KnowledgeStore | None = None,
+        session_knowledge_store: SessionKnowledgeStore | None = None,
         enabled_skills: list[str] | None = None,
         config: Any | None = None,
     ):
@@ -49,6 +51,7 @@ class ContextBuilder:
         self.session_manager = session_manager
         self.experience_store = experience_store
         self.knowledge_store = knowledge_store
+        self.session_knowledge_store = session_knowledge_store
 
     @property
     def enabled_skills(self) -> list[str] | None:
@@ -181,6 +184,7 @@ class ContextBuilder:
         chat_id: str | None = None,
         current_role: str = "user",
         user_profile: dict[str, Any] | None = None,
+        use_persistent_knowledge: bool | None = None,
     ) -> list[dict[str, Any]]:
         runtime_ctx = self._build_runtime_context(
             channel, chat_id, self.timezone, self.task_manager, user_profile
@@ -242,9 +246,14 @@ class ContextBuilder:
             if experience_context:
                 messages.append({"role": "system", "content": experience_context})
 
-        # RAG: Auto-retrieve relevant knowledge from knowledge base
-        if self.knowledge_store is not None:
-            knowledge_context = self._build_knowledge_context(current_message)
+        # RAG: Auto-retrieve relevant knowledge from persistent and session uploads.
+        session_key = f"{channel}:{chat_id}" if channel and chat_id else None
+        if self.knowledge_store is not None or self.session_knowledge_store is not None:
+            knowledge_context = self._build_knowledge_context(
+                current_message,
+                session_key=session_key,
+                use_persistent_knowledge=use_persistent_knowledge,
+            )
             if knowledge_context:
                 messages.append({"role": "system", "content": knowledge_context})
 
@@ -340,33 +349,57 @@ class ContextBuilder:
         self,
         current_message: str,
         max_chunks: int = 3,
+        session_key: str | None = None,
+        use_persistent_knowledge: bool | None = None,
     ) -> str | None:
-        """Build RAG context by retrieving relevant knowledge chunks."""
-        if not self.knowledge_store:
+        """Build context from persistent RAG and current-session uploads."""
+        if not self.knowledge_store and not self.session_knowledge_store:
             return None
 
-        # Check if knowledge feature is enabled in config
+        # Check if persistent knowledge feature is enabled in config. Session
+        # uploads stay available even when global knowledge auto-retrieve is off.
+        persistent_enabled = self.knowledge_store is not None
         if self.config and hasattr(self.config, "knowledge"):
-            if not self.config.knowledge.enabled:
-                return None
-            if not self.config.knowledge.auto_retrieve:
-                return None
-            max_chunks = self.config.knowledge.max_chunks
-
-        # Skip simple conversational messages
-        if self._is_simple_conversation(current_message):
-            return None
-
-        try:
-            results = self.knowledge_store.query(
-                query_text=current_message,
-                top_k=max_chunks,
+            persistent_enabled = (
+                persistent_enabled
+                and self.config.knowledge.enabled
+                and self.config.knowledge.auto_retrieve
             )
-        except Exception:
+            max_chunks = self.config.knowledge.max_chunks
+        if use_persistent_knowledge is False:
+            persistent_enabled = False
+
+        persistent_results: list[dict[str, Any]] = []
+        if (
+            persistent_enabled
+            and self.knowledge_store is not None
+            and not self._is_simple_conversation(current_message)
+        ):
+            try:
+                persistent_results.extend(self.knowledge_store.query(
+                    query_text=current_message,
+                    top_k=max_chunks,
+                ))
+            except Exception:
+                pass
+
+        session_results: list[dict[str, Any]] = []
+        if self.session_knowledge_store is not None and session_key:
+            try:
+                session_results.extend(self.session_knowledge_store.context_for_session(
+                    session_key,
+                    current_message,
+                ))
+            except Exception:
+                pass
+
+        if not persistent_results and not session_results:
             return None
 
-        if not results:
-            return None
+        return self._format_retrieved_knowledge_context(
+            persistent_results=persistent_results,
+            session_results=session_results,
+        )
 
         lines = ["---\n[RELEVANT KNOWLEDGE]\n\n"]
         for idx, result in enumerate(results, 1):
@@ -417,6 +450,74 @@ class ContextBuilder:
                 lines.append(f"[{idx}] {meta_str}{semantic_block}\n{content}\n\n")
 
         lines.append("注意: 如果引用了上述知识内容，请在对应的回答中附上知识的来源（文档名称，第几页，第几行，文档路径在哪）。\n---")
+        return "".join(lines)
+
+    @classmethod
+    def _format_retrieved_knowledge_context(
+        cls,
+        *,
+        persistent_results: list[dict[str, Any]],
+        session_results: list[dict[str, Any]],
+    ) -> str:
+        lines = ["---\n[RELEVANT KNOWLEDGE]\n\n"]
+        if persistent_results:
+            lines.append("[Persistent knowledge base]\n")
+            lines.append(cls._format_knowledge_results(persistent_results))
+            lines.append("\n")
+        if session_results:
+            lines.append("[Current session temporary files]\n")
+            lines.append(
+                "These snippets came from files uploaded in this chat session only. "
+                "They are not persisted and are unavailable in other sessions.\n"
+            )
+            lines.append(cls._format_knowledge_results(session_results))
+            lines.append("\n")
+
+        lines.append(
+            "Use retrieved knowledge only when it is relevant. When citing it, mention "
+            "the document name plus page or line number when available.\n---"
+        )
+        return "".join(lines)
+
+    @staticmethod
+    def _format_knowledge_results(results: list[dict[str, Any]]) -> str:
+        lines: list[str] = []
+        for idx, result in enumerate(results, 1):
+            doc_name = result.get("doc_name", "Unknown")
+            content = result.get("content", "")
+            summary = result.get("summary", "")
+            meta_parts = [f"Document: {doc_name}"]
+            if injection_mode := result.get("injection_mode"):
+                meta_parts.append(f"Mode: {injection_mode}")
+            if file_path := result.get("file_path", ""):
+                meta_parts.append(f"Path: {file_path}")
+            if category := result.get("category", ""):
+                meta_parts.append(f"Category: {category}")
+            if section_path := result.get("section_path", ""):
+                meta_parts.append(f"Section: {section_path}")
+            line_start = result.get("line_start", 0)
+            line_end = result.get("line_end", 0)
+            if line_start and line_end:
+                meta_parts.append(f"Lines: {line_start}-{line_end}")
+            if result.get("page") is not None:
+                meta_parts.append(f"Page: {result.get('page')}")
+
+            semantic_parts = []
+            if matched_entities := result.get("matched_entities", []):
+                semantic_parts.append("Entities: " + ", ".join(matched_entities[:5]))
+            if matched_relations := result.get("matched_relations", []):
+                semantic_parts.append("Relations: " + "; ".join(matched_relations[:3]))
+            if matched_claims := result.get("matched_claims", []):
+                semantic_parts.append("Claims: " + " | ".join(matched_claims[:3]))
+            if matched_child_snippets := result.get("matched_child_snippets", []):
+                semantic_parts.append("Matched snippets: " + " | ".join(matched_child_snippets[:2]))
+
+            semantic_block = "\n" + "\n".join(semantic_parts) if semantic_parts else ""
+            meta_str = " | ".join(meta_parts)
+            if summary:
+                lines.append(f"[{idx}] {meta_str}{semantic_block}\nSummary: {summary}\nContent: {content}\n\n")
+            else:
+                lines.append(f"[{idx}] {meta_str}{semantic_block}\n{content}\n\n")
         return "".join(lines)
 
     @staticmethod
