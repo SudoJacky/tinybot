@@ -100,6 +100,9 @@ const elements = {
   modalClose: document.querySelector("#modal-close"),
   configWorkspace: document.querySelector("#config-workspace"),
   configModel: document.querySelector("#config-model"),
+  configActiveProfile: document.querySelector("#config-active-profile"),
+  configModelOptions: document.querySelector("#config-model-options"),
+  configProfileOptions: document.querySelector("#config-profile-options"),
   configProvider: document.querySelector("#config-provider"),
   configTemperature: document.querySelector("#config-temperature"),
   configMaxTokens: document.querySelector("#config-max-tokens"),
@@ -135,7 +138,10 @@ const elements = {
   configEmbeddingApiKey: document.querySelector("#config-embedding-api-key"),
   configEmbeddingApiBase: document.querySelector("#config-embedding-api-base"),
   // Provider config elements
+  configProfileId: document.querySelector("#config-profile-id"),
   configProviderSelect: document.querySelector("#config-provider-select"),
+  configProviderModels: document.querySelector("#config-provider-models"),
+  configSupportsModelDiscovery: document.querySelector("#config-supports-model-discovery"),
   configSearch: document.querySelector("#config-search"),
   configQuickNav: document.querySelector("#config-quick-nav"),
   configExpandAll: document.querySelector("#config-expand-all"),
@@ -1762,7 +1768,9 @@ async function loadSystemStatus() {
 
   // Update status display
   if (payload.provider && payload.provider.name) {
-    elements.statusProvider.textContent = payload.provider.name;
+    elements.statusProvider.textContent = payload.provider.profile
+      ? `${payload.provider.name} / ${payload.provider.profile}`
+      : payload.provider.name;
   } else {
     elements.statusProvider.textContent = t("status.notConfigured");
   }
@@ -4605,6 +4613,9 @@ function populateConfigForm(config) {
   // 填充所有字段，使用当前配置值（兼容camelCase和snake_case）
   elements.configWorkspace.value = defaults.workspace || defaults.workspacePath || "~/.tinybot/workspace";
   elements.configModel.value = defaults.model || "";
+  if (elements.configActiveProfile) {
+    elements.configActiveProfile.value = defaults.activeProfile || defaults.active_profile || "";
+  }
   const tempValue = defaults.temperature !== undefined ? defaults.temperature : 0.1;
   elements.configTemperature.value = tempValue;
   // 更新 Temperature Slider 显示值
@@ -4672,6 +4683,9 @@ function populateConfigForm(config) {
 
   // Auto mode keeps model-based routing; show DeepSeek credentials by default.
   const displayProvider = currentProviderName === "auto" ? "deepseek" : currentProviderName;
+  if (elements.configProfileId) {
+    elements.configProfileId.value = defaults.activeProfile || defaults.active_profile || displayProvider;
+  }
   elements.configProviderSelect.value = displayProvider;
   loadProviderConfig(providers, displayProvider);
 
@@ -4719,6 +4733,81 @@ function loadProviderConfig(providers, providerName) {
   // API返回的是camelCase格式 (apiKey, apiBase)
   elements.configApiKey.value = provider.apiKey || provider.api_key || "";
   elements.configApiBase.value = provider.apiBase || provider.api_base || "";
+}
+
+function getProviderProfiles(providers = {}) {
+  return providers.profiles || {};
+}
+
+function getProfileConfig(providers, profileId, fallbackProvider) {
+  const profiles = getProviderProfiles(providers);
+  if (profileId && profiles[profileId]) {
+    return profiles[profileId];
+  }
+  const legacyProvider = providers[fallbackProvider] || {};
+  return {
+    provider: fallbackProvider,
+    apiKey: legacyProvider.apiKey || legacyProvider.api_key || "",
+    api_key: legacyProvider.api_key || legacyProvider.apiKey || "",
+    apiBase: legacyProvider.apiBase || legacyProvider.api_base || "",
+    api_base: legacyProvider.api_base || legacyProvider.apiBase || "",
+    models: [],
+    supportsModelDiscovery: false,
+    supports_model_discovery: false,
+  };
+}
+
+function setDatalistOptions(datalist, values) {
+  if (!datalist) {
+    return;
+  }
+  datalist.innerHTML = "";
+  values.filter(Boolean).forEach((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    datalist.appendChild(option);
+  });
+}
+
+function parseModelList(value) {
+  return String(value || "")
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function refreshProfileHints(config) {
+  const providers = config?.providers || {};
+  const profiles = getProviderProfiles(providers);
+  setDatalistOptions(elements.configProfileOptions, Object.keys(profiles));
+
+  const activeProfile = elements.configActiveProfile?.value?.trim();
+  const profileId = elements.configProfileId?.value?.trim() || activeProfile;
+  const profile = profileId ? profiles[profileId] : null;
+  const models = Array.isArray(profile?.models) ? profile.models : parseModelList(elements.configProviderModels?.value);
+  setDatalistOptions(elements.configModelOptions, models);
+}
+
+function loadProviderConfig(providers, providerName) {
+  const activeProfile = elements.configActiveProfile?.value?.trim() || "";
+  const profileId = elements.configProfileId?.value?.trim() || activeProfile;
+  const provider = getProfileConfig(providers, profileId, providerName);
+  if (elements.configProfileId) {
+    elements.configProfileId.value = profileId;
+  }
+  if (elements.configProviderSelect && provider.provider) {
+    elements.configProviderSelect.value = provider.provider;
+  }
+  elements.configApiKey.value = provider.apiKey || provider.api_key || "";
+  elements.configApiBase.value = provider.apiBase || provider.api_base || "";
+  if (elements.configProviderModels) {
+    const models = provider.models || [];
+    elements.configProviderModels.value = Array.isArray(models) ? models.join("\n") : "";
+  }
+  if (elements.configSupportsModelDiscovery) {
+    elements.configSupportsModelDiscovery.checked = provider.supportsModelDiscovery || provider.supports_model_discovery === true;
+  }
+  refreshProfileHints(state.config);
 }
 
 function getConfigGroups() {
@@ -5085,6 +5174,7 @@ async function saveConfig() {
     agents: {
       defaults: {
         model: getValue(elements.configModel),
+        active_profile: getValue(elements.configActiveProfile),
         provider: getValue(elements.configProvider),
         workspace: getValue(elements.configWorkspace),
         temperature: getValue(elements.configTemperature, "number"),
@@ -5155,11 +5245,27 @@ async function saveConfig() {
     providers: {},
   };
 
-  // Add selected provider config
+  // Add selected provider config and named profile. Keep the legacy provider
+  // section populated so older configs continue to work.
   const providerName = LLM_PROVIDERS.includes(elements.configProviderSelect.value)
     ? elements.configProviderSelect.value
     : "deepseek";
   const apiKeyValue = getValue(elements.configApiKey);
+  const existingProfiles = { ...getProviderProfiles(state.config?.providers || {}) };
+  const profileId = getValue(elements.configProfileId) || getValue(elements.configActiveProfile);
+  if (profileId) {
+    payload.agents.defaults.active_profile = profileId;
+    payload.providers.profiles = {
+      ...existingProfiles,
+      [profileId]: {
+        provider: providerName,
+        api_key: apiKeyValue === null ? "" : apiKeyValue,
+        api_base: getValue(elements.configApiBase),
+        models: parseModelList(elements.configProviderModels?.value),
+        supports_model_discovery: elements.configSupportsModelDiscovery?.checked === true,
+      },
+    };
+  }
   payload.providers[providerName] = {
     api_key: apiKeyValue === null ? "" : apiKeyValue,  // api_key schema requires string, not None
     api_base: getValue(elements.configApiBase),
@@ -5944,8 +6050,10 @@ function bindEvents() {
 
   // Provider select change - 更新Provider配置区域
   elements.configProviderSelect.addEventListener("change", () => {
-    const providers = state.config?.providers || {};
-    loadProviderConfig(providers, elements.configProviderSelect.value);
+    if (!elements.configProfileId?.value.trim()) {
+      const providers = state.config?.providers || {};
+      loadProviderConfig(providers, elements.configProviderSelect.value);
+    }
     updateConfigDirtyState();
   });
 
@@ -5959,6 +6067,34 @@ function bindEvents() {
     loadProviderConfig(providers, displayProvider);
     updateConfigDirtyState();
   });
+
+  if (elements.configActiveProfile) {
+    elements.configActiveProfile.addEventListener("change", () => {
+      if (elements.configProfileId) {
+        elements.configProfileId.value = elements.configActiveProfile.value.trim();
+      }
+      const providerName = elements.configProviderSelect?.value || "deepseek";
+      loadProviderConfig(state.config?.providers || {}, providerName);
+      updateConfigDirtyState();
+    });
+  }
+
+  if (elements.configProfileId) {
+    elements.configProfileId.addEventListener("change", () => {
+      if (elements.configActiveProfile && !elements.configActiveProfile.value.trim()) {
+        elements.configActiveProfile.value = elements.configProfileId.value.trim();
+      }
+      const providerName = elements.configProviderSelect?.value || "deepseek";
+      loadProviderConfig(state.config?.providers || {}, providerName);
+      updateConfigDirtyState();
+    });
+  }
+
+  if (elements.configProviderModels) {
+    elements.configProviderModels.addEventListener("input", () => {
+      refreshProfileHints(state.config);
+    });
+  }
 
   elements.saveConfigButton.addEventListener("click", async () => {
     await saveConfig();

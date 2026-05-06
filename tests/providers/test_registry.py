@@ -7,7 +7,8 @@ from tinybot.providers.base import (
     LLMResponse,
     ToolCallRequest,
 )
-from tinybot.providers.registry import PROVIDERS, ProviderSpec, find_by_name
+from tinybot.config.schema import Config
+from tinybot.providers.registry import PROVIDERS, ProviderSpec, create_provider, find_by_name
 
 
 class TestProviderSpec:
@@ -85,6 +86,33 @@ class TestProviderRegistry:
         assert spec is not None
         assert spec.env_key == "DASHSCOPE_API_KEY"
         assert "qwen" in spec.keywords
+
+    def test_create_provider_uses_active_profile_endpoint(self):
+        config = Config.model_validate(
+            {
+                "agents": {
+                    "defaults": {
+                        "model": "qwen3-coder-plus",
+                        "active_profile": "dashscope-coding",
+                    },
+                },
+                "providers": {
+                    "profiles": {
+                        "dashscope-coding": {
+                            "provider": "dashscope",
+                            "api_key": "coding-key",
+                            "api_base": "https://example.test/compatible/v1",
+                        },
+                    },
+                },
+            }
+        )
+
+        provider = create_provider(config)
+
+        assert provider.api_key == "coding-key"
+        assert provider.api_base == "https://example.test/compatible/v1"
+        assert provider.get_default_model() == "qwen3-coder-plus"
 
 
 class TestToolCallRequest:

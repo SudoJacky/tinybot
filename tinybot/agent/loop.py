@@ -364,6 +364,29 @@ class AgentLoop:
         tokens = snapshot.get("tokens")
         return int(tokens) if isinstance(tokens, (int, float)) and tokens > 0 else None
 
+    def apply_runtime_provider(self, provider: LLMProvider, model: str) -> None:
+        """Hot-swap the active provider/model for new turns."""
+        self.provider = provider
+        self.model = model or provider.get_default_model()
+        self.runner = AgentRunner(provider)
+        for component in (
+            getattr(self, "task_manager", None),
+            getattr(self, "subagents", None),
+            getattr(self, "experience_summarizer", None),
+            getattr(self, "consolidator", None),
+            getattr(self, "dream", None),
+            getattr(self, "entity_extractor", None),
+        ):
+            if component is None:
+                continue
+            if hasattr(component, "provider"):
+                component.provider = provider
+            if hasattr(component, "model"):
+                component.model = self.model
+        consolidator = getattr(self, "consolidator", None)
+        if hasattr(consolidator, "max_completion_tokens"):
+            consolidator.max_completion_tokens = provider.generation.max_tokens
+
     def _update_context_snapshot(self, payload: dict[str, Any]) -> None:
         """Track the latest estimated/actual prompt usage for the active turn."""
         tokens = payload.get("tokens")

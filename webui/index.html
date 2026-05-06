@@ -658,7 +658,16 @@
                 <span data-i18n="settings.agent.model">Model</span>
                 <span class="config-help" data-i18n-help="help.model">?</span>
               </label>
-              <input id="config-model" class="config-input" type="text" data-i18n-placeholder="settings.agent.modelPlaceholder" placeholder="模型名称" />
+              <input id="config-model" class="config-input" type="text" list="config-model-options" data-i18n-placeholder="settings.agent.modelPlaceholder" placeholder="模型名称" />
+              <datalist id="config-model-options"></datalist>
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.agent.activeProfile">Active Profile</span>
+                <span class="config-help" data-i18n-help="help.activeProfile">?</span>
+              </label>
+              <input id="config-active-profile" class="config-input" type="text" list="config-profile-options" placeholder="deepseek-default" />
+              <datalist id="config-profile-options"></datalist>
             </div>
             <div class="config-field">
               <label class="config-label config-label-with-help">
@@ -960,6 +969,13 @@
           <div class="config-group-content collapsed" id="config-provider-group">
             <div class="config-field">
               <label class="config-label config-label-with-help">
+                <span data-i18n="settings.provider.profileId">Profile ID</span>
+                <span class="config-help" data-i18n-help="help.providerProfileId">?</span>
+              </label>
+              <input id="config-profile-id" class="config-input" type="text" list="config-profile-options" placeholder="dashscope-coding" />
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
                 <span data-i18n="settings.provider.name">Provider名称</span>
                 <span class="config-help" data-i18n-help="help.providerSelect">?</span>
               </label>
@@ -989,6 +1005,20 @@
                 <span class="config-help" data-i18n-help="help.apiBase">?</span>
               </label>
               <input id="config-api-base" class="config-input" type="text" data-i18n-placeholder="settings.provider.apiBasePlaceholder" placeholder="API地址" />
+            </div>
+            <div class="config-field">
+              <label class="config-label config-label-with-help">
+                <span data-i18n="settings.provider.models">Models</span>
+                <span class="config-help" data-i18n-help="help.providerModels">?</span>
+              </label>
+              <textarea id="config-provider-models" class="config-input" rows="4" spellcheck="false" placeholder="deepseek-chat&#10;deepseek-reasoner"></textarea>
+            </div>
+            <div class="config-field config-checkbox-group">
+              <label class="config-checkbox-label">
+                <input id="config-supports-model-discovery" type="checkbox" />
+                <span data-i18n="settings.provider.supportsModelDiscovery">Supports /v1/models</span>
+                <span class="config-help" data-i18n-help="help.supportsModelDiscovery">?</span>
+              </label>
             </div>
           </div>
         </div>
