@@ -47,6 +47,7 @@ const state = {
   lastUsage: null,  // 最后一次的usage数据
   browserFrame: null,
   browserPanelCollapsed: false,
+  uiMode: localStorage.getItem("tinybot-ui-mode") || "basic",
   modelDiscoveryTimer: null,
 };
 
@@ -694,11 +695,10 @@ function taskProgressPayload(message) {
 }
 
 function createReasoningNode(reasoningText, previousState = {}) {
-  const collapse = shouldCollapseReasoning(reasoningText);
   const details = document.createElement("details");
   details.className = "message-reasoning message-reasoning-details";
   const keepManualState = previousState.manual === true;
-  details.open = collapse ? (keepManualState && previousState.open === true) : true;
+  details.open = keepManualState && previousState.open === true;
   if (keepManualState) {
     details.dataset.reasoningManual = "true";
   }
@@ -729,6 +729,36 @@ function createReasoningNode(reasoningText, previousState = {}) {
 
   details.append(summary, body);
   return details;
+}
+
+function createEmptyChatNode() {
+  const empty = document.createElement("div");
+  empty.className = "empty-state empty-chat";
+  const title = document.createElement("div");
+  title.className = "empty-chat-title";
+  title.textContent = t("msg.noMessages");
+  const actions = document.createElement("div");
+  actions.className = "empty-chat-actions";
+  const examples = [
+    "chat.example.summarizeFile",
+    "chat.example.explainConcept",
+    "chat.example.askKnowledge",
+    "chat.example.createReminder",
+  ];
+  for (const key of examples) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button button-ghost button-small";
+    button.textContent = t(key);
+    button.addEventListener("click", () => {
+      elements.composerInput.value = t(key);
+      resizeComposer();
+      elements.composerInput.focus();
+    });
+    actions.append(button);
+  }
+  empty.append(title, actions);
+  return empty;
 }
 
 function getToolName(message) {
@@ -1198,10 +1228,7 @@ function renderMessages(forceScroll = true) {
   }
 
   if (messages.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = t("msg.noMessages");
-    elements.messageList.append(empty);
+    elements.messageList.append(createEmptyChatNode());
     return;
   }
 
@@ -1829,6 +1856,27 @@ function renderTools() {
   elements.toolsCount.textContent = state.tools.length;
 }
 
+function toolDisplayName(toolName) {
+  const names = {
+    read_file: t("tool.display.readFile"),
+    write_file: t("tool.display.writeFile"),
+    exec: t("tool.display.exec"),
+    spawn: t("tool.display.spawn"),
+    cron: t("tool.display.cron"),
+  };
+  return names[toolName] || toolName;
+}
+
+function toolRiskHint(toolName) {
+  if (["write_file", "exec"].includes(toolName)) {
+    return t("tool.risk.modifyFiles");
+  }
+  if (["spawn", "cron"].includes(toolName)) {
+    return t("tool.risk.background");
+  }
+  return "";
+}
+
 function renderSkills() {
   // 只更新统计信息
   const enabledSkills = state.config?.skills?.enabled || null;
@@ -1867,11 +1915,21 @@ function renderToolsModalList() {
 
     const name = document.createElement("span");
     name.className = "modal-list-item-name";
-    name.textContent = tool.name;
+    name.textContent = toolDisplayName(tool.name);
+    name.title = tool.name;
 
     const desc = document.createElement("span");
     desc.className = "modal-list-item-desc";
     desc.textContent = tool.description || t("msg.noDescription");
+
+    const riskHint = toolRiskHint(tool.name);
+    if (riskHint) {
+      const badge = document.createElement("span");
+      badge.className = "tool-risk-badge";
+      badge.textContent = riskHint;
+      desc.append(" ");
+      desc.append(badge);
+    }
 
     item.append(name, desc);
     item.addEventListener("click", () => viewTool(tool.name));
@@ -1947,8 +2005,8 @@ function viewTool(toolName) {
   const tool = state.tools.find(t => t.name === toolName);
   if (!tool) return;
 
-  elements.toolModalTitle.textContent = toolName;
-  elements.toolModalName.textContent = toolName;
+  elements.toolModalTitle.textContent = toolDisplayName(toolName);
+  elements.toolModalName.textContent = `${toolDisplayName(toolName)} (${toolName})`;
   elements.toolModalDesc.textContent = tool.description || t("msg.noDescription");
 
   // Display schema/parameters
@@ -4154,7 +4212,8 @@ async function uploadTemporaryFile() {
     const currentItems = state.sessionFiles.get(state.activeSessionKey) || [];
     state.sessionFiles.set(state.activeSessionKey, [...currentItems, result]);
     renderSessionFiles();
-    setStatus(t("status.connected"), "connected");
+    setStatus(t("sessionFiles.uploaded"), "connected");
+    window.setTimeout(() => setStatus(t("status.connected"), "connected"), 2200);
   } catch (error) {
     console.error(error);
     setError(error.message || t("sessionFiles.uploadFailed"));
@@ -4369,9 +4428,22 @@ function renderQueryResults(result) {
     return;
   }
 
-  for (const item of result.data) {
+  const items = result.data;
+  const lowConfidence = items.every((item) => knowledgeRelevanceLevel(item) === "low");
+  const summary = document.createElement("div");
+  summary.className = `query-result-summary${lowConfidence ? " query-result-summary-low" : ""}`;
+  const docs = [...new Set(items.map((item) => item.doc_name).filter(Boolean))].slice(0, 3);
+  summary.textContent = lowConfidence
+    ? t("knowledge.lowConfidence")
+    : t("knowledge.resultSummary")
+      .replace("{count}", items.length)
+      .replace("{docs}", docs.length ? docs.join("、") : t("knowledge.unknownSource"));
+  elements.queryResults.append(summary);
+
+  for (const item of items) {
     const resultItem = document.createElement("div");
     resultItem.className = "query-result-item";
+    resultItem.classList.add(`query-result-${knowledgeRelevanceLevel(item)}`);
 
     const header = document.createElement("div");
     header.className = "query-result-header";
@@ -4403,13 +4475,21 @@ function renderQueryResults(result) {
     ].filter(Boolean);
     meta.textContent = parts.join(" · ");
 
+    const why = document.createElement("div");
+    why.className = "query-result-why";
+    why.textContent = queryResultWhyMatched(item);
+
     const content = document.createElement("div");
     content.className = "query-result-content";
     content.textContent = item.content || "";
 
-    const debug = document.createElement("div");
+    const debug = document.createElement("details");
     debug.className = "query-result-debug";
-    debug.textContent = formatKnowledgeDebug(item);
+    const debugSummary = document.createElement("summary");
+    debugSummary.textContent = t("knowledge.rawDetails");
+    const debugBody = document.createElement("div");
+    debugBody.textContent = formatKnowledgeDebug(item) || t("knowledge.noRawDetails");
+    debug.append(debugSummary, debugBody);
 
     const actions = document.createElement("div");
     actions.className = "query-result-actions";
@@ -4420,9 +4500,50 @@ function renderQueryResults(result) {
     locate.addEventListener("click", () => highlightKnowledgeQueryResult(item, result.query));
     actions.append(locate);
 
-    resultItem.append(header, meta, content, debug, actions);
+    resultItem.append(header, meta, why, content, debug, actions);
     elements.queryResults.append(resultItem);
   }
+}
+
+function knowledgeNumericScore(item) {
+  if (item.rerank_score != null) return Number(item.rerank_score);
+  if (item.rrf_score != null) return Number(item.rrf_score);
+  if (item.semantic_fusion_score != null) return Number(item.semantic_fusion_score);
+  if (item.semantic_score != null) return Number(item.semantic_score);
+  if (item.bm25_score != null) return Number(item.bm25_score);
+  if (item.score != null) return Number(item.score);
+  return 0;
+}
+
+function knowledgeRelevanceLevel(item) {
+  if (item.rerank_score != null) {
+    return Number(item.rerank_score) >= 0.35 ? "high" : "low";
+  }
+  if (item.dense_distance != null && knowledgeNumericScore(item) <= 0) {
+    return Number(item.dense_distance) <= 0.65 ? "medium" : "low";
+  }
+  const score = knowledgeNumericScore(item);
+  if (score >= 0.5) return "high";
+  if (score >= 0.18) return "medium";
+  return "low";
+}
+
+function queryResultWhyMatched(item) {
+  const reasons = [];
+  if (item.section_path) {
+    reasons.push(t("knowledge.reasonSection").replace("{section}", item.section_path));
+  }
+  if (item.matched_entities?.length) {
+    reasons.push(t("knowledge.reasonEntities").replace("{entities}", item.matched_entities.slice(0, 3).join("、")));
+  }
+  if (item.matched_methods?.length || item.method) {
+    const methods = item.matched_methods?.length ? item.matched_methods.join("+") : item.method;
+    reasons.push(t("knowledge.reasonMethod").replace("{method}", methods));
+  }
+  if (item.content) {
+    reasons.push(t("knowledge.reasonContent"));
+  }
+  return `${t("knowledge.whyMatched")} ${reasons.slice(0, 3).join("；") || t("knowledge.reasonFallback")}`;
 }
 
 function highlightKnowledgeQueryResult(item, query) {
@@ -4582,6 +4703,55 @@ function applyTheme(theme) {
 function toggleTheme() {
   const newTheme = state.theme === "light" ? "dark" : "light";
   applyTheme(newTheme);
+}
+
+function applyUiMode(mode) {
+  state.uiMode = mode === "advanced" ? "advanced" : "basic";
+  markAdvancedSettings();
+  document.documentElement.dataset.uiMode = state.uiMode;
+  localStorage.setItem("tinybot-ui-mode", state.uiMode);
+  document.querySelectorAll("[data-ui-mode]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.uiMode === state.uiMode);
+  });
+}
+
+function markAdvancedSettings() {
+  const advancedGroups = ["embedding", "provider", "tools", "gateway", "channels"];
+  for (const group of advancedGroups) {
+    document.querySelector(`[data-group="${group}"]`)?.closest(".config-group")?.classList.add("advanced-only");
+    document.querySelector(`[data-config-jump="${group}"]`)?.classList.add("advanced-only");
+  }
+  const advancedFieldIds = [
+    "config-active-profile",
+    "config-provider",
+    "config-temperature",
+    "config-max-tokens",
+    "config-context-window",
+    "config-max-tool-iterations",
+    "config-reasoning-effort",
+    "config-knowledge-max-chunks",
+    "config-knowledge-chunk-size",
+    "config-knowledge-chunk-overlap",
+    "config-knowledge-retrieval-mode",
+    "config-knowledge-rerank-enabled",
+    "config-knowledge-rerank-model",
+    "config-knowledge-rerank-api-key",
+    "config-knowledge-rerank-api-key-env-var",
+    "config-knowledge-rerank-api-base",
+    "config-knowledge-rerank-top-n",
+    "config-knowledge-generate-summary",
+    "config-knowledge-semantic-extraction-mode",
+    "config-knowledge-semantic-llm-max-tokens",
+    "config-knowledge-semantic-llm-timeout",
+    "config-knowledge-graphrag-community-algorithm",
+    "config-knowledge-graphrag-community-level",
+    "config-knowledge-graphrag-report-llm-enabled",
+    "config-knowledge-graphrag-report-max-tokens",
+    "config-knowledge-graphrag-entity-summary-enabled",
+  ];
+  for (const id of advancedFieldIds) {
+    document.getElementById(id)?.closest(".config-field")?.classList.add("advanced-only");
+  }
 }
 
 function openModal() {
@@ -5783,6 +5953,10 @@ async function submitMessage() {
 }
 
 function bindEvents() {
+  document.querySelectorAll("[data-ui-mode]").forEach((button) => {
+    button.addEventListener("click", () => applyUiMode(button.dataset.uiMode));
+  });
+
   elements.composerInput.addEventListener("input", resizeComposer);
   elements.composerInput.addEventListener("keydown", async (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -6627,6 +6801,7 @@ async function init() {
   showInitSkeleton();
 
   initTheme();
+  applyUiMode(state.uiMode);
   bindEvents();
   resizeComposer();
 
