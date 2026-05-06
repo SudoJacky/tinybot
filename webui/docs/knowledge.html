@@ -16,7 +16,7 @@
     <!-- Header -->
     <header class="docs-header">
       <a href="/" class="docs-brand">
-        <div class="brand-mark">T</div>
+        <div class="brand-mark" aria-hidden="true"><img class="brand-logo" src="/assets/logo-mark.svg" alt=""></div>
         <div>
           <h1 class="docs-title">Tinybot</h1>
           <p class="docs-subtitle">Documentation</p>
@@ -92,181 +92,146 @@
           </header>
           <div class="article-body">
             <h1>知识库</h1>
-<h2 id="什么是知识库">什么是知识库？</h2>
-<p>知识库让你的 AI 能够学习和引用你提供的文档内容。比如：</p>
-<ul>
-<li>你添加了项目说明书，AI 就能回答关于项目的问题</li>
-<li>你添加了产品文档，AI 就能解答产品相关问题</li>
-<li>你添加了工作流程文档，AI 就能指导用户操作</li>
-</ul>
-<hr>
+<p>知识库用于让 Tinybot 使用你提供的固定资料回答问题。它适合“资料很多、以后还会反复问”的场景，例如产品手册、项目文档、制度流程、会议纪要、FAQ。</p>
+<h2 id="知识库和普通聊天有什么区别">知识库和普通聊天有什么区别</h2>
+<p>普通聊天只依赖当前对话和模型已有知识。知识库会把你的文档切分、索引，在你提问时检索相关片段，再交给 AI 回答。</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>是否建议用知识库</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>问一次临时问题</td>
+<td>不需要</td>
+</tr>
+<tr>
+<td>总结一个刚发来的短文本</td>
+<td>不需要，直接粘贴即可</td>
+</tr>
+<tr>
+<td>经常询问同一批文档</td>
+<td>建议</td>
+</tr>
+<tr>
+<td>公司内部制度、产品手册</td>
+<td>建议</td>
+</tr>
+<tr>
+<td>项目长期技术文档</td>
+<td>建议</td>
+</tr>
+</tbody>
+</table>
 <h2 id="启用知识库">启用知识库</h2>
-<h3 id="方法一-网页界面设置">方法一：网页界面设置</h3>
-<ol>
-<li>打开网页界面</li>
-<li>点击右侧设置面板</li>
-<li>找到 Knowledge 配置</li>
-<li>将 <code>enabled</code> 设置为开启</li>
-</ol>
-<h3 id="方法二-修改配置文件">方法二：修改配置文件</h3>
-<p>在配置文件中设置：</p>
+<p>在配置中开启：</p>
 <pre><code class="language-json">{
   &quot;knowledge&quot;: {
-    &quot;enabled&quot;: true
+    &quot;enabled&quot;: true,
+    &quot;autoRetrieve&quot;: true,
+    &quot;maxChunks&quot;: 5,
+    &quot;retrievalMode&quot;: &quot;hybrid&quot;
   }
 }</code></pre>
-<hr>
-<h2 id="添加文档">添加文档</h2>
-<h3 id="通过网页界面">通过网页界面</h3>
+<p>也可以在网页界面的设置面板中开启。</p>
+<h2 id="添加资料">添加资料</h2>
+<p>推荐先通过网页界面添加：</p>
 <ol>
-<li>打开网页界面</li>
-<li>点击右侧&quot;知识库&quot;面板</li>
-<li>点击&quot;添加&quot;按钮</li>
-<li>输入文档名称和内容</li>
-<li>保存</li>
+<li>启动 <code>uv run tinybot gateway</code></li>
+<li>打开 <code>http://127.0.0.1:18790</code></li>
+<li>进入右侧知识库面板</li>
+<li>添加文本、Markdown 或上传支持的文件</li>
+<li>等待索引完成</li>
 </ol>
-<h3 id="上传文件">上传文件</h3>
-<p>支持上传 <code>.txt</code> 和 <code>.md</code> 文件：</p>
-<ol>
-<li>在知识库面板点击&quot;上传&quot;</li>
-<li>选择文件</li>
-<li>文件内容自动添加到知识库</li>
-</ol>
-<hr>
-<h2 id="使用知识库">使用知识库</h2>
-<p>启用后，当你提问时：</p>
-<ol>
-<li>AI 自动搜索相关文档</li>
-<li>找到相关内容后引用</li>
-<li>结合知识回答你的问题</li>
-</ol>
-<p><strong>示例：</strong></p>
-<pre><code class="language-">用户：项目的部署流程是什么？
-
-AI：根据项目文档，部署流程如下：
-1. 安装依赖
-2. 配置环境变量
-3. 运行启动命令
-...</code></pre>
-<hr>
-<h2 id="知识库设置说明">知识库设置说明</h2>
+<p>当前网页会话还支持临时上传 <code>txt</code>、<code>md</code>、<code>pdf</code> 文件，用于当前会话中的资料问答。</p>
+<h2 id="怎么提问">怎么提问</h2>
+<p>提问时说明你希望 Tinybot 优先参考知识库：</p>
+<pre><code class="language-text">请根据知识库里的产品文档，说明新用户开通账号的流程。</code></pre>
+<pre><code class="language-text">请只参考我上传的 PDF，总结其中的风险点。</code></pre>
+<p>如果你发现回答没有引用到资料，可以直接要求：</p>
+<pre><code class="language-text">请重新检索知识库，并说明答案来自哪些文档内容。</code></pre>
+<h2 id="检索设置怎么选">检索设置怎么选</h2>
 <table>
 <thead>
 <tr>
-<th>设置</th>
+<th>配置</th>
+<th>新手建议</th>
 <th>说明</th>
-<th>推荐值</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>自动检索</td>
-<td>对话时自动搜索知识</td>
+<td><code>autoRetrieve</code></td>
 <td>开启</td>
+<td>每次提问自动查知识库</td>
 </tr>
 <tr>
-<td>检索数量</td>
-<td>每次搜索返回的片段数</td>
+<td><code>maxChunks</code></td>
 <td>5</td>
+<td>返回的资料片段数量</td>
 </tr>
 <tr>
-<td>分块大小</td>
-<td>文档切分的段落大小</td>
-<td>500</td>
+<td><code>retrievalMode</code></td>
+<td><code>hybrid</code></td>
+<td>同时使用语义和关键词检索</td>
+</tr>
+<tr>
+<td><code>rerankEnabled</code></td>
+<td>先关闭</td>
+<td>需要额外服务，搜索不准时再开</td>
 </tr>
 </tbody>
 </table>
-<h3 id="检索数量">检索数量</h3>
-<p>控制每次搜索返回多少内容片段：</p>
+<p>如果文档里有很多准确术语、编号、接口名，关键词很重要。如果用户问法和文档措辞差异大，语义检索更重要。<code>hybrid</code> 是两者结合，适合大多数情况。</p>
+<h2 id="资料整理建议">资料整理建议</h2>
+<p>为了让检索更准确：</p>
 <ul>
-<li>数值越小，返回内容越少，响应更快</li>
-<li>数值越大，返回内容越多，信息更全面</li>
+<li>一个文档只放一个主题</li>
+<li>标题写清楚，例如“退款流程”“部署步骤”“API 鉴权”</li>
+<li>不要把大量无关内容塞进同一个文档</li>
+<li>更新文档后重新索引</li>
+<li>对长期有效资料使用知识库，对临时资料使用会话上传</li>
 </ul>
-<h3 id="分块大小">分块大小</h3>
-<p>文档会被切分成小块存储：</p>
-<ul>
-<li>小块适合精确匹配</li>
-<li>大块保留更多上下文</li>
-</ul>
-<hr>
-<h2 id="检索模式">检索模式</h2>
-<table>
-<thead>
-<tr>
-<th>模式</th>
-<th>说明</th>
-<th>适用场景</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>混合模式</td>
-<td>默认模式，结合语义和关键词</td>
-<td>大多数情况</td>
-</tr>
-<tr>
-<td>语义模式</td>
-<td>按意思相似度搜索</td>
-<td>内容表达多样的文档</td>
-</tr>
-<tr>
-<td>关键词模式</td>
-<td>按关键词精确匹配</td>
-<td>技术文档、代码</td>
-</tr>
-</tbody>
-</table>
-<hr>
-<h2 id="高级功能">高级功能</h2>
-<h3 id="重排序">重排序</h3>
-<p>开启后可以提高搜索准确性，但需要额外的 API 服务。</p>
-<p><strong>是否需要？</strong></p>
-<ul>
-<li>一般使用不需要开启</li>
-<li>如果搜索结果不准确，可以尝试开启</li>
-</ul>
-<h3 id="文档分类">文档分类</h3>
-<p>添加文档时可以设置分类和标签，方便管理：</p>
-<ul>
-<li>分类：如&quot;产品文档&quot;、&quot;技术文档&quot;</li>
-<li>标签：如&quot;入门&quot;、&quot;高级&quot;、&quot;API&quot;</li>
-</ul>
-<hr>
-<h2 id="管理知识库">管理知识库</h2>
-<h3 id="查看文档列表">查看文档列表</h3>
-<p>在网页界面的知识库面板可以看到所有已添加的文档。</p>
-<h3 id="删除文档">删除文档</h3>
-<p>点击文档旁的删除按钮即可删除。</p>
-<h3 id="更新内容">更新内容</h3>
-<p>文档更新后，点击&quot;重建索引&quot;让知识库重新处理。</p>
-<hr>
+<h2 id="知识库不是万能的">知识库不是万能的</h2>
+<p>知识库能提高“参考你给的资料”的能力，但不能保证每次都完全正确。重要结论仍建议让 Tinybot列出依据，或要求它引用原文片段。</p>
+<p>推荐问法：</p>
+<pre><code class="language-text">请根据知识库回答，并列出你参考到的关键片段。</code></pre>
 <h2 id="常见问题">常见问题</h2>
-<h3 id="ai-没用到我的文档">AI 没用到我的文档？</h3>
+<h3 id="ai-没用到我的文档">AI 没用到我的文档</h3>
 <p>检查：</p>
 <ol>
-<li>知识库是否已启用</li>
+<li><code>knowledge.enabled</code> 是否为 <code>true</code></li>
+<li><code>autoRetrieve</code> 是否开启</li>
+<li>文档是否已经索引完成</li>
 <li>问题是否和文档内容相关</li>
-<li>尝试重建索引</li>
+<li>是否需要重建索引</li>
 </ol>
-<h3 id="搜索结果不准确">搜索结果不准确？</h3>
-<p>尝试：</p>
+<h3 id="搜索结果不准确">搜索结果不准确</h3>
+<p>可以尝试：</p>
 <ol>
-<li>调整检索数量</li>
-<li>更换检索模式</li>
-<li>开启重排序功能</li>
+<li>把问题问得更具体</li>
+<li>提高 <code>maxChunks</code></li>
+<li>使用 <code>hybrid</code> 检索</li>
+<li>拆分过长文档</li>
+<li>开启重排序能力</li>
 </ol>
-<hr>
+<h3 id="什么时候不用知识库">什么时候不用知识库</h3>
+<p>如果只是让 Tinybot 读取当前项目的几个文件，直接告诉它文件路径更简单：</p>
+<pre><code class="language-text">请读取 docs/quickstart.md 并指出问题。</code></pre>
 <h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/skills">技能系统</a> - 自定义 AI 行为</li>
-<li><a href="/docs/tools">工具功能</a> - AI 能做什么</li>
+<li><a href="/docs/webui">网页界面</a>：通过浏览器管理知识库</li>
+<li><a href="/docs/tools">工具功能</a>：理解文件读取和知识库检索的区别</li>
+<li><a href="/docs/skills">技能系统</a>：把固定问答流程做成技能</li>
 </ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么是知识库" class="toc-item toc-h2">什么是知识库？</a><a href="#启用知识库" class="toc-item toc-h2">启用知识库</a><a href="#方法一-网页界面设置" class="toc-item toc-h3">方法一：网页界面设置</a><a href="#方法二-修改配置文件" class="toc-item toc-h3">方法二：修改配置文件</a><a href="#添加文档" class="toc-item toc-h2">添加文档</a><a href="#通过网页界面" class="toc-item toc-h3">通过网页界面</a><a href="#上传文件" class="toc-item toc-h3">上传文件</a><a href="#使用知识库" class="toc-item toc-h2">使用知识库</a><a href="#知识库设置说明" class="toc-item toc-h2">知识库设置说明</a><a href="#检索数量" class="toc-item toc-h3">检索数量</a><a href="#分块大小" class="toc-item toc-h3">分块大小</a><a href="#检索模式" class="toc-item toc-h2">检索模式</a><a href="#高级功能" class="toc-item toc-h2">高级功能</a><a href="#重排序" class="toc-item toc-h3">重排序</a><a href="#文档分类" class="toc-item toc-h3">文档分类</a><a href="#管理知识库" class="toc-item toc-h2">管理知识库</a><a href="#查看文档列表" class="toc-item toc-h3">查看文档列表</a><a href="#删除文档" class="toc-item toc-h3">删除文档</a><a href="#更新内容" class="toc-item toc-h3">更新内容</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#ai-没用到我的文档" class="toc-item toc-h3">AI 没用到我的文档？</a><a href="#搜索结果不准确" class="toc-item toc-h3">搜索结果不准确？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#知识库和普通聊天有什么区别" class="toc-item toc-h2">知识库和普通聊天有什么区别</a><a href="#启用知识库" class="toc-item toc-h2">启用知识库</a><a href="#添加资料" class="toc-item toc-h2">添加资料</a><a href="#怎么提问" class="toc-item toc-h2">怎么提问</a><a href="#检索设置怎么选" class="toc-item toc-h2">检索设置怎么选</a><a href="#资料整理建议" class="toc-item toc-h2">资料整理建议</a><a href="#知识库不是万能的" class="toc-item toc-h2">知识库不是万能的</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#ai-没用到我的文档" class="toc-item toc-h3">AI 没用到我的文档</a><a href="#搜索结果不准确" class="toc-item toc-h3">搜索结果不准确</a><a href="#什么时候不用知识库" class="toc-item toc-h3">什么时候不用知识库</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

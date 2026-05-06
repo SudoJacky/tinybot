@@ -16,7 +16,7 @@
     <!-- Header -->
     <header class="docs-header">
       <a href="/" class="docs-brand">
-        <div class="brand-mark">T</div>
+        <div class="brand-mark" aria-hidden="true"><img class="brand-logo" src="/assets/logo-mark.svg" alt=""></div>
         <div>
           <h1 class="docs-title">Tinybot</h1>
           <p class="docs-subtitle">Documentation</p>
@@ -92,121 +92,132 @@
           </header>
           <div class="article-body">
             <h1>网关服务</h1>
-<h2 id="什么是网关">什么是网关？</h2>
-<p>网关服务让你可以：</p>
-<ul>
-<li>使用网页界面和 AI 对话</li>
-<li>连接多个聊天平台（飞书、钉钉等）</li>
-<li>设置定时任务</li>
-</ul>
-<hr>
-<h2 id="启动网关">启动网关</h2>
-<pre><code class="language-bash">uv run tinybot gateway</code></pre>
-<p>然后打开浏览器访问 <code>http://127.0.0.1:18790</code></p>
-<hr>
-<h2 id="网页界面设置">网页界面设置</h2>
-<h3 id="访问地址">访问地址</h3>
-<p>默认地址：<code>http://127.0.0.1:18790</code></p>
-<h3 id="修改端口">修改端口</h3>
-<p>如果默认端口被占用，可以修改配置：</p>
-<pre><code class="language-json">{
-  &quot;gateway&quot;: {
-    &quot;port&quot;: 8080
-  }
-}</code></pre>
-<h3 id="只允许本机访问">只允许本机访问</h3>
-<p>使用 <code>127.0.0.1</code> 作为地址，只有本机能访问。</p>
-<h3 id="允许局域网访问">允许局域网访问</h3>
-<p>使用 <code>0.0.0.0</code> 作为地址，局域网内其他设备可以访问。</p>
-<hr>
-<h2 id="连接聊天平台">连接聊天平台</h2>
-<p>网关可以连接到多个聊天平台，让 AI 在这些平台回复消息。</p>
-<h3 id="飞书">飞书</h3>
-<ol>
-<li>在飞书开放平台创建应用</li>
-<li>获取 App ID 和 App Secret</li>
-<li>在配置中添加：</li>
-</ol>
-<pre><code class="language-json">{
-  &quot;channels&quot;: {
-    &quot;feishu&quot;: {
-      &quot;enabled&quot;: true,
-      &quot;app_id&quot;: &quot;你的App ID&quot;,
-      &quot;app_secret&quot;: &quot;你的App Secret&quot;
-    }
-  }
-}</code></pre>
-<h3 id="钉钉">钉钉</h3>
-<p>类似飞书，需要在钉钉开放平台创建应用。</p>
-<h3 id="微信企业号">微信企业号</h3>
-<p>在微信公众平台创建应用后配置。</p>
-<hr>
-<h2 id="定时任务">定时任务</h2>
-<p>网关支持设置定时任务，让 AI 定期执行某些操作。</p>
-<h3 id="通过对话设置">通过对话设置</h3>
-<p>直接和 AI 说：</p>
-<pre><code class="language-">每天早上9点提醒我检查日程</code></pre>
-<p>AI 会帮你设置定时任务。</p>
-<h3 id="cron-表达式">Cron 表达式</h3>
-<p>定时任务使用 cron 表达式：</p>
+<p>网关服务用于让 Tinybot 长时间运行，并向网页界面、聊天平台、定时任务和心跳服务提供入口。简单说：如果你想用浏览器访问 Tinybot，通常就需要启动 gateway。</p>
+<h2 id="什么时候需要网关">什么时候需要网关</h2>
 <table>
 <thead>
 <tr>
-<th>表达式</th>
-<th>含义</th>
+<th>场景</th>
+<th>是否需要</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>0 9 * * *</code></td>
-<td>每天9点</td>
+<td>命令行临时聊天</td>
+<td>不需要，使用 <code>uv run tinybot agent</code></td>
 </tr>
 <tr>
-<td><code>0 9 * * 1-5</code></td>
-<td>工作日9点</td>
+<td>浏览器 WebUI</td>
+<td>需要</td>
 </tr>
 <tr>
-<td><code>*/30 * * * *</code></td>
-<td>每30分钟</td>
+<td>飞书、钉钉、微信等频道</td>
+<td>需要</td>
+</tr>
+<tr>
+<td>定时任务和心跳服务长期运行</td>
+<td>需要</td>
+</tr>
+<tr>
+<td>OpenAI 兼容 API</td>
+<td>不使用 gateway，使用 <code>uv run tinybot api</code></td>
 </tr>
 </tbody>
 </table>
-<hr>
+<h2 id="启动网关">启动网关</h2>
+<pre><code class="language-bash">uv run tinybot gateway</code></pre>
+<p>如果 WebSocket 频道已启用，浏览器访问：</p>
+<pre><code class="language-text">http://127.0.0.1:18790</code></pre>
+<h2 id="启用网页频道">启用网页频道</h2>
+<p>配置文件中需要有：</p>
+<pre><code class="language-json">{
+  &quot;channels&quot;: {
+    &quot;websocket&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;host&quot;: &quot;127.0.0.1&quot;,
+      &quot;port&quot;: 18790
+    }
+  }
+}</code></pre>
+<p><code>127.0.0.1</code> 表示只有本机能访问，适合个人使用。不要在不了解网络安全的情况下把服务暴露到公网。</p>
+<h2 id="修改端口">修改端口</h2>
+<p>如果 <code>18790</code> 被占用，可以临时指定端口：</p>
+<pre><code class="language-bash">uv run tinybot gateway --port 18800</code></pre>
+<p>也可以修改 WebSocket 频道配置：</p>
+<pre><code class="language-json">{
+  &quot;channels&quot;: {
+    &quot;websocket&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;host&quot;: &quot;127.0.0.1&quot;,
+      &quot;port&quot;: 18800
+    }
+  }
+}</code></pre>
+<p>然后访问：</p>
+<pre><code class="language-text">http://127.0.0.1:18800</code></pre>
+<h2 id="连接聊天平台">连接聊天平台</h2>
+<p>Tinybot 内置飞书、钉钉、微信等频道。配置好频道后，gateway 会负责接收平台消息并交给 Agent 处理。</p>
+<p>通用流程：</p>
+<ol>
+<li>在对应平台创建应用</li>
+<li>获取平台要求的 ID、Secret、Token 等信息</li>
+<li>在 <code>channels</code> 下启用对应频道</li>
+<li>启动 <code>uv run tinybot gateway</code></li>
+<li>在平台侧完成回调地址或登录配置</li>
+</ol>
+<p>示例结构：</p>
+<pre><code class="language-json">{
+  &quot;channels&quot;: {
+    &quot;feishu&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;appId&quot;: &quot;你的 App ID&quot;,
+      &quot;appSecret&quot;: &quot;你的 App Secret&quot;
+    }
+  }
+}</code></pre>
+<p>不同平台字段不同，以对应频道配置为准。</p>
 <h2 id="心跳服务">心跳服务</h2>
-<p>网关空闲时会自动执行一些维护任务：</p>
-<ul>
-<li>整理对话历史</li>
-<li>分析和学习经验</li>
-</ul>
-<p>这个功能默认开启，可以保持 AI 的长期记忆。</p>
-<hr>
+<p>gateway 中包含心跳服务，用于周期性维护，例如整理记忆、检查后台任务等。</p>
+<p>相关配置：</p>
+<pre><code class="language-json">{
+  &quot;gateway&quot;: {
+    &quot;heartbeat&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;intervalS&quot;: 1800,
+      &quot;keepRecentMessages&quot;: 8
+    }
+  }
+}</code></pre>
+<p>新手保持默认即可。</p>
+<h2 id="定时任务">定时任务</h2>
+<p>启动 gateway 后，Tinybot 可以处理定时任务。例如你可以在对话中说：</p>
+<pre><code class="language-text">每天早上 9 点提醒我检查待办事项。</code></pre>
+<p>定时任务需要 gateway 持续运行。如果你关闭终端，定时任务也会停止。</p>
 <h2 id="常见问题">常见问题</h2>
-<h3 id="网页无法访问">网页无法访问？</h3>
+<h3 id="网页打不开">网页打不开</h3>
 <p>检查：</p>
 <ol>
-<li>网关服务是否启动</li>
-<li>端口是否被占用</li>
+<li><code>uv run tinybot gateway</code> 是否仍在运行</li>
+<li>WebSocket 频道是否启用</li>
+<li>端口是否正确</li>
+<li>防火墙是否拦截</li>
 </ol>
-<p>3.防火墙是否拦截</p>
-<h3 id="其他平台无法收到消息">其他平台无法收到消息？</h3>
-<p>检查：</p>
-<ol>
-<li>平台配置是否正确</li>
-<li>应用权限是否设置</li>
-<li>网关服务是否运行</li>
-</ol>
-<hr>
+<h3 id="gateway-启动了但没有网页">gateway 启动了但没有网页</h3>
+<p>通常是 <code>channels.websocket.enabled</code> 没有开启，或 <code>staticDir</code> 指向的 WebUI 文件不存在。</p>
+<h3 id="局域网其他设备访问不了">局域网其他设备访问不了</h3>
+<p>需要把 <code>host</code> 改为 <code>0.0.0.0</code>，并确认防火墙允许端口访问。只在可信网络中这样做。</p>
 <h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/webui">网页界面</a> - 详细使用说明</li>
-<li><a href="/docs/config">配置说明</a> - 网关配置选项</li>
+<li><a href="/docs/webui">网页界面</a>：使用浏览器和 Tinybot 对话</li>
+<li><a href="/docs/config">配置说明</a>：了解网关和频道配置</li>
+<li><a href="/docs/tasks">任务系统</a>：使用定时任务和复杂任务</li>
 </ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么是网关" class="toc-item toc-h2">什么是网关？</a><a href="#启动网关" class="toc-item toc-h2">启动网关</a><a href="#网页界面设置" class="toc-item toc-h2">网页界面设置</a><a href="#访问地址" class="toc-item toc-h3">访问地址</a><a href="#修改端口" class="toc-item toc-h3">修改端口</a><a href="#只允许本机访问" class="toc-item toc-h3">只允许本机访问</a><a href="#允许局域网访问" class="toc-item toc-h3">允许局域网访问</a><a href="#连接聊天平台" class="toc-item toc-h2">连接聊天平台</a><a href="#飞书" class="toc-item toc-h3">飞书</a><a href="#钉钉" class="toc-item toc-h3">钉钉</a><a href="#微信企业号" class="toc-item toc-h3">微信企业号</a><a href="#定时任务" class="toc-item toc-h2">定时任务</a><a href="#通过对话设置" class="toc-item toc-h3">通过对话设置</a><a href="#cron-表达式" class="toc-item toc-h3">Cron 表达式</a><a href="#心跳服务" class="toc-item toc-h2">心跳服务</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#网页无法访问" class="toc-item toc-h3">网页无法访问？</a><a href="#其他平台无法收到消息" class="toc-item toc-h3">其他平台无法收到消息？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么时候需要网关" class="toc-item toc-h2">什么时候需要网关</a><a href="#启动网关" class="toc-item toc-h2">启动网关</a><a href="#启用网页频道" class="toc-item toc-h2">启用网页频道</a><a href="#修改端口" class="toc-item toc-h2">修改端口</a><a href="#连接聊天平台" class="toc-item toc-h2">连接聊天平台</a><a href="#心跳服务" class="toc-item toc-h2">心跳服务</a><a href="#定时任务" class="toc-item toc-h2">定时任务</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#网页打不开" class="toc-item toc-h3">网页打不开</a><a href="#gateway-启动了但没有网页" class="toc-item toc-h3">gateway 启动了但没有网页</a><a href="#局域网其他设备访问不了" class="toc-item toc-h3">局域网其他设备访问不了</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

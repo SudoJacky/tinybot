@@ -10,203 +10,69 @@
 [![GitHub Issues](https://img.shields.io/github/issues/SudoJacky/tinybot?logo=github)](https://github.com/SudoJacky/tinybot/issues)
 [![GitHub Release](https://img.shields.io/github/v/release/SudoJacky/tinybot?include_prereleases&logo=github)](https://github.com/SudoJacky/tinybot/releases)
 
-[English](README.md) | [快速开始](#快速开始) | [特性](#-核心亮点) | [命令](#交互聊天命令)
+[English](README.md) | [快速开始](docs/quickstart.md) | [网页界面](docs/webui.md) | [配置说明](docs/config.md)
 
-一个轻量的个人 AI 助手框架，将大语言模型与多种聊天平台、工具系统和自动化机制集成在一起。
+Tinybot 是一个轻量的个人 AI Agent 框架。它可以像聊天机器人一样回答问题，也可以在你允许的范围内使用工具：读取文件、修改文档、执行命令、搜索网络、管理知识库、拆分复杂任务，并通过命令行、网页界面或聊天平台与你协作。
 
-## 品牌资产
+如果你不熟悉 AI Agent，可以先把它理解成“会使用工具的 AI 助手”：你提出目标，它会根据需要阅读资料、调用工具、拆步骤、给出结果。
 
-- README logo: [`webui/assets/logo.svg`](webui/assets/logo.svg)
-- Favicon / app mark: [`webui/assets/logo-mark.svg`](webui/assets/logo-mark.svg)
-- Social preview source: [`webui/assets/social-preview.svg`](webui/assets/social-preview.svg)
-- Installer icon source: use `webui/assets/logo.svg` for square app icons, or `webui/assets/logo-mark.svg` for compact launcher icons.
+## 适合用 Tinybot 做什么
 
-## 更新日志
-
-<details>
-<summary>2026.04.30 修复多个ui，修改浏览器操控界面示意，新增task任务显示。</summary>
-
-![browser_snapshot2](./show/browser_snapshot2.png)
-
-![task_webui1](./show/task_webui1.png)
-
-</details>
-
-<details>
-<summary>2026.04.29 修复多个ui，新增浏览器操控界面示意。</summary>
-
-![auto_snapshot](./show/snapshot.gif)
-
-</details>
-
-<details>
-<summary>2026.04.28 新增测试版RAG实体关系图。</summary>
-
-![rag_graph_beta_gif](./show/webui_rag_graph_beta1.gif)
-
-![rag_graph_beta](./show/webui_rag_graph_beta1.PNG)
-
-</details>
-
-<details>
-<summary>2026.04.27 增加文档说明，并修复部分bug。</summary>
-
-![doc_home](./show/webui_doc_home.PNG)
-
-![startup](./show/webui_startup.PNG)
-
-</details>
-
-<details>
-<summary>2026.04.26 增加RAG模块，目前支持文本内容。</summary>
-
-![RAG](./show/webui_RAG.PNG)
-</details>
-
-<details>
-<summary>2026.04.24 新的 webui, 自定义skills, skills的自选激活。</summary>
-
-日间模式
-
-![white](./show/webui_1.PNG)
-
-黑暗模式
-
-![dark](./show/webui_2.PNG)
-
-</details>
-
-## ✨ 核心亮点
-
-### 🧠 Agentic DAG 任务调度
-
-![task](./show/task_1.gif)
-
-自动将复杂任务分解为可执行的子任务 DAG，支持：
-
-- **智能分解** — LLM 自动分析任务，生成带依赖关系的子任务图
-- **自动链式执行** — SubAgent 完成后自动触发依赖任务，无需人工干预
-- **并行执行** — 并行安全的任务同时运行，最大化效率
-- **动态调整** — 运行中可添加/移除子任务，灵活应对变化
-
-### WebUI
-
-![webui](./show/webui_1.PNG)
-
-### 🔄 经验自进化系统
-
-持续从问题解决经验中学习的自学习系统：
-
-~~~json
-{
-  "id": "exp_86788c0e",
-  "timestamp": "2026-04-20T21:19:17",
-  "tool_name": "exec",
-  "error_type": "argument error",
-  "error_message": "",
-  "params": {},
-  "outcome": "resolved",
-  "resolution": "当使用opencli的scroll命令时，确保只传递一个参数，避免参数过多错误。检查命令调用格式，正确示例为`scroll(distance)`或`scroll(selector)`，而非多个参数。在工具调用前验证参数数量，可参考opencli文档或使用测试命令确认API要求。",
-  "context_summary": "网页自动化执行：使用opencli执行JavaScript命令时参数错误和代码语法/类型错误，通过调整命令和防御性编程解决",
-  "confidence": 0.7,
-  "session_key": "cli:direct",
-  "merged_count": 0,
-  "last_used_at": "2026-04-20T21:19:17",
-  "category": "api",
-  "tags": ["opencli", "scroll", "参数错误", "浏览器自动化"],
-  "use_count": 0,
-  "success_count": 0,
-  "feedback_positive": 0,
-  "feedback_negative": 0
-}
-~~~
-
-- **语义经验搜索** — 向量搜索理解问题意图，而非仅匹配关键词
-- **自动上下文注入** — 相关历史解决方案在需要时自动出现
-- **主动错误诊断** — 工具失败时自动触发已解决经验的建议
-- **智能置信度模型** — 多维评分：使用频率、成功率、时效性、反馈记录
-- **自动分类标签** — 经验按问题类别标记（路径、权限、编码、网络等）
-
-### 🤖 SubAgent 异步执行系统
-
-- **非阻塞执行** — 后台任务不阻塞主对话，用户可继续交互
-- **并发控制** — 可配置最大并发数，防止资源过载
-- **心跳监控** — 自动检测超时任务，防止僵尸进程
-- **自动通知** — 任务完成时自动触发主 Agent 汇总结果
-
-### 💭 Dream 记忆处理
-
-空闲时段的两阶段自主记忆整理：
-
-- **阶段一：分析** — LLM 分析对话历史，提取洞察
-- **阶段二：编辑** — AgentRunner 对记忆文件进行定向编辑
-- **阶段三：经验更新** — 合并相似经验，更新策略文档
-- **向量存储集成** — 跨整理记忆的语义搜索
-
-### 📊 CLI 实时进度显示
-
-任务执行时 CLI 实时显示进度，不干扰主对话流
-
-### ⚙️ 内置配置编辑器
-
-全屏终端配置编辑器，可直接在交互聊天界面中访问：
-
-- 按 `Ctrl+O` 或输入 `/config` 打开编辑器
-- 无需退出聊天会话
-- 编辑提供商设置、模型参数、工具配置等
-- 按 `q` 保存并返回聊天
-
-### 🔌 MCP (Model Context Protocol) 支持
-
-连接外部 MCP 服务器并无缝使用其工具：
-
-- **原生工具包装** — MCP 工具以原生 tinybot 工具形式呈现
-- **多服务器支持** — 同时连接多个 MCP 服务器
-- **自动工具发现** — 自动发现并注册可用工具
-
-## 🚀 基础特性
-
-- **多平台接入** — 内置微信、钉钉、飞书频道，支持插件扩展
-- **丰富的工具** — 文件读写、Shell 执行、浏览器自动化、网页搜索、定时任务等
-- **智能记忆** — 基于向量存储的记忆系统，支持会话整合与语义搜索
-- **多 LLM 支持** — 兼容 OpenAI、DeepSeek、智谱、通义千问、Gemini 等 14+ 家提供商
-- **Skills 系统** — 通过 Markdown 文件定义技能，无需编码即可让 Agent 学会特定工作流
-- **自动化** — 定时任务（Cron）+ 心跳服务，周期性自动执行任务
-- **OpenAI 兼容 API** — 可作为 OpenAI 兼容后端服务运行，与任何 OpenAI 客户端集成
-- **会话管理** — 持久化对话历史，支持断点恢复
-- **安全机制** — 工作区限制、命令审计、加密凭证存储
+| 场景 | 示例 |
+|------|------|
+| 项目理解 | “请阅读 README 和 docs，告诉我这个项目怎么启动” |
+| 文档整理 | “请把使用说明改得更适合新手” |
+| 文件处理 | “请总结这个目录里的 Markdown 文件” |
+| 任务拆解 | “请分析这个问题，列计划并逐步处理” |
+| 知识问答 | “根据我上传的产品文档回答用户问题” |
+| 自动化 | “每天早上 9 点提醒我检查待办事项” |
 
 ## 快速开始
 
+### 1. 安装依赖
+
+本项目使用 uv 管理依赖和运行 Python 命令：
+
 ```bash
-# 安装
 uv sync
-
-# 初始化配置（交互式向导）
-uv run tinybot onboard
-
-# 交互聊天模式
-uv run tinybot agent
-
-# 发送单条消息
-uv run tinybot agent -m "你好"
-
-# 启动网关（多频道 + 定时任务 + 心跳）
-uv run tinybot gateway
-
-# 作为 OpenAI 兼容 API 服务运行
-uv run tinybot api
 ```
 
-## WebUI 使用指南
+### 2. 初始化配置
 
-Tinybot 提供浏览器网页界面，可直接与 AI 助手对话。
+```bash
+uv run tinybot onboard
+```
 
-### 启用 WebUI 的步骤
+新手建议先完成最小配置：
 
-#### 1. 在配置文件中启用 WebSocket 频道
+| 配置 | 建议 |
+|------|------|
+| Provider | 选择你已有密钥的服务，例如 DeepSeek、OpenAI、通义千问 |
+| API Key | 填入对应平台的 API 密钥 |
+| Model | DeepSeek 可先用 `deepseek-chat` |
+| Workspace | 保持默认，或设为你希望 Tinybot 操作文件的目录 |
 
-编辑 `~/.tinybot/config.json` 文件，在 `channels` 下添加：
+检查配置状态：
+
+```bash
+uv run tinybot status
+```
+
+### 3. 启动命令行聊天
+
+```bash
+uv run tinybot agent
+```
+
+也可以只发送一条消息：
+
+```bash
+uv run tinybot agent -m "请用一句话介绍 Tinybot"
+```
+
+### 4. 启动网页界面
+
+先确保配置中启用了 WebSocket 频道：
 
 ```json
 {
@@ -220,101 +86,99 @@ Tinybot 提供浏览器网页界面，可直接与 AI 助手对话。
 }
 ```
 
-#### 2. 启动 Gateway
+然后运行：
 
 ```bash
 uv run tinybot gateway
 ```
 
-#### 3. 打开浏览器
+浏览器访问：
 
-访问 `http://127.0.0.1:18790`
-
-### 可用的 API 接口
-
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/api/sessions` | GET | 获取所有聊天会话 |
-| `/api/sessions/{key}/messages` | GET | 获取会话消息 |
-| `/api/sessions/{key}` | DELETE/PATCH | 删除/更新会话 |
-| `/api/sessions/{key}/clear` | POST | 清空会话历史 |
-| `/api/sessions/{key}/profile` | GET | 获取用户画像 |
-| `/api/config` | GET/PATCH | 获取/更新配置 |
-| `/api/status` | GET | 获取系统状态 |
-| `/api/tools` | GET | 获取可用工具列表 |
-| `/api/skills` | GET | 获取所有技能 |
-| `/api/skills/{name}` | GET | 获取技能详情 |
-| `/api/workspace/files` | GET | 列出工作区文件 |
-| `/ws` | WebSocket | 实时聊天连接 |
-
-### WebSocket 事件
-
-| 事件 | 方向 | 说明 |
-|------|------|------|
-| `new_chat` | 客户端 → 服务端 | 创建新聊天 |
-| `attach` | 客户端 → 服务端 | 加入已有聊天 |
-| `message` | 客户端 → 服务端 | 发送消息 |
-| `interrupt` | 客户端 → 服务端 | 停止 AI 生成 |
-| `ping` | 客户端 → 服务端 | 心跳检测 |
-| `delta` | 服务端 → 客户端 | 流式文本片段 |
-| `stream_end` | 服务端 → 客户端 | 流式输出结束 |
-| `message` | 服务端 → 客户端 | 完整消息 |
-| `file_updated` | 服务端 → 客户端 | 工作区文件变更 |
-
-## 交互聊天命令
-
-在交互模式下，支持以下命令：
-
-| 命令 | 说明 |
-|------|------|
-| `/config` 或 `Ctrl+O` | 打开配置编辑器 |
-| `/help` | 显示可用命令 |
-| `/clear` | 清除对话历史 |
-| `/new` | 开始新对话会话 |
-| `/exit` 或 `:q` | 退出聊天 |
-
-## Skills 技能系统
-
-通过简单的 Markdown 文件定义自定义技能
-
-技能自动加载，当条件匹配时 Agent 会遵循定义的工作流。
-
-### 使用浏览器之前
-
-#### 1. 安装 OpenCLI
-
-```bash
-npm install -g @jackwener/opencli
+```text
+http://127.0.0.1:18790
 ```
 
-#### 2. 安装chrome拓展
+第一次使用更推荐网页界面，因为它能看到会话、设置、知识库、技能和工具状态。
 
-OpenCLI 通过一个轻量级的浏览器桥接扩展程序和一个小型本地守护进程连接到 Chrome/Chromium。该守护进程会在需要时自动启动。
+## 常用命令
 
-1. 从 GitHub 下载最新版本的 `opencli-extension-v{version}.zip` [Releases page](https://github.com/jackwener/opencli/releases).
-2. 解压，打开 `chrome://extensions`，然后启用**开发者模式**.
-3. 点击“加载已解压文件”并选择已解压的文件夹.
+| 命令 | 作用 |
+|------|------|
+| `uv run tinybot onboard` | 初始化或重新配置 |
+| `uv run tinybot status` | 查看配置、工作区和 Provider 状态 |
+| `uv run tinybot agent` | 打开命令行聊天 |
+| `uv run tinybot agent -m "问题"` | 单次提问 |
+| `uv run tinybot gateway` | 启动网页界面、多频道和定时任务 |
+| `uv run tinybot api` | 启动 OpenAI 兼容 API 服务 |
 
-#### 3. 验证设置
+## 核心能力
 
-```bash
-opencli doctor
+### WebUI
+
+![webui](./show/webui_1.PNG)
+
+浏览器界面提供会话管理、设置面板、知识库、技能管理、工具状态和工作区文件查看。
+
+### 任务系统
+
+![task](./show/task_1.gif)
+
+复杂请求会被拆成多个步骤执行，并显示进度。适合项目分析、文档重写、批量整理、测试排查等任务。
+
+### 知识库
+
+知识库可以索引你提供的文档，让 Tinybot 在回答时引用你的资料。适合产品手册、项目文档、制度流程和长期 FAQ。
+
+### 技能系统
+
+技能是写给 Tinybot 的工作说明。它能把你反复强调的流程固定下来，例如会议总结、代码审查、客服回复、周报生成。
+
+### 工具系统
+
+Tinybot 可使用文件、命令、网络搜索、浏览器自动化、MCP 等工具。新手建议设置明确工作区，并开启工作区限制。
+
+## 安全建议
+
+Tinybot 能操作文件和命令，因此建议：
+
+- 把 `agents.defaults.workspace` 设置为明确目录
+- 开启 `tools.restrictToWorkspace`
+- 不要把真实 API Key 提交到公开仓库
+- 让 Tinybot 修改文件前说明范围
+- 对重要文件先使用 Git 或其他方式保留历史
+
+推荐配置：
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "workspace": "~/.tinybot/workspace"
+    }
+  },
+  "tools": {
+    "restrictToWorkspace": true
+  }
+}
 ```
 
-## 经验管理工具
+## 文档
 
-Agent 可以主动管理其学习经验：
-
-| 工具 | 说明 |
-|------|------|
-| `query_experience` | 搜索过去的问题解决经验 |
-| `save_experience` | 保存新的解决方案供未来参考 |
-| `feedback_experience` | 标记经验是否有帮助 |
-| `delete_experience` | 移除过时或错误的经验 |
+- [快速开始](docs/quickstart.md)
+- [网页界面](docs/webui.md)
+- [命令行界面](docs/cli.md)
+- [配置说明](docs/config.md)
+- [AI 服务配置](docs/providers.md)
+- [工具功能](docs/tools.md)
+- [任务系统](docs/tasks.md)
+- [知识库](docs/knowledge.md)
+- [技能系统](docs/skills.md)
+- [网关服务](docs/gateway.md)
 
 ## 环境要求
 
 - Python >= 3.13
+- uv
 
 ## 许可证
 

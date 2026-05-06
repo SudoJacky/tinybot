@@ -59,8 +59,8 @@ def parse_markdown_basic(content: str) -> str:
             placeholders.append(f"<code>{escape(match.group(1))}</code>")
             return f"\x00CODE{len(placeholders) - 1}\x00"
 
-        text = escape(text)
         text = re.sub(r"`([^`]+)`", stash_code, text)
+        text = escape(text)
         text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
         text = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", text)
         text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
@@ -350,7 +350,7 @@ def generate_html(doc_id: str, title: str, title_en: str, content_html: str, all
     <!-- Header -->
     <header class="docs-header">
       <a href="/" class="docs-brand">
-        <div class="brand-mark">T</div>
+        <div class="brand-mark" aria-hidden="true"><img class="brand-logo" src="/assets/logo-mark.svg" alt=""></div>
         <div>
           <h1 class="docs-title">Tinybot</h1>
           <p class="docs-subtitle">Documentation</p>

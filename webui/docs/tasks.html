@@ -16,7 +16,7 @@
     <!-- Header -->
     <header class="docs-header">
       <a href="/" class="docs-brand">
-        <div class="brand-mark">T</div>
+        <div class="brand-mark" aria-hidden="true"><img class="brand-logo" src="/assets/logo-mark.svg" alt=""></div>
         <div>
           <h1 class="docs-title">Tinybot</h1>
           <p class="docs-subtitle">Documentation</p>
@@ -92,100 +92,152 @@
           </header>
           <div class="article-body">
             <h1>任务系统</h1>
-<h2 id="什么是任务系统">什么是任务系统？</h2>
-<p>当你给 AI 一个复杂任务时，AI 会自动将它分解成多个小步骤，然后逐步完成。</p>
-<p><strong>示例：</strong></p>
-<pre><code class="language-">用户：分析这个项目，写一份技术文档
-
-AI 自动分解为：
-1. 扫描项目结构
-2. 分析代码文件
-3. 提取关键信息
-4. 组织文档大纲
-5. 编写各章节
-6. 保存文档</code></pre>
-<hr>
-<h2 id="如何使用">如何使用？</h2>
-<p>直接向 AI 描述你的任务即可，不需要特别操作。AI 会自动判断任务复杂度并分解。</p>
-<h3 id="适合分解的任务">适合分解的任务</h3>
-<ul>
-<li>分析项目并生成报告</li>
-<li>整理多个文件的内容</li>
-<li>执行多步骤的操作流程</li>
-<li>搜索和汇总信息</li>
-</ul>
-<h3 id="不需要分解的任务">不需要分解的任务</h3>
-<ul>
-<li>简单问答</li>
-<li>单个文件操作</li>
-<li>快速查询</li>
-</ul>
-<hr>
-<h2 id="查看任务进度">查看任务进度</h2>
-<h3 id="命令行界面">命令行界面</h3>
-<p>任务执行时会显示进度：</p>
-<pre><code class="language-">任务进度：60%
-正在执行：分析代码
-已完成：扫描目录、读取配置
-待执行：生成报告、保存文件</code></pre>
+<p>任务系统用于处理复杂目标。当你的请求不是一句话能完成时，Tinybot 会尝试拆成多个步骤，按顺序或并行执行，并在界面中显示进度。</p>
+<h2 id="什么是任务系统">什么是任务系统</h2>
+<p>你可以把任务系统理解成“AI 的待办清单”。例如：</p>
+<pre><code class="language-text">请分析这个项目，并写一份面向新手的使用说明。</code></pre>
+<p>Tinybot 可能拆成：</p>
+<ol>
+<li>阅读 README 和 docs</li>
+<li>查看项目命令和配置结构</li>
+<li>判断文档和现状是否一致</li>
+<li>重写快速开始和配置说明</li>
+<li>检查文档格式</li>
+</ol>
+<p>你不需要手动创建这些步骤。只要目标足够明确，Tinybot 会自己决定是否拆分。</p>
+<h2 id="适合交给任务系统的请求">适合交给任务系统的请求</h2>
+<table>
+<thead>
+<tr>
+<th>适合</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>多文件分析</td>
+<td>“请阅读 docs 和 README，找出过期说明”</td>
+</tr>
+<tr>
+<td>生成成果物</td>
+<td>“请写一份部署说明并保存到 docs/deploy.md”</td>
+</tr>
+<tr>
+<td>排查问题</td>
+<td>“请运行测试，定位失败原因并修复”</td>
+</tr>
+<tr>
+<td>长资料整理</td>
+<td>“请把这些会议记录整理成行动项和风险列表”</td>
+</tr>
+<tr>
+<td>需要先调查再修改</td>
+<td>“请根据代码现状更新使用文档”</td>
+</tr>
+</tbody>
+</table>
+<h2 id="不需要任务系统的请求">不需要任务系统的请求</h2>
+<table>
+<thead>
+<tr>
+<th>不太需要</th>
+<th>更合适的问法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>简单问答</td>
+<td>“Tinybot 怎么启动？”</td>
+</tr>
+<tr>
+<td>单个文件小修改</td>
+<td>“把这个标题改成快速开始”</td>
+</tr>
+<tr>
+<td>一次性命令</td>
+<td>“运行 <code>uv run tinybot status</code>”</td>
+</tr>
+</tbody>
+</table>
+<h2 id="怎么写好复杂任务">怎么写好复杂任务</h2>
+<p>建议包含四个信息：</p>
+<table>
+<thead>
+<tr>
+<th>信息</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>目标</td>
+<td>“更新使用文档”</td>
+</tr>
+<tr>
+<td>范围</td>
+<td>“只修改 docs 目录，不改代码”</td>
+</tr>
+<tr>
+<td>读者</td>
+<td>“面向不懂 AI Agent 的用户”</td>
+</tr>
+<tr>
+<td>输出</td>
+<td>“保留 Markdown 格式，补充常见问题”</td>
+</tr>
+</tbody>
+</table>
+<p>完整示例：</p>
+<pre><code class="language-text">请根据当前代码和 README，更新 docs 目录里的使用说明。目标读者是不太懂 AI Agent 的普通用户。重点解释如何安装、配置密钥、启动网页界面、让 AI 读取文件和避免误操作。只修改文档，不改代码。</code></pre>
+<h2 id="查看进度">查看进度</h2>
+<h3 id="命令行">命令行</h3>
+<p>复杂任务执行时，命令行会显示任务进度和当前步骤。你可以看到哪些步骤完成了，哪些还在进行。</p>
 <h3 id="网页界面">网页界面</h3>
-<p>右侧面板会显示当前任务状态。</p>
-<hr>
-<h2 id="任务设置">任务设置</h2>
-<h3 id="最大步骤数">最大步骤数</h3>
-<p>控制 AI 最多能执行多少步骤。默认值足够大多数任务使用。</p>
-<p>如果任务特别复杂，可以适当增加。</p>
-<h3 id="并行执行">并行执行</h3>
-<p>多个独立步骤可以同时执行，加快任务完成速度。</p>
-<hr>
-<h2 id="后台任务">后台任务</h2>
-<p>某些耗时任务可以在后台执行：</p>
-<ul>
-<li>AI 开始后台任务</li>
-<li>你可以继续对话</li>
-<li>任务完成后 AI 会通知你</li>
-</ul>
-<p><strong>示例：</strong></p>
-<pre><code class="language-">用户：分析这个大型日志文件
-
-AI：我会启动后台任务来分析...
-你可以继续和我聊天，完成后我会通知你。
-
-用户：好的，那帮我查一下最近的代码提交
-
-AI：[继续回答其他问题...]
-
-[后台任务完成] → AI总结日志分析结果</code></pre>
-<hr>
+<p>网页界面会显示任务状态、工具调用和部分执行过程。适合观察长任务。</p>
+<h2 id="后台和并行执行">后台和并行执行</h2>
+<p>Tinybot 可以让部分子任务在后台或并行执行。例如一边扫描文件，一边整理已经读到的信息。这样能加快大任务，但也意味着你应该明确范围，避免它在不相关目录里花太多时间。</p>
+<h2 id="中断任务">中断任务</h2>
+<table>
+<thead>
+<tr>
+<th>界面</th>
+<th>操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>命令行</td>
+<td>按 <code>Ctrl+C</code></td>
+</tr>
+<tr>
+<td>网页界面</td>
+<td>点击中断按钮</td>
+</tr>
+</tbody>
+</table>
+<p>中断后可以重新提出更小、更明确的任务。</p>
 <h2 id="常见问题">常见问题</h2>
-<h3 id="任务卡住不动">任务卡住不动？</h3>
-<p>可能是某个步骤遇到问题。可以：</p>
-<ol>
-<li>按 Ctrl+C 中断</li>
-<li>描述任务更清晰</li>
-<li>简化任务要求</li>
-</ol>
-<h3 id="任务执行太慢">任务执行太慢？</h3>
-<p>尝试：</p>
-<ol>
-<li>描述任务更具体</li>
-<li>分成多个小任务</li>
-<li>检查网络连接</li>
-</ol>
-<h3 id="如何中断任务">如何中断任务？</h3>
-<p>命令行按 <code>Ctrl + C</code>，网页界面点击中断按钮。</p>
-<hr>
+<h3 id="任务跑得太久">任务跑得太久</h3>
+<p>常见原因是范围太大。可以改成：</p>
+<pre><code class="language-text">只分析 docs 目录，不读取 .venv、.git、缓存目录。</code></pre>
+<h3 id="结果和预期不一致">结果和预期不一致</h3>
+<p>补充输出格式和判断标准。例如：</p>
+<pre><code class="language-text">请按“问题、原因、建议修改”三列输出，不要直接改文件。</code></pre>
+<h3 id="tinybot-做了太多额外事情">Tinybot 做了太多额外事情</h3>
+<p>在请求中加限制：</p>
+<pre><code class="language-text">只修改 Markdown 文档，不运行测试，不改 Python 代码。</code></pre>
 <h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/tools">工具功能</a> - AI 能做什么</li>
-<li><a href="/docs/skills">技能系统</a> - 自定义 AI 行为</li>
+<li><a href="/docs/tools">工具功能</a>：理解任务执行时会用到哪些工具</li>
+<li><a href="/docs/skills">技能系统</a>：给重复任务固定流程</li>
+<li><a href="/docs/knowledge">知识库</a>：让任务能引用你的长期资料</li>
 </ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么是任务系统" class="toc-item toc-h2">什么是任务系统？</a><a href="#如何使用" class="toc-item toc-h2">如何使用？</a><a href="#适合分解的任务" class="toc-item toc-h3">适合分解的任务</a><a href="#不需要分解的任务" class="toc-item toc-h3">不需要分解的任务</a><a href="#查看任务进度" class="toc-item toc-h2">查看任务进度</a><a href="#命令行界面" class="toc-item toc-h3">命令行界面</a><a href="#网页界面" class="toc-item toc-h3">网页界面</a><a href="#任务设置" class="toc-item toc-h2">任务设置</a><a href="#最大步骤数" class="toc-item toc-h3">最大步骤数</a><a href="#并行执行" class="toc-item toc-h3">并行执行</a><a href="#后台任务" class="toc-item toc-h2">后台任务</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#任务卡住不动" class="toc-item toc-h3">任务卡住不动？</a><a href="#任务执行太慢" class="toc-item toc-h3">任务执行太慢？</a><a href="#如何中断任务" class="toc-item toc-h3">如何中断任务？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#什么是任务系统" class="toc-item toc-h2">什么是任务系统</a><a href="#适合交给任务系统的请求" class="toc-item toc-h2">适合交给任务系统的请求</a><a href="#不需要任务系统的请求" class="toc-item toc-h2">不需要任务系统的请求</a><a href="#怎么写好复杂任务" class="toc-item toc-h2">怎么写好复杂任务</a><a href="#查看进度" class="toc-item toc-h2">查看进度</a><a href="#命令行" class="toc-item toc-h3">命令行</a><a href="#网页界面" class="toc-item toc-h3">网页界面</a><a href="#后台和并行执行" class="toc-item toc-h2">后台和并行执行</a><a href="#中断任务" class="toc-item toc-h2">中断任务</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#任务跑得太久" class="toc-item toc-h3">任务跑得太久</a><a href="#结果和预期不一致" class="toc-item toc-h3">结果和预期不一致</a><a href="#tinybot-做了太多额外事情" class="toc-item toc-h3">Tinybot 做了太多额外事情</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

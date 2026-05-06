@@ -16,7 +16,7 @@
     <!-- Header -->
     <header class="docs-header">
       <a href="/" class="docs-brand">
-        <div class="brand-mark">T</div>
+        <div class="brand-mark" aria-hidden="true"><img class="brand-logo" src="/assets/logo-mark.svg" alt=""></div>
         <div>
           <h1 class="docs-title">Tinybot</h1>
           <p class="docs-subtitle">Documentation</p>
@@ -92,17 +92,84 @@
           </header>
           <div class="article-body">
             <h1>配置说明</h1>
+<p>配置决定 Tinybot 使用哪个模型、能访问哪些工具、在哪里读写文件，以及网页服务如何启动。新手不需要一次理解全部配置，先掌握模型、密钥、工作区和安全限制即可。</p>
 <h2 id="配置文件位置">配置文件位置</h2>
-<p>配置文件在 <code>~/.tinybot/config.json</code></p>
-<h3 id="查看配置">查看配置</h3>
-<pre><code class="language-bash">uv run tinybot config show</code></pre>
-<h3 id="编辑配置">编辑配置</h3>
-<pre><code class="language-bash">uv run tinybot config edit</code></pre>
-<p>或在聊天中输入 <code>/config</code> 打开配置编辑器。</p>
-<hr>
-<h2 id="基础配置">基础配置</h2>
-<h3 id="选择-ai-模型">选择 AI 模型</h3>
-<p>最重要的配置是选择使用哪个 AI 模型：</p>
+<p>默认配置文件：</p>
+<pre><code class="language-text">~/.tinybot/config.json</code></pre>
+<p>查看当前状态：</p>
+<pre><code class="language-bash">uv run tinybot status</code></pre>
+<p>重新打开初始化向导：</p>
+<pre><code class="language-bash">uv run tinybot onboard</code></pre>
+<p>在命令行聊天里也可以输入 <code>/config</code> 或按 <code>Ctrl+O</code> 打开配置编辑器。</p>
+<h2 id="最小可用配置">最小可用配置</h2>
+<p>一个能正常对话的最小配置需要三类信息：</p>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Provider API Key</td>
+<td>让 Tinybot 能调用 AI 服务</td>
+</tr>
+<tr>
+<td>Model</td>
+<td>告诉 Tinybot 使用哪个模型</td>
+</tr>
+<tr>
+<td>Workspace</td>
+<td>告诉 Tinybot 可以在哪个目录工作</td>
+</tr>
+</tbody>
+</table>
+<p>示例：</p>
+<pre><code class="language-json">{
+  &quot;agents&quot;: {
+    &quot;defaults&quot;: {
+      &quot;model&quot;: &quot;deepseek-chat&quot;,
+      &quot;workspace&quot;: &quot;~/.tinybot/workspace&quot;,
+      &quot;timezone&quot;: &quot;Asia/Shanghai&quot;
+    }
+  },
+  &quot;providers&quot;: {
+    &quot;deepseek&quot;: {
+      &quot;apiKey&quot;: &quot;你的 DeepSeek 密钥&quot;
+    }
+  }
+}</code></pre>
+<p>配置文件支持 camelCase 和 snake_case。上面的 <code>apiKey</code> 也可以写成 <code>api_key</code>。</p>
+<h2 id="选择模型">选择模型</h2>
+<p>Tinybot 会根据模型名称自动匹配 Provider。新手可以按下面选择：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐模型</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>日常聊天、写文档、总结</td>
+<td><code>deepseek-chat</code></td>
+</tr>
+<tr>
+<td>复杂分析、代码推理、多步骤规划</td>
+<td><code>deepseek-reasoner</code></td>
+</tr>
+<tr>
+<td>已有 OpenAI 账号</td>
+<td><code>gpt-4o</code> 或其他 OpenAI 模型</td>
+</tr>
+<tr>
+<td>通义千问用户</td>
+<td><code>qwen-max</code> 或你账号可用的 Qwen 模型</td>
+</tr>
+</tbody>
+</table>
+<p>配置位置：</p>
 <pre><code class="language-json">{
   &quot;agents&quot;: {
     &quot;defaults&quot;: {
@@ -110,49 +177,25 @@
     }
   }
 }</code></pre>
-<p><strong>常用模型：</strong></p>
-<table>
-<thead>
-<tr>
-<th>模型</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>deepseek-chat</code></td>
-<td>DeepSeek 对话模型</td>
-</tr>
-<tr>
-<td><code>deepseek-reasoner</code></td>
-<td>DeepSeek 深度推理</td>
-</tr>
-<tr>
-<td><code>gpt-4o</code></td>
-<td>OpenAI 最新模型</td>
-</tr>
-<tr>
-<td><code>qwen-max</code></td>
-<td>通义千问</td>
-</tr>
-</tbody>
-</table>
-<h3 id="配置-api-密钥">配置 API 密钥</h3>
-<p><strong>推荐方式：环境变量</strong></p>
-<p>设置环境变量更安全：</p>
-<pre><code class="language-bash">export DEEPSEEK_API_KEY=&quot;你的密钥&quot;</code></pre>
-<p><strong>配置文件方式：</strong></p>
+<p>如果模型名称和密钥不匹配，例如使用 <code>gpt-4o</code> 但只配置了 DeepSeek 密钥，就会调用失败。</p>
+<h2 id="配置-api-密钥">配置 API 密钥</h2>
+<p>推荐用初始化向导或网页设置填写密钥。也可以手动写配置文件：</p>
 <pre><code class="language-json">{
   &quot;providers&quot;: {
     &quot;deepseek&quot;: {
-      &quot;api_key&quot;: &quot;你的密钥&quot;
+      &quot;apiKey&quot;: &quot;你的密钥&quot;
+    },
+    &quot;openai&quot;: {
+      &quot;apiKey&quot;: &quot;你的密钥&quot;
+    },
+    &quot;dashscope&quot;: {
+      &quot;apiKey&quot;: &quot;你的密钥&quot;
     }
   }
 }</code></pre>
-<hr>
-<h2 id="常用设置">常用设置</h2>
-<h3 id="工作目录">工作目录</h3>
-<p>设置 AI 操作文件的位置：</p>
+<p>如果你把项目分享给别人，提交代码前一定不要把真实密钥提交到 Git。</p>
+<h2 id="工作区和安全限制">工作区和安全限制</h2>
+<p>工作区是 Tinybot 读写文件时默认使用的目录：</p>
 <pre><code class="language-json">{
   &quot;agents&quot;: {
     &quot;defaults&quot;: {
@@ -160,178 +203,140 @@
     }
   }
 }</code></pre>
-<h3 id="时区设置">时区设置</h3>
-<p>让 AI 知道你的时区：</p>
+<p>新手建议同时开启工作区限制：</p>
+<pre><code class="language-json">{
+  &quot;tools&quot;: {
+    &quot;restrictToWorkspace&quot;: true
+  }
+}</code></pre>
+<p>这样 Tinybot 的文件操作会尽量限制在工作区内，降低误改系统文件或其他项目文件的风险。</p>
+<h2 id="常用-agent-参数">常用 Agent 参数</h2>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>默认倾向</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>temperature</code></td>
+<td><code>0.1</code></td>
+<td>越低越稳定，适合编程和严肃任务</td>
+</tr>
+<tr>
+<td><code>maxTokens</code></td>
+<td><code>8192</code></td>
+<td>单次回复最大长度</td>
+</tr>
+<tr>
+<td><code>contextWindowTokens</code></td>
+<td><code>65536</code></td>
+<td>可保留的上下文长度</td>
+</tr>
+<tr>
+<td><code>maxToolIterations</code></td>
+<td><code>200</code></td>
+<td>一轮任务最多调用多少次工具</td>
+</tr>
+<tr>
+<td><code>reasoningEffort</code></td>
+<td>空或模型支持值</td>
+<td>推理模型可设置 <code>low</code>、<code>medium</code>、<code>high</code></td>
+</tr>
+<tr>
+<td><code>timezone</code></td>
+<td><code>UTC</code></td>
+<td>建议中国用户设为 <code>Asia/Shanghai</code></td>
+</tr>
+</tbody>
+</table>
+<p>示例：</p>
 <pre><code class="language-json">{
   &quot;agents&quot;: {
     &quot;defaults&quot;: {
+      &quot;temperature&quot;: 0.1,
+      &quot;maxToolIterations&quot;: 100,
       &quot;timezone&quot;: &quot;Asia/Shanghai&quot;
     }
   }
 }</code></pre>
-<p><strong>常用时区：</strong></p>
-<table>
-<thead>
-<tr>
-<th>时区</th>
-<th>地区</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>Asia/Shanghai</code></td>
-<td>中国</td>
-</tr>
-<tr>
-<td><code>Asia/Tokyo</code></td>
-<td>日本</td>
-</tr>
-<tr>
-<td><code>America/New_York</code></td>
-<td>美国东部</td>
-</tr>
-</tbody>
-</table>
-<hr>
-<h2 id="ai-行为设置">AI 行为设置</h2>
-<h3 id="回复长度">回复长度</h3>
-<p>控制 AI 单次回复的最大长度：</p>
-<pre><code class="language-json">{
-  &quot;agents&quot;: {
-    &quot;defaults&quot;: {
-      &quot;max_tokens&quot;: 4096
-    }
-  }
-}</code></pre>
-<table>
-<thead>
-<tr>
-<th>值</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>1024</td>
-<td>简短回复</td>
-</tr>
-<tr>
-<td>4096</td>
-<td>中等长度</td>
-</tr>
-<tr>
-<td>8192</td>
-<td>详细回复</td>
-</tr>
-</tbody>
-</table>
-<h3 id="创造性控制">创造性控制</h3>
-<p>控制 AI 回复的随机性：</p>
-<pre><code class="language-json">{
-  &quot;agents&quot;: {
-    &quot;defaults&quot;: {
-      &quot;temperature&quot;: 0.1
-    }
-  }
-}</code></pre>
-<table>
-<thead>
-<tr>
-<th>值</th>
-<th>说明</th>
-<th>适用场景</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>0 ~ 0.3</td>
-<td>稳定、确定</td>
-<td>编程、问答</td>
-</tr>
-<tr>
-<td>0.5 ~ 0.7</td>
-<td>平衡</td>
-<td>一般对话</td>
-</tr>
-<tr>
-<td>0.8 ~ 1.0</td>
-<td>有创意</td>
-<td>写作、创意</td>
-</tr>
-</tbody>
-</table>
-<h3 id="深度思考模式">深度思考模式</h3>
-<p>让 AI 进行更深入的推理：</p>
-<pre><code class="language-json">{
-  &quot;agents&quot;: {
-    &quot;defaults&quot;: {
-      &quot;reasoning_effort&quot;: &quot;medium&quot;
-    }
-  }
-}</code></pre>
-<table>
-<thead>
-<tr>
-<th>值</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>low</code></td>
-<td>快速思考</td>
-</tr>
-<tr>
-<td><code>medium</code></td>
-<td>平衡</td>
-</tr>
-<tr>
-<td><code>high</code></td>
-<td>深度思考</td>
-</tr>
-</tbody>
-</table>
-<p>仅部分模型支持此功能。</p>
-<hr>
-<h2 id="工具设置">工具设置</h2>
-<h3 id="网络搜索">网络搜索</h3>
-<p>控制 AI 能否搜索网络：</p>
+<h2 id="工具配置">工具配置</h2>
+<p>Tinybot 的工具能力由 <code>tools</code> 控制：</p>
 <pre><code class="language-json">{
   &quot;tools&quot;: {
     &quot;web&quot;: {
-      &quot;enable&quot;: true
+      &quot;enable&quot;: true,
+      &quot;proxy&quot;: null,
+      &quot;search&quot;: {
+        &quot;provider&quot;: &quot;duckduckgo&quot;,
+        &quot;maxResults&quot;: 5
+      }
+    },
+    &quot;exec&quot;: {
+      &quot;enable&quot;: true,
+      &quot;timeout&quot;: 60
+    },
+    &quot;restrictToWorkspace&quot;: true
+  }
+}</code></pre>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools.web.enable</code></td>
+<td>需要联网搜索时开启</td>
+</tr>
+<tr>
+<td><code>tools.exec.enable</code></td>
+<td>需要执行命令时开启；不放心可以关闭</td>
+</tr>
+<tr>
+<td><code>tools.exec.timeout</code></td>
+<td>命令最长运行时间，默认 60 秒</td>
+</tr>
+<tr>
+<td><code>tools.restrictToWorkspace</code></td>
+<td>新手建议开启</td>
+</tr>
+</tbody>
+</table>
+<h2 id="网页界面配置">网页界面配置</h2>
+<p>网页界面由 WebSocket 频道提供：</p>
+<pre><code class="language-json">{
+  &quot;channels&quot;: {
+    &quot;websocket&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;host&quot;: &quot;127.0.0.1&quot;,
+      &quot;port&quot;: 18790
     }
   }
 }</code></pre>
-<h3 id="代理设置">代理设置</h3>
-<p>如果网络受限，配置代理：</p>
-<pre><code class="language-json">{
-  &quot;tools&quot;: {
-    &quot;web&quot;: {
-      &quot;proxy&quot;: &quot;http://127.0.0.1:7890&quot;
-    }
-  }
-}</code></pre>
-<h3 id="安全限制">安全限制</h3>
-<p>限制 AI 只能在工作目录操作：</p>
-<pre><code class="language-json">{
-  &quot;tools&quot;: {
-    &quot;restrict_to_workspace&quot;: true
-  }
-}</code></pre>
-<hr>
-<h2 id="知识库设置">知识库设置</h2>
-<p>启用知识库：</p>
+<p><code>gateway.port</code> 是网关服务配置，WebSocket 频道也有自己的 <code>port</code>。通常保持二者一致或只使用 WebSocket 频道默认值即可。</p>
+<p>启动：</p>
+<pre><code class="language-bash">uv run tinybot gateway</code></pre>
+<p>访问：</p>
+<pre><code class="language-text">http://127.0.0.1:18790</code></pre>
+<h2 id="知识库配置">知识库配置</h2>
+<p>知识库默认关闭。需要让 Tinybot 引用你的文档时再开启：</p>
 <pre><code class="language-json">{
   &quot;knowledge&quot;: {
     &quot;enabled&quot;: true,
-    &quot;auto_retrieve&quot;: true
+    &quot;autoRetrieve&quot;: true,
+    &quot;maxChunks&quot;: 5,
+    &quot;retrievalMode&quot;: &quot;hybrid&quot;
   }
 }</code></pre>
 <table>
 <thead>
 <tr>
-<th>设置</th>
+<th>配置</th>
 <th>说明</th>
 </tr>
 </thead>
@@ -341,97 +346,62 @@
 <td>是否启用知识库</td>
 </tr>
 <tr>
-<td><code>auto_retrieve</code></td>
-<td>对话时自动搜索知识</td>
+<td><code>autoRetrieve</code></td>
+<td>每次提问时是否自动检索相关文档</td>
+</tr>
+<tr>
+<td><code>maxChunks</code></td>
+<td>每次最多取回多少片段</td>
+</tr>
+<tr>
+<td><code>retrievalMode</code></td>
+<td><code>hybrid</code> 适合大多数场景</td>
 </tr>
 </tbody>
 </table>
-<hr>
-<h2 id="网关设置">网关设置</h2>
-<p>网页界面和端口设置：</p>
-<pre><code class="language-json">{
-  &quot;gateway&quot;: {
-    &quot;port&quot;: 18790
-  }
-}</code></pre>
-<hr>
-<h2 id="ai-服务配置">AI 服务配置</h2>
-<p>不同 AI 服务需要配置对应的密钥：</p>
-<h3 id="deepseek">DeepSeek</h3>
-<pre><code class="language-json">{
-  &quot;providers&quot;: {
-    &quot;deepseek&quot;: {
-      &quot;api_key&quot;: &quot;你的密钥&quot;
-    }
-  }
-}</code></pre>
-<p>环境变量：<code>DEEPSEEK_API_KEY</code></p>
-<h3 id="openai">OpenAI</h3>
-<pre><code class="language-json">{
-  &quot;providers&quot;: {
-    &quot;openai&quot;: {
-      &quot;api_key&quot;: &quot;你的密钥&quot;
-    }
-  }
-}</code></pre>
-<p>环境变量：<code>OPENAI_API_KEY</code></p>
-<h3 id="通义千问">通义千问</h3>
-<pre><code class="language-json">{
-  &quot;providers&quot;: {
-    &quot;dashscope&quot;: {
-      &quot;api_key&quot;: &quot;你的密钥&quot;
-    }
-  }
-}</code></pre>
-<p>环境变量：<code>DASHSCOPE_API_KEY</code></p>
-<h3 id="ollama-本地模型">Ollama 本地模型</h3>
-<pre><code class="language-json">{
-  &quot;providers&quot;: {
-    &quot;ollama&quot;: {
-      &quot;api_base&quot;: &quot;http://localhost:11434/v1&quot;
-    }
-  }
-}</code></pre>
-<p>本地模型无需 API 密钥。</p>
-<hr>
-<h2 id="配置编辑器">配置编辑器</h2>
-<p>在聊天中按 <code>Ctrl+O</code> 或输入 <code>/config</code> 打开配置界面：</p>
-<p>-分组显示各项设置</p>
-<ul>
-<li>可直接编辑修改</li>
-<li>自动验证格式</li>
-<li>按 <code>q</code> 保存退出</li>
-</ul>
-<hr>
-<h2 id="网页界面配置">网页界面配置</h2>
-<p>在网页界面点击设置按钮：</p>
-<ul>
-<li>查看所有配置项</li>
-<li>实时编辑保存</li>
-<li>分组折叠显示</li>
-</ul>
-<hr>
 <h2 id="常见问题">常见问题</h2>
-<h3 id="配置错误怎么办">配置错误怎么办？</h3>
-<p>删除配置文件重新初始化：</p>
-<pre><code class="language-bash">rm ~/.tinybot/config.json
-uv run tinybot onboard</code></pre>
-<h3 id="如何快速切换模型">如何快速切换模型？</h3>
-<p>在配置编辑器中修改 <code>model</code> 参数。</p>
-<h3 id="api-密钥泄露风险">API 密钥泄露风险？</h3>
-<p>使用环境变量而不是直接写在配置文件中。</p>
-<hr>
+<h3 id="配置改坏了怎么办">配置改坏了怎么办</h3>
+<p>先备份旧配置，再重新初始化：</p>
+<pre><code class="language-bash">uv run tinybot onboard</code></pre>
+<p>如果要完全重来，可以删除 <code>~/.tinybot/config.json</code> 后再执行初始化。删除前请确认里面没有你还需要的配置。</p>
+<h3 id="设置了环境变量但-tinybot-没读到">设置了环境变量但 Tinybot 没读到</h3>
+<p>当前配置 schema 主要从 <code>config.json</code> 读取 Provider 密钥。最稳妥的方式是通过 <code>uv run tinybot onboard</code> 或网页设置写入配置文件。</p>
+<h3 id="更换模型后报错">更换模型后报错</h3>
+<p>检查模型和 Provider 是否匹配。例如：</p>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>需要的密钥</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>deepseek-chat</code></td>
+<td>DeepSeek</td>
+</tr>
+<tr>
+<td><code>gpt-4o</code></td>
+<td>OpenAI</td>
+</tr>
+<tr>
+<td><code>qwen-max</code></td>
+<td>DashScope/通义千问</td>
+</tr>
+</tbody>
+</table>
 <h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/providers">AI 服务配置</a> - 各服务详细说明</li>
-<li><a href="/docs/quickstart">快速开始</a> - 开始使用</li>
+<li><a href="/docs/providers">AI 服务配置</a>：选择和配置 Provider</li>
+<li><a href="/docs/tools">工具功能</a>：理解工具权限和安全边界</li>
+<li><a href="/docs/webui">网页界面</a>：通过浏览器修改配置</li>
 </ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#配置文件位置" class="toc-item toc-h2">配置文件位置</a><a href="#查看配置" class="toc-item toc-h3">查看配置</a><a href="#编辑配置" class="toc-item toc-h3">编辑配置</a><a href="#基础配置" class="toc-item toc-h2">基础配置</a><a href="#选择-ai-模型" class="toc-item toc-h3">选择 AI 模型</a><a href="#配置-api-密钥" class="toc-item toc-h3">配置 API 密钥</a><a href="#常用设置" class="toc-item toc-h2">常用设置</a><a href="#工作目录" class="toc-item toc-h3">工作目录</a><a href="#时区设置" class="toc-item toc-h3">时区设置</a><a href="#ai-行为设置" class="toc-item toc-h2">AI 行为设置</a><a href="#回复长度" class="toc-item toc-h3">回复长度</a><a href="#创造性控制" class="toc-item toc-h3">创造性控制</a><a href="#深度思考模式" class="toc-item toc-h3">深度思考模式</a><a href="#工具设置" class="toc-item toc-h2">工具设置</a><a href="#网络搜索" class="toc-item toc-h3">网络搜索</a><a href="#代理设置" class="toc-item toc-h3">代理设置</a><a href="#安全限制" class="toc-item toc-h3">安全限制</a><a href="#知识库设置" class="toc-item toc-h2">知识库设置</a><a href="#网关设置" class="toc-item toc-h2">网关设置</a><a href="#ai-服务配置" class="toc-item toc-h2">AI 服务配置</a><a href="#deepseek" class="toc-item toc-h3">DeepSeek</a><a href="#openai" class="toc-item toc-h3">OpenAI</a><a href="#通义千问" class="toc-item toc-h3">通义千问</a><a href="#ollama-本地模型" class="toc-item toc-h3">Ollama 本地模型</a><a href="#配置编辑器" class="toc-item toc-h2">配置编辑器</a><a href="#网页界面配置" class="toc-item toc-h2">网页界面配置</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#配置错误怎么办" class="toc-item toc-h3">配置错误怎么办？</a><a href="#如何快速切换模型" class="toc-item toc-h3">如何快速切换模型？</a><a href="#api-密钥泄露风险" class="toc-item toc-h3">API 密钥泄露风险？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#配置文件位置" class="toc-item toc-h2">配置文件位置</a><a href="#最小可用配置" class="toc-item toc-h2">最小可用配置</a><a href="#选择模型" class="toc-item toc-h2">选择模型</a><a href="#配置-api-密钥" class="toc-item toc-h2">配置 API 密钥</a><a href="#工作区和安全限制" class="toc-item toc-h2">工作区和安全限制</a><a href="#常用-agent-参数" class="toc-item toc-h2">常用 Agent 参数</a><a href="#工具配置" class="toc-item toc-h2">工具配置</a><a href="#网页界面配置" class="toc-item toc-h2">网页界面配置</a><a href="#知识库配置" class="toc-item toc-h2">知识库配置</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#配置改坏了怎么办" class="toc-item toc-h3">配置改坏了怎么办</a><a href="#设置了环境变量但-tinybot-没读到" class="toc-item toc-h3">设置了环境变量但 Tinybot 没读到</a><a href="#更换模型后报错" class="toc-item toc-h3">更换模型后报错</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

@@ -16,7 +16,7 @@
     <!-- Header -->
     <header class="docs-header">
       <a href="/" class="docs-brand">
-        <div class="brand-mark">T</div>
+        <div class="brand-mark" aria-hidden="true"><img class="brand-logo" src="/assets/logo-mark.svg" alt=""></div>
         <div>
           <h1 class="docs-title">Tinybot</h1>
           <p class="docs-subtitle">Documentation</p>
@@ -92,94 +92,190 @@
           </header>
           <div class="article-body">
             <h1>网页界面</h1>
+<p>网页界面适合大多数新手。它比命令行更直观，可以同时看到聊天记录、设置、知识库、技能、工具和任务状态。</p>
 <h2 id="启动网页界面">启动网页界面</h2>
-<p>运行以下命令启动：</p>
+<p>网页界面由 WebSocket 频道提供。先确认配置中有：</p>
+<pre><code class="language-json">{
+  &quot;channels&quot;: {
+    &quot;websocket&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;host&quot;: &quot;127.0.0.1&quot;,
+      &quot;port&quot;: 18790
+    }
+  }
+}</code></pre>
+<p>然后启动网关：</p>
 <pre><code class="language-bash">uv run tinybot gateway</code></pre>
-<p>然后在浏览器打开 <code>http://127.0.0.1:18790</code></p>
-<hr>
-<h2 id="界面介绍">界面介绍</h2>
-<p>网页界面分为几个区域：</p>
+<p>浏览器打开：</p>
+<pre><code class="language-text">http://127.0.0.1:18790</code></pre>
+<p>如果你只是本机使用，<code>host</code> 建议保持 <code>127.0.0.1</code>，不要改成公网可访问地址。</p>
+<h2 id="界面区域">界面区域</h2>
 <table>
 <thead>
 <tr>
 <th>区域</th>
-<th>功能</th>
+<th>用途</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>左侧</strong></td>
-<td>会话列表、历史记录</td>
+<td>左侧会话列表</td>
+<td>新建会话、切换历史会话、继续之前的对话</td>
 </tr>
 <tr>
-<td><strong>中间</strong></td>
-<td>聊天对话区域</td>
+<td>中间聊天区</td>
+<td>输入需求、查看 Tinybot 的回复和执行过程</td>
 </tr>
 <tr>
-<td><strong>右侧</strong></td>
-<td>工具、知识库、技能面板</td>
+<td>右侧面板</td>
+<td>管理工具、知识库、技能、设置和工作区文件</td>
+</tr>
+<tr>
+<td>顶部或状态区</td>
+<td>查看当前模型、连接状态、任务状态</td>
 </tr>
 </tbody>
 </table>
-<hr>
-<h2 id="基本使用">基本使用</h2>
-<h3 id="发送消息">发送消息</h3>
-<p>在底部输入框输入你的问题，点击发送或按回车键。AI 会实时回复。</p>
-<h3 id="新建对话">新建对话</h3>
-<p>点击左侧的&quot;新建会话&quot;按钮开始新的对话。</p>
-<h3 id="查看历史">查看历史</h3>
-<p>左侧会话列表显示所有历史对话，点击即可继续之前的对话。</p>
-<hr>
-<h2 id="侧边功能面板">侧边功能面板</h2>
-<p>右侧面板提供多个功能：</p>
-<h3 id="工具面板">工具面板</h3>
-<p>查看 AI 可以使用的所有工具，比如搜索网页、读取文件等。</p>
-<h3 id="知识库面板">知识库面板</h3>
-<p>管理你的知识文档：</p>
-<ul>
-<li>添加新文档</li>
-<li>查看已有文档</li>
-<li>测试检索效果</li>
-</ul>
-<h3 id="技能面板">技能面板</h3>
-<p>查看和管理 AI 的技能：</p>
-<ul>
-<li>查看可用技能列表</li>
-<li>启用或禁用技能</li>
-</ul>
-<h3 id="设置面板">设置面板</h3>
-<p>修改配置，包括：</p>
-<ul>
-<li>更换 AI 模型</li>
-<li>设置 API 密钥</li>
-<li>调整其他参数</li>
-</ul>
-<hr>
-<h2 id="主题和语言">主题和语言</h2>
-<h3 id="切换主题">切换主题</h3>
-<p>点击右下角按钮切换亮色/暗色主题。</p>
-<h3 id="切换语言">切换语言</h3>
-<p>点击语言按钮切换中文/英文界面。</p>
-<hr>
+<h2 id="第一次使用流程">第一次使用流程</h2>
+<ol>
+<li>打开网页后先进入设置面板</li>
+<li>确认 Provider、API Key、Model 已配置</li>
+<li>回到聊天区，发送一条简单消息测试</li>
+<li>再尝试让 Tinybot 读取工作区或整理文档</li>
+</ol>
+<p>测试消息示例：</p>
+<pre><code class="language-text">你好，请告诉我你当前使用的模型，并说明你能帮我做什么。</code></pre>
+<p>如果它能正常回复，再尝试：</p>
+<pre><code class="language-text">请阅读当前工作区的 README，帮我总结项目用途和启动方式。</code></pre>
+<h2 id="会话管理">会话管理</h2>
+<p>网页界面会保存会话历史。你可以：</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新建会话</td>
+<td>用于开始一个新的主题</td>
+</tr>
+<tr>
+<td>切换会话</td>
+<td>回到之前的上下文继续提问</td>
+</tr>
+<tr>
+<td>清空会话</td>
+<td>删除当前会话的历史上下文</td>
+</tr>
+<tr>
+<td>删除会话</td>
+<td>移除不再需要的历史记录</td>
+</tr>
+</tbody>
+</table>
+<p>建议不同任务使用不同会话。例如“项目分析”“写文档”“日常问答”分开，这样上下文更清晰。</p>
+<h2 id="右侧功能面板">右侧功能面板</h2>
+<h3 id="设置">设置</h3>
+<p>用于修改模型、密钥、工作区和工具开关。新手最常用的是：</p>
+<table>
+<thead>
+<tr>
+<th>设置</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>providers.*.apiKey</code></td>
+<td>配置对应 AI 服务的密钥</td>
+</tr>
+<tr>
+<td><code>agents.defaults.model</code></td>
+<td>选择模型</td>
+</tr>
+<tr>
+<td><code>agents.defaults.workspace</code></td>
+<td>设置文件操作范围</td>
+</tr>
+<tr>
+<td><code>tools.restrictToWorkspace</code></td>
+<td>限制 Tinybot 只能操作工作区</td>
+</tr>
+</tbody>
+</table>
+<h3 id="工具">工具</h3>
+<p>显示 Tinybot 当前能使用的工具。工具包括文件操作、命令执行、网络搜索、MCP 扩展等。工具越多，能力越强，但也更需要你明确授权范围。</p>
+<h3 id="知识库">知识库</h3>
+<p>用于让 Tinybot 引用你提供的资料回答问题。适合放产品手册、项目说明、流程规范、会议资料等。</p>
+<h3 id="技能">技能</h3>
+<p>技能是行为说明。你可以启用、禁用或创建技能，让 Tinybot 在特定场景下按固定流程工作。</p>
+<h3 id="工作区文件">工作区文件</h3>
+<p>用于查看 Tinybot 能访问的文件范围。让 Agent 修改文件前，建议先确认工作区指向正确目录。</p>
+<h2 id="什么时候使用网页界面">什么时候使用网页界面</h2>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐程度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>第一次配置 Tinybot</td>
+<td>推荐</td>
+</tr>
+<tr>
+<td>长时间和 AI 协作</td>
+<td>推荐</td>
+</tr>
+<tr>
+<td>管理知识库和技能</td>
+<td>推荐</td>
+</tr>
+<tr>
+<td>快速问一句话</td>
+<td>命令行 <code>agent -m</code> 更快</td>
+</tr>
+<tr>
+<td>作为 API 后端集成</td>
+<td>使用 <code>tinybot api</code></td>
+</tr>
+</tbody>
+</table>
 <h2 id="常见问题">常见问题</h2>
-<h3 id="无法访问网页">无法访问网页？</h3>
-<p>确保已启动 gateway 服务，且端口没有被其他程序占用。</p>
-<h3 id="ai-不回复">AI 不回复？</h3>
-<p>检查是否正确配置了 API 密钥。可在设置面板查看。</p>
-<h3 id="如何更换模型">如何更换模型？</h3>
-<p>在设置面板的 Agent 配置中修改 model 参数。</p>
-<hr>
+<h3 id="浏览器打不开">浏览器打不开</h3>
+<p>检查：</p>
+<ol>
+<li>是否启动了 <code>uv run tinybot gateway</code></li>
+<li>WebSocket 频道是否启用</li>
+<li>端口是否被占用</li>
+<li>地址是否写成了 <code>http://127.0.0.1:18790</code></li>
+</ol>
+<h3 id="页面能打开-但-ai-不回复">页面能打开，但 AI 不回复</h3>
+<p>检查：</p>
+<ol>
+<li>API Key 是否正确</li>
+<li>模型名称是否匹配 Provider</li>
+<li>账户余额是否足够</li>
+<li>后端终端是否有错误日志</li>
+</ol>
+<h3 id="修改设置后没有立即生效">修改设置后没有立即生效</h3>
+<p>模型和密钥通常可以动态更新。少数网关、频道或工具配置可能需要重启：</p>
+<pre><code class="language-bash">uv run tinybot gateway</code></pre>
 <h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/knowledge">知识库</a> - 添加你的文档让 AI 学习</li>
-<li><a href="/docs/config">配置说明</a> - 详细配置选项</li>
+<li><a href="/docs/knowledge">知识库</a>：把自己的文档交给 Tinybot 使用</li>
+<li><a href="/docs/skills">技能系统</a>：让 Tinybot 按固定工作流办事</li>
+<li><a href="/docs/config">配置说明</a>：理解每个常用配置项</li>
 </ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#启动网页界面" class="toc-item toc-h2">启动网页界面</a><a href="#界面介绍" class="toc-item toc-h2">界面介绍</a><a href="#基本使用" class="toc-item toc-h2">基本使用</a><a href="#发送消息" class="toc-item toc-h3">发送消息</a><a href="#新建对话" class="toc-item toc-h3">新建对话</a><a href="#查看历史" class="toc-item toc-h3">查看历史</a><a href="#侧边功能面板" class="toc-item toc-h2">侧边功能面板</a><a href="#工具面板" class="toc-item toc-h3">工具面板</a><a href="#知识库面板" class="toc-item toc-h3">知识库面板</a><a href="#技能面板" class="toc-item toc-h3">技能面板</a><a href="#设置面板" class="toc-item toc-h3">设置面板</a><a href="#主题和语言" class="toc-item toc-h2">主题和语言</a><a href="#切换主题" class="toc-item toc-h3">切换主题</a><a href="#切换语言" class="toc-item toc-h3">切换语言</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#无法访问网页" class="toc-item toc-h3">无法访问网页？</a><a href="#ai-不回复" class="toc-item toc-h3">AI 不回复？</a><a href="#如何更换模型" class="toc-item toc-h3">如何更换模型？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#启动网页界面" class="toc-item toc-h2">启动网页界面</a><a href="#界面区域" class="toc-item toc-h2">界面区域</a><a href="#第一次使用流程" class="toc-item toc-h2">第一次使用流程</a><a href="#会话管理" class="toc-item toc-h2">会话管理</a><a href="#右侧功能面板" class="toc-item toc-h2">右侧功能面板</a><a href="#设置" class="toc-item toc-h3">设置</a><a href="#工具" class="toc-item toc-h3">工具</a><a href="#知识库" class="toc-item toc-h3">知识库</a><a href="#技能" class="toc-item toc-h3">技能</a><a href="#工作区文件" class="toc-item toc-h3">工作区文件</a><a href="#什么时候使用网页界面" class="toc-item toc-h2">什么时候使用网页界面</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#浏览器打不开" class="toc-item toc-h3">浏览器打不开</a><a href="#页面能打开-但-ai-不回复" class="toc-item toc-h3">页面能打开，但 AI 不回复</a><a href="#修改设置后没有立即生效" class="toc-item toc-h3">修改设置后没有立即生效</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 
