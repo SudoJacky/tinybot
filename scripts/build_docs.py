@@ -59,8 +59,8 @@ def parse_markdown_basic(content: str) -> str:
             placeholders.append(f"<code>{escape(match.group(1))}</code>")
             return f"\x00CODE{len(placeholders) - 1}\x00"
 
-        text = escape(text)
         text = re.sub(r"`([^`]+)`", stash_code, text)
+        text = escape(text)
         text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
         text = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", text)
         text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)

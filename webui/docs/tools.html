@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8">
@@ -92,155 +92,175 @@
           </header>
           <div class="article-body">
             <h1>工具功能</h1>
-<h2 id="ai-能做什么">AI 能做什么？</h2>
-<p>Tinybot 的 AI 可以使用多种工具来帮你完成任务：</p>
-<hr>
+<p>AI Agent 和普通聊天机器人的主要区别，是 Agent 可以使用工具。Tinybot 的工具能让 AI 读取文件、搜索网络、执行命令、操作知识库和调用外部 MCP 服务。</p>
+<h2 id="工具意味着什么">工具意味着什么</h2>
+<p>普通聊天机器人只能根据输入生成文字。Tinybot 可以在任务过程中做动作，例如：</p>
+<table>
+<thead>
+<tr>
+<th>用户请求</th>
+<th>Tinybot 可能使用的工具</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>“总结这个项目”</td>
+<td>读取 README、搜索 docs、整理结果</td>
+</tr>
+<tr>
+<td>“检查配置是否正确”</td>
+<td>读取配置文件、分析字段</td>
+</tr>
+<tr>
+<td>“帮我生成文档”</td>
+<td>读取资料、写入 Markdown 文件</td>
+</tr>
+<tr>
+<td>“搜索最新资料”</td>
+<td>联网搜索、打开网页、汇总来源</td>
+</tr>
+<tr>
+<td>“运行测试”</td>
+<td>执行命令、读取测试输出</td>
+</tr>
+</tbody>
+</table>
+<p>工具越强，越需要你明确工作范围和安全边界。</p>
 <h2 id="文件操作">文件操作</h2>
-<table>
-<thead>
-<tr>
-<th>功能</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>读取文件</td>
-<td>查看文件内容</td>
-</tr>
-<tr>
-<td>编辑文件</td>
-<td>修改文件内容</td>
-</tr>
-<tr>
-<td>创建文件</td>
-<td>新建文件</td>
-</tr>
-<tr>
-<td>搜索文件</td>
-<td>按名称查找文件</td>
-</tr>
-<tr>
-<td>搜索内容</td>
-<td>在文件中搜索文字</td>
-</tr>
-</tbody>
-</table>
-<p><strong>示例：</strong></p>
-<pre><code class="language-">用户：读取 config.json 文件
-
-AI：[读取文件并显示内容]</code></pre>
-<hr>
-<h2 id="执行命令">执行命令</h2>
-<p>AI 可以在你的电脑上执行命令：</p>
-<pre><code class="language-">用户：列出当前目录的文件
-
-AI：[执行 ls 命令并显示结果]</code></pre>
-<h3 id="安全限制">安全限制</h3>
-<p>可以设置只允许在特定目录操作，防止 AI 修改重要系统文件。</p>
-<hr>
-<h2 id="网络搜索">网络搜索</h2>
-<p>AI 可以搜索互联网获取最新信息：</p>
-<pre><code class="language-">用户：搜索今天的科技新闻
-
-AI：[搜索并汇总结果]</code></pre>
-<h3 id="搜索引擎选择">搜索引擎选择</h3>
-<table>
-<thead>
-<tr>
-<th>选择</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>DuckDuckGo</td>
-<td>默认，免费无需配置</td>
-</tr>
-<tr>
-<td>Brave</td>
-<td>需要API 密钥</td>
-</tr>
-<tr>
-<td>Tavily</td>
-<td>需要 API 密钥</td>
-</tr>
-</tbody>
-</table>
-<h3 id="代理设置">代理设置</h3>
-<p>如果网络受限，可以配置代理让 AI 能访问外网。</p>
-<hr>
-<h2 id="网页获取">网页获取</h2>
-<p>AI 可以访问网页并提取内容：</p>
-<pre><code class="language-">用户：帮我看看这个网页的内容
-
-AI：[访问网页并总结内容]</code></pre>
-<hr>
-<h2 id="定时任务">定时任务</h2>
-<p>设置定时提醒和任务：</p>
-<pre><code class="language-">用户：每天早上9点提醒我开会
-
-AI：[创建定时任务]</code></pre>
-<hr>
-<h2 id="工具设置">工具设置</h2>
-<h3 id="启用-禁用工具">启用/禁用工具</h3>
-<p>可以在配置中控制哪些工具可用：</p>
+<p>Tinybot 可以读取、搜索、创建和修改文件。适合：</p>
 <ul>
-<li>禁用网络搜索 → AI 不会搜索网页</li>
-<li>禁用命令执行 → AI 不能运行命令</li>
+<li>总结项目结构</li>
+<li>修改文档</li>
+<li>查找配置项</li>
+<li>生成报告</li>
+<li>整理文本资料</li>
 </ul>
-<h3 id="安全设置">安全设置</h3>
+<p>推荐指令：</p>
+<pre><code class="language-text">请只阅读 docs 目录，找出使用说明中不适合新手的地方。</code></pre>
+<pre><code class="language-text">请修改 docs/quickstart.md，让它更适合第一次使用 Tinybot 的用户。</code></pre>
+<p>如果不想让它改文件，要明确说：</p>
+<pre><code class="language-text">先不要修改文件，只给我建议。</code></pre>
+<h2 id="命令执行">命令执行</h2>
+<p>Tinybot 可以执行终端命令，例如安装依赖、运行测试、查看状态。</p>
+<p>示例：</p>
+<pre><code class="language-text">请运行项目测试，并总结失败原因。</code></pre>
+<p>相关配置：</p>
+<pre><code class="language-json">{
+  &quot;tools&quot;: {
+    &quot;exec&quot;: {
+      &quot;enable&quot;: true,
+      &quot;timeout&quot;: 60
+    }
+  }
+}</code></pre>
+<p>如果你不希望 AI 执行命令，可以关闭：</p>
+<pre><code class="language-json">{
+  &quot;tools&quot;: {
+    &quot;exec&quot;: {
+      &quot;enable&quot;: false
+    }
+  }
+}</code></pre>
+<h2 id="网络搜索">网络搜索</h2>
+<p>Tinybot 可以联网搜索，适合查询可能变化的信息，例如新闻、价格、版本、政策、第三方文档。</p>
+<pre><code class="language-text">请搜索这个库的最新版文档，并告诉我升级注意事项。</code></pre>
+<p>相关配置：</p>
+<pre><code class="language-json">{
+  &quot;tools&quot;: {
+    &quot;web&quot;: {
+      &quot;enable&quot;: true,
+      &quot;search&quot;: {
+        &quot;provider&quot;: &quot;duckduckgo&quot;,
+        &quot;maxResults&quot;: 5
+      }
+    }
+  }
+}</code></pre>
+<p>如果网络受限，可以配置代理：</p>
+<pre><code class="language-json">{
+  &quot;tools&quot;: {
+    &quot;web&quot;: {
+      &quot;proxy&quot;: &quot;http://127.0.0.1:7890&quot;
+    }
+  }
+}</code></pre>
+<h2 id="浏览器自动化">浏览器自动化</h2>
+<p>浏览器自动化用于让 AI 打开网页、点击按钮、输入内容、提取页面信息。它通常需要额外的浏览器桥接工具和扩展。</p>
+<p>适合：</p>
+<ul>
+<li>检查网页界面</li>
+<li>从页面中提取结构化信息</li>
+<li>辅助测试本地 WebUI</li>
+</ul>
+<p>不熟悉时可以先跳过，不影响基本聊天、文件操作和知识库使用。</p>
+<h2 id="mcp-工具">MCP 工具</h2>
+<p>MCP 可以把外部工具服务接入 Tinybot。接入后，这些工具会像内置工具一样被 Agent 调用。</p>
+<p>适合开发者或团队场景，例如连接内部系统、数据库、设计工具或代码平台。新手不需要一开始配置 MCP。</p>
+<h2 id="安全建议">安全建议</h2>
 <table>
 <thead>
 <tr>
 <th>设置</th>
-<th>说明</th>
+<th>建议</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>工作区限制</td>
-<td>限制 AI 只在指定目录操作</td>
+<td>工作区</td>
+<td>设为一个明确目录，不要直接设为系统根目录</td>
 </tr>
 <tr>
-<td>超时时间</td>
-<td>命令执行的最大时间</td>
+<td><code>restrictToWorkspace</code></td>
+<td>新手建议开启</td>
+</tr>
+<tr>
+<td>命令执行</td>
+<td>不需要时可以关闭</td>
+</tr>
+<tr>
+<td>API Key</td>
+<td>不要提交到公开仓库</td>
+</tr>
+<tr>
+<td>文件修改</td>
+<td>让 Tinybot 修改前先说明范围</td>
 </tr>
 </tbody>
 </table>
-<hr>
-<h2 id="高级工具">高级工具</h2>
-<h3 id="mcp-工具">MCP 工具</h3>
-<p>可以连接外部工具服务，扩展 AI 的能力。</p>
-<h3 id="浏览器自动化">浏览器自动化</h3>
-<p>AI 可以操作浏览器：</p>
-<ul>
-<li>打开网页</li>
-<li>点击按钮</li>
-<li>输入文字</li>
-<li>提取信息</li>
-</ul>
-<p>需要额外安装浏览器扩展。</p>
-<hr>
+<p>推荐安全配置：</p>
+<pre><code class="language-json">{
+  &quot;agents&quot;: {
+    &quot;defaults&quot;: {
+      &quot;workspace&quot;: &quot;~/.tinybot/workspace&quot;
+    }
+  },
+  &quot;tools&quot;: {
+    &quot;restrictToWorkspace&quot;: true,
+    &quot;exec&quot;: {
+      &quot;enable&quot;: true,
+      &quot;timeout&quot;: 60
+    }
+  }
+}</code></pre>
 <h2 id="常见问题">常见问题</h2>
-<h3 id="ai-说没有权限">AI 说没有权限？</h3>
-<p>检查工作区限制设置，可能目录不在允许范围内。</p>
-<h3 id="网络搜索失败">网络搜索失败？</h3>
-<p>检查网络连接，或配置代理。</p>
-<h3 id="命令执行超时">命令执行超时？</h3>
-<p>可能是命令运行时间太长，可以增加超时时间设置。</p>
-<hr>
+<h3 id="tinybot-说没有权限">Tinybot 说没有权限</h3>
+<p>可能是工作区限制生效了。检查目标文件是否在 <code>agents.defaults.workspace</code> 内。</p>
+<h3 id="命令执行超时">命令执行超时</h3>
+<p>默认超时是 60 秒。可以增加 <code>tools.exec.timeout</code>，也可以让 Tinybot 把大任务拆小。</p>
+<h3 id="搜索结果不准确">搜索结果不准确</h3>
+<p>换更明确的问题，或增加 <code>maxResults</code>。如果是固定资料，建议放入知识库，而不是每次联网搜索。</p>
 <h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/skills">技能系统</a> - 自定义 AI 行为</li>
-<li><a href="/docs/config">配置说明</a> - 详细配置选项</li>
+<li><a href="/docs/config">配置说明</a>：开启或关闭工具</li>
+<li><a href="/docs/knowledge">知识库</a>：管理长期资料</li>
+<li><a href="/docs/tasks">任务系统</a>：理解复杂任务如何被拆分执行</li>
 </ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#ai-能做什么" class="toc-item toc-h2">AI 能做什么？</a><a href="#文件操作" class="toc-item toc-h2">文件操作</a><a href="#执行命令" class="toc-item toc-h2">执行命令</a><a href="#安全限制" class="toc-item toc-h3">安全限制</a><a href="#网络搜索" class="toc-item toc-h2">网络搜索</a><a href="#搜索引擎选择" class="toc-item toc-h3">搜索引擎选择</a><a href="#代理设置" class="toc-item toc-h3">代理设置</a><a href="#网页获取" class="toc-item toc-h2">网页获取</a><a href="#定时任务" class="toc-item toc-h2">定时任务</a><a href="#工具设置" class="toc-item toc-h2">工具设置</a><a href="#启用-禁用工具" class="toc-item toc-h3">启用/禁用工具</a><a href="#安全设置" class="toc-item toc-h3">安全设置</a><a href="#高级工具" class="toc-item toc-h2">高级工具</a><a href="#mcp-工具" class="toc-item toc-h3">MCP 工具</a><a href="#浏览器自动化" class="toc-item toc-h3">浏览器自动化</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#ai-说没有权限" class="toc-item toc-h3">AI 说没有权限？</a><a href="#网络搜索失败" class="toc-item toc-h3">网络搜索失败？</a><a href="#命令执行超时" class="toc-item toc-h3">命令执行超时？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#工具意味着什么" class="toc-item toc-h2">工具意味着什么</a><a href="#文件操作" class="toc-item toc-h2">文件操作</a><a href="#命令执行" class="toc-item toc-h2">命令执行</a><a href="#网络搜索" class="toc-item toc-h2">网络搜索</a><a href="#浏览器自动化" class="toc-item toc-h2">浏览器自动化</a><a href="#mcp-工具" class="toc-item toc-h2">MCP 工具</a><a href="#安全建议" class="toc-item toc-h2">安全建议</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#tinybot-说没有权限" class="toc-item toc-h3">Tinybot 说没有权限</a><a href="#命令执行超时" class="toc-item toc-h3">命令执行超时</a><a href="#搜索结果不准确" class="toc-item toc-h3">搜索结果不准确</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

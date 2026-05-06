@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8">
@@ -92,117 +92,149 @@
           </header>
           <div class="article-body">
             <h1>命令行界面</h1>
+<p>命令行界面适合习惯使用终端的用户，也适合快速问一句话、让 Tinybot 处理当前工作区里的文件。</p>
 <h2 id="启动聊天">启动聊天</h2>
-<p>在终端运行：</p>
 <pre><code class="language-bash">uv run tinybot agent</code></pre>
-<p>进入聊天界面后，直接输入文字和 AI 对话。</p>
-<hr>
-<h2 id="快捷键">快捷键</h2>
+<p>启动后，你会进入一个全屏聊天界面。直接输入需求并按回车发送。</p>
+<pre><code class="language-text">请阅读当前目录，告诉我这个项目的主要模块。</code></pre>
+<p>退出聊天可以输入 <code>/exit</code>，也可以按 <code>Ctrl+C</code>。</p>
+<h2 id="单次提问">单次提问</h2>
+<p>如果不想进入聊天界面，可以用 <code>-m</code> 发送一条消息：</p>
+<pre><code class="language-bash">uv run tinybot agent -m &quot;请用三句话介绍这个项目&quot;</code></pre>
+<p>这种方式适合脚本、快速查询或临时总结。</p>
+<h2 id="终端界面里能看到什么">终端界面里能看到什么</h2>
 <table>
 <thead>
 <tr>
-<th>操作</th>
-<th>快捷键</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>发送消息</td>
-<td>回车键</td>
-</tr>
-<tr>
-<td>输入多行</td>
-<td>Shift + 回车</td>
-</tr>
-<tr>
-<td>打开设置</td>
-<td>Ctrl + O 或输入 <code>/config</code></td>
-</tr>
-<tr>
-<td>中断回复</td>
-<td>Ctrl + C</td>
-</tr>
-<tr>
-<td>退出程序</td>
-<td>Ctrl + D 或输入 <code>/exit</code></td>
-</tr>
-</tbody>
-</table>
-<hr>
-<h2 id="内置命令">内置命令</h2>
-<p>在聊天中输入以下命令：</p>
-<table>
-<thead>
-<tr>
-<th>命令</th>
+<th>区域</th>
 <th>说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>/help</code></td>
-<td>显示帮助信息</td>
+<td>顶部状态</td>
+<td>当前模型、上下文、工作区等信息</td>
 </tr>
 <tr>
-<td><code>/config</code></td>
-<td>打开配置编辑器</td>
+<td>对话区域</td>
+<td>你和 Tinybot 的历史消息</td>
 </tr>
 <tr>
-<td><code>/clear</code></td>
-<td>清除当前对话历史</td>
+<td>任务进度</td>
+<td>复杂任务执行时显示步骤和状态</td>
 </tr>
 <tr>
-<td><code>/new</code></td>
-<td>开始新对话</td>
-</tr>
-<tr>
-<td><code>/exit</code></td>
-<td>退出程序</td>
+<td>底部输入</td>
+<td>输入消息或 <code>/config</code>、<code>/help</code> 等命令</td>
 </tr>
 </tbody>
 </table>
-<hr>
+<p>当 Tinybot 读取文件、执行命令或拆分任务时，界面会显示进度提示。你可以据此判断它正在做什么。</p>
+<h2 id="快捷键和内置命令">快捷键和内置命令</h2>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>用法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>发送消息</td>
+<td>回车</td>
+</tr>
+<tr>
+<td>打开配置编辑器</td>
+<td><code>Ctrl+O</code> 或输入 <code>/config</code></td>
+</tr>
+<tr>
+<td>查看帮助</td>
+<td><code>/help</code></td>
+</tr>
+<tr>
+<td>清空当前对话历史</td>
+<td><code>/clear</code></td>
+</tr>
+<tr>
+<td>退出</td>
+<td><code>/exit</code>、<code>:q</code> 或 <code>Ctrl+C</code></td>
+</tr>
+<tr>
+<td>查看更完整的推理内容</td>
+<td><code>Ctrl+R</code>，仅在模型返回推理内容时有用</td>
+</tr>
+</tbody>
+</table>
+<p>说明：当前命令行输入框按回车发送消息，不是多行编辑器。如果要发送长内容，建议先保存为文件，再让 Tinybot 读取该文件。</p>
 <h2 id="配置编辑器">配置编辑器</h2>
-<p>按 <code>Ctrl+O</code> 打开配置界面，可以：</p>
-<ul>
-<li>查看当前配置</li>
-<li>修改 AI 模型</li>
-<li>设置 API 密钥</li>
-<li>调整其他参数</li>
-</ul>
-<p>修改后按 <code>q</code> 保存并返回聊天。</p>
-<hr>
-<h2 id="发送单条消息">发送单条消息</h2>
-<p>不想进入聊天界面，只想快速问一个问题：</p>
-<pre><code class="language-bash">uv run tinybot agent -m &quot;你的问题&quot;</code></pre>
-<p>AI 会回复后自动退出。</p>
-<hr>
-<h2 id="任务进度显示">任务进度显示</h2>
-<p>当 AI 执行复杂任务时，会显示进度：</p>
-<pre><code class="language-">任务进度：60%
-正在执行：读取文件
-已完成：扫描目录、分析结构
-待执行：生成报告、保存文件</code></pre>
-<hr>
+<p>在聊天中输入：</p>
+<pre><code class="language-text">/config</code></pre>
+<p>或按 <code>Ctrl+O</code>，可以打开配置编辑器。常改的项目包括：</p>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>什么时候需要改</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Provider/API Key</td>
+<td>更换 AI 服务或密钥</td>
+</tr>
+<tr>
+<td>Model</td>
+<td>切换更快或更强的模型</td>
+</tr>
+<tr>
+<td>Workspace</td>
+<td>限定 Tinybot 操作文件的位置</td>
+</tr>
+<tr>
+<td>Tools</td>
+<td>开关网络搜索、命令执行、MCP 等能力</td>
+</tr>
+<tr>
+<td>Gateway</td>
+<td>修改网页端口和心跳设置</td>
+</tr>
+</tbody>
+</table>
+<p>编辑完成后按界面提示保存并返回聊天。</p>
+<h2 id="给-agent-下指令的方式">给 Agent 下指令的方式</h2>
+<p>Tinybot 能调用工具，所以指令最好写清楚目标、范围和输出格式。</p>
+<p>推荐：</p>
+<pre><code class="language-text">请只阅读 docs 目录，找出新手文档中不清楚的地方，并给出修改建议。</code></pre>
+<p>不推荐：</p>
+<pre><code class="language-text">看看这个。</code></pre>
+<p>如果你希望它修改文件，要直接说出来：</p>
+<pre><code class="language-text">请修改 docs/quickstart.md，让安装步骤更适合第一次使用的人。</code></pre>
+<p>如果你只想要建议，不想让它改文件，也要说清楚：</p>
+<pre><code class="language-text">先不要改文件，只列出建议。</code></pre>
 <h2 id="常见问题">常见问题</h2>
-<h3 id="输入中文乱码">输入中文乱码？</h3>
-<p>确保终端支持 UTF-8 编码。Windows 用户建议使用 PowerShell 或 Windows Terminal。</p>
-<h3 id="ai-响应很慢">AI 响应很慢？</h3>
-<p>可能是网络问题或模型响应慢。可以尝试更换模型或检查网络。</p>
-<h3 id="如何中断-ai-回复">如何中断 AI 回复？</h3>
-<p>按 <code>Ctrl + C</code> 即可中断当前的 AI 回复。</p>
-<hr>
+<h3 id="中文显示乱码">中文显示乱码</h3>
+<p>Windows 用户建议使用 PowerShell 或 Windows Terminal，并确保终端使用 UTF-8。Tinybot 会尽量自动设置输出编码，但旧终端仍可能显示异常。</p>
+<h3 id="ai-回复慢">AI 回复慢</h3>
+<p>常见原因是模型响应慢、网络慢、任务需要读取很多文件，或正在执行工具。可以尝试：</p>
+<ol>
+<li>换用更快的模型，例如 <code>deepseek-chat</code></li>
+<li>缩小任务范围，例如“只看 docs 目录”</li>
+<li>拆成多个小任务</li>
+</ol>
+<h3 id="命令执行失败或没有权限">命令执行失败或没有权限</h3>
+<p>检查工作区、命令执行工具和系统权限。如果开启了 <code>restrict_to_workspace</code>，Tinybot 只能在配置的工作区内操作文件。</p>
 <h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/webui">网页界面</a> - 使用浏览器界面</li>
-<li><a href="/docs/config">配置说明</a> - 详细配置选项</li>
+<li><a href="/docs/webui">网页界面</a>：更直观地管理会话、知识库和技能</li>
+<li><a href="/docs/config">配置说明</a>：了解模型、密钥和安全设置</li>
+<li><a href="/docs/tools">工具功能</a>：了解 Tinybot 能调用哪些工具</li>
 </ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#启动聊天" class="toc-item toc-h2">启动聊天</a><a href="#快捷键" class="toc-item toc-h2">快捷键</a><a href="#内置命令" class="toc-item toc-h2">内置命令</a><a href="#配置编辑器" class="toc-item toc-h2">配置编辑器</a><a href="#发送单条消息" class="toc-item toc-h2">发送单条消息</a><a href="#任务进度显示" class="toc-item toc-h2">任务进度显示</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#输入中文乱码" class="toc-item toc-h3">输入中文乱码？</a><a href="#ai-响应很慢" class="toc-item toc-h3">AI 响应很慢？</a><a href="#如何中断-ai-回复" class="toc-item toc-h3">如何中断 AI 回复？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#启动聊天" class="toc-item toc-h2">启动聊天</a><a href="#单次提问" class="toc-item toc-h2">单次提问</a><a href="#终端界面里能看到什么" class="toc-item toc-h2">终端界面里能看到什么</a><a href="#快捷键和内置命令" class="toc-item toc-h2">快捷键和内置命令</a><a href="#配置编辑器" class="toc-item toc-h2">配置编辑器</a><a href="#给-agent-下指令的方式" class="toc-item toc-h2">给 Agent 下指令的方式</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#中文显示乱码" class="toc-item toc-h3">中文显示乱码</a><a href="#ai-回复慢" class="toc-item toc-h3">AI 回复慢</a><a href="#命令执行失败或没有权限" class="toc-item toc-h3">命令执行失败或没有权限</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 

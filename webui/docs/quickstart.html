@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8">
@@ -92,96 +92,242 @@
           </header>
           <div class="article-body">
             <h1>快速开始</h1>
-<h2 id="安装">安装</h2>
-<p>首先确保你已安装 Python 3.13 或更高版本。</p>
-<h3 id="步骤-1-安装依赖">步骤 1：安装依赖</h3>
-<pre><code class="language-bash">uv sync</code></pre>
-<h3 id="步骤-2-初始化配置">步骤 2：初始化配置</h3>
-<pre><code class="language-bash">uv run tinybot onboard</code></pre>
-<p>这个命令会引导你完成初始配置，包括选择 AI 模型和设置 API 密钥。</p>
-<hr>
-<h2 id="启动使用">启动使用</h2>
-<p>Tinybot 有几种使用方式：</p>
+<p>这篇文档面向第一次接触 AI Agent 的用户。你不需要先理解所有概念，只要按顺序完成安装、配置密钥、发出第一条指令，就能开始使用 Tinybot。</p>
+<h2 id="tinybot-是什么">Tinybot 是什么</h2>
+<p>Tinybot 是一个可以使用工具的 AI 助手。它不只是回答问题，还可以在你允许的范围内读取文件、整理资料、执行命令、搜索网络、管理知识库、拆分复杂任务，并通过网页或命令行与你对话。</p>
+<p>可以把它理解成：</p>
 <table>
 <thead>
 <tr>
-<th>命令</th>
+<th>你想做的事</th>
+<th>Tinybot 的作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>问一个问题</td>
+<td>像普通聊天机器人一样回答</td>
+</tr>
+<tr>
+<td>整理一份资料</td>
+<td>自动阅读、提取重点、生成结果</td>
+</tr>
+<tr>
+<td>分析一个项目</td>
+<td>扫描文件、理解结构、写报告</td>
+</tr>
+<tr>
+<td>做多步骤任务</td>
+<td>自动拆成小步骤并显示进度</td>
+</tr>
+<tr>
+<td>以后继续使用同一套习惯</td>
+<td>通过配置、技能、知识库固定下来</td>
+</tr>
+</tbody>
+</table>
+<h2 id="使用前准备">使用前准备</h2>
+<p>你需要准备三样东西：</p>
+<table>
+<thead>
+<tr>
+<th>项目</th>
 <th>说明</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>uv run tinybot agent</code></td>
-<td>打开聊天界面，和 AI 对话</td>
+<td>Python</td>
+<td>需要 Python 3.13 或更高版本</td>
 </tr>
 <tr>
-<td><code>uv run tinybot gateway</code></td>
-<td>启动网页界面，可在浏览器中使用</td>
+<td>uv</td>
+<td>本项目用 uv 管理依赖和运行 Python 命令</td>
 </tr>
 <tr>
-<td><code>uv run tinybot api</code></td>
-<td>作为 API 服务运行（高级用法）</td>
+<td>AI 服务密钥</td>
+<td>推荐先用 DeepSeek、OpenAI 或通义千问中的一个</td>
 </tr>
 </tbody>
 </table>
-<h3 id="最简单的方式">最简单的方式</h3>
-<p>直接运行：</p>
-<pre><code class="language-bash">uv run tinybot agent</code></pre>
-<p>然后输入你的问题，AI 会回答并帮你完成任务。</p>
-<hr>
-<h2 id="网页界面">网页界面</h2>
-<p>如果你更喜欢用浏览器，可以这样启动：</p>
-<pre><code class="language-bash">uv run tinybot gateway</code></pre>
-<p>然后打开浏览器访问 <code>http://127.0.0.1:18790</code></p>
-<hr>
-<h2 id="常见问题">常见问题</h2>
-<h3 id="需要什么-ai-模型">需要什么 AI 模型？</h3>
-<p>Tinybot 支持多种 AI 服务。推荐使用：</p>
-<ul>
-<li><strong>DeepSeek</strong> - 国内服务，性价比高</li>
-<li><strong>OpenAI (GPT-4)</strong> - 国际服务，功能强大</li>
-<li><strong>通义千问 (Qwen)</strong> - 阿里云服务</li>
-</ul>
-<h3 id="如何获取-api-密钥">如何获取 API 密钥？</h3>
-<p>在对应 AI 服务的官网注册账号后获取：</p>
+<p>如果你还没有 uv，请先安装 uv。安装完成后，在项目目录中执行本文所有命令。</p>
+<h2 id="第一步-安装依赖">第一步：安装依赖</h2>
+<pre><code class="language-bash">uv sync</code></pre>
+<p>这一步会根据项目配置安装 Tinybot 需要的 Python 依赖。第一次运行会比较慢。</p>
+<h2 id="第二步-初始化配置">第二步：初始化配置</h2>
+<pre><code class="language-bash">uv run tinybot onboard</code></pre>
+<p>初始化向导会让你配置 AI 服务、模型、密钥、工作目录和网关等选项。新手建议先只完成最小配置：</p>
 <table>
 <thead>
 <tr>
-<th>服务</th>
-<th>获取地址</th>
+<th>配置项</th>
+<th>建议</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>DeepSeek</td>
-<td>https://platform.deepseek.com</td>
+<td>Provider</td>
+<td>选择你已经有密钥的服务，例如 DeepSeek</td>
 </tr>
 <tr>
-<td>OpenAI</td>
-<td>https://platform.openai.com</td>
+<td>API Key</td>
+<td>填入对应平台提供的密钥</td>
 </tr>
 <tr>
-<td>通义千问</td>
-<td>https://dashscope.aliyuncs.com</td>
+<td>Model</td>
+<td>DeepSeek 可先用 <code>deepseek-chat</code>，复杂推理再换 <code>deepseek-reasoner</code></td>
+</tr>
+<tr>
+<td>Workspace</td>
+<td>保持默认值，或设置为你希望 Tinybot 操作文件的目录</td>
 </tr>
 </tbody>
 </table>
-<h3 id="必须要配置-api-密钥吗">必须要配置 API 密钥吗？</h3>
-<p>是的，大多数 AI 服务需要 API 密钥才能使用。本地模型（如 Ollama）不需要密钥，但需要你在本机部署模型。</p>
-<hr>
+<p>完成后可以检查状态：</p>
+<pre><code class="language-bash">uv run tinybot status</code></pre>
+<p>如果能看到配置文件、工作区和模型信息，说明基础配置已经生效。</p>
+<h2 id="第三步-开始对话">第三步：开始对话</h2>
+<h3 id="方式一-命令行聊天">方式一：命令行聊天</h3>
+<pre><code class="language-bash">uv run tinybot agent</code></pre>
+<p>进入聊天界面后，直接输入你的需求。例如：</p>
+<pre><code class="language-text">帮我总结一下这个项目是做什么的</code></pre>
+<p>如果只想问一句话并立即退出：</p>
+<pre><code class="language-bash">uv run tinybot agent -m &quot;你好，请用一句话介绍 Tinybot&quot;</code></pre>
+<h3 id="方式二-网页界面">方式二：网页界面</h3>
+<p>网页界面需要启用 WebSocket 频道。初始化向导里如果没有启用，可以在配置文件中加入：</p>
+<pre><code class="language-json">{
+  &quot;channels&quot;: {
+    &quot;websocket&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;host&quot;: &quot;127.0.0.1&quot;,
+      &quot;port&quot;: 18790
+    }
+  }
+}</code></pre>
+<p>然后启动网关：</p>
+<pre><code class="language-bash">uv run tinybot gateway</code></pre>
+<p>浏览器访问：</p>
+<pre><code class="language-text">http://127.0.0.1:18790</code></pre>
+<p>新手通常更适合先用网页界面，因为它能看到会话、工具、技能、知识库和设置面板。</p>
+<h2 id="第一次应该怎么问">第一次应该怎么问</h2>
+<p>AI Agent 更适合处理“目标清楚、范围明确”的请求。你可以这样写：</p>
+<pre><code class="language-text">请阅读当前工作区的 README 和 docs 目录，告诉我这个项目适合什么用户，以及怎么启动。</code></pre>
+<pre><code class="language-text">请检查 docs/quickstart.md 是否适合新手阅读，指出最容易卡住的地方。</code></pre>
+<pre><code class="language-text">请把这段会议记录整理成待办事项，并按负责人分组。</code></pre>
+<p>比起只说“帮我看看”，更推荐说明三件事：</p>
+<table>
+<thead>
+<tr>
+<th>信息</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>目标</td>
+<td>我要生成一份安装说明</td>
+</tr>
+<tr>
+<td>范围</td>
+<td>只看 docs 目录和 README</td>
+</tr>
+<tr>
+<td>输出</td>
+<td>用步骤列表，不要太长</td>
+</tr>
+</tbody>
+</table>
+<h2 id="常用命令">常用命令</h2>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>作用</th>
+<th>适合谁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>uv run tinybot onboard</code></td>
+<td>初始化或重新配置</td>
+<td>所有人</td>
+</tr>
+<tr>
+<td><code>uv run tinybot status</code></td>
+<td>检查配置状态</td>
+<td>排查问题时</td>
+</tr>
+<tr>
+<td><code>uv run tinybot agent</code></td>
+<td>命令行聊天</td>
+<td>喜欢终端的用户</td>
+</tr>
+<tr>
+<td><code>uv run tinybot agent -m &quot;问题&quot;</code></td>
+<td>单次提问</td>
+<td>快速问答</td>
+</tr>
+<tr>
+<td><code>uv run tinybot gateway</code></td>
+<td>启动网页界面和多频道服务</td>
+<td>网页用户、长期运行</td>
+</tr>
+<tr>
+<td><code>uv run tinybot api</code></td>
+<td>启动 OpenAI 兼容 API</td>
+<td>开发者</td>
+</tr>
+</tbody>
+</table>
+<h2 id="最常见的问题">最常见的问题</h2>
+<h3 id="ai-不回复或报-api-错误">AI 不回复或报 API 错误</h3>
+<p>先检查：</p>
+<ol>
+<li>是否已经执行 <code>uv run tinybot onboard</code></li>
+<li>API Key 是否填对</li>
+<li>模型名称是否属于对应 Provider</li>
+<li>账户是否有余额</li>
+<li>网络是否能访问该 AI 服务</li>
+</ol>
+<p>可以运行：</p>
+<pre><code class="language-bash">uv run tinybot status</code></pre>
+<h3 id="网页打不开">网页打不开</h3>
+<p>检查三点：</p>
+<ol>
+<li>是否已经在配置里启用 <code>channels.websocket.enabled</code></li>
+<li>是否正在运行 <code>uv run tinybot gateway</code></li>
+<li>地址是否是 <code>http://127.0.0.1:18790</code></li>
+</ol>
+<p>如果端口被占用，可以换端口：</p>
+<pre><code class="language-bash">uv run tinybot gateway --port 18800</code></pre>
+<p>然后访问 <code>http://127.0.0.1:18800</code>。</p>
+<h3 id="担心-ai-修改不该改的文件">担心 AI 修改不该改的文件</h3>
+<p>先把工作区设置成一个专门目录，并开启工作区限制：</p>
+<pre><code class="language-json">{
+  &quot;agents&quot;: {
+    &quot;defaults&quot;: {
+      &quot;workspace&quot;: &quot;~/.tinybot/workspace&quot;
+    }
+  },
+  &quot;tools&quot;: {
+    &quot;restrict_to_workspace&quot;: true
+  }
+}</code></pre>
+<p>这样 Tinybot 的文件操作会被限制在工作区范围内。</p>
 <h2 id="下一步">下一步</h2>
 <ul>
-<li><a href="/docs/webui">网页界面使用</a> - 了解网页界面的功能</li>
-<li><a href="/docs/knowledge">知识库</a> - 让 AI 学习你的文档</li>
-<li><a href="/docs/tools">工具功能</a> - AI 能做什么</li>
-<li><a href="/docs/skills">技能系统</a> - 自定义 AI 的行为</li>
+<li><a href="/docs/webui">网页界面</a>：了解浏览器里的会话、设置、知识库和技能面板</li>
+<li><a href="/docs/cli">命令行界面</a>：了解终端聊天、快捷键和单次提问</li>
+<li><a href="/docs/config">配置说明</a>：了解模型、密钥、工作区和安全限制</li>
+<li><a href="/docs/tools">工具功能</a>：了解 Tinybot 能调用哪些工具</li>
+<li><a href="/docs/knowledge">知识库</a>：让 Tinybot 使用你自己的文档回答问题</li>
 </ul>
           </div>
         </article>
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#安装" class="toc-item toc-h2">安装</a><a href="#步骤-1-安装依赖" class="toc-item toc-h3">步骤 1：安装依赖</a><a href="#步骤-2-初始化配置" class="toc-item toc-h3">步骤 2：初始化配置</a><a href="#启动使用" class="toc-item toc-h2">启动使用</a><a href="#最简单的方式" class="toc-item toc-h3">最简单的方式</a><a href="#网页界面" class="toc-item toc-h2">网页界面</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#需要什么-ai-模型" class="toc-item toc-h3">需要什么 AI 模型？</a><a href="#如何获取-api-密钥" class="toc-item toc-h3">如何获取 API 密钥？</a><a href="#必须要配置-api-密钥吗" class="toc-item toc-h3">必须要配置 API 密钥吗？</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#tinybot-是什么" class="toc-item toc-h2">Tinybot 是什么</a><a href="#使用前准备" class="toc-item toc-h2">使用前准备</a><a href="#第一步-安装依赖" class="toc-item toc-h2">第一步：安装依赖</a><a href="#第二步-初始化配置" class="toc-item toc-h2">第二步：初始化配置</a><a href="#第三步-开始对话" class="toc-item toc-h2">第三步：开始对话</a><a href="#方式一-命令行聊天" class="toc-item toc-h3">方式一：命令行聊天</a><a href="#方式二-网页界面" class="toc-item toc-h3">方式二：网页界面</a><a href="#第一次应该怎么问" class="toc-item toc-h2">第一次应该怎么问</a><a href="#常用命令" class="toc-item toc-h2">常用命令</a><a href="#最常见的问题" class="toc-item toc-h2">最常见的问题</a><a href="#ai-不回复或报-api-错误" class="toc-item toc-h3">AI 不回复或报 API 错误</a><a href="#网页打不开" class="toc-item toc-h3">网页打不开</a><a href="#担心-ai-修改不该改的文件" class="toc-item toc-h3">担心 AI 修改不该改的文件</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
 
