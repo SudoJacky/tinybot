@@ -47,6 +47,7 @@ const state = {
   lastUsage: null,  // 最后一次的usage数据
   browserFrame: null,
   browserPanelCollapsed: false,
+  modelDiscoveryTimer: null,
 };
 
 const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
@@ -100,6 +101,7 @@ const elements = {
   modalClose: document.querySelector("#modal-close"),
   configWorkspace: document.querySelector("#config-workspace"),
   configModel: document.querySelector("#config-model"),
+  configModelSelect: document.querySelector("#config-model-select"),
   configActiveProfile: document.querySelector("#config-active-profile"),
   configModelOptions: document.querySelector("#config-model-options"),
   configProfileOptions: document.querySelector("#config-profile-options"),
@@ -141,6 +143,8 @@ const elements = {
   configProfileId: document.querySelector("#config-profile-id"),
   configProviderSelect: document.querySelector("#config-provider-select"),
   configProviderModels: document.querySelector("#config-provider-models"),
+  configDiscoverModelsButton: document.querySelector("#config-discover-models"),
+  configModelDiscoveryStatus: document.querySelector("#config-model-discovery-status"),
   configSupportsModelDiscovery: document.querySelector("#config-supports-model-discovery"),
   configSearch: document.querySelector("#config-search"),
   configQuickNav: document.querySelector("#config-quick-nav"),
@@ -4728,7 +4732,7 @@ function populateConfigForm(config) {
   applyConfigSearch();
 }
 
-function loadProviderConfig(providers, providerName) {
+function loadLegacyProviderConfigUnused(providers, providerName) {
   const provider = providers[providerName] || {};
   // API返回的是camelCase格式 (apiKey, apiBase)
   elements.configApiKey.value = provider.apiKey || provider.api_key || "";
@@ -4752,8 +4756,8 @@ function getProfileConfig(providers, profileId, fallbackProvider) {
     apiBase: legacyProvider.apiBase || legacyProvider.api_base || "",
     api_base: legacyProvider.api_base || legacyProvider.apiBase || "",
     models: [],
-    supportsModelDiscovery: false,
-    supports_model_discovery: false,
+    supportsModelDiscovery: true,
+    supports_model_discovery: true,
   };
 }
 
@@ -4767,6 +4771,35 @@ function setDatalistOptions(datalist, values) {
     option.value = value;
     datalist.appendChild(option);
   });
+}
+
+function setModelSelectOptions(models) {
+  if (!elements.configModelSelect) {
+    return;
+  }
+  const uniqueModels = Array.from(new Set(models.filter(Boolean)));
+  const currentModel = elements.configModel?.value?.trim() || "";
+  elements.configModelSelect.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = t("settings.provider.modelSelectPlaceholder");
+  elements.configModelSelect.appendChild(placeholder);
+
+  uniqueModels.forEach((model) => {
+    const option = document.createElement("option");
+    option.value = model;
+    option.textContent = model;
+    elements.configModelSelect.appendChild(option);
+  });
+
+  const hasModels = uniqueModels.length > 0;
+  const modelInList = uniqueModels.includes(currentModel);
+  elements.configModelSelect.hidden = !hasModels;
+  elements.configModelSelect.value = modelInList ? currentModel : "";
+  if (elements.configModel) {
+    elements.configModel.hidden = hasModels && modelInList;
+  }
 }
 
 function parseModelList(value) {
@@ -4786,6 +4819,86 @@ function refreshProfileHints(config) {
   const profile = profileId ? profiles[profileId] : null;
   const models = Array.isArray(profile?.models) ? profile.models : parseModelList(elements.configProviderModels?.value);
   setDatalistOptions(elements.configModelOptions, models);
+  setModelSelectOptions(models);
+}
+
+function setModelDiscoveryStatus(message, kind = "") {
+  if (!elements.configModelDiscoveryStatus) {
+    return;
+  }
+  elements.configModelDiscoveryStatus.textContent = message || "";
+  elements.configModelDiscoveryStatus.classList.remove("success", "warning");
+  if (kind) {
+    elements.configModelDiscoveryStatus.classList.add(kind);
+  }
+}
+
+function scheduleModelDiscovery() {
+  if (state.modelDiscoveryTimer) {
+    window.clearTimeout(state.modelDiscoveryTimer);
+  }
+  state.modelDiscoveryTimer = window.setTimeout(() => {
+    state.modelDiscoveryTimer = null;
+    discoverProviderModels({ silent: true });
+  }, 350);
+}
+
+async function discoverProviderModels({ silent = false } = {}) {
+  if (!elements.configSupportsModelDiscovery?.checked) {
+    return false;
+  }
+  const provider = elements.configProviderSelect?.value || "deepseek";
+  const apiBase = elements.configApiBase?.value?.trim() || "";
+  const apiKey = elements.configApiKey?.value?.trim() || "";
+  const profile = elements.configProfileId?.value?.trim() || elements.configActiveProfile?.value?.trim() || "";
+
+  if (!silent) {
+    setModelDiscoveryStatus(t("settings.provider.modelsLoading"));
+  }
+  if (elements.configDiscoverModelsButton) {
+    elements.configDiscoverModelsButton.disabled = true;
+  }
+
+  try {
+    const response = await fetch("/api/provider-models", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        provider,
+        profile,
+        api_key: apiKey,
+        api_base: apiBase,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok || !Array.isArray(result.models) || !result.models.length) {
+      throw new Error(result.error || `${t("settings.provider.modelsFailed")}: ${response.status}`);
+    }
+    elements.configProviderModels.value = result.models.join("\n");
+    refreshProfileHints(state.config);
+    if (!elements.configModel.value && result.models[0]) {
+      elements.configModel.value = result.models[0];
+    }
+    setModelDiscoveryStatus(
+      `${t("settings.provider.modelsLoaded")} ${result.models.length}`,
+      "success",
+    );
+    updateConfigDirtyState();
+    return true;
+  } catch (error) {
+    if (!silent) {
+      setModelDiscoveryStatus(
+        `${t("settings.provider.modelsFallback")} ${error.message || ""}`.trim(),
+        "warning",
+      );
+    }
+    refreshProfileHints(state.config);
+    return false;
+  } finally {
+    if (elements.configDiscoverModelsButton) {
+      elements.configDiscoverModelsButton.disabled = false;
+    }
+  }
 }
 
 function loadProviderConfig(providers, providerName) {
@@ -4805,9 +4918,10 @@ function loadProviderConfig(providers, providerName) {
     elements.configProviderModels.value = Array.isArray(models) ? models.join("\n") : "";
   }
   if (elements.configSupportsModelDiscovery) {
-    elements.configSupportsModelDiscovery.checked = provider.supportsModelDiscovery || provider.supports_model_discovery === true;
+    elements.configSupportsModelDiscovery.checked = provider.supportsModelDiscovery ?? provider.supports_model_discovery ?? true;
   }
   refreshProfileHints(state.config);
+  scheduleModelDiscovery();
 }
 
 function getConfigGroups() {
@@ -4983,7 +5097,8 @@ function setupValidation() {
   // Model 验证 - 非空
   if (elements.configModel) {
     elements.configModel.addEventListener("input", () => {
-      validateField(elements.configModel, (val) => val.trim().length > 0, "modelEmpty");
+      const ok = elements.configModel.value.trim().length > 0;
+      setFieldState(elements.configModel, ok ? "neutral" : "error", "modelEmpty");
     });
   }
 
@@ -6095,6 +6210,55 @@ function bindEvents() {
       refreshProfileHints(state.config);
     });
   }
+
+  if (elements.configModelSelect) {
+    elements.configModelSelect.addEventListener("change", () => {
+      const model = elements.configModelSelect.value;
+      if (!model) {
+        if (elements.configModel) {
+          elements.configModel.hidden = false;
+          window.setTimeout(() => elements.configModel.focus(), 0);
+        }
+        return;
+      }
+      elements.configModel.value = model;
+      elements.configModel.hidden = true;
+      setFieldState(elements.configModel, "neutral");
+      updateConfigDirtyState();
+    });
+  }
+
+  if (elements.configModel) {
+    elements.configModel.addEventListener("input", () => {
+      const models = parseModelList(elements.configProviderModels?.value);
+      if (elements.configModelSelect) {
+        const value = elements.configModel.value.trim();
+        elements.configModelSelect.value = models.includes(value) ? value : "";
+      }
+    });
+  }
+
+  if (elements.configDiscoverModelsButton) {
+    elements.configDiscoverModelsButton.addEventListener("click", async () => {
+      await discoverProviderModels({ silent: false });
+    });
+  }
+
+  if (elements.configSupportsModelDiscovery) {
+    elements.configSupportsModelDiscovery.addEventListener("change", () => {
+      if (elements.configSupportsModelDiscovery.checked) {
+        scheduleModelDiscovery();
+      } else {
+        setModelDiscoveryStatus("");
+      }
+    });
+  }
+
+  [elements.configApiBase, elements.configApiKey].forEach((field) => {
+    field?.addEventListener("change", () => {
+      scheduleModelDiscovery();
+    });
+  });
 
   elements.saveConfigButton.addEventListener("click", async () => {
     await saveConfig();
