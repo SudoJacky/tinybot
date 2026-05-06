@@ -111,7 +111,12 @@
             placeholder="输入内容后按 Enter 发送，Shift+Enter 换行"
             rows="1"
           ></textarea>
-          <button id="send-button" class="button button-primary composer-send" type="submit" data-i18n="ui.send">发送</button>
+          <button id="send-button" class="button button-primary composer-send" type="submit" data-i18n-title="ui.send" aria-label="发送">
+            <svg class="icon-send" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M22 2 11 13" />
+              <path d="m22 2-7 20-4-9-9-4Z" />
+            </svg>
+          </button>
         </div>
         <div class="composer-meta">
           <div class="composer-meta-left">

@@ -1875,7 +1875,7 @@ body {
 
 .composer-row {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) max-content;
+  grid-template-columns: 52px minmax(0, 1fr) 52px;
   gap: 12px;
   min-width: 0;
 }
@@ -1916,10 +1916,26 @@ body {
 .composer-send {
   align-self: end;
   flex: 0 0 auto;
-  min-width: 88px;
+  width: 52px;
+  min-width: 52px;
   height: 52px;
+  padding: 0;
+  border-radius: var(--radius-full);
   white-space: nowrap;
   position: relative;
+  line-height: 1;
+  display: inline-grid;
+  place-items: center;
+}
+
+.composer-send .icon-send {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
 }
 
 .composer-file {
@@ -5270,12 +5286,12 @@ body {
   }
 
   .composer-row {
-    grid-template-columns: 52px 1fr;
+    grid-template-columns: 52px 1fr 52px;
   }
 
   .composer-send {
-    grid-column: 1 / -1;
-    width: 100%;
+    grid-column: auto;
+    width: 52px;
   }
 
   .editor-toolbar {
