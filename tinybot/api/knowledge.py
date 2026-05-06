@@ -777,6 +777,7 @@ async def handle_rebuild_index(request: web.Request) -> web.Response:
                     "community_reports": semantic_result.get("community_reports", 0),
                 },
             })
+        return _error_json(400, f"Invalid rebuild type '{rebuild_type}'. Valid options: bm25, semantic, all")
     except Exception as e:
         logger.exception("Error rebuilding index")
         return _error_json(500, f"Error rebuilding index: {e}", err_type="server_error")
