@@ -91,6 +91,7 @@ class AgentDefaults(Base):
 
     workspace: str = "~/.tinybot/workspace"
     model: str = "deepseek-reasoner"
+    active_profile: str | None = None
     provider: Literal["auto", "openai", "deepseek", "dashscope"] = (
         "auto"  # Provider name "auto" for auto-detection
     )
@@ -197,12 +198,36 @@ class ProviderConfig(Base):
     enable_search: bool = False  # DashScope/Qwen online search switch via OpenAI-compatible extra_body
 
 
+class ProviderProfileConfig(ProviderConfig):
+    """A named provider endpoint/key/model set.
+
+    Profiles allow the same provider to have multiple API bases or product
+    plans, such as DashScope regular compatible mode and DashScope coding.
+    """
+
+    provider: Literal["openai", "deepseek", "dashscope"] = "openai"
+    models: list[str] = Field(default_factory=list)
+    supports_model_discovery: bool = False
+
+    @field_validator("models", mode="before")
+    @classmethod
+    def normalize_models(cls, v: object) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [part.strip() for part in v.replace("\n", ",").split(",") if part.strip()]
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return []
+
+
 class ProvidersConfig(Base):
     """Configuration for LLM providers."""
 
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
     dashscope: ProviderConfig = Field(default_factory=ProviderConfig)
+    profiles: dict[str, ProviderProfileConfig] = Field(default_factory=dict)
 
 
 class HeartbeatConfig(Base):
@@ -362,6 +387,12 @@ class Config(BaseSettings):
     ) -> tuple[ProviderConfig | None, str | None]:
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from tinybot.providers.registry import PROVIDERS, find_by_name
+
+        active_profile = (self.agents.defaults.active_profile or "").strip()
+        if active_profile:
+            profile = self.providers.profiles.get(active_profile)
+            if profile:
+                return profile, profile.provider
 
         forced = self.agents.defaults.provider
         if forced != "auto":

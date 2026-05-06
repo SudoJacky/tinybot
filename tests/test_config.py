@@ -2,6 +2,7 @@
 
 from tinybot.config.schema import (
     AgentDefaults,
+    Config,
     DreamConfig,
 )
 
@@ -57,3 +58,53 @@ class TestConfig:
     def test_get_api_key(self, mock_config):
         api_key = mock_config.get_api_key("gpt-4o-mini")
         assert api_key == "test-api-key-12345"
+
+    def test_active_provider_profile_overrides_auto_matching(self):
+        config = Config.model_validate(
+            {
+                "agents": {
+                    "defaults": {
+                        "model": "qwen3-coder-plus",
+                        "active_profile": "dashscope-coding",
+                    },
+                },
+                "providers": {
+                    "profiles": {
+                        "dashscope-coding": {
+                            "provider": "dashscope",
+                            "api_key": "coding-key",
+                            "api_base": "https://example.test/compatible/v1",
+                            "models": ["qwen3-coder-plus"],
+                            "supports_model_discovery": False,
+                        },
+                    },
+                },
+            }
+        )
+
+        provider = config.get_provider()
+
+        assert config.get_provider_name() == "dashscope"
+        assert provider is not None
+        assert provider.api_key == "coding-key"
+        assert provider.api_base == "https://example.test/compatible/v1"
+
+    def test_provider_profile_accepts_multiline_model_list(self):
+        config = Config.model_validate(
+            {
+                "providers": {
+                    "profiles": {
+                        "deepseek-main": {
+                            "provider": "deepseek",
+                            "api_key": "key",
+                            "models": "deepseek-chat\ndeepseek-reasoner",
+                        },
+                    },
+                },
+            }
+        )
+
+        assert config.providers.profiles["deepseek-main"].models == [
+            "deepseek-chat",
+            "deepseek-reasoner",
+        ]

@@ -890,7 +890,11 @@ class WebSocketChannel(BaseChannel):
             status["model"] = self.agent_loop.model
         if self.config_ref:
             provider_name = self.config_ref.get_provider_name()
-            status["provider"] = {"name": provider_name} if provider_name else None
+            active_profile = getattr(self.config_ref.agents.defaults, "active_profile", None)
+            status["provider"] = (
+                {"name": provider_name, "profile": active_profile}
+                if provider_name else None
+            )
         return web.json_response(status)
 
     async def handle_get_tools(self, request: web.Request) -> web.Response:
@@ -1479,7 +1483,10 @@ class WebSocketChannel(BaseChannel):
         save_config(self.config_ref, self.config_path)
 
         # Dynamically update agent_loop if provider/model changed
-        provider_updated = any("providers" in f or "provider" in f for f in updated_fields)
+        provider_updated = any(
+            "providers" in f or "provider" in f or "active_profile" in f or "activeProfile" in f
+            for f in updated_fields
+        )
         model_updated = any("model" in f for f in updated_fields)
         embedding_updated = any("embedding" in f for f in updated_fields)
         mcp_updated = any("mcp_servers" in f or "mcpServers" in f for f in updated_fields)
@@ -1488,10 +1495,13 @@ class WebSocketChannel(BaseChannel):
             try:
                 from tinybot.providers.registry import create_provider
                 new_provider = create_provider(self.config_ref)
-                self.agent_loop.provider = new_provider
-                # Update model if changed
-                if model_updated:
-                    self.agent_loop.model = self.config_ref.agents.defaults.model or new_provider.get_default_model()
+                new_model = self.config_ref.agents.defaults.model or new_provider.get_default_model()
+                apply_runtime_provider = getattr(self.agent_loop, "apply_runtime_provider", None)
+                if callable(apply_runtime_provider):
+                    apply_runtime_provider(new_provider, new_model)
+                else:
+                    self.agent_loop.provider = new_provider
+                    self.agent_loop.model = new_model
                 logger.info(f"Config updated: provider={self.config_ref.get_provider_name()}, model={self.agent_loop.model}")
             except Exception as e:
                 logger.warning(f"Failed to update provider after config change: {e}")
