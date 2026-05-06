@@ -207,7 +207,7 @@ class ProviderProfileConfig(ProviderConfig):
 
     provider: Literal["openai", "deepseek", "dashscope"] = "openai"
     models: list[str] = Field(default_factory=list)
-    supports_model_discovery: bool = False
+    supports_model_discovery: bool = True
 
     @field_validator("models", mode="before")
     @classmethod

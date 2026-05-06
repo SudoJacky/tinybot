@@ -340,6 +340,7 @@ class WebSocketChannel(BaseChannel):
         app.router.add_post(f"{self.sessions_path}/{{key}}/temporary-files", self.handle_upload_temporary_file)
         app.router.add_get("/api/config", self.handle_get_config)
         app.router.add_patch("/api/config", self.handle_patch_config)
+        app.router.add_post("/api/provider-models", self.handle_provider_models)
         app.router.add_get("/api/status", self.handle_get_status)
         app.router.add_get("/api/tools", self.handle_get_tools)
         app.router.add_get("/api/skills", self.handle_get_skills)
@@ -1397,6 +1398,119 @@ class WebSocketChannel(BaseChannel):
 
         data = self.config_ref.model_dump(mode="json", by_alias=True)
         return web.json_response(data)
+
+    @staticmethod
+    def _join_models_url(api_base: str) -> str:
+        base = api_base.strip().rstrip("/")
+        if not base:
+            return ""
+        return f"{base}/models"
+
+    def _default_models_api_base(self, provider_name: str) -> str:
+        if provider_name == "openai":
+            return "https://api.openai.com/v1"
+        try:
+            from tinybot.providers.registry import find_by_name
+            spec = find_by_name(provider_name)
+            return spec.default_api_base if spec else ""
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _extract_model_ids(payload: Any) -> list[str]:
+        if isinstance(payload, dict):
+            raw_items = payload.get("data") or payload.get("models") or payload.get("items") or []
+        elif isinstance(payload, list):
+            raw_items = payload
+        else:
+            raw_items = []
+
+        models: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            model_id = ""
+            if isinstance(item, str):
+                model_id = item
+            elif isinstance(item, dict):
+                value = item.get("id") or item.get("name") or item.get("model")
+                if value:
+                    model_id = str(value)
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            models.append(model_id)
+        return models
+
+    async def handle_provider_models(self, request: web.Request) -> web.Response:
+        """Try to discover model IDs from an OpenAI-compatible /models endpoint."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid json body"}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response({"ok": False, "error": "payload must be a dict"}, status=400)
+
+        provider_name = str(payload.get("provider") or "").strip().lower()
+        profile_id = str(payload.get("profile") or "").strip()
+        api_key = str(payload.get("api_key") or "").strip()
+        api_base = str(payload.get("api_base") or "").strip()
+
+        if self.config_ref and profile_id:
+            profile = self.config_ref.providers.profiles.get(profile_id)
+            if profile:
+                provider_name = provider_name or profile.provider
+                api_key = api_key or profile.api_key
+                api_base = api_base or profile.api_base or ""
+
+        if self.config_ref and provider_name and not (api_key and api_base):
+            legacy = getattr(self.config_ref.providers, provider_name, None)
+            if legacy:
+                api_key = api_key or legacy.api_key
+                api_base = api_base or legacy.api_base or ""
+
+        if not provider_name:
+            return web.json_response({"ok": False, "error": "provider is required"})
+        if not api_base:
+            api_base = self._default_models_api_base(provider_name)
+        models_url = self._join_models_url(api_base)
+        if not models_url:
+            return web.json_response({"ok": False, "error": "api_base is required"})
+
+        headers = {"Accept": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        try:
+            import aiohttp
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(models_url, headers=headers) as response:
+                    text = await response.text()
+                    if response.status >= 400:
+                        return web.json_response({
+                            "ok": False,
+                            "error": f"/models returned HTTP {response.status}",
+                            "status": response.status,
+                        })
+                    try:
+                        body = json.loads(text)
+                    except Exception:
+                        return web.json_response({"ok": False, "error": "invalid /models response"})
+        except Exception as exc:
+            return web.json_response({"ok": False, "error": str(exc)})
+
+        models = self._extract_model_ids(body)
+        if not models:
+            return web.json_response({"ok": False, "error": "no models found in /models response"})
+
+        return web.json_response({
+            "ok": True,
+            "models": models,
+            "url": models_url,
+        })
 
     def _apply_config_update(self, obj: Any, updates: dict[str, Any], prefix: str = "") -> list[str]:
         """Recursively apply config updates to all fields.

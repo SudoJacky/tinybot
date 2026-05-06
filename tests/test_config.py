@@ -108,3 +108,19 @@ class TestConfig:
             "deepseek-chat",
             "deepseek-reasoner",
         ]
+
+    def test_provider_profile_model_discovery_defaults_on(self):
+        config = Config.model_validate(
+            {
+                "providers": {
+                    "profiles": {
+                        "openai-main": {
+                            "provider": "openai",
+                            "api_key": "key",
+                        },
+                    },
+                },
+            }
+        )
+
+        assert config.providers.profiles["openai-main"].supports_model_discovery is True

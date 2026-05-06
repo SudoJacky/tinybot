@@ -658,7 +658,10 @@
                 <span data-i18n="settings.agent.model">Model</span>
                 <span class="config-help" data-i18n-help="help.model">?</span>
               </label>
-              <input id="config-model" class="config-input" type="text" list="config-model-options" data-i18n-placeholder="settings.agent.modelPlaceholder" placeholder="模型名称" />
+              <select id="config-model-select" class="config-select config-model-select" aria-label="Model list">
+                <option value="" data-i18n="settings.provider.modelSelectPlaceholder">Select from model list</option>
+              </select>
+              <input id="config-model" class="config-input config-model-custom" type="text" list="config-model-options" data-i18n-placeholder="settings.agent.modelPlaceholder" placeholder="模型名称" />
               <datalist id="config-model-options"></datalist>
             </div>
             <div class="config-field">
@@ -1012,6 +1015,10 @@
                 <span class="config-help" data-i18n-help="help.providerModels">?</span>
               </label>
               <textarea id="config-provider-models" class="config-input" rows="4" spellcheck="false" placeholder="deepseek-chat&#10;deepseek-reasoner"></textarea>
+              <div class="config-inline-actions">
+                <button id="config-discover-models" class="config-secondary-button" type="button" data-i18n="settings.provider.refreshModels">Refresh models</button>
+                <span id="config-model-discovery-status" class="config-inline-status"></span>
+              </div>
             </div>
             <div class="config-field config-checkbox-group">
               <label class="config-checkbox-label">

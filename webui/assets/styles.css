@@ -4484,6 +4484,61 @@ body {
   box-shadow: none;
 }
 
+.config-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.config-secondary-button {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.config-secondary-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.config-secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.config-inline-status {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.config-inline-status.success {
+  color: var(--success);
+}
+
+.config-inline-status.warning {
+  color: var(--warning);
+}
+
+.config-model-select {
+  margin-top: 0;
+}
+
+.config-model-select[hidden],
+.config-model-custom[hidden] {
+  display: none;
+}
+
+.config-model-custom {
+  margin-top: 8px;
+}
+
 /* ========== Config Slider (Temperature) ========== */
 .config-slider-group {
   display: flex;
