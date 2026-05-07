@@ -29,6 +29,8 @@ except ImportError as e:  # pragma: no cover - exercised only when optional dep 
 
 
 _TASK_PLAN_ID_RE = re.compile(r"\*\*Plan ID:\*\*\s*([A-Za-z0-9_-]+)")
+_SECRET_MASK = "********"
+_SECRET_FIELD_MARKERS = ("api_key", "apikey", "authorization", "token", "secret", "password")
 
 
 def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
@@ -126,6 +128,21 @@ def _is_loopback_request(request: web.Request) -> bool:
 
 def _iso_mtime(path: Path) -> str:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
+
+
+def _is_secret_field(key: str) -> bool:
+    normalized = key.replace("-", "_").lower()
+    return any(marker in normalized for marker in _SECRET_FIELD_MARKERS)
+
+
+def _mask_config_secrets(value: Any, key: str = "") -> Any:
+    if isinstance(value, dict):
+        return {k: _mask_config_secrets(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_config_secrets(item, key) for item in value]
+    if _is_secret_field(key) and value:
+        return _SECRET_MASK
+    return value
 
 
 class WebSocketChannel(BaseChannel):
@@ -1389,7 +1406,7 @@ class WebSocketChannel(BaseChannel):
         })
 
     async def handle_get_config(self, request: web.Request) -> web.Response:
-        """Get current configuration (full config, no masking)."""
+        """Get current configuration with sensitive values masked."""
         if not self._is_authorized(request):
             return web.json_response({"error": "unauthorized"}, status=401)
 
@@ -1397,7 +1414,7 @@ class WebSocketChannel(BaseChannel):
             return web.json_response({"error": "config not available"}, status=404)
 
         data = self.config_ref.model_dump(mode="json", by_alias=True)
-        return web.json_response(data)
+        return web.json_response(_mask_config_secrets(data))
 
     @staticmethod
     def _join_models_url(api_base: str) -> str:
@@ -1524,6 +1541,8 @@ class WebSocketChannel(BaseChannel):
             # Get current attribute
             current = getattr(obj, key, None)
             if current is None:
+                continue
+            if _is_secret_field(key) and value == _SECRET_MASK:
                 continue
 
             # Handle nested dict updates

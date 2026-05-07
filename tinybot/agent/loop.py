@@ -467,7 +467,7 @@ class AgentLoop:
             if allow_message is not None
             else self._should_expose_message_tool(channel or "cli")
         )
-        registry = self.tools.filtered(exclude=set()) if not expose_message and self.tools.has("message") else self.tools
+        registry = self.tools.filtered(exclude={"message"}) if not expose_message and self.tools.has("message") else self.tools
 
         # Add experience tools for Agent to query/save experiences
         session_key = f"{channel}:{chat_id}" if channel and chat_id else ""
@@ -811,6 +811,7 @@ class AgentLoop:
             concurrent_tools=True,
             workspace=self.workspace,
             session_key=session.key if session else None,
+            session=session,
             context_window_tokens=self.context_window_tokens,
             context_block_limit=self.context_block_limit,
             provider_retry_mode=self.provider_retry_mode,
