@@ -50,6 +50,8 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
         "_tool_detail",
         "_tool_result",
         "_tool_name",
+        "_approval_status",
+        "_approval_id",
         "_task_event",
         "_task_progress",
         "_task_plan_id",
@@ -316,6 +318,10 @@ class WebSocketChannel(BaseChannel):
             payload["_tool_result"] = True
         if meta.get("_tool_name"):
             payload["_tool_name"] = meta.get("_tool_name")
+        if meta.get("_approval_status"):
+            payload["_approval_status"] = meta.get("_approval_status")
+        if meta.get("_approval_id"):
+            payload["_approval_id"] = meta.get("_approval_id")
         if meta.get("_task_event"):
             payload["_task_event"] = True
         if meta.get("_task_progress"):

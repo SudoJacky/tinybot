@@ -1129,6 +1129,19 @@ body {
   white-space: nowrap;
 }
 
+.tool-activity-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.tool-activity-approval-badge {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border-subtle));
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success);
+}
+
 .tool-activity-body {
   display: grid;
   gap: 0;

@@ -722,6 +722,7 @@ class AgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         message_id: str | None = None,
+        use_persistent_knowledge: bool | None = None,
     ) -> tuple[str | None, list[str], list[dict], str]:
         """Run the agent iteration loop.
 
@@ -758,6 +759,7 @@ class AgentLoop:
             if session is None:
                 return
             phase = payload.get("phase", "")
+            payload["_use_persistent_knowledge"] = use_persistent_knowledge
             self.session_handler.set_checkpoint(session, payload)
 
             # Only persist messages to session on completion phases
@@ -1176,6 +1178,7 @@ class AgentLoop:
                 on_stream=on_stream,
                 on_reasoning_stream=on_reasoning_stream,
                 on_stream_end=on_stream_end,
+                use_persistent_knowledge=msg.metadata.get("_use_persistent_rag"),
             )
             if stop_reason == "awaiting_approval":
                 self.sessions.save(session)
@@ -1296,6 +1299,7 @@ class AgentLoop:
             session=session,
             channel=msg.channel, chat_id=msg.chat_id,
             message_id=msg.metadata.get("message_id"),
+            use_persistent_knowledge=msg.metadata.get("_use_persistent_rag"),
         )
 
         if stop_reason == "awaiting_approval":
@@ -1364,6 +1368,21 @@ class AgentLoop:
                 return raw_tool_call
         return None
 
+    @staticmethod
+    def _tool_call_id(raw_tool_call: dict[str, Any]) -> str:
+        return str(raw_tool_call.get("id") or raw_tool_call.get("tool_call_id") or "")
+
+    @staticmethod
+    def _completed_tool_call_ids(messages: list[Any]) -> set[str]:
+        completed: set[str] = set()
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            tool_call_id = str(message.get("tool_call_id") or "")
+            if tool_call_id:
+                completed.add(tool_call_id)
+        return completed
+
     async def _execute_resolved_approval_tool(
         self,
         *,
@@ -1396,13 +1415,20 @@ class AgentLoop:
                 except Exception as exc:
                     content = f"Error executing {request.tool_name}: {exc}"
 
-        return {
+        tool_message = {
             "role": "tool",
             "tool_call_id": tool_call_id,
             "name": request.tool_name,
             "content": content,
             "timestamp": datetime.now().isoformat(),
         }
+        if approved:
+            tool_message["_approval_status"] = "approved"
+            tool_message["_approval_id"] = request.id
+        else:
+            tool_message["_approval_status"] = "denied"
+            tool_message["_approval_id"] = request.id
+        return tool_message
 
     async def _process_approval_resolution(
         self,
@@ -1459,6 +1485,52 @@ class AgentLoop:
         )
         if not self.session_handler._is_duplicate_message(session, tool_message):
             session.messages.append(tool_message)
+        if channel == "websocket":
+            await self.bus.publish_outbound(OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=tool_message.get("content", ""),
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_result": True,
+                    "_tool_name": request.tool_name,
+                    "_approval_status": tool_message.get("_approval_status", ""),
+                    "_approval_id": tool_message.get("_approval_id", ""),
+                },
+            ))
+
+        completed_tool_results = [
+            item for item in (checkpoint.get("completed_tool_results") or [])
+            if isinstance(item, dict)
+        ]
+        if not any(
+            item.get("tool_call_id") == tool_message.get("tool_call_id")
+            for item in completed_tool_results
+        ):
+            completed_tool_results.append(tool_message)
+        checkpoint["completed_tool_results"] = completed_tool_results
+
+        completed_ids = self._completed_tool_call_ids(completed_tool_results)
+        all_pending_tool_calls = [
+            item for item in (checkpoint.get("pending_tool_calls") or [])
+            if isinstance(item, dict)
+        ]
+        remaining_tool_calls = [
+            item for item in all_pending_tool_calls
+            if self._tool_call_id(item) not in completed_ids
+        ]
+        checkpoint["pending_tool_calls"] = remaining_tool_calls
+
+        if remaining_tool_calls:
+            self.session_handler.set_checkpoint(session, checkpoint)
+            self.sessions.save(session)
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content="",
+                metadata={"_approval_pending": True},
+            )
 
         self.session_handler.clear_checkpoint(session)
         self.sessions.save(session)
@@ -1472,6 +1544,7 @@ class AgentLoop:
             chat_id=chat_id,
             current_role="system",
             user_profile=session.user_profile,
+            use_persistent_knowledge=checkpoint.get("_use_persistent_knowledge"),
         )
         final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
             messages,
@@ -1483,12 +1556,13 @@ class AgentLoop:
             on_stream=on_stream,
             on_reasoning_stream=on_reasoning_stream,
             on_stream_end=on_stream_end,
+            use_persistent_knowledge=checkpoint.get("_use_persistent_knowledge"),
         )
         if stop_reason == "awaiting_approval":
             self.sessions.save(session)
             return OutboundMessage(
-                channel=msg.channel,
-                chat_id=msg.chat_id,
+                channel=channel,
+                chat_id=chat_id,
                 content="",
                 metadata={**dict(msg.metadata or {}), "_approval_pending": True},
             )

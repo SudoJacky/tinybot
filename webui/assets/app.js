@@ -1169,7 +1169,7 @@ function createToolActivitySection({ label, text, className = "" }) {
   return section;
 }
 
-function createToolActivityNode({ name, argsText = "", responseText = "", kind = "call" }) {
+function createToolActivityNode({ name, argsText = "", responseText = "", kind = "call", approvalStatus = "" }) {
   const callEl = document.createElement("details");
   callEl.className = "tool-activity";
   if (argsText && responseText) {
@@ -1197,11 +1197,23 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
 
   main.append(title, preview);
 
+  const badges = document.createElement("span");
+  badges.className = "tool-activity-badges";
+
+  if (approvalStatus === "approved") {
+    const approvalBadge = document.createElement("span");
+    approvalBadge.className = "tool-activity-badge tool-activity-approval-badge";
+    approvalBadge.textContent = "已批准";
+    approvalBadge.title = "用户已批准执行此工具";
+    badges.append(approvalBadge);
+  }
+
   const badge = document.createElement("span");
   badge.className = "tool-activity-badge";
   badge.textContent = kind === "result" ? t("message.toolResult") : t("message.toolCall");
+  badges.append(badge);
 
-  summary.append(icon, main, badge);
+  summary.append(icon, main, badges);
   callEl.append(summary);
 
   const body = document.createElement("div");
@@ -1255,19 +1267,22 @@ function createToolCallNode(toolCall, relatedMessages = []) {
   const args = toolCall.function?.arguments ?? toolCall.arguments ?? "";
   const argsText = formatToolArguments(args);
   const responseText = relatedMessages.map((message) => message.content || "").filter(Boolean).join("\n\n");
+  const approvalStatus = relatedMessages.some((message) => message?._approval_status === "approved") ? "approved" : "";
   if (name === "task") {
     return createTaskToolCallNode(toolCall, argsText, responseText);
   }
-  return createToolActivityNode({ name, argsText, responseText, kind: responseText ? "result" : "call" });
+  return createToolActivityNode({ name, argsText, responseText, kind: responseText ? "result" : "call", approvalStatus });
 }
 
 function createToolMessageNode(message) {
   const isResult = message._tool_result || message.role === "tool";
+  const approvalStatus = message._approval_status || message._pairedToolResponse?._approval_status || "";
   return createToolActivityNode({
     name: getToolName(message) || "tool",
     argsText: isResult ? "" : message.content || "",
     responseText: isResult ? message.content || "" : message._pairedToolResponse?.content || "",
     kind: isResult || message._pairedToolResponse ? "result" : "call",
+    approvalStatus,
   });
 }
 
@@ -5945,6 +5960,8 @@ async function connectWebSocket() {
             _tool_detail: payload._tool_detail || false,
             _tool_result: payload._tool_result || false,
             _tool_name: payload._tool_name || "",
+            _approval_status: payload._approval_status || "",
+            _approval_id: payload._approval_id || "",
           });
         } else {
           // Regular assistant message
