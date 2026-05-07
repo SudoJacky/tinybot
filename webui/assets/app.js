@@ -49,6 +49,8 @@ const state = {
   browserPanelCollapsed: false,
   uiMode: localStorage.getItem("tinybot-ui-mode") || "basic",
   modelDiscoveryTimer: null,
+  pendingApprovals: [],
+  approvalsLoading: false,
 };
 
 const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
@@ -66,6 +68,8 @@ const elements = {
   messageList: document.querySelector("#message-list"),
   composerForm: document.querySelector("#composer-form"),
   composerInput: document.querySelector("#composer-input"),
+  approvalPanel: document.querySelector("#approval-panel"),
+  approvalList: document.querySelector("#approval-list"),
   temporaryFileButton: document.querySelector("#temporary-file-button"),
   temporaryFileUpload: document.querySelector("#temporary-file-upload"),
   sessionFilesStrip: document.querySelector("#session-files-strip"),
@@ -587,6 +591,62 @@ function updateActiveChatTitle() {
     ? sessionTitleForKey(state.activeSessionKey)
     : t("ui.notConnected");
   elements.chatTitle.title = state.activeChatId || "";
+}
+
+function renderApprovalPanel() {
+  if (!elements.approvalPanel || !elements.approvalList) {
+    return;
+  }
+  const approvals = state.pendingApprovals || [];
+  elements.approvalList.textContent = "";
+  elements.approvalPanel.hidden = approvals.length === 0;
+  if (!approvals.length) {
+    return;
+  }
+
+  for (const approval of approvals) {
+    const item = document.createElement("div");
+    item.className = "approval-item";
+
+    const body = document.createElement("div");
+    body.className = "approval-body";
+
+    const meta = document.createElement("div");
+    meta.className = "approval-meta";
+    meta.textContent = `${approval.risk || "risk"} / ${approval.category || approval.tool_name || "tool"}`;
+
+    const summary = document.createElement("div");
+    summary.className = "approval-summary";
+    summary.textContent = approval.summary || approval.tool_name || approval.id;
+    summary.title = approval.reason || "";
+
+    body.append(meta, summary);
+
+    const actions = document.createElement("div");
+    actions.className = "approval-actions";
+
+    const onceButton = document.createElement("button");
+    onceButton.type = "button";
+    onceButton.className = "button button-primary approval-action";
+    onceButton.textContent = "批准一次";
+    onceButton.addEventListener("click", () => handleApprovalAction(approval.id, "approve", "once"));
+
+    const sessionButton = document.createElement("button");
+    sessionButton.type = "button";
+    sessionButton.className = "button approval-action";
+    sessionButton.textContent = "本会话允许";
+    sessionButton.addEventListener("click", () => handleApprovalAction(approval.id, "approve", "session"));
+
+    const denyButton = document.createElement("button");
+    denyButton.type = "button";
+    denyButton.className = "button button-ghost approval-action approval-deny";
+    denyButton.textContent = "拒绝";
+    denyButton.addEventListener("click", () => handleApprovalAction(approval.id, "deny"));
+
+    actions.append(onceButton, sessionButton, denyButton);
+    item.append(body, actions);
+    elements.approvalList.append(item);
+  }
 }
 
 function roleLabel(role) {
@@ -1677,6 +1737,9 @@ function activateChat(chatId) {
   renderSessions();
   renderMessages();
   renderSessionFiles();
+  state.pendingApprovals = [];
+  renderApprovalPanel();
+  loadApprovals(state.activeSessionKey).catch(console.error);
 }
 
 async function bootstrap() {
@@ -1722,6 +1785,60 @@ async function loadMessages(sessionKey) {
   renderSessions();
   renderMessages();
   await loadSessionFiles(sessionKey);
+  await loadApprovals(sessionKey);
+}
+
+async function loadApprovals(sessionKey = state.activeSessionKey) {
+  if (!sessionKey || !state.token || state.approvalsLoading) {
+    return;
+  }
+  state.approvalsLoading = true;
+  try {
+    const response = await fetch(`/api/approvals?session_key=${encodeURIComponent(sessionKey)}`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (sessionKey !== state.activeSessionKey) {
+      return;
+    }
+    if (!response.ok) {
+      state.pendingApprovals = [];
+      renderApprovalPanel();
+      return;
+    }
+    const payload = await response.json();
+    state.pendingApprovals = payload.approvals || [];
+    renderApprovalPanel();
+  } catch (error) {
+    console.warn("load approvals failed", error);
+  } finally {
+    state.approvalsLoading = false;
+  }
+}
+
+async function handleApprovalAction(approvalId, action, scope = "once") {
+  if (!approvalId || !state.activeSessionKey) {
+    return;
+  }
+  const endpoint = action === "deny" ? "deny" : "approve";
+  try {
+    const response = await fetch(`/api/approvals/${encodeURIComponent(approvalId)}/${endpoint}`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        session_key: state.activeSessionKey,
+        scope,
+        auto_retry: true,
+      }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `approval ${endpoint} failed: ${response.status}`);
+    }
+    state.pendingApprovals = state.pendingApprovals.filter((item) => item.id !== approvalId);
+    renderApprovalPanel();
+  } catch (error) {
+    setError(error.message || String(error));
+  }
 }
 
 async function clearSession(sessionKey) {
@@ -1734,10 +1851,12 @@ async function clearSession(sessionKey) {
   }
   state.messages.set(sessionKey, []);
   state.sessionFiles.set(sessionKey, []);
+  state.pendingApprovals = [];
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
   renderSessionFiles();
+  renderApprovalPanel();
   setEditorStatus(t("status.cleared"), "connected");
 }
 
@@ -5835,6 +5954,7 @@ async function connectWebSocket() {
             timestamp: new Date().toISOString(),
           });
         }
+        loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
         return;
       }
 
@@ -5852,6 +5972,9 @@ async function connectWebSocket() {
           state.streamBuffers.delete(payload.message_id);
           if (payload.resuming !== true && streamState?.sessionKey === state.activeSessionKey) {
             renderMessages(false);
+          }
+          if (streamState?.sessionKey) {
+            loadApprovals(streamState.sessionKey).catch(console.error);
           }
         }
         return;
