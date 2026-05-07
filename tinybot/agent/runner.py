@@ -39,6 +39,7 @@ from loguru import logger
 from tinybot.agent.hook import AgentHook, AgentHookContext
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.providers.base import LLMProvider, ToolCallRequest
+from tinybot.security.approval import ApprovalAction, ApprovalManager, format_approval_required
 from tinybot.utils.fs import find_legal_message_start
 from tinybot.utils.helper import (
     build_assistant_message,
@@ -78,6 +79,7 @@ class AgentRunSpec:
     experience_store: Any | None = None
     workspace: Path | None = None
     session_key: str | None = None
+    session: Any | None = None
     context_window_tokens: int | None = None
     context_block_limit: int | None = None
     provider_retry_mode: str = "standard"
@@ -197,6 +199,11 @@ class AgentRunner:
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
                 await hook.after_execute_tools(context)
+                if any(event.get("status") == "approval_required" for event in new_events):
+                    stop_reason = "awaiting_approval"
+                    context.stop_reason = stop_reason
+                    await hook.after_iteration(context)
+                    break
                 if fatal_error is not None:
                     error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
                     final_content = error
@@ -562,6 +569,33 @@ class AgentRunner:
                     related_experience_id=related_id,
                 )
             return prep_error + suggestions, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
+
+        approval = ApprovalManager.evaluate(
+            session=spec.session,
+            tool=tool,
+            tool_name=tool_call.name,
+            params=params,
+        )
+        if approval.action == ApprovalAction.REQUIRE_APPROVAL and approval.request is not None:
+            event = {
+                "name": tool_call.name,
+                "status": "approval_required",
+                "detail": f"approval required: {approval.request.id}",
+            }
+            if spec.experience_store and spec.session_key:
+                spec.experience_store.record_tool_event(
+                    tool_name=tool_call.name,
+                    params=params,
+                    status="error",
+                    detail=format_approval_required(approval.request),
+                    session_key=spec.session_key,
+                    attempt_no=attempt_no,
+                    related_experience_id="",
+                )
+            if spec.fail_on_tool_error:
+                result = format_approval_required(approval.request)
+                return result, event, PermissionError(result)
+            return "", event, None
 
         # Trigger on_tool_start hook before execution
         if hook and context:

@@ -26,6 +26,13 @@ from tinybot.security.net import (
     configure_redirect_limits,
     clear_dns_cache,
 )
+from tinybot.security.approval import (
+    ApprovalAction,
+    ApprovalManager,
+    ApprovalRequest,
+    ApprovalScope,
+    format_approval_required,
+)
 
 __all__ = [
     # Audit
@@ -51,4 +58,10 @@ __all__ = [
     "configure_ssrf_whitelist",
     "configure_redirect_limits",
     "clear_dns_cache",
+    # Approval
+    "ApprovalAction",
+    "ApprovalManager",
+    "ApprovalRequest",
+    "ApprovalScope",
+    "format_approval_required",
 ]

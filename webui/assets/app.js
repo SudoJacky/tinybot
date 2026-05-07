@@ -47,8 +47,11 @@ const state = {
   lastUsage: null,  // 最后一次的usage数据
   browserFrame: null,
   browserPanelCollapsed: false,
+  sidebarCollapsed: localStorage.getItem("tinybot-sidebar-collapsed") === "true",
   uiMode: localStorage.getItem("tinybot-ui-mode") || "basic",
   modelDiscoveryTimer: null,
+  pendingApprovals: [],
+  approvalsLoading: false,
 };
 
 const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
@@ -66,12 +69,17 @@ const elements = {
   messageList: document.querySelector("#message-list"),
   composerForm: document.querySelector("#composer-form"),
   composerInput: document.querySelector("#composer-input"),
+  approvalPanel: document.querySelector("#approval-panel"),
+  approvalList: document.querySelector("#approval-list"),
   temporaryFileButton: document.querySelector("#temporary-file-button"),
   temporaryFileUpload: document.querySelector("#temporary-file-upload"),
   sessionFilesStrip: document.querySelector("#session-files-strip"),
   persistentRagToggle: document.querySelector("#persistent-rag-toggle"),
   newChatButton: document.querySelector("#new-chat-button"),
   refreshButton: document.querySelector("#refresh-button"),
+  sidebarCollapseButton: document.querySelector("#sidebar-collapse-button"),
+  sidebar: document.querySelector(".sidebar"),
+  shell: document.querySelector(".shell"),
   clearMessagesButton: document.querySelector("#clear-messages-button"),
   hintText: document.querySelector("#hint-text"),
   errorText: document.querySelector("#error-text"),
@@ -303,6 +311,9 @@ const elements = {
 };
 
 function setStatus(text, kind = "idle") {
+  if (!elements.connectionStatus) {
+    return;
+  }
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.className = `status status-${kind}`;
 }
@@ -379,10 +390,8 @@ function renderSidebarActionIcons() {
       className: "sidebar-icon-refresh",
       svg: `
         <svg class="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 12a9 9 0 0 1-15.2 6.5"></path>
-          <path d="M3 12A9 9 0 0 1 18.2 5.5"></path>
-          <path d="M18 2v4h4"></path>
-          <path d="M6 22v-4H2"></path>
+          <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+          <path d="M21 3v6h-6"></path>
         </svg>
       `,
     },
@@ -587,6 +596,74 @@ function updateActiveChatTitle() {
     ? sessionTitleForKey(state.activeSessionKey)
     : t("ui.notConnected");
   elements.chatTitle.title = state.activeChatId || "";
+}
+
+function renderApprovalPanel() {
+  if (!elements.approvalPanel || !elements.approvalList) {
+    return;
+  }
+  const approvals = state.pendingApprovals || [];
+  elements.approvalList.textContent = "";
+  elements.approvalPanel.hidden = approvals.length === 0;
+  if (!approvals.length) {
+    return;
+  }
+
+  for (const approval of approvals) {
+    const item = document.createElement("div");
+    item.className = "approval-item";
+
+    const body = document.createElement("div");
+    body.className = "approval-body";
+
+    const meta = document.createElement("div");
+    meta.className = "approval-meta";
+    meta.textContent = `${approval.risk || "risk"} / ${approval.category || approval.tool_name || "tool"}`;
+
+    const summary = document.createElement("div");
+    summary.className = "approval-summary";
+    summary.textContent = approval.summary || approval.tool_name || approval.id;
+    summary.title = approval.reason || "";
+
+    body.append(meta, summary);
+
+    const actions = document.createElement("div");
+    actions.className = "approval-actions";
+
+    const onceButton = document.createElement("button");
+    onceButton.type = "button";
+    onceButton.className = "button button-primary approval-action";
+    onceButton.textContent = "批准一次";
+    onceButton.addEventListener("click", () => handleApprovalAction(approval.id, "approve", "once"));
+
+    const sessionButton = document.createElement("button");
+    sessionButton.type = "button";
+    sessionButton.className = "button approval-action";
+    sessionButton.textContent = "本会话允许";
+    sessionButton.addEventListener("click", () => handleApprovalAction(approval.id, "approve", "session"));
+
+    const denyButton = document.createElement("button");
+    denyButton.type = "button";
+    denyButton.className = "button button-ghost approval-action approval-deny";
+    denyButton.textContent = "拒绝";
+    denyButton.addEventListener("click", () => handleApprovalAction(approval.id, "deny"));
+
+    actions.append(onceButton, sessionButton, denyButton);
+    item.append(body, actions);
+    elements.approvalList.append(item);
+  }
+}
+
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = collapsed;
+  localStorage.setItem("tinybot-sidebar-collapsed", collapsed ? "true" : "false");
+  elements.shell?.classList.toggle("sidebar-collapsed", collapsed);
+  elements.sidebar?.classList.toggle("collapsed", collapsed);
+  if (elements.sidebarCollapseButton) {
+    elements.sidebarCollapseButton.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    elements.sidebarCollapseButton.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    elements.sidebarCollapseButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
 }
 
 function roleLabel(role) {
@@ -1109,7 +1186,7 @@ function createToolActivitySection({ label, text, className = "" }) {
   return section;
 }
 
-function createToolActivityNode({ name, argsText = "", responseText = "", kind = "call" }) {
+function createToolActivityNode({ name, argsText = "", responseText = "", kind = "call", approvalStatus = "" }) {
   const callEl = document.createElement("details");
   callEl.className = "tool-activity";
   if (argsText && responseText) {
@@ -1137,11 +1214,23 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
 
   main.append(title, preview);
 
+  const badges = document.createElement("span");
+  badges.className = "tool-activity-badges";
+
+  if (approvalStatus === "approved") {
+    const approvalBadge = document.createElement("span");
+    approvalBadge.className = "tool-activity-badge tool-activity-approval-badge";
+    approvalBadge.textContent = "已批准";
+    approvalBadge.title = "用户已批准执行此工具";
+    badges.append(approvalBadge);
+  }
+
   const badge = document.createElement("span");
   badge.className = "tool-activity-badge";
   badge.textContent = kind === "result" ? t("message.toolResult") : t("message.toolCall");
+  badges.append(badge);
 
-  summary.append(icon, main, badge);
+  summary.append(icon, main, badges);
   callEl.append(summary);
 
   const body = document.createElement("div");
@@ -1195,19 +1284,22 @@ function createToolCallNode(toolCall, relatedMessages = []) {
   const args = toolCall.function?.arguments ?? toolCall.arguments ?? "";
   const argsText = formatToolArguments(args);
   const responseText = relatedMessages.map((message) => message.content || "").filter(Boolean).join("\n\n");
+  const approvalStatus = relatedMessages.some((message) => message?._approval_status === "approved") ? "approved" : "";
   if (name === "task") {
     return createTaskToolCallNode(toolCall, argsText, responseText);
   }
-  return createToolActivityNode({ name, argsText, responseText, kind: responseText ? "result" : "call" });
+  return createToolActivityNode({ name, argsText, responseText, kind: responseText ? "result" : "call", approvalStatus });
 }
 
 function createToolMessageNode(message) {
   const isResult = message._tool_result || message.role === "tool";
+  const approvalStatus = message._approval_status || message._pairedToolResponse?._approval_status || "";
   return createToolActivityNode({
     name: getToolName(message) || "tool",
     argsText: isResult ? "" : message.content || "",
     responseText: isResult ? message.content || "" : message._pairedToolResponse?.content || "",
     kind: isResult || message._pairedToolResponse ? "result" : "call",
+    approvalStatus,
   });
 }
 
@@ -1677,6 +1769,9 @@ function activateChat(chatId) {
   renderSessions();
   renderMessages();
   renderSessionFiles();
+  state.pendingApprovals = [];
+  renderApprovalPanel();
+  loadApprovals(state.activeSessionKey).catch(console.error);
 }
 
 async function bootstrap() {
@@ -1722,6 +1817,60 @@ async function loadMessages(sessionKey) {
   renderSessions();
   renderMessages();
   await loadSessionFiles(sessionKey);
+  await loadApprovals(sessionKey);
+}
+
+async function loadApprovals(sessionKey = state.activeSessionKey) {
+  if (!sessionKey || !state.token || state.approvalsLoading) {
+    return;
+  }
+  state.approvalsLoading = true;
+  try {
+    const response = await fetch(`/api/approvals?session_key=${encodeURIComponent(sessionKey)}`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (sessionKey !== state.activeSessionKey) {
+      return;
+    }
+    if (!response.ok) {
+      state.pendingApprovals = [];
+      renderApprovalPanel();
+      return;
+    }
+    const payload = await response.json();
+    state.pendingApprovals = payload.approvals || [];
+    renderApprovalPanel();
+  } catch (error) {
+    console.warn("load approvals failed", error);
+  } finally {
+    state.approvalsLoading = false;
+  }
+}
+
+async function handleApprovalAction(approvalId, action, scope = "once") {
+  if (!approvalId || !state.activeSessionKey) {
+    return;
+  }
+  const endpoint = action === "deny" ? "deny" : "approve";
+  try {
+    const response = await fetch(`/api/approvals/${encodeURIComponent(approvalId)}/${endpoint}`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        session_key: state.activeSessionKey,
+        scope,
+        auto_retry: true,
+      }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `approval ${endpoint} failed: ${response.status}`);
+    }
+    state.pendingApprovals = state.pendingApprovals.filter((item) => item.id !== approvalId);
+    renderApprovalPanel();
+  } catch (error) {
+    setError(error.message || String(error));
+  }
 }
 
 async function clearSession(sessionKey) {
@@ -1734,10 +1883,12 @@ async function clearSession(sessionKey) {
   }
   state.messages.set(sessionKey, []);
   state.sessionFiles.set(sessionKey, []);
+  state.pendingApprovals = [];
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
   renderSessionFiles();
+  renderApprovalPanel();
   setEditorStatus(t("status.cleared"), "connected");
 }
 
@@ -5826,6 +5977,8 @@ async function connectWebSocket() {
             _tool_detail: payload._tool_detail || false,
             _tool_result: payload._tool_result || false,
             _tool_name: payload._tool_name || "",
+            _approval_status: payload._approval_status || "",
+            _approval_id: payload._approval_id || "",
           });
         } else {
           // Regular assistant message
@@ -5835,6 +5988,12 @@ async function connectWebSocket() {
             timestamp: new Date().toISOString(),
           });
         }
+        loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
+        return;
+      }
+
+      if (payload.event === "approval_pending") {
+        loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
         return;
       }
 
@@ -5852,6 +6011,9 @@ async function connectWebSocket() {
           state.streamBuffers.delete(payload.message_id);
           if (payload.resuming !== true && streamState?.sessionKey === state.activeSessionKey) {
             renderMessages(false);
+          }
+          if (streamState?.sessionKey) {
+            loadApprovals(streamState.sessionKey).catch(console.error);
           }
         }
         return;
@@ -5992,16 +6154,18 @@ function bindEvents() {
     await loadSystemStatus();
   });
 
-  elements.clearMessagesButton.addEventListener("click", async () => {
-    if (state.activeSessionKey) {
-      try {
-        await clearSession(state.activeSessionKey);
-      } catch (error) {
-        console.error(error);
-        setError(error.message || t("status.failed"));
+  if (elements.clearMessagesButton) {
+    elements.clearMessagesButton.addEventListener("click", async () => {
+      if (state.activeSessionKey) {
+        try {
+          await clearSession(state.activeSessionKey);
+        } catch (error) {
+          console.error(error);
+          setError(error.message || t("status.failed"));
+        }
       }
-    }
-  });
+    });
+  }
 
   elements.sessionList.addEventListener("click", async (event) => {
     // Handle delete button
@@ -6124,6 +6288,11 @@ function bindEvents() {
   if (elements.browserPanelToggle) {
     elements.browserPanelToggle.addEventListener("click", () => {
       setBrowserPanelCollapsed(!state.browserPanelCollapsed);
+    });
+  }
+  if (elements.sidebarCollapseButton) {
+    elements.sidebarCollapseButton.addEventListener("click", () => {
+      setSidebarCollapsed(!state.sidebarCollapsed);
     });
   }
 
@@ -6440,6 +6609,7 @@ function bindEvents() {
 
   // 语言切换按钮
   renderSidebarActionIcons();
+  setSidebarCollapsed(state.sidebarCollapsed);
   updateLanguageButton();
   elements.languageToggle.addEventListener("click", () => {
     const newLang = getLanguage() === "zh" ? "en" : "zh";

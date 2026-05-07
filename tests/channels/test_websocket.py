@@ -11,6 +11,7 @@ from tinybot.bus.queue import MessageBus
 from tinybot.bus.events import OutboundMessage
 from tinybot.channels.websocket import WebSocketChannel
 from tinybot.config.schema import Config, MCPServerConfig
+from tinybot.security.approval import ApprovalAction, ApprovalManager
 from tinybot.session.manager import SessionManager
 from tinybot.task.types import SubTask, TaskPlan
 
@@ -398,6 +399,139 @@ async def test_config_patch_updates_mcp_servers_and_reconnects(web_channel, web_
     assert fake_loop.connected is True
     assert fake_loop.tools.unregistered == ["mcp_old_echo"]
     assert config_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_config_patch_preserves_masked_nested_dict_secrets(web_channel, web_client, web_workspace):
+    channel, _, session_manager = web_channel
+    config = Config()
+    config.tools.mcp_servers["filesystem"] = MCPServerConfig(
+        type="streamableHttp",
+        url="https://example.test/mcp",
+        headers={"Authorization": "Bearer real-token", "X-Plain": "old"},
+        env={"API_TOKEN": "real-token", "PLAIN": "old"},
+    )
+    channel.bind_runtime(
+        workspace=web_workspace,
+        session_manager=session_manager,
+        config=config,
+        config_path=web_workspace / "config.json",
+    )
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await web_client.patch(
+        "/api/config",
+        headers=headers,
+        json={
+            "tools": {
+                "mcp_servers": {
+                    "filesystem": {
+                        "url": "https://example.test/updated",
+                        "headers": {
+                            "Authorization": "********",
+                            "X-Plain": "changed",
+                        },
+                        "env": {
+                            "API_TOKEN": "********",
+                            "PLAIN": "changed",
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status == 200
+    payload = await response.json()
+    server = config.tools.mcp_servers["filesystem"]
+    assert server.url == "https://example.test/updated"
+    assert server.headers["Authorization"] == "Bearer real-token"
+    assert server.headers["X-Plain"] == "changed"
+    assert server.env["API_TOKEN"] == "real-token"
+    assert server.env["PLAIN"] == "changed"
+    assert payload["config"]["tools"]["mcpServers"]["filesystem"]["headers"]["Authorization"] == "********"
+    assert payload["config"]["tools"]["mcpServers"]["filesystem"]["env"]["API_TOKEN"] == "********"
+
+
+@pytest.mark.asyncio
+async def test_config_get_does_not_mask_token_count_fields(web_channel, web_client, web_workspace):
+    channel, _, session_manager = web_channel
+    config = Config()
+    config.agents.defaults.max_tokens = 8192
+    config.agents.defaults.context_window_tokens = 256000
+    config.providers.deepseek.api_key = "real-api-key"
+    channel.bind_runtime(
+        workspace=web_workspace,
+        session_manager=session_manager,
+        config=config,
+        config_path=web_workspace / "config.json",
+    )
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await web_client.get("/api/config", headers=headers)
+
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["agents"]["defaults"]["maxTokens"] == 8192
+    assert payload["agents"]["defaults"]["contextWindowTokens"] == 256000
+    assert payload["providers"]["deepseek"]["apiKey"] == "********"
+
+
+@pytest.mark.asyncio
+async def test_approval_api_approves_and_schedules_retry(web_channel, web_client, web_workspace):
+    channel, _, session_manager = web_channel
+    session = session_manager.get_or_create("websocket:chat-1")
+    decision = ApprovalManager.evaluate(
+        session=session,
+        tool=None,
+        tool_name="exec",
+        params={"command": "powershell -Command Remove-Item secret.txt"},
+    )
+    assert decision.action == ApprovalAction.REQUIRE_APPROVAL
+    assert decision.request is not None
+    session_manager.save(session)
+
+    class FakeAgentLoop:
+        def __init__(self):
+            self.retry_calls: list[dict] = []
+
+        def schedule_approval_retry(self, **kwargs):
+            self.retry_calls.append(kwargs)
+
+    fake_loop = FakeAgentLoop()
+    channel.bind_runtime(
+        workspace=web_workspace,
+        session_manager=session_manager,
+        agent_loop=fake_loop,
+    )
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await web_client.get(
+        "/api/approvals?session_key=websocket:chat-1",
+        headers=headers,
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["approvals"][0]["id"] == decision.request.id
+
+    response = await web_client.post(
+        f"/api/approvals/{decision.request.id}/approve",
+        headers=headers,
+        json={"session_key": "websocket:chat-1", "scope": "once"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["approved"] is True
+    assert len(fake_loop.retry_calls) == 1
+    assert fake_loop.retry_calls[0]["channel"] == "websocket"
+    assert fake_loop.retry_calls[0]["chat_id"] == "chat-1"
+    assert fake_loop.retry_calls[0]["approval_id"] == decision.request.id
+    assert fake_loop.retry_calls[0]["summary"] == decision.request.summary
+    assert fake_loop.retry_calls[0]["request"].id == decision.request.id
+    assert fake_loop.retry_calls[0]["approved"] is True
 
 
 @pytest.mark.asyncio

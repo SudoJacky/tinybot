@@ -30,6 +30,7 @@ The separation allows:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from contextlib import AsyncExitStack, nullcontext
@@ -78,6 +79,7 @@ from tinybot.bus.queue import MessageBus
 from tinybot.command import CommandContext, CommandRouter, register_builtin_commands
 from tinybot.config.schema import AgentDefaults
 from tinybot.providers.base import LLMProvider
+from tinybot.security.approval import ApprovalManager, ApprovalRequest, build_fingerprint
 from tinybot.agent.dependencies import AgentDependencies
 from tinybot.agent.session_handler import SessionHandler
 from tinybot.agent.stream_handler import StreamHandler, StreamHookChain
@@ -467,7 +469,7 @@ class AgentLoop:
             if allow_message is not None
             else self._should_expose_message_tool(channel or "cli")
         )
-        registry = self.tools.filtered(exclude=set()) if not expose_message and self.tools.has("message") else self.tools
+        registry = self.tools.filtered(exclude={"message"}) if not expose_message and self.tools.has("message") else self.tools
 
         # Add experience tools for Agent to query/save experiences
         session_key = f"{channel}:{chat_id}" if channel and chat_id else ""
@@ -720,7 +722,8 @@ class AgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         message_id: str | None = None,
-    ) -> tuple[str | None, list[str], list[dict]]:
+        use_persistent_knowledge: bool | None = None,
+    ) -> tuple[str | None, list[str], list[dict], str]:
         """Run the agent iteration loop.
 
         *on_stream*: called with each content delta during streaming.
@@ -756,6 +759,7 @@ class AgentLoop:
             if session is None:
                 return
             phase = payload.get("phase", "")
+            payload["_use_persistent_knowledge"] = use_persistent_knowledge
             self.session_handler.set_checkpoint(session, payload)
 
             # Only persist messages to session on completion phases
@@ -811,6 +815,7 @@ class AgentLoop:
             concurrent_tools=True,
             workspace=self.workspace,
             session_key=session.key if session else None,
+            session=session,
             context_window_tokens=self.context_window_tokens,
             context_block_limit=self.context_block_limit,
             provider_retry_mode=self.provider_retry_mode,
@@ -855,7 +860,7 @@ class AgentLoop:
                 )
             )
 
-        return result.final_content, result.tools_used, result.messages
+        return result.final_content, result.tools_used, result.messages, result.stop_reason
 
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
@@ -1008,6 +1013,38 @@ class AgentLoop:
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
+    def schedule_approval_retry(
+        self,
+        *,
+        channel: str,
+        chat_id: str,
+        approval_id: str,
+        summary: str,
+        request: Any | None = None,
+        approved: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Resolve a suspended tool approval in the owning session."""
+        content = (
+            f"Approval `{approval_id}` was {'granted' if approved else 'denied'} for: {summary}"
+        )
+        meta = dict(metadata or {})
+        if request is not None:
+            to_dict = getattr(request, "to_dict", None)
+            meta["_approval_request"] = to_dict() if callable(to_dict) else request
+        meta["_approval_resolution"] = {
+            "id": approval_id,
+            "approved": approved,
+            "summary": summary,
+        }
+        self._schedule_background(self.bus.publish_inbound(InboundMessage(
+            channel="system",
+            sender_id="approval",
+            chat_id=f"{channel}:{chat_id}",
+            content=content,
+            metadata=meta,
+        )))
+
     async def _update_user_profile(
         self,
         session: Session,
@@ -1095,6 +1132,17 @@ class AgentLoop:
             key = f"{channel}:{chat_id}"
 
             session = self.sessions.get_or_create(key)
+            if msg.sender_id == "approval":
+                return await self._process_approval_resolution(
+                    msg=msg,
+                    session=session,
+                    channel=channel,
+                    chat_id=chat_id,
+                    on_progress=on_progress,
+                    on_stream=on_stream,
+                    on_reasoning_stream=on_reasoning_stream,
+                    on_stream_end=on_stream_end,
+                )
             if self.session_handler.restore_checkpoint(session):
                 self.sessions.save(session)
             await self.consolidator.maybe_consolidate_by_tokens(session)
@@ -1123,14 +1171,23 @@ class AgentLoop:
                 current_role="user",  # Use "user" role to avoid merging with previous assistant message
                 user_profile=session.user_profile,
             )
-            final_content, _, all_msgs = await self._run_agent_loop(
+            final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
                 on_progress=on_progress,
                 on_stream=on_stream,
                 on_reasoning_stream=on_reasoning_stream,
                 on_stream_end=on_stream_end,
+                use_persistent_knowledge=msg.metadata.get("_use_persistent_rag"),
             )
+            if stop_reason == "awaiting_approval":
+                self.sessions.save(session)
+                return OutboundMessage(
+                    channel=channel,
+                    chat_id=chat_id,
+                    content="",
+                    metadata={"_approval_pending": True},
+                )
             if msg.sender_id == "subagent":
                 all_msgs = [
                     entry for entry in all_msgs
@@ -1233,7 +1290,7 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
-        final_content, _, all_msgs = await self._run_agent_loop(
+        final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
             initial_messages,
             on_progress=on_progress or _bus_progress,
             on_stream=on_stream,
@@ -1242,7 +1299,17 @@ class AgentLoop:
             session=session,
             channel=msg.channel, chat_id=msg.chat_id,
             message_id=msg.metadata.get("message_id"),
+            use_persistent_knowledge=msg.metadata.get("_use_persistent_rag"),
         )
+
+        if stop_reason == "awaiting_approval":
+            self.sessions.save(session)
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="",
+                metadata={**dict(msg.metadata or {}), "_approval_pending": True},
+            )
 
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
@@ -1270,6 +1337,245 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id, content=final_content,
             metadata=meta,
         )
+
+    @staticmethod
+    def _tool_call_arguments(raw_tool_call: dict[str, Any]) -> dict[str, Any]:
+        raw_args = ((raw_tool_call.get("function") or {}).get("arguments")) or {}
+        if isinstance(raw_args, dict):
+            return raw_args
+        if isinstance(raw_args, str):
+            try:
+                parsed = json.loads(raw_args)
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def _find_approval_tool_call(
+        self,
+        pending_tool_calls: list[Any],
+        request: ApprovalRequest,
+    ) -> dict[str, Any] | None:
+        for raw_tool_call in pending_tool_calls:
+            if not isinstance(raw_tool_call, dict):
+                continue
+            function = raw_tool_call.get("function") or {}
+            tool_name = str(function.get("name") or "")
+            if tool_name != request.tool_name:
+                continue
+            params = self._tool_call_arguments(raw_tool_call)
+            if build_fingerprint(tool_name, params, request.category) == request.fingerprint:
+                return raw_tool_call
+        return None
+
+    @staticmethod
+    def _tool_call_id(raw_tool_call: dict[str, Any]) -> str:
+        return str(raw_tool_call.get("id") or raw_tool_call.get("tool_call_id") or "")
+
+    @staticmethod
+    def _completed_tool_call_ids(messages: list[Any]) -> set[str]:
+        completed: set[str] = set()
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            tool_call_id = str(message.get("tool_call_id") or "")
+            if tool_call_id:
+                completed.add(tool_call_id)
+        return completed
+
+    async def _execute_resolved_approval_tool(
+        self,
+        *,
+        session: Session,
+        request: ApprovalRequest,
+        raw_tool_call: dict[str, Any],
+        approved: bool,
+        channel: str,
+        chat_id: str,
+    ) -> dict[str, Any]:
+        tool_call_id = str(raw_tool_call.get("id") or f"approval_{request.id}")
+        if not approved:
+            content = f"Error: User denied approval `{request.id}` for {request.summary}."
+        else:
+            ApprovalManager.consume_once(session, request.fingerprint)
+            self._set_tool_context(channel, chat_id, None)
+            if message_tool := self.tools.get("message"):
+                if isinstance(message_tool, MessageTool):
+                    message_tool.start_turn()
+            registry = self._tools_for_run(channel=channel, chat_id=chat_id)
+            tool, params, prep_error = registry.prepare_call(request.tool_name, request.params)
+            if prep_error:
+                content = prep_error
+            else:
+                try:
+                    if tool is not None:
+                        content = await tool.execute(**params)
+                    else:
+                        content = await registry.execute(request.tool_name, params)
+                except Exception as exc:
+                    content = f"Error executing {request.tool_name}: {exc}"
+
+        tool_message = {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": request.tool_name,
+            "content": content,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if approved:
+            tool_message["_approval_status"] = "approved"
+            tool_message["_approval_id"] = request.id
+        else:
+            tool_message["_approval_status"] = "denied"
+            tool_message["_approval_id"] = request.id
+        return tool_message
+
+    async def _process_approval_resolution(
+        self,
+        *,
+        msg: InboundMessage,
+        session: Session,
+        channel: str,
+        chat_id: str,
+        on_progress: Callable[[str], Awaitable[None]] | None = None,
+        on_stream: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning_stream: Callable[[str], Awaitable[None]] | None = None,
+        on_stream_end: Callable[..., Awaitable[None]] | None = None,
+    ) -> OutboundMessage | None:
+        resolution = msg.metadata.get("_approval_resolution") or {}
+        raw_request = msg.metadata.get("_approval_request") or {}
+        if not isinstance(resolution, dict) or not isinstance(raw_request, dict):
+            return OutboundMessage(channel=channel, chat_id=chat_id, content=msg.content)
+
+        request = ApprovalRequest.from_dict(raw_request)
+        approved = bool(resolution.get("approved"))
+        checkpoint = session.metadata.get(self.session_handler.RUNTIME_CHECKPOINT_KEY)
+        if not isinstance(checkpoint, dict):
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=(
+                    f"Approval `{request.id}` was resolved, but the original tool checkpoint "
+                    "is no longer available."
+                ),
+            )
+
+        raw_tool_call = self._find_approval_tool_call(checkpoint.get("pending_tool_calls") or [], request)
+        if raw_tool_call is None:
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=f"Approval `{request.id}` was resolved, but the original tool call was not found.",
+            )
+
+        assistant_message = checkpoint.get("assistant_message")
+        if isinstance(assistant_message, dict):
+            entry = dict(assistant_message)
+            entry.setdefault("timestamp", datetime.now().isoformat())
+            if not self.session_handler._is_duplicate_message(session, entry):
+                session.messages.append(entry)
+
+        tool_message = await self._execute_resolved_approval_tool(
+            session=session,
+            request=request,
+            raw_tool_call=raw_tool_call,
+            approved=approved,
+            channel=channel,
+            chat_id=chat_id,
+        )
+        if not self.session_handler._is_duplicate_message(session, tool_message):
+            session.messages.append(tool_message)
+        if channel == "websocket":
+            await self.bus.publish_outbound(OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=tool_message.get("content", ""),
+                metadata={
+                    "_progress": True,
+                    "_tool_hint": True,
+                    "_tool_result": True,
+                    "_tool_name": request.tool_name,
+                    "_approval_status": tool_message.get("_approval_status", ""),
+                    "_approval_id": tool_message.get("_approval_id", ""),
+                },
+            ))
+
+        completed_tool_results = [
+            item for item in (checkpoint.get("completed_tool_results") or [])
+            if isinstance(item, dict)
+        ]
+        if not any(
+            item.get("tool_call_id") == tool_message.get("tool_call_id")
+            for item in completed_tool_results
+        ):
+            completed_tool_results.append(tool_message)
+        checkpoint["completed_tool_results"] = completed_tool_results
+
+        completed_ids = self._completed_tool_call_ids(completed_tool_results)
+        all_pending_tool_calls = [
+            item for item in (checkpoint.get("pending_tool_calls") or [])
+            if isinstance(item, dict)
+        ]
+        remaining_tool_calls = [
+            item for item in all_pending_tool_calls
+            if self._tool_call_id(item) not in completed_ids
+        ]
+        checkpoint["pending_tool_calls"] = remaining_tool_calls
+
+        if remaining_tool_calls:
+            self.session_handler.set_checkpoint(session, checkpoint)
+            self.sessions.save(session)
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content="",
+                metadata={"_approval_pending": True},
+            )
+
+        self.session_handler.clear_checkpoint(session)
+        self.sessions.save(session)
+
+        await self.consolidator.maybe_consolidate_by_tokens(session)
+        history = session.get_history(max_messages=0)
+        messages = self.context.build_messages(
+            history=history,
+            current_message="The pending tool approval has been resolved. Continue from the tool result above.",
+            channel=channel,
+            chat_id=chat_id,
+            current_role="system",
+            user_profile=session.user_profile,
+            use_persistent_knowledge=checkpoint.get("_use_persistent_knowledge"),
+        )
+        final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
+            messages,
+            session=session,
+            channel=channel,
+            chat_id=chat_id,
+            message_id=msg.metadata.get("message_id"),
+            on_progress=on_progress,
+            on_stream=on_stream,
+            on_reasoning_stream=on_reasoning_stream,
+            on_stream_end=on_stream_end,
+            use_persistent_knowledge=checkpoint.get("_use_persistent_knowledge"),
+        )
+        if stop_reason == "awaiting_approval":
+            self.sessions.save(session)
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content="",
+                metadata={**dict(msg.metadata or {}), "_approval_pending": True},
+            )
+
+        if final_content is None or not final_content.strip():
+            final_content = EMPTY_FINAL_RESPONSE_MESSAGE
+
+        skip_count = len(session.messages)
+        self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
+        self.session_handler.clear_checkpoint(session)
+        self.sessions.save(session)
+        self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
+        return OutboundMessage(channel=channel, chat_id=chat_id, content=final_content)
 
     async def process_direct(
         self,

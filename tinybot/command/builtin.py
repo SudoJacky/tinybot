@@ -9,6 +9,7 @@ import sys
 from tinybot import __version__
 from tinybot.bus.events import OutboundMessage
 from tinybot.command.router import CommandContext, CommandRouter
+from tinybot.security.approval import ApprovalManager, ApprovalScope
 from tinybot.utils.helper import build_status_content
 from tinybot.utils.restart import set_restart_notice_to_env
 
@@ -285,6 +286,113 @@ async def cmd_help(ctx: CommandContext) -> OutboundMessage:
     )
 
 
+def _format_pending_approvals(ctx: CommandContext) -> str:
+    session = ctx.session or ctx.loop.sessions.get_or_create(ctx.key)
+    pending = ApprovalManager.list_pending(session)
+    if not pending:
+        return "No pending approvals."
+
+    lines = ["## Pending Approvals", ""]
+    for item in pending:
+        lines.extend([
+            f"- `{item.id}` {item.summary}",
+            f"  Risk: {item.risk} ({item.category})",
+            f"  Reason: {item.reason}",
+        ])
+    lines.extend([
+        "",
+        "Approve once: `/approve <id> once`",
+        "Allow for this session: `/approve <id> session`",
+        "Deny: `/deny <id>`",
+    ])
+    return "\n".join(lines)
+
+
+async def cmd_approvals(ctx: CommandContext) -> OutboundMessage:
+    """List pending tool execution approval requests."""
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=_format_pending_approvals(ctx),
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
+async def cmd_approve(ctx: CommandContext) -> OutboundMessage:
+    """Approve a pending high-risk tool call."""
+    session = ctx.session or ctx.loop.sessions.get_or_create(ctx.key)
+    parts = ctx.args.strip().split()
+    if len(parts) != 2 or parts[1].lower() not in {"once", "session"}:
+        content = "Usage: `/approve <id> once` or `/approve <id> session`."
+    else:
+        request_id, raw_scope = parts[0], parts[1].lower()
+        scope = ApprovalScope.SESSION if raw_scope == "session" else ApprovalScope.ONCE
+        request = ApprovalManager.approve(session, request_id, scope)
+        if request is None:
+            content = f"Approval `{request_id}` was not found. Use `/approvals` to list pending requests."
+        else:
+            ctx.loop.sessions.save(session)
+            if scope == ApprovalScope.ONCE:
+                content = (
+                    f"Approved `{request.id}` once: {request.summary}\n\n"
+                    "Retrying the approved operation now."
+                )
+            else:
+                content = (
+                    f"Approved `{request.id}` for this session: {request.summary}\n\n"
+                    "Matching operations in this session will not ask again. Retrying now."
+                )
+            schedule_retry = getattr(ctx.loop, "schedule_approval_retry", None)
+            if callable(schedule_retry):
+                schedule_retry(
+                    channel=ctx.msg.channel,
+                    chat_id=ctx.msg.chat_id,
+                    approval_id=request.id,
+                    summary=request.summary,
+                    request=request,
+                    approved=True,
+                    metadata=ctx.msg.metadata,
+                )
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=content,
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
+async def cmd_deny(ctx: CommandContext) -> OutboundMessage:
+    """Deny a pending high-risk tool call."""
+    session = ctx.session or ctx.loop.sessions.get_or_create(ctx.key)
+    request_id = ctx.args.strip().split()[0] if ctx.args.strip() else ""
+    if not request_id:
+        content = "Usage: `/deny <id>`."
+    else:
+        request = ApprovalManager.deny(session, request_id)
+        if request is None:
+            content = f"Approval `{request_id}` was not found. Use `/approvals` to list pending requests."
+        else:
+            ctx.loop.sessions.save(session)
+            schedule_retry = getattr(ctx.loop, "schedule_approval_retry", None)
+            if callable(schedule_retry):
+                schedule_retry(
+                    channel=ctx.msg.channel,
+                    chat_id=ctx.msg.chat_id,
+                    approval_id=request.id,
+                    summary=request.summary,
+                    request=request,
+                    approved=False,
+                    metadata=ctx.msg.metadata,
+                )
+            content = f"Denied `{request.id}`: {request.summary}"
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=content,
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
 def build_help_text() -> str:
     """Build canonical help text shared across channels."""
     lines = [
@@ -313,4 +421,7 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.prefix("/dream-log ", cmd_dream_log)
     router.exact("/dream-restore", cmd_dream_restore)
     router.prefix("/dream-restore ", cmd_dream_restore)
+    router.exact("/approvals", cmd_approvals)
+    router.prefix("/approve ", cmd_approve)
+    router.prefix("/deny ", cmd_deny)
     router.exact("/help", cmd_help)
