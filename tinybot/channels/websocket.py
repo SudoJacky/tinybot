@@ -289,6 +289,15 @@ class WebSocketChannel(BaseChannel):
                 },
             )
             return
+        if meta.get("_approval_pending"):
+            await self._broadcast(
+                msg.chat_id,
+                {
+                    "event": "approval_pending",
+                    "chat_id": msg.chat_id,
+                },
+            )
+            return
 
         payload = {
             "event": "message",
@@ -1025,6 +1034,8 @@ class WebSocketChannel(BaseChannel):
                     chat_id=chat_id,
                     approval_id=approved.id,
                     summary=approved.summary,
+                    request=approved,
+                    approved=True,
                 )
 
         return web.json_response({
@@ -1046,7 +1057,7 @@ class WebSocketChannel(BaseChannel):
         if not isinstance(payload, dict):
             return web.json_response({"error": "payload must be a dict"}, status=400)
 
-        session, _ = self._approval_session_from_request(request, payload)
+        session, session_key = self._approval_session_from_request(request, payload)
         if session is None:
             return web.json_response({"error": "session_key or chat_id is required"}, status=400)
 
@@ -1055,6 +1066,18 @@ class WebSocketChannel(BaseChannel):
         if denied is None:
             return web.json_response({"error": "approval not found"}, status=404)
         self.session_manager.save(session)
+        if self.agent_loop and session_key:
+            channel, chat_id = session_key.split(":", 1) if ":" in session_key else ("websocket", session_key)
+            schedule_retry = getattr(self.agent_loop, "schedule_approval_retry", None)
+            if callable(schedule_retry):
+                schedule_retry(
+                    channel=channel,
+                    chat_id=chat_id,
+                    approval_id=denied.id,
+                    summary=denied.summary,
+                    request=denied,
+                    approved=False,
+                )
         return web.json_response({"denied": True, "approval": self._serialize_approval(denied)})
 
     async def handle_get_skills(self, request: web.Request) -> web.Response:

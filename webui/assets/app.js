@@ -5958,6 +5958,11 @@ async function connectWebSocket() {
         return;
       }
 
+      if (payload.event === "approval_pending") {
+        loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
+        return;
+      }
+
       if (payload.event === "browser_frame" || payload.event === "browser_snapshot") {
         updateBrowserFrame(payload);
         return;

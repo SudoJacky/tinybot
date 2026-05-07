@@ -199,6 +199,11 @@ class AgentRunner:
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
                 await hook.after_execute_tools(context)
+                if any(event.get("status") == "approval_required" for event in new_events):
+                    stop_reason = "awaiting_approval"
+                    context.stop_reason = stop_reason
+                    await hook.after_iteration(context)
+                    break
                 if fatal_error is not None:
                     error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
                     final_content = error
@@ -572,10 +577,9 @@ class AgentRunner:
             params=params,
         )
         if approval.action == ApprovalAction.REQUIRE_APPROVAL and approval.request is not None:
-            result = format_approval_required(approval.request)
             event = {
                 "name": tool_call.name,
-                "status": "error",
+                "status": "approval_required",
                 "detail": f"approval required: {approval.request.id}",
             }
             if spec.experience_store and spec.session_key:
@@ -583,14 +587,15 @@ class AgentRunner:
                     tool_name=tool_call.name,
                     params=params,
                     status="error",
-                    detail=result,
+                    detail=format_approval_required(approval.request),
                     session_key=spec.session_key,
                     attempt_no=attempt_no,
                     related_experience_id="",
                 )
             if spec.fail_on_tool_error:
+                result = format_approval_required(approval.request)
                 return result, event, PermissionError(result)
-            return result, event, None
+            return "", event, None
 
         # Trigger on_tool_start hook before execution
         if hook and context:

@@ -349,6 +349,8 @@ async def cmd_approve(ctx: CommandContext) -> OutboundMessage:
                     chat_id=ctx.msg.chat_id,
                     approval_id=request.id,
                     summary=request.summary,
+                    request=request,
+                    approved=True,
                     metadata=ctx.msg.metadata,
                 )
     return OutboundMessage(
@@ -371,6 +373,17 @@ async def cmd_deny(ctx: CommandContext) -> OutboundMessage:
             content = f"Approval `{request_id}` was not found. Use `/approvals` to list pending requests."
         else:
             ctx.loop.sessions.save(session)
+            schedule_retry = getattr(ctx.loop, "schedule_approval_retry", None)
+            if callable(schedule_retry):
+                schedule_retry(
+                    channel=ctx.msg.channel,
+                    chat_id=ctx.msg.chat_id,
+                    approval_id=request.id,
+                    summary=request.summary,
+                    request=request,
+                    approved=False,
+                    metadata=ctx.msg.metadata,
+                )
             content = f"Denied `{request.id}`: {request.summary}"
     return OutboundMessage(
         channel=ctx.msg.channel,

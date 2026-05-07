@@ -300,6 +300,13 @@ class ApprovalManager:
         return request
 
     @staticmethod
+    def consume_once(session: Session, fingerprint: str) -> None:
+        data = _metadata(session)
+        approved_once = data.get("approved_once", [])
+        if isinstance(approved_once, list):
+            data["approved_once"] = [item for item in approved_once if item != fingerprint]
+
+    @staticmethod
     def deny(session: Session, request_id: str) -> ApprovalRequest | None:
         data = _metadata(session)
         pending = data.get("pending", {})

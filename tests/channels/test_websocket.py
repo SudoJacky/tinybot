@@ -500,14 +500,13 @@ async def test_approval_api_approves_and_schedules_retry(web_channel, web_client
     assert response.status == 200
     payload = await response.json()
     assert payload["approved"] is True
-    assert fake_loop.retry_calls == [
-        {
-            "channel": "websocket",
-            "chat_id": "chat-1",
-            "approval_id": decision.request.id,
-            "summary": decision.request.summary,
-        }
-    ]
+    assert len(fake_loop.retry_calls) == 1
+    assert fake_loop.retry_calls[0]["channel"] == "websocket"
+    assert fake_loop.retry_calls[0]["chat_id"] == "chat-1"
+    assert fake_loop.retry_calls[0]["approval_id"] == decision.request.id
+    assert fake_loop.retry_calls[0]["summary"] == decision.request.summary
+    assert fake_loop.retry_calls[0]["request"].id == decision.request.id
+    assert fake_loop.retry_calls[0]["approved"] is True
 
 
 @pytest.mark.asyncio
