@@ -50,6 +50,17 @@ def test_low_risk_exec_is_allowed() -> None:
     assert decision.action == ApprovalAction.ALLOW
 
 
+def test_low_risk_exec_with_shell_control_requires_approval() -> None:
+    session = Session(key="cli:test")
+    decision = ApprovalManager.evaluate(
+        session=session,
+        tool=_Tool(),
+        tool_name="exec",
+        params={"command": "uv run pytest tests/security -q; Remove-Item secret.txt"},
+    )
+    assert decision.action == ApprovalAction.REQUIRE_APPROVAL
+
+
 def test_once_approval_is_consumed() -> None:
     session = Session(key="cli:test")
     params = {"path": "notes.md", "content": "hello"}
@@ -100,6 +111,38 @@ def test_session_approval_allows_matching_operations() -> None:
         params={"path": "notes.md", "content": "changed"},
     )
     assert second.action == ApprovalAction.ALLOW
+
+
+def test_exec_session_approval_requires_exact_command_match() -> None:
+    session = Session(key="cli:test")
+    command = "custom-tool " + ("a" * 100)
+    changed_command = command + " --delete"
+
+    first = ApprovalManager.evaluate(
+        session=session,
+        tool=_Tool(),
+        tool_name="exec",
+        params={"command": command},
+    )
+    assert first.request is not None
+    approved = ApprovalManager.approve(session, first.request.id, ApprovalScope.SESSION)
+    assert approved is not None
+
+    second = ApprovalManager.evaluate(
+        session=session,
+        tool=_Tool(),
+        tool_name="exec",
+        params={"command": command},
+    )
+    assert second.action == ApprovalAction.ALLOW
+
+    third = ApprovalManager.evaluate(
+        session=session,
+        tool=_Tool(),
+        tool_name="exec",
+        params={"command": changed_command},
+    )
+    assert third.action == ApprovalAction.REQUIRE_APPROVAL
 
 
 def test_mcp_tool_requires_approval_even_if_marked_read_only() -> None:

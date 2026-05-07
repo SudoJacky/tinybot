@@ -145,6 +145,20 @@ def _mask_config_secrets(value: Any, key: str = "") -> Any:
     return value
 
 
+def _drop_masked_config_secrets(value: Any, key: str = "") -> Any:
+    if _is_secret_field(key) and value == _SECRET_MASK:
+        return None
+    if isinstance(value, dict):
+        return {
+            k: cleaned
+            for k, v in value.items()
+            if (cleaned := _drop_masked_config_secrets(v, k)) is not None
+        }
+    if isinstance(value, list):
+        return [_drop_masked_config_secrets(item, key) for item in value]
+    return value
+
+
 class WebSocketChannel(BaseChannel):
     """Expose a browser-friendly chat interface over WebSocket and REST."""
 
@@ -1546,8 +1560,9 @@ class WebSocketChannel(BaseChannel):
                 continue
 
             # Handle nested dict updates
-            if isinstance(value, dict) and not isinstance(current, dict):
-                # current is a pydantic model, recurse
+            if isinstance(value, dict) and isinstance(current, dict):
+                updated.extend(self._apply_dict_config_update(current, value, path))
+            elif isinstance(value, dict) and not isinstance(current, dict):
                 updated.extend(self._apply_config_update(current, value, path))
             elif hasattr(current, "__pydantic_model__") or hasattr(current, "model_fields"):
                 # current is a pydantic model, recurse
@@ -1561,6 +1576,29 @@ class WebSocketChannel(BaseChannel):
                     # Skip fields that can't be set
                     pass
 
+        return updated
+
+    def _apply_dict_config_update(self, obj: dict[str, Any], updates: dict[str, Any], prefix: str) -> list[str]:
+        """Merge config dicts without writing masked secret placeholders."""
+        updated: list[str] = []
+        for key, value in updates.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if _is_secret_field(key) and value == _SECRET_MASK:
+                continue
+
+            current = obj.get(key)
+            if isinstance(value, dict) and isinstance(current, dict):
+                updated.extend(self._apply_dict_config_update(current, value, path))
+            elif isinstance(value, dict) and (
+                hasattr(current, "__pydantic_model__") or hasattr(current, "model_fields")
+            ):
+                updated.extend(self._apply_config_update(current, value, path))
+            else:
+                cleaned = _drop_masked_config_secrets(value, key)
+                if cleaned is None:
+                    continue
+                obj[key] = cleaned
+                updated.append(path)
         return updated
 
     def _restore_config(self, snapshot: Any) -> None:
@@ -1669,5 +1707,5 @@ class WebSocketChannel(BaseChannel):
         return web.json_response({
             "updated": True,
             "updated_fields": updated_fields,
-            "config": data,
+            "config": _mask_config_secrets(data),
         })

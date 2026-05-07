@@ -60,7 +60,7 @@ class ApprovalRequest:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ApprovalRequest":
+    def from_dict(cls, data: dict[str, Any]) -> ApprovalRequest:
         return cls(
             id=str(data.get("id") or ""),
             tool_name=str(data.get("tool_name") or ""),
@@ -83,12 +83,11 @@ class ApprovalDecision:
 
 
 _SAFE_EXEC_PATTERNS = [
-    r"^\s*git\s+(status|diff|log|show|branch|rev-parse|ls-files)\b",
-    r"^\s*uv\s+run\s+(pytest|ruff|mypy)\b",
-    r"^\s*python\s+-m\s+pytest\b",
+    r"\s*git\s+(status|diff|log|show|branch|rev-parse|ls-files)(?:\s+[\w./\\:@{}=,+~^*-]+)*\s*",
+    r"\s*uv\s+run\s+(pytest|ruff|mypy)(?:\s+[\w./\\:@{}=,+~^*-]+)*\s*",
+    r"\s*python\s+-m\s+pytest(?:\s+[\w./\\:@{}=,+~^*-]+)*\s*",
 ]
-
-_SESSION_PREFIX_CHARS = 80
+_SHELL_CONTROL_CHARS = frozenset(";&|<>\n\r`")
 
 
 def _stable_json(value: Any) -> str:
@@ -102,7 +101,7 @@ def _short_hash(value: str, length: int = 12) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:length]
 
 
-def _metadata(session: "Session") -> dict[str, Any]:
+def _metadata(session: Session) -> dict[str, Any]:
     data = session.metadata.setdefault(APPROVAL_METADATA_KEY, {})
     if not isinstance(data, dict):
         data = {}
@@ -122,17 +121,36 @@ def _normalize_path_value(value: Any) -> str:
     return str(value or "").replace("\\", "/").lower()
 
 
-def _exec_session_fingerprint(command: str) -> str:
-    normalized = _normalize_command(command)
-    return f"exec:{normalized[:_SESSION_PREFIX_CHARS].lower()}"
+def _has_shell_control_operator(command: str) -> bool:
+    quote: str | None = None
+    escaped = False
+    for char in command:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if quote:
+            if char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            continue
+        if char in _SHELL_CONTROL_CHARS:
+            return True
+    return False
 
 
 def _is_low_risk_exec(command: str) -> bool:
     normalized = _normalize_command(command).lower()
-    return any(re.search(pattern, normalized) for pattern in _SAFE_EXEC_PATTERNS)
+    if _has_shell_control_operator(normalized):
+        return False
+    return any(re.fullmatch(pattern, normalized) for pattern in _SAFE_EXEC_PATTERNS)
 
 
-def classify_tool_call(tool: "Tool | None", tool_name: str, params: dict[str, Any]) -> tuple[str, str, str] | None:
+def classify_tool_call(tool: Tool | None, tool_name: str, params: dict[str, Any]) -> tuple[str, str, str] | None:
     """Return (category, risk, reason) if a tool call needs approval."""
     if tool is not None and tool.read_only and not tool_name.startswith("mcp_"):
         return None
@@ -178,7 +196,7 @@ def build_fingerprint(tool_name: str, params: dict[str, Any], category: str) -> 
 def build_session_fingerprint(tool_name: str, params: dict[str, Any], category: str) -> str:
     """Build a broader fingerprint for session-scoped approval."""
     if tool_name == "exec":
-        return _exec_session_fingerprint(str(params.get("command") or ""))
+        return build_fingerprint(tool_name, params, category)
     if tool_name in {"write_file", "edit_file"}:
         return f"{tool_name}:{_normalize_path_value(params.get('path'))}"
     return f"{category}:{tool_name}"
@@ -198,8 +216,8 @@ class ApprovalManager:
     @staticmethod
     def evaluate(
         *,
-        session: "Session | None",
-        tool: "Tool | None",
+        session: Session | None,
+        tool: Tool | None,
         tool_name: str,
         params: dict[str, Any],
     ) -> ApprovalDecision:
@@ -254,14 +272,14 @@ class ApprovalManager:
         return ApprovalDecision(ApprovalAction.REQUIRE_APPROVAL, request)
 
     @staticmethod
-    def list_pending(session: "Session") -> list[ApprovalRequest]:
+    def list_pending(session: Session) -> list[ApprovalRequest]:
         pending = _metadata(session).get("pending", {})
         if not isinstance(pending, dict):
             return []
         return [ApprovalRequest.from_dict(item) for item in pending.values() if isinstance(item, dict)]
 
     @staticmethod
-    def approve(session: "Session", request_id: str, scope: ApprovalScope) -> ApprovalRequest | None:
+    def approve(session: Session, request_id: str, scope: ApprovalScope) -> ApprovalRequest | None:
         data = _metadata(session)
         pending = data.get("pending", {})
         if not isinstance(pending, dict):
@@ -282,7 +300,7 @@ class ApprovalManager:
         return request
 
     @staticmethod
-    def deny(session: "Session", request_id: str) -> ApprovalRequest | None:
+    def deny(session: Session, request_id: str) -> ApprovalRequest | None:
         data = _metadata(session)
         pending = data.get("pending", {})
         if not isinstance(pending, dict):

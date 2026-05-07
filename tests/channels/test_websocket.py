@@ -401,6 +401,59 @@ async def test_config_patch_updates_mcp_servers_and_reconnects(web_channel, web_
 
 
 @pytest.mark.asyncio
+async def test_config_patch_preserves_masked_nested_dict_secrets(web_channel, web_client, web_workspace):
+    channel, _, session_manager = web_channel
+    config = Config()
+    config.tools.mcp_servers["filesystem"] = MCPServerConfig(
+        type="streamableHttp",
+        url="https://example.test/mcp",
+        headers={"Authorization": "Bearer real-token", "X-Plain": "old"},
+        env={"API_TOKEN": "real-token", "PLAIN": "old"},
+    )
+    channel.bind_runtime(
+        workspace=web_workspace,
+        session_manager=session_manager,
+        config=config,
+        config_path=web_workspace / "config.json",
+    )
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await web_client.patch(
+        "/api/config",
+        headers=headers,
+        json={
+            "tools": {
+                "mcp_servers": {
+                    "filesystem": {
+                        "url": "https://example.test/updated",
+                        "headers": {
+                            "Authorization": "********",
+                            "X-Plain": "changed",
+                        },
+                        "env": {
+                            "API_TOKEN": "********",
+                            "PLAIN": "changed",
+                        },
+                    },
+                },
+            },
+        },
+    )
+
+    assert response.status == 200
+    payload = await response.json()
+    server = config.tools.mcp_servers["filesystem"]
+    assert server.url == "https://example.test/updated"
+    assert server.headers["Authorization"] == "Bearer real-token"
+    assert server.headers["X-Plain"] == "changed"
+    assert server.env["API_TOKEN"] == "real-token"
+    assert server.env["PLAIN"] == "changed"
+    assert payload["config"]["tools"]["mcpServers"]["filesystem"]["headers"]["Authorization"] == "********"
+    assert payload["config"]["tools"]["mcpServers"]["filesystem"]["env"]["API_TOKEN"] == "********"
+
+
+@pytest.mark.asyncio
 async def test_workspace_file_endpoints_and_events(web_channel, web_client):
     _, _, _ = web_channel
     token = await _bootstrap_token(web_client)
