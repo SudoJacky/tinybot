@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css?v=approval-panel-20260507b">
+  <link rel="stylesheet" href="/assets/styles.css?v=approval-panel-20260507n">
   <!-- Highlight.js for code syntax highlighting -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light-theme">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-dark-theme" disabled>
@@ -31,6 +31,11 @@
   <div class="shell">
     <!-- 左侧边栏：会话列表 + 系统状态 -->
     <aside class="sidebar">
+      <button id="sidebar-collapse-button" class="button button-icon sidebar-collapse-button" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M15 18l-6-6 6-6"/>
+        </svg>
+      </button>
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">
           <img class="brand-logo" src="/assets/logo-mark.svg" alt="">
@@ -86,10 +91,6 @@
         <div>
           <p class="eyebrow" data-i18n="ui.currentSession">Current Session</p>
           <h2 id="chat-title" data-i18n="ui.notConnected">未连接</h2>
-        </div>
-        <div class="status-group">
-          <span id="connection-status" class="status status-idle" data-i18n="status.init">初始化中</span>
-          <button id="clear-messages-button" class="button button-ghost" type="button" data-i18n="ui.clear">清空</button>
         </div>
       </header>
 
@@ -217,7 +218,8 @@
         </header>
         <div class="browser-frame-wrap" id="browser-frame-wrap">
           <div class="browser-frame-empty" id="browser-frame-empty">
-            <span>No browser frame yet</span>
+            <span>未使用 Browser</span>
+            <small>等待浏览器活动</small>
           </div>
           <img id="browser-frame-image" class="browser-frame-image" alt="Browser view" hidden>
         </div>
@@ -1211,6 +1213,6 @@
     </article>
   </template>
 
-  <script src="/assets/app.js?v=approval-panel-20260507b" defer></script>
+  <script src="/assets/app.js?v=approval-panel-20260507n" defer></script>
 </body>
 </html>

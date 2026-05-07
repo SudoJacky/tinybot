@@ -47,6 +47,7 @@ const state = {
   lastUsage: null,  // 最后一次的usage数据
   browserFrame: null,
   browserPanelCollapsed: false,
+  sidebarCollapsed: localStorage.getItem("tinybot-sidebar-collapsed") === "true",
   uiMode: localStorage.getItem("tinybot-ui-mode") || "basic",
   modelDiscoveryTimer: null,
   pendingApprovals: [],
@@ -76,6 +77,9 @@ const elements = {
   persistentRagToggle: document.querySelector("#persistent-rag-toggle"),
   newChatButton: document.querySelector("#new-chat-button"),
   refreshButton: document.querySelector("#refresh-button"),
+  sidebarCollapseButton: document.querySelector("#sidebar-collapse-button"),
+  sidebar: document.querySelector(".sidebar"),
+  shell: document.querySelector(".shell"),
   clearMessagesButton: document.querySelector("#clear-messages-button"),
   hintText: document.querySelector("#hint-text"),
   errorText: document.querySelector("#error-text"),
@@ -307,6 +311,9 @@ const elements = {
 };
 
 function setStatus(text, kind = "idle") {
+  if (!elements.connectionStatus) {
+    return;
+  }
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.className = `status status-${kind}`;
 }
@@ -383,10 +390,8 @@ function renderSidebarActionIcons() {
       className: "sidebar-icon-refresh",
       svg: `
         <svg class="icon-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 12a9 9 0 0 1-15.2 6.5"></path>
-          <path d="M3 12A9 9 0 0 1 18.2 5.5"></path>
-          <path d="M18 2v4h4"></path>
-          <path d="M6 22v-4H2"></path>
+          <path d="M21 12a9 9 0 1 1-2.64-6.36"></path>
+          <path d="M21 3v6h-6"></path>
         </svg>
       `,
     },
@@ -646,6 +651,18 @@ function renderApprovalPanel() {
     actions.append(onceButton, sessionButton, denyButton);
     item.append(body, actions);
     elements.approvalList.append(item);
+  }
+}
+
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = collapsed;
+  localStorage.setItem("tinybot-sidebar-collapsed", collapsed ? "true" : "false");
+  elements.shell?.classList.toggle("sidebar-collapsed", collapsed);
+  elements.sidebar?.classList.toggle("collapsed", collapsed);
+  if (elements.sidebarCollapseButton) {
+    elements.sidebarCollapseButton.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    elements.sidebarCollapseButton.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    elements.sidebarCollapseButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
   }
 }
 
@@ -6137,16 +6154,18 @@ function bindEvents() {
     await loadSystemStatus();
   });
 
-  elements.clearMessagesButton.addEventListener("click", async () => {
-    if (state.activeSessionKey) {
-      try {
-        await clearSession(state.activeSessionKey);
-      } catch (error) {
-        console.error(error);
-        setError(error.message || t("status.failed"));
+  if (elements.clearMessagesButton) {
+    elements.clearMessagesButton.addEventListener("click", async () => {
+      if (state.activeSessionKey) {
+        try {
+          await clearSession(state.activeSessionKey);
+        } catch (error) {
+          console.error(error);
+          setError(error.message || t("status.failed"));
+        }
       }
-    }
-  });
+    });
+  }
 
   elements.sessionList.addEventListener("click", async (event) => {
     // Handle delete button
@@ -6269,6 +6288,11 @@ function bindEvents() {
   if (elements.browserPanelToggle) {
     elements.browserPanelToggle.addEventListener("click", () => {
       setBrowserPanelCollapsed(!state.browserPanelCollapsed);
+    });
+  }
+  if (elements.sidebarCollapseButton) {
+    elements.sidebarCollapseButton.addEventListener("click", () => {
+      setSidebarCollapsed(!state.sidebarCollapsed);
     });
   }
 
@@ -6585,6 +6609,7 @@ function bindEvents() {
 
   // 语言切换按钮
   renderSidebarActionIcons();
+  setSidebarCollapsed(state.sidebarCollapsed);
   updateLanguageButton();
   elements.languageToggle.addEventListener("click", () => {
     const newLang = getLanguage() === "zh" ? "en" : "zh";

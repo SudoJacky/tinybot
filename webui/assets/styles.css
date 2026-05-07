@@ -218,10 +218,15 @@ body {
 /* ========== 主布局 ========== */
 .shell {
   display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(220px, 280px);
+  grid-template-columns: 260px minmax(0, 1fr) minmax(220px, 280px);
   gap: 16px;
   height: 100vh;
   padding: 16px;
+  transition: grid-template-columns 220ms ease;
+}
+
+.shell.sidebar-collapsed {
+  grid-template-columns: 68px minmax(0, 1fr) minmax(220px, 280px);
 }
 
 /* ========== 通用面板样式 ========== */
@@ -268,6 +273,114 @@ body {
   flex-direction: column;
   padding: 24px;
   gap: 20px;
+  overflow: hidden;
+  transition: background-color var(--transition-theme),
+              border-color var(--transition-theme),
+              box-shadow var(--transition-theme);
+}
+
+.button.sidebar-collapse-button {
+  position: absolute;
+  top: 20px;
+  right: 12px;
+  z-index: 3;
+  width: 32px;
+  height: 32px;
+  color: var(--text-muted);
+  overflow: visible;
+  transition: background-color var(--transition-base),
+              border-color var(--transition-base),
+              box-shadow var(--transition-base);
+}
+
+.button.sidebar-collapse-button:hover {
+  transform: none;
+}
+
+.button.sidebar-collapse-button::after {
+  content: "";
+  display: none;
+}
+
+.button.sidebar-collapse-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity var(--transition-base), transform var(--transition-base);
+}
+
+.sidebar.collapsed {
+  align-items: center;
+  padding: 14px 10px;
+  gap: 14px;
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button {
+  position: absolute;
+  top: 20px;
+  right: 17px;
+  order: 1;
+  width: 34px;
+  height: 34px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button svg {
+  opacity: 0;
+  transform: rotate(180deg);
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button::after {
+  display: block;
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+  background: url("/assets/logo-mark.svg") center / 34px 34px no-repeat;
+  filter: drop-shadow(0 3px 7px rgba(15, 23, 42, 0.18));
+  opacity: 1;
+  transition: opacity var(--transition-base);
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button:hover,
+.sidebar.collapsed .button.sidebar-collapse-button:focus-visible {
+  border-color: var(--border-subtle);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-xs);
+  transform: none;
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button:hover svg,
+.sidebar.collapsed .button.sidebar-collapse-button:focus-visible svg {
+  opacity: 1;
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button:hover::after,
+.sidebar.collapsed .button.sidebar-collapse-button:focus-visible::after {
+  opacity: 0;
+}
+
+.sidebar .brand,
+.sidebar .sessions-panel .panel-title-row,
+.sidebar .session-list,
+.sidebar .status-panel {
+  visibility: visible;
+  transition: opacity 120ms ease, visibility 0s linear 0s;
+}
+
+.sidebar.collapsed .brand,
+.sidebar.collapsed .sessions-panel .panel-title-row,
+.sidebar.collapsed .session-list,
+.sidebar.collapsed .status-panel {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 0s linear 120ms;
 }
 
 /* 品牌标识 */
@@ -275,6 +388,7 @@ body {
   display: flex;
   align-items: center;
   gap: 14px;
+  padding-right: 38px;
 }
 
 .brand-mark {
@@ -343,8 +457,55 @@ body {
 }
 
 .sidebar-actions .sidebar-action-icon svg {
+  position: relative;
+  z-index: 1;
   width: 19px;
   height: 19px;
+}
+
+.sidebar.collapsed .sessions-panel {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 0;
+}
+
+.sidebar.collapsed .sessions-panel .panel-header {
+  padding: 0;
+  margin: 0;
+  border-bottom: 0;
+}
+
+.sidebar.collapsed .sidebar-actions {
+  position: absolute;
+  top: 72px;
+  left: 50%;
+  z-index: 4;
+  flex-direction: column;
+  gap: 10px;
+  transform: translateX(-50%);
+}
+
+.sidebar.collapsed .sidebar-actions .sidebar-action-icon {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border-color: var(--border-subtle);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-xs);
+  color: var(--text);
+}
+
+.sidebar.collapsed .sidebar-actions .sidebar-icon-new-chat {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: white;
+}
+
+.sidebar.collapsed .sidebar-actions .sidebar-action-icon svg {
+  width: 17px;
+  height: 17px;
+  opacity: 1;
+  stroke: currentColor;
 }
 
 /* ========== 按钮系统 ========== */
@@ -2475,6 +2636,12 @@ body {
   overflow: hidden;
 }
 
+.browser-panel:not(.has-frame):not(.collapsed) {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
+}
+
 .browser-panel .section-header {
   flex: 0 0 auto;
 }
@@ -2519,6 +2686,10 @@ body {
   background: color-mix(in srgb, var(--panel-strong) 72%, var(--bg-subtle));
 }
 
+.browser-panel:not(.has-frame) .browser-frame-wrap {
+  min-height: 76px;
+}
+
 .browser-frame-image {
   display: block;
   width: 100%;
@@ -2539,9 +2710,21 @@ body {
   height: 100%;
   min-height: 190px;
   place-items: center;
+  align-content: center;
+  gap: 3px;
   color: var(--text-subtle);
   font-size: 12px;
   text-align: center;
+}
+
+.browser-panel:not(.has-frame) .browser-frame-empty {
+  min-height: 76px;
+}
+
+.browser-frame-empty small {
+  display: block;
+  color: var(--text-subtle);
+  font-size: 11px;
 }
 
 .browser-frame-meta {
@@ -5325,7 +5508,7 @@ body {
 /* ========== 响应式布局 ========== */
 @media (max-width: 1200px) {
   .shell {
-    grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(200px, 240px);
+    grid-template-columns: 240px minmax(0, 1fr) minmax(200px, 240px);
     gap: 16px;
     padding: 16px;
   }
@@ -5338,6 +5521,10 @@ body {
     height: auto;
     min-height: 100vh;
     gap: 12px;
+  }
+
+  .shell.sidebar-collapsed {
+    grid-template-columns: 1fr;
   }
 
   .sidebar {

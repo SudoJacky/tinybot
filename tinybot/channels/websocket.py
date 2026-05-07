@@ -134,8 +134,15 @@ def _iso_mtime(path: Path) -> str:
 
 
 def _is_secret_field(key: str) -> bool:
-    normalized = key.replace("-", "_").lower()
-    return any(marker in normalized for marker in _SECRET_FIELD_MARKERS)
+    normalized = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key.replace("-", "_")).lower()
+    parts = tuple(part for part in normalized.split("_") if part)
+    if not parts:
+        return False
+    if parts[-1] in {"token", "secret", "password", "authorization"}:
+        return True
+    if parts[-1] == "apikey":
+        return True
+    return len(parts) >= 2 and parts[-2:] == ("api", "key")
 
 
 def _mask_config_secrets(value: Any, key: str = "") -> Any:

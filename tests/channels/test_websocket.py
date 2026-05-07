@@ -455,6 +455,31 @@ async def test_config_patch_preserves_masked_nested_dict_secrets(web_channel, we
 
 
 @pytest.mark.asyncio
+async def test_config_get_does_not_mask_token_count_fields(web_channel, web_client, web_workspace):
+    channel, _, session_manager = web_channel
+    config = Config()
+    config.agents.defaults.max_tokens = 8192
+    config.agents.defaults.context_window_tokens = 256000
+    config.providers.deepseek.api_key = "real-api-key"
+    channel.bind_runtime(
+        workspace=web_workspace,
+        session_manager=session_manager,
+        config=config,
+        config_path=web_workspace / "config.json",
+    )
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await web_client.get("/api/config", headers=headers)
+
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["agents"]["defaults"]["maxTokens"] == 8192
+    assert payload["agents"]["defaults"]["contextWindowTokens"] == 256000
+    assert payload["providers"]["deepseek"]["apiKey"] == "********"
+
+
+@pytest.mark.asyncio
 async def test_approval_api_approves_and_schedules_retry(web_channel, web_client, web_workspace):
     channel, _, session_manager = web_channel
     session = session_manager.get_or_create("websocket:chat-1")
