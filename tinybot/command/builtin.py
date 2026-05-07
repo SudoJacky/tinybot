@@ -335,12 +335,21 @@ async def cmd_approve(ctx: CommandContext) -> OutboundMessage:
             if scope == ApprovalScope.ONCE:
                 content = (
                     f"Approved `{request.id}` once: {request.summary}\n\n"
-                    "Ask me to continue or retry the operation; this exact tool call can run one time."
+                    "Retrying the approved operation now."
                 )
             else:
                 content = (
                     f"Approved `{request.id}` for this session: {request.summary}\n\n"
-                    "Matching operations in this session will not ask again."
+                    "Matching operations in this session will not ask again. Retrying now."
+                )
+            schedule_retry = getattr(ctx.loop, "schedule_approval_retry", None)
+            if callable(schedule_retry):
+                schedule_retry(
+                    channel=ctx.msg.channel,
+                    chat_id=ctx.msg.chat_id,
+                    approval_id=request.id,
+                    summary=request.summary,
+                    metadata=ctx.msg.metadata,
                 )
     return OutboundMessage(
         channel=ctx.msg.channel,

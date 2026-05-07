@@ -11,6 +11,7 @@ from tinybot.bus.queue import MessageBus
 from tinybot.bus.events import OutboundMessage
 from tinybot.channels.websocket import WebSocketChannel
 from tinybot.config.schema import Config, MCPServerConfig
+from tinybot.security.approval import ApprovalAction, ApprovalManager
 from tinybot.session.manager import SessionManager
 from tinybot.task.types import SubTask, TaskPlan
 
@@ -451,6 +452,62 @@ async def test_config_patch_preserves_masked_nested_dict_secrets(web_channel, we
     assert server.env["PLAIN"] == "changed"
     assert payload["config"]["tools"]["mcpServers"]["filesystem"]["headers"]["Authorization"] == "********"
     assert payload["config"]["tools"]["mcpServers"]["filesystem"]["env"]["API_TOKEN"] == "********"
+
+
+@pytest.mark.asyncio
+async def test_approval_api_approves_and_schedules_retry(web_channel, web_client, web_workspace):
+    channel, _, session_manager = web_channel
+    session = session_manager.get_or_create("websocket:chat-1")
+    decision = ApprovalManager.evaluate(
+        session=session,
+        tool=None,
+        tool_name="exec",
+        params={"command": "powershell -Command Remove-Item secret.txt"},
+    )
+    assert decision.action == ApprovalAction.REQUIRE_APPROVAL
+    assert decision.request is not None
+    session_manager.save(session)
+
+    class FakeAgentLoop:
+        def __init__(self):
+            self.retry_calls: list[dict] = []
+
+        def schedule_approval_retry(self, **kwargs):
+            self.retry_calls.append(kwargs)
+
+    fake_loop = FakeAgentLoop()
+    channel.bind_runtime(
+        workspace=web_workspace,
+        session_manager=session_manager,
+        agent_loop=fake_loop,
+    )
+
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await web_client.get(
+        "/api/approvals?session_key=websocket:chat-1",
+        headers=headers,
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["approvals"][0]["id"] == decision.request.id
+
+    response = await web_client.post(
+        f"/api/approvals/{decision.request.id}/approve",
+        headers=headers,
+        json={"session_key": "websocket:chat-1", "scope": "once"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["approved"] is True
+    assert fake_loop.retry_calls == [
+        {
+            "channel": "websocket",
+            "chat_id": "chat-1",
+            "approval_id": decision.request.id,
+            "summary": decision.request.summary,
+        }
+    ]
 
 
 @pytest.mark.asyncio

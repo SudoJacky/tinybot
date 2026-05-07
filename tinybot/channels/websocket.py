@@ -19,6 +19,7 @@ from loguru import logger
 from tinybot.bus.events import OutboundMessage
 from tinybot.bus.queue import MessageBus
 from tinybot.channels.base import BaseChannel
+from tinybot.security.approval import ApprovalManager, ApprovalScope
 from tinybot.session.manager import SessionManager
 from tinybot.utils.web_tokens import WebTokenManager
 
@@ -374,6 +375,9 @@ class WebSocketChannel(BaseChannel):
         app.router.add_post("/api/provider-models", self.handle_provider_models)
         app.router.add_get("/api/status", self.handle_get_status)
         app.router.add_get("/api/tools", self.handle_get_tools)
+        app.router.add_get("/api/approvals", self.handle_get_approvals)
+        app.router.add_post("/api/approvals/{approval_id}/approve", self.handle_approve_approval)
+        app.router.add_post("/api/approvals/{approval_id}/deny", self.handle_deny_approval)
         app.router.add_get("/api/skills", self.handle_get_skills)
         app.router.add_post("/api/skills", self.handle_create_skill)
         app.router.add_get("/api/skills/{name}", self.handle_get_skill_detail)
@@ -944,6 +948,114 @@ class WebSocketChannel(BaseChannel):
                         "description": tool.description[:200] if tool.description else "",
                     })
         return web.json_response({"tools": tools})
+
+    def _approval_session_from_request(self, request: web.Request, payload: dict[str, Any] | None = None):
+        session_key = (payload or {}).get("session_key") or request.query.get("session_key")
+        chat_id = (payload or {}).get("chat_id") or request.query.get("chat_id")
+        channel = (payload or {}).get("channel") or request.query.get("channel") or "websocket"
+        if not session_key and chat_id:
+            session_key = f"{channel}:{chat_id}"
+        if not session_key:
+            return None, None
+        if self.session_manager is None:
+            return None, session_key
+        return self.session_manager.get_or_create(str(session_key)), str(session_key)
+
+    @staticmethod
+    def _serialize_approval(item: Any) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "tool_name": item.tool_name,
+            "category": item.category,
+            "risk": item.risk,
+            "reason": item.reason,
+            "summary": item.summary,
+            "created_at": item.created_at,
+        }
+
+    async def handle_get_approvals(self, request: web.Request) -> web.Response:
+        """List pending approvals for a session."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        session, session_key = self._approval_session_from_request(request)
+        if session is None:
+            status = 404 if session_key else 400
+            return web.json_response({"error": "session_key or chat_id is required"}, status=status)
+
+        return web.json_response({
+            "session_key": session_key,
+            "approvals": [self._serialize_approval(item) for item in ApprovalManager.list_pending(session)],
+        })
+
+    async def handle_approve_approval(self, request: web.Request) -> web.Response:
+        """Approve a pending tool execution request."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            return web.json_response({"error": "payload must be a dict"}, status=400)
+
+        session, session_key = self._approval_session_from_request(request, payload)
+        if session is None or not session_key:
+            return web.json_response({"error": "session_key or chat_id is required"}, status=400)
+
+        raw_scope = str(payload.get("scope") or "once").lower()
+        if raw_scope not in {"once", "session"}:
+            return web.json_response({"error": "scope must be 'once' or 'session'"}, status=400)
+
+        scope = ApprovalScope.SESSION if raw_scope == "session" else ApprovalScope.ONCE
+        approval_id = request.match_info["approval_id"]
+        approved = ApprovalManager.approve(session, approval_id, scope)
+        if approved is None:
+            return web.json_response({"error": "approval not found"}, status=404)
+        self.session_manager.save(session)
+
+        auto_retry = bool(payload.get("auto_retry", True))
+        if auto_retry and self.agent_loop:
+            channel, chat_id = session_key.split(":", 1) if ":" in session_key else ("websocket", session_key)
+            schedule_retry = getattr(self.agent_loop, "schedule_approval_retry", None)
+            if callable(schedule_retry):
+                schedule_retry(
+                    channel=channel,
+                    chat_id=chat_id,
+                    approval_id=approved.id,
+                    summary=approved.summary,
+                )
+
+        return web.json_response({
+            "approved": True,
+            "approval": self._serialize_approval(approved),
+            "scope": scope.value,
+            "auto_retry": auto_retry,
+        })
+
+    async def handle_deny_approval(self, request: web.Request) -> web.Response:
+        """Deny a pending tool execution request."""
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            return web.json_response({"error": "payload must be a dict"}, status=400)
+
+        session, _ = self._approval_session_from_request(request, payload)
+        if session is None:
+            return web.json_response({"error": "session_key or chat_id is required"}, status=400)
+
+        approval_id = request.match_info["approval_id"]
+        denied = ApprovalManager.deny(session, approval_id)
+        if denied is None:
+            return web.json_response({"error": "approval not found"}, status=404)
+        self.session_manager.save(session)
+        return web.json_response({"denied": True, "approval": self._serialize_approval(denied)})
 
     async def handle_get_skills(self, request: web.Request) -> web.Response:
         """Get all available skills."""

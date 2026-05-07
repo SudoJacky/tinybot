@@ -1009,6 +1009,28 @@ class AgentLoop:
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
+    def schedule_approval_retry(
+        self,
+        *,
+        channel: str,
+        chat_id: str,
+        approval_id: str,
+        summary: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Ask the agent to continue after a user grants a pending approval."""
+        content = (
+            f"Approval `{approval_id}` was granted for: {summary}\n\n"
+            "Retry the approved operation now. If it still cannot run, explain the blocker."
+        )
+        self._schedule_background(self.bus.publish_inbound(InboundMessage(
+            channel="system",
+            sender_id="approval",
+            chat_id=f"{channel}:{chat_id}",
+            content=content,
+            metadata=dict(metadata or {}),
+        )))
+
     async def _update_user_profile(
         self,
         session: Session,
