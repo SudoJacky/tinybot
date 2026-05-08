@@ -37,6 +37,22 @@ Run more rounds:
 cowork action=run session_id="cw_xxxxxxxx" max_rounds=3 max_agents=4
 ```
 
+## Standalone CLI
+
+Cowork also has its own command group, so it can be used without entering the normal chat loop:
+
+```bash
+uv run tinybot cowork start "Plan a seven-day family trip to Japan" --run --rounds 2
+uv run tinybot cowork list
+uv run tinybot cowork status cw_xxxxxxxx --verbose
+uv run tinybot cowork run cw_xxxxxxxx --rounds 3
+uv run tinybot cowork message cw_xxxxxxxx "Prioritize train travel" --to researcher
+uv run tinybot cowork task cw_xxxxxxxx "Check rainy-day options" --agent analyst
+uv run tinybot cowork summary cw_xxxxxxxx
+```
+
+This path constructs a standalone Cowork runtime instead of a full chat `AgentLoop`.
+
 Send a message to agents:
 
 ```text
