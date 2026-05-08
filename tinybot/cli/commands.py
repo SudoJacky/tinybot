@@ -1756,6 +1756,149 @@ def agent(
         console.print("\nGoodbye!")
 
 
+def _make_cowork_runtime(config_path: str | None, workspace: str | None):
+    """Create the standalone Cowork runtime without constructing AgentLoop."""
+    runtime_config = _load_runtime_config(config_path, workspace)
+    sync_workspace_templates(runtime_config.workspace_path)
+    provider = _make_provider(runtime_config)
+    from tinybot.cowork.runtime import CoworkRuntime
+
+    return CoworkRuntime(runtime_config, provider)
+
+
+# ============================================================================
+# Cowork Commands
+# ============================================================================
+
+
+cowork_app = typer.Typer(help="Run standalone multi-agent Cowork sessions")
+app.add_typer(cowork_app, name="cowork")
+
+
+@cowork_app.command("start")
+def cowork_start(
+        goal: str = typer.Argument(..., help="Goal for the cowork session"),
+        auto_run: bool = typer.Option(False, "--run/--no-run", help="Run one or more rounds immediately"),
+        max_rounds: int = typer.Option(1, "--rounds", "-r", min=1, max=20, help="Scheduling rounds to run"),
+        max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=10, help="Max agents per round"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Start an independent Cowork session."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = asyncio.run(runtime.start(goal, auto_run=auto_run, max_rounds=max_rounds, max_agents=max_agents))
+    console.print(Markdown(result))
+
+
+@cowork_app.command("list")
+def cowork_list(
+        include_completed: bool = typer.Option(False, "--all", help="Include completed sessions"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """List Cowork sessions."""
+    runtime = _make_cowork_runtime(config, workspace)
+    sessions = runtime.service.list_sessions(include_completed=include_completed)
+    if not sessions:
+        console.print("No cowork sessions.")
+        return
+    table = Table(title="Cowork Sessions")
+    table.add_column("ID", style="cyan")
+    table.add_column("Title")
+    table.add_column("Status")
+    table.add_column("Updated")
+    for session in sessions:
+        table.add_row(session.id, session.title, session.status, session.updated_at)
+    console.print(table)
+
+
+@cowork_app.command("status")
+def cowork_status(
+        session_id: str = typer.Argument(..., help="Cowork session id"),
+        verbose: bool = typer.Option(False, "--verbose", "-v", help="Show details"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Show Cowork session status."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = asyncio.run(runtime.execute("status", session_id=session_id, verbose=verbose))
+    console.print(Markdown(result))
+
+
+@cowork_app.command("run")
+def cowork_run(
+        session_id: str = typer.Argument(..., help="Cowork session id"),
+        max_rounds: int = typer.Option(1, "--rounds", "-r", min=1, max=20, help="Scheduling rounds to run"),
+        max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=10, help="Max agents per round"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Run more Cowork scheduling rounds."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = asyncio.run(runtime.run(session_id, max_rounds=max_rounds, max_agents=max_agents))
+    console.print(Markdown(result))
+
+
+@cowork_app.command("message")
+def cowork_message(
+        session_id: str = typer.Argument(..., help="Cowork session id"),
+        content: str = typer.Argument(..., help="Message content"),
+        to: list[str] | None = typer.Option(None, "--to", "-t", help="Recipient agent id; repeatable"),
+        thread_id: str = typer.Option("", "--thread", help="Discussion thread id"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Send a user message into a Cowork session."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = asyncio.run(
+        runtime.execute(
+            "send_message",
+            session_id=session_id,
+            recipient_ids=to or [],
+            content=content,
+            thread_id=thread_id,
+        )
+    )
+    console.print(result)
+
+
+@cowork_app.command("task")
+def cowork_task(
+        session_id: str = typer.Argument(..., help="Cowork session id"),
+        title: str = typer.Argument(..., help="Task title"),
+        agent_id: str = typer.Option(..., "--agent", "-a", help="Assigned agent id"),
+        description: str = typer.Option("", "--description", "-d", help="Task description"),
+        depends_on: list[str] | None = typer.Option(None, "--depends-on", help="Dependency task id; repeatable"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Add a task to a Cowork session."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = asyncio.run(
+        runtime.execute(
+            "add_task",
+            session_id=session_id,
+            title=title,
+            description=description,
+            assigned_agent_id=agent_id,
+            dependencies=depends_on or [],
+        )
+    )
+    console.print(result)
+
+
+@cowork_app.command("summary")
+def cowork_summary(
+        session_id: str = typer.Argument(..., help="Cowork session id"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Show current Cowork session summary."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = asyncio.run(runtime.execute("summary", session_id=session_id))
+    console.print(Markdown(result))
+
+
 
 # ============================================================================
 # Channel Commands

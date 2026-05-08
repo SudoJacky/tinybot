@@ -11,6 +11,7 @@ from tinybot.bus.queue import MessageBus
 from tinybot.bus.events import OutboundMessage
 from tinybot.channels.websocket import WebSocketChannel
 from tinybot.config.schema import Config, MCPServerConfig
+from tinybot.cowork.service import CoworkService
 from tinybot.security.approval import ApprovalAction, ApprovalManager
 from tinybot.session.manager import SessionManager
 from tinybot.task.types import SubTask, TaskPlan
@@ -77,6 +78,123 @@ async def test_session_rest_endpoints(web_channel, web_client):
     response = await web_client.delete("/api/sessions/websocket:chat-1", headers=headers)
     assert response.status == 200
     assert session_manager.get("websocket:chat-1") is None
+
+
+@pytest.mark.asyncio
+async def test_cowork_rest_endpoints(web_channel, web_client, web_workspace):
+    channel, _, _ = web_channel
+    service = CoworkService(web_workspace)
+
+    class FakeCoworkTool:
+        async def execute(self, action, **kwargs):
+            if action == "start":
+                session = service.create_session(
+                    goal=kwargs["goal"],
+                    title="Trip plan",
+                    agents=[
+                        {
+                            "id": "planner",
+                            "name": "Planner",
+                            "role": "Planner",
+                            "goal": "Plan the work",
+                            "responsibilities": ["Break down the goal"],
+                        }
+                    ],
+                    tasks=[
+                        {
+                            "id": "task_1",
+                            "title": "Draft plan",
+                            "description": "Create the first plan",
+                            "assigned_agent_id": "planner",
+                        }
+                    ],
+                )
+                return f"Cowork session started: {session.id}"
+            if action == "send_message":
+                session = service.get_session(kwargs["session_id"])
+                service.send_message(
+                    session,
+                    sender_id="user",
+                    recipient_ids=kwargs.get("recipient_ids") or [],
+                    content=kwargs["content"],
+                )
+                return "sent"
+            if action == "add_task":
+                session = service.get_session(kwargs["session_id"])
+                service.add_task(
+                    session,
+                    title=kwargs["title"],
+                    description=kwargs.get("description", ""),
+                    assigned_agent_id=kwargs["assigned_agent_id"],
+                    dependencies=kwargs.get("dependencies") or [],
+                )
+                return "added"
+            if action == "run":
+                session = service.get_session(kwargs["session_id"])
+                service.add_event(session, "session.round", "round complete")
+                return "ran"
+            return "ok"
+
+    class FakeAgentLoop:
+        cowork_service = service
+        tools = {"cowork": FakeCoworkTool()}
+
+    channel.agent_loop = FakeAgentLoop()
+    token = await _bootstrap_token(web_client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await web_client.get("/cowork")
+    assert response.status == 200
+    assert 'id="cowork-modal"' in await response.text()
+
+    response = await web_client.post(
+        "/api/cowork/sessions",
+        headers=headers,
+        json={"goal": "Plan a Kyoto trip"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    session = payload["session"]
+    assert session["title"] == "Trip plan"
+    assert session["agents"][0]["id"] == "planner"
+    session_id = session["id"]
+
+    response = await web_client.get("/api/cowork/sessions", headers=headers)
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["items"][0]["id"] == session_id
+
+    response = await web_client.post(
+        f"/api/cowork/sessions/{session_id}/messages",
+        headers=headers,
+        json={"content": "Prefer public transit"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session"]["messages"][-1]["content"] == "Prefer public transit"
+
+    response = await web_client.post(
+        f"/api/cowork/sessions/{session_id}/tasks",
+        headers=headers,
+        json={"title": "Check rainy day options", "assigned_agent_id": "planner"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert any(task["title"] == "Check rainy day options" for task in payload["session"]["tasks"])
+
+    response = await web_client.post(
+        f"/api/cowork/sessions/{session_id}/run",
+        headers=headers,
+        json={"max_rounds": 1},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session"]["events"][-1]["type"] == "session.round"
+
+    response = await web_client.delete(f"/api/cowork/sessions/{session_id}", headers=headers)
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["deleted"] is True
 
 
 @pytest.mark.asyncio

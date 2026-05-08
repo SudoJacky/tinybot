@@ -222,11 +222,13 @@ def tool_parameters_schema(
     *,
     required: list[str] | None = None,
     description: str = "",
+    extra_properties: Mapping[str, Any] | None = None,
     **properties: Any,
 ) -> dict[str, Any]:
     """Build root tool parameters ``{"type": "object", "properties": ...}`` for :meth:`Tool.parameters`."""
+    all_properties = dict(extra_properties or {}, **properties)
     return ObjectSchema(
+        properties=all_properties,
         required=required,
         description=description,
-        **properties,
     ).to_json_schema()

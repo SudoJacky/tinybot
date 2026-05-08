@@ -16,6 +16,7 @@ from typing import Any
 
 from loguru import logger
 
+from tinybot.api.cowork import cowork_session_snapshot
 from tinybot.bus.events import OutboundMessage
 from tinybot.bus.queue import MessageBus
 from tinybot.channels.base import BaseChannel
@@ -197,6 +198,7 @@ class WebSocketChannel(BaseChannel):
         self._subscriptions: dict[str, set[str]] = {}
         self._client_chat: dict[str, str] = {}
         self._client_tokens: dict[str, str] = {}
+        self._cowork_listener_services: set[int] = set()
         self._lock = asyncio.Lock()
         self._docs_build_lock = asyncio.Lock()
         self._shutdown_event = asyncio.Event()
@@ -406,6 +408,16 @@ class WebSocketChannel(BaseChannel):
         app.router.add_patch("/api/skills/{name}", self.handle_update_skill)
         app.router.add_delete("/api/skills/{name}", self.handle_delete_skill)
         app.router.add_post("/api/skills/{name}/validate", self.handle_validate_skill)
+        app.router.add_get("/api/cowork/sessions", self.handle_list_cowork_sessions)
+        app.router.add_post("/api/cowork/sessions", self.handle_create_cowork_session)
+        app.router.add_get("/api/cowork/sessions/{session_id}", self.handle_get_cowork_session)
+        app.router.add_delete("/api/cowork/sessions/{session_id}", self.handle_delete_cowork_session)
+        app.router.add_post("/api/cowork/sessions/{session_id}/run", self.handle_run_cowork_session)
+        app.router.add_post("/api/cowork/sessions/{session_id}/pause", self.handle_pause_cowork_session)
+        app.router.add_post("/api/cowork/sessions/{session_id}/resume", self.handle_resume_cowork_session)
+        app.router.add_post("/api/cowork/sessions/{session_id}/messages", self.handle_send_cowork_message)
+        app.router.add_post("/api/cowork/sessions/{session_id}/tasks", self.handle_add_cowork_task)
+        app.router.add_get("/api/cowork/sessions/{session_id}/summary", self.handle_cowork_summary)
         app.router.add_get("/api/workspace/files", self.handle_list_workspace_files)
         app.router.add_get("/api/workspace/files/{path:.+}", self.handle_get_workspace_file)
         app.router.add_put("/api/workspace/files/{path:.+}", self.handle_put_workspace_file)
@@ -556,6 +568,7 @@ class WebSocketChannel(BaseChannel):
                 "token_ttl_s": self.token_manager.ttl_s,
                 "sessions_path": self.sessions_path,
                 "workspace_files_path": "/api/workspace/files",
+                "cowork_path": "/api/cowork",
             }
         )
 
@@ -1134,6 +1147,226 @@ class WebSocketChannel(BaseChannel):
             skills.append(skill_info)
 
         return web.json_response({"skills": skills})
+
+    def _cowork_service(self):
+        service = getattr(self.agent_loop, "cowork_service", None) if self.agent_loop else None
+        if service is None:
+            return None
+        self._attach_cowork_listener(service)
+        return service
+
+    def _attach_cowork_listener(self, service: Any) -> None:
+        identity = id(service)
+        if identity in self._cowork_listener_services or not hasattr(service, "add_listener"):
+            return
+
+        def listener(session: Any, event: Any) -> None:
+            payload = {
+                "event": "cowork_updated",
+                "session_id": session.id,
+                "event_id": event.id,
+                "event_type": event.type,
+                "message": event.message,
+                "updated_at": session.updated_at,
+            }
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            loop.create_task(self._broadcast_global(payload))
+
+        service.add_listener(listener)
+        self._cowork_listener_services.add(identity)
+
+    def _cowork_tool(self):
+        self._cowork_service()
+        tools = getattr(self.agent_loop, "tools", None) if self.agent_loop else None
+        if tools is None:
+            return None
+        return tools.get("cowork")
+
+    @staticmethod
+    def _serialize_cowork_session(session: Any, *, verbose: bool = True) -> dict[str, Any]:
+        return cowork_session_snapshot(session, verbose=verbose)
+
+    async def handle_list_cowork_sessions(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        service = self._cowork_service()
+        if service is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        include_completed = request.query.get("include_completed", "false").lower() in {"1", "true", "yes"}
+        sessions = service.list_sessions(include_completed=include_completed)
+        return web.json_response({
+            "items": [self._serialize_cowork_session(session, verbose=False) for session in sessions]
+        })
+
+    async def handle_create_cowork_session(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        tool = self._cowork_tool()
+        if tool is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json body"}, status=400)
+        goal = str(payload.get("goal") or "").strip()
+        if not goal:
+            return web.json_response({"error": "goal is required"}, status=400)
+        service = self._cowork_service()
+        existing_ids = {
+            session.id for session in service.list_sessions(include_completed=True)
+        } if service else set()
+        result = await tool.execute(
+            action="start",
+            goal=goal,
+            auto_run=bool(payload.get("auto_run", False)),
+            max_rounds=int(payload.get("max_rounds", 1) or 1),
+            max_agents=int(payload.get("max_agents", 3) or 3),
+        )
+        session = None
+        if service:
+            sessions = service.list_sessions(include_completed=True)
+            session = next((item for item in sessions if item.id not in existing_ids), None)
+            if session is None and sessions:
+                session = sessions[0]
+        return web.json_response({
+            "result": result,
+            "session": self._serialize_cowork_session(session) if session else None,
+        })
+
+    async def handle_get_cowork_session(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        service = self._cowork_service()
+        if service is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        session = service.get_session(request.match_info["session_id"])
+        if session is None:
+            return web.json_response({"error": "cowork session not found"}, status=404)
+        return web.json_response({"session": self._serialize_cowork_session(session)})
+
+    async def handle_delete_cowork_session(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        service = self._cowork_service()
+        if service is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        if not service.delete_session(request.match_info["session_id"]):
+            return web.json_response({"error": "cowork session not found"}, status=404)
+        return web.json_response({"deleted": True})
+
+    async def handle_run_cowork_session(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        tool = self._cowork_tool()
+        if tool is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        session_id = request.match_info["session_id"]
+        result = await tool.execute(
+            action="run",
+            session_id=session_id,
+            max_rounds=int(payload.get("max_rounds", 1) or 1),
+            max_agents=int(payload.get("max_agents", 3) or 3),
+        )
+        service = self._cowork_service()
+        session = service.get_session(session_id) if service else None
+        return web.json_response({
+            "result": result,
+            "session": self._serialize_cowork_session(session) if session else None,
+        })
+
+    async def handle_pause_cowork_session(self, request: web.Request) -> web.Response:
+        return await self._handle_simple_cowork_action(request, "pause")
+
+    async def handle_resume_cowork_session(self, request: web.Request) -> web.Response:
+        return await self._handle_simple_cowork_action(request, "resume")
+
+    async def _handle_simple_cowork_action(self, request: web.Request, action: str) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        tool = self._cowork_tool()
+        if tool is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        session_id = request.match_info["session_id"]
+        result = await tool.execute(action=action, session_id=session_id)
+        service = self._cowork_service()
+        session = service.get_session(session_id) if service else None
+        return web.json_response({
+            "result": result,
+            "session": self._serialize_cowork_session(session) if session else None,
+        })
+
+    async def handle_send_cowork_message(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        tool = self._cowork_tool()
+        if tool is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json body"}, status=400)
+        content = str(payload.get("content") or "").strip()
+        if not content:
+            return web.json_response({"error": "content is required"}, status=400)
+        session_id = request.match_info["session_id"]
+        result = await tool.execute(
+            action="send_message",
+            session_id=session_id,
+            recipient_ids=payload.get("recipient_ids") or [],
+            content=content,
+            thread_id=str(payload.get("thread_id") or ""),
+        )
+        service = self._cowork_service()
+        session = service.get_session(session_id) if service else None
+        return web.json_response({
+            "result": result,
+            "session": self._serialize_cowork_session(session) if session else None,
+        })
+
+    async def handle_add_cowork_task(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        tool = self._cowork_tool()
+        if tool is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json body"}, status=400)
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            return web.json_response({"error": "title is required"}, status=400)
+        session_id = request.match_info["session_id"]
+        result = await tool.execute(
+            action="add_task",
+            session_id=session_id,
+            title=title,
+            description=str(payload.get("description") or ""),
+            assigned_agent_id=str(payload.get("assigned_agent_id") or ""),
+            dependencies=payload.get("dependencies") or [],
+        )
+        service = self._cowork_service()
+        session = service.get_session(session_id) if service else None
+        return web.json_response({
+            "result": result,
+            "session": self._serialize_cowork_session(session) if session else None,
+        })
+
+    async def handle_cowork_summary(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        tool = self._cowork_tool()
+        if tool is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        result = await tool.execute(action="summary", session_id=request.match_info["session_id"])
+        return web.json_response({"summary": result})
 
     async def handle_get_skill_detail(self, request: web.Request) -> web.Response:
         """Get detailed content of a specific skill."""

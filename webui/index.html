@@ -176,6 +176,18 @@
       </section>
 
       <!-- 技能面板 - 简统计版 -->
+      <section class="cowork-panel compact-panel">
+        <header class="section-header clickable" id="cowork-toggle" tabindex="0" role="button" aria-expanded="false">
+          <div>
+            <p class="eyebrow">Cowork</p>
+            <h2>Multi-agent</h2>
+          </div>
+          <div class="compact-stats">
+            <span id="cowork-session-count">0</span> sessions
+          </div>
+        </header>
+      </section>
+
       <section class="skills-panel compact-panel advanced-only">
         <header class="section-header clickable" id="skills-toggle" tabindex="0" role="button" aria-expanded="false">
           <div>
@@ -281,6 +293,96 @@
       </div>
     </aside>
   </div>
+
+  <section id="cowork-modal" class="cowork-page" aria-label="Cowork workspace">
+    <div class="modal-overlay" id="cowork-modal-overlay"></div>
+    <div class="cowork-page-content cowork-modal-content">
+      <header class="modal-header">
+        <div>
+          <p class="eyebrow">Cowork</p>
+          <h2>Team chat workspace</h2>
+        </div>
+        <button id="cowork-modal-close" class="button button-ghost" type="button" aria-label="Close cowork modal">x</button>
+      </header>
+      <div class="modal-body cowork-modal-body">
+        <section class="cowork-create">
+          <label class="config-label" for="cowork-goal-input">Goal</label>
+          <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe a goal that benefits from several perspectives..."></textarea>
+          <div class="cowork-toolbar">
+            <label class="config-checkbox-label">
+              <input id="cowork-auto-run" type="checkbox" />
+              <span>Run immediately</span>
+            </label>
+            <button id="cowork-start-button" class="button button-primary" type="button">Start Cowork</button>
+            <button id="cowork-refresh-button" class="button" type="button">Refresh</button>
+          </div>
+          <span id="cowork-error" class="error-text"></span>
+        </section>
+        <div class="cowork-workspace">
+          <aside class="cowork-session-pane">
+            <div class="cowork-pane-header">
+              <h3>Sessions</h3>
+              <label class="config-checkbox-label">
+                <input id="cowork-include-completed" type="checkbox" />
+                <span>Completed</span>
+              </label>
+            </div>
+            <div id="cowork-session-list" class="cowork-session-list"></div>
+          </aside>
+          <section class="cowork-detail-pane">
+            <div class="cowork-detail-header">
+              <div>
+                <p id="cowork-active-status" class="eyebrow">No session</p>
+                <h3 id="cowork-active-title">Select or start a session</h3>
+              </div>
+              <div class="cowork-toolbar">
+                <label class="cowork-limit-label">Rounds <input id="cowork-round-limit" class="config-input cowork-limit-input" type="number" min="1" max="20" value="1" /></label>
+                <label class="cowork-limit-label">Agents <input id="cowork-agent-limit" class="config-input cowork-limit-input" type="number" min="1" max="10" value="3" /></label>
+                <button id="cowork-run-button" class="button" type="button">Run round</button>
+                <button id="cowork-run-until-idle-button" class="button" type="button">Run until idle</button>
+                <button id="cowork-pause-button" class="button" type="button">Pause</button>
+                <button id="cowork-resume-button" class="button" type="button">Resume</button>
+                <button id="cowork-summary-button" class="button" type="button">Summary</button>
+                <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
+              </div>
+            </div>
+            <p id="cowork-active-goal" class="cowork-goal-text"></p>
+            <div class="cowork-message-row">
+              <input id="cowork-message-input" class="config-input" type="text" placeholder="Send a constraint or update to the team..." />
+              <button id="cowork-message-button" class="button" type="button">Send</button>
+            </div>
+            <div class="cowork-task-row">
+              <input id="cowork-task-title" class="config-input" type="text" placeholder="Add task title" />
+              <select id="cowork-task-agent" class="config-select"></select>
+              <button id="cowork-task-button" class="button" type="button">Add task</button>
+            </div>
+            <div class="cowork-grid">
+              <section class="cowork-team-chat">
+                <h4>Team chat</h4>
+                <div id="cowork-message-list" class="cowork-list cowork-chat-list" aria-live="polite"></div>
+              </section>
+              <section class="cowork-agents-section">
+                <h4>Agents</h4>
+                <div id="cowork-agent-list" class="cowork-list"></div>
+              </section>
+              <section class="cowork-tasks-section">
+                <h4>Tasks</h4>
+                <div id="cowork-task-list" class="cowork-list"></div>
+              </section>
+              <section class="cowork-mailbox-section">
+                <h4>Mailbox</h4>
+                <div id="cowork-mailbox-list" class="cowork-list"></div>
+              </section>
+              <section class="cowork-threads-section">
+                <h4>Topics</h4>
+                <div id="cowork-thread-list" class="cowork-list"></div>
+              </section>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- Skills 弹窗 -->
   <div id="skill-modal" class="modal">
