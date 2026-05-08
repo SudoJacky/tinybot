@@ -53,6 +53,16 @@ uv run tinybot cowork summary cw_xxxxxxxx
 
 This path constructs a standalone Cowork runtime instead of a full chat `AgentLoop`.
 
+## WebUI and Gateway
+
+When Tinybot is started with `tinybot gateway`, the hosted WebUI includes an independent Cowork entry in the right panel. The same workspace can also be opened directly at:
+
+```text
+http://127.0.0.1:<gateway-port>/cowork
+```
+
+The frontend calls the gateway Cowork API under `/api/cowork`, while normal chat, skills, knowledge, and workspace editing continue to use their existing routes.
+
 Send a message to agents:
 
 ```text
@@ -65,4 +75,4 @@ Each agent keeps its own private summary and inbox. Shared information moves thr
 
 ## Current Scope
 
-The first implementation provides the core backend and tool interface. It supports persistent state, dynamic roles, discussion messages, and repeated scheduling rounds. A richer WebUI panel, artifact browser, approval workflow, and automatic long-running scheduler can build on the same session store.
+The implementation provides the core backend, tool interface, standalone CLI, and WebUI workspace. It supports persistent state, dynamic roles, discussion messages, repeated scheduling rounds, and direct gateway access. Artifact browsing, approval workflow, and an automatic long-running scheduler can build on the same session store.

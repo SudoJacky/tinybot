@@ -176,6 +176,18 @@
       </section>
 
       <!-- 技能面板 - 简统计版 -->
+      <section class="cowork-panel compact-panel">
+        <header class="section-header clickable" id="cowork-toggle" tabindex="0" role="button" aria-expanded="false">
+          <div>
+            <p class="eyebrow">Cowork</p>
+            <h2>Multi-agent</h2>
+          </div>
+          <div class="compact-stats">
+            <span id="cowork-session-count">0</span> sessions
+          </div>
+        </header>
+      </section>
+
       <section class="skills-panel compact-panel advanced-only">
         <header class="section-header clickable" id="skills-toggle" tabindex="0" role="button" aria-expanded="false">
           <div>
@@ -280,6 +292,82 @@
         </a>
       </div>
     </aside>
+  </div>
+
+  <div id="cowork-modal" class="modal">
+    <div class="modal-overlay" id="cowork-modal-overlay"></div>
+    <div class="modal-content cowork-modal-content">
+      <header class="modal-header">
+        <div>
+          <p class="eyebrow">Cowork</p>
+          <h2>Multi-agent workspace</h2>
+        </div>
+        <button id="cowork-modal-close" class="button button-ghost" type="button" aria-label="Close cowork modal">x</button>
+      </header>
+      <div class="modal-body cowork-modal-body">
+        <section class="cowork-create">
+          <label class="config-label" for="cowork-goal-input">Goal</label>
+          <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe a goal that benefits from several perspectives..."></textarea>
+          <div class="cowork-toolbar">
+            <label class="config-checkbox-label">
+              <input id="cowork-auto-run" type="checkbox" />
+              <span>Run immediately</span>
+            </label>
+            <button id="cowork-start-button" class="button button-primary" type="button">Start Cowork</button>
+            <button id="cowork-refresh-button" class="button" type="button">Refresh</button>
+          </div>
+          <span id="cowork-error" class="error-text"></span>
+        </section>
+        <div class="cowork-workspace">
+          <aside class="cowork-session-pane">
+            <div class="cowork-pane-header">
+              <h3>Sessions</h3>
+            </div>
+            <div id="cowork-session-list" class="cowork-session-list"></div>
+          </aside>
+          <section class="cowork-detail-pane">
+            <div class="cowork-detail-header">
+              <div>
+                <p id="cowork-active-status" class="eyebrow">No session</p>
+                <h3 id="cowork-active-title">Select or start a session</h3>
+              </div>
+              <div class="cowork-toolbar">
+                <button id="cowork-run-button" class="button" type="button">Run round</button>
+                <button id="cowork-summary-button" class="button" type="button">Summary</button>
+              </div>
+            </div>
+            <p id="cowork-active-goal" class="cowork-goal-text"></p>
+            <div class="cowork-message-row">
+              <input id="cowork-message-input" class="config-input" type="text" placeholder="Send a constraint or update to the team..." />
+              <button id="cowork-message-button" class="button" type="button">Send</button>
+            </div>
+            <div class="cowork-task-row">
+              <input id="cowork-task-title" class="config-input" type="text" placeholder="Add task title" />
+              <select id="cowork-task-agent" class="config-select"></select>
+              <button id="cowork-task-button" class="button" type="button">Add task</button>
+            </div>
+            <div class="cowork-grid">
+              <section>
+                <h4>Agents</h4>
+                <div id="cowork-agent-list" class="cowork-list"></div>
+              </section>
+              <section>
+                <h4>Tasks</h4>
+                <div id="cowork-task-list" class="cowork-list"></div>
+              </section>
+              <section>
+                <h4>Threads</h4>
+                <div id="cowork-thread-list" class="cowork-list"></div>
+              </section>
+              <section>
+                <h4>Events</h4>
+                <div id="cowork-event-list" class="cowork-list"></div>
+              </section>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Skills 弹窗 -->

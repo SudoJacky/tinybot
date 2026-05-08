@@ -5,6 +5,7 @@ const state = {
   workspaceFilesPath: "/api/workspace/files",
   skillsApiPath: "/api/skills",
   knowledgeApiPath: "/v1/knowledge",
+  coworkApiPath: "/api/cowork",
   socket: null,
   activeChatId: "",
   activeSessionKey: "",
@@ -52,6 +53,9 @@ const state = {
   modelDiscoveryTimer: null,
   pendingApprovals: [],
   approvalsLoading: false,
+  coworkSessions: [],
+  activeCoworkSession: null,
+  activeCoworkSessionId: "",
 };
 
 const LLM_PROVIDERS = ["openai", "deepseek", "dashscope"];
@@ -283,6 +287,31 @@ const elements = {
   knowledgeGraphScope: null,
   knowledgeGraphLevelSelect: null,
   clearGraphFilterButton: null,
+  coworkToggle: document.querySelector("#cowork-toggle"),
+  coworkSessionCount: document.querySelector("#cowork-session-count"),
+  coworkModal: document.querySelector("#cowork-modal"),
+  coworkModalOverlay: document.querySelector("#cowork-modal-overlay"),
+  coworkModalClose: document.querySelector("#cowork-modal-close"),
+  coworkGoalInput: document.querySelector("#cowork-goal-input"),
+  coworkAutoRun: document.querySelector("#cowork-auto-run"),
+  coworkStartButton: document.querySelector("#cowork-start-button"),
+  coworkRefreshButton: document.querySelector("#cowork-refresh-button"),
+  coworkError: document.querySelector("#cowork-error"),
+  coworkSessionList: document.querySelector("#cowork-session-list"),
+  coworkActiveStatus: document.querySelector("#cowork-active-status"),
+  coworkActiveTitle: document.querySelector("#cowork-active-title"),
+  coworkActiveGoal: document.querySelector("#cowork-active-goal"),
+  coworkRunButton: document.querySelector("#cowork-run-button"),
+  coworkSummaryButton: document.querySelector("#cowork-summary-button"),
+  coworkMessageInput: document.querySelector("#cowork-message-input"),
+  coworkMessageButton: document.querySelector("#cowork-message-button"),
+  coworkTaskTitle: document.querySelector("#cowork-task-title"),
+  coworkTaskAgent: document.querySelector("#cowork-task-agent"),
+  coworkTaskButton: document.querySelector("#cowork-task-button"),
+  coworkAgentList: document.querySelector("#cowork-agent-list"),
+  coworkTaskList: document.querySelector("#cowork-task-list"),
+  coworkThreadList: document.querySelector("#cowork-thread-list"),
+  coworkEventList: document.querySelector("#cowork-event-list"),
   globalKnowledgeToast: null,
   globalKnowledgeToastTitle: null,
   globalKnowledgeToastDesc: null,
@@ -1785,6 +1814,7 @@ async function bootstrap() {
   state.wsPath = payload.ws_path || "/ws";
   state.sessionsPath = payload.sessions_path || "/api/sessions";
   state.workspaceFilesPath = payload.workspace_files_path || "/api/workspace/files";
+  state.coworkApiPath = payload.cowork_path || "/api/cowork";
 }
 
 async function loadSessions() {
@@ -1871,6 +1901,359 @@ async function handleApprovalAction(approvalId, action, scope = "once") {
   } catch (error) {
     setError(error.message || String(error));
   }
+}
+
+function setCoworkError(text = "") {
+  if (elements.coworkError) {
+    elements.coworkError.textContent = text;
+  }
+}
+
+function openCoworkModal() {
+  elements.coworkModal?.classList.add("active");
+  loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
+}
+
+function closeCoworkModal() {
+  elements.coworkModal?.classList.remove("active");
+}
+
+function coworkStatusClass(status = "") {
+  return `cowork-status cowork-status-${String(status || "idle").toLowerCase()}`;
+}
+
+function compactText(text = "", max = 160) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  return clean.length > max ? `${clean.slice(0, max - 1)}...` : clean;
+}
+
+function coworkEmpty(text) {
+  const empty = document.createElement("div");
+  empty.className = "cowork-empty";
+  empty.textContent = text;
+  return empty;
+}
+
+function renderCoworkSessions() {
+  if (elements.coworkSessionCount) {
+    elements.coworkSessionCount.textContent = String(state.coworkSessions.length);
+  }
+  if (!elements.coworkSessionList) {
+    return;
+  }
+  elements.coworkSessionList.textContent = "";
+  if (!state.coworkSessions.length) {
+    elements.coworkSessionList.append(coworkEmpty("No cowork sessions."));
+    return;
+  }
+  for (const session of state.coworkSessions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "cowork-session-item";
+    if (session.id === state.activeCoworkSessionId) {
+      button.classList.add("active");
+    }
+    button.innerHTML = `
+      <span class="cowork-session-title"></span>
+      <span class="cowork-session-meta"></span>
+    `;
+    button.querySelector(".cowork-session-title").textContent = session.title || session.id;
+    button.querySelector(".cowork-session-meta").textContent = `${session.status || "active"} - ${session.updated_at || ""}`;
+    button.addEventListener("click", () => loadCoworkSession(session.id).catch((error) => setCoworkError(error.message || String(error))));
+    elements.coworkSessionList.append(button);
+  }
+}
+
+function renderCoworkDetail() {
+  const session = state.activeCoworkSession;
+  const hasSession = Boolean(session);
+  if (elements.coworkActiveStatus) {
+    elements.coworkActiveStatus.textContent = hasSession ? `${session.status} - ${session.rounds || 0} rounds` : "No session";
+  }
+  if (elements.coworkActiveTitle) {
+    elements.coworkActiveTitle.textContent = hasSession ? session.title : "Select or start a session";
+  }
+  if (elements.coworkActiveGoal) {
+    elements.coworkActiveGoal.textContent = hasSession ? session.goal : "";
+  }
+  for (const button of [elements.coworkRunButton, elements.coworkSummaryButton, elements.coworkMessageButton, elements.coworkTaskButton]) {
+    if (button) button.disabled = !hasSession;
+  }
+  renderCoworkAgents(session?.agents || []);
+  renderCoworkTasks(session?.tasks || []);
+  renderCoworkThreads(session?.threads || []);
+  renderCoworkEvents(session?.events || []);
+  renderCoworkAgentOptions(session?.agents || []);
+}
+
+function renderCoworkAgents(agents) {
+  if (!elements.coworkAgentList) return;
+  elements.coworkAgentList.textContent = "";
+  if (!agents.length) {
+    elements.coworkAgentList.append(coworkEmpty("No agents."));
+    return;
+  }
+  for (const agent of agents) {
+    const item = document.createElement("article");
+    item.className = "cowork-card";
+    item.innerHTML = `
+      <div class="cowork-card-row">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+      <small></small>
+    `;
+    item.querySelector("strong").textContent = agent.name || agent.id;
+    item.querySelector("span").className = coworkStatusClass(agent.status);
+    item.querySelector("span").textContent = agent.status || "idle";
+    item.querySelector("p").textContent = `${agent.role || "Agent"} - ${compactText(agent.goal, 120)}`;
+    item.querySelector("small").textContent = `Inbox ${agent.inbox_count || 0} - Rounds ${agent.rounds || 0}`;
+    elements.coworkAgentList.append(item);
+  }
+}
+
+function renderCoworkTasks(tasks) {
+  if (!elements.coworkTaskList) return;
+  elements.coworkTaskList.textContent = "";
+  if (!tasks.length) {
+    elements.coworkTaskList.append(coworkEmpty("No tasks."));
+    return;
+  }
+  for (const task of tasks) {
+    const item = document.createElement("article");
+    item.className = "cowork-card";
+    item.innerHTML = `
+      <div class="cowork-card-row">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+      <small></small>
+    `;
+    item.querySelector("strong").textContent = task.title || task.id;
+    item.querySelector("span").className = coworkStatusClass(task.status);
+    item.querySelector("span").textContent = task.status || "pending";
+    item.querySelector("p").textContent = compactText(task.description || task.result || "", 130);
+    item.querySelector("small").textContent = `Owner ${task.assigned_agent_id || "-"}${task.dependencies?.length ? ` - Depends ${task.dependencies.join(", ")}` : ""}`;
+    elements.coworkTaskList.append(item);
+  }
+}
+
+function renderCoworkThreads(threads) {
+  if (!elements.coworkThreadList) return;
+  elements.coworkThreadList.textContent = "";
+  if (!threads.length) {
+    elements.coworkThreadList.append(coworkEmpty("No threads."));
+    return;
+  }
+  for (const thread of threads) {
+    const item = document.createElement("article");
+    item.className = "cowork-card";
+    item.innerHTML = `
+      <div class="cowork-card-row">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+    `;
+    item.querySelector("strong").textContent = thread.topic || thread.id;
+    item.querySelector("span").className = coworkStatusClass(thread.status);
+    item.querySelector("span").textContent = `${thread.message_count || 0} msgs`;
+    item.querySelector("p").textContent = (thread.participant_ids || []).join(", ");
+    elements.coworkThreadList.append(item);
+  }
+}
+
+function renderCoworkEvents(events) {
+  if (!elements.coworkEventList) return;
+  elements.coworkEventList.textContent = "";
+  const recent = [...events].slice(-12).reverse();
+  if (!recent.length) {
+    elements.coworkEventList.append(coworkEmpty("No events."));
+    return;
+  }
+  for (const event of recent) {
+    const item = document.createElement("article");
+    item.className = "cowork-event";
+    item.innerHTML = `<strong></strong><span></span>`;
+    item.querySelector("strong").textContent = event.type || "event";
+    item.querySelector("span").textContent = `${event.message || ""} ${event.created_at || ""}`;
+    elements.coworkEventList.append(item);
+  }
+}
+
+function renderCoworkAgentOptions(agents) {
+  if (!elements.coworkTaskAgent) return;
+  const current = elements.coworkTaskAgent.value;
+  elements.coworkTaskAgent.textContent = "";
+  for (const agent of agents) {
+    const option = document.createElement("option");
+    option.value = agent.id;
+    option.textContent = `${agent.name || agent.id} (${agent.role || "Agent"})`;
+    elements.coworkTaskAgent.append(option);
+  }
+  if (current && agents.some((agent) => agent.id === current)) {
+    elements.coworkTaskAgent.value = current;
+  }
+}
+
+async function loadCoworkSessions() {
+  const response = await fetch(`${state.coworkApiPath}/sessions`, {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (!response.ok) {
+    throw new Error(`load cowork sessions failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  state.coworkSessions = payload.items || [];
+  if (!state.activeCoworkSessionId && state.coworkSessions.length) {
+    state.activeCoworkSessionId = state.coworkSessions[0].id;
+    await loadCoworkSession(state.activeCoworkSessionId);
+    return;
+  }
+  renderCoworkSessions();
+}
+
+async function loadCoworkSession(sessionId) {
+  const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(sessionId)}`, {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (!response.ok) {
+    throw new Error(`load cowork session failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  state.activeCoworkSession = payload.session || null;
+  state.activeCoworkSessionId = state.activeCoworkSession?.id || "";
+  renderCoworkSessions();
+  renderCoworkDetail();
+}
+
+async function startCoworkSession() {
+  const goal = elements.coworkGoalInput?.value.trim() || "";
+  if (!goal) {
+    setCoworkError("Goal is required.");
+    return;
+  }
+  setCoworkError("");
+  if (elements.coworkStartButton) {
+    elements.coworkStartButton.disabled = true;
+  }
+  try {
+    const response = await fetch(`${state.coworkApiPath}/sessions`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        goal,
+        auto_run: Boolean(elements.coworkAutoRun?.checked),
+        max_rounds: 1,
+        max_agents: 3,
+      }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `start cowork failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    state.activeCoworkSession = payload.session || null;
+    state.activeCoworkSessionId = state.activeCoworkSession?.id || "";
+    if (elements.coworkGoalInput) {
+      elements.coworkGoalInput.value = "";
+    }
+    await loadCoworkSessions();
+    if (state.activeCoworkSessionId) {
+      await loadCoworkSession(state.activeCoworkSessionId);
+    }
+  } catch (error) {
+    setCoworkError(error.message || String(error));
+  } finally {
+    if (elements.coworkStartButton) {
+      elements.coworkStartButton.disabled = false;
+    }
+  }
+}
+
+async function runCoworkRound() {
+  if (!state.activeCoworkSessionId) return;
+  if (elements.coworkRunButton) {
+    elements.coworkRunButton.disabled = true;
+  }
+  try {
+    const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/run`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ max_rounds: 1, max_agents: 3 }),
+    });
+    if (!response.ok) throw new Error(`run cowork failed: ${response.status}`);
+    const payload = await response.json();
+    state.activeCoworkSession = payload.session || state.activeCoworkSession;
+    renderCoworkDetail();
+    await loadCoworkSessions();
+  } catch (error) {
+    setCoworkError(error.message || String(error));
+  } finally {
+    if (elements.coworkRunButton) {
+      elements.coworkRunButton.disabled = false;
+    }
+  }
+}
+
+async function sendCoworkMessage() {
+  if (!state.activeCoworkSessionId) return;
+  const content = elements.coworkMessageInput?.value.trim() || "";
+  if (!content) return;
+  const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/messages`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ content, recipient_ids: [] }),
+  });
+  if (!response.ok) {
+    setCoworkError(`send message failed: ${response.status}`);
+    return;
+  }
+  const payload = await response.json();
+  state.activeCoworkSession = payload.session || state.activeCoworkSession;
+  if (elements.coworkMessageInput) {
+    elements.coworkMessageInput.value = "";
+  }
+  renderCoworkDetail();
+}
+
+async function addCoworkTask() {
+  if (!state.activeCoworkSessionId) return;
+  const title = elements.coworkTaskTitle?.value.trim() || "";
+  const assigned = elements.coworkTaskAgent?.value || "";
+  if (!title || !assigned) return;
+  const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/tasks`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ title, assigned_agent_id: assigned }),
+  });
+  if (!response.ok) {
+    setCoworkError(`add task failed: ${response.status}`);
+    return;
+  }
+  const payload = await response.json();
+  state.activeCoworkSession = payload.session || state.activeCoworkSession;
+  if (elements.coworkTaskTitle) {
+    elements.coworkTaskTitle.value = "";
+  }
+  renderCoworkDetail();
+}
+
+function showCoworkSummary() {
+  const session = state.activeCoworkSession;
+  if (!session) return;
+  const completed = (session.tasks || []).filter((task) => task.status === "completed");
+  const text = [
+    `# ${session.title}`,
+    "",
+    `Status: ${session.status}`,
+    "",
+    "## Completed work",
+    completed.length ? completed.map((task) => `- ${task.title}: ${task.result || "Completed"}`).join("\n") : "- No completed tasks yet.",
+  ].join("\n");
+  showSimpleModal("Cowork summary", text);
 }
 
 async function clearSession(sessionKey) {
@@ -6273,6 +6656,31 @@ function bindEvents() {
   elements.skillsModalOverlay.addEventListener("click", closeSkillsModal);
   elements.skillsModalClose.addEventListener("click", closeSkillsModal);
 
+  // Cowork modal events
+  elements.coworkToggle?.addEventListener("click", openCoworkModal);
+  elements.coworkToggle?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openCoworkModal();
+    }
+  });
+  elements.coworkModalOverlay?.addEventListener("click", closeCoworkModal);
+  elements.coworkModalClose?.addEventListener("click", closeCoworkModal);
+  elements.coworkStartButton?.addEventListener("click", startCoworkSession);
+  elements.coworkRefreshButton?.addEventListener("click", () => {
+    loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
+  });
+  elements.coworkRunButton?.addEventListener("click", runCoworkRound);
+  elements.coworkSummaryButton?.addEventListener("click", showCoworkSummary);
+  elements.coworkMessageButton?.addEventListener("click", sendCoworkMessage);
+  elements.coworkMessageInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendCoworkMessage();
+    }
+  });
+  elements.coworkTaskButton?.addEventListener("click", addCoworkTask);
+
   // Workspace modal events
   elements.workspaceToggle.addEventListener("click", openWorkspaceModal);
   elements.workspaceToggle.addEventListener("keydown", (event) => {
@@ -6399,6 +6807,9 @@ function bindEvents() {
       }
       if (elements.skillModal.classList.contains("active")) {
         closeSkillModal();
+      }
+      if (elements.coworkModal?.classList.contains("active")) {
+        closeCoworkModal();
       }
       if (elements.docModal.classList.contains("active")) {
         closeDocModal();
@@ -6684,6 +7095,8 @@ function renderDynamicContent() {
   renderMessages();
   renderTools();
   renderSkills();
+  renderCoworkSessions();
+  renderCoworkDetail();
   renderKnowledgeDocs();
   // 更新文件编辑器状态
   if (state.activeFilePath && state.activeFileUpdatedAt) {
@@ -6990,10 +7403,14 @@ async function init() {
     await loadSystemStatus();
     await loadTools();
     await loadSkills();
+    await loadCoworkSessions().catch((error) => console.warn("Cowork init failed", error));
     await loadKnowledgeStats();
     await loadKnowledgeDocs();
     await loadKnowledgeGraph();
     await loadConfig();
+    if (window.location.pathname === "/cowork") {
+      openCoworkModal();
+    }
     if (state.activeFilePath) {
       sendSocketMessage({ type: "subscribe_file", path: state.activeFilePath });
     }
