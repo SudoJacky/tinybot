@@ -206,6 +206,31 @@ def test_unanswered_read_mailbox_request_keeps_agent_ready(temp_workspace):
     assert [agent.id for agent in active] == [recipient]
 
 
+def test_mailbox_records_are_trimmed_to_bounded_size(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Trim mailbox", "Trim", [], [])
+    agent_id = next(iter(session.agents))
+
+    for index in range(305):
+        service.add_mailbox_record(
+            session,
+            CoworkMailboxRecord(
+                id=f"env_{index}",
+                sender_id="user",
+                recipient_ids=[agent_id],
+                content=f"Message {index}",
+                status="replied" if index < 10 else "delivered",
+            ),
+            save=False,
+        )
+
+    service.trim_mailbox_records(session)
+
+    assert len(session.mailbox) == 300
+    assert "env_0" not in session.mailbox
+    assert any(event.type == "mailbox.trimmed" for event in session.events)
+
+
 def test_failed_and_skipped_tasks_use_consistent_agent_status_and_events(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Classify work", "Classify", [], [])

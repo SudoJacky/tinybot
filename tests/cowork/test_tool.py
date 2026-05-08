@@ -3,6 +3,7 @@ import json
 
 from tinybot.agent.tools.cowork import CoworkInternalTool, CoworkTeamPlanner, CoworkTool
 from tinybot.cowork.service import CoworkService
+from tinybot.cowork.types import CoworkMailboxRecord
 
 
 class FailingProvider:
@@ -305,3 +306,58 @@ async def test_cowork_scheduler_continues_when_mailbox_makes_peer_ready(temp_wor
     assert "Round 2: running b" in result
     assert tool.runner.calls == 2
     assert any(message.sender_id == "b" and message.content == "B checked" for message in updated.messages.values())
+
+
+@pytest.mark.asyncio
+async def test_cowork_scheduler_stops_at_agent_call_budget(temp_workspace):
+    service = CoworkService(temp_workspace)
+    agents = [
+        {"id": f"a{index}", "name": f"A{index}", "role": "Worker", "goal": "Work", "responsibilities": []}
+        for index in range(40)
+    ]
+    tasks = [
+        {"id": f"t{index}", "title": f"Task {index}", "description": "Work", "assigned_agent_id": f"a{index}"}
+        for index in range(40)
+    ]
+    session = service.create_session("Bound work", "Budget", agents, tasks)
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = FakeRunner()
+
+    result = await tool.execute(action="run", session_id=session.id, max_rounds=20, max_agents=10)
+    updated = service.get_session(session.id)
+
+    assert len(tool.runner.specs) == 30
+    assert "agent call budget exhausted" in result
+    assert any(event.type == "scheduler.agent_budget_exhausted" for event in updated.events)
+
+
+@pytest.mark.asyncio
+async def test_cowork_scheduler_limits_repeated_self_activation(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Avoid loops",
+        "Loops",
+        [{"id": "a", "name": "A", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [],
+    )
+    session.tasks.clear()
+    session.mailbox["env_loop"] = CoworkMailboxRecord(
+        id="env_loop",
+        sender_id="user",
+        recipient_ids=["a"],
+        content="Please keep replying",
+        status="read",
+        requires_reply=True,
+        priority=100,
+    )
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = FakeRunner()
+
+    result = await tool.execute(action="run", session_id=session.id, max_rounds=5, max_agents=1)
+    updated = service.get_session(session.id)
+
+    assert len(tool.runner.specs) == 3
+    assert "no ready agents" in result
+    assert any(event.type == "scheduler.self_activation_limited" for event in updated.events)

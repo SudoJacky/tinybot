@@ -119,3 +119,23 @@ def test_mailbox_expires_unanswered_deadline_records(temp_workspace):
     assert len(expired) == 1
     assert expired[0].status == "expired"
     assert any(event.type == "mailbox.expired" for event in session.events)
+
+
+def test_mailbox_deduplicates_identical_active_messages(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Deduplicate", "Deduplicate", [], [])
+    mailbox = CoworkMailbox(service)
+    sender, recipient = list(session.agents)[:2]
+
+    first = mailbox.deliver(
+        session,
+        CoworkEnvelope(sender_id=sender, recipient_ids=[recipient], content="Same message"),
+    )
+    second = mailbox.deliver(
+        session,
+        CoworkEnvelope(sender_id=sender, recipient_ids=[recipient], content="Same message"),
+    )
+
+    assert second.id == first.id
+    assert len([record for record in session.mailbox.values() if record.content == "Same message"]) == 1
+    assert any(event.type == "mailbox.duplicate" for event in session.events)

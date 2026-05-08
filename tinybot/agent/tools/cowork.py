@@ -24,6 +24,8 @@ from tinybot.providers.base import LLMProvider
 
 
 _AGENT_PROGRESS_STATUSES = {"idle", "waiting", "blocked", "done", "failed", "needs_review"}
+_MAX_RUN_AGENT_CALLS = 30
+_MAX_AGENT_SELF_ACTIVATIONS = 3
 
 
 _TEAM_TOOL = [
@@ -434,13 +436,28 @@ class CoworkTool(Tool):
 
         round_limit = min(max(1, int(max_rounds or 1)), 20)
         agent_limit = min(max(1, int(max_agents or 1)), 10)
+        agent_calls = 0
+        consecutive_runs: dict[str, int] = {}
         lines = []
         for round_index in range(round_limit):
             active = self.service.select_active_agents(session, limit=agent_limit)
+            active = self._filter_self_activated_agents(session, active, consecutive_runs)
             if not active:
                 lines.append(f"Round {round_index + 1}: no ready agents.")
                 self.service.add_event(session, "scheduler.idle", "Cowork scheduler stopped because no agents are ready")
                 break
+            remaining_calls = _MAX_RUN_AGENT_CALLS - agent_calls
+            if remaining_calls <= 0:
+                lines.append(f"Round {round_index + 1}: agent call budget exhausted.")
+                self.service.add_event(
+                    session,
+                    "scheduler.agent_budget_exhausted",
+                    "Cowork scheduler stopped at the agent call budget",
+                    data={"max_agent_calls": _MAX_RUN_AGENT_CALLS},
+                )
+                break
+            if len(active) > remaining_calls:
+                active = active[:remaining_calls]
             names = ", ".join(agent.id for agent in active)
             lines.append(f"Round {round_index + 1}: running {names}")
             self.service.add_event(
@@ -450,6 +467,12 @@ class CoworkTool(Tool):
                 data={"round": round_index + 1, "agent_ids": [agent.id for agent in active]},
             )
             await asyncio.gather(*(self._run_agent(session, agent) for agent in active))
+            agent_calls += len(active)
+            for agent in active:
+                consecutive_runs[agent.id] = consecutive_runs.get(agent.id, 0) + 1
+            for agent_id in list(consecutive_runs):
+                if agent_id not in {agent.id for agent in active}:
+                    consecutive_runs[agent_id] = 0
             session = self.service.get_session(session.id) or session
             if session.status == "completed":
                 lines.append("Session completed.")
@@ -459,6 +482,26 @@ class CoworkTool(Tool):
         lines.append("")
         lines.append(self.service.format_status(session, verbose=False))
         return "\n".join(lines)
+
+    def _filter_self_activated_agents(
+        self,
+        session: CoworkSession,
+        active: list[CoworkAgent],
+        consecutive_runs: dict[str, int],
+    ) -> list[CoworkAgent]:
+        filtered = []
+        for agent in active:
+            if consecutive_runs.get(agent.id, 0) < _MAX_AGENT_SELF_ACTIVATIONS:
+                filtered.append(agent)
+                continue
+            self.service.add_event(
+                session,
+                "scheduler.self_activation_limited",
+                f"{agent.name} was skipped after repeated self-activation",
+                actor_id=agent.id,
+                data={"agent_id": agent.id, "limit": _MAX_AGENT_SELF_ACTIVATIONS},
+            )
+        return filtered
 
     def _parse_agent_progress(self, content: str) -> dict[str, Any]:
         text = content.strip()

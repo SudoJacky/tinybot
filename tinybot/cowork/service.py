@@ -27,6 +27,7 @@ from tinybot.cowork.types import (
 
 _MAX_PRIVATE_SUMMARY_CHARS = 6000
 _MAX_EVENT_COUNT = 500
+_MAX_MAILBOX_RECORDS = 300
 
 
 class CoworkService:
@@ -444,6 +445,7 @@ class CoworkService:
 
     def add_mailbox_record(self, session: CoworkSession, record: CoworkMailboxRecord, *, save: bool = True) -> CoworkMailboxRecord:
         session.mailbox[record.id] = record
+        self.trim_mailbox_records(session, save=False)
         self._touch(session)
         if save:
             self._save()
@@ -479,6 +481,27 @@ class CoworkService:
             if save:
                 self._save()
         return expired
+
+    def trim_mailbox_records(self, session: CoworkSession, *, save: bool = True) -> None:
+        if len(session.mailbox) <= _MAX_MAILBOX_RECORDS:
+            return
+        ordered = sorted(
+            session.mailbox.values(),
+            key=lambda record: (record.status not in {"replied", "expired"}, record.created_at),
+        )
+        remove_count = len(session.mailbox) - _MAX_MAILBOX_RECORDS
+        for record in ordered[:remove_count]:
+            session.mailbox.pop(record.id, None)
+        self.add_event(
+            session,
+            "mailbox.trimmed",
+            f"Mailbox trimmed {remove_count} old envelopes",
+            data={"removed": remove_count, "limit": _MAX_MAILBOX_RECORDS},
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
 
     def update_agent_after_run(
         self,

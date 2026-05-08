@@ -40,6 +40,17 @@ class CoworkMailbox:
         self.service.expire_mailbox_records(session, save=False)
         recipients = self._resolve_recipients(session, envelope)
         thread_id = envelope.thread_id if envelope.thread_id in session.threads else None
+        duplicate = self._find_duplicate(session, envelope, recipients, thread_id)
+        if duplicate and duplicate.message_id and duplicate.message_id in session.messages:
+            self.service.add_event(
+                session,
+                "mailbox.duplicate",
+                f"Mailbox skipped duplicate {duplicate.kind} from {duplicate.sender_id}",
+                actor_id=envelope.sender_id,
+                data={"envelope_id": duplicate.id, "message_id": duplicate.message_id},
+                save=save,
+            )
+            return session.messages[duplicate.message_id]
         record = CoworkMailboxRecord(
             id=self.service._new_id("env"),
             sender_id=envelope.sender_id,
@@ -106,6 +117,28 @@ class CoworkMailbox:
             save=save,
         )
         return message
+
+    @staticmethod
+    def _find_duplicate(
+        session: CoworkSession,
+        envelope: CoworkEnvelope,
+        recipients: list[str],
+        thread_id: str | None,
+    ) -> CoworkMailboxRecord | None:
+        normalized_content = envelope.content.strip()
+        for record in reversed(list(session.mailbox.values())):
+            if record.status in {"replied", "expired"}:
+                continue
+            if (
+                record.sender_id == envelope.sender_id
+                and record.recipient_ids == recipients
+                and record.content.strip() == normalized_content
+                and record.visibility == envelope.visibility
+                and record.kind == envelope.kind
+                and (thread_id is None or record.thread_id == thread_id)
+            ):
+                return record
+        return None
 
     def _mark_replies(self, session: CoworkSession, delivered: CoworkMailboxRecord) -> None:
         for record in session.mailbox.values():
