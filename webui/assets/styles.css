@@ -4590,7 +4590,7 @@ body {
 .cowork-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  grid-template-rows: minmax(170px, 0.9fr) minmax(170px, 1fr) minmax(120px, 0.65fr);
+  grid-template-rows: minmax(150px, 0.8fr) minmax(150px, 0.85fr) minmax(120px, 0.65fr) minmax(110px, 0.55fr);
   gap: 12px;
   min-height: 0;
   flex: 1;
@@ -4607,7 +4607,7 @@ body {
 
 .cowork-team-chat {
   grid-column: 1;
-  grid-row: 1 / 4;
+  grid-row: 1 / 5;
 }
 
 .cowork-agents-section {
@@ -4622,9 +4622,15 @@ body {
   overflow: auto;
 }
 
-.cowork-threads-section {
+.cowork-mailbox-section {
   grid-column: 2;
   grid-row: 3;
+  overflow: auto;
+}
+
+.cowork-threads-section {
+  grid-column: 2;
+  grid-row: 4;
   overflow: auto;
 }
 
@@ -4669,6 +4675,10 @@ body {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.cowork-mailbox-card {
+  min-height: 68px;
 }
 
 .cowork-status {
@@ -4810,20 +4820,24 @@ body {
 
 .cowork-status-active,
 .cowork-status-running,
-.cowork-status-in_progress {
+.cowork-status-in_progress,
+.cowork-status-delivered,
+.cowork-status-read {
   color: var(--accent);
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent), transparent 68%);
 }
 
-.cowork-status-completed {
+.cowork-status-completed,
+.cowork-status-replied {
   color: var(--success);
   background: var(--success-soft);
   border-color: color-mix(in srgb, var(--success), transparent 68%);
 }
 
 .cowork-status-failed,
-.cowork-status-blocked {
+.cowork-status-blocked,
+.cowork-status-expired {
   color: var(--danger);
   background: var(--danger-soft);
   border-color: color-mix(in srgb, var(--danger), transparent 68%);
@@ -4831,7 +4845,8 @@ body {
 
 .cowork-status-paused,
 .cowork-status-pending,
-.cowork-status-idle {
+.cowork-status-idle,
+.cowork-status-queued {
   color: var(--warning);
   background: var(--warning-soft);
   border-color: color-mix(in srgb, var(--warning), transparent 68%);
@@ -6038,8 +6053,17 @@ body {
   }
 
   .cowork-team-chat {
+    grid-column: 1;
     grid-row: auto;
     min-height: 520px;
+  }
+
+  .cowork-agents-section,
+  .cowork-tasks-section,
+  .cowork-mailbox-section,
+  .cowork-threads-section {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .cowork-session-pane {

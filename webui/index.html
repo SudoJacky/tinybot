@@ -339,6 +339,7 @@
                 <label class="cowork-limit-label">Rounds <input id="cowork-round-limit" class="config-input cowork-limit-input" type="number" min="1" max="20" value="1" /></label>
                 <label class="cowork-limit-label">Agents <input id="cowork-agent-limit" class="config-input cowork-limit-input" type="number" min="1" max="10" value="3" /></label>
                 <button id="cowork-run-button" class="button" type="button">Run round</button>
+                <button id="cowork-run-until-idle-button" class="button" type="button">Run until idle</button>
                 <button id="cowork-pause-button" class="button" type="button">Pause</button>
                 <button id="cowork-resume-button" class="button" type="button">Resume</button>
                 <button id="cowork-summary-button" class="button" type="button">Summary</button>
@@ -367,6 +368,10 @@
               <section class="cowork-tasks-section">
                 <h4>Tasks</h4>
                 <div id="cowork-task-list" class="cowork-list"></div>
+              </section>
+              <section class="cowork-mailbox-section">
+                <h4>Mailbox</h4>
+                <div id="cowork-mailbox-list" class="cowork-list"></div>
               </section>
               <section class="cowork-threads-section">
                 <h4>Topics</h4>
