@@ -16,6 +16,7 @@ from loguru import logger
 from tinybot.cowork.types import (
     CoworkAgent,
     CoworkEvent,
+    CoworkMailboxRecord,
     CoworkMessage,
     CoworkSession,
     CoworkTask,
@@ -124,6 +125,30 @@ class CoworkService:
                         read_by=item.get("read_by", []),
                     )
                     for item in raw.get("messages", {}).values()
+                }
+                session.mailbox = {
+                    item["id"]: CoworkMailboxRecord(
+                        id=item["id"],
+                        sender_id=item["sender_id"],
+                        recipient_ids=item.get("recipient_ids", []),
+                        content=item.get("content", ""),
+                        visibility=item.get("visibility", "direct"),
+                        kind=item.get("kind", "message"),
+                        status=item.get("status", "queued"),
+                        thread_id=item.get("thread_id"),
+                        message_id=item.get("message_id"),
+                        requires_reply=bool(item.get("requires_reply", False)),
+                        priority=int(item.get("priority", 0) or 0),
+                        deadline_round=item.get("deadline_round"),
+                        correlation_id=item.get("correlation_id"),
+                        reply_to_envelope_id=item.get("reply_to_envelope_id"),
+                        read_by=item.get("read_by", []),
+                        replied_by=item.get("replied_by", []),
+                        created_at=item.get("created_at", now_iso()),
+                        updated_at=item.get("updated_at", now_iso()),
+                        delivered_at=item.get("delivered_at"),
+                    )
+                    for item in raw.get("mailbox", {}).values()
                 }
                 session.events = [
                     CoworkEvent(
@@ -387,6 +412,7 @@ class CoworkService:
         for message in messages:
             if agent_id not in message.read_by:
                 message.read_by.append(agent_id)
+            self._mark_mailbox_read_for_message(session, message.id, agent_id)
         agent.inbox.clear()
         return messages
 
@@ -404,15 +430,55 @@ class CoworkService:
         return ready
 
     def select_active_agents(self, session: CoworkSession, limit: int = 3) -> list[CoworkAgent]:
-        candidates = []
+        candidates: list[tuple[int, CoworkAgent]] = []
         if session.status != "active":
-            return candidates
+            return []
+        self.expire_mailbox_records(session, save=False)
         for agent in session.agents.values():
             if agent.status in {"done", "failed"}:
                 continue
-            if agent.inbox or self.ready_tasks_for(session, agent.id):
-                candidates.append(agent)
-        return candidates[: max(1, limit)]
+            if agent.inbox or self.ready_tasks_for(session, agent.id) or self._has_pending_mailbox_work(session, agent.id):
+                candidates.append((self._agent_mailbox_pressure(session, agent.id), agent))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return [agent for _, agent in candidates[: max(1, limit)]]
+
+    def add_mailbox_record(self, session: CoworkSession, record: CoworkMailboxRecord, *, save: bool = True) -> CoworkMailboxRecord:
+        session.mailbox[record.id] = record
+        self._touch(session)
+        if save:
+            self._save()
+        return record
+
+    def update_mailbox_record(self, session: CoworkSession, record: CoworkMailboxRecord, *, save: bool = True) -> None:
+        record.updated_at = now_iso()
+        self._touch(session)
+        if save:
+            self._save()
+
+    def expire_mailbox_records(self, session: CoworkSession, *, save: bool = True) -> list[CoworkMailboxRecord]:
+        expired = []
+        for record in session.mailbox.values():
+            if (
+                record.deadline_round is not None
+                and session.rounds >= record.deadline_round
+                and record.status not in {"replied", "expired"}
+            ):
+                record.status = "expired"
+                record.updated_at = now_iso()
+                expired.append(record)
+                self.add_event(
+                    session,
+                    "mailbox.expired",
+                    f"Mailbox envelope {record.id} expired",
+                    actor_id=record.sender_id,
+                    data={"envelope_id": record.id, "correlation_id": record.correlation_id},
+                    save=False,
+                )
+        if expired:
+            self._touch(session)
+            if save:
+                self._save()
+        return expired
 
     def update_agent_after_run(
         self,
@@ -587,3 +653,43 @@ class CoworkService:
             for agent in session.agents.values():
                 if agent.status not in {"failed", "blocked"}:
                     agent.status = "done"
+
+    @staticmethod
+    def _agent_mailbox_pressure(session: CoworkSession, agent_id: str) -> int:
+        pressure = 0
+        for record in session.mailbox.values():
+            if agent_id not in record.recipient_ids or record.status in {"replied", "expired"}:
+                continue
+            if record.message_id in session.agents[agent_id].inbox:
+                pressure = max(pressure, record.priority)
+            if record.requires_reply and record.status in {"delivered", "read"}:
+                pressure = max(pressure, record.priority + 20)
+        return pressure
+
+    @staticmethod
+    def _has_pending_mailbox_work(session: CoworkSession, agent_id: str) -> bool:
+        return any(
+            agent_id in record.recipient_ids
+            and record.requires_reply
+            and record.status in {"delivered", "read"}
+            for record in session.mailbox.values()
+        )
+
+    def _mark_mailbox_read_for_message(self, session: CoworkSession, message_id: str, agent_id: str) -> None:
+        for record in session.mailbox.values():
+            if record.message_id != message_id or record.status in {"replied", "expired"}:
+                continue
+            if agent_id not in record.read_by:
+                record.read_by.append(agent_id)
+            agent_recipients = [recipient for recipient in record.recipient_ids if recipient in session.agents]
+            if agent_recipients and all(recipient in record.read_by for recipient in agent_recipients):
+                record.status = "read"
+                record.updated_at = now_iso()
+                self.add_event(
+                    session,
+                    "mailbox.read",
+                    f"Mailbox envelope {record.id} was read",
+                    actor_id=agent_id,
+                    data={"envelope_id": record.id, "message_id": message_id},
+                    save=False,
+                )

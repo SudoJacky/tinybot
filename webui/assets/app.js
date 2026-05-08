@@ -2186,7 +2186,8 @@ function renderCoworkTimeline(session) {
       `;
       item.querySelector(".cowork-chat-avatar").textContent = (sender?.name || message.sender_id || "?").slice(0, 1).toUpperCase();
       item.querySelector("strong").textContent = sender ? `${sender.name} / ${sender.role}` : message.sender_id || "sender";
-      item.querySelector("span").textContent = `${thread?.topic || "Discussion"} - ${message.created_at || ""}`;
+      const recipients = (message.recipient_ids || []).length ? `to ${(message.recipient_ids || []).join(", ")}` : "broadcast";
+      item.querySelector("span").textContent = `${thread?.topic || "Discussion"} - ${recipients} - ${message.created_at || ""}`;
       item.querySelector("p").textContent = message.content || "";
     } else {
       const event = itemData.event;

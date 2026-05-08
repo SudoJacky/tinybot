@@ -2,6 +2,7 @@ from aiohttp.test_utils import TestClient, TestServer
 import pytest
 
 from tinybot.api.server import create_app
+from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.cowork.service import CoworkService
 
 
@@ -57,7 +58,15 @@ async def cowork_api_client(temp_workspace):
                 service.add_event(session, "session.resumed", "resumed")
                 return "resumed"
             if action == "send_message":
-                service.send_message(session, "user", kwargs.get("recipient_ids") or [], kwargs["content"])
+                CoworkMailbox(service).deliver(
+                    session,
+                    CoworkEnvelope(
+                        sender_id="user",
+                        recipient_ids=kwargs.get("recipient_ids") or [],
+                        content=kwargs["content"],
+                        visibility="direct" if kwargs.get("recipient_ids") else "group",
+                    ),
+                )
                 return "sent"
             if action == "add_task":
                 service.add_task(
@@ -108,7 +117,9 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
 
     response = await cowork_api_client.post(f"/api/cowork/sessions/{session_id}/messages", json={"content": "Add QA"})
     assert response.status == 200
-    assert (await response.json())["session"]["messages"][-1]["content"] == "Add QA"
+    payload = await response.json()
+    assert payload["session"]["messages"][-1]["content"] == "Add QA"
+    assert payload["session"]["mailbox"][-1]["status"] == "delivered"
 
     response = await cowork_api_client.post(
         f"/api/cowork/sessions/{session_id}/tasks",

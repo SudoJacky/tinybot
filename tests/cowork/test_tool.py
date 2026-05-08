@@ -47,6 +47,22 @@ class ConcurrentRunner:
         return Result()
 
 
+class SequenceRunner:
+    def __init__(self, contents):
+        self.contents = list(contents)
+        self.calls = 0
+
+    async def run(self, spec):
+        self.calls += 1
+        content = self.contents.pop(0) if self.contents else "done"
+
+        class Result:
+            final_content = content
+            error = None
+
+        return Result()
+
+
 @pytest.mark.asyncio
 async def test_team_planner_falls_back(temp_workspace):
     planner = CoworkTeamPlanner(FailingProvider(), "test-model", temp_workspace)
@@ -199,3 +215,93 @@ async def test_cowork_tool_run_exposes_agent_final_note_as_message(temp_workspac
         message.sender_id == agent_id and message.recipient_ids == ["user"] and message.content == "round note"
         for message in updated.messages.values()
     )
+
+
+@pytest.mark.asyncio
+async def test_cowork_tool_applies_structured_agent_progress(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Use structured progress", "Structured", [], [])
+    agent_id = next(iter(session.agents))
+    peer_id = next(agent for agent in session.agents if agent != agent_id)
+    task_id = next(task.id for task in session.tasks.values() if task.assigned_agent_id == agent_id)
+    service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = SequenceRunner(
+        [
+            json.dumps(
+                {
+                    "status": "waiting",
+                    "public_note": "Visible update",
+                    "private_note": "Private memory",
+                    "requests": [
+                        {
+                            "recipient_ids": [peer_id],
+                            "content": "Please review",
+                            "visibility": "direct",
+                            "requires_reply": True,
+                            "priority": 40,
+                            "correlation_id": "review-1",
+                        }
+                    ],
+                    "completed_task_ids": [task_id],
+                    "new_task_suggestions": [{"title": "Follow up", "assigned_agent_id": peer_id}],
+                }
+            )
+        ]
+    )
+
+    await tool.execute(action="run", session_id=session.id, max_rounds=1, max_agents=1)
+    updated = service.get_session(session.id)
+
+    assert updated.agents[agent_id].private_summary == "Private memory"
+    assert updated.agents[agent_id].status == "waiting"
+    assert updated.tasks[task_id].status == "completed"
+    assert any(
+        message.sender_id == agent_id and message.content == "Visible update" for message in updated.messages.values()
+    )
+    assert any(
+        message.sender_id == agent_id and message.content == "Please review" for message in updated.messages.values()
+    )
+    request_record = next(record for record in updated.mailbox.values() if record.content == "Please review")
+    assert request_record.requires_reply is True
+    assert request_record.priority == 40
+    assert request_record.correlation_id == "review-1"
+    assert any(task.title == "Follow up" and task.assigned_agent_id == peer_id for task in updated.tasks.values())
+
+
+@pytest.mark.asyncio
+async def test_cowork_scheduler_continues_when_mailbox_makes_peer_ready(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Continue through mailbox",
+        "Mailbox",
+        [
+            {"id": "a", "name": "A", "role": "One", "goal": "A", "responsibilities": []},
+            {"id": "b", "name": "B", "role": "Two", "goal": "B", "responsibilities": []},
+        ],
+        [{"id": "ta", "title": "A task", "description": "A task", "assigned_agent_id": "a"}],
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = SequenceRunner(
+        [
+            json.dumps(
+                {
+                    "status": "waiting",
+                    "public_note": "A asks B",
+                    "private_note": "Asked B",
+                    "requests": [{"recipient_ids": ["b"], "content": "Please check", "visibility": "direct"}],
+                }
+            ),
+            json.dumps({"status": "idle", "public_note": "B checked", "private_note": "Checked"}),
+        ]
+    )
+
+    result = await tool.execute(action="run", session_id=session.id, max_rounds=2, max_agents=1)
+    updated = service.get_session(session.id)
+
+    assert "Round 1: running a" in result
+    assert "Round 2: running b" in result
+    assert tool.runner.calls == 2
+    assert any(message.sender_id == "b" and message.content == "B checked" for message in updated.messages.values())

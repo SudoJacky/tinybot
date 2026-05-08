@@ -11,6 +11,7 @@ AgentStatus = Literal["idle", "working", "waiting", "blocked", "done", "failed"]
 TaskStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
 SessionStatus = Literal["active", "paused", "completed", "failed"]
 ThreadStatus = Literal["open", "resolved"]
+MailboxStatus = Literal["queued", "delivered", "read", "replied", "expired"]
 
 
 def now_iso() -> str:
@@ -68,6 +69,31 @@ class CoworkMessage:
 
 
 @dataclass
+class CoworkMailboxRecord:
+    """A persisted communication envelope tracked by the cowork mailbox."""
+
+    id: str
+    sender_id: str
+    recipient_ids: list[str]
+    content: str
+    visibility: str = "direct"
+    kind: str = "message"
+    status: MailboxStatus = "queued"
+    thread_id: str | None = None
+    message_id: str | None = None
+    requires_reply: bool = False
+    priority: int = 0
+    deadline_round: int | None = None
+    correlation_id: str | None = None
+    reply_to_envelope_id: str | None = None
+    read_by: list[str] = field(default_factory=list)
+    replied_by: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+    delivered_at: str | None = None
+
+
+@dataclass
 class CoworkThread:
     """A scoped discussion thread among agents."""
 
@@ -106,6 +132,7 @@ class CoworkSession:
     tasks: dict[str, CoworkTask] = field(default_factory=dict)
     threads: dict[str, CoworkThread] = field(default_factory=dict)
     messages: dict[str, CoworkMessage] = field(default_factory=dict)
+    mailbox: dict[str, CoworkMailboxRecord] = field(default_factory=dict)
     events: list[CoworkEvent] = field(default_factory=list)
     shared_summary: str = ""
     created_at: str = field(default_factory=now_iso)

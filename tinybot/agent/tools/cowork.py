@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import asyncio
+import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,9 @@ from tinybot.cowork.types import CoworkAgent, CoworkSession
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.config.schema import ExecToolConfig
 from tinybot.providers.base import LLMProvider
+
+
+_AGENT_PROGRESS_STATUSES = {"idle", "waiting", "blocked", "done", "failed", "needs_review"}
 
 
 _TEAM_TOOL = [
@@ -154,6 +158,11 @@ Workspace: {self.workspace}
         task_id=StringSchema("Task id to complete"),
         status=StringSchema("Status value"),
         extra_properties={"description": StringSchema("Task description")},
+        requires_reply=BooleanSchema(description="Whether the recipient should reply", default=False),
+        priority=IntegerSchema(description="Mailbox priority from 0 to 100", minimum=0, maximum=100),
+        deadline_round=IntegerSchema(description="Round number or relative round budget when this envelope expires", minimum=1, maximum=100),
+        correlation_id=StringSchema("Stable id that groups a question with replies"),
+        reply_to_envelope_id=StringSchema("Envelope id this message replies to"),
         required=["action"],
     )
 )
@@ -190,6 +199,11 @@ class CoworkInternalTool(Tool):
         dependencies: list[str] | None = None,
         task_id: str = "",
         status: str = "",
+        requires_reply: bool = False,
+        priority: int = 0,
+        deadline_round: int | None = None,
+        correlation_id: str = "",
+        reply_to_envelope_id: str = "",
         **kwargs: Any,
     ) -> str:
         session = self.service.get_session(self.session_id)
@@ -214,6 +228,12 @@ class CoworkInternalTool(Tool):
                     content=content,
                     thread_id=thread_id or None,
                     visibility="direct" if recipient_ids else "group",
+                    kind="question" if requires_reply else "message",
+                    requires_reply=requires_reply,
+                    priority=max(0, min(100, int(priority or 0))),
+                    deadline_round=deadline_round,
+                    correlation_id=correlation_id or None,
+                    reply_to_envelope_id=reply_to_envelope_id or None,
                 ),
             )
             return f"Sent message {message.id}"
@@ -419,17 +439,73 @@ class CoworkTool(Tool):
             active = self.service.select_active_agents(session, limit=agent_limit)
             if not active:
                 lines.append(f"Round {round_index + 1}: no ready agents.")
+                self.service.add_event(session, "scheduler.idle", "Cowork scheduler stopped because no agents are ready")
                 break
             names = ", ".join(agent.id for agent in active)
             lines.append(f"Round {round_index + 1}: running {names}")
+            self.service.add_event(
+                session,
+                "scheduler.round",
+                f"Cowork scheduler running round {round_index + 1} with {names}",
+                data={"round": round_index + 1, "agent_ids": [agent.id for agent in active]},
+            )
             await asyncio.gather(*(self._run_agent(session, agent) for agent in active))
             session = self.service.get_session(session.id) or session
             if session.status == "completed":
                 lines.append("Session completed.")
                 break
+        else:
+            self.service.add_event(session, "scheduler.budget_exhausted", "Cowork scheduler stopped at the run budget")
         lines.append("")
         lines.append(self.service.format_status(session, verbose=False))
         return "\n".join(lines)
+
+    def _parse_agent_progress(self, content: str) -> dict[str, Any]:
+        text = content.strip()
+        parsed: Any = None
+        for candidate in (text, self._extract_json_object(text)):
+            if not candidate:
+                continue
+            try:
+                parsed = json.loads(candidate)
+                break
+            except Exception:
+                continue
+        if not isinstance(parsed, dict):
+            return {
+                "status": "idle",
+                "public_note": text or "Cowork round completed.",
+                "private_note": text or "Cowork round completed.",
+                "requests": [],
+                "completed_task_ids": [],
+                "new_task_suggestions": [],
+            }
+        status = str(parsed.get("status") or "idle").strip().lower()
+        if status == "needs_review":
+            status = "waiting"
+        if status not in {"idle", "waiting", "blocked", "done", "failed"}:
+            status = "idle"
+        public_note = str(parsed.get("public_note") or parsed.get("note") or "").strip()
+        private_note = str(parsed.get("private_note") or public_note or text).strip()
+        return {
+            "status": status,
+            "public_note": public_note,
+            "private_note": private_note,
+            "requests": parsed.get("requests") if isinstance(parsed.get("requests"), list) else [],
+            "completed_task_ids": parsed.get("completed_task_ids") if isinstance(parsed.get("completed_task_ids"), list) else [],
+            "new_task_suggestions": parsed.get("new_task_suggestions") if isinstance(parsed.get("new_task_suggestions"), list) else [],
+        }
+
+    @staticmethod
+    def _extract_json_object(text: str) -> str:
+        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+        if fenced:
+            return fenced.group(1)
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            return text[start : end + 1]
+        return ""
 
     async def _run_agent(self, session: CoworkSession, agent: CoworkAgent) -> None:
         fresh = self.service.get_session(session.id)
@@ -470,22 +546,94 @@ class CoworkTool(Tool):
                 )
             )
             content = result.final_content or result.error or "Cowork round completed without a final note."
+            progress = self._parse_agent_progress(content)
+            self._apply_agent_progress(session, agent, progress)
+        except Exception as exc:
+            logger.exception("Cowork agent '{}' failed", agent.id)
+            self.service.fail_agent_run(session, agent.id, str(exc))
+
+    def _apply_agent_progress(self, session: CoworkSession, agent: CoworkAgent, progress: dict[str, Any]) -> None:
+        public_note = str(progress.get("public_note") or "").strip()
+        private_note = str(progress.get("private_note") or public_note or "Cowork round completed.").strip()
+        if public_note:
             self.mailbox.deliver(
                 session,
                 CoworkEnvelope(
                     sender_id=agent.id,
                     recipient_ids=["user"],
-                    content=content,
+                    content=public_note,
                     visibility="user",
                     kind="result",
                     thread_id=next(iter(session.threads), None),
                 ),
                 save=False,
             )
-            self.service.update_agent_after_run(session, agent.id, content, status="idle", publish_note=False)
-        except Exception as exc:
-            logger.exception("Cowork agent '{}' failed", agent.id)
-            self.service.fail_agent_run(session, agent.id, str(exc))
+        for request in progress.get("requests") or []:
+            if not isinstance(request, dict):
+                continue
+            content = str(request.get("content") or "").strip()
+            if not content:
+                continue
+            visibility = str(request.get("visibility") or "direct").strip()
+            if visibility not in {"direct", "group", "user"}:
+                visibility = "direct"
+            self.mailbox.deliver(
+                session,
+                CoworkEnvelope(
+                    sender_id=agent.id,
+                    recipient_ids=[str(item) for item in request.get("recipient_ids") or []],
+                    content=content,
+                    visibility=visibility,  # type: ignore[arg-type]
+                    kind="question" if request.get("requires_reply") else "message",
+                    requires_reply=bool(request.get("requires_reply", False)),
+                    priority=self._bounded_int(request.get("priority"), default=0, minimum=0, maximum=100),
+                    deadline_round=self._deadline_round(session, request.get("deadline_round")),
+                    correlation_id=str(request.get("correlation_id") or "") or None,
+                    reply_to_envelope_id=str(request.get("reply_to_envelope_id") or "") or None,
+                    thread_id=str(request.get("thread_id") or "") or None,
+                ),
+                save=False,
+            )
+        for task_id in progress.get("completed_task_ids") or []:
+            task_id_text = str(task_id or "").strip()
+            if task_id_text:
+                self.service.complete_task(session, task_id_text, public_note or private_note, status="completed")
+        for suggestion in progress.get("new_task_suggestions") or []:
+            if not isinstance(suggestion, dict):
+                continue
+            title = str(suggestion.get("title") or "").strip()
+            if title:
+                self.service.add_task(
+                    session,
+                    title=title,
+                    description=str(suggestion.get("description") or title),
+                    assigned_agent_id=str(suggestion.get("assigned_agent_id") or agent.id),
+                    dependencies=[str(item) for item in suggestion.get("dependencies") or []],
+                    save=False,
+                )
+        self.service.update_agent_after_run(
+            session,
+            agent.id,
+            private_note,
+            status=str(progress.get("status") or "idle"),
+            publish_note=False,
+        )
+
+    @staticmethod
+    def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(value)
+        except Exception:
+            parsed = default
+        return min(max(parsed, minimum), maximum)
+
+    @staticmethod
+    def _deadline_round(session: CoworkSession, value: Any) -> int | None:
+        try:
+            parsed = int(value)
+        except Exception:
+            return None
+        return parsed if parsed > session.rounds else session.rounds + parsed if parsed > 0 else None
 
     def _build_agent_tools(self, session_id: str, agent_id: str) -> ToolRegistry:
         registry = ToolRegistry()
@@ -530,8 +678,14 @@ Shared cowork goal:
 Other agents:
 {agents}
 
-Use cowork_internal when you need to message another agent, create a discussion, add follow-up work, update status, or complete a task.
-Keep your final response short. Your private context will be updated from it.
+Use cowork_internal when you need to message another agent during the turn, create a discussion, add follow-up work, update status, or complete a task.
+End your turn with a compact JSON object, not prose. The JSON should use:
+status: idle | waiting | blocked | done | failed | needs_review
+public_note: visible team-chat update for the user
+private_note: concise private memory update
+requests: optional list of mailbox messages, each with recipient_ids, content, visibility, requires_reply, priority, deadline_round, correlation_id
+completed_task_ids: optional list of task ids you completed
+new_task_suggestions: optional list of task objects with title, description, assigned_agent_id, dependencies
 """
 
     @staticmethod
@@ -541,6 +695,18 @@ Keep your final response short. Your private context will be updated from it.
             thread = session.threads.get(message.thread_id)
             topic = thread.topic if thread else message.thread_id
             inbox_lines.append(f"- [{message.id} / {topic}] from {message.sender_id}: {message.content}")
+        pending_requests = [
+            record
+            for record in session.mailbox.values()
+            if agent.id in record.recipient_ids
+            and record.requires_reply
+            and record.status in {"delivered", "read"}
+        ]
+        request_lines = [
+            f"- [{record.id} / correlation {record.correlation_id or '-'} / priority {record.priority}] "
+            f"from {record.sender_id}: {record.content}"
+            for record in pending_requests[:8]
+        ]
         task_text = "No ready assigned task."
         if task:
             task_text = f"{task.id}: {task.title}\n{task.description}"
@@ -562,6 +728,9 @@ Current assigned task:
 Unread inbox:
 {chr(10).join(inbox_lines) if inbox_lines else "(none)"}
 
+Pending reply requests:
+{chr(10).join(request_lines) if request_lines else "(none)"}
+
 Open discussions:
 {chr(10).join(thread_lines) if thread_lines else "(none)"}
 
@@ -571,8 +740,9 @@ Recent completed task results:
 Expected behavior:
 1. Make concrete progress on your current task or inbox.
 2. If another agent should help, call cowork_internal send_message or add_task.
-3. If you complete the current task, call cowork_internal complete_task with a concise result.
-4. End with a short private progress note.
+3. If you answer a pending reply request, include the original correlation_id or reply_to_envelope_id in your request/message.
+4. If you complete the current task, call cowork_internal complete_task with a concise result.
+5. End with the structured JSON progress object described in your system instructions.
 """
 
     @staticmethod

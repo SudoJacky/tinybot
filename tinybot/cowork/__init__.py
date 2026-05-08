@@ -5,6 +5,7 @@ from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import (
     CoworkAgent,
     CoworkEvent,
+    CoworkMailboxRecord,
     CoworkMessage,
     CoworkSession,
     CoworkTask,
@@ -15,6 +16,7 @@ __all__ = [
     "CoworkAgent",
     "CoworkEnvelope",
     "CoworkEvent",
+    "CoworkMailboxRecord",
     "CoworkMessage",
     "CoworkMailbox",
     "CoworkService",

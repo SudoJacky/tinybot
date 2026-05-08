@@ -71,6 +71,30 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         }
         for message in session.messages.values()
     ] if verbose else []
+    mailbox = [
+        {
+            "id": record.id,
+            "sender_id": record.sender_id,
+            "recipient_ids": record.recipient_ids,
+            "content": record.content if verbose else "",
+            "visibility": record.visibility,
+            "kind": record.kind,
+            "status": record.status,
+            "thread_id": record.thread_id,
+            "message_id": record.message_id,
+            "requires_reply": record.requires_reply,
+            "priority": record.priority,
+            "deadline_round": record.deadline_round,
+            "correlation_id": record.correlation_id,
+            "reply_to_envelope_id": record.reply_to_envelope_id,
+            "read_by": record.read_by,
+            "replied_by": record.replied_by,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+            "delivered_at": record.delivered_at,
+        }
+        for record in session.mailbox.values()
+    ] if verbose else []
     events = [
         {
             "id": event.id,
@@ -95,6 +119,7 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "tasks": tasks,
         "threads": threads,
         "messages": messages,
+        "mailbox": mailbox,
         "events": events,
     }
 

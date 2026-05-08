@@ -1,6 +1,7 @@
 import json
 
 from tinybot.cowork.service import CoworkService
+from tinybot.cowork.types import CoworkMailboxRecord
 
 
 def test_create_session_persists_agents_threads_and_inboxes(temp_workspace):
@@ -60,6 +61,32 @@ def test_send_message_and_mark_read(temp_workspace):
     assert [m.id for m in unread] == [message.id]
     assert session.agents[recipient].inbox == []
     assert recipient in session.messages[message.id].read_by
+
+
+def test_mailbox_records_persist_with_legacy_safe_defaults(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Persist mailbox", "Mailbox", [], [])
+    agent_id = next(iter(session.agents))
+    service.add_mailbox_record(
+        session,
+        CoworkMailboxRecord(
+            id="env_test",
+            sender_id="user",
+            recipient_ids=[agent_id],
+            content="Persist me",
+            status="delivered",
+            requires_reply=True,
+            priority=50,
+            correlation_id="corr_test",
+        ),
+    )
+
+    reloaded = CoworkService(temp_workspace).get_session(session.id)
+
+    assert reloaded is not None
+    assert reloaded.mailbox["env_test"].requires_reply is True
+    assert reloaded.mailbox["env_test"].priority == 50
+    assert reloaded.mailbox["env_test"].correlation_id == "corr_test"
 
 
 def test_complete_task_updates_session_state(temp_workspace):
@@ -156,6 +183,27 @@ def test_message_routing_updates_thread_membership_and_inbox(temp_workspace):
     assert second in session.threads[thread.id].participant_ids
     assert session.threads[thread.id].last_message_at == message.created_at
     assert session.agents[second].inbox == [message.id]
+
+
+def test_unanswered_read_mailbox_request_keeps_agent_ready(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Keep ready", "Ready", [], [])
+    sender, recipient = list(session.agents)[:2]
+    record = CoworkMailboxRecord(
+        id="env_waiting",
+        sender_id=sender,
+        recipient_ids=[recipient],
+        content="Need a reply",
+        status="read",
+        requires_reply=True,
+        priority=70,
+    )
+    service.add_mailbox_record(session, record)
+    service.mark_messages_read(session, recipient)
+
+    active = service.select_active_agents(session, limit=1)
+
+    assert [agent.id for agent in active] == [recipient]
 
 
 def test_failed_and_skipped_tasks_use_consistent_agent_status_and_events(temp_workspace):
