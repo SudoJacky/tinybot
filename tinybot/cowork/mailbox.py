@@ -40,6 +40,7 @@ class CoworkMailbox:
         self.service.expire_mailbox_records(session, save=False)
         recipients = self._resolve_recipients(session, envelope)
         thread_id = envelope.thread_id if envelope.thread_id in session.threads else None
+        thread_id = thread_id or self._find_existing_thread(session, envelope.sender_id, recipients)
         duplicate = self._find_duplicate(session, envelope, recipients, thread_id)
         if duplicate and duplicate.message_id and duplicate.message_id in session.messages:
             self.service.add_event(
@@ -130,6 +131,14 @@ class CoworkMailbox:
             if record.status in {"replied", "expired"}:
                 continue
             if (
+                envelope.correlation_id
+                and record.correlation_id == envelope.correlation_id
+                and record.sender_id == envelope.sender_id
+                and record.recipient_ids == recipients
+                and record.requires_reply == (envelope.requires_reply or envelope.kind == "question")
+            ):
+                return record
+            if (
                 record.sender_id == envelope.sender_id
                 and record.recipient_ids == recipients
                 and record.content.strip() == normalized_content
@@ -138,6 +147,16 @@ class CoworkMailbox:
                 and (thread_id is None or record.thread_id == thread_id)
             ):
                 return record
+        return None
+
+    @staticmethod
+    def _find_existing_thread(session: CoworkSession, sender_id: str, recipients: list[str]) -> str | None:
+        participants = {sender_id, *recipients}
+        for thread in sorted(session.threads.values(), key=lambda item: item.updated_at, reverse=True):
+            if thread.topic != "General discussion" or thread.status != "open":
+                continue
+            if set(thread.participant_ids) == participants:
+                return thread.id
         return None
 
     def _mark_replies(self, session: CoworkSession, delivered: CoworkMailboxRecord) -> None:

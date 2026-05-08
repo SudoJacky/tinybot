@@ -107,6 +107,23 @@ def test_cowork_tool_schemas_are_json_serializable(temp_workspace):
     assert "description" in internal.parameters["properties"]
 
 
+def test_cowork_tool_parses_loose_progress_json_without_leaking_wrapper(temp_workspace):
+    service = CoworkService(temp_workspace)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+
+    progress = tool._parse_agent_progress(
+        "{\n"
+        '  "status": "done",\n'
+        '  "public_note": "Visible line one\nVisible line two",\n'
+        '  "private_note": "Private line"\n'
+        "}"
+    )
+
+    assert progress["status"] == "done"
+    assert progress["public_note"] == "Visible line one\nVisible line two"
+    assert progress["private_note"] == "Private line"
+
+
 @pytest.mark.asyncio
 async def test_cowork_tool_run_enforces_agent_limit_and_runner_cap(temp_workspace):
     service = CoworkService(temp_workspace)
@@ -216,6 +233,54 @@ async def test_cowork_tool_run_exposes_agent_final_note_as_message(temp_workspac
         message.sender_id == agent_id and message.recipient_ids == ["user"] and message.content == "round note"
         for message in updated.messages.values()
     )
+
+
+@pytest.mark.asyncio
+async def test_cowork_tool_suppresses_status_only_public_note(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Introduce yourself", "Intro", [], [])
+    agent_id = next(iter(session.agents))
+    service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = SequenceRunner(
+        [
+            json.dumps(
+                {
+                    "status": "done",
+                    "public_note": "已完成自我介绍，向用户介绍了 Analyst 的角色和职责。",
+                    "private_note": "Status-only note should not be sent to the user.",
+                }
+            )
+        ]
+    )
+
+    await tool.execute(action="run", session_id=session.id)
+    updated = service.get_session(session.id)
+
+    assert not any(
+        message.sender_id == agent_id and "已完成自我介绍" in message.content for message in updated.messages.values()
+    )
+    assert any(event.type == "agent.progress_note" for event in updated.events)
+
+
+@pytest.mark.asyncio
+async def test_cowork_tool_suppresses_iteration_limit_as_user_message(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Hit limit", "Limit", [], [])
+    agent_id = next(iter(session.agents))
+    service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = SequenceRunner(["Cowork round ended because the tool iteration limit was reached."])
+
+    await tool.execute(action="run", session_id=session.id)
+    updated = service.get_session(session.id)
+
+    assert updated.agents[agent_id].status == "blocked"
+    assert not any(
+        message.sender_id == agent_id and "tool iteration limit" in message.content
+        for message in updated.messages.values()
+    )
+    assert any(event.type == "agent.iteration_limit" for event in updated.events)
 
 
 @pytest.mark.asyncio

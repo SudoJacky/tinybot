@@ -139,3 +139,47 @@ def test_mailbox_deduplicates_identical_active_messages(temp_workspace):
     assert second.id == first.id
     assert len([record for record in session.mailbox.values() if record.content == "Same message"]) == 1
     assert any(event.type == "mailbox.duplicate" for event in session.events)
+
+
+def test_mailbox_reuses_general_discussion_for_same_participants(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Reuse topics", "Topics", [], [])
+    mailbox = CoworkMailbox(service)
+    sender, recipient = list(session.agents)[:2]
+
+    first = mailbox.deliver(session, CoworkEnvelope(sender_id=sender, recipient_ids=[recipient], content="First"))
+    second = mailbox.deliver(session, CoworkEnvelope(sender_id=sender, recipient_ids=[recipient], content="Second"))
+
+    assert second.thread_id == first.thread_id
+    assert len([thread for thread in session.threads.values() if thread.topic == "General discussion"]) == 1
+
+
+def test_mailbox_deduplicates_active_correlation_requests(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Correlation", "Correlation", [], [])
+    mailbox = CoworkMailbox(service)
+    sender, recipient = list(session.agents)[:2]
+
+    first = mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id=sender,
+            recipient_ids=[recipient],
+            content="Initial request",
+            requires_reply=True,
+            correlation_id="shared",
+        ),
+    )
+    second = mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id=sender,
+            recipient_ids=[recipient],
+            content="Restated request",
+            requires_reply=True,
+            correlation_id="shared",
+        ),
+    )
+
+    assert second.id == first.id
+    assert len([record for record in session.mailbox.values() if record.correlation_id == "shared"]) == 1

@@ -26,6 +26,7 @@ from tinybot.providers.base import LLMProvider
 _AGENT_PROGRESS_STATUSES = {"idle", "waiting", "blocked", "done", "failed", "needs_review"}
 _MAX_RUN_AGENT_CALLS = 30
 _MAX_AGENT_SELF_ACTIVATIONS = 3
+_ITERATION_LIMIT_NOTE = "Cowork round ended because the tool iteration limit was reached."
 
 
 _TEAM_TOOL = [
@@ -515,6 +516,9 @@ class CoworkTool(Tool):
             except Exception:
                 continue
         if not isinstance(parsed, dict):
+            loose = self._parse_loose_agent_progress(text)
+            if loose:
+                return loose
             return {
                 "status": "idle",
                 "public_note": text or "Cowork round completed.",
@@ -538,6 +542,41 @@ class CoworkTool(Tool):
             "completed_task_ids": parsed.get("completed_task_ids") if isinstance(parsed.get("completed_task_ids"), list) else [],
             "new_task_suggestions": parsed.get("new_task_suggestions") if isinstance(parsed.get("new_task_suggestions"), list) else [],
         }
+
+    def _parse_loose_agent_progress(self, text: str) -> dict[str, Any] | None:
+        if '"public_note"' not in text and "'public_note'" not in text:
+            return None
+        public_note = self._extract_loose_json_string(text, "public_note")
+        private_note = self._extract_loose_json_string(text, "private_note") or public_note
+        status = (self._extract_loose_json_string(text, "status") or "idle").strip().lower()
+        if status == "needs_review":
+            status = "waiting"
+        if status not in {"idle", "waiting", "blocked", "done", "failed"}:
+            status = "idle"
+        if not public_note and not private_note:
+            return None
+        return {
+            "status": status,
+            "public_note": public_note,
+            "private_note": private_note or public_note,
+            "requests": [],
+            "completed_task_ids": [],
+            "new_task_suggestions": [],
+        }
+
+    @staticmethod
+    def _extract_loose_json_string(text: str, key: str) -> str:
+        pattern = rf"""["']{re.escape(key)}["']\s*:\s*["'](.*?)(?<!\\)["']\s*(?:,|\n\s*["']|\n?\s*\}})"""
+        match = re.search(pattern, text, flags=re.DOTALL)
+        if not match:
+            return ""
+        value = match.group(1)
+        return (
+            value.replace(r"\n", "\n")
+            .replace(r"\"", '"')
+            .replace(r"\\", "\\")
+            .strip()
+        )
 
     @staticmethod
     def _extract_json_object(text: str) -> str:
@@ -590,6 +629,17 @@ class CoworkTool(Tool):
             )
             content = result.final_content or result.error or "Cowork round completed without a final note."
             progress = self._parse_agent_progress(content)
+            if content.strip() == _ITERATION_LIMIT_NOTE:
+                progress["status"] = "blocked"
+                progress["public_note"] = ""
+                progress["private_note"] = _ITERATION_LIMIT_NOTE
+                self.service.add_event(
+                    session,
+                    "agent.iteration_limit",
+                    f"{agent.name} reached the cowork tool iteration limit",
+                    actor_id=agent.id,
+                    save=False,
+                )
             self._apply_agent_progress(session, agent, progress)
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
@@ -598,7 +648,7 @@ class CoworkTool(Tool):
     def _apply_agent_progress(self, session: CoworkSession, agent: CoworkAgent, progress: dict[str, Any]) -> None:
         public_note = str(progress.get("public_note") or "").strip()
         private_note = str(progress.get("private_note") or public_note or "Cowork round completed.").strip()
-        if public_note:
+        if public_note and self._is_substantive_public_note(public_note):
             self.mailbox.deliver(
                 session,
                 CoworkEnvelope(
@@ -609,6 +659,15 @@ class CoworkTool(Tool):
                     kind="result",
                     thread_id=next(iter(session.threads), None),
                 ),
+                save=False,
+            )
+        elif public_note:
+            self.service.add_event(
+                session,
+                "agent.progress_note",
+                f"{agent.name} produced a non-user-facing progress note",
+                actor_id=agent.id,
+                data={"note": public_note[:240]},
                 save=False,
             )
         for request in progress.get("requests") or []:
@@ -678,6 +737,27 @@ class CoworkTool(Tool):
             return None
         return parsed if parsed > session.rounds else session.rounds + parsed if parsed > 0 else None
 
+    @staticmethod
+    def _is_substantive_public_note(note: str) -> bool:
+        text = re.sub(r"\s+", " ", note).strip()
+        if not text or text == _ITERATION_LIMIT_NOTE:
+            return False
+        status_phrases = [
+            "已完成",
+            "完成了",
+            "向用户介绍",
+            "等待结果",
+            "等待回复",
+            "I completed",
+            "I've completed",
+            "completed the",
+            "completed a",
+            "round completed",
+        ]
+        if len(text) < 120 and any(phrase.lower() in text.lower() for phrase in status_phrases):
+            return False
+        return True
+
     def _build_agent_tools(self, session_id: str, agent_id: str) -> ToolRegistry:
         registry = ToolRegistry()
         allowed_dir = self.workspace if self.restrict_to_workspace else None
@@ -721,11 +801,11 @@ Shared cowork goal:
 Other agents:
 {agents}
 
-Use cowork_internal when you need to message another agent during the turn, create a discussion, add follow-up work, update status, or complete a task.
+Use cowork_internal only when another participant needs a concrete request, reply, task update, or status update. Do not send thinking-aloud or "should I answer?" coordination messages when the user request is already clear.
 End your turn with a compact JSON object, not prose. The JSON should use:
 status: idle | waiting | blocked | done | failed | needs_review
-public_note: visible team-chat update for the user
-private_note: concise private memory update
+public_note: the actual user-facing answer/content. Do not write status-only text such as "I completed the introduction"; if you do not have final content for the user, leave this empty.
+private_note: concise private memory update, including progress/status details
 requests: optional list of mailbox messages, each with recipient_ids, content, visibility, requires_reply, priority, deadline_round, correlation_id
 completed_task_ids: optional list of task ids you completed
 new_task_suggestions: optional list of task objects with title, description, assigned_agent_id, dependencies
@@ -782,10 +862,11 @@ Recent completed task results:
 
 Expected behavior:
 1. Make concrete progress on your current task or inbox.
-2. If another agent should help, call cowork_internal send_message or add_task.
-3. If you answer a pending reply request, include the original correlation_id or reply_to_envelope_id in your request/message.
-4. If you complete the current task, call cowork_internal complete_task with a concise result.
-5. End with the structured JSON progress object described in your system instructions.
+2. If the current task is directly answerable, produce the actual answer in public_note instead of asking another agent for permission.
+3. If another agent must help, call cowork_internal send_message or add_task with a concrete, non-duplicative request.
+4. If you answer a pending reply request, include the original correlation_id or reply_to_envelope_id in your request/message.
+5. If you complete the current task, call cowork_internal complete_task with the actual useful result, not a status-only sentence.
+6. End with the structured JSON progress object described in your system instructions.
 """
 
     @staticmethod
