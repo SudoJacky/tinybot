@@ -24,6 +24,14 @@ A lightweight personal AI assistant framework that integrates Large Language Mod
 ## Change log
 
 <details>
+<summary>2026.05.08 Added a "cowork" capability, enabling the creation of an autonomous, multi-agent team system.</summary>
+</details>
+
+<details>
+<summary>2026.05.07 Modified the display logic for tool usage.</summary>
+</details>
+
+<details>
 <summary>2026.04.30 Fixed multiple UI issues, revised the browser control interface demonstration, and added task display functionality.</summary>
 
 ![browser_snapshot2](./show/browser_snapshot2.png)

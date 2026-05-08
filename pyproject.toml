@@ -1,6 +1,6 @@
 [project]
 name = "tinybot"
-version = "0.0.12"
+version = "0.0.13-beta"
 description = ""
 license = {text = "MIT"}
 requires-python = ">=3.13"
