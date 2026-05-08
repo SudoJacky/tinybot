@@ -17,7 +17,7 @@ from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, IntegerSchema
 from tinybot.agent.tools.shell import ExecTool
 from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkAgent, CoworkSession
-from tinybot.cowork.router import CoworkEnvelope, CoworkRouter
+from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.config.schema import ExecToolConfig
 from tinybot.providers.base import LLMProvider
 
@@ -160,11 +160,11 @@ Workspace: {self.workspace}
 class CoworkInternalTool(Tool):
     """Agent-only tool for cowork messages, task updates, and status changes."""
 
-    def __init__(self, service: CoworkService, session_id: str, sender_id: str, router: CoworkRouter | None = None):
+    def __init__(self, service: CoworkService, session_id: str, sender_id: str, mailbox: CoworkMailbox | None = None):
         self.service = service
         self.session_id = session_id
         self.sender_id = sender_id
-        self.router = router or CoworkRouter(service)
+        self.mailbox = mailbox or CoworkMailbox(service)
 
     @property
     def name(self) -> str:
@@ -206,7 +206,7 @@ class CoworkInternalTool(Tool):
         if action == "send_message":
             if not content.strip():
                 return "Error: content is required"
-            message = self.router.deliver(
+            message = self.mailbox.deliver(
                 session,
                 CoworkEnvelope(
                     sender_id=self.sender_id,
@@ -293,7 +293,7 @@ class CoworkTool(Tool):
         self.restrict_to_workspace = restrict_to_workspace
         self.runner = AgentRunner(provider)
         self.planner = CoworkTeamPlanner(provider, model, workspace)
-        self.router = CoworkRouter(service)
+        self.mailbox = CoworkMailbox(service)
 
     @property
     def name(self) -> str:
@@ -369,7 +369,7 @@ class CoworkTool(Tool):
         if action == "send_message":
             if not content.strip():
                 return "Error: content is required"
-            message = self.router.deliver(
+            message = self.mailbox.deliver(
                 session,
                 CoworkEnvelope(
                     sender_id="user",
@@ -470,7 +470,7 @@ class CoworkTool(Tool):
                 )
             )
             content = result.final_content or result.error or "Cowork round completed without a final note."
-            self.router.deliver(
+            self.mailbox.deliver(
                 session,
                 CoworkEnvelope(
                     sender_id=agent.id,
@@ -503,7 +503,7 @@ class CoworkTool(Tool):
                     path_append=self.exec_config.path_append,
                 )
             )
-        registry.register(CoworkInternalTool(self.service, session_id=session_id, sender_id=agent_id, router=self.router))
+        registry.register(CoworkInternalTool(self.service, session_id=session_id, sender_id=agent_id, mailbox=self.mailbox))
         return registry
 
     @staticmethod

@@ -1,7 +1,7 @@
 """Cowork sessions: dynamic multi-agent collaboration primitives."""
 
+from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.cowork.service import CoworkService
-from tinybot.cowork.router import CoworkEnvelope, CoworkRouter
 from tinybot.cowork.types import (
     CoworkAgent,
     CoworkEvent,
@@ -16,7 +16,7 @@ __all__ = [
     "CoworkEnvelope",
     "CoworkEvent",
     "CoworkMessage",
-    "CoworkRouter",
+    "CoworkMailbox",
     "CoworkService",
     "CoworkSession",
     "CoworkTask",

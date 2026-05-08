@@ -1,4 +1,4 @@
-"""Cowork message router and mailbox policy."""
+"""Cowork mailbox and delivery policy."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ EnvelopeKind = Literal["message", "task_request", "status", "result", "question"
 
 @dataclass
 class CoworkEnvelope:
-    """A normalized communication request submitted to the cowork router."""
+    """A normalized communication request submitted to the cowork mailbox."""
 
     sender_id: str
     content: str
@@ -25,8 +25,8 @@ class CoworkEnvelope:
     thread_id: str | None = None
 
 
-class CoworkRouter:
-    """Central mailbox/router for cowork agent and user messages."""
+class CoworkMailbox:
+    """Central mailbox for cowork agent and user messages."""
 
     def __init__(self, service: CoworkService) -> None:
         self.service = service
@@ -44,8 +44,8 @@ class CoworkRouter:
         )
         self.service.add_event(
             session,
-            "router.delivered",
-            f"Router delivered {envelope.kind} from {envelope.sender_id} to {', '.join(recipients)}",
+            "mailbox.delivered",
+            f"Mailbox delivered {envelope.kind} from {envelope.sender_id} to {', '.join(recipients)}",
             actor_id=envelope.sender_id,
             data={
                 "message_id": message.id,
