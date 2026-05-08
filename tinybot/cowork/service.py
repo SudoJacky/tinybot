@@ -414,7 +414,15 @@ class CoworkService:
                 candidates.append(agent)
         return candidates[: max(1, limit)]
 
-    def update_agent_after_run(self, session: CoworkSession, agent_id: str, content: str, status: str = "idle") -> None:
+    def update_agent_after_run(
+        self,
+        session: CoworkSession,
+        agent_id: str,
+        content: str,
+        status: str = "idle",
+        *,
+        publish_note: bool = True,
+    ) -> None:
         agent = session.agents[agent_id]
         agent.private_summary = self._merge_private_summary(agent.private_summary, content)
         agent.last_active_at = now_iso()
@@ -423,7 +431,7 @@ class CoworkService:
         if agent.status == "working":
             agent.status = "idle"
         session.rounds += 1
-        if content.strip():
+        if publish_note and content.strip():
             thread_id = next(iter(session.threads), None)
             self.send_message(
                 session,

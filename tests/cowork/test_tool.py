@@ -27,6 +27,26 @@ class FakeRunner:
         return Result()
 
 
+class ConcurrentRunner:
+    def __init__(self):
+        self.active = 0
+        self.max_active = 0
+
+    async def run(self, spec):
+        import asyncio
+
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        await asyncio.sleep(0.01)
+        self.active -= 1
+
+        class Result:
+            final_content = "concurrent note"
+            error = None
+
+        return Result()
+
+
 @pytest.mark.asyncio
 async def test_team_planner_falls_back(temp_workspace):
     planner = CoworkTeamPlanner(FailingProvider(), "test-model", temp_workspace)
@@ -98,6 +118,32 @@ async def test_cowork_tool_run_enforces_agent_limit_and_runner_cap(temp_workspac
     assert "running a, b" in result
     assert len(runner.specs) == 2
     assert all(spec.max_iterations == 12 for spec in runner.specs)
+
+
+@pytest.mark.asyncio
+async def test_cowork_tool_runs_ready_agents_concurrently(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Coordinate in parallel",
+        "Parallel",
+        [
+            {"id": "a", "name": "A", "role": "One", "goal": "A", "responsibilities": []},
+            {"id": "b", "name": "B", "role": "Two", "goal": "B", "responsibilities": []},
+        ],
+        [
+            {"id": "ta", "title": "A task", "description": "A task", "assigned_agent_id": "a"},
+            {"id": "tb", "title": "B task", "description": "B task", "assigned_agent_id": "b"},
+        ],
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    runner = ConcurrentRunner()
+    tool.runner = runner
+
+    await tool.execute(action="run", session_id=session.id, max_rounds=1, max_agents=2)
+
+    assert runner.max_active == 2
 
 
 @pytest.mark.asyncio

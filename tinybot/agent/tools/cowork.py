@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, IntegerSchema
 from tinybot.agent.tools.shell import ExecTool
 from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkAgent, CoworkSession
+from tinybot.cowork.router import CoworkEnvelope, CoworkRouter
 from tinybot.config.schema import ExecToolConfig
 from tinybot.providers.base import LLMProvider
 
@@ -158,10 +160,11 @@ Workspace: {self.workspace}
 class CoworkInternalTool(Tool):
     """Agent-only tool for cowork messages, task updates, and status changes."""
 
-    def __init__(self, service: CoworkService, session_id: str, sender_id: str):
+    def __init__(self, service: CoworkService, session_id: str, sender_id: str, router: CoworkRouter | None = None):
         self.service = service
         self.session_id = session_id
         self.sender_id = sender_id
+        self.router = router or CoworkRouter(service)
 
     @property
     def name(self) -> str:
@@ -203,12 +206,15 @@ class CoworkInternalTool(Tool):
         if action == "send_message":
             if not content.strip():
                 return "Error: content is required"
-            message = self.service.send_message(
+            message = self.router.deliver(
                 session,
-                sender_id=self.sender_id,
-                recipient_ids=recipient_ids or [],
-                content=content,
-                thread_id=thread_id or None,
+                CoworkEnvelope(
+                    sender_id=self.sender_id,
+                    recipient_ids=recipient_ids or [],
+                    content=content,
+                    thread_id=thread_id or None,
+                    visibility="direct" if recipient_ids else "group",
+                ),
             )
             return f"Sent message {message.id}"
 
@@ -287,6 +293,7 @@ class CoworkTool(Tool):
         self.restrict_to_workspace = restrict_to_workspace
         self.runner = AgentRunner(provider)
         self.planner = CoworkTeamPlanner(provider, model, workspace)
+        self.router = CoworkRouter(service)
 
     @property
     def name(self) -> str:
@@ -362,12 +369,15 @@ class CoworkTool(Tool):
         if action == "send_message":
             if not content.strip():
                 return "Error: content is required"
-            message = self.service.send_message(
+            message = self.router.deliver(
                 session,
-                sender_id="user",
-                recipient_ids=recipient_ids or [],
-                content=content,
-                thread_id=thread_id or None,
+                CoworkEnvelope(
+                    sender_id="user",
+                    recipient_ids=recipient_ids or [],
+                    content=content,
+                    thread_id=thread_id or None,
+                    visibility="direct" if recipient_ids else "group",
+                ),
             )
             return f"Sent message {message.id}."
 
@@ -412,9 +422,8 @@ class CoworkTool(Tool):
                 break
             names = ", ".join(agent.id for agent in active)
             lines.append(f"Round {round_index + 1}: running {names}")
-            for agent in active:
-                await self._run_agent(session, agent)
-                session = self.service.get_session(session.id) or session
+            await asyncio.gather(*(self._run_agent(session, agent) for agent in active))
+            session = self.service.get_session(session.id) or session
             if session.status == "completed":
                 lines.append("Session completed.")
                 break
@@ -461,7 +470,19 @@ class CoworkTool(Tool):
                 )
             )
             content = result.final_content or result.error or "Cowork round completed without a final note."
-            self.service.update_agent_after_run(session, agent.id, content, status="idle")
+            self.router.deliver(
+                session,
+                CoworkEnvelope(
+                    sender_id=agent.id,
+                    recipient_ids=["user"],
+                    content=content,
+                    visibility="user",
+                    kind="result",
+                    thread_id=next(iter(session.threads), None),
+                ),
+                save=False,
+            )
+            self.service.update_agent_after_run(session, agent.id, content, status="idle", publish_note=False)
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
             self.service.fail_agent_run(session, agent.id, str(exc))
@@ -482,7 +503,7 @@ class CoworkTool(Tool):
                     path_append=self.exec_config.path_append,
                 )
             )
-        registry.register(CoworkInternalTool(self.service, session_id=session_id, sender_id=agent_id))
+        registry.register(CoworkInternalTool(self.service, session_id=session_id, sender_id=agent_id, router=self.router))
         return registry
 
     @staticmethod
