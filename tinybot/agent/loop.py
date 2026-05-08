@@ -54,6 +54,7 @@ from tinybot.agent.session_knowledge import SessionKnowledgeStore
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
 from tinybot.agent.subagent import SubagentManager
 from tinybot.agent.tools.cron import CronTool
+from tinybot.agent.tools.cowork import CoworkTool
 from tinybot.agent.tools.experience import (
     DeleteExperienceTool,
     FeedbackExperienceTool,
@@ -74,6 +75,7 @@ from tinybot.agent.tools.shell import ExecTool
 from tinybot.agent.tools.spawn import SpawnTool
 from tinybot.agent.tools.task import TaskTool
 from tinybot.bus.events import InboundMessage, OutboundMessage
+from tinybot.cowork import CoworkService
 from tinybot.task.service import TaskManager
 from tinybot.bus.queue import MessageBus
 from tinybot.command import CommandContext, CommandRouter, register_builtin_commands
@@ -236,6 +238,7 @@ class AgentLoop:
                 model=self.model,
                 on_progress=self._on_task_progress,
             )
+            self.cowork_service = CoworkService(workspace)
             self.sessions = session_manager or SessionManager(workspace)
             self.session_handler = SessionHandler(self.max_tool_result_chars)
             self.tool_context = ToolContextManager()
@@ -388,6 +391,17 @@ class AgentLoop:
         consolidator = getattr(self, "consolidator", None)
         if hasattr(consolidator, "max_completion_tokens"):
             consolidator.max_completion_tokens = provider.generation.max_tokens
+        cowork_tool = self.tools.get("cowork") if hasattr(self, "tools") else None
+        if cowork_tool is not None:
+            if hasattr(cowork_tool, "provider"):
+                cowork_tool.provider = provider
+            if hasattr(cowork_tool, "model"):
+                cowork_tool.model = self.model
+            if hasattr(cowork_tool, "runner"):
+                cowork_tool.runner = AgentRunner(provider)
+            if hasattr(cowork_tool, "planner"):
+                from tinybot.agent.tools.cowork import CoworkTeamPlanner
+                cowork_tool.planner = CoworkTeamPlanner(provider, self.model, self.workspace)
 
     def _update_context_snapshot(self, payload: dict[str, Any]) -> None:
         """Track the latest estimated/actual prompt usage for the active turn."""
@@ -416,6 +430,21 @@ class AgentLoop:
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         spawn_tool = SpawnTool(manager=self.subagents)
         self.tools.register(spawn_tool)
+        cowork_service = getattr(self, "cowork_service", None)
+        if cowork_service is None:
+            cowork_service = CoworkService(self.workspace)
+            self.cowork_service = cowork_service
+        self.tools.register(
+            CoworkTool(
+                service=cowork_service,
+                provider=self.provider,
+                workspace=self.workspace,
+                model=self.model,
+                max_tool_result_chars=self.max_tool_result_chars,
+                exec_config=self.exec_config,
+                restrict_to_workspace=self.restrict_to_workspace,
+            )
+        )
 
         # Create announce callback factory for TaskTool
         def _create_announce_callback(channel: str, chat_id: str):
@@ -536,7 +565,7 @@ class AgentLoop:
         """Update context for all tools that need routing info."""
         self.tool_context.set_context(channel, chat_id, message_id)
         self.tool_context.apply_to_tools(self.tools)
-        for name in ("spawn", "cron", "task"):
+        for name in ("spawn", "cron", "task", "cowork"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id)
