@@ -191,6 +191,11 @@ async def test_cowork_rest_endpoints(web_channel, web_client, web_workspace):
     payload = await response.json()
     assert payload["session"]["events"][-1]["type"] == "session.round"
 
+    response = await web_client.delete(f"/api/cowork/sessions/{session_id}", headers=headers)
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["deleted"] is True
+
 
 @pytest.mark.asyncio
 async def test_session_messages_hide_internal_task_notifications(web_channel, web_client):

@@ -147,11 +147,11 @@ Workspace: {self.workspace}
         thread_id=StringSchema("Discussion thread id"),
         topic=StringSchema("Thread topic"),
         title=StringSchema("Task title"),
-        description=StringSchema("Task description"),
         assigned_agent_id=StringSchema("Agent id for new task"),
         dependencies=ArraySchema(StringSchema("Task id"), description="New task dependencies"),
         task_id=StringSchema("Task id to complete"),
         status=StringSchema("Status value"),
+        extra_properties={"description": StringSchema("Task description")},
         required=["action"],
     )
 )
@@ -255,13 +255,13 @@ class CoworkInternalTool(Tool):
         content=StringSchema("Message content"),
         thread_id=StringSchema("Discussion thread id"),
         title=StringSchema("Task title"),
-        description=StringSchema("Task description"),
         assigned_agent_id=StringSchema("Agent id"),
         dependencies=ArraySchema(StringSchema("Task id"), description="Task dependencies"),
         max_rounds=IntegerSchema(description="Maximum scheduling rounds", minimum=1, maximum=20),
         max_agents=IntegerSchema(description="Maximum agents to run per round", minimum=1, maximum=10),
         auto_run=BooleanSchema(description="Run one cowork round immediately after start", default=False),
         verbose=BooleanSchema(description="Show detailed status", default=False),
+        extra_properties={"description": StringSchema("Task description")},
         required=["action"],
     )
 )
@@ -346,11 +346,15 @@ class CoworkTool(Tool):
             return self._format_summary(session)
 
         if action == "pause":
+            if session.status == "completed":
+                return f"Session {session.id} is already completed."
             session.status = "paused"
             self.service.add_event(session, "session.paused", "Cowork session paused")
             return f"Paused cowork session {session.id}."
 
         if action == "resume":
+            if session.status == "completed":
+                return f"Session {session.id} is already completed."
             session.status = "active"
             self.service.add_event(session, "session.resumed", "Cowork session resumed")
             return f"Resumed cowork session {session.id}."
@@ -398,9 +402,11 @@ class CoworkTool(Tool):
         if session.status == "completed":
             return f"Session {session.id} is already completed."
 
+        round_limit = min(max(1, int(max_rounds or 1)), 20)
+        agent_limit = min(max(1, int(max_agents or 1)), 10)
         lines = []
-        for round_index in range(max(1, max_rounds)):
-            active = self.service.select_active_agents(session, limit=max_agents)
+        for round_index in range(round_limit):
+            active = self.service.select_active_agents(session, limit=agent_limit)
             if not active:
                 lines.append(f"Round {round_index + 1}: no ready agents.")
                 break
@@ -428,8 +434,11 @@ class CoworkTool(Tool):
             task = ready_tasks[0]
             task.status = "in_progress"
             agent.current_task_id = task.id
+            agent.current_task_title = task.title
         else:
             task = None
+            agent.current_task_id = None
+            agent.current_task_title = None
         agent.status = "working"
         self.service.add_event(session, "agent.started", f"{agent.name} started a cowork round", actor_id=agent.id)
 
@@ -455,8 +464,7 @@ class CoworkTool(Tool):
             self.service.update_agent_after_run(session, agent.id, content, status="idle")
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
-            agent.status = "failed"
-            self.service.add_event(session, "agent.failed", f"{agent.name} failed: {exc}", actor_id=agent.id)
+            self.service.fail_agent_run(session, agent.id, str(exc))
 
     def _build_agent_tools(self, session_id: str, agent_id: str) -> ToolRegistry:
         registry = ToolRegistry()

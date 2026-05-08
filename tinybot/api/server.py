@@ -15,6 +15,7 @@ from typing import Any
 from aiohttp import web
 from loguru import logger
 
+from tinybot.api.cowork import register_cowork_routes
 from tinybot.api.knowledge import register_knowledge_routes
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
@@ -182,6 +183,9 @@ def create_app(
     model_name: str = "tinybot",
     request_timeout: float = 120.0,
     knowledge_store=None,
+    cowork_runtime=None,
+    cowork_service=None,
+    cowork_tool=None,
 ) -> web.Application:
     """Create the aiohttp application.
 
@@ -190,6 +194,9 @@ def create_app(
         model_name: Model name reported in responses.
         request_timeout: Per-request timeout in seconds.
         knowledge_store: Optional KnowledgeStore instance for RAG API.
+        cowork_runtime: Optional CoworkRuntime instance for dedicated Cowork API routes.
+        cowork_service: Optional CoworkService for tests or embedded API usage.
+        cowork_tool: Optional CoworkTool-compatible object for tests or embedded API usage.
     """
     app = web.Application()
     app["agent_loop"] = agent_loop
@@ -201,6 +208,13 @@ def create_app(
     if knowledge_store:
         app["knowledge_store"] = knowledge_store
         register_knowledge_routes(app)
+    if cowork_runtime is not None:
+        app["cowork_runtime"] = cowork_runtime
+    if cowork_service is not None:
+        app["cowork_service"] = cowork_service
+    if cowork_tool is not None:
+        app["cowork_tool"] = cowork_tool
+    register_cowork_routes(app)
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
     app.router.add_get("/v1/models", handle_models)

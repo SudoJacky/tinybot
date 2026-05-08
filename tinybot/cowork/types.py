@@ -33,6 +33,7 @@ class CoworkAgent:
     private_summary: str = ""
     inbox: list[str] = field(default_factory=list)
     current_task_id: str | None = None
+    current_task_title: str | None = None
     last_active_at: str | None = None
     rounds: int = 0
 
@@ -78,6 +79,7 @@ class CoworkThread:
     message_ids: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
+    last_message_at: str | None = None
 
 
 @dataclass

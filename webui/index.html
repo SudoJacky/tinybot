@@ -294,13 +294,13 @@
     </aside>
   </div>
 
-  <div id="cowork-modal" class="modal">
+  <section id="cowork-modal" class="cowork-page" aria-label="Cowork workspace">
     <div class="modal-overlay" id="cowork-modal-overlay"></div>
-    <div class="modal-content cowork-modal-content">
+    <div class="cowork-page-content cowork-modal-content">
       <header class="modal-header">
         <div>
           <p class="eyebrow">Cowork</p>
-          <h2>Multi-agent workspace</h2>
+          <h2>Team chat workspace</h2>
         </div>
         <button id="cowork-modal-close" class="button button-ghost" type="button" aria-label="Close cowork modal">x</button>
       </header>
@@ -322,6 +322,10 @@
           <aside class="cowork-session-pane">
             <div class="cowork-pane-header">
               <h3>Sessions</h3>
+              <label class="config-checkbox-label">
+                <input id="cowork-include-completed" type="checkbox" />
+                <span>Completed</span>
+              </label>
             </div>
             <div id="cowork-session-list" class="cowork-session-list"></div>
           </aside>
@@ -332,8 +336,13 @@
                 <h3 id="cowork-active-title">Select or start a session</h3>
               </div>
               <div class="cowork-toolbar">
+                <label class="cowork-limit-label">Rounds <input id="cowork-round-limit" class="config-input cowork-limit-input" type="number" min="1" max="20" value="1" /></label>
+                <label class="cowork-limit-label">Agents <input id="cowork-agent-limit" class="config-input cowork-limit-input" type="number" min="1" max="10" value="3" /></label>
                 <button id="cowork-run-button" class="button" type="button">Run round</button>
+                <button id="cowork-pause-button" class="button" type="button">Pause</button>
+                <button id="cowork-resume-button" class="button" type="button">Resume</button>
                 <button id="cowork-summary-button" class="button" type="button">Summary</button>
+                <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
               </div>
             </div>
             <p id="cowork-active-goal" class="cowork-goal-text"></p>
@@ -347,28 +356,28 @@
               <button id="cowork-task-button" class="button" type="button">Add task</button>
             </div>
             <div class="cowork-grid">
-              <section>
+              <section class="cowork-team-chat">
+                <h4>Team chat</h4>
+                <div id="cowork-message-list" class="cowork-list cowork-chat-list" aria-live="polite"></div>
+              </section>
+              <section class="cowork-agents-section">
                 <h4>Agents</h4>
                 <div id="cowork-agent-list" class="cowork-list"></div>
               </section>
-              <section>
+              <section class="cowork-tasks-section">
                 <h4>Tasks</h4>
                 <div id="cowork-task-list" class="cowork-list"></div>
               </section>
-              <section>
-                <h4>Threads</h4>
+              <section class="cowork-threads-section">
+                <h4>Topics</h4>
                 <div id="cowork-thread-list" class="cowork-list"></div>
-              </section>
-              <section>
-                <h4>Events</h4>
-                <div id="cowork-event-list" class="cowork-list"></div>
               </section>
             </div>
           </section>
         </div>
       </div>
     </div>
-  </div>
+  </section>
 
   <!-- Skills 弹窗 -->
   <div id="skill-modal" class="modal">

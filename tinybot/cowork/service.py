@@ -6,6 +6,7 @@ import json
 import re
 import tempfile
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ class CoworkService:
         self.workspace = workspace
         self.cowork_dir = workspace / "cowork"
         self._sessions: dict[str, CoworkSession] | None = None
+        self._listeners: list[Callable[[CoworkSession, CoworkEvent], None]] = []
 
     @property
     def store_path(self) -> Path:
@@ -76,6 +78,7 @@ class CoworkService:
                         private_summary=item.get("private_summary", ""),
                         inbox=item.get("inbox", []),
                         current_task_id=item.get("current_task_id"),
+                        current_task_title=item.get("current_task_title"),
                         last_active_at=item.get("last_active_at"),
                         rounds=item.get("rounds", 0),
                     )
@@ -106,6 +109,7 @@ class CoworkService:
                         message_ids=item.get("message_ids", []),
                         created_at=item.get("created_at", now_iso()),
                         updated_at=item.get("updated_at", now_iso()),
+                        last_message_at=item.get("last_message_at"),
                     )
                     for item in raw.get("threads", {}).values()
                 }
@@ -161,6 +165,18 @@ class CoworkService:
 
     def get_session(self, session_id: str) -> CoworkSession | None:
         return self._load().get(session_id)
+
+    def add_listener(self, listener: Callable[[CoworkSession, CoworkEvent], None]) -> None:
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def delete_session(self, session_id: str) -> bool:
+        sessions = self._load()
+        if session_id not in sessions:
+            return False
+        del sessions[session_id]
+        self._save()
+        return True
 
     def create_session(self, goal: str, title: str, agents: list[dict[str, Any]], tasks: list[dict[str, Any]]) -> CoworkSession:
         sessions = self._load()
@@ -282,6 +298,7 @@ class CoworkService:
         session.messages[msg_id] = message
         thread.message_ids.append(msg_id)
         thread.updated_at = now_iso()
+        thread.last_message_at = message.created_at
         for recipient_id in valid_recipients:
             agent = session.agents.get(recipient_id)
             if agent and msg_id not in agent.inbox:
@@ -339,11 +356,18 @@ class CoworkService:
             status = "completed"
         task.status = status  # type: ignore[assignment]
         task.result = result
+        task.error = result if status == "failed" else None
         task.updated_at = now_iso()
         agent = session.agents.get(task.assigned_agent_id)
         if agent:
             agent.current_task_id = None
-            agent.status = "idle" if status == "completed" else "blocked"
+            agent.current_task_title = None
+            if status == "failed":
+                agent.status = "failed"
+            elif status == "skipped":
+                agent.status = "idle"
+            else:
+                agent.status = "idle"
         self.add_event(
             session,
             f"task.{status}",
@@ -381,6 +405,8 @@ class CoworkService:
 
     def select_active_agents(self, session: CoworkSession, limit: int = 3) -> list[CoworkAgent]:
         candidates = []
+        if session.status != "active":
+            return candidates
         for agent in session.agents.values():
             if agent.status in {"done", "failed"}:
                 continue
@@ -397,6 +423,16 @@ class CoworkService:
         if agent.status == "working":
             agent.status = "idle"
         session.rounds += 1
+        if content.strip():
+            thread_id = next(iter(session.threads), None)
+            self.send_message(
+                session,
+                sender_id=agent_id,
+                recipient_ids=["user"],
+                content=content,
+                thread_id=thread_id,
+                save=False,
+            )
         self.add_event(session, "agent.ran", f"{agent.name} completed a cowork round", actor_id=agent_id, save=False)
         self._update_completion_state(session)
         self._touch(session)
@@ -416,10 +452,43 @@ class CoworkService:
         session.events.append(event)
         if len(session.events) > _MAX_EVENT_COUNT:
             session.events = session.events[-_MAX_EVENT_COUNT:]
+        self._notify_listeners(session, event)
         if save:
             self._touch(session)
             self._save()
         return event
+
+    def _notify_listeners(self, session: CoworkSession, event: CoworkEvent) -> None:
+        for listener in list(self._listeners):
+            try:
+                listener(session, event)
+            except Exception as exc:
+                logger.debug("Cowork listener failed: {}", exc)
+
+    def fail_agent_run(self, session: CoworkSession, agent_id: str, error: str) -> None:
+        agent = session.agents[agent_id]
+        agent.status = "failed"
+        agent.last_active_at = now_iso()
+        task_id = agent.current_task_id
+        if task_id and task_id in session.tasks:
+            task = session.tasks[task_id]
+            task.status = "failed"
+            task.error = error
+            task.result = error
+            task.updated_at = now_iso()
+            agent.current_task_id = None
+            agent.current_task_title = None
+            self.add_event(
+                session,
+                "task.failed",
+                f"Task '{task.title}' failed",
+                actor_id=agent_id,
+                data={"task_id": task.id, "error": error},
+                save=False,
+            )
+        self.add_event(session, "agent.failed", f"{agent.name} failed: {error}", actor_id=agent_id, save=False)
+        self._touch(session)
+        self._save()
 
     def format_status(self, session: CoworkSession, *, verbose: bool = False) -> str:
         lines = [
