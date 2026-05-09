@@ -91,7 +91,7 @@ class CoworkService:
                         id=item["id"],
                         title=item["title"],
                         description=item["description"],
-                        assigned_agent_id=item["assigned_agent_id"],
+                        assigned_agent_id=item.get("assigned_agent_id"),
                         dependencies=item.get("dependencies", []),
                         status=item.get("status", "pending"),
                         result=item.get("result"),
@@ -233,9 +233,14 @@ class CoworkService:
                 session.agents[raw["id"]] = CoworkAgent(**raw)
 
         for raw in tasks:
-            assigned = self._slug(str(raw.get("assigned_agent_id") or ""))
-            if assigned not in session.agents:
-                assigned = next(iter(session.agents))
+            raw_assigned = str(raw.get("assigned_agent_id") or "").strip()
+            assigned = self._slug(raw_assigned) if raw_assigned else ""
+            if not assigned:
+                assigned_agent_id = None
+            elif assigned in session.agents:
+                assigned_agent_id = assigned
+            else:
+                assigned_agent_id = next(iter(session.agents))
             task_id = self._slug(raw.get("id") or raw.get("title") or "task")
             base_id = task_id
             counter = 2
@@ -246,7 +251,7 @@ class CoworkService:
                 id=task_id,
                 title=str(raw.get("title") or task_id).strip(),
                 description=str(raw.get("description") or raw.get("title") or goal).strip(),
-                assigned_agent_id=assigned,
+                assigned_agent_id=assigned_agent_id,
                 dependencies=[self._slug(x) for x in raw.get("dependencies", [])],
             )
 
@@ -259,11 +264,12 @@ class CoworkService:
                 assigned_agent_id=first_agent,
             )
 
-        kickoff = self.create_thread(session, "Kickoff", list(session.agents), save=False)
+        lead_id = self.lead_agent_id(session)
+        kickoff = self.create_thread(session, "Kickoff", ["user", lead_id], save=False)
         self.send_message(
             session,
             sender_id="user",
-            recipient_ids=list(session.agents),
+            recipient_ids=[lead_id],
             content=f"Goal: {goal}",
             thread_id=kickoff.id,
             save=False,
@@ -349,13 +355,15 @@ class CoworkService:
         session: CoworkSession,
         title: str,
         description: str,
-        assigned_agent_id: str,
+        assigned_agent_id: str | None,
         dependencies: list[str] | None = None,
         *,
         save: bool = True,
     ) -> CoworkTask:
+        assigned_value = str(assigned_agent_id or "").strip()
+        assigned_agent_id = self._slug(assigned_value) if assigned_value else None
         if assigned_agent_id not in session.agents:
-            assigned_agent_id = next(iter(session.agents))
+            assigned_agent_id = None
         task_id = self._new_id("task")
         task = CoworkTask(
             id=task_id,
@@ -365,10 +373,69 @@ class CoworkService:
             dependencies=dependencies or [],
         )
         session.tasks[task_id] = task
-        agent = session.agents[assigned_agent_id]
+        if assigned_agent_id:
+            agent = session.agents[assigned_agent_id]
+            if agent.status == "idle":
+                agent.status = "waiting"
+            message = f"Task '{task.title}' assigned to {agent.name}"
+        else:
+            message = f"Task '{task.title}' added to the shared task pool"
+        self.add_event(session, "task.created", message, data={"task_id": task.id, "assigned_agent_id": assigned_agent_id}, save=False)
+        self._touch(session)
+        if save:
+            self._save()
+        return task
+
+    def assign_task(self, session: CoworkSession, task_id: str, agent_id: str, *, save: bool = True) -> str:
+        agent_id = self._slug(agent_id)
+        task = session.tasks.get(task_id)
+        if not task:
+            return f"Error: task '{task_id}' not found"
+        if agent_id not in session.agents:
+            return f"Error: agent '{agent_id}' not found"
+        if task.status not in {"pending", "in_progress"}:
+            return f"Error: task '{task_id}' is already {task.status}"
+        task.assigned_agent_id = agent_id
+        task.updated_at = now_iso()
+        agent = session.agents[agent_id]
         if agent.status == "idle":
             agent.status = "waiting"
-        self.add_event(session, "task.created", f"Task '{task.title}' assigned to {agent.name}", data={"task_id": task.id}, save=False)
+        self.add_event(
+            session,
+            "task.assigned",
+            f"Task '{task.title}' assigned to {agent.name}",
+            actor_id=agent_id,
+            data={"task_id": task.id, "assigned_agent_id": agent_id},
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Task '{task.title}' assigned to {agent.name}."
+
+    def claim_task(self, session: CoworkSession, agent_id: str, task_id: str | None = None, *, save: bool = True) -> CoworkTask | str:
+        agent_id = self._slug(agent_id)
+        if agent_id not in session.agents:
+            return f"Error: agent '{agent_id}' not found"
+        tasks = self.claimable_tasks_for(session, agent_id)
+        task = next((item for item in tasks if item.id == task_id), None) if task_id else (tasks[0] if tasks else None)
+        if task is None:
+            return f"Error: no claimable task found for '{agent_id}'"
+        previous_owner = task.assigned_agent_id
+        task.assigned_agent_id = agent_id
+        task.updated_at = now_iso()
+        agent = session.agents[agent_id]
+        if agent.status == "idle":
+            agent.status = "waiting"
+        event_type = "task.claimed" if previous_owner in {None, ""} else "task.selected"
+        self.add_event(
+            session,
+            event_type,
+            f"{agent.name} claimed task '{task.title}'",
+            actor_id=agent_id,
+            data={"task_id": task.id, "assigned_agent_id": agent_id, "previous_owner": previous_owner},
+            save=False,
+        )
         self._touch(session)
         if save:
             self._save()
@@ -422,23 +489,53 @@ class CoworkService:
         for task in session.tasks.values():
             if task.assigned_agent_id != agent_id or task.status != "pending":
                 continue
-            deps_done = all(
-                session.tasks.get(dep_id) is not None and session.tasks[dep_id].status == "completed"
-                for dep_id in task.dependencies
-            )
-            if deps_done:
+            if self._task_dependencies_done(session, task):
                 ready.append(task)
         return ready
+
+    def claimable_tasks_for(self, session: CoworkSession, agent_id: str) -> list[CoworkTask]:
+        if agent_id not in session.agents:
+            return []
+        tasks = [
+            task
+            for task in session.tasks.values()
+            if task.status == "pending"
+            and task.assigned_agent_id in {None, "", agent_id}
+            and self._task_dependencies_done(session, task)
+        ]
+        return sorted(tasks, key=lambda item: item.id)
+
+    def next_task_for(self, session: CoworkSession, agent_id: str) -> CoworkTask | None:
+        assigned = self.ready_tasks_for(session, agent_id)
+        if assigned:
+            return sorted(assigned, key=lambda item: item.id)[0]
+        claimed = self.claim_task(session, agent_id, save=False)
+        return claimed if isinstance(claimed, CoworkTask) else None
 
     def select_active_agents(self, session: CoworkSession, limit: int = 3) -> list[CoworkAgent]:
         candidates: list[tuple[int, CoworkAgent]] = []
         if session.status != "active":
             return []
         self.expire_mailbox_records(session, save=False)
+        unassigned_ready_slots = sum(
+            1
+            for task in session.tasks.values()
+            if task.status == "pending"
+            and task.assigned_agent_id in {None, ""}
+            and self._task_dependencies_done(session, task)
+        )
         for agent in session.agents.values():
             if agent.status in {"done", "failed"}:
                 continue
-            if agent.inbox or self.ready_tasks_for(session, agent.id) or self._has_pending_mailbox_work(session, agent.id):
+            has_direct_work = (
+                agent.inbox
+                or self.ready_tasks_for(session, agent.id)
+                or self._has_pending_mailbox_work(session, agent.id)
+            )
+            has_shared_task = not has_direct_work and unassigned_ready_slots > 0
+            if has_shared_task:
+                unassigned_ready_slots -= 1
+            if has_direct_work or has_shared_task:
                 candidates.append((self._agent_mailbox_pressure(session, agent.id), agent))
         candidates.sort(key=lambda item: item[0], reverse=True)
         return [agent for _, agent in candidates[: max(1, limit)]]
@@ -605,7 +702,8 @@ class CoworkService:
         lines.append("")
         lines.append("### Tasks")
         for task in session.tasks.values():
-            lines.append(f"- {task.id}: {task.title} -> {task.assigned_agent_id} [{task.status}]")
+            owner = task.assigned_agent_id or "unassigned"
+            lines.append(f"- {task.id}: {task.title} -> {owner} [{task.status}]")
             if verbose and task.result:
                 lines.append(f"  Result: {task.result[:240]}")
         open_threads = [t for t in session.threads.values() if t.status == "open"]
@@ -650,6 +748,13 @@ class CoworkService:
         ]
 
     @staticmethod
+    def lead_agent_id(session: CoworkSession) -> str:
+        for candidate in ("coordinator", "lead", "team_lead", "team-lead"):
+            if candidate in session.agents:
+                return candidate
+        return next(iter(session.agents))
+
+    @staticmethod
     def _merge_private_summary(previous: str, addition: str) -> str:
         text = (previous + "\n\n" + addition.strip()).strip() if previous else addition.strip()
         if len(text) <= _MAX_PRIVATE_SUMMARY_CHARS:
@@ -676,6 +781,13 @@ class CoworkService:
             for agent in session.agents.values():
                 if agent.status not in {"failed", "blocked"}:
                     agent.status = "done"
+
+    @staticmethod
+    def _task_dependencies_done(session: CoworkSession, task: CoworkTask) -> bool:
+        return all(
+            session.tasks.get(dep_id) is not None and session.tasks[dep_id].status == "completed"
+            for dep_id in task.dependencies
+        )
 
     @staticmethod
     def _agent_mailbox_pressure(session: CoworkSession, agent_id: str) -> int:

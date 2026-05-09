@@ -1866,7 +1866,7 @@ def cowork_message(
 def cowork_task(
         session_id: str = typer.Argument(..., help="Cowork session id"),
         title: str = typer.Argument(..., help="Task title"),
-        agent_id: str = typer.Option(..., "--agent", "-a", help="Assigned agent id"),
+        agent_id: str | None = typer.Option(None, "--agent", "-a", help="Assigned agent id; omit to add to the shared task pool"),
         description: str = typer.Option("", "--description", "-d", help="Task description"),
         depends_on: list[str] | None = typer.Option(None, "--depends-on", help="Dependency task id; repeatable"),
         workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),

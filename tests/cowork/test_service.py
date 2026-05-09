@@ -4,7 +4,7 @@ from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkMailboxRecord
 
 
-def test_create_session_persists_agents_threads_and_inboxes(temp_workspace):
+def test_create_session_persists_agents_threads_and_lead_inbox(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session(
         goal="Plan a research trip",
@@ -39,7 +39,8 @@ def test_create_session_persists_agents_threads_and_inboxes(temp_workspace):
     assert session.id
     assert set(session.agents) == {"planner", "budget"}
     assert len(session.threads) == 1
-    assert all(agent.inbox for agent in session.agents.values())
+    assert session.agents["planner"].inbox
+    assert session.agents["budget"].inbox == []
 
     reloaded = CoworkService(temp_workspace).get_session(session.id)
     assert reloaded is not None
@@ -169,6 +170,43 @@ def test_default_team_fallback_and_ready_task_dependencies(temp_workspace):
     service.complete_task(session, "first", "done")
 
     assert [task.id for task in service.ready_tasks_for(session, "analyst")] == ["second"]
+
+
+def test_unassigned_tasks_can_be_claimed_from_shared_pool(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Share work",
+        "Shared",
+        [
+            {"id": "lead", "name": "Lead", "role": "Lead", "goal": "Coordinate", "responsibilities": []},
+            {"id": "worker", "name": "Worker", "role": "Worker", "goal": "Execute", "responsibilities": []},
+        ],
+        [{"id": "1", "title": "Open task", "description": "Can be claimed"}],
+    )
+
+    assert session.tasks["1"].assigned_agent_id is None
+    assert [task.id for task in service.claimable_tasks_for(session, "worker")] == ["1"]
+
+    claimed = service.claim_task(session, "worker", "1")
+
+    assert not isinstance(claimed, str)
+    assert claimed.assigned_agent_id == "worker"
+    assert session.agents["worker"].status == "waiting"
+    assert any(event.type == "task.claimed" for event in session.events)
+
+
+def test_assign_task_moves_shared_task_to_specific_agent(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Assign work", "Assign", [], [{"id": "open", "title": "Open", "description": "Open"}]
+    )
+
+    result = service.assign_task(session, "open", "analyst")
+
+    assert "assigned to Analyst" in result
+    assert session.tasks["open"].assigned_agent_id == "analyst"
+    assert session.agents["analyst"].status == "waiting"
+    assert session.events[-1].type == "task.assigned"
 
 
 def test_message_routing_updates_thread_membership_and_inbox(temp_workspace):

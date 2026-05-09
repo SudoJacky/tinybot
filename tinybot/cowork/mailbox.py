@@ -139,6 +139,14 @@ class CoworkMailbox:
             ):
                 return record
             if (
+                (envelope.requires_reply or envelope.kind == "question")
+                and record.requires_reply
+                and record.sender_id == envelope.sender_id
+                and record.recipient_ids == recipients
+                and (thread_id is None or record.thread_id == thread_id)
+            ):
+                return record
+            if (
                 record.sender_id == envelope.sender_id
                 and record.recipient_ids == recipients
                 and record.content.strip() == normalized_content
@@ -188,15 +196,26 @@ class CoworkMailbox:
     def _resolve_recipients(session: CoworkSession, envelope: CoworkEnvelope) -> list[str]:
         known = set(session.agents) | {"user"}
         explicit = [recipient for recipient in dict.fromkeys(envelope.recipient_ids) if recipient in known]
+        lead_id = CoworkMailbox._lead_agent_id(session)
+        if envelope.sender_id == "user":
+            return [lead_id]
         if envelope.visibility == "user":
-            return ["user"]
+            return ["user"] if envelope.sender_id == lead_id else [lead_id]
         if envelope.visibility == "group":
+            if envelope.sender_id != lead_id:
+                return [lead_id]
             recipients = [agent_id for agent_id in session.agents if agent_id != envelope.sender_id]
-            if envelope.sender_id != "user":
-                recipients.append("user")
             return recipients or ["user"]
         if explicit:
+            if "user" in explicit and envelope.sender_id != lead_id:
+                explicit = [lead_id if recipient == "user" else recipient for recipient in explicit]
+                explicit = [recipient for recipient in dict.fromkeys(explicit) if recipient != envelope.sender_id]
             return explicit
-        if envelope.sender_id == "user":
-            return list(session.agents)
-        return ["user"]
+        return ["user"] if envelope.sender_id == lead_id else [lead_id]
+
+    @staticmethod
+    def _lead_agent_id(session: CoworkSession) -> str:
+        for candidate in ("coordinator", "lead", "team_lead", "team-lead"):
+            if candidate in session.agents:
+                return candidate
+        return next(iter(session.agents))

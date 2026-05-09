@@ -2,7 +2,7 @@ from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.cowork.service import CoworkService
 
 
-def test_mailbox_expands_user_group_message_to_all_agents(temp_workspace):
+def test_mailbox_routes_user_group_message_to_lead_only(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Route updates", "Route", [], [])
     mailbox = CoworkMailbox(service)
@@ -12,42 +12,70 @@ def test_mailbox_expands_user_group_message_to_all_agents(temp_workspace):
         CoworkEnvelope(sender_id="user", content="New constraint", visibility="group"),
     )
 
-    assert set(message.recipient_ids) == set(session.agents)
-    assert all(message.id in agent.inbox for agent in session.agents.values())
+    assert message.recipient_ids == ["coordinator"]
+    assert message.id in session.agents["coordinator"].inbox
+    assert all(message.id not in agent.inbox for agent_id, agent in session.agents.items() if agent_id != "coordinator")
     assert session.events[-1].type == "mailbox.delivered"
     record = next(iter(session.mailbox.values()))
     assert record.status == "delivered"
     assert record.message_id == message.id
 
 
-def test_mailbox_delivers_agent_group_message_to_peers_and_user(temp_workspace):
+def test_mailbox_delivers_lead_group_message_to_team_without_user(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Route peer notes", "Route", [], [])
     mailbox = CoworkMailbox(service)
-    sender = next(iter(session.agents))
+    sender = "coordinator"
 
     message = mailbox.deliver(
         session,
         CoworkEnvelope(sender_id=sender, content="I found a constraint", visibility="group"),
     )
 
-    assert "user" in message.recipient_ids
+    assert "user" not in message.recipient_ids
     assert sender not in message.recipient_ids
-    assert set(message.recipient_ids) == (set(session.agents) - {sender}) | {"user"}
+    assert set(message.recipient_ids) == set(session.agents) - {sender}
 
 
-def test_mailbox_falls_back_invalid_direct_agent_message_to_user(temp_workspace):
+def test_mailbox_routes_non_lead_user_message_to_lead(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Route reports", "Route", [], [])
+    mailbox = CoworkMailbox(service)
+
+    message = mailbox.deliver(
+        session,
+        CoworkEnvelope(sender_id="researcher", recipient_ids=["user"], content="Report", visibility="user"),
+    )
+
+    assert message.recipient_ids == ["coordinator"]
+    assert message.id in session.agents["coordinator"].inbox
+
+
+def test_mailbox_allows_lead_user_message(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Route final", "Route", [], [])
+    mailbox = CoworkMailbox(service)
+
+    message = mailbox.deliver(
+        session,
+        CoworkEnvelope(sender_id="coordinator", recipient_ids=["user"], content="Final", visibility="user"),
+    )
+
+    assert message.recipient_ids == ["user"]
+
+
+def test_mailbox_falls_back_invalid_direct_agent_message_to_lead(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Route fallback", "Route", [], [])
     mailbox = CoworkMailbox(service)
-    sender = next(iter(session.agents))
+    sender = "researcher"
 
     message = mailbox.deliver(
         session,
         CoworkEnvelope(sender_id=sender, recipient_ids=["missing"], content="Fallback"),
     )
 
-    assert message.recipient_ids == ["user"]
+    assert message.recipient_ids == ["coordinator"]
 
 
 def test_mailbox_tracks_read_and_reply_lifecycle(temp_workspace):
@@ -183,3 +211,45 @@ def test_mailbox_deduplicates_active_correlation_requests(temp_workspace):
 
     assert second.id == first.id
     assert len([record for record in session.mailbox.values() if record.correlation_id == "shared"]) == 1
+
+
+def test_mailbox_deduplicates_pending_question_for_same_thread_and_recipient(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Avoid repeat asks", "Repeat", [], [])
+    mailbox = CoworkMailbox(service)
+    sender, recipient = "coordinator", "researcher"
+    thread = service.create_thread(session, "Intro request", [sender, recipient])
+
+    first = mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id=sender,
+            recipient_ids=[recipient],
+            content="Please introduce yourself.",
+            thread_id=thread.id,
+            requires_reply=True,
+        ),
+    )
+    second = mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id=sender,
+            recipient_ids=[recipient],
+            content="Please hurry and introduce yourself.",
+            thread_id=thread.id,
+            requires_reply=True,
+        ),
+    )
+
+    assert second.id == first.id
+    assert (
+        len(
+            [
+                record
+                for record in session.mailbox.values()
+                if record.sender_id == sender and record.recipient_ids == [recipient]
+            ]
+        )
+        == 1
+    )
+    assert any(event.type == "mailbox.duplicate" for event in session.events)

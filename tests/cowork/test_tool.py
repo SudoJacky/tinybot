@@ -2,6 +2,7 @@ import pytest
 import json
 
 from tinybot.agent.tools.cowork import CoworkInternalTool, CoworkTeamPlanner, CoworkTool
+from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkMailboxRecord
 
@@ -72,8 +73,9 @@ async def test_team_planner_falls_back(temp_workspace):
 
     assert title == "Cowork Session"
     assert len(agents) >= 3
-    assert len(tasks) >= 3
+    assert len(tasks) == 1
     assert {agent["id"] for agent in agents}
+    assert tasks[0]["assigned_agent_id"] == "coordinator"
 
 
 @pytest.mark.asyncio
@@ -96,6 +98,25 @@ async def test_internal_tool_sends_message_and_completes_task(temp_workspace):
     assert updated.tasks[task_id].status == "completed"
 
 
+@pytest.mark.asyncio
+async def test_internal_tool_claims_shared_task(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Claim shared work",
+        "Claim",
+        [{"id": "worker", "name": "Worker", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "open", "title": "Open task", "description": "Unassigned"}],
+    )
+    tool = CoworkInternalTool(service, session_id=session.id, sender_id="worker")
+
+    result = await tool.execute(action="claim_task", task_id="open")
+
+    updated = service.get_session(session.id)
+    assert "Claimed task open" in result
+    assert updated.tasks["open"].assigned_agent_id == "worker"
+    assert any(event.type == "task.claimed" for event in updated.events)
+
+
 def test_cowork_tool_schemas_are_json_serializable(temp_workspace):
     service = CoworkService(temp_workspace)
     external = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
@@ -105,6 +126,24 @@ def test_cowork_tool_schemas_are_json_serializable(temp_workspace):
     json.dumps(internal.to_schema())
     assert "description" in external.parameters["properties"]
     assert "description" in internal.parameters["properties"]
+
+
+def test_cowork_agent_tools_follow_agent_allowlist(temp_workspace):
+    service = CoworkService(temp_workspace)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    coordinator = service.create_session("Coordinate", "Coordinate", [], []).agents["coordinator"]
+
+    registry = tool._build_agent_tools("cw_test", coordinator)
+
+    assert registry.tool_names == ["cowork_internal"]
+
+    researcher = coordinator
+    researcher.id = "researcher"
+    researcher.tools = ["read_file", "list_dir"]
+    registry = tool._build_agent_tools("cw_test", researcher)
+
+    assert set(registry.tool_names) == {"read_file", "list_dir", "cowork_internal"}
+    assert "exec" not in registry.tool_names
 
 
 def test_cowork_tool_parses_loose_progress_json_without_leaking_wrapper(temp_workspace):
@@ -181,6 +220,27 @@ async def test_cowork_tool_runs_ready_agents_concurrently(temp_workspace):
 
 
 @pytest.mark.asyncio
+async def test_cowork_tool_run_claims_unassigned_task(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Claim during run",
+        "Claim Run",
+        [{"id": "worker", "name": "Worker", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "open", "title": "Open task", "description": "Unassigned"}],
+    )
+    service.mark_messages_read(session, "worker")
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = FakeRunner()
+
+    await tool.execute(action="run", session_id=session.id, max_rounds=1, max_agents=1)
+    updated = service.get_session(session.id)
+
+    assert updated.tasks["open"].assigned_agent_id == "worker"
+    assert updated.tasks["open"].status == "in_progress"
+    assert any(event.type == "task.claimed" for event in updated.events)
+
+
+@pytest.mark.asyncio
 async def test_cowork_tool_does_not_run_paused_or_completed_sessions(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Pause work", "Pause", [], [])
@@ -231,6 +291,101 @@ async def test_cowork_tool_run_exposes_agent_final_note_as_message(temp_workspac
 
     assert any(
         message.sender_id == agent_id and message.recipient_ids == ["user"] and message.content == "round note"
+        for message in updated.messages.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_non_lead_public_note_from_user_broadcast_routes_to_lead(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Introduce the team",
+        "Intro",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+        ],
+        [],
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    CoworkMailbox(service).deliver(
+        session, CoworkEnvelope(sender_id="user", content="Introduce yourselves", visibility="group")
+    )
+    unread = service.mark_messages_read(session, "researcher")
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+
+    tool._apply_agent_progress(
+        session,
+        session.agents["researcher"],
+        {"status": "idle", "public_note": "I am the researcher.", "private_note": "Introduced self."},
+        unread,
+    )
+
+    updated = service.get_session(session.id)
+    assert any(
+        message.sender_id == "researcher"
+        and message.recipient_ids == ["coordinator"]
+        and message.content == "I am the researcher."
+        for message in updated.messages.values()
+    )
+    assert not any(
+        message.sender_id == "researcher"
+        and message.recipient_ids == ["user"]
+        and message.content == "I am the researcher."
+        for message in updated.messages.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_peer_request_answer_routes_to_requester_not_user(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Review work",
+        "Review",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "analyst", "name": "Analyst", "role": "Analysis", "goal": "Analyze", "responsibilities": []},
+        ],
+        [],
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="coordinator",
+            recipient_ids=["analyst"],
+            content="Please introduce your role.",
+            requires_reply=True,
+            correlation_id="intro-1",
+        ),
+    )
+    unread = service.mark_messages_read(session, "analyst")
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+
+    tool._apply_agent_progress(
+        session,
+        session.agents["analyst"],
+        {"status": "idle", "public_note": "I am the analyst.", "private_note": "Answered lead."},
+        unread,
+    )
+
+    updated = service.get_session(session.id)
+    original = next(
+        record
+        for record in updated.mailbox.values()
+        if record.correlation_id == "intro-1" and record.sender_id == "coordinator"
+    )
+    assert original.status == "replied"
+    assert any(
+        message.sender_id == "analyst"
+        and message.recipient_ids == ["coordinator"]
+        and message.content == "I am the analyst."
+        for message in updated.messages.values()
+    )
+    assert not any(
+        message.sender_id == "analyst" and message.recipient_ids == ["user"] and message.content == "I am the analyst."
         for message in updated.messages.values()
     )
 
