@@ -224,6 +224,11 @@ class CoworkInternalTool(Tool):
         if action == "send_message":
             if not content.strip():
                 return "Error: content is required"
+            inferred = self._infer_reply_context(session, recipient_ids or [], thread_id, correlation_id, reply_to_envelope_id)
+            if inferred:
+                thread_id = thread_id or inferred.thread_id or ""
+                correlation_id = correlation_id or inferred.correlation_id or ""
+                reply_to_envelope_id = reply_to_envelope_id or inferred.id
             message = self.mailbox.deliver(
                 session,
                 CoworkEnvelope(
@@ -284,6 +289,27 @@ class CoworkInternalTool(Tool):
             return "Error: invalid status"
 
         return f"Error: unknown action '{action}'"
+
+    def _infer_reply_context(
+        self,
+        session: CoworkSession,
+        recipient_ids: list[str],
+        thread_id: str,
+        correlation_id: str,
+        reply_to_envelope_id: str,
+    ):
+        if thread_id or correlation_id or reply_to_envelope_id:
+            return None
+        recipients = set(recipient_ids)
+        candidates = [
+            record
+            for record in session.mailbox.values()
+            if self.sender_id in record.recipient_ids
+            and record.sender_id in recipients
+            and record.requires_reply
+            and record.status in {"delivered", "read"}
+        ]
+        return max(candidates, key=lambda record: record.created_at) if candidates else None
 
 
 @tool_parameters(
@@ -619,6 +645,7 @@ class CoworkTool(Tool):
             session = fresh
             agent = session.agents[agent.id]
 
+        previous_message_ids = set(session.messages)
         unread = self.service.mark_messages_read(session, agent.id)
         task = self.service.next_task_for(session, agent.id)
         if task:
@@ -664,7 +691,7 @@ class CoworkTool(Tool):
                     actor_id=agent.id,
                     save=False,
                 )
-            self._apply_agent_progress(session, agent, progress, unread)
+            self._apply_agent_progress(session, agent, progress, unread, previous_message_ids)
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
             self.service.fail_agent_run(session, agent.id, str(exc))
@@ -675,11 +702,21 @@ class CoworkTool(Tool):
         agent: CoworkAgent,
         progress: dict[str, Any],
         unread: list[Any] | None = None,
+        previous_message_ids: set[str] | None = None,
     ) -> None:
         public_note = str(progress.get("public_note") or "").strip()
         private_note = str(progress.get("private_note") or public_note or "Cowork round completed.").strip()
         if public_note and self._is_substantive_public_note(public_note):
-            if not self._route_public_note(session, agent, public_note, unread or []):
+            if previous_message_ids is not None and self._agent_sent_message_this_round(session, agent.id, previous_message_ids):
+                self.service.add_event(
+                    session,
+                    "agent.progress_note",
+                    f"{agent.name} already sent a cowork message this round",
+                    actor_id=agent.id,
+                    data={"note": public_note[:240]},
+                    save=False,
+                )
+            elif not self._route_public_note(session, agent, public_note, unread or []):
                 self.service.add_event(
                     session,
                     "agent.progress_note",
@@ -802,6 +839,14 @@ class CoworkTool(Tool):
             save=False,
         )
         return True
+
+    @staticmethod
+    def _agent_sent_message_this_round(session: CoworkSession, agent_id: str, previous_message_ids: set[str]) -> bool:
+        return any(
+            message.sender_id == agent_id
+            for message_id, message in session.messages.items()
+            if message_id not in previous_message_ids
+        )
 
     @staticmethod
     def _lead_agent_id(session: CoworkSession) -> str:

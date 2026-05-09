@@ -117,6 +117,47 @@ async def test_internal_tool_claims_shared_task(temp_workspace):
     assert any(event.type == "task.claimed" for event in updated.events)
 
 
+@pytest.mark.asyncio
+async def test_internal_tool_replies_on_pending_request_thread(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Thread replies",
+        "Threads",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+        ],
+        [],
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    thread = service.create_thread(session, "Introduce yourself", ["coordinator", "researcher"])
+    mailbox = CoworkMailbox(service)
+    question = mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="coordinator",
+            recipient_ids=["researcher"],
+            content="Please introduce yourself.",
+            thread_id=thread.id,
+            requires_reply=True,
+            correlation_id="intro-1",
+        ),
+    )
+    service.mark_messages_read(session, "researcher")
+    tool = CoworkInternalTool(service, session_id=session.id, sender_id="researcher", mailbox=mailbox)
+
+    result = await tool.execute(action="send_message", recipient_ids=["coordinator"], content="I am the researcher.")
+
+    updated = service.get_session(session.id)
+    assert "Sent message" in result
+    reply = next(message for message in updated.messages.values() if message.sender_id == "researcher")
+    assert reply.thread_id == thread.id
+    original = next(record for record in updated.mailbox.values() if record.message_id == question.id)
+    assert original.status == "replied"
+    assert len([thread for thread in updated.threads.values() if thread.topic == "General discussion"]) == 0
+
+
 def test_cowork_tool_schemas_are_json_serializable(temp_workspace):
     service = CoworkService(temp_workspace)
     external = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
@@ -388,6 +429,50 @@ async def test_peer_request_answer_routes_to_requester_not_user(temp_workspace):
         message.sender_id == "analyst" and message.recipient_ids == ["user"] and message.content == "I am the analyst."
         for message in updated.messages.values()
     )
+
+
+def test_public_note_is_not_auto_routed_after_explicit_message(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Avoid duplicate public notes",
+        "No Duplicate",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+        ],
+        [],
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    previous_message_ids = set(session.messages)
+    thread = service.create_thread(session, "Introduce yourself", ["coordinator", "researcher"])
+    CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="researcher",
+            recipient_ids=["coordinator"],
+            content="I am the researcher.",
+            thread_id=thread.id,
+        ),
+    )
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+
+    tool._apply_agent_progress(
+        session,
+        session.agents["researcher"],
+        {"status": "idle", "public_note": "I am the researcher.", "private_note": "Introduced self."},
+        [],
+        previous_message_ids,
+    )
+
+    updated = service.get_session(session.id)
+    matching = [
+        message
+        for message in updated.messages.values()
+        if message.sender_id == "researcher" and message.content == "I am the researcher."
+    ]
+    assert len(matching) == 1
+    assert any(event.type == "agent.progress_note" for event in updated.events)
 
 
 @pytest.mark.asyncio
