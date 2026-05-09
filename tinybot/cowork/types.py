@@ -46,7 +46,7 @@ class CoworkTask:
     id: str
     title: str
     description: str
-    assigned_agent_id: str
+    assigned_agent_id: str | None = None
     dependencies: list[str] = field(default_factory=list)
     status: TaskStatus = "pending"
     result: str | None = None

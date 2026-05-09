@@ -17,7 +17,7 @@ from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, IntegerSchema, ObjectSchema, StringSchema, tool_parameters_schema
 from tinybot.agent.tools.shell import ExecTool
 from tinybot.cowork.service import CoworkService
-from tinybot.cowork.types import CoworkAgent, CoworkSession
+from tinybot.cowork.types import CoworkAgent, CoworkSession, now_iso
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.config.schema import ExecToolConfig
 from tinybot.providers.base import LLMProvider
@@ -67,7 +67,7 @@ _TEAM_TOOL = [
                                 "assigned_agent_id": {"type": "string"},
                                 "dependencies": {"type": "array", "items": {"type": "string"}},
                             },
-                            "required": ["id", "title", "description", "assigned_agent_id"],
+                            "required": ["id", "title", "description"],
                         },
                     },
                 },
@@ -94,7 +94,7 @@ Goal:
 
 Create 3-6 agents. Do not hard-code software roles unless the goal is software work.
 Each agent should have a distinct responsibility, private perspective, and clear reason to communicate with others.
-Create initial tasks assigned to the agents. Keep tasks broad enough for one agent round and use dependencies only when necessary.
+Create exactly one initial task assigned to the lead/coordinator. The lead is responsible for deciding whether to message or assign tasks to other agents later.
 Workspace: {self.workspace}
 """
         try:
@@ -119,37 +119,38 @@ Workspace: {self.workspace}
         except Exception as exc:
             logger.warning("Cowork team planning failed, using fallback team: {}", exc)
         agents = CoworkService.default_team(goal)
-        tasks = [
-            {
-                "id": "1",
-                "title": "Frame the goal",
-                "description": "Clarify constraints, success criteria, and the best next workstreams.",
-                "assigned_agent_id": agents[0]["id"],
-                "dependencies": [],
-            },
-            {
-                "id": "2",
-                "title": "Gather useful context",
-                "description": "Collect facts, options, files, or constraints that affect the goal.",
-                "assigned_agent_id": agents[1]["id"],
-                "dependencies": [],
-            },
-            {
-                "id": "3",
-                "title": "Check and synthesize",
-                "description": "Evaluate the available information and prepare a concise recommendation.",
-                "assigned_agent_id": agents[2]["id"],
-                "dependencies": ["1", "2"],
-            },
-        ]
+        tasks = self._leader_initial_tasks(goal, agents, [])
         return "Cowork Session", agents, tasks
+
+    @staticmethod
+    def _leader_initial_tasks(goal: str, agents: list[dict[str, Any]], planned_tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        lead_id = next((str(agent.get("id")) for agent in agents if str(agent.get("id")) in {"coordinator", "lead", "team_lead", "team-lead"}), None)
+        lead_id = lead_id or str(agents[0].get("id") or "coordinator")
+        task_lines = [
+            f"- {task.get('title')}: {task.get('description') or task.get('title')}"
+            for task in planned_tasks
+            if str(task.get("title") or "").strip()
+        ]
+        delegated_hint = "\nPotential workstreams from planning:\n" + "\n".join(task_lines) if task_lines else ""
+        return [
+            {
+                "id": "lead_start",
+                "title": "Decide team plan and delegation",
+                "description": (
+                    "Understand the user's goal, decide whether teammates are needed, and assign or message them only when "
+                    f"their contribution is necessary.\n\nGoal: {goal}{delegated_hint}"
+                ),
+                "assigned_agent_id": lead_id,
+                "dependencies": [],
+            }
+        ]
 
 
 @tool_parameters(
     tool_parameters_schema(
         action=StringSchema(
             "Internal cowork action",
-            enum=["send_message", "create_thread", "complete_task", "add_task", "update_status"],
+            enum=["send_message", "create_thread", "complete_task", "add_task", "assign_task", "claim_task", "update_status"],
         ),
         recipient_ids=ArraySchema(StringSchema("Agent id"), description="Message recipients"),
         content=StringSchema("Message content or task result"),
@@ -223,6 +224,11 @@ class CoworkInternalTool(Tool):
         if action == "send_message":
             if not content.strip():
                 return "Error: content is required"
+            inferred = self._infer_reply_context(session, recipient_ids or [], thread_id, correlation_id, reply_to_envelope_id)
+            if inferred:
+                thread_id = thread_id or inferred.thread_id or ""
+                correlation_id = correlation_id or inferred.correlation_id or ""
+                reply_to_envelope_id = reply_to_envelope_id or inferred.id
             message = self.mailbox.deliver(
                 session,
                 CoworkEnvelope(
@@ -249,6 +255,19 @@ class CoworkInternalTool(Tool):
                 return "Error: task_id is required"
             return self.service.complete_task(session, task_id, content or "Completed.", status=status or "completed")
 
+        if action == "assign_task":
+            if not task_id:
+                return "Error: task_id is required"
+            if not assigned_agent_id:
+                return "Error: assigned_agent_id is required"
+            return self.service.assign_task(session, task_id, assigned_agent_id)
+
+        if action == "claim_task":
+            claimed = self.service.claim_task(session, self.sender_id, task_id or None)
+            if isinstance(claimed, str):
+                return claimed
+            return f"Claimed task {claimed.id}: {claimed.title}"
+
         if action == "add_task":
             if not title.strip():
                 return "Error: title is required"
@@ -256,7 +275,7 @@ class CoworkInternalTool(Tool):
                 session,
                 title=title,
                 description=description or title,
-                assigned_agent_id=assigned_agent_id or self.sender_id,
+                assigned_agent_id=assigned_agent_id or None,
                 dependencies=dependencies or [],
             )
             return f"Added task {task.id}: {task.title}"
@@ -271,12 +290,33 @@ class CoworkInternalTool(Tool):
 
         return f"Error: unknown action '{action}'"
 
+    def _infer_reply_context(
+        self,
+        session: CoworkSession,
+        recipient_ids: list[str],
+        thread_id: str,
+        correlation_id: str,
+        reply_to_envelope_id: str,
+    ):
+        if thread_id or correlation_id or reply_to_envelope_id:
+            return None
+        recipients = set(recipient_ids)
+        candidates = [
+            record
+            for record in session.mailbox.values()
+            if self.sender_id in record.recipient_ids
+            and record.sender_id in recipients
+            and record.requires_reply
+            and record.status in {"delivered", "read"}
+        ]
+        return max(candidates, key=lambda record: record.created_at) if candidates else None
+
 
 @tool_parameters(
     tool_parameters_schema(
         action=StringSchema(
             "Cowork action",
-            enum=["start", "status", "list", "send_message", "add_task", "run", "pause", "resume", "summary"],
+            enum=["start", "status", "list", "send_message", "add_task", "assign_task", "run", "pause", "resume", "summary"],
         ),
         goal=StringSchema("Goal for a new cowork session"),
         session_id=StringSchema("Cowork session id"),
@@ -284,6 +324,7 @@ class CoworkInternalTool(Tool):
         content=StringSchema("Message content"),
         thread_id=StringSchema("Discussion thread id"),
         title=StringSchema("Task title"),
+        task_id=StringSchema("Task id"),
         assigned_agent_id=StringSchema("Agent id"),
         dependencies=ArraySchema(StringSchema("Task id"), description="Task dependencies"),
         max_rounds=IntegerSchema(description="Maximum scheduling rounds", minimum=1, maximum=20),
@@ -339,6 +380,7 @@ class CoworkTool(Tool):
         content: str = "",
         thread_id: str = "",
         title: str = "",
+        task_id: str = "",
         description: str = "",
         assigned_agent_id: str = "",
         dependencies: list[str] | None = None,
@@ -352,6 +394,7 @@ class CoworkTool(Tool):
             if not goal.strip():
                 return "Error: goal is required for cowork start"
             planned_title, agents, tasks = await self.planner.plan(goal)
+            tasks = CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
             session = self.service.create_session(goal=goal, title=planned_title, agents=agents, tasks=tasks)
             response = f"Cowork session started: {session.id}\n\n{self.service.format_status(session, verbose=True)}"
             if auto_run:
@@ -415,6 +458,13 @@ class CoworkTool(Tool):
                 dependencies=dependencies or [],
             )
             return f"Added task {task.id}: {task.title}"
+
+        if action == "assign_task":
+            if not task_id.strip():
+                return "Error: task_id is required"
+            if not assigned_agent_id:
+                return "Error: assigned_agent_id is required"
+            return self.service.assign_task(session, task_id, assigned_agent_id)
 
         if action == "run":
             return await self._run_session(session, max_rounds=max_rounds, max_agents=max_agents)
@@ -595,11 +645,12 @@ class CoworkTool(Tool):
             session = fresh
             agent = session.agents[agent.id]
 
+        previous_message_ids = set(session.messages)
         unread = self.service.mark_messages_read(session, agent.id)
-        ready_tasks = self.service.ready_tasks_for(session, agent.id)
-        if ready_tasks:
-            task = ready_tasks[0]
+        task = self.service.next_task_for(session, agent.id)
+        if task:
             task.status = "in_progress"
+            task.updated_at = now_iso()
             agent.current_task_id = task.id
             agent.current_task_title = task.title
         else:
@@ -609,7 +660,7 @@ class CoworkTool(Tool):
         agent.status = "working"
         self.service.add_event(session, "agent.started", f"{agent.name} started a cowork round", actor_id=agent.id)
 
-        tools = self._build_agent_tools(session.id, agent.id)
+        tools = self._build_agent_tools(session.id, agent)
         messages = [
             {"role": "system", "content": self._build_agent_system_prompt(session, agent)},
             {"role": "user", "content": self._build_agent_work_prompt(session, agent, unread, task)},
@@ -640,27 +691,40 @@ class CoworkTool(Tool):
                     actor_id=agent.id,
                     save=False,
                 )
-            self._apply_agent_progress(session, agent, progress)
+            self._apply_agent_progress(session, agent, progress, unread, previous_message_ids)
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
             self.service.fail_agent_run(session, agent.id, str(exc))
 
-    def _apply_agent_progress(self, session: CoworkSession, agent: CoworkAgent, progress: dict[str, Any]) -> None:
+    def _apply_agent_progress(
+        self,
+        session: CoworkSession,
+        agent: CoworkAgent,
+        progress: dict[str, Any],
+        unread: list[Any] | None = None,
+        previous_message_ids: set[str] | None = None,
+    ) -> None:
         public_note = str(progress.get("public_note") or "").strip()
         private_note = str(progress.get("private_note") or public_note or "Cowork round completed.").strip()
         if public_note and self._is_substantive_public_note(public_note):
-            self.mailbox.deliver(
-                session,
-                CoworkEnvelope(
-                    sender_id=agent.id,
-                    recipient_ids=["user"],
-                    content=public_note,
-                    visibility="user",
-                    kind="result",
-                    thread_id=next(iter(session.threads), None),
-                ),
-                save=False,
-            )
+            if previous_message_ids is not None and self._agent_sent_message_this_round(session, agent.id, previous_message_ids):
+                self.service.add_event(
+                    session,
+                    "agent.progress_note",
+                    f"{agent.name} already sent a cowork message this round",
+                    actor_id=agent.id,
+                    data={"note": public_note[:240]},
+                    save=False,
+                )
+            elif not self._route_public_note(session, agent, public_note, unread or []):
+                self.service.add_event(
+                    session,
+                    "agent.progress_note",
+                    f"{agent.name} held a public note for aggregation",
+                    actor_id=agent.id,
+                    data={"note": public_note[:240]},
+                    save=False,
+                )
         elif public_note:
             self.service.add_event(
                 session,
@@ -721,6 +785,100 @@ class CoworkTool(Tool):
             publish_note=False,
         )
 
+    def _route_public_note(
+        self,
+        session: CoworkSession,
+        agent: CoworkAgent,
+        public_note: str,
+        unread: list[Any],
+    ) -> bool:
+        peer_request = self._latest_peer_request_for_unread(session, agent.id, unread)
+        if peer_request is not None:
+            self.mailbox.deliver(
+                session,
+                CoworkEnvelope(
+                    sender_id=agent.id,
+                    recipient_ids=[peer_request.sender_id],
+                    content=public_note,
+                    visibility="direct",
+                    kind="message",
+                    correlation_id=peer_request.correlation_id,
+                    reply_to_envelope_id=peer_request.id,
+                    thread_id=peer_request.thread_id,
+                ),
+                save=False,
+            )
+            return True
+
+        lead_id = self._lead_agent_id(session)
+        if agent.id != lead_id and self._has_user_group_unread(session, unread):
+            self.mailbox.deliver(
+                session,
+                CoworkEnvelope(
+                    sender_id=agent.id,
+                    recipient_ids=[lead_id],
+                    content=public_note,
+                    visibility="direct",
+                    kind="result",
+                    thread_id=next(iter(session.threads), None),
+                ),
+                save=False,
+            )
+            return True
+
+        self.mailbox.deliver(
+            session,
+            CoworkEnvelope(
+                sender_id=agent.id,
+                recipient_ids=["user"],
+                content=public_note,
+                visibility="user",
+                kind="result",
+                thread_id=next(iter(session.threads), None),
+            ),
+            save=False,
+        )
+        return True
+
+    @staticmethod
+    def _agent_sent_message_this_round(session: CoworkSession, agent_id: str, previous_message_ids: set[str]) -> bool:
+        return any(
+            message.sender_id == agent_id
+            for message_id, message in session.messages.items()
+            if message_id not in previous_message_ids
+        )
+
+    @staticmethod
+    def _lead_agent_id(session: CoworkSession) -> str:
+        for candidate in ("coordinator", "lead", "team_lead", "team-lead"):
+            if candidate in session.agents:
+                return candidate
+        return next(iter(session.agents))
+
+    @staticmethod
+    def _latest_peer_request_for_unread(session: CoworkSession, agent_id: str, unread: list[Any]):
+        unread_ids = {message.id for message in unread}
+        matches = [
+            record
+            for record in session.mailbox.values()
+            if record.message_id in unread_ids
+            and agent_id in record.recipient_ids
+            and record.sender_id not in {"user", agent_id}
+            and record.requires_reply
+            and record.status in {"delivered", "read"}
+        ]
+        return max(matches, key=lambda record: record.created_at) if matches else None
+
+    @staticmethod
+    def _has_user_group_unread(session: CoworkSession, unread: list[Any]) -> bool:
+        unread_ids = {message.id for message in unread}
+        return any(
+            record.message_id in unread_ids
+            and record.sender_id == "user"
+            and record.visibility == "group"
+            for record in session.mailbox.values()
+        )
+
     @staticmethod
     def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
         try:
@@ -758,14 +916,19 @@ class CoworkTool(Tool):
             return False
         return True
 
-    def _build_agent_tools(self, session_id: str, agent_id: str) -> ToolRegistry:
+    def _build_agent_tools(self, session_id: str, agent: CoworkAgent) -> ToolRegistry:
         registry = ToolRegistry()
         allowed_dir = self.workspace if self.restrict_to_workspace else None
-        registry.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-        registry.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
-        registry.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-        registry.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-        if self.exec_config.enable:
+        allowed_tools = {tool.strip().lower() for tool in agent.tools}
+        if "read_file" in allowed_tools:
+            registry.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        if "list_dir" in allowed_tools:
+            registry.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        if "write_file" in allowed_tools:
+            registry.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        if "edit_file" in allowed_tools:
+            registry.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        if self.exec_config.enable and "exec" in allowed_tools:
             registry.register(
                 ExecTool(
                     working_dir=str(self.workspace),
@@ -774,7 +937,7 @@ class CoworkTool(Tool):
                     path_append=self.exec_config.path_append,
                 )
             )
-        registry.register(CoworkInternalTool(self.service, session_id=session_id, sender_id=agent_id, mailbox=self.mailbox))
+        registry.register(CoworkInternalTool(self.service, session_id=session_id, sender_id=agent.id, mailbox=self.mailbox))
         return registry
 
     @staticmethod
@@ -802,6 +965,7 @@ Other agents:
 {agents}
 
 Use cowork_internal only when another participant needs a concrete request, reply, task update, or status update. Do not send thinking-aloud or "should I answer?" coordination messages when the user request is already clear.
+Only the lead should synthesize user-facing team answers after a broadcast. Non-lead agents should contribute their own result once; if answering another agent's request, reply to that agent instead of also addressing the user.
 End your turn with a compact JSON object, not prose. The JSON should use:
 status: idle | waiting | blocked | done | failed | needs_review
 public_note: the actual user-facing answer/content. Do not write status-only text such as "I completed the introduction"; if you do not have final content for the user, leave this empty.
@@ -864,9 +1028,11 @@ Expected behavior:
 1. Make concrete progress on your current task or inbox.
 2. If the current task is directly answerable, produce the actual answer in public_note instead of asking another agent for permission.
 3. If another agent must help, call cowork_internal send_message or add_task with a concrete, non-duplicative request.
-4. If you answer a pending reply request, include the original correlation_id or reply_to_envelope_id in your request/message.
-5. If you complete the current task, call cowork_internal complete_task with the actual useful result, not a status-only sentence.
-6. End with the structured JSON progress object described in your system instructions.
+4. If a user group/broadcast message already reached other agents, do not ask those agents to repeat the same work; wait for their notes or synthesize what is already available.
+5. If you answer a pending reply request, include the original correlation_id or reply_to_envelope_id in your request/message.
+6. If you need work and no task is assigned, use the shared task pool: prefer the lowest ready unassigned task id and call cowork_internal claim_task before working on it.
+7. If you complete the current task, call cowork_internal complete_task with the actual useful result, not a status-only sentence.
+8. End with the structured JSON progress object described in your system instructions.
 """
 
     @staticmethod

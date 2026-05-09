@@ -7,7 +7,7 @@ Cowork is a persistent multi-agent workspace for goals that benefit from several
 - Dynamic team planning from the user goal
 - One persistent context per agent
 - Agent inboxes and discussion threads
-- A shared task list with per-agent ownership
+- A shared task list with optional ownership, lead assignment, and teammate self-claim
 - Session events for status and UI updates
 - Agent-to-agent messages through the internal cowork tool
 
@@ -48,6 +48,7 @@ uv run tinybot cowork status cw_xxxxxxxx --verbose
 uv run tinybot cowork run cw_xxxxxxxx --rounds 3
 uv run tinybot cowork message cw_xxxxxxxx "Prioritize train travel" --to researcher
 uv run tinybot cowork task cw_xxxxxxxx "Check rainy-day options" --agent analyst
+uv run tinybot cowork task cw_xxxxxxxx "Find backup restaurant options"
 uv run tinybot cowork summary cw_xxxxxxxx
 ```
 
@@ -69,9 +70,37 @@ Send a message to agents:
 cowork action=send_message session_id="cw_xxxxxxxx" recipient_ids=["researcher"] content="Prioritize train travel."
 ```
 
+Add an unassigned task to the shared pool:
+
+```text
+cowork action=add_task session_id="cw_xxxxxxxx" title="Compare museum passes"
+```
+
+Assign an existing task explicitly:
+
+```text
+cowork action=assign_task session_id="cw_xxxxxxxx" task_id="task_xxxxxxxx" assigned_agent_id="analyst"
+```
+
 ## How Context Works
 
 Each agent keeps its own private summary and inbox. Shared information moves through tasks, discussion threads, and completed task results. This keeps token use bounded because agents do not receive every other agent's full history on every round.
+
+## Agent Team Workflow
+
+Cowork follows the same basic shape as an agent team:
+
+- A lead or user creates the session, agents, and initial task list.
+- Starting a session sends the user goal only to the lead and creates only a lead-owned delegation task.
+- Tasks can be assigned to a specific agent or left unassigned in the shared task pool.
+- Non-lead agents start idle and should be activated by lead messages or lead-assigned tasks.
+- When an agent has no assigned ready task, it can claim the lowest-id unassigned task whose dependencies are complete.
+- Agents coordinate through mailbox records, direct messages, and discussion threads instead of sharing full private context.
+- The scheduler wakes agents with inbox work, assigned ready tasks, claimable shared tasks, or unanswered mailbox requests.
+- The user talks only to the lead. User broadcasts and direct messages to non-lead agents are routed to the lead.
+- Non-lead agents cannot talk directly to the user. Their user-facing notes are routed to the lead for review and synthesis.
+- The user can still monitor all mailbox messages, events, tasks, and agent status through the Cowork UI/API.
+- When an agent answers another agent's reply-required request, the answer is routed back to the requester and marks the mailbox record as replied.
 
 ## Current Scope
 
