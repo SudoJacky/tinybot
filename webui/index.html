@@ -297,24 +297,32 @@
   <section id="cowork-modal" class="cowork-page" aria-label="Cowork workspace">
     <div class="modal-overlay" id="cowork-modal-overlay"></div>
     <div class="cowork-page-content cowork-modal-content">
-      <header class="modal-header">
-        <div>
+      <header class="modal-header cowork-page-header">
+        <div class="cowork-title-block">
           <p class="eyebrow">Cowork</p>
-          <h2>Team chat workspace</h2>
+          <h2>Multi-agent workspace</h2>
+          <p>Coordinate goals, tasks, messages, and agent handoffs from one focused board.</p>
         </div>
-        <button id="cowork-modal-close" class="button button-ghost" type="button" aria-label="Close cowork modal">x</button>
+        <div class="cowork-header-actions">
+          <button id="cowork-refresh-button" class="button" type="button">Refresh</button>
+          <button id="cowork-modal-close" class="button button-ghost" type="button" aria-label="Close cowork modal">Close</button>
+        </div>
       </header>
       <div class="modal-body cowork-modal-body">
         <section class="cowork-create">
-          <label class="config-label" for="cowork-goal-input">Goal</label>
-          <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe a goal that benefits from several perspectives..."></textarea>
-          <div class="cowork-toolbar">
-            <label class="config-checkbox-label">
-              <input id="cowork-auto-run" type="checkbox" />
-              <span>Run immediately</span>
-            </label>
-            <button id="cowork-start-button" class="button button-primary" type="button">Start Cowork</button>
-            <button id="cowork-refresh-button" class="button" type="button">Refresh</button>
+          <div class="cowork-create-copy">
+            <label class="config-label" for="cowork-goal-input">Goal</label>
+            <p>Start a shared agent session with a clear objective and optional first run.</p>
+          </div>
+          <div class="cowork-create-input">
+            <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe a goal that benefits from several perspectives..."></textarea>
+            <div class="cowork-toolbar cowork-create-actions">
+              <label class="config-checkbox-label">
+                <input id="cowork-auto-run" type="checkbox" />
+                <span>Run immediately</span>
+              </label>
+              <button id="cowork-start-button" class="button button-primary" type="button">Start Cowork</button>
+            </div>
           </div>
           <span id="cowork-error" class="error-text"></span>
         </section>
@@ -331,7 +339,7 @@
           </aside>
           <section class="cowork-detail-pane">
             <div class="cowork-detail-header">
-              <div>
+              <div class="cowork-active-heading">
                 <p id="cowork-active-status" class="eyebrow">No session</p>
                 <h3 id="cowork-active-title">Select or start a session</h3>
               </div>
@@ -347,14 +355,22 @@
               </div>
             </div>
             <p id="cowork-active-goal" class="cowork-goal-text"></p>
-            <div class="cowork-message-row">
-              <input id="cowork-message-input" class="config-input" type="text" placeholder="Send a constraint or update to the team..." />
-              <button id="cowork-message-button" class="button" type="button">Send</button>
+            <div class="cowork-metrics" aria-label="Cowork session metrics">
+              <div class="cowork-metric"><span id="cowork-agent-total">0</span><small>Agents</small></div>
+              <div class="cowork-metric"><span id="cowork-task-total">0</span><small>Tasks</small></div>
+              <div class="cowork-metric"><span id="cowork-message-total">0</span><small>Messages</small></div>
+              <div class="cowork-metric"><span id="cowork-thread-total">0</span><small>Topics</small></div>
             </div>
-            <div class="cowork-task-row">
-              <input id="cowork-task-title" class="config-input" type="text" placeholder="Add task title" />
-              <select id="cowork-task-agent" class="config-select"></select>
-              <button id="cowork-task-button" class="button" type="button">Add task</button>
+            <div class="cowork-command-strip">
+              <div class="cowork-message-row">
+                <input id="cowork-message-input" class="config-input" type="text" placeholder="Send a constraint or update to the team..." />
+                <button id="cowork-message-button" class="button" type="button">Send</button>
+              </div>
+              <div class="cowork-task-row">
+                <input id="cowork-task-title" class="config-input" type="text" placeholder="Add task title" />
+                <select id="cowork-task-agent" class="config-select"></select>
+                <button id="cowork-task-button" class="button" type="button">Add task</button>
+              </div>
             </div>
             <div class="cowork-grid">
               <section class="cowork-team-chat">

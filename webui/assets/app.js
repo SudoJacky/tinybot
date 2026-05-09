@@ -305,6 +305,10 @@ const elements = {
   coworkActiveStatus: document.querySelector("#cowork-active-status"),
   coworkActiveTitle: document.querySelector("#cowork-active-title"),
   coworkActiveGoal: document.querySelector("#cowork-active-goal"),
+  coworkAgentTotal: document.querySelector("#cowork-agent-total"),
+  coworkTaskTotal: document.querySelector("#cowork-task-total"),
+  coworkMessageTotal: document.querySelector("#cowork-message-total"),
+  coworkThreadTotal: document.querySelector("#cowork-thread-total"),
   coworkRoundLimit: document.querySelector("#cowork-round-limit"),
   coworkAgentLimit: document.querySelector("#cowork-agent-limit"),
   coworkRunButton: document.querySelector("#cowork-run-button"),
@@ -2025,6 +2029,18 @@ function renderCoworkDetail() {
   }
   if (elements.coworkActiveGoal) {
     elements.coworkActiveGoal.textContent = hasSession ? session.goal : "";
+  }
+  if (elements.coworkAgentTotal) {
+    elements.coworkAgentTotal.textContent = String(session?.agents?.length || 0);
+  }
+  if (elements.coworkTaskTotal) {
+    elements.coworkTaskTotal.textContent = String(session?.tasks?.length || 0);
+  }
+  if (elements.coworkMessageTotal) {
+    elements.coworkMessageTotal.textContent = String(session?.messages?.length || 0);
+  }
+  if (elements.coworkThreadTotal) {
+    elements.coworkThreadTotal.textContent = String(session?.threads?.length || 0);
   }
   for (const button of [
     elements.coworkRunButton,
