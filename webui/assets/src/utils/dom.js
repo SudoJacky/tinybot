@@ -225,6 +225,7 @@ export const elements = {
   coworkModal: document.querySelector("#cowork-modal"),
   coworkModalOverlay: document.querySelector("#cowork-modal-overlay"),
   coworkModalClose: document.querySelector("#cowork-modal-close"),
+  coworkHomeButton: document.querySelector("#cowork-home-button"),
   coworkGoalInput: document.querySelector("#cowork-goal-input"),
   coworkAutoRun: document.querySelector("#cowork-auto-run"),
   coworkStartButton: document.querySelector("#cowork-start-button"),

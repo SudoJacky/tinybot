@@ -1604,6 +1604,10 @@ function closeCoworkModal() {
   elements.coworkModal?.classList.remove("active");
 }
 
+function leaveCoworkPage() {
+  window.location.href = "/";
+}
+
 function coworkStatusClass(status = "") {
   return `cowork-status cowork-status-${String(status || "idle").toLowerCase()}`;
 }
@@ -6631,6 +6635,7 @@ function bindEvents() {
   });
   elements.coworkModalOverlay?.addEventListener("click", closeCoworkModal);
   elements.coworkModalClose?.addEventListener("click", closeCoworkModal);
+  elements.coworkHomeButton?.addEventListener("click", leaveCoworkPage);
   elements.coworkStartButton?.addEventListener("click", startCoworkSession);
   elements.coworkRefreshButton?.addEventListener("click", () => {
     loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
