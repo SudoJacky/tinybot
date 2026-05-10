@@ -10,6 +10,8 @@ Cowork is a persistent multi-agent workspace for goals that benefit from several
 - A shared task list with optional ownership, lead assignment, and teammate self-claim
 - Session events for status and UI updates
 - Agent-to-agent messages through the internal cowork tool
+- Readiness scoring for smarter scheduling
+- Structured task results, shared memory, blocker snapshots, and final drafts
 
 ## Basic Use
 
@@ -97,11 +99,37 @@ Cowork follows the same basic shape as an agent team:
 - When an agent has no assigned ready task, it can claim the lowest-id unassigned task whose dependencies are complete.
 - Agents coordinate through mailbox records, direct messages, and discussion threads instead of sharing full private context.
 - The scheduler wakes agents with inbox work, assigned ready tasks, claimable shared tasks, or unanswered mailbox requests.
+- The scheduler ranks candidates by readiness, including reply pressure, ready tasks, shared tasks, blocked status, repeated activation, and whether the lead needs to synthesize.
 - The user talks only to the lead. User broadcasts and direct messages to non-lead agents are routed to the lead.
 - Non-lead agents cannot talk directly to the user. Their user-facing notes are routed to the lead for review and synthesis.
 - The user can still monitor all mailbox messages, events, tasks, and agent status through the Cowork UI/API.
 - When an agent answers another agent's reply-required request, the answer is routed back to the requester and marks the mailbox record as replied.
 
+## Structured Results and Intelligence
+
+Agents can return structured task results as well as prose:
+
+```json
+{
+  "task_id": "task_xxxxxxxx",
+  "answer": "Recommended answer or completed work",
+  "findings": ["Confirmed fact or useful observation"],
+  "risks": ["Known caveat or failure mode"],
+  "open_questions": ["Question still needing input"],
+  "artifacts": ["Path, URL, or generated output"],
+  "confidence": 0.82
+}
+```
+
+Cowork stores this on the task, rolls recent completed work into shared session memory, and keeps a current final draft. The API and WebUI expose the session's `completion_decision`, `shared_summary`, and `final_draft` so users can see whether the team should run another round, resolve blockers, review failures, or summarize.
+
+Mailbox records can also carry collaboration protocol hints:
+
+- `request_type`: `clarify`, `verify`, `produce`, `review`, or `unblock`
+- `expected_output_schema`: a lightweight shape for the expected reply
+- `blocking_task_id`: the task currently waiting on the reply
+- `escalate_after_rounds`: when the lead should intervene
+
 ## Current Scope
 
-The implementation provides the core backend, tool interface, standalone CLI, and WebUI workspace. It supports persistent state, dynamic roles, discussion messages, repeated scheduling rounds, and direct gateway access. Artifact browsing, approval workflow, and an automatic long-running scheduler can build on the same session store.
+The implementation provides the core backend, tool interface, standalone CLI, and WebUI workspace. It supports persistent state, dynamic roles, discussion messages, repeated scheduling rounds, readiness scoring, structured results, blocker tracking, and direct gateway access. Artifact browsing, approval workflow, and an automatic long-running scheduler can build on the same session store.

@@ -103,6 +103,32 @@ def test_complete_task_updates_session_state(temp_workspace):
     assert any(event.type == "task.completed" for event in session.events)
 
 
+def test_complete_task_extracts_structured_result_and_shared_memory(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Make a decision", "Decision", [], [])
+    task_id = next(iter(session.tasks))
+
+    service.complete_task(
+        session,
+        task_id,
+        json.dumps(
+            {
+                "answer": "Choose option A.",
+                "findings": ["A is cheaper"],
+                "risks": ["Supplier lead time"],
+                "open_questions": ["Confirm final budget"],
+                "confidence": 0.8,
+            }
+        ),
+    )
+
+    task = session.tasks[task_id]
+    assert task.result_data["answer"] == "Choose option A."
+    assert task.confidence == 0.8
+    assert "A is cheaper" in session.shared_summary
+    assert "Choose option A." in session.final_draft
+
+
 def test_loads_minimal_legacy_store_payload(temp_workspace):
     store_dir = temp_workspace / "cowork"
     store_dir.mkdir()
@@ -242,6 +268,32 @@ def test_unanswered_read_mailbox_request_keeps_agent_ready(temp_workspace):
     active = service.select_active_agents(session, limit=1)
 
     assert [agent.id for agent in active] == [recipient]
+
+
+def test_assess_session_reports_blockers_and_readiness(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Assess blockers", "Assess", [], [])
+    sender, recipient = list(session.agents)[:2]
+    service.add_mailbox_record(
+        session,
+        CoworkMailboxRecord(
+            id="env_blocker",
+            sender_id=sender,
+            recipient_ids=[recipient],
+            content="Need verification",
+            status="read",
+            requires_reply=True,
+            request_type="verify",
+            blocking_task_id="1",
+            priority=80,
+        ),
+    )
+
+    decision = service.assess_session(session)
+
+    assert decision["next_action"] == "resolve_blockers"
+    assert decision["blocked"][0]["request_type"] == "verify"
+    assert decision["readiness"][0]["agent_id"] == recipient
 
 
 def test_mailbox_records_are_trimmed_to_bounded_size(temp_workspace):

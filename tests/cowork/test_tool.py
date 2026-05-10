@@ -78,6 +78,15 @@ async def test_team_planner_falls_back(temp_workspace):
     assert tasks[0]["assigned_agent_id"] == "coordinator"
 
 
+def test_team_planner_adds_reviewer_for_risky_goals(temp_workspace):
+    agents = CoworkTeamPlanner._ensure_reviewer_if_needed(
+        "Review this code change and verify the tests",
+        [{"id": "coordinator", "name": "Lead", "role": "Lead", "goal": "Lead", "responsibilities": []}],
+    )
+
+    assert any(agent["id"] == "reviewer" for agent in agents)
+
+
 @pytest.mark.asyncio
 async def test_internal_tool_sends_message_and_completes_task(temp_workspace):
     service = CoworkService(temp_workspace)
@@ -167,6 +176,7 @@ def test_cowork_tool_schemas_are_json_serializable(temp_workspace):
     json.dumps(internal.to_schema())
     assert "description" in external.parameters["properties"]
     assert "description" in internal.parameters["properties"]
+    assert "request_type" in internal.parameters["properties"]
 
 
 def test_cowork_agent_tools_follow_agent_allowlist(temp_workspace):
@@ -202,6 +212,27 @@ def test_cowork_tool_parses_loose_progress_json_without_leaking_wrapper(temp_wor
     assert progress["status"] == "done"
     assert progress["public_note"] == "Visible line one\nVisible line two"
     assert progress["private_note"] == "Private line"
+
+
+def test_cowork_tool_parses_structured_completed_results(temp_workspace):
+    service = CoworkService(temp_workspace)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+
+    progress = tool._parse_agent_progress(
+        json.dumps(
+            {
+                "status": "done",
+                "public_note": "Visible",
+                "private_note": "Private",
+                "completed_task_ids": ["t1"],
+                "completed_task_results": [
+                    {"task_id": "t1", "answer": "Done", "findings": ["Fact"], "confidence": 0.9}
+                ],
+            }
+        )
+    )
+
+    assert progress["completed_task_results"][0]["answer"] == "Done"
 
 
 @pytest.mark.asyncio
@@ -475,6 +506,67 @@ def test_public_note_is_not_auto_routed_after_explicit_message(temp_workspace):
     assert any(event.type == "agent.progress_note" for event in updated.events)
 
 
+def test_status_only_explicit_message_does_not_suppress_public_note(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Route actual public note",
+        "Route Actual",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "analyst", "name": "Analyst", "role": "Analysis", "goal": "Analyze", "responsibilities": []},
+        ],
+        [],
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    previous_message_ids = set(session.messages)
+    thread = service.create_thread(session, "Introduce yourself", ["coordinator", "analyst"])
+    CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="coordinator",
+            recipient_ids=["analyst"],
+            content="Please introduce yourself.",
+            thread_id=thread.id,
+            requires_reply=True,
+            correlation_id="intro-1",
+        ),
+    )
+    unread = service.mark_messages_read(session, "analyst")
+    CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="analyst",
+            recipient_ids=["coordinator"],
+            content="已完成中文自我介绍，已放入 public_note。",
+            thread_id=thread.id,
+            correlation_id="intro-1",
+        ),
+        save=False,
+    )
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+
+    tool._apply_agent_progress(
+        session,
+        session.agents["analyst"],
+        {
+            "status": "done",
+            "public_note": "大家好，我是 Analyst，负责推理验证、风险识别和质量把关。",
+            "private_note": "Introduced self.",
+        },
+        unread,
+        previous_message_ids,
+    )
+
+    updated = service.get_session(session.id)
+    assert any(
+        message.sender_id == "analyst"
+        and message.recipient_ids == ["coordinator"]
+        and "负责推理验证" in message.content
+        for message in updated.messages.values()
+    )
+
+
 @pytest.mark.asyncio
 async def test_cowork_tool_suppresses_status_only_public_note(temp_workspace):
     service = CoworkService(temp_workspace)
@@ -611,6 +703,71 @@ async def test_cowork_scheduler_continues_when_mailbox_makes_peer_ready(temp_wor
     assert "Round 2: running b" in result
     assert tool.runner.calls == 2
     assert any(message.sender_id == "b" and message.content == "B checked" for message in updated.messages.values())
+
+
+@pytest.mark.asyncio
+async def test_cowork_scheduler_adds_lead_synthesis_after_peer_replies(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Team introductions",
+        "Introductions",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+            {"id": "analyst", "name": "Analyst", "role": "Analysis", "goal": "Analyze", "responsibilities": []},
+        ],
+        [
+            {
+                "id": "ta",
+                "title": "Coordinate intros",
+                "description": "Ask everyone to introduce themselves.",
+                "assigned_agent_id": "coordinator",
+            }
+        ],
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = SequenceRunner(
+        [
+            json.dumps(
+                {
+                    "status": "waiting",
+                    "public_note": "",
+                    "private_note": "Asked teammates for introductions.",
+                    "requests": [
+                        {
+                            "recipient_ids": ["researcher", "analyst"],
+                            "content": "Please introduce yourself.",
+                            "visibility": "direct",
+                            "requires_reply": True,
+                            "correlation_id": "intro-all",
+                        }
+                    ],
+                    "completed_task_ids": ["ta"],
+                }
+            ),
+            json.dumps({"status": "done", "public_note": "我是 Researcher。", "private_note": "Introduced."}),
+            json.dumps({"status": "done", "public_note": "我是 Analyst。", "private_note": "Introduced."}),
+            json.dumps(
+                {
+                    "status": "done",
+                    "public_note": "团队介绍：我是 Coordinator；我是 Researcher；我是 Analyst。",
+                    "private_note": "Synthesized.",
+                }
+            ),
+        ]
+    )
+
+    result = await tool.execute(action="run", session_id=session.id, max_rounds=2, max_agents=2)
+    updated = service.get_session(session.id)
+
+    assert "running coordinator for synthesis" in result
+    assert any(event.type == "scheduler.lead_synthesis" for event in updated.events)
+    assert any(
+        message.sender_id == "coordinator" and message.recipient_ids == ["user"] and "团队介绍" in message.content
+        for message in updated.messages.values()
+    )
 
 
 @pytest.mark.asyncio

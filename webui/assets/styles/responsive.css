@@ -46,7 +46,8 @@
   }
 
   .cowork-detail-header,
-  .cowork-command-strip {
+  .cowork-command-strip,
+  .cowork-insight-panel {
     grid-template-columns: 1fr;
   }
 

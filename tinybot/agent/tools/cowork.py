@@ -94,6 +94,7 @@ Goal:
 
 Create 3-6 agents. Do not hard-code software roles unless the goal is software work.
 Each agent should have a distinct responsibility, private perspective, and clear reason to communicate with others.
+Include a reviewer/evaluator only when the goal has meaningful risk, verification needs, code changes, research claims, or decision tradeoffs.
 Create exactly one initial task assigned to the lead/coordinator. The lead is responsible for deciding whether to message or assign tasks to other agents later.
 Workspace: {self.workspace}
 """
@@ -111,16 +112,58 @@ Workspace: {self.workspace}
             )
             if response.tool_calls:
                 args = response.tool_calls[0].arguments
+                agents = self._ensure_reviewer_if_needed(goal, list(args.get("agents") or []))
                 return (
                     str(args.get("title") or "Cowork Session"),
-                    list(args.get("agents") or []),
+                    agents,
                     list(args.get("tasks") or []),
                 )
         except Exception as exc:
             logger.warning("Cowork team planning failed, using fallback team: {}", exc)
         agents = CoworkService.default_team(goal)
+        agents = self._ensure_reviewer_if_needed(goal, agents)
         tasks = self._leader_initial_tasks(goal, agents, [])
         return "Cowork Session", agents, tasks
+
+    @staticmethod
+    def _ensure_reviewer_if_needed(goal: str, agents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        text = goal.lower()
+        needs_review = any(
+            marker in text
+            for marker in (
+                "code",
+                "test",
+                "bug",
+                "review",
+                "verify",
+                "验证",
+                "评审",
+                "测试",
+                "代码",
+                "风险",
+                "research",
+                "compare",
+                "decision",
+                "事实",
+                "对比",
+                "决策",
+            )
+        )
+        if not needs_review or any("review" in str(agent.get("id", "")).lower() or "evaluator" in str(agent.get("id", "")).lower() for agent in agents):
+            return agents
+        return [
+            *agents,
+            {
+                "id": "reviewer",
+                "name": "Reviewer",
+                "role": "Quality and risk reviewer",
+                "goal": f"Review assumptions, risks, and completeness for: {goal}",
+                "responsibilities": ["Check claims and assumptions", "Find gaps or risks", "Recommend whether to finish or continue"],
+                "tools": ["read_file", "list_dir", "cowork_internal"],
+                "communication_policy": "Review completed work when asked by the lead or when a task needs validation.",
+                "context_policy": "Use shared summaries, task results, and targeted file reads instead of replaying the full conversation.",
+            },
+        ]
 
     @staticmethod
     def _leader_initial_tasks(goal: str, agents: list[dict[str, Any]], planned_tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -167,6 +210,10 @@ Workspace: {self.workspace}
         deadline_round=IntegerSchema(description="Round number or relative round budget when this envelope expires", minimum=1, maximum=100),
         correlation_id=StringSchema("Stable id that groups a question with replies"),
         reply_to_envelope_id=StringSchema("Envelope id this message replies to"),
+        request_type=StringSchema("Request protocol type", enum=["", "clarify", "verify", "produce", "review", "unblock"]),
+        expected_output_schema=ObjectSchema(description="Expected JSON-like output shape for the reply"),
+        blocking_task_id=StringSchema("Task id blocked by this request"),
+        escalate_after_rounds=IntegerSchema(description="Ask the lead to intervene after this many rounds", minimum=1, maximum=20),
         required=["action"],
     )
 )
@@ -208,6 +255,10 @@ class CoworkInternalTool(Tool):
         deadline_round: int | None = None,
         correlation_id: str = "",
         reply_to_envelope_id: str = "",
+        request_type: str = "",
+        expected_output_schema: dict[str, Any] | None = None,
+        blocking_task_id: str = "",
+        escalate_after_rounds: int | None = None,
         **kwargs: Any,
     ) -> str:
         session = self.service.get_session(self.session_id)
@@ -238,11 +289,15 @@ class CoworkInternalTool(Tool):
                     thread_id=thread_id or None,
                     visibility="direct" if recipient_ids else "group",
                     kind="question" if requires_reply else "message",
+                    request_type=request_type if request_type in {"", "clarify", "verify", "produce", "review", "unblock"} else "",
                     requires_reply=requires_reply,
                     priority=max(0, min(100, int(priority or 0))),
                     deadline_round=deadline_round,
                     correlation_id=correlation_id or None,
                     reply_to_envelope_id=reply_to_envelope_id or None,
+                    expected_output_schema=expected_output_schema or {},
+                    blocking_task_id=blocking_task_id or None,
+                    escalate_after_rounds=escalate_after_rounds,
                 ),
             )
             return f"Sent message {message.id}"
@@ -525,11 +580,28 @@ class CoworkTool(Tool):
                 if agent_id not in {agent.id for agent in active}:
                     consecutive_runs[agent_id] = 0
             session = self.service.get_session(session.id) or session
+            decision = self.service.assess_session(session)
             if session.status == "completed":
                 lines.append("Session completed.")
                 break
+            if decision.get("ready_to_finish") and not self.service.select_active_agents(session, limit=1):
+                lines.append("Session is ready for summary.")
+                break
         else:
-            self.service.add_event(session, "scheduler.budget_exhausted", "Cowork scheduler stopped at the run budget")
+            session = self.service.get_session(session.id) or session
+            if agent_calls < _MAX_RUN_AGENT_CALLS and self._lead_ready_to_synthesize_replies(session):
+                lead = session.agents[self._lead_agent_id(session)]
+                lines.append(f"Round {round_limit + 1}: running {lead.id} for synthesis")
+                self.service.add_event(
+                    session,
+                    "scheduler.lead_synthesis",
+                    f"Cowork scheduler running {lead.name} for final synthesis",
+                    data={"agent_id": lead.id},
+                )
+                await self._run_agent(session, lead)
+            else:
+                self.service.add_event(session, "scheduler.budget_exhausted", "Cowork scheduler stopped at the run budget")
+        self.service.assess_session(session)
         lines.append("")
         lines.append(self.service.format_status(session, verbose=False))
         return "\n".join(lines)
@@ -575,6 +647,7 @@ class CoworkTool(Tool):
                 "private_note": text or "Cowork round completed.",
                 "requests": [],
                 "completed_task_ids": [],
+                "completed_task_results": [],
                 "new_task_suggestions": [],
             }
         status = str(parsed.get("status") or "idle").strip().lower()
@@ -590,6 +663,7 @@ class CoworkTool(Tool):
             "private_note": private_note,
             "requests": parsed.get("requests") if isinstance(parsed.get("requests"), list) else [],
             "completed_task_ids": parsed.get("completed_task_ids") if isinstance(parsed.get("completed_task_ids"), list) else [],
+            "completed_task_results": parsed.get("completed_task_results") if isinstance(parsed.get("completed_task_results"), list) else [],
             "new_task_suggestions": parsed.get("new_task_suggestions") if isinstance(parsed.get("new_task_suggestions"), list) else [],
         }
 
@@ -611,6 +685,7 @@ class CoworkTool(Tool):
             "private_note": private_note or public_note,
             "requests": [],
             "completed_task_ids": [],
+            "completed_task_results": [],
             "new_task_suggestions": [],
         }
 
@@ -707,7 +782,7 @@ class CoworkTool(Tool):
         public_note = str(progress.get("public_note") or "").strip()
         private_note = str(progress.get("private_note") or public_note or "Cowork round completed.").strip()
         if public_note and self._is_substantive_public_note(public_note):
-            if previous_message_ids is not None and self._agent_sent_message_this_round(session, agent.id, previous_message_ids):
+            if previous_message_ids is not None and self._agent_sent_substantive_message_this_round(session, agent.id, previous_message_ids):
                 self.service.add_event(
                     session,
                     "agent.progress_note",
@@ -751,19 +826,33 @@ class CoworkTool(Tool):
                     content=content,
                     visibility=visibility,  # type: ignore[arg-type]
                     kind="question" if request.get("requires_reply") else "message",
+                    request_type=self._request_type(request.get("request_type")),
                     requires_reply=bool(request.get("requires_reply", False)),
                     priority=self._bounded_int(request.get("priority"), default=0, minimum=0, maximum=100),
                     deadline_round=self._deadline_round(session, request.get("deadline_round")),
                     correlation_id=str(request.get("correlation_id") or "") or None,
                     reply_to_envelope_id=str(request.get("reply_to_envelope_id") or "") or None,
                     thread_id=str(request.get("thread_id") or "") or None,
+                    expected_output_schema=request.get("expected_output_schema") if isinstance(request.get("expected_output_schema"), dict) else {},
+                    blocking_task_id=str(request.get("blocking_task_id") or "") or None,
+                    escalate_after_rounds=self._bounded_int(request.get("escalate_after_rounds"), default=0, minimum=0, maximum=20) or None,
                 ),
                 save=False,
             )
+        completed_results = {
+            str(item.get("task_id") or "").strip(): item
+            for item in progress.get("completed_task_results") or []
+            if isinstance(item, dict) and str(item.get("task_id") or "").strip()
+        }
         for task_id in progress.get("completed_task_ids") or []:
             task_id_text = str(task_id or "").strip()
             if task_id_text:
-                self.service.complete_task(session, task_id_text, public_note or private_note, status="completed")
+                task = session.tasks.get(task_id_text)
+                if task and task.status in {"completed", "failed", "skipped"}:
+                    continue
+                result_payload = completed_results.get(task_id_text)
+                result_text = json.dumps(result_payload, ensure_ascii=False) if result_payload else public_note or private_note
+                self.service.complete_task(session, task_id_text, result_text, status="completed")
         for suggestion in progress.get("new_task_suggestions") or []:
             if not isinstance(suggestion, dict):
                 continue
@@ -784,6 +873,7 @@ class CoworkTool(Tool):
             status=str(progress.get("status") or "idle"),
             publish_note=False,
         )
+        self.service.assess_session(session)
 
     def _route_public_note(
         self,
@@ -848,12 +938,38 @@ class CoworkTool(Tool):
             if message_id not in previous_message_ids
         )
 
+    @classmethod
+    def _agent_sent_substantive_message_this_round(cls, session: CoworkSession, agent_id: str, previous_message_ids: set[str]) -> bool:
+        return any(
+            message.sender_id == agent_id and cls._is_substantive_public_note(message.content)
+            for message_id, message in session.messages.items()
+            if message_id not in previous_message_ids
+        )
+
     @staticmethod
     def _lead_agent_id(session: CoworkSession) -> str:
         for candidate in ("coordinator", "lead", "team_lead", "team-lead"):
             if candidate in session.agents:
                 return candidate
         return next(iter(session.agents))
+
+    def _lead_ready_to_synthesize_replies(self, session: CoworkSession) -> bool:
+        lead_id = self._lead_agent_id(session)
+        lead = session.agents.get(lead_id)
+        if not lead or not lead.inbox:
+            return False
+        pending_lead_requests = any(
+            record.sender_id == lead_id
+            and record.requires_reply
+            and record.status in {"delivered", "read"}
+            for record in session.mailbox.values()
+        )
+        if pending_lead_requests:
+            return False
+        return any(
+            message_id in session.messages and session.messages[message_id].sender_id not in {"user", lead_id}
+            for message_id in lead.inbox
+        )
 
     @staticmethod
     def _latest_peer_request_for_unread(session: CoworkSession, agent_id: str, unread: list[Any]):
@@ -894,6 +1010,11 @@ class CoworkTool(Tool):
         except Exception:
             return None
         return parsed if parsed > session.rounds else session.rounds + parsed if parsed > 0 else None
+
+    @staticmethod
+    def _request_type(value: Any) -> str:
+        parsed = str(value or "").strip().lower()
+        return parsed if parsed in {"clarify", "verify", "produce", "review", "unblock"} else ""
 
     @staticmethod
     def _is_substantive_public_note(note: str) -> bool:
@@ -970,8 +1091,9 @@ End your turn with a compact JSON object, not prose. The JSON should use:
 status: idle | waiting | blocked | done | failed | needs_review
 public_note: the actual user-facing answer/content. Do not write status-only text such as "I completed the introduction"; if you do not have final content for the user, leave this empty.
 private_note: concise private memory update, including progress/status details
-requests: optional list of mailbox messages, each with recipient_ids, content, visibility, requires_reply, priority, deadline_round, correlation_id
+requests: optional list of mailbox messages, each with recipient_ids, content, visibility, requires_reply, priority, deadline_round, correlation_id, request_type, expected_output_schema, blocking_task_id
 completed_task_ids: optional list of task ids you completed
+completed_task_results: optional list of structured task results with task_id, answer, findings, risks, open_questions, artifacts, confidence from 0 to 1
 new_task_suggestions: optional list of task objects with title, description, assigned_agent_id, dependencies
 """
 
@@ -1009,6 +1131,9 @@ new_task_suggestions: optional list of task objects with title, description, ass
 Private context summary:
 {agent.private_summary or "(none yet)"}
 
+Shared session memory:
+{session.shared_summary or "(none yet)"}
+
 Current assigned task:
 {task_text}
 
@@ -1032,11 +1157,15 @@ Expected behavior:
 5. If you answer a pending reply request, include the original correlation_id or reply_to_envelope_id in your request/message.
 6. If you need work and no task is assigned, use the shared task pool: prefer the lowest ready unassigned task id and call cowork_internal claim_task before working on it.
 7. If you complete the current task, call cowork_internal complete_task with the actual useful result, not a status-only sentence.
-8. End with the structured JSON progress object described in your system instructions.
+8. Prefer structured completed_task_results when you have findings, risks, artifacts, open questions, or confidence.
+9. If you are the lead and teammate replies are in your inbox, synthesize those replies into a user-facing public_note instead of asking for more work.
+10. End with the structured JSON progress object described in your system instructions.
 """
 
     @staticmethod
     def _format_summary(session: CoworkSession) -> str:
+        if session.final_draft:
+            return session.final_draft
         completed = [task for task in session.tasks.values() if task.status == "completed"]
         lines = [f"## {session.title} ({session.id})", f"Status: {session.status}", "", "### Completed Work"]
         if completed:

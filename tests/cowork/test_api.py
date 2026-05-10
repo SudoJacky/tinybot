@@ -106,6 +106,8 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     session_id = session["id"]
     assert session["title"] == "API cowork"
     assert session["agents"][0]["current_task_title"] is None
+    assert "completion_decision" in session
+    assert "final_draft" in session
 
     response = await cowork_api_client.get("/api/cowork/sessions")
     assert response.status == 200
@@ -120,6 +122,7 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     payload = await response.json()
     assert payload["session"]["messages"][-1]["content"] == "Add QA"
     assert payload["session"]["mailbox"][-1]["status"] == "delivered"
+    assert "request_type" in payload["session"]["mailbox"][-1]
 
     response = await cowork_api_client.post(
         f"/api/cowork/sessions/{session_id}/tasks",

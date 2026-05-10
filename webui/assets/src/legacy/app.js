@@ -1650,6 +1650,41 @@ function coworkAgentMailboxState(session, agentId) {
   };
 }
 
+function coworkTimelineStatus(event) {
+  const type = String(event?.type || "");
+  const message = String(event?.message || "");
+  if (type.startsWith("thread.") || type.startsWith("mailbox.")) return null;
+  if (type === "scheduler.round") {
+    const match = message.match(/round\s+(\d+).*with\s+(.+)$/i);
+    return match ? `Round ${match[1]}: ${match[2]}` : "Scheduler round";
+  }
+  if (type === "scheduler.lead_synthesis") return "Coordinator synthesis";
+  if (type === "scheduler.idle") return "Idle";
+  if (type === "scheduler.budget_exhausted") return "Run limit reached";
+  if (type === "scheduler.agent_budget_exhausted") return "Agent run limit reached";
+  if (type === "session.created") return "Session created";
+  if (type === "session.reopened") return "Session reopened";
+  if (type === "session.paused") return "Paused";
+  if (type === "session.resumed") return "Resumed";
+  if (type === "agent.started") return message.replace(/\s+started a cowork round\.?$/i, " started");
+  if (type === "agent.ran") return message.replace(/\s+completed a cowork round\.?$/i, " finished");
+  if (type === "agent.status") return message.replace(/\s+set status to\s+/i, " -> ");
+  if (type === "agent.failed") return message;
+  if (type === "task.completed") return message.replace(/^Task\s+'(.+)'\s+completed\.?$/i, "Task completed: $1");
+  if (type === "task.failed") return message.replace(/^Task\s+'(.+)'\s+failed\.?$/i, "Task failed: $1");
+  if (type === "task.skipped") return message.replace(/^Task\s+'(.+)'\s+skipped\.?$/i, "Task skipped: $1");
+  if (type === "task.created") return "Task added";
+  if (type === "task.assigned") return "Task assigned";
+  if (type === "task.claimed") return "Task claimed";
+  return null;
+}
+
+function coworkTimelineStatusLabel(type = "") {
+  const head = String(type || "status").split(".")[0] || "status";
+  const tail = String(type || "status").split(".").pop() || "status";
+  return `${head}: ${tail}`.replaceAll("_", " ");
+}
+
 function renderCoworkSessions() {
   if (elements.coworkSessionCount) {
     elements.coworkSessionCount.textContent = String(state.coworkSessions.length);
@@ -1733,9 +1768,39 @@ function renderCoworkDetail() {
   renderCoworkAgents(session);
   renderCoworkTasks(session?.tasks || []);
   renderCoworkMailbox(session);
+  renderCoworkInsights(session);
   renderCoworkThreads(threads);
   renderCoworkTimeline(session);
   renderCoworkAgentOptions(session?.agents || []);
+}
+
+function renderCoworkInsights(session) {
+  if (!elements.coworkInsightPanel) return;
+  if (!session) {
+    elements.coworkInsightPanel.hidden = true;
+    return;
+  }
+  const decision = session.completion_decision || {};
+  const blockers = decision.blocked || [];
+  const hasDraft = Boolean((session.final_draft || "").trim());
+  const hasDecision = Boolean(decision.next_action || decision.reason || blockers.length || hasDraft);
+  elements.coworkInsightPanel.hidden = !hasDecision;
+  if (!hasDecision) return;
+  if (elements.coworkInsightAction) {
+    elements.coworkInsightAction.textContent = String(decision.next_action || "observe").replaceAll("_", " ");
+  }
+  if (elements.coworkInsightReason) {
+    elements.coworkInsightReason.textContent = decision.reason || "";
+  }
+  if (elements.coworkInsightBlockers) {
+    elements.coworkInsightBlockers.textContent = blockers.length
+      ? blockers.map((item) => `${item.request_type || "reply"}: ${compactText(item.content || "", 80)}`).join(" | ")
+      : "No blocking replies.";
+  }
+  if (elements.coworkFinalDraft) {
+    elements.coworkFinalDraft.hidden = !hasDraft;
+    elements.coworkFinalDraft.textContent = hasDraft ? compactText(session.final_draft, 1200) : "";
+  }
 }
 
 function renderCoworkAgents(session) {
@@ -1847,8 +1912,13 @@ function renderCoworkTasks(tasks) {
     item.querySelector("strong").textContent = task.title || task.id;
     item.querySelector("span").className = coworkStatusClass(task.status);
     item.querySelector("span").textContent = task.status || "pending";
-    item.querySelector("p").textContent = compactText(task.description || task.result || "", 130);
-    item.querySelector("small").textContent = `Owner ${task.assigned_agent_id || "-"}${task.dependencies?.length ? ` - Depends ${task.dependencies.join(", ")}` : ""}`;
+    const answer = task.result_data?.answer || task.result || task.description || "";
+    item.querySelector("p").textContent = compactText(answer, 130);
+    item.querySelector("small").textContent = [
+      `Owner ${task.assigned_agent_id || "-"}`,
+      task.confidence !== null && task.confidence !== undefined ? `Confidence ${Math.round(Number(task.confidence) * 100)}%` : "",
+      task.dependencies?.length ? `Depends ${task.dependencies.join(", ")}` : "",
+    ].filter(Boolean).join(" - ");
     elements.coworkTaskList.append(item);
     }
   }
@@ -1909,12 +1979,13 @@ function renderCoworkTimeline(session) {
     message,
   }));
   const eventItems = (session.events || [])
-    .filter((event) => !["message.sent"].includes(event.type || ""))
     .map((event) => ({
       kind: "event",
       at: event.created_at || "",
       event,
-    }));
+      statusText: coworkTimelineStatus(event),
+    }))
+    .filter((item) => item.statusText);
   const items = [...messageItems, ...eventItems]
     .sort((a, b) => String(a.at).localeCompare(String(b.at)))
     .slice(-80);
@@ -1943,13 +2014,11 @@ function renderCoworkTimeline(session) {
       item.querySelector("p").textContent = message.content || "";
     } else {
       const event = itemData.event;
-      const agent = event.actor_id ? agentsById.get(event.actor_id) : null;
       item.className = "cowork-chat-event";
-      item.innerHTML = `<span></span><strong></strong><small></small>`;
+      item.innerHTML = `<span></span><strong></strong>`;
       item.querySelector("span").className = coworkStatusClass(event.type?.split(".").pop() || "active");
-      item.querySelector("span").textContent = event.type || "event";
-      item.querySelector("strong").textContent = `${agent?.name ? `${agent.name}: ` : ""}${event.message || ""}`;
-      item.querySelector("small").textContent = event.created_at || "";
+      item.querySelector("span").textContent = coworkTimelineStatusLabel(event.type);
+      item.querySelector("strong").textContent = `${itemData.statusText || ""}${event.created_at ? ` · ${event.created_at}` : ""}`;
     }
     elements.coworkMessageList.append(item);
   }
@@ -2067,7 +2136,7 @@ async function startCoworkSession() {
       body: JSON.stringify({
         goal,
         auto_run: Boolean(elements.coworkAutoRun?.checked),
-        max_rounds: coworkNumberInput(elements.coworkRoundLimit, 1, 1, 20),
+        max_rounds: coworkNumberInput(elements.coworkRoundLimit, 20, 1, 20),
         max_agents: coworkNumberInput(elements.coworkAgentLimit, 3, 1, 10),
       }),
     });
@@ -2096,8 +2165,8 @@ async function startCoworkSession() {
 
 async function runCoworkRound(options = {}) {
   if (!state.activeCoworkSessionId) return;
-  const untilIdle = Boolean(options.untilIdle);
-  const triggerButton = untilIdle ? elements.coworkRunUntilIdleButton : elements.coworkRunButton;
+  const singleRound = Boolean(options.singleRound);
+  const triggerButton = singleRound ? elements.coworkRunUntilIdleButton : elements.coworkRunButton;
   if (triggerButton) {
     triggerButton.disabled = true;
   }
@@ -2106,7 +2175,7 @@ async function runCoworkRound(options = {}) {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
-        max_rounds: untilIdle ? 20 : coworkNumberInput(elements.coworkRoundLimit, 1, 1, 20),
+        max_rounds: singleRound ? 1 : coworkNumberInput(elements.coworkRoundLimit, 20, 1, 20),
         max_agents: coworkNumberInput(elements.coworkAgentLimit, 3, 1, 10),
       }),
     });
@@ -6675,7 +6744,7 @@ function bindEvents() {
     loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
   });
   elements.coworkRunButton?.addEventListener("click", () => runCoworkRound());
-  elements.coworkRunUntilIdleButton?.addEventListener("click", () => runCoworkRound({ untilIdle: true }));
+  elements.coworkRunUntilIdleButton?.addEventListener("click", () => runCoworkRound({ singleRound: true }));
   elements.coworkPauseButton?.addEventListener("click", () => {
     setCoworkSessionStatus("pause").catch((error) => setCoworkError(error.message || String(error)));
   });
