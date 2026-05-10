@@ -20,6 +20,10 @@
     grid-template-columns: 1fr;
   }
 
+  body {
+    overflow: auto;
+  }
+
   .sidebar {
     max-height: 360px;
     min-height: 0;
@@ -83,7 +87,6 @@
   .sidebar,
   .chat-panel {
     border-radius: var(--radius-lg);
-    padding: 16px;
   }
 
   .brand {
@@ -97,13 +100,41 @@
     flex-wrap: wrap;
   }
 
+  .topbar,
+  .composer {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
   .composer-row {
-    grid-template-columns: 52px 1fr 52px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    gap: 8px;
+  }
+
+  .composer-file,
+  .composer-send {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .composer-input {
+    min-height: 44px;
+    padding: 10px 14px;
   }
 
   .composer-send {
-    grid-column: auto;
-    width: 52px;
+    grid-column: 3;
+  }
+
+  .composer-meta {
+    align-items: flex-start;
+  }
+
+  .session-rag-toggle {
+    width: 100%;
+    margin-left: 0;
+    white-space: normal;
   }
 
   .composer-status-panel .system-status {

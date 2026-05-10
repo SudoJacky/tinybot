@@ -1,4 +1,4 @@
-__version__ = "0.0.13-beta.2"
+__version__ = "0.0.13-beta.3"
 __logo__ = "💕 🤖 💕"
 
 from tinybot.tinybot import Tinybot, RunResult

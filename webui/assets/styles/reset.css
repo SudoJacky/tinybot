@@ -35,6 +35,45 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  position: relative;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 50% 38%, black, transparent 74%);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.45), transparent 18%),
+    radial-gradient(circle at 76% 78%, rgba(255, 255, 255, 0.24), transparent 22%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+[data-theme="dark"] body::before {
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+  opacity: 0.34;
+}
+
+[data-theme="dark"] body::after {
+  opacity: 0.22;
 }
 
 .global-knowledge-toast {
@@ -49,14 +88,15 @@ body {
   padding: 12px 14px 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--panel-strong) 92%, var(--accent-soft));
+  background: color-mix(in srgb, var(--panel-strong) 88%, var(--accent-soft));
   box-shadow: var(--shadow-xl);
   color: var(--text);
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, -16px);
   transition: opacity var(--transition-base), transform var(--transition-base);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 
 .global-knowledge-toast[hidden] {

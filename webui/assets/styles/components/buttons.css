@@ -2,7 +2,7 @@
 .button {
   appearance: none;
   border: 1px solid var(--border);
-  background: var(--panel-strong);
+  background: color-mix(in srgb, var(--panel-strong) 78%, transparent);
   color: var(--text);
   border-radius: var(--radius-md);
   padding: 10px 16px;
@@ -13,19 +13,21 @@
   transition: all var(--transition-base);
   position: relative;
   overflow: hidden;
+  backdrop-filter: blur(14px) saturate(1.22);
+  -webkit-backdrop-filter: blur(14px) saturate(1.22);
 }
 
 .button::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.42), transparent 54%);
   opacity: 0;
   transition: opacity var(--transition-fast);
 }
 
 .button:hover {
-  border-color: var(--border);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
 }
@@ -40,10 +42,12 @@
 }
 
 .button-primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.25), transparent 38%),
+    linear-gradient(135deg, var(--accent), var(--accent-hover));
   border-color: transparent;
   color: white;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), 0 12px 28px var(--accent-glow);
 }
 
 .button-primary:hover {
@@ -61,7 +65,7 @@
 }
 
 .button-ghost {
-  background: transparent;
+  background: color-mix(in srgb, var(--panel-strong) 36%, transparent);
   border-color: var(--border-subtle);
 }
 

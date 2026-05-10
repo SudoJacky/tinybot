@@ -28,7 +28,9 @@
   padding: 4px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bg-subtle) 72%, transparent);
+  background: color-mix(in srgb, var(--panel-strong) 44%, var(--bg-subtle));
+  backdrop-filter: blur(12px) saturate(1.18);
+  -webkit-backdrop-filter: blur(12px) saturate(1.18);
 }
 
 .mode-switch-option {
@@ -44,7 +46,7 @@
 }
 
 .mode-switch-option.active {
-  background: var(--panel-strong);
+  background: color-mix(in srgb, var(--panel-strong) 86%, transparent);
   color: var(--text);
   box-shadow: var(--shadow-xs);
 }
@@ -87,7 +89,8 @@
 
 .sidebar-feature-panel .compact-panel .section-header:hover,
 .sidebar-feature-panel .compact-panel .section-header:focus-visible {
-  background: color-mix(in srgb, var(--bg-subtle) 76%, transparent);
+  background: color-mix(in srgb, var(--panel-strong) 48%, var(--bg-subtle));
+  box-shadow: var(--shadow-xs);
 }
 
 .sidebar-feature-panel .compact-panel h2 {
@@ -215,7 +218,7 @@
   place-items: center;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--panel-strong) 72%, var(--bg-subtle));
+  background: color-mix(in srgb, var(--panel-strong) 58%, var(--bg-subtle));
 }
 
 .browser-panel:not(.has-frame) .browser-frame-wrap {
@@ -311,7 +314,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--panel-strong);
+  background: color-mix(in srgb, var(--panel-strong) 66%, transparent);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
   cursor: pointer;
@@ -319,8 +322,9 @@
 }
 
 .compact-item:hover {
-  background: var(--bg-subtle);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--panel-strong) 74%, var(--accent-soft));
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  box-shadow: var(--shadow-xs);
 }
 
 .compact-item-name {
@@ -354,7 +358,7 @@
 }
 
 .section-header.clickable:hover {
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 56%, var(--bg-subtle));
 }
 
 .section-header.clickable:focus-visible {
