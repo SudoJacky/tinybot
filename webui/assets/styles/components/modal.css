@@ -1,0 +1,1121 @@
+/* ========== Doc Modal Styles ========== */
+.doc-modal-content {
+  width: min(90vw, 700px);
+}
+
+.doc-detail-info {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.doc-editor {
+  width: 100%;
+  min-height: 150px;
+  max-height: 300px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  padding: 16px;
+  font: 14px/1.6 var(--font-mono);
+  color: var(--text);
+  transition: all var(--transition-base);
+}
+
+.doc-editor:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+  background: var(--panel-strong);
+}
+
+.doc-rendered {
+  width: 100%;
+  min-height: 150px;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  padding: 16px;
+  color: var(--text);
+}
+
+.doc-rendered:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.doc-rendered table {
+  display: block;
+  overflow-x: auto;
+}
+
+.doc-view-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.doc-meta-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.doc-meta-value {
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* ========== 可折叠面板 ========== */
+.collapsible {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.collapsible.collapsed .collapsible-content {
+  display: none;
+}
+
+.collapsible.collapsed .toggle-icon {
+  transform: rotate(-90deg);
+}
+
+.collapsible-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ========== 工作区面板 ========== */
+.workspace-panel {
+  flex-shrink: 0;
+}
+
+/* ========== 文件编辑器面板 ========== */
+.editor-panel {
+  /* 已移至 workspace-modal */
+}
+
+.editor-panel .collapsible-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--panel-strong);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.file-editor {
+  flex: 1;
+  min-height: 100px;
+  max-height: 100%;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel-strong);
+  padding: 16px;
+  margin: 16px;
+  font: 14px/1.6 var(--font-mono);
+  color: var(--text);
+  overflow: auto;
+  transition: all var(--transition-base);
+}
+
+.file-editor:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
+.file-editor:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px 16px;
+  font-size: 12px;
+}
+
+/* ========== 设置栏 ========== */
+.settings-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 40px);
+  justify-content: center;
+  justify-items: center;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 16px;
+}
+
+.settings-bar .button,
+.settings-bar .theme-toggle {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-md);
+}
+
+.settings-bar #language-toggle {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ========== 弹窗 ========== */
+.settings-bar .icon-help {
+  width: 18px;
+  height: 18px;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  animation: modal-appear var(--transition-base) ease-out;
+}
+
+@keyframes modal-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 详情弹窗层级 - 显示在列表弹窗之上 */
+#skill-modal.active,
+#tool-modal.active,
+#doc-modal.active,
+#doc-view-modal.active {
+  z-index: 1100;
+}
+
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme="dark"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.modal-content {
+  position: relative;
+  width: min(90vw, 600px);
+  max-height: 85vh;
+  background: var(--panel-strong);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modal-slide var(--transition-slow) ease-out;
+}
+
+@keyframes modal-slide {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.modal-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 24px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+}
+
+/* ========== 工具列表弹窗 ========== */
+.tools-modal-content,
+.skills-modal-content {
+  width: min(90vw, 500px);
+}
+
+.modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.modal-list-item:hover {
+  background: var(--panel-strong);
+  border-color: var(--accent);
+}
+
+.cowork-panel .section-header {
+  cursor: pointer;
+}
+
+.cowork-panel .compact-stats {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cowork-panel #cowork-session-count {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.cowork-page {
+  display: none;
+}
+
+.cowork-page.active {
+  display: flex;
+}
+
+.cowork-page-active {
+  overflow: hidden;
+}
+
+.cowork-page-active .shell {
+  display: none;
+}
+
+.cowork-page-active #cowork-modal {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 86%, var(--accent-soft));
+}
+
+.cowork-page-active #cowork-modal .modal-overlay {
+  display: none;
+}
+
+.cowork-page-content {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  background: var(--panel-strong);
+}
+
+.cowork-modal-content {
+  width: min(96vw, 1280px);
+  max-height: 90vh;
+}
+
+.cowork-page-active .cowork-modal-content {
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.cowork-page-active .cowork-modal-body {
+  flex: 1;
+  max-height: none;
+}
+
+.cowork-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(90vh - 84px);
+  overflow: auto;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 72%, var(--panel-strong)), var(--bg));
+}
+
+.cowork-page-header {
+  align-items: center;
+  gap: 16px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--panel-strong);
+}
+
+.cowork-title-block {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cowork-title-block h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(22px, 3vw, 34px);
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.cowork-title-block p:not(.eyebrow) {
+  margin: 0;
+  max-width: 720px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cowork-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.cowork-create,
+.cowork-session-pane,
+.cowork-detail-pane,
+.cowork-grid > section {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+}
+
+.cowork-create {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+.cowork-create-copy {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.cowork-create-copy p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.cowork-create-input {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cowork-goal-input {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.cowork-toolbar,
+.cowork-message-row,
+.cowork-task-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cowork-create-actions {
+  justify-content: flex-end;
+}
+
+.cowork-workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.cowork-session-pane,
+.cowork-detail-pane {
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+}
+
+.cowork-session-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+}
+
+.cowork-pane-header h3,
+.cowork-detail-header h3,
+.cowork-grid h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.cowork-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cowork-session-list,
+.cowork-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cowork-session-item {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 11px 12px;
+  text-align: left;
+  background: var(--panel-strong);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), color var(--transition-fast);
+}
+
+.cowork-session-item:hover,
+.cowork-session-item.active,
+.cowork-card.active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 56%, var(--panel-strong));
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.cowork-session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.cowork-session-meta,
+.cowork-card small,
+.cowork-event span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cowork-detail-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cowork-detail-header {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, max-content);
+  align-items: start;
+  gap: 12px;
+}
+
+.cowork-active-heading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cowork-active-heading h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.cowork-goal-text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cowork-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cowork-metric {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-subtle) 68%, var(--panel-strong));
+}
+
+.cowork-metric span {
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.cowork-metric small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.cowork-command-strip {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 0.9fr);
+  gap: 10px;
+}
+
+.cowork-message-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.cowork-task-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 0.54fr) max-content;
+}
+
+.cowork-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  grid-template-rows: minmax(160px, 0.8fr) minmax(160px, 0.85fr) minmax(128px, 0.68fr) minmax(120px, 0.58fr);
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+
+.cowork-grid > section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+  min-height: 0;
+  padding: 13px;
+}
+
+.cowork-team-chat {
+  grid-column: 1;
+  grid-row: 1 / 5;
+}
+
+.cowork-agents-section {
+  grid-column: 2;
+  grid-row: 1;
+  overflow: auto;
+}
+
+.cowork-tasks-section {
+  grid-column: 2;
+  grid-row: 2;
+  overflow: auto;
+}
+
+.cowork-mailbox-section {
+  grid-column: 2;
+  grid-row: 3;
+  overflow: auto;
+}
+
+.cowork-threads-section {
+  grid-column: 2;
+  grid-row: 4;
+  overflow: auto;
+}
+
+.cowork-chat-list {
+  flex: 1;
+  gap: 10px;
+  overflow: auto;
+  padding: 4px 4px 4px 0;
+}
+
+.cowork-card,
+.cowork-event,
+.cowork-empty {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+  padding: 10px;
+}
+
+.cowork-card {
+  display: grid;
+  gap: 6px;
+  min-height: 76px;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.cowork-card[tabindex] {
+  cursor: pointer;
+}
+
+.cowork-card[tabindex]:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 34%, var(--panel-strong));
+}
+
+.cowork-card-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+}
+
+.cowork-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.cowork-card p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cowork-mailbox-card {
+  min-height: 68px;
+}
+
+.cowork-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-muted);
+  background: var(--bg);
+}
+
+.cowork-limit-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.cowork-limit-input {
+  width: 58px;
+  min-height: 32px;
+  padding: 4px 6px;
+}
+
+.cowork-lane-label {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.cowork-message-card p {
+  color: var(--text);
+}
+
+.cowork-chat-message {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.cowork-chat-message.from-user {
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.cowork-chat-message.from-user .cowork-chat-avatar {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.cowork-chat-message.from-user .cowork-chat-bubble {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent), transparent 72%);
+}
+
+.cowork-chat-avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel-strong));
+  border: 1px solid var(--border-subtle);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cowork-chat-bubble {
+  max-width: min(720px, 100%);
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+}
+
+.cowork-chat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.cowork-chat-meta strong {
+  font-size: 12px;
+}
+
+.cowork-chat-meta span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cowork-chat-bubble p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cowork-chat-event {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.cowork-chat-event strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cowork-chat-event small {
+  grid-column: 2;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cowork-status-active,
+.cowork-status-running,
+.cowork-status-in_progress,
+.cowork-status-delivered,
+.cowork-status-read {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent), transparent 68%);
+}
+
+.cowork-status-completed,
+.cowork-status-replied {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success), transparent 68%);
+}
+
+.cowork-status-failed,
+.cowork-status-blocked,
+.cowork-status-expired {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger), transparent 68%);
+}
+
+.cowork-status-paused,
+.cowork-status-pending,
+.cowork-status-idle,
+.cowork-status-queued {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning), transparent 68%);
+}
+
+.cowork-event {
+  display: grid;
+  gap: 4px;
+}
+
+.cowork-event strong {
+  font-size: 12px;
+}
+
+.cowork-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.modal-list-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-list-item-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.tool-risk-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--border-subtle));
+  border-radius: var(--radius-full);
+  background: var(--warning-soft);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.modal-header-buttons {
+  display: flex;
+  gap: 8px;
+  margin-right: 16px;
+}
+
+/* ========== 工具详情弹窗 ========== */
+.tool-modal-content {
+  width: min(90vw, 500px);
+}
+
+.detail-value {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.detail-text {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.schema-display {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  overflow: auto;
+  max-height: 300px;
+  white-space: pre-wrap;
+}
+
+/* ========== 知识库弹窗 ========== */
+.knowledge-modal-content {
+  width: min(96vw, 1180px);
+  max-height: 90vh;
+}
+
+.knowledge-modal-content .modal-body {
+  max-height: calc(90vh - 84px);
+  overflow: auto;
+}
+
+.knowledge-modal-content .knowledge-stats {
+  margin-bottom: 16px;
+}
+
+.knowledge-modal-content .knowledge-docs-panel {
+  margin-bottom: 16px;
+}
+
+.knowledge-modal-content .docs-list {
+  max-height: 52vh;
+}
+
+.knowledge-modal-content .query-results {
+  max-height: 46vh;
+}
+
+.knowledge-modal-content .knowledge-query-panel {
+  background: var(--panel-strong);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 900px) {
+  .knowledge-overview-grid,
+  .knowledge-graph-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-graph-inspector {
+    border-left: none;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .knowledge-tabs {
+    overflow-x: auto;
+  }
+
+  .knowledge-tab {
+    min-width: 120px;
+  }
+}
+
+/* ========== 工作区弹窗 ========== */
+.workspace-modal-content {
+  width: min(90vw, 700px);
+  height: min(85vh, 600px);
+}
+
+.workspace-modal-content .modal-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace-modal-content .editor-toolbar {
+  flex-shrink: 0;
+  margin-bottom: 12px;
+}
+
+.workspace-modal-content .file-editor {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  resize: none;
+}
+
+.workspace-modal-content .editor-footer {
+  flex-shrink: 0;
+  padding: 8px 0 0 0;
+}

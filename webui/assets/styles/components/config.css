@@ -1,0 +1,709 @@
+/* ========== 配置组样式 ========== */
+.config-group {
+  margin-bottom: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--panel-strong);
+}
+
+.settings-modal-content {
+  width: min(94vw, 860px);
+  max-height: 88vh;
+}
+
+.settings-modal-content .modal-header {
+  flex-shrink: 0;
+}
+
+.config-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 12px;
+  padding: 14px 24px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 92%, var(--bg-subtle));
+}
+
+.config-search-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.config-search-wrap::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--text-subtle);
+  border-radius: var(--radius-full);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.config-search-wrap::after {
+  content: "";
+  position: absolute;
+  left: 25px;
+  top: 24px;
+  width: 7px;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--text-subtle);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.config-search {
+  width: 100%;
+  height: 38px;
+  padding: 9px 12px 9px 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.config-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: var(--panel-strong);
+}
+
+.config-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-quick-nav {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.config-nav-chip {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--panel-strong);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.config-nav-chip:hover,
+.config-nav-chip.active {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.config-modal-body {
+  background: var(--bg-subtle);
+}
+
+.config-empty-search {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-strong);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.config-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--transition-fast);
+}
+
+.config-group-title.dirty::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  order: 1;
+}
+
+.config-group-title .toggle-icon {
+  order: 2;
+}
+
+.config-group-title:hover {
+  background: var(--bg-subtle);
+}
+
+.config-group-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.config-group-title .toggle-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform var(--transition-base);
+}
+
+.config-group-title.collapsed .toggle-icon,
+.config-group-title[aria-expanded="false"] .toggle-icon {
+  transform: rotate(-90deg);
+}
+
+.config-group-title.collapsed,
+.config-group-title[aria-expanded="false"] {
+  border-bottom: none;
+}
+
+.config-group-content {
+  padding: 16px;
+}
+
+.config-group-content.collapsed {
+  display: none;
+}
+
+.config-subsection {
+  margin-bottom: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.config-subsection:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.config-subsection h4 {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.config-field {
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.config-field:last-child {
+  margin-bottom: 0;
+}
+
+.config-field.dirty {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-soft) 48%, transparent);
+}
+
+.config-field[hidden],
+.config-group[hidden],
+.config-empty-search[hidden] {
+  display: none;
+}
+
+.config-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* 配置帮助提示 */
+.config-label-with-help {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.config-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-subtle);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  cursor: help;
+  position: relative;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.config-help:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.config-help::after {
+  content: attr(data-help);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  padding: 10px 14px;
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-width: 280px;
+  min-width: 120px;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.config-help:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* checkbox组的帮助提示位置调整 */
+.config-checkbox-label .config-help::after {
+  left: auto;
+  right: 0;
+}
+
+.config-input,
+.config-select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  transition: all var(--transition-base);
+}
+
+.config-input:focus,
+.config-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: var(--panel-strong);
+}
+
+.config-input:focus-visible,
+.config-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.config-checkbox-group {
+  display: flex;
+  align-items: center;
+}
+
+.config-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.config-checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.config-save-state {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-right: auto;
+}
+
+.config-dirty-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+#save-config-button.loading {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+#save-config-button:disabled,
+#reset-config-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+  box-shadow: none;
+}
+
+.config-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.config-secondary-button {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.config-secondary-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.config-secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.config-inline-status {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.config-inline-status.success {
+  color: var(--success);
+}
+
+.config-inline-status.warning {
+  color: var(--warning);
+}
+
+.config-model-select {
+  margin-top: 0;
+}
+
+.config-model-select[hidden],
+.config-model-custom[hidden] {
+  display: none;
+}
+
+.config-model-custom {
+  margin-top: 8px;
+}
+
+/* ========== Config Slider (Temperature) ========== */
+.config-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.config-slider-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 40px;
+  text-align: right;
+}
+
+.config-slider {
+  width: 100%;
+  height: 6px;
+  appearance: none;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  outline: none;
+}
+
+.config-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  border-radius: 50%;
+  cursor: grab;
+  box-shadow: var(--shadow-sm), 0 0 8px var(--accent-glow);
+  transition: transform var(--transition-fast);
+}
+
+.config-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.config-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.1);
+}
+
+.config-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  border-radius: 50%;
+  cursor: grab;
+  border: none;
+  box-shadow: var(--shadow-sm), 0 0 8px var(--accent-glow);
+}
+
+.config-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+
+.config-slider-label-left,
+.config-slider-label-right {
+  padding: 2px 6px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-xs);
+}
+
+/* ========== Sensitive Field (API Key) ========== */
+.config-sensitive-group {
+  position: relative;
+}
+
+.config-sensitive-input {
+  padding-right: 40px;
+}
+
+.config-sensitive-input.sensitive {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.config-sensitive-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition-fast);
+}
+
+.config-sensitive-toggle:hover {
+  color: var(--text);
+  background: var(--bg-subtle);
+}
+
+.config-sensitive-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.config-sensitive-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warning);
+  margin-left: 8px;
+}
+
+/* ========== Validation Styles ========== */
+.config-input.error,
+.config-select.error {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.config-input.error:focus,
+.config-select.error:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+
+.config-input.success,
+.config-select.success {
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.config-validation-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.config-validation-msg.error {
+  color: var(--danger);
+}
+
+.config-validation-msg.success {
+  color: var(--success);
+}
+
+.config-validation-msg svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Inline validation icon */
+.config-validation-icon {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.config-validation-icon.error {
+  color: var(--danger);
+}
+
+.config-validation-icon.success {
+  color: var(--success);
+}
+
+/* ========== Config Hint Box (功能未启用提示) ========== */
+.config-hint-box {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.config-hint-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--warning);
+  border-radius: var(--radius-sm);
+  color: white;
+}
+
+.config-hint-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.config-hint-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-hint-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.config-hint-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.config-hint-btn {
+  align-self: flex-start;
+  padding: 8px 16px;
+  background: var(--warning);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.config-hint-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+/* 深色主题适配 */
+[data-theme="dark"] .config-hint-box {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: var(--warning);
+}
+
+[data-theme="dark"] .config-hint-icon {
+  background: var(--warning);
+}
+
+[data-theme="dark"] .config-hint-title {
+  color: var(--warning);
+}
+
+.success-text {
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 500;
+}

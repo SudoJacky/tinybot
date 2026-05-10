@@ -1,0 +1,51 @@
+/* ========== 主布局 ========== */
+.shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) minmax(220px, 280px);
+  gap: 16px;
+  height: 100vh;
+  padding: 16px;
+  transition: grid-template-columns 220ms ease;
+}
+
+.shell.sidebar-collapsed {
+  grid-template-columns: 68px minmax(0, 1fr) minmax(220px, 280px);
+}
+
+/* ========== 通用面板样式 ========== */
+.sidebar,
+.chat-panel,
+.right-panel {
+  backdrop-filter: blur(14px);
+  background: var(--panel-gradient);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 面板内部渐变边框效果 */
+.sidebar::before,
+.chat-panel::before,
+.right-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-xl);
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 50%, rgba(255, 255, 255, 0.05));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .sidebar::before,
+[data-theme="dark"] .chat-panel::before,
+[data-theme="dark"] .right-panel::before {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent 50%, rgba(255, 255, 255, 0.02));
+}
