@@ -1378,6 +1378,7 @@ function renderSessions() {
     deleteBtn.dataset.chatId = item.chat_id;
     deleteBtn.dataset.sessionKey = item.key;
     deleteBtn.title = t("ui.deleteSession");
+    deleteBtn.setAttribute("aria-label", t("ui.deleteSession"));
     deleteBtn.textContent = "×";
 
     button.append(key, deleteBtn);
@@ -6518,15 +6519,29 @@ function bindEvents() {
     // Handle delete button
     const deleteBtn = event.target.closest(".session-delete");
     if (deleteBtn) {
+      event.preventDefault();
+      event.stopPropagation();
       const sessionKey = deleteBtn.dataset.sessionKey;
       const chatId = deleteBtn.dataset.chatId;
-      if (confirm(`${t("ui.confirmDelete")} ${chatId}？`)) {
-        try {
-          await deleteSession(sessionKey, chatId);
-        } catch (error) {
-          console.error(error);
-          setError(error.message || t("status.failed"));
-        }
+      if (!deleteBtn.classList.contains("confirming")) {
+        elements.sessionList.querySelectorAll(".session-delete.confirming").forEach((button) => {
+          button.classList.remove("confirming");
+          button.textContent = "×";
+          button.title = t("ui.deleteSession");
+          button.setAttribute("aria-label", t("ui.deleteSession"));
+        });
+        deleteBtn.classList.add("confirming");
+        deleteBtn.textContent = t("ui.confirm");
+        deleteBtn.title = t("ui.confirmDelete");
+        deleteBtn.setAttribute("aria-label", t("ui.confirmDelete"));
+        return;
+      }
+
+      try {
+        await deleteSession(sessionKey, chatId);
+      } catch (error) {
+        console.error(error);
+        setError(error.message || t("status.failed"));
       }
       return;
     }
