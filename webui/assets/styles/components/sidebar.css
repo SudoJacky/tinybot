@@ -145,6 +145,15 @@
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, transparent 50%);
 }
 
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 11px;
+  pointer-events: none;
+}
+
 .brand-logo {
   position: relative;
   z-index: 1;
@@ -179,6 +188,9 @@
 .sidebar-actions .button {
   min-height: 38px;
   white-space: nowrap;
+  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(1.25);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
 }
 
 .sidebar-actions .sidebar-action-icon {

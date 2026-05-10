@@ -75,9 +75,9 @@
 .session-item:hover,
 .session-item:focus-visible,
 .session-item.active {
-  background: color-mix(in srgb, var(--bg-subtle) 84%, transparent);
-  border-color: transparent;
-  box-shadow: none;
+  background: color-mix(in srgb, var(--panel-strong) 58%, var(--bg-subtle));
+  border-color: color-mix(in srgb, var(--accent) 16%, var(--border-subtle));
+  box-shadow: var(--shadow-xs);
 }
 
 [data-theme="dark"] .session-item:hover,
@@ -181,7 +181,7 @@
   gap: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--bg-subtle) 64%, transparent);
+  background: color-mix(in srgb, var(--panel-strong) 48%, var(--bg-subtle));
   overflow: hidden;
 }
 
@@ -203,7 +203,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 8px 10px;
-  background: transparent;
+  background: color-mix(in srgb, var(--panel-strong) 18%, transparent);
   border-radius: 0;
 }
 

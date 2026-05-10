@@ -13,7 +13,9 @@
   gap: 16px;
   padding: 20px 24px 18px;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--panel-strong);
+  background: color-mix(in srgb, var(--panel-strong) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(1.24);
+  -webkit-backdrop-filter: blur(18px) saturate(1.24);
 }
 
 .topbar > div:first-child {
@@ -54,8 +56,9 @@
   border-radius: var(--radius-full);
   font-size: 12px;
   font-weight: 500;
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 52%, var(--bg-subtle));
   border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-xs);
 }
 
 .status::before {
@@ -111,7 +114,7 @@
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 26px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -121,15 +124,19 @@
   max-width: min(80%, 720px);
   padding: 16px 20px;
   border-radius: var(--radius-lg);
-  background: var(--panel-strong);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-xs);
+  background: color-mix(in srgb, var(--panel-strong) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(16px) saturate(1.20);
+  -webkit-backdrop-filter: blur(16px) saturate(1.20);
 }
 
 .message-user {
   align-self: flex-end;
-  background: var(--accent-soft);
-  border-color: rgba(37, 99, 235, 0.15);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.24), transparent 42%),
+    color-mix(in srgb, var(--accent-soft) 84%, var(--panel-strong));
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
   max-width: min(72%, 680px);
 }
 
@@ -149,7 +156,7 @@
 
 .message-system {
   align-self: center;
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 62%, var(--bg-subtle));
   max-width: 90%;
 }
 
@@ -186,10 +193,12 @@
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-subtle));
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--panel-strong) 82%, var(--bg-subtle));
-  box-shadow: var(--shadow-xs);
+  background: color-mix(in srgb, var(--panel-strong) 74%, var(--bg-subtle));
+  box-shadow: var(--shadow-sm);
   color: var(--text);
   overflow: hidden;
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
 }
 
 .message-collapse-summary {
@@ -308,7 +317,7 @@
 
 .tool-activity {
   overflow: hidden;
-  background: transparent;
+  background: color-mix(in srgb, var(--panel-strong) 30%, transparent);
   border-radius: var(--radius-sm);
   border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
   color: var(--text-muted);
@@ -537,8 +546,10 @@
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border-subtle));
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--panel-strong) 82%, transparent);
-  box-shadow: var(--shadow-xs);
+  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(14px) saturate(1.18);
+  -webkit-backdrop-filter: blur(14px) saturate(1.18);
 }
 
 .task-progress-card summary {
@@ -858,7 +869,7 @@
 }
 
 .message-text code {
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--bg-subtle) 76%, transparent);
   padding: 3px 7px;
   border-radius: var(--radius-xs);
   font-family: var(--font-mono);
@@ -867,7 +878,7 @@
 }
 
 .message-text pre {
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--bg-subtle) 74%, transparent);
   padding: 14px 16px;
   border-radius: var(--radius-md);
   overflow-x: auto;
@@ -1015,7 +1026,7 @@
 .message-text blockquote {
   margin: 12px 0;
   padding: 12px 16px;
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--bg-subtle) 72%, transparent);
   border-radius: var(--radius-md);
   border-left: 3px solid var(--accent);
   color: var(--text-muted);
@@ -1046,7 +1057,7 @@
 }
 
 .message-text th {
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--bg-subtle) 72%, transparent);
   font-weight: 600;
 }
 
@@ -1059,7 +1070,7 @@
 
 .message-reasoning {
   margin-bottom: 12px;
-  background: color-mix(in srgb, var(--bg-subtle) 72%, transparent);
+  background: color-mix(in srgb, var(--panel-strong) 58%, var(--bg-subtle));
   border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-muted);
@@ -1142,7 +1153,11 @@
 .composer {
   padding: 16px 24px 20px;
   border-top: 1px solid var(--border-subtle);
-  background: var(--panel-strong);
+  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+  backdrop-filter: blur(18px) saturate(1.24);
+  -webkit-backdrop-filter: blur(18px) saturate(1.24);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .approval-panel {
@@ -1258,10 +1273,13 @@
 
 .composer-input {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+  grid-column: 2;
+  display: block;
   resize: none;
   border: 1px solid var(--border);
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 62%, var(--bg-subtle));
   border-radius: var(--radius-lg);
   padding: 14px 18px;
   min-height: 52px;
@@ -1277,7 +1295,7 @@
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-sm);
-  background: var(--panel-strong);
+  background: color-mix(in srgb, var(--panel-strong) 90%, transparent);
 }
 
 .composer-input:focus-visible {
@@ -1290,6 +1308,7 @@
 }
 
 .composer-send {
+  grid-column: 3;
   align-self: end;
   flex: 0 0 auto;
   width: 52px;
@@ -1315,6 +1334,7 @@
 }
 
 .composer-file {
+  grid-column: 1;
   align-self: end;
   width: 52px;
   height: 52px;
@@ -1358,7 +1378,7 @@
   padding: 6px 9px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 68%, var(--bg-subtle));
   color: var(--text);
   font-size: 12px;
 }
@@ -1444,7 +1464,7 @@
   align-items: center;
   gap: 6px;
   padding: 12px 16px;
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 62%, var(--bg-subtle));
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
   animation: typing-fade-in 0.3s ease-out;
@@ -1502,7 +1522,7 @@
 .empty-state {
   padding: 16px;
   border-radius: var(--radius-md);
-  background: var(--bg-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 58%, var(--bg-subtle));
   color: var(--text-muted);
   text-align: center;
   font-size: 13px;

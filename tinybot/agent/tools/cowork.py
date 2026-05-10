@@ -544,6 +544,7 @@ class CoworkTool(Tool):
         agent_limit = min(max(1, int(max_agents or 1)), 10)
         agent_calls = 0
         consecutive_runs: dict[str, int] = {}
+        synthesis_ran = False
         lines = []
         for round_index in range(round_limit):
             active = self.service.select_active_agents(session, limit=agent_limit)
@@ -581,6 +582,16 @@ class CoworkTool(Tool):
                     consecutive_runs[agent_id] = 0
             session = self.service.get_session(session.id) or session
             decision = self.service.assess_session(session)
+            if (
+                not synthesis_ran
+                and agent_calls < _MAX_RUN_AGENT_CALLS
+                and self._lead_ready_to_synthesize_replies(session)
+            ):
+                await self._run_lead_synthesis(session, lines, round_index + 2)
+                agent_calls += 1
+                synthesis_ran = True
+                session = self.service.get_session(session.id) or session
+                decision = self.service.assess_session(session)
             if session.status == "completed":
                 lines.append("Session completed.")
                 break
@@ -589,22 +600,29 @@ class CoworkTool(Tool):
                 break
         else:
             session = self.service.get_session(session.id) or session
-            if agent_calls < _MAX_RUN_AGENT_CALLS and self._lead_ready_to_synthesize_replies(session):
-                lead = session.agents[self._lead_agent_id(session)]
-                lines.append(f"Round {round_limit + 1}: running {lead.id} for synthesis")
-                self.service.add_event(
-                    session,
-                    "scheduler.lead_synthesis",
-                    f"Cowork scheduler running {lead.name} for final synthesis",
-                    data={"agent_id": lead.id},
-                )
-                await self._run_agent(session, lead)
+            if (
+                not synthesis_ran
+                and agent_calls < _MAX_RUN_AGENT_CALLS
+                and self._lead_ready_to_synthesize_replies(session)
+            ):
+                await self._run_lead_synthesis(session, lines, round_limit + 1)
             else:
                 self.service.add_event(session, "scheduler.budget_exhausted", "Cowork scheduler stopped at the run budget")
         self.service.assess_session(session)
         lines.append("")
         lines.append(self.service.format_status(session, verbose=False))
         return "\n".join(lines)
+
+    async def _run_lead_synthesis(self, session: CoworkSession, lines: list[str], round_number: int) -> None:
+        lead = session.agents[self._lead_agent_id(session)]
+        lines.append(f"Round {round_number}: running {lead.id} for synthesis")
+        self.service.add_event(
+            session,
+            "scheduler.lead_synthesis",
+            f"Cowork scheduler running {lead.name} for final synthesis",
+            data={"agent_id": lead.id},
+        )
+        await self._run_agent(session, lead)
 
     def _filter_self_activated_agents(
         self,
@@ -966,9 +984,25 @@ class CoworkTool(Tool):
         )
         if pending_lead_requests:
             return False
+        lead_inbox_ids = set(lead.inbox)
+        lead_request_ids = {
+            record.id
+            for record in session.mailbox.values()
+            if record.sender_id == lead_id and record.requires_reply
+        }
+        lead_request_correlations = {
+            record.correlation_id
+            for record in session.mailbox.values()
+            if record.sender_id == lead_id and record.requires_reply and record.correlation_id
+        }
         return any(
-            message_id in session.messages and session.messages[message_id].sender_id not in {"user", lead_id}
-            for message_id in lead.inbox
+            record.message_id in lead_inbox_ids
+            and record.sender_id not in {"user", lead_id}
+            and (
+                (record.reply_to_envelope_id and record.reply_to_envelope_id in lead_request_ids)
+                or (record.correlation_id and record.correlation_id in lead_request_correlations)
+            )
+            for record in session.mailbox.values()
         )
 
     @staticmethod

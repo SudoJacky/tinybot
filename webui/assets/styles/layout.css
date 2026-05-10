@@ -2,9 +2,9 @@
 .shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  gap: 16px;
+  gap: 18px;
   height: 100vh;
-  padding: 16px;
+  padding: 18px;
   transition: grid-template-columns 220ms ease;
 }
 
@@ -16,11 +16,12 @@
 .sidebar,
 .chat-panel,
 .right-panel {
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   background: var(--panel-gradient);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -36,16 +37,39 @@
   inset: 0;
   border-radius: var(--radius-xl);
   padding: 1px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 50%, rgba(255, 255, 255, 0.05));
+  background: var(--glass-sheen);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
+  z-index: 0;
 }
 
 [data-theme="dark"] .sidebar::before,
 [data-theme="dark"] .chat-panel::before,
 [data-theme="dark"] .right-panel::before {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent 50%, rgba(255, 255, 255, 0.02));
+  background: var(--glass-sheen);
+}
+
+.sidebar::after,
+.chat-panel::after,
+.right-panel::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(var(--radius-xl) - 1px);
+  background:
+    linear-gradient(180deg, var(--glass-highlight), transparent 34%),
+    radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.32), transparent 32%);
+  opacity: 0.42;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sidebar > *,
+.chat-panel > *,
+.right-panel > * {
+  position: relative;
+  z-index: 1;
 }
