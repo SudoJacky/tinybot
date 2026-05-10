@@ -699,8 +699,28 @@ html.theme-switching .theme-toggle svg {
 
 .cowork-chat-event {
   grid-template-columns: max-content minmax(0, 1fr);
-  padding: 9px 11px;
-  background: color-mix(in srgb, var(--cowork-surface-2) 78%, transparent);
+  align-items: center;
+  gap: 7px;
+  min-height: 20px;
+  padding: 1px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--cowork-muted);
+  box-shadow: none;
+}
+
+.cowork-chat-event strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cowork-chat-event .cowork-status {
+  padding: 1px 5px;
+  font-size: 9px;
 }
 
 .cowork-empty {

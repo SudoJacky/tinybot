@@ -275,8 +275,8 @@
             <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe the shared goal..."></textarea>
             <div class="cowork-toolbar cowork-create-actions">
               <label class="config-checkbox-label">
-                <input id="cowork-auto-run" type="checkbox" />
-                <span>Run immediately</span>
+                <input id="cowork-auto-run" type="checkbox" checked />
+                <span>Run to finish</span>
               </label>
               <button id="cowork-start-button" class="button button-primary" type="button">Start Cowork</button>
             </div>
@@ -301,10 +301,10 @@
                 <h3 id="cowork-active-title">Select or start a session</h3>
               </div>
               <div class="cowork-toolbar cowork-run-controls" aria-label="Cowork run controls">
-                <label class="cowork-limit-label">Rounds <input id="cowork-round-limit" class="config-input cowork-limit-input" type="number" min="1" max="20" value="1" /></label>
+                <label class="cowork-limit-label">Rounds <input id="cowork-round-limit" class="config-input cowork-limit-input" type="number" min="1" max="20" value="20" /></label>
                 <label class="cowork-limit-label">Agents <input id="cowork-agent-limit" class="config-input cowork-limit-input" type="number" min="1" max="10" value="3" /></label>
-                <button id="cowork-run-button" class="button" type="button">Run round</button>
-                <button id="cowork-run-until-idle-button" class="button" type="button">Run until idle</button>
+                <button id="cowork-run-button" class="button" type="button">Run to finish</button>
+                <button id="cowork-run-until-idle-button" class="button" type="button">Run one round</button>
                 <button id="cowork-pause-button" class="button" type="button">Pause</button>
                 <button id="cowork-resume-button" class="button" type="button">Resume</button>
                 <button id="cowork-summary-button" class="button" type="button">Summary</button>
