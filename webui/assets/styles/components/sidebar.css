@@ -2,8 +2,8 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  padding: 24px;
-  gap: 20px;
+  padding: 22px 18px;
+  gap: 10px;
   overflow: hidden;
   transition: background-color var(--transition-theme),
               border-color var(--transition-theme),
@@ -99,7 +99,7 @@
 .sidebar .brand,
 .sidebar .sessions-panel .panel-title-row,
 .sidebar .session-list,
-.sidebar .status-panel {
+.sidebar .sidebar-feature-panel {
   visibility: visible;
   transition: opacity 120ms ease, visibility 0s linear 0s;
 }
@@ -107,7 +107,7 @@
 .sidebar.collapsed .brand,
 .sidebar.collapsed .sessions-panel .panel-title-row,
 .sidebar.collapsed .session-list,
-.sidebar.collapsed .status-panel {
+.sidebar.collapsed .sidebar-feature-panel {
   opacity: 0;
   pointer-events: none;
   visibility: hidden;
@@ -118,18 +118,18 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding-right: 38px;
 }
 
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  flex: 0 0 48px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, white);
-  border-radius: 14px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, white);
+  border-radius: 12px;
   background:
     radial-gradient(circle at 72% 24%, rgba(255, 255, 255, 0.34), transparent 22px),
     linear-gradient(135deg, var(--accent), var(--accent-hover));
@@ -148,23 +148,23 @@
 .brand-logo {
   position: relative;
   z-index: 1;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   filter: drop-shadow(0 3px 7px rgba(15, 23, 42, 0.18));
 }
 
 .brand h1 {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 
 .brand p {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--text-muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 /* 侧边栏操作区 */
@@ -177,13 +177,13 @@
 }
 
 .sidebar-actions .button {
-  min-height: 44px;
+  min-height: 38px;
   white-space: nowrap;
 }
 
 .sidebar-actions .sidebar-action-icon {
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   padding: 0;
 }
 

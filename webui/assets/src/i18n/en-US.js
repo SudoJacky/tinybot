@@ -39,6 +39,7 @@ export default {
     "ui.noTime": "No time",
     "ui.deleteSession": "Delete session",
     "ui.confirmDelete": "Confirm delete session",
+    "ui.confirm": "Confirm",
     "ui.close": "Close",
     "ui.skipToChat": "Skip to chat",
     "ui.switchLanguage": "Switch language",

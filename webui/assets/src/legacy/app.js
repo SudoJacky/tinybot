@@ -129,6 +129,11 @@ function updateUsageDisplay(usage) {
   // 计算占比
   const ratio = Math.min(1, total / contextWindow);
   const percent = Math.round(ratio * 100);
+  const formatCompactTokens = (value) => {
+    if (value >= 1000000) return `${(value / 1000000).toFixed(value >= 10000000 ? 0 : 1)}m`;
+    if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
+    return `${value}`;
+  };
 
   // 根据占比决定颜色: <50%绿色, 50-75%黄色, 75-90%橙色, >90%红色
   let colorClass = "usage-bar-safe";
@@ -148,17 +153,18 @@ function updateUsageDisplay(usage) {
   const totalText = lang === "zh"
     ? `${total}/${contextWindow}`
     : `${total}/${contextWindow}`;
+  const compactTotalText = `${formatCompactTokens(total)}/${formatCompactTokens(contextWindow)}`;
   const cachedText = cached > 0
     ? (lang === "zh" ? `缓存:${cached}` : `Cache:${cached}`)
     : "";
 
   container.innerHTML = `
-    <div class="usage-bar-wrapper">
+    <div class="usage-bar-wrapper" title="${totalText} (${percent}%) · ${labelText}${cachedText ? ` · ${cachedText}` : ""}">
       <div class="usage-bar-track">
         <div class="usage-bar-fill ${colorClass}" style="width: ${percent}%"></div>
       </div>
       <div class="usage-bar-text">
-        <span class="usage-total">${totalText} (${percent}%)</span>
+        <span class="usage-total">${compactTotalText}</span>
         <span class="usage-detail">${labelText}</span>
         ${cachedText ? `<span class="usage-cached">${cachedText}</span>` : ""}
       </div>
@@ -1372,21 +1378,17 @@ function renderSessions() {
     key.textContent = sessionTitleForKey(item.key);
     key.title = item.chat_id;
 
-    const time = document.createElement("span");
-    time.className = "session-time";
-    time.textContent = item.updated_at ? `${t("ui.updatedAt")} ${formatTime(item.updated_at)}` : t("ui.noTime");
-
-    button.append(key, time);
-
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "button button-ghost button-small session-delete";
     deleteBtn.dataset.chatId = item.chat_id;
     deleteBtn.dataset.sessionKey = item.key;
     deleteBtn.title = t("ui.deleteSession");
+    deleteBtn.setAttribute("aria-label", t("ui.deleteSession"));
     deleteBtn.textContent = "×";
 
-    wrapper.append(button, deleteBtn);
+    button.append(key, deleteBtn);
+    wrapper.append(button);
     elements.sessionList.append(wrapper);
   }
 }
@@ -5194,8 +5196,23 @@ function applyTheme(theme) {
   }
 }
 
+function playThemeTransition() {
+  const root = document.documentElement;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+  root.classList.remove("theme-switching");
+  // Restart the keyframe if the user toggles twice in quick succession.
+  void root.offsetWidth;
+  root.classList.add("theme-switching");
+  window.setTimeout(() => {
+    root.classList.remove("theme-switching");
+  }, 620);
+}
+
 function toggleTheme() {
   const newTheme = state.theme === "light" ? "dark" : "light";
+  playThemeTransition();
   applyTheme(newTheme);
 }
 
@@ -6523,15 +6540,29 @@ function bindEvents() {
     // Handle delete button
     const deleteBtn = event.target.closest(".session-delete");
     if (deleteBtn) {
+      event.preventDefault();
+      event.stopPropagation();
       const sessionKey = deleteBtn.dataset.sessionKey;
       const chatId = deleteBtn.dataset.chatId;
-      if (confirm(`${t("ui.confirmDelete")} ${chatId}？`)) {
-        try {
-          await deleteSession(sessionKey, chatId);
-        } catch (error) {
-          console.error(error);
-          setError(error.message || t("status.failed"));
-        }
+      if (!deleteBtn.classList.contains("confirming")) {
+        elements.sessionList.querySelectorAll(".session-delete.confirming").forEach((button) => {
+          button.classList.remove("confirming");
+          button.textContent = "×";
+          button.title = t("ui.deleteSession");
+          button.setAttribute("aria-label", t("ui.deleteSession"));
+        });
+        deleteBtn.classList.add("confirming");
+        deleteBtn.textContent = t("ui.confirm");
+        deleteBtn.title = t("ui.confirmDelete");
+        deleteBtn.setAttribute("aria-label", t("ui.confirmDelete"));
+        return;
+      }
+
+      try {
+        await deleteSession(sessionKey, chatId);
+      } catch (error) {
+        console.error(error);
+        setError(error.message || t("status.failed"));
       }
       return;
     }

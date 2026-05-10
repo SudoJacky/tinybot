@@ -1,7 +1,7 @@
 /* ========== 响应式布局 ========== */
 @media (max-width: 1200px) {
   .shell {
-    grid-template-columns: 240px minmax(0, 1fr) minmax(200px, 240px);
+    grid-template-columns: 248px minmax(0, 1fr);
     gap: 16px;
     padding: 16px;
   }
@@ -10,7 +10,7 @@
 @media (max-width: 1100px) {
   .shell {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(520px, 1fr) auto auto;
+    grid-template-rows: minmax(520px, 1fr) auto;
     height: auto;
     min-height: 100vh;
     gap: 12px;
@@ -29,11 +29,6 @@
   .chat-panel {
     order: 1;
     min-height: 520px;
-  }
-
-  .right-panel {
-    order: 3;
-    min-height: 0;
   }
 
   .sessions-panel {
@@ -85,8 +80,7 @@
   }
 
   .sidebar,
-  .chat-panel,
-  .right-panel {
+  .chat-panel {
     border-radius: var(--radius-lg);
     padding: 16px;
   }
@@ -109,6 +103,14 @@
   .composer-send {
     grid-column: auto;
     width: 52px;
+  }
+
+  .composer-status-panel .system-status {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .composer-status-panel .usage-item {
+    grid-column: 1 / -1;
   }
 
   .editor-toolbar {

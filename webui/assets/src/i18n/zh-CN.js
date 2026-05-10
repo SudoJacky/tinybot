@@ -39,6 +39,7 @@ export default {
     "ui.noTime": "暂无时间",
     "ui.deleteSession": "删除会话",
     "ui.confirmDelete": "确定删除会话",
+    "ui.confirm": "确认",
     "ui.close": "关闭",
     "ui.skipToChat": "跳到聊天区域",
     "ui.switchLanguage": "切换语言",
