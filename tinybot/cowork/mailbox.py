@@ -11,6 +11,7 @@ from tinybot.cowork.types import CoworkMailboxRecord, CoworkMessage, CoworkSessi
 
 EnvelopeVisibility = Literal["direct", "group", "user"]
 EnvelopeKind = Literal["message", "task_request", "status", "result", "question"]
+EnvelopeRequestType = Literal["", "clarify", "verify", "produce", "review", "unblock"]
 
 
 @dataclass
@@ -22,12 +23,16 @@ class CoworkEnvelope:
     recipient_ids: list[str] = field(default_factory=list)
     visibility: EnvelopeVisibility = "direct"
     kind: EnvelopeKind = "message"
+    request_type: EnvelopeRequestType = ""
     thread_id: str | None = None
     requires_reply: bool = False
     priority: int = 0
     deadline_round: int | None = None
     correlation_id: str | None = None
     reply_to_envelope_id: str | None = None
+    expected_output_schema: dict[str, object] = field(default_factory=dict)
+    blocking_task_id: str | None = None
+    escalate_after_rounds: int | None = None
 
 
 class CoworkMailbox:
@@ -59,12 +64,16 @@ class CoworkMailbox:
             content=envelope.content,
             visibility=envelope.visibility,
             kind=envelope.kind,
+            request_type=envelope.request_type,
             thread_id=thread_id,
             requires_reply=envelope.requires_reply or envelope.kind == "question",
             priority=max(0, min(100, int(envelope.priority or 0))),
             deadline_round=envelope.deadline_round,
             correlation_id=envelope.correlation_id or self.service._new_id("corr"),
             reply_to_envelope_id=envelope.reply_to_envelope_id,
+            expected_output_schema=dict(envelope.expected_output_schema or {}),
+            blocking_task_id=envelope.blocking_task_id,
+            escalate_after_rounds=envelope.escalate_after_rounds,
         )
         self.service.add_mailbox_record(session, record, save=False)
         self.service.add_event(
@@ -92,6 +101,7 @@ class CoworkMailbox:
             thread_id=thread_id,
             save=False,
         )
+        self._reopen_for_user_message(session, envelope.sender_id, recipients)
         record.status = "delivered"
         record.message_id = message.id
         record.thread_id = message.thread_id
@@ -117,7 +127,30 @@ class CoworkMailbox:
             },
             save=save,
         )
+        self.service.assess_session(session, save=save)
         return message
+
+    def _reopen_for_user_message(self, session: CoworkSession, sender_id: str, recipients: list[str]) -> None:
+        if sender_id != "user":
+            return
+        reopened = False
+        if session.status == "completed":
+            session.status = "active"
+            reopened = True
+        for recipient_id in recipients:
+            agent = session.agents.get(recipient_id)
+            if agent and agent.status == "done":
+                agent.status = "waiting"
+                reopened = True
+        if reopened:
+            self.service.add_event(
+                session,
+                "session.reopened",
+                "Cowork session reopened for a new user message",
+                actor_id="user",
+                data={"recipients": recipients},
+                save=False,
+            )
 
     @staticmethod
     def _find_duplicate(
@@ -175,10 +208,12 @@ class CoworkMailbox:
             correlated_reply = delivered.correlation_id == record.correlation_id and delivered.sender_id in record.recipient_ids
             addressed_sender = record.sender_id in delivered.recipient_ids
             if explicit_reply or (correlated_reply and addressed_sender):
-                record.status = "replied"
-                record.updated_at = now_iso()
                 if delivered.sender_id not in record.replied_by:
                     record.replied_by.append(delivered.sender_id)
+                agent_recipients = [recipient for recipient in record.recipient_ids if recipient in session.agents]
+                if not agent_recipients or all(recipient in record.replied_by for recipient in agent_recipients):
+                    record.status = "replied"
+                record.updated_at = now_iso()
                 self.service.add_event(
                     session,
                     "mailbox.replied",

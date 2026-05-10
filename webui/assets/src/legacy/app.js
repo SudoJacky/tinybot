@@ -1733,9 +1733,39 @@ function renderCoworkDetail() {
   renderCoworkAgents(session);
   renderCoworkTasks(session?.tasks || []);
   renderCoworkMailbox(session);
+  renderCoworkInsights(session);
   renderCoworkThreads(threads);
   renderCoworkTimeline(session);
   renderCoworkAgentOptions(session?.agents || []);
+}
+
+function renderCoworkInsights(session) {
+  if (!elements.coworkInsightPanel) return;
+  if (!session) {
+    elements.coworkInsightPanel.hidden = true;
+    return;
+  }
+  const decision = session.completion_decision || {};
+  const blockers = decision.blocked || [];
+  const hasDraft = Boolean((session.final_draft || "").trim());
+  const hasDecision = Boolean(decision.next_action || decision.reason || blockers.length || hasDraft);
+  elements.coworkInsightPanel.hidden = !hasDecision;
+  if (!hasDecision) return;
+  if (elements.coworkInsightAction) {
+    elements.coworkInsightAction.textContent = String(decision.next_action || "observe").replaceAll("_", " ");
+  }
+  if (elements.coworkInsightReason) {
+    elements.coworkInsightReason.textContent = decision.reason || "";
+  }
+  if (elements.coworkInsightBlockers) {
+    elements.coworkInsightBlockers.textContent = blockers.length
+      ? blockers.map((item) => `${item.request_type || "reply"}: ${compactText(item.content || "", 80)}`).join(" | ")
+      : "No blocking replies.";
+  }
+  if (elements.coworkFinalDraft) {
+    elements.coworkFinalDraft.hidden = !hasDraft;
+    elements.coworkFinalDraft.textContent = hasDraft ? compactText(session.final_draft, 1200) : "";
+  }
 }
 
 function renderCoworkAgents(session) {
@@ -1847,8 +1877,13 @@ function renderCoworkTasks(tasks) {
     item.querySelector("strong").textContent = task.title || task.id;
     item.querySelector("span").className = coworkStatusClass(task.status);
     item.querySelector("span").textContent = task.status || "pending";
-    item.querySelector("p").textContent = compactText(task.description || task.result || "", 130);
-    item.querySelector("small").textContent = `Owner ${task.assigned_agent_id || "-"}${task.dependencies?.length ? ` - Depends ${task.dependencies.join(", ")}` : ""}`;
+    const answer = task.result_data?.answer || task.result || task.description || "";
+    item.querySelector("p").textContent = compactText(answer, 130);
+    item.querySelector("small").textContent = [
+      `Owner ${task.assigned_agent_id || "-"}`,
+      task.confidence !== null && task.confidence !== undefined ? `Confidence ${Math.round(Number(task.confidence) * 100)}%` : "",
+      task.dependencies?.length ? `Depends ${task.dependencies.join(", ")}` : "",
+    ].filter(Boolean).join(" - ");
     elements.coworkTaskList.append(item);
     }
   }

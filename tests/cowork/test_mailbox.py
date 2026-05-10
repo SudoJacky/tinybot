@@ -125,6 +125,139 @@ def test_mailbox_tracks_read_and_reply_lifecycle(temp_workspace):
     assert any(event.type == "mailbox.replied" for event in session.events)
 
 
+def test_mailbox_persists_protocol_fields(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Protocol", "Protocol", [], [])
+    mailbox = CoworkMailbox(service)
+    sender, recipient = list(session.agents)[:2]
+
+    message = mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id=sender,
+            recipient_ids=[recipient],
+            content="Please review the result.",
+            requires_reply=True,
+            request_type="review",
+            expected_output_schema={"verdict": "string"},
+            blocking_task_id="task_x",
+            escalate_after_rounds=2,
+        ),
+    )
+
+    record = next(record for record in session.mailbox.values() if record.message_id == message.id)
+    assert record.request_type == "review"
+    assert record.expected_output_schema == {"verdict": "string"}
+    assert record.blocking_task_id == "task_x"
+    assert record.escalate_after_rounds == 2
+
+
+def test_user_message_reopens_completed_session_and_wakes_lead(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Answer follow ups", "Follow ups", [], [])
+    task_id = next(iter(session.tasks))
+    lead_id = service.lead_agent_id(session)
+    service.complete_task(session, task_id, "Initial answer.")
+
+    assert session.status == "completed"
+    assert session.agents[lead_id].status == "done"
+
+    CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="user",
+            recipient_ids=[lead_id],
+            content="Can everyone introduce themselves?",
+            visibility="direct",
+        ),
+    )
+
+    assert session.status == "active"
+    assert session.agents[lead_id].status == "waiting"
+    assert session.completion_decision["next_action"] == "run_next_round"
+    assert service.select_active_agents(session, limit=1)[0].id == lead_id
+    assert any(event.type == "session.reopened" for event in session.events)
+
+
+def test_message_to_done_peer_wakes_peer_for_followup(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Follow up with team",
+        "Follow up",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+        ],
+        [{"id": "1", "title": "Initial", "description": "Initial", "assigned_agent_id": "coordinator"}],
+    )
+    service.complete_task(session, "1", "Initial answer.")
+    session.status = "active"
+
+    assert session.agents["researcher"].status == "done"
+
+    CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="coordinator",
+            recipient_ids=["researcher"],
+            content="Please introduce yourself.",
+            requires_reply=True,
+        ),
+    )
+
+    assert session.agents["researcher"].status == "waiting"
+    assert service.select_active_agents(session, limit=1)[0].id == "researcher"
+
+
+def test_multi_recipient_request_waits_for_all_replies(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Gather replies",
+        "Gather",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+            {"id": "analyst", "name": "Analyst", "role": "Analysis", "goal": "Analyze", "responsibilities": []},
+        ],
+        [],
+    )
+    mailbox = CoworkMailbox(service)
+    question = mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="coordinator",
+            recipient_ids=["researcher", "analyst"],
+            content="Please introduce yourselves.",
+            requires_reply=True,
+            correlation_id="intro-all",
+        ),
+    )
+    record = next(record for record in session.mailbox.values() if record.message_id == question.id)
+
+    mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="analyst", recipient_ids=["coordinator"], content="Analyst intro.", correlation_id="intro-all"
+        ),
+    )
+
+    assert record.status == "delivered"
+    assert record.replied_by == ["analyst"]
+
+    mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="researcher",
+            recipient_ids=["coordinator"],
+            content="Researcher intro.",
+            correlation_id="intro-all",
+        ),
+    )
+
+    assert record.status == "replied"
+    assert set(record.replied_by) == {"analyst", "researcher"}
+
+
 def test_mailbox_expires_unanswered_deadline_records(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Expire questions", "Expire", [], [])

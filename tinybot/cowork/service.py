@@ -62,6 +62,8 @@ class CoworkService:
                     goal=raw["goal"],
                     status=raw.get("status", "active"),
                     shared_summary=raw.get("shared_summary", ""),
+                    final_draft=raw.get("final_draft", ""),
+                    completion_decision=raw.get("completion_decision", {}),
                     created_at=raw.get("created_at", now_iso()),
                     updated_at=raw.get("updated_at", now_iso()),
                     rounds=raw.get("rounds", 0),
@@ -95,6 +97,8 @@ class CoworkService:
                         dependencies=item.get("dependencies", []),
                         status=item.get("status", "pending"),
                         result=item.get("result"),
+                        result_data=item.get("result_data", {}),
+                        confidence=item.get("confidence"),
                         error=item.get("error"),
                         created_at=item.get("created_at", now_iso()),
                         updated_at=item.get("updated_at", now_iso()),
@@ -135,6 +139,7 @@ class CoworkService:
                         content=item.get("content", ""),
                         visibility=item.get("visibility", "direct"),
                         kind=item.get("kind", "message"),
+                        request_type=item.get("request_type", ""),
                         status=item.get("status", "queued"),
                         thread_id=item.get("thread_id"),
                         message_id=item.get("message_id"),
@@ -143,6 +148,9 @@ class CoworkService:
                         deadline_round=item.get("deadline_round"),
                         correlation_id=item.get("correlation_id"),
                         reply_to_envelope_id=item.get("reply_to_envelope_id"),
+                        expected_output_schema=item.get("expected_output_schema", {}),
+                        blocking_task_id=item.get("blocking_task_id"),
+                        escalate_after_rounds=item.get("escalate_after_rounds"),
                         read_by=item.get("read_by", []),
                         replied_by=item.get("replied_by", []),
                         created_at=item.get("created_at", now_iso()),
@@ -275,6 +283,7 @@ class CoworkService:
             save=False,
         )
         self.add_event(session, "session.created", f"Created cowork session '{session.title}'", data={"goal": goal}, save=False)
+        self.assess_session(session, save=False)
         sessions[session.id] = session
         self._touch(session)
         self._save()
@@ -335,7 +344,7 @@ class CoworkService:
             agent = session.agents.get(recipient_id)
             if agent and msg_id not in agent.inbox:
                 agent.inbox.append(msg_id)
-                if agent.status == "idle":
+                if agent.status in {"idle", "done"}:
                     agent.status = "waiting"
         self.add_event(
             session,
@@ -447,8 +456,11 @@ class CoworkService:
             return f"Error: task '{task_id}' not found"
         if status not in {"completed", "failed", "skipped"}:
             status = "completed"
+        result_data = self._extract_structured_result(result)
         task.status = status  # type: ignore[assignment]
         task.result = result
+        task.result_data = result_data
+        task.confidence = self._coerce_confidence(result_data.get("confidence")) if result_data else None
         task.error = result if status == "failed" else None
         task.updated_at = now_iso()
         agent = session.agents.get(task.assigned_agent_id)
@@ -469,6 +481,8 @@ class CoworkService:
             data={"task_id": task_id},
             save=False,
         )
+        if status == "completed":
+            self.refresh_shared_memory(session, save=False)
         self._update_completion_state(session)
         self._touch(session)
         self._save()
@@ -536,9 +550,144 @@ class CoworkService:
             if has_shared_task:
                 unassigned_ready_slots -= 1
             if has_direct_work or has_shared_task:
-                candidates.append((self._agent_mailbox_pressure(session, agent.id), agent))
+                candidates.append((self.agent_readiness_score(session, agent.id, has_shared_task=has_shared_task), agent))
         candidates.sort(key=lambda item: item[0], reverse=True)
         return [agent for _, agent in candidates[: max(1, limit)]]
+
+    def agent_readiness_score(self, session: CoworkSession, agent_id: str, *, has_shared_task: bool = False) -> int:
+        agent = session.agents[agent_id]
+        score = 0
+        score += min(len(agent.inbox), 5) * 8
+        score += self._agent_mailbox_pressure(session, agent_id)
+        if self.ready_tasks_for(session, agent_id):
+            score += 45
+        if has_shared_task:
+            score += 18
+        if agent.status == "blocked":
+            score -= 25
+        if agent.status == "waiting":
+            score += 10
+        if agent.current_task_id:
+            score += 8
+        if agent.rounds:
+            score -= min(agent.rounds, 8)
+        if agent_id == self.lead_agent_id(session) and self._lead_should_synthesize(session):
+            score += 65
+        return score
+
+    def agent_readiness_scores(self, session: CoworkSession) -> list[dict[str, Any]]:
+        scores = [
+            {
+                "agent_id": agent.id,
+                "name": agent.name,
+                "status": agent.status,
+                "score": self.agent_readiness_score(session, agent.id),
+                "inbox_count": len(agent.inbox),
+                "ready_tasks": [task.id for task in self.ready_tasks_for(session, agent.id)],
+                "pending_replies": self.pending_reply_records_for(session, agent.id),
+            }
+            for agent in session.agents.values()
+            if agent.status not in {"done", "failed"}
+        ]
+        return sorted(scores, key=lambda item: item["score"], reverse=True)
+
+    def pending_reply_records_for(self, session: CoworkSession, agent_id: str) -> list[str]:
+        return [
+            record.id
+            for record in session.mailbox.values()
+            if agent_id in record.recipient_ids
+            and record.requires_reply
+            and record.status in {"delivered", "read"}
+        ]
+
+    def assess_session(self, session: CoworkSession, *, save: bool = True) -> dict[str, Any]:
+        pending_tasks = [task for task in session.tasks.values() if task.status == "pending"]
+        active_tasks = [task for task in session.tasks.values() if task.status == "in_progress"]
+        failed_tasks = [task for task in session.tasks.values() if task.status == "failed"]
+        pending_replies = [
+            record
+            for record in session.mailbox.values()
+            if record.requires_reply and record.status in {"delivered", "read"}
+        ]
+        inbox_messages = [
+            message_id
+            for agent in session.agents.values()
+            if agent.status not in {"done", "failed"}
+            for message_id in agent.inbox
+            if message_id in session.messages
+        ]
+        blocked = [
+            {
+                "id": record.id,
+                "from": record.sender_id,
+                "to": record.recipient_ids,
+                "request_type": record.request_type or ("reply" if record.requires_reply else record.kind),
+                "blocking_task_id": record.blocking_task_id,
+                "content": record.content[:240],
+            }
+            for record in pending_replies
+        ]
+        if session.status == "completed":
+            next_action = "complete"
+            reason = "The cowork session is complete."
+        elif failed_tasks:
+            next_action = "review_failed_tasks"
+            reason = f"{len(failed_tasks)} task(s) failed and need review."
+        elif pending_replies:
+            next_action = "resolve_blockers"
+            reason = f"{len(pending_replies)} reply request(s) are still open."
+        elif inbox_messages:
+            next_action = "run_next_round"
+            reason = f"{len(inbox_messages)} unread message(s) need agent attention."
+        elif pending_tasks or active_tasks:
+            next_action = "run_next_round"
+            reason = f"{len(pending_tasks) + len(active_tasks)} task(s) still need progress."
+        elif session.tasks:
+            next_action = "summarize"
+            reason = "All known tasks are complete or skipped."
+        else:
+            next_action = "plan"
+            reason = "No tasks exist yet."
+        decision = {
+            "next_action": next_action,
+            "reason": reason,
+            "blocked": blocked,
+            "ready_to_finish": next_action == "summarize",
+            "readiness": self.agent_readiness_scores(session)[:6],
+            "updated_at": now_iso(),
+        }
+        session.completion_decision = decision
+        if save:
+            self._touch(session)
+            self._save()
+        return decision
+
+    def refresh_shared_memory(self, session: CoworkSession, *, save: bool = True) -> str:
+        completed = [task for task in session.tasks.values() if task.status == "completed"]
+        facts: list[str] = []
+        open_questions: list[str] = []
+        risks: list[str] = []
+        for task in completed[-8:]:
+            data = task.result_data or {}
+            for key, bucket in (("findings", facts), ("open_questions", open_questions), ("risks", risks)):
+                values = data.get(key)
+                if isinstance(values, list):
+                    bucket.extend(str(item).strip() for item in values if str(item).strip())
+            if not data and task.result:
+                facts.append(f"{task.title}: {task.result[:280]}")
+        lines = []
+        if facts:
+            lines.append("Confirmed findings:\n" + "\n".join(f"- {item}" for item in facts[-10:]))
+        if risks:
+            lines.append("Risks:\n" + "\n".join(f"- {item}" for item in risks[-6:]))
+        if open_questions:
+            lines.append("Open questions:\n" + "\n".join(f"- {item}" for item in open_questions[-6:]))
+        session.shared_summary = "\n\n".join(lines)[-4000:]
+        session.final_draft = self._build_final_draft(session)
+        if save:
+            self._touch(session)
+            self._save()
+        return session.shared_summary
 
     def add_mailbox_record(self, session: CoworkSession, record: CoworkMailboxRecord, *, save: bool = True) -> CoworkMailboxRecord:
         session.mailbox[record.id] = record
@@ -716,6 +865,12 @@ class CoworkService:
             lines.append("### Recent Events")
             for event in session.events[-10:]:
                 lines.append(f"- [{event.created_at}] {event.type}: {event.message}")
+        decision = session.completion_decision or self.assess_session(session, save=False)
+        if verbose and decision:
+            lines.append("")
+            lines.append("### Cowork Intelligence")
+            lines.append(f"- Next action: {decision.get('next_action', '-')}")
+            lines.append(f"- Reason: {decision.get('reason', '-')}")
         return "\n".join(lines)
 
     @staticmethod
@@ -776,11 +931,23 @@ class CoworkService:
         session.updated_at = now_iso()
 
     def _update_completion_state(self, session: CoworkSession) -> None:
-        if session.tasks and all(task.status in {"completed", "skipped"} for task in session.tasks.values()):
+        unresolved_replies = any(
+            record.requires_reply and record.status in {"delivered", "read"}
+            for record in session.mailbox.values()
+        )
+        if session.tasks and not unresolved_replies and all(task.status in {"completed", "skipped"} for task in session.tasks.values()):
+            self.refresh_shared_memory(session, save=False)
             session.status = "completed"
             for agent in session.agents.values():
                 if agent.status not in {"failed", "blocked"}:
                     agent.status = "done"
+            session.completion_decision = {
+                "next_action": "complete",
+                "reason": "All tasks are complete and there are no unresolved reply requests.",
+                "blocked": [],
+                "ready_to_finish": True,
+                "updated_at": now_iso(),
+            }
 
     @staticmethod
     def _task_dependencies_done(session: CoworkSession, task: CoworkTask) -> bool:
@@ -809,6 +976,70 @@ class CoworkService:
             and record.status in {"delivered", "read"}
             for record in session.mailbox.values()
         )
+
+    @staticmethod
+    def _extract_structured_result(result: str) -> dict[str, Any]:
+        text = result.strip()
+        if not text:
+            return {}
+        candidates = [text]
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            candidates.append(text[start : end + 1])
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    @staticmethod
+    def _coerce_confidence(value: Any) -> float | None:
+        try:
+            confidence = float(value)
+        except Exception:
+            return None
+        if confidence > 1:
+            confidence = confidence / 100
+        return min(max(confidence, 0), 1)
+
+    @staticmethod
+    def _lead_should_synthesize(session: CoworkSession) -> bool:
+        if not session.tasks:
+            return False
+        has_completed = any(task.status == "completed" for task in session.tasks.values())
+        has_open_work = any(task.status in {"pending", "in_progress"} for task in session.tasks.values())
+        has_user_visible_result = any(
+            message.sender_id != "user" and "user" in message.recipient_ids
+            for message in session.messages.values()
+        )
+        return has_completed and (not has_open_work or not has_user_visible_result)
+
+    @staticmethod
+    def _build_final_draft(session: CoworkSession) -> str:
+        completed = [task for task in session.tasks.values() if task.status == "completed"]
+        if not completed:
+            return ""
+        lines = [f"# {session.title}", "", f"Goal: {session.goal}", "", "## Current Answer"]
+        for task in completed[-10:]:
+            data = task.result_data or {}
+            answer = str(data.get("answer") or task.result or "").strip()
+            confidence = f" (confidence {task.confidence:.0%})" if task.confidence is not None else ""
+            lines.append(f"- {task.title}{confidence}: {answer[:700] if answer else 'Completed.'}")
+        open_questions = [
+            item
+            for task in completed
+            if isinstance(task.result_data.get("open_questions"), list)
+            for item in (task.result_data.get("open_questions") or [])
+            if str(item).strip()
+        ]
+        if open_questions:
+            lines.extend(["", "## Open Questions"])
+            lines.extend(f"- {str(item).strip()}" for item in open_questions[-8:])
+        return "\n".join(lines)
 
     def _mark_mailbox_read_for_message(self, session: CoworkSession, message_id: str, agent_id: str) -> None:
         for record in session.mailbox.values():

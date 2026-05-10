@@ -50,6 +50,8 @@ class CoworkTask:
     dependencies: list[str] = field(default_factory=list)
     status: TaskStatus = "pending"
     result: str | None = None
+    result_data: dict[str, Any] = field(default_factory=dict)
+    confidence: float | None = None
     error: str | None = None
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
@@ -78,6 +80,7 @@ class CoworkMailboxRecord:
     content: str
     visibility: str = "direct"
     kind: str = "message"
+    request_type: str = ""
     status: MailboxStatus = "queued"
     thread_id: str | None = None
     message_id: str | None = None
@@ -86,6 +89,9 @@ class CoworkMailboxRecord:
     deadline_round: int | None = None
     correlation_id: str | None = None
     reply_to_envelope_id: str | None = None
+    expected_output_schema: dict[str, Any] = field(default_factory=dict)
+    blocking_task_id: str | None = None
+    escalate_after_rounds: int | None = None
     read_by: list[str] = field(default_factory=list)
     replied_by: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=now_iso)
@@ -135,6 +141,8 @@ class CoworkSession:
     mailbox: dict[str, CoworkMailboxRecord] = field(default_factory=dict)
     events: list[CoworkEvent] = field(default_factory=list)
     shared_summary: str = ""
+    final_draft: str = ""
+    completion_decision: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
     rounds: int = 0

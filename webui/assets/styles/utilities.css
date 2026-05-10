@@ -392,6 +392,47 @@ html.theme-switching .theme-toggle svg {
   color: var(--cowork-muted);
 }
 
+.cowork-insight-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(180px, 0.8fr) minmax(280px, 1.3fr);
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--cowork-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--cowork-surface-2) 76%, transparent);
+}
+
+.cowork-insight-panel[hidden] {
+  display: none;
+}
+
+.cowork-insight-panel strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
+  text-transform: capitalize;
+}
+
+.cowork-insight-panel p {
+  margin: 4px 0 0;
+  color: var(--cowork-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cowork-final-draft {
+  max-height: 132px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--cowork-line);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--panel-strong) 86%, var(--bg-subtle));
+  color: var(--cowork-ink);
+  font: 12px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+}
+
 .cowork-metrics {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
