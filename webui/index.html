@@ -17,13 +17,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css?v=approval-panel-20260507n">
+  <link rel="stylesheet" href="/assets/styles/main.css">
   <!-- Highlight.js for code syntax highlighting -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light-theme">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-dark-theme" disabled>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="/assets/i18n.js"></script>
 </head>
 <body>
   <!-- Skip to main content link for accessibility -->
@@ -299,9 +298,9 @@
     <div class="cowork-page-content cowork-modal-content">
       <header class="modal-header cowork-page-header">
         <div class="cowork-title-block">
-          <p class="eyebrow">Cowork</p>
+          <p class="eyebrow">Cowork command center</p>
           <h2>Multi-agent workspace</h2>
-          <p>Coordinate goals, tasks, messages, and agent handoffs from one focused board.</p>
+          <p>Coordinate goals, rounds, tasks, messages, and agent handoffs from one focused board.</p>
         </div>
         <div class="cowork-header-actions">
           <button id="cowork-refresh-button" class="button" type="button">Refresh</button>
@@ -311,11 +310,12 @@
       <div class="modal-body cowork-modal-body">
         <section class="cowork-create">
           <div class="cowork-create-copy">
+            <span class="cowork-kicker">New mission</span>
             <label class="config-label" for="cowork-goal-input">Goal</label>
-            <p>Start a shared agent session with a clear objective and optional first run.</p>
+            <p>Set the objective once, then let the workspace keep every agent, task, and decision visible.</p>
           </div>
           <div class="cowork-create-input">
-            <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe a goal that benefits from several perspectives..."></textarea>
+            <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe the shared goal..."></textarea>
             <div class="cowork-toolbar cowork-create-actions">
               <label class="config-checkbox-label">
                 <input id="cowork-auto-run" type="checkbox" />
@@ -343,7 +343,7 @@
                 <p id="cowork-active-status" class="eyebrow">No session</p>
                 <h3 id="cowork-active-title">Select or start a session</h3>
               </div>
-              <div class="cowork-toolbar">
+              <div class="cowork-toolbar cowork-run-controls" aria-label="Cowork run controls">
                 <label class="cowork-limit-label">Rounds <input id="cowork-round-limit" class="config-input cowork-limit-input" type="number" min="1" max="20" value="1" /></label>
                 <label class="cowork-limit-label">Agents <input id="cowork-agent-limit" class="config-input cowork-limit-input" type="number" min="1" max="10" value="3" /></label>
                 <button id="cowork-run-button" class="button" type="button">Run round</button>
@@ -356,10 +356,10 @@
             </div>
             <p id="cowork-active-goal" class="cowork-goal-text"></p>
             <div class="cowork-metrics" aria-label="Cowork session metrics">
-              <div class="cowork-metric"><span id="cowork-agent-total">0</span><small>Agents</small></div>
-              <div class="cowork-metric"><span id="cowork-task-total">0</span><small>Tasks</small></div>
-              <div class="cowork-metric"><span id="cowork-message-total">0</span><small>Messages</small></div>
-              <div class="cowork-metric"><span id="cowork-thread-total">0</span><small>Topics</small></div>
+              <div class="cowork-metric cowork-metric-agents"><span id="cowork-agent-total">0</span><small>Agents</small></div>
+              <div class="cowork-metric cowork-metric-tasks"><span id="cowork-task-total">0</span><small>Tasks</small></div>
+              <div class="cowork-metric cowork-metric-messages"><span id="cowork-message-total">0</span><small>Messages</small></div>
+              <div class="cowork-metric cowork-metric-topics"><span id="cowork-thread-total">0</span><small>Topics</small></div>
             </div>
             <div class="cowork-command-strip">
               <div class="cowork-message-row">
@@ -1331,6 +1331,6 @@
     </article>
   </template>
 
-  <script src="/assets/app.js?v=approval-panel-20260507n" defer></script>
+  <script type="module" src="/assets/src/main.js"></script>
 </body>
 </html>

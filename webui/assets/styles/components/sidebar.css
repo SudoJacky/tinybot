@@ -1,0 +1,240 @@
+/* ========== 左侧边栏 ========== */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  gap: 20px;
+  overflow: hidden;
+  transition: background-color var(--transition-theme),
+              border-color var(--transition-theme),
+              box-shadow var(--transition-theme);
+}
+
+.button.sidebar-collapse-button {
+  position: absolute;
+  top: 20px;
+  right: 12px;
+  z-index: 3;
+  width: 32px;
+  height: 32px;
+  color: var(--text-muted);
+  overflow: visible;
+  transition: background-color var(--transition-base),
+              border-color var(--transition-base),
+              box-shadow var(--transition-base);
+}
+
+.button.sidebar-collapse-button:hover {
+  transform: none;
+}
+
+.button.sidebar-collapse-button::after {
+  content: "";
+  display: none;
+}
+
+.button.sidebar-collapse-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity var(--transition-base), transform var(--transition-base);
+}
+
+.sidebar.collapsed {
+  align-items: center;
+  padding: 14px 10px;
+  gap: 14px;
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button {
+  position: absolute;
+  top: 20px;
+  right: 17px;
+  order: 1;
+  width: 34px;
+  height: 34px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button svg {
+  opacity: 0;
+  transform: rotate(180deg);
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button::after {
+  display: block;
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+  background: url("/assets/logo-mark.svg") center / 34px 34px no-repeat;
+  filter: drop-shadow(0 3px 7px rgba(15, 23, 42, 0.18));
+  opacity: 1;
+  transition: opacity var(--transition-base);
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button:hover,
+.sidebar.collapsed .button.sidebar-collapse-button:focus-visible {
+  border-color: var(--border-subtle);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-xs);
+  transform: none;
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button:hover svg,
+.sidebar.collapsed .button.sidebar-collapse-button:focus-visible svg {
+  opacity: 1;
+}
+
+.sidebar.collapsed .button.sidebar-collapse-button:hover::after,
+.sidebar.collapsed .button.sidebar-collapse-button:focus-visible::after {
+  opacity: 0;
+}
+
+.sidebar .brand,
+.sidebar .sessions-panel .panel-title-row,
+.sidebar .session-list,
+.sidebar .status-panel {
+  visibility: visible;
+  transition: opacity 120ms ease, visibility 0s linear 0s;
+}
+
+.sidebar.collapsed .brand,
+.sidebar.collapsed .sessions-panel .panel-title-row,
+.sidebar.collapsed .session-list,
+.sidebar.collapsed .status-panel {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 0s linear 120ms;
+}
+
+/* 品牌标识 */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 38px;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, white);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 72% 24%, rgba(255, 255, 255, 0.34), transparent 22px),
+    linear-gradient(135deg, var(--accent), var(--accent-hover));
+  box-shadow: var(--shadow-sm), 0 10px 24px color-mix(in srgb, var(--accent) 30%, transparent);
+  position: relative;
+  overflow: hidden;
+}
+
+.brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, transparent 50%);
+}
+
+.brand-logo {
+  position: relative;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 3px 7px rgba(15, 23, 42, 0.18));
+}
+
+.brand h1 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.brand p {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+/* 侧边栏操作区 */
+.sidebar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+.sidebar-actions .button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.sidebar-actions .sidebar-action-icon {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+
+.sidebar-actions .sidebar-action-icon svg {
+  position: relative;
+  z-index: 1;
+  width: 19px;
+  height: 19px;
+}
+
+.sidebar.collapsed .sessions-panel {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 0;
+}
+
+.sidebar.collapsed .sessions-panel .panel-header {
+  padding: 0;
+  margin: 0;
+  border-bottom: 0;
+}
+
+.sidebar.collapsed .sidebar-actions {
+  position: absolute;
+  top: 72px;
+  left: 50%;
+  z-index: 4;
+  flex-direction: column;
+  gap: 10px;
+  transform: translateX(-50%);
+}
+
+.sidebar.collapsed .sidebar-actions .sidebar-action-icon {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border-color: var(--border-subtle);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow-xs);
+  color: var(--text);
+}
+
+.sidebar.collapsed .sidebar-actions .sidebar-icon-new-chat {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: white;
+}
+
+.sidebar.collapsed .sidebar-actions .sidebar-action-icon svg {
+  width: 17px;
+  height: 17px;
+  opacity: 1;
+  stroke: currentColor;
+}

@@ -1,0 +1,536 @@
+/* ========== 右侧面板 ========== */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-subtle) 72%, transparent);
+}
+
+.mode-switch-option {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 7px 8px;
+}
+
+.mode-switch-option.active {
+  background: var(--panel-strong);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+}
+
+[data-ui-mode="basic"] .advanced-only {
+  display: none;
+}
+
+/* 紧凑面板通用样式 */
+.compact-panel {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  padding: 10px 12px;
+}
+
+.compact-panel .section-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
+  padding: 0;
+  border-bottom: none;
+}
+
+.compact-panel .eyebrow {
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.compact-panel h2 {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.compact-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.compact-stats {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.35;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.compact-stats .separator {
+  margin: 0 4px;
+  color: var(--border-subtle);
+}
+
+.compact-file {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.browser-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 260px;
+  max-height: min(58vh, 560px);
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.browser-panel:not(.has-frame):not(.collapsed) {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+.browser-panel .section-header {
+  flex: 0 0 auto;
+}
+
+.browser-panel h2 {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.browser-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.browser-panel-button {
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted);
+}
+
+.browser-panel-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform var(--transition-base);
+}
+
+.browser-frame-wrap {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 190px;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-strong) 72%, var(--bg-subtle));
+}
+
+.browser-panel:not(.has-frame) .browser-frame-wrap {
+  min-height: 76px;
+}
+
+.browser-frame-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 190px;
+  object-fit: contain;
+  background: var(--panel-strong);
+}
+
+.browser-frame-image[hidden],
+.browser-frame-empty[hidden] {
+  display: none;
+}
+
+.browser-frame-empty {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 190px;
+  place-items: center;
+  align-content: center;
+  gap: 3px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-align: center;
+}
+
+.browser-panel:not(.has-frame) .browser-frame-empty {
+  min-height: 76px;
+}
+
+.browser-frame-empty small {
+  display: block;
+  color: var(--text-subtle);
+  font-size: 11px;
+}
+
+.browser-frame-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.browser-frame-time {
+  white-space: nowrap;
+}
+
+.browser-frame-command {
+  min-height: 16px;
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-panel.collapsed {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.browser-panel.collapsed .browser-frame-wrap,
+.browser-panel.collapsed .browser-frame-meta,
+.browser-panel.collapsed .browser-frame-command {
+  display: none;
+}
+
+.browser-panel.collapsed .browser-panel-button svg {
+  transform: rotate(180deg);
+}
+
+.compact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.compact-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel-strong);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.compact-item:hover {
+  background: var(--bg-subtle);
+  border-color: var(--accent);
+}
+
+.compact-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-item-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* 通用section头部 */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.section-header.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.section-header.clickable:hover {
+  background: var(--bg-subtle);
+}
+
+.section-header.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.toggle-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toggle-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform var(--transition-base);
+}
+
+/* ========== 工具面板 ========== */
+.tools-panel {
+  flex-shrink: 0;
+}
+
+.tools-list {
+  /* 现使用 compact-list 样式 */
+}
+
+.tool-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.tool-desc {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ========== 技能面板 ========== */
+.skills-panel {
+  flex-shrink: 0;
+}
+
+.skills-list {
+  /* 现使用 compact-list 样式 */
+}
+
+/* Skill toggle in compact mode */
+.skill-compact-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.skill-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.skill-status-dot.enabled {
+  background: var(--success);
+}
+
+.skill-status-dot.disabled {
+  background: var(--text-muted);
+}
+
+.skill-status-dot.always {
+  background: var(--accent);
+}
+
+/* Skill header row with toggle */
+.skill-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.skill-name-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.skill-toggle-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-header .skill-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.skill-name-clickable {
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.skill-name-clickable:hover {
+  color: var(--accent);
+}
+
+.skill-name-clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* Toggle switch styles */
+.toggle-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 500;
+  position: relative;
+  transition: background-color var(--transition-base), border-color var(--transition-base);
+}
+
+.toggle-label {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.toggle-slider {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: var(--shadow-xs);
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1), background-color var(--transition-base);
+  will-change: transform;
+}
+
+/* Toggle ON state - blue for enabled */
+.toggle-on {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: white;
+}
+
+.toggle-on .toggle-slider {
+  transform: translateX(10px);
+}
+
+/* Toggle OFF state - gray for disabled */
+.toggle-off {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+}
+
+.toggle-off .toggle-slider {
+  transform: translateX(-10px);
+  background: var(--text-muted);
+}
+
+/* Toggle ALWAY state - green for always */
+.toggle-always {
+  background: linear-gradient(135deg, var(--success), #0d9668);
+  color: white;
+}
+
+.toggle-always .toggle-slider {
+  transform: translateX(10px);
+}
+
+/* Toggle UNAVAILABLE state - muted gray */
+.toggle-unavailable {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-subtle);
+}
+
+/* Clickable toggle */
+.toggle-clickable {
+  cursor: pointer;
+}
+
+.toggle-clickable:hover {
+  transform: scale(1.05);
+}
+
+.toggle-clickable:active {
+  transform: scale(0.95);
+}
+
+.toggle-clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Skill delete button */
+.skill-delete-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  border: none;
+  color: var(--text-subtle);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.skill-delete-btn:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.skill-delete-btn:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 2px;
+}
+
+.skill-desc {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 8px;
+}

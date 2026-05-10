@@ -1,0 +1,140 @@
+/* Optimized transitions - only on interactive/visual elements, not layout */
+button, input, select, textarea, a, .button, .session-item, .tool-item, .skill-item,
+.modal, .modal-content, .message, .collapsible-content {
+  transition: background-color var(--transition-base),
+              border-color var(--transition-base),
+              box-shadow var(--transition-base),
+              color var(--transition-base),
+              transform var(--transition-base);
+}
+
+/* Theme transition - slower for panels */
+.sidebar, .chat-panel, .right-panel, .topbar, .composer {
+  transition: background-color var(--transition-theme),
+              border-color var(--transition-theme),
+              box-shadow var(--transition-theme);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--bg) var(--bg-pattern);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.global-knowledge-toast {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, calc(100vw - 28px));
+  padding: 12px 14px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-strong) 92%, var(--accent-soft));
+  box-shadow: var(--shadow-xl);
+  color: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -16px);
+  transition: opacity var(--transition-base), transform var(--transition-base);
+  backdrop-filter: blur(16px);
+}
+
+.global-knowledge-toast[hidden] {
+  display: none;
+}
+
+.global-knowledge-toast.active {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.global-knowledge-spinner {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: indexing-spin 900ms linear infinite;
+}
+
+.global-knowledge-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.global-knowledge-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.global-knowledge-desc {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.global-knowledge-progress {
+  height: 4px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--border-subtle));
+}
+
+.global-knowledge-progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.35);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
