@@ -1,28 +1,29 @@
 /* ========== 会话面板 ========== */
 .sessions-panel {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: 4px;
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: 12px;
+  padding: 4px 0 2px;
+  border-bottom: 0;
+  margin-bottom: 0;
 }
 
 .panel-header h2 {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .sessions-header {
-  gap: 12px;
+  gap: 8px;
 }
 
 .panel-title-row {
@@ -33,27 +34,31 @@
 }
 
 .session-list {
-  flex: 1;
+  flex: 0 1 auto;
+  max-height: 116px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-right: 4px;
+  gap: 2px;
+  padding-right: 2px;
 }
 
 .session-item-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
+  min-width: 0;
 }
 
 .session-item {
-  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
   min-width: 0;
   border: 1px solid transparent;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-md);
-  padding: 12px 14px;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 6px 6px 6px 8px;
   text-align: left;
   cursor: pointer;
   font: inherit;
@@ -62,28 +67,28 @@
 }
 
 .session-item:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 2px solid color-mix(in srgb, var(--text-muted) 28%, transparent);
+  outline-offset: 1px;
 }
 
-.session-item:hover {
-  background: var(--panel-strong);
-  border-color: var(--border-subtle);
-  box-shadow: var(--shadow-xs);
-}
-
+.session-item:hover,
+.session-item:focus-visible,
 .session-item.active {
-  background: var(--accent-soft);
-  border-color: rgba(37, 99, 235, 0.2);
+  background: color-mix(in srgb, var(--bg-subtle) 84%, transparent);
+  border-color: transparent;
+  box-shadow: none;
 }
 
+[data-theme="dark"] .session-item:hover,
+[data-theme="dark"] .session-item:focus-visible,
 [data-theme="dark"] .session-item.active {
-  border-color: rgba(59, 130, 246, 0.25);
+  background: color-mix(in srgb, var(--bg-subtle) 72%, transparent);
 }
 
 .session-key {
   display: block;
-  font-size: 13px;
+  min-width: 0;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text);
   overflow: hidden;
@@ -91,16 +96,13 @@
   white-space: nowrap;
 }
 
-.session-time {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
 .session-delete {
-  flex: 0 0 auto;
-  padding: 4px 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
   font-size: 14px;
   color: var(--danger);
   opacity: 0;
@@ -117,7 +119,7 @@
 .session-delete:hover {
   opacity: 1;
   visibility: visible;
-  background: var(--danger-soft);
+  background: transparent;
 }
 
 .session-delete:focus-visible {
@@ -129,13 +131,29 @@
 
 /* ========== 系统状态面板 ========== */
 .status-panel {
-  padding-top: 12px;
+  padding-top: 0;
   border-top: 1px solid var(--border-subtle);
+}
+
+.composer-status-panel {
+  display: block;
+  flex: 1 1 520px;
+  min-width: 280px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.composer-status-panel[hidden] {
+  display: none;
 }
 
 .status-panel .panel-header {
   padding: 8px 0;
   margin-bottom: 6px;
+}
+
+.composer-status-panel .panel-header {
+  display: none;
 }
 
 .system-status {
@@ -148,6 +166,18 @@
   overflow: hidden;
 }
 
+.composer-status-panel .system-status {
+  display: grid;
+  grid-template-columns: repeat(4, max-content);
+  align-items: center;
+  justify-content: start;
+  gap: 6px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
 .status-item {
   display: flex;
   align-items: center;
@@ -158,8 +188,20 @@
   border-radius: 0;
 }
 
+.composer-status-panel .status-item {
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+}
+
 .status-item + .status-item {
   border-top: 1px solid var(--border-subtle);
+}
+
+.composer-status-panel .status-item + .status-item {
+  border-top: 0;
 }
 
 .status-label {
@@ -176,6 +218,48 @@
   color: var(--text);
 }
 
+.composer-status-panel .status-label {
+  flex: 0 0 auto;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.composer-status-panel .status-value {
+  max-width: 100%;
+  font-size: 9px;
+}
+
+.composer-status-panel #status-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 10px;
+  overflow: hidden;
+  color: transparent;
+  font-size: 0;
+}
+
+.composer-status-panel #status-channel::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-subtle);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-subtle) 12%, transparent);
+}
+
+.composer-status-panel #status-channel.status-ok::before {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+.composer-status-panel #status-channel.status-warn::before {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
 /* Token Usage Progress Bar */
 .usage-item {
   flex-direction: column;
@@ -185,6 +269,24 @@
 
 .usage-display {
   width: 100%;
+}
+
+.composer-status-panel .usage-item {
+  flex-direction: row;
+  align-items: center;
+}
+
+.composer-status-panel .usage-bar-wrapper {
+  min-width: 68px;
+}
+
+.composer-status-panel .usage-detail,
+.composer-status-panel .usage-cached {
+  display: none;
+}
+
+.composer-status-panel .usage-bar-text {
+  font-size: 10px;
 }
 
 .usage-bar-wrapper {

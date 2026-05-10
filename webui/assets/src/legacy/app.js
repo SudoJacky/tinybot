@@ -1372,12 +1372,6 @@ function renderSessions() {
     key.textContent = sessionTitleForKey(item.key);
     key.title = item.chat_id;
 
-    const time = document.createElement("span");
-    time.className = "session-time";
-    time.textContent = item.updated_at ? `${t("ui.updatedAt")} ${formatTime(item.updated_at)}` : t("ui.noTime");
-
-    button.append(key, time);
-
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "button button-ghost button-small session-delete";
@@ -1386,7 +1380,8 @@ function renderSessions() {
     deleteBtn.title = t("ui.deleteSession");
     deleteBtn.textContent = "×";
 
-    wrapper.append(button, deleteBtn);
+    button.append(key, deleteBtn);
+    wrapper.append(button);
     elements.sessionList.append(wrapper);
   }
 }

@@ -190,21 +190,21 @@
 /* ========== 设置栏 ========== */
 .settings-bar {
   display: grid;
-  grid-template-columns: repeat(3, 40px);
+  grid-template-columns: repeat(3, 34px);
   justify-content: center;
   justify-items: center;
   align-items: center;
-  gap: 10px;
-  padding-top: 16px;
+  gap: 8px;
+  padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
-  margin-top: 16px;
+  margin-top: 10px;
 }
 
 .settings-bar .button,
 .settings-bar .theme-toggle {
-  flex: 0 0 40px;
-  width: 40px;
-  height: 40px;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border-radius: var(--radius-md);
 }

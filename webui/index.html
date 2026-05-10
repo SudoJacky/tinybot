@@ -59,27 +59,109 @@
         <div id="session-list" class="session-list"></div>
       </section>
 
-      <section class="status-panel">
-        <div class="panel-header">
-          <h2 data-i18n="ui.systemStatus">系统状态</h2>
-        </div>
-        <div id="system-status" class="system-status">
-          <div class="status-item">
-            <span class="status-label" data-i18n="ui.provider">Provider</span>
-            <span id="status-provider" class="status-value">-</span>
+
+
+      <section class="sidebar-feature-panel" aria-label="Workspace navigation">
+        <p class="sidebar-nav-label">Control</p>
+        <section class="tools-panel compact-panel">
+          <header class="section-header clickable" id="tools-toggle" tabindex="0" role="button" aria-expanded="false">
+            <h2>TOOLS</h2>
+            <span id="tools-count" class="compact-stats" aria-hidden="true">0</span>
+          </header>
+        </section>
+        <section class="knowledge-panel compact-panel">
+          <header class="section-header clickable" id="knowledge-toggle" tabindex="0" role="button" aria-expanded="false">
+            <h2>RAG</h2>
+            <span class="compact-stats" aria-hidden="true"><span id="stats-docs">0</span><span id="stats-chunks">0</span></span>
+          </header>
+        </section>
+        <section class="skills-panel compact-panel">
+          <header class="section-header clickable" id="skills-toggle" tabindex="0" role="button" aria-expanded="false">
+            <h2>SKILLS</h2>
+            <span class="compact-stats" aria-hidden="true"><span id="skills-count">0</span><span id="skills-enabled-count">0</span></span>
+          </header>
+        </section>
+        <section class="workspace-panel compact-panel">
+          <header class="section-header clickable" id="workspace-toggle" tabindex="0" role="button" aria-expanded="false">
+            <h2>WORKSPACE</h2>
+            <span class="compact-file" id="current-file-name" aria-hidden="true">-</span>
+          </header>
+        </section>
+        <p class="sidebar-nav-label">Automation</p>
+        <section class="cowork-panel compact-panel">
+          <header class="section-header clickable" id="cowork-toggle" tabindex="0" role="button" aria-expanded="false">
+            <h2>COWORK</h2>
+            <span id="cowork-session-count" class="compact-stats" aria-hidden="true">0</span>
+          </header>
+        </section>
+        <section class="browser-panel compact-panel" id="browser-panel" hidden aria-hidden="true">
+          <header class="section-header">
+            <h2>BROWSER</h2>
+            <button id="browser-panel-toggle" class="button button-icon browser-panel-button" type="button" aria-label="Collapse browser view" title="Collapse browser view">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+          </header>
+          <div class="browser-frame-wrap" id="browser-frame-wrap">
+            <div class="browser-frame-empty" id="browser-frame-empty">
+              <span>Browser</span>
+              <small>Idle</small>
+            </div>
+            <img id="browser-frame-image" class="browser-frame-image" alt="Browser view" hidden>
           </div>
-          <div class="status-item">
-            <span class="status-label" data-i18n="ui.model">Model</span>
-            <span id="status-model" class="status-value">-</span>
+          <div class="browser-frame-meta">
+            <span id="browser-frame-status">Waiting for browser activity</span>
+            <span id="browser-frame-time" class="browser-frame-time">-</span>
           </div>
-          <div class="status-item">
-            <span class="status-label" data-i18n="ui.websocket">WebSocket</span>
-            <span id="status-channel" class="status-value">-</span>
-          </div>
-          <div class="status-item usage-item">
-            <span class="status-label" data-i18n="ui.tokenUsage">Token用量</span>
-            <div id="status-usage" class="usage-display">-</div>
-          </div>
+          <div id="browser-frame-command" class="browser-frame-command" title=""></div>
+        </section>
+        <p class="sidebar-nav-label">Settings</p>
+        <div class="settings-bar">
+          <button id="language-toggle" class="button" type="button" aria-label="Switch language">EN</button>
+          <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" aria-label="Toggle theme">
+            <svg class="sun-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <svg class="moon-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+          <a href="/docs" class="button button-icon" data-i18n-title="ui.docs" aria-label="Documentation">
+            <svg class="icon-docs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+              <line x1="8" y1="6" x2="16" y2="6"/>
+              <line x1="8" y1="10" x2="16" y2="10"/>
+              <line x1="8" y1="14" x2="12" y2="14"/>
+            </svg>
+          </a>
+          <button id="help-tour-button" class="button button-icon" type="button" data-i18n-title="ui.helpTour" aria-label="Help tour">
+            <svg class="icon-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 1 1 5.82 1c-.58 1.18-1.91 1.6-2.48 2.5"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </button>
+          <button id="settings-button" class="button button-icon" type="button" data-i18n-title="ui.settings" aria-label="Settings">
+            <svg class="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+          <a href="https://github.com/SudoJacky/tinybot" target="_blank" rel="noopener noreferrer" class="button button-icon" data-i18n-title="ui.github" aria-label="GitHub">
+            <svg class="icon-github" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+            </svg>
+          </a>
         </div>
       </section>
     </aside>
@@ -131,6 +213,29 @@
           <div class="composer-meta-left">
             <span id="error-text" class="error-text"></span>
             <div id="session-files-strip" class="session-files-strip" hidden></div>
+            <section class="status-panel composer-status-panel">
+              <div class="panel-header">
+                <h2 data-i18n="ui.systemStatus">系统状态</h2>
+              </div>
+              <div id="system-status" class="system-status">
+                <div class="status-item">
+                  <span class="status-label" data-i18n="ui.provider">Provider</span>
+                  <span id="status-provider" class="status-value">-</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label" data-i18n="ui.model">Model</span>
+                  <span id="status-model" class="status-value">-</span>
+                </div>
+                <div class="status-item">
+                  <span class="status-label" data-i18n="ui.websocket">WebSocket</span>
+                  <span id="status-channel" class="status-value">-</span>
+                </div>
+                <div class="status-item usage-item">
+                  <span class="status-label" data-i18n="ui.tokenUsage">Token用量</span>
+                  <div id="status-usage" class="usage-display">-</div>
+                </div>
+              </div>
+            </section>
           </div>
           <label class="session-rag-toggle">
             <input id="persistent-rag-toggle" type="checkbox" />
@@ -141,156 +246,7 @@
     </section>
 
     <!-- 右侧：精简面板 -->
-    <aside class="right-panel">
-      <div class="mode-switch" role="group" aria-label="界面模式">
-        <button class="mode-switch-option active" type="button" data-ui-mode="basic" data-i18n="ui.basicMode">普通模式</button>
-        <button class="mode-switch-option" type="button" data-ui-mode="advanced" data-i18n="ui.advancedMode">高级模式</button>
-      </div>
-      <!-- 工具面板 - 精简统计版 -->
-      <section class="tools-panel compact-panel advanced-only">
-        <header class="section-header clickable" id="tools-toggle" tabindex="0" role="button" aria-expanded="false">
-          <div>
-            <p class="eyebrow">Tools</p>
-            <h2 data-i18n="ui.tools">可用工具</h2>
-          </div>
-          <div class="compact-stats">
-            <span id="tools-count">0</span> <span data-i18n="tools.total">个</span>
-          </div>
-        </header>
-      </section>
 
-      <!-- 知识库面板 - 精简版 -->
-      <section class="knowledge-panel compact-panel">
-        <header class="section-header clickable" id="knowledge-toggle" tabindex="0" role="button" aria-expanded="false">
-          <div>
-            <p class="eyebrow">RAG</p>
-            <h2 data-i18n="ui.knowledge">知识库</h2>
-          </div>
-          <div class="compact-stats">
-            <span id="stats-docs">0</span> <span data-i18n="knowledge.docs">文档</span>
-            <span class="separator">·</span>
-            <span id="stats-chunks">0</span> <span data-i18n="knowledge.chunks">片段</span>
-          </div>
-        </header>
-      </section>
-
-      <!-- 技能面板 - 简统计版 -->
-      <section class="cowork-panel compact-panel">
-        <header class="section-header clickable" id="cowork-toggle" tabindex="0" role="button" aria-expanded="false">
-          <div>
-            <p class="eyebrow">Cowork</p>
-            <h2>Multi-agent</h2>
-          </div>
-          <div class="compact-stats">
-            <span id="cowork-session-count">0</span> sessions
-          </div>
-        </header>
-      </section>
-
-      <section class="skills-panel compact-panel advanced-only">
-        <header class="section-header clickable" id="skills-toggle" tabindex="0" role="button" aria-expanded="false">
-          <div>
-            <p class="eyebrow">Skills</p>
-            <h2 data-i18n="ui.skills">可用技能</h2>
-          </div>
-          <div class="compact-stats">
-            <span id="skills-count">0</span> <span data-i18n="skills.total">个</span>
-            <span class="separator">·</span>
-            <span id="skills-enabled-count">0</span> <span data-i18n="skills.enabled">启用</span>
-          </div>
-        </header>
-      </section>
-
-      <!-- 工作区面板 - 精简版 -->
-      <section class="workspace-panel compact-panel advanced-only">
-        <header class="section-header clickable" id="workspace-toggle" tabindex="0" role="button" aria-expanded="false">
-          <div>
-            <p class="eyebrow">Workspace</p>
-            <h2 data-i18n="ui.workspace">工作区</h2>
-          </div>
-          <span class="compact-file" id="current-file-name">-</span>
-        </header>
-      </section>
-
-      <!-- Browser view panel -->
-      <section class="browser-panel compact-panel advanced-only" id="browser-panel">
-        <header class="section-header">
-          <div>
-            <p class="eyebrow">Browser</p>
-            <h2>Browser View</h2>
-          </div>
-          <div class="browser-panel-actions">
-            <button id="browser-panel-toggle" class="button button-icon browser-panel-button" type="button" aria-label="Collapse browser view" title="Collapse browser view">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 9l6 6 6-6"/>
-              </svg>
-            </button>
-          </div>
-        </header>
-        <div class="browser-frame-wrap" id="browser-frame-wrap">
-          <div class="browser-frame-empty" id="browser-frame-empty">
-            <span>未使用 Browser</span>
-            <small>等待浏览器活动</small>
-          </div>
-          <img id="browser-frame-image" class="browser-frame-image" alt="Browser view" hidden>
-        </div>
-        <div class="browser-frame-meta">
-          <span id="browser-frame-status">Waiting for browser activity</span>
-          <span id="browser-frame-time" class="browser-frame-time">-</span>
-        </div>
-        <div id="browser-frame-command" class="browser-frame-command" title=""></div>
-      </section>
-
-      <!-- 语言切换 + 主题切换 + 文档 + 设置按钮 -->
-      <div class="settings-bar">
-        <button id="language-toggle" class="button" type="button" aria-label="Switch language">EN</button>
-        <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" aria-label="Toggle theme">
-          <!-- Sun icon -->
-          <svg class="sun-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="12" cy="12" r="5"/>
-            <line x1="12" y1="1" x2="12" y2="3"/>
-            <line x1="12" y1="21" x2="12" y2="23"/>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-            <line x1="1" y1="12" x2="3" y2="12"/>
-            <line x1="21" y1="12" x2="23" y2="12"/>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-          </svg>
-          <!-- Moon icon -->
-          <svg class="moon-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-        </button>
-        <a href="/docs" class="button button-icon" data-i18n-title="ui.docs" aria-label="Documentation">
-          <svg class="icon-docs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-            <line x1="8" y1="6" x2="16" y2="6"/>
-            <line x1="8" y1="10" x2="16" y2="10"/>
-            <line x1="8" y1="14" x2="12" y2="14"/>
-          </svg>
-        </a>
-        <button id="help-tour-button" class="button button-icon" type="button" data-i18n-title="ui.helpTour" aria-label="Help tour">
-          <svg class="icon-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <path d="M9.09 9a3 3 0 1 1 5.82 1c-.58 1.18-1.91 1.6-2.48 2.5"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-        </button>
-        <button id="settings-button" class="button button-icon" type="button" data-i18n-title="ui.settings" aria-label="Settings">
-          <svg class="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-          </svg>
-        </button>
-        <a href="https://github.com/SudoJacky/tinybot" target="_blank" rel="noopener noreferrer" class="button button-icon" data-i18n-title="ui.github" aria-label="GitHub">
-          <svg class="icon-github" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-          </svg>
-        </a>
-      </div>
-    </aside>
   </div>
 
   <section id="cowork-modal" class="cowork-page" aria-label="Cowork workspace">
