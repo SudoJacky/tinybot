@@ -129,6 +129,11 @@ function updateUsageDisplay(usage) {
   // 计算占比
   const ratio = Math.min(1, total / contextWindow);
   const percent = Math.round(ratio * 100);
+  const formatCompactTokens = (value) => {
+    if (value >= 1000000) return `${(value / 1000000).toFixed(value >= 10000000 ? 0 : 1)}m`;
+    if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
+    return `${value}`;
+  };
 
   // 根据占比决定颜色: <50%绿色, 50-75%黄色, 75-90%橙色, >90%红色
   let colorClass = "usage-bar-safe";
@@ -148,17 +153,18 @@ function updateUsageDisplay(usage) {
   const totalText = lang === "zh"
     ? `${total}/${contextWindow}`
     : `${total}/${contextWindow}`;
+  const compactTotalText = `${formatCompactTokens(total)}/${formatCompactTokens(contextWindow)}`;
   const cachedText = cached > 0
     ? (lang === "zh" ? `缓存:${cached}` : `Cache:${cached}`)
     : "";
 
   container.innerHTML = `
-    <div class="usage-bar-wrapper">
+    <div class="usage-bar-wrapper" title="${totalText} (${percent}%) · ${labelText}${cachedText ? ` · ${cachedText}` : ""}">
       <div class="usage-bar-track">
         <div class="usage-bar-fill ${colorClass}" style="width: ${percent}%"></div>
       </div>
       <div class="usage-bar-text">
-        <span class="usage-total">${totalText} (${percent}%)</span>
+        <span class="usage-total">${compactTotalText}</span>
         <span class="usage-detail">${labelText}</span>
         ${cachedText ? `<span class="usage-cached">${cachedText}</span>` : ""}
       </div>
@@ -5190,8 +5196,23 @@ function applyTheme(theme) {
   }
 }
 
+function playThemeTransition() {
+  const root = document.documentElement;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+  root.classList.remove("theme-switching");
+  // Restart the keyframe if the user toggles twice in quick succession.
+  void root.offsetWidth;
+  root.classList.add("theme-switching");
+  window.setTimeout(() => {
+    root.classList.remove("theme-switching");
+  }, 620);
+}
+
 function toggleTheme() {
   const newTheme = state.theme === "light" ? "dark" : "light";
+  playThemeTransition();
   applyTheme(newTheme);
 }
 

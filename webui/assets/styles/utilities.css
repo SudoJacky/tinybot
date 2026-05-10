@@ -7,6 +7,47 @@
   margin-right: 6px;
 }
 
+/* ========== Theme switch flourish ========== */
+html.theme-switching .theme-toggle {
+  animation: theme-toggle-pop 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+html.theme-switching .theme-toggle svg {
+  animation: theme-icon-orbit 620ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+@keyframes theme-toggle-pop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  36% {
+    transform: scale(0.86) rotate(-8deg);
+  }
+  64% {
+    transform: scale(1.12) rotate(8deg);
+  }
+}
+
+@keyframes theme-icon-orbit {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  48% {
+    transform: rotate(180deg) scale(0.72);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-switching .theme-toggle,
+  html.theme-switching .theme-toggle svg {
+    animation: none;
+  }
+}
+
 #settings-button .icon-gear {
   margin-right: 0;
 }
