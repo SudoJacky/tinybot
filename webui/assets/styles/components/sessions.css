@@ -1,6 +1,6 @@
 /* ========== 会话面板 ========== */
 .sessions-panel {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -34,8 +34,9 @@
 }
 
 .session-list {
-  flex: 0 1 auto;
-  max-height: 116px;
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
