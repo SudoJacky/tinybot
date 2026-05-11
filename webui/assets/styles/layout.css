@@ -2,9 +2,16 @@
 .shell {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
-  gap: 14px;
-  height: 100vh;
-  padding: 16px 20px 18px;
+  gap: 0;
+  height: calc(100vh - 34px);
+  margin: 16px 20px 18px;
+  padding: 0;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.54), rgba(239, 247, 253, 0.26));
+  box-shadow: var(--shadow-lg);
   transition: grid-template-columns 220ms ease;
 }
 
@@ -72,4 +79,45 @@
 .right-panel > * {
   position: relative;
   z-index: 1;
+}
+
+.sidebar {
+  z-index: 2;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: calc(var(--radius-xl) - 1px);
+  box-shadow: 16px 0 34px rgba(46, 72, 100, 0.12), 0 1px 0 rgba(255, 255, 255, 0.72) inset;
+}
+
+.chat-panel {
+  z-index: 1;
+  height: auto;
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.chat-panel::after {
+  display: none;
+}
+
+.chat-panel::before {
+  display: none;
+}
+
+[data-theme="dark"] .chat-panel {
+  background: rgba(15, 23, 42, 0.10);
+}
+
+[data-theme="dark"] .shell {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.42), rgba(15, 23, 42, 0.24));
+}
+
+[data-theme="dark"] .sidebar {
+  border-right-color: color-mix(in srgb, var(--border) 86%, transparent);
+  box-shadow: 16px 0 36px rgba(0, 0, 0, 0.26), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
 }
