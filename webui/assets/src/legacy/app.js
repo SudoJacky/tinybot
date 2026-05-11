@@ -1589,8 +1589,7 @@ function setCoworkError(text = "") {
 
 function openCoworkModal() {
   if (window.location.pathname !== "/cowork") {
-    window.location.href = "/cowork";
-    return;
+    window.history.pushState({}, "", "/cowork");
   }
   if (window.location.pathname === "/cowork") {
     document.body.classList.add("cowork-page-active");
@@ -1601,13 +1600,14 @@ function openCoworkModal() {
 
 function closeCoworkModal() {
   if (window.location.pathname === "/cowork") {
-    return;
+    window.history.pushState({}, "", "/");
   }
+  document.body.classList.remove("cowork-page-active");
   elements.coworkModal?.classList.remove("active");
 }
 
 function leaveCoworkPage() {
-  window.location.href = "/";
+  closeCoworkModal();
 }
 
 function coworkStatusClass(status = "") {
@@ -2340,7 +2340,7 @@ async function loadCoworkSession(sessionId) {
 }
 
 function scheduleCoworkRefresh(sessionId = "") {
-  if (window.location.pathname !== "/cowork") return;
+  if (!document.body.classList.contains("cowork-page-active")) return;
   const targetSessionId = sessionId || state.activeCoworkSessionId;
   if (state.coworkRefreshTimer) {
     clearTimeout(state.coworkRefreshTimer);
