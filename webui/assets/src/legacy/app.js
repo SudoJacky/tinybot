@@ -1731,9 +1731,9 @@ function coworkGraphNodes(session) {
   const edges = [];
   const agents = session.agents || [];
   const tasks = session.tasks || [];
-  const threads = session.threads || [];
   const messages = session.messages || [];
   const mailbox = session.mailbox || [];
+  const agentIds = new Set(agents.map((agent) => agent.id).filter(Boolean));
   const mailboxByAgent = new Map();
   for (const record of mailbox) {
     for (const recipientId of record.recipient_ids || []) {
@@ -1780,18 +1780,25 @@ function coworkGraphNodes(session) {
     });
     edges.push({ from: owner, to: `task:${task.id || index}`, kind: "task" });
   });
-  threads.slice(0, 6).forEach((thread, index) => {
+  const recentAgentMessages = messages
+    .filter((message) => agentIds.has(message.sender_id) && String(message.content || "").trim())
+    .slice(-10);
+  recentAgentMessages.forEach((message, index) => {
+    const sender = `agent:${message.sender_id}`;
+    const columnCount = Math.min(Math.max(recentAgentMessages.length, 1), 5);
+    const column = index % columnCount;
+    const row = Math.floor(index / columnCount);
     nodes.push({
-      id: `thread:${thread.id}`,
-      kind: "topic",
-      title: thread.topic || thread.id,
-      detail: `${thread.message_count || 0} messages - ${(thread.participant_ids || []).join(", ")}`,
-      status: thread.status || "active",
-      badge: `${thread.message_count || 0} msgs`,
-      x: 260 + index * 136,
-      y: 560,
+      id: `message:${message.id || message.message_id || `${message.sender_id}:${index}`}`,
+      kind: "message",
+      title: message.sender_id || "Agent",
+      detail: compactText(message.content || "", 180),
+      status: "delivered",
+      badge: compactText(message.created_at || "message", 26),
+      x: 180 + column * 210,
+      y: 520 + row * 78,
     });
-    edges.push({ from: "session", to: `thread:${thread.id}`, kind: "topic" });
+    edges.push({ from: sender, to: `message:${message.id || message.message_id || `${message.sender_id}:${index}`}`, kind: "message", pulse: index >= recentAgentMessages.length - 3 });
   });
   messages.slice(-8).forEach((message, index) => {
     const sender = message.sender_id ? `agent:${message.sender_id}` : "session";
@@ -1859,8 +1866,8 @@ function renderCoworkGraph(session) {
       role: "button",
       "aria-label": coworkGraphNodeLabel(node),
     });
-    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : 154;
-    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : 64;
+    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : node.kind === "message" ? 190 : 154;
+    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : node.kind === "message" ? 70 : 64;
     const rect = coworkGraphCreateSvg("rect", {
       x: -width / 2,
       y: -height / 2,
@@ -1886,7 +1893,6 @@ function renderCoworkGraph(session) {
     group.addEventListener("click", (event) => {
       event.stopPropagation();
       state.activeCoworkGraphNode = node.id;
-      if (node.kind === "topic") state.activeCoworkThreadId = node.id.replace(/^thread:/, "");
       renderCoworkGraph(session);
       renderCoworkThreads(session?.threads || []);
     });
