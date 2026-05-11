@@ -1,10 +1,10 @@
 /* ========== 主布局 ========== */
 .shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 14px;
   height: 100vh;
-  padding: 18px;
+  padding: 16px 20px 18px;
   transition: grid-template-columns 220ms ease;
 }
 
@@ -20,7 +20,7 @@
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   background: var(--panel-gradient);
   border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   min-width: 0;
   min-height: 0;
@@ -35,7 +35,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   padding: 1px;
   background: var(--glass-sheen);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -58,7 +58,7 @@
   content: "";
   position: absolute;
   inset: 1px;
-  border-radius: calc(var(--radius-xl) - 1px);
+  border-radius: calc(var(--radius-lg) - 1px);
   background:
     linear-gradient(180deg, var(--glass-highlight), transparent 34%),
     radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.32), transparent 32%);

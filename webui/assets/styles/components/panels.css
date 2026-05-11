@@ -15,10 +15,11 @@
 }
 
 .sidebar-nav-label {
-  margin: 8px 0 3px;
+  margin: 10px 0 3px;
   color: var(--text-subtle);
   font-size: 11px;
   font-weight: 650;
+  text-transform: uppercase;
 }
 
 .mode-switch {
@@ -57,7 +58,7 @@
 
 /* 紧凑面板通用样式 */
 .compact-panel {
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   padding: 0;
@@ -67,9 +68,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  min-height: 30px;
+  min-height: 34px;
   gap: 8px;
-  padding: 4px 8px;
+  padding: 5px 9px;
   border-bottom: none;
   border-radius: var(--radius-sm);
 }
@@ -89,7 +90,7 @@
 
 .sidebar-feature-panel .compact-panel .section-header:hover,
 .sidebar-feature-panel .compact-panel .section-header:focus-visible {
-  background: color-mix(in srgb, var(--panel-strong) 48%, var(--bg-subtle));
+  background: color-mix(in srgb, var(--panel-strong) 62%, var(--bg-subtle));
   box-shadow: var(--shadow-xs);
 }
 

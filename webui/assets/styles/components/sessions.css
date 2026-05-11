@@ -4,7 +4,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .panel-header {
@@ -40,7 +40,7 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding-right: 2px;
 }
 
@@ -59,7 +59,7 @@
   border: 1px solid transparent;
   background: transparent;
   border-radius: var(--radius-sm);
-  padding: 6px 6px 6px 8px;
+  padding: 7px 7px 7px 9px;
   text-align: left;
   cursor: pointer;
   font: inherit;
@@ -76,7 +76,7 @@
 .session-item:focus-visible,
 .session-item.active {
   background: color-mix(in srgb, var(--panel-strong) 58%, var(--bg-subtle));
-  border-color: color-mix(in srgb, var(--accent) 16%, var(--border-subtle));
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border-subtle));
   box-shadow: var(--shadow-xs);
 }
 

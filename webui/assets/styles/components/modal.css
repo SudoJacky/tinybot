@@ -298,7 +298,7 @@
 .modal-header h2 {
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 .modal-body {

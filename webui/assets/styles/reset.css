@@ -45,11 +45,13 @@ body::before {
   inset: 0;
   z-index: -2;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(circle at 50% 38%, black, transparent 74%);
-  opacity: 0.45;
+    linear-gradient(118deg, transparent 0 19%, rgba(84, 117, 151, 0.17) 19% calc(19% + 1px), transparent calc(19% + 1px) 100%),
+    linear-gradient(28deg, transparent 0 26%, rgba(84, 117, 151, 0.12) 26% calc(26% + 1px), transparent calc(26% + 1px) 100%),
+    radial-gradient(circle at 18% 22%, rgba(61, 92, 130, 0.34) 0 2px, transparent 3px),
+    radial-gradient(circle at 72% 18%, rgba(61, 92, 130, 0.30) 0 2px, transparent 3px),
+    radial-gradient(circle at 86% 64%, rgba(61, 92, 130, 0.26) 0 2px, transparent 3px);
+  background-size: 240px 180px, 220px 170px, 190px 150px, 260px 190px, 210px 180px;
+  opacity: 0.52;
   pointer-events: none;
 }
 
@@ -59,17 +61,21 @@ body::after {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.45), transparent 18%),
-    radial-gradient(circle at 76% 78%, rgba(255, 255, 255, 0.24), transparent 22%);
-  opacity: 0.5;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(255, 255, 255, 0.10) 38%, rgba(147, 177, 207, 0.22)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.36), transparent 28%, rgba(255, 255, 255, 0.24));
+  opacity: 0.78;
   pointer-events: none;
 }
 
 [data-theme="dark"] body::before {
   background:
-    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
-  opacity: 0.34;
+    linear-gradient(118deg, transparent 0 19%, rgba(148, 163, 184, 0.12) 19% calc(19% + 1px), transparent calc(19% + 1px) 100%),
+    linear-gradient(28deg, transparent 0 26%, rgba(148, 163, 184, 0.09) 26% calc(26% + 1px), transparent calc(26% + 1px) 100%),
+    radial-gradient(circle at 18% 22%, rgba(148, 163, 184, 0.20) 0 2px, transparent 3px),
+    radial-gradient(circle at 72% 18%, rgba(148, 163, 184, 0.18) 0 2px, transparent 3px),
+    radial-gradient(circle at 86% 64%, rgba(148, 163, 184, 0.16) 0 2px, transparent 3px);
+  background-size: 240px 180px, 220px 170px, 190px 150px, 260px 190px, 210px 180px;
+  opacity: 0.30;
 }
 
 [data-theme="dark"] body::after {
