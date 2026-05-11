@@ -2,8 +2,8 @@
 .sidebar {
   display: flex;
   flex-direction: column;
-  padding: 22px 18px;
-  gap: 10px;
+  padding: 16px 14px;
+  gap: 12px;
   overflow: hidden;
   transition: background-color var(--transition-theme),
               border-color var(--transition-theme),
@@ -118,7 +118,7 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding-right: 38px;
 }
 
@@ -163,15 +163,15 @@
 }
 
 .brand h1 {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .brand p {
   font-size: 10px;
   color: var(--text-muted);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
   margin-top: 1px;
 }
@@ -188,7 +188,7 @@
 .sidebar-actions .button {
   min-height: 38px;
   white-space: nowrap;
-  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+  background: color-mix(in srgb, var(--panel-strong) 66%, transparent);
   backdrop-filter: blur(14px) saturate(1.25);
   -webkit-backdrop-filter: blur(14px) saturate(1.25);
 }
@@ -206,9 +206,27 @@
   height: 19px;
 }
 
+.sidebar-actions .sidebar-icon-new-chat {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: white;
+  box-shadow: var(--shadow-sm), 0 10px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.sidebar-actions .sidebar-icon-new-chat:hover,
+.sidebar-actions .sidebar-icon-new-chat:focus-visible {
+  background: linear-gradient(135deg, var(--accent-hover), var(--accent));
+  color: white;
+}
+
 .sidebar.collapsed .sessions-panel {
+  position: absolute;
+  top: 72px;
+  left: 0;
+  right: 0;
+  z-index: 4;
   flex: 0 0 auto;
-  width: 100%;
+  width: auto;
   min-height: 0;
 }
 
@@ -220,9 +238,8 @@
 
 .sidebar.collapsed .sidebar-actions {
   position: absolute;
-  top: 72px;
+  top: 0;
   left: 50%;
-  z-index: 4;
   flex-direction: column;
   gap: 10px;
   transform: translateX(-50%);

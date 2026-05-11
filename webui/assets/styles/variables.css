@@ -1,29 +1,30 @@
 :root {
   /* 亮色主题（默认）- 白灰简约 */
-  --bg: #eef3f8;
-  --bg-subtle: rgba(232, 239, 247, 0.82);
+  --bg: #dbeaf6;
+  --bg-subtle: rgba(223, 235, 246, 0.74);
   --bg-pattern:
-    radial-gradient(circle at 14% 12%, rgba(37, 99, 235, 0.13) 0%, transparent 28%),
-    radial-gradient(circle at 82% 18%, rgba(20, 184, 166, 0.11) 0%, transparent 27%),
-    radial-gradient(circle at 72% 88%, rgba(244, 114, 182, 0.10) 0%, transparent 28%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(226, 232, 240, 0.34));
-  --panel: rgba(255, 255, 255, 0.68);
-  --panel-strong: rgba(255, 255, 255, 0.86);
-  --panel-gradient: linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(248, 250, 252, 0.56));
-  --glass-highlight: rgba(255, 255, 255, 0.78);
-  --glass-sheen: linear-gradient(135deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.12) 42%, rgba(37, 99, 235, 0.07));
-  --glass-blur: 24px;
-  --glass-saturate: 1.45;
-  --border: rgba(45, 60, 82, 0.14);
-  --border-subtle: rgba(45, 60, 82, 0.08);
-  --text: #1e2530;
-  --text-muted: #5a6878;
-  --text-subtle: #8a95a5;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-soft: rgba(37, 99, 235, 0.08);
-  --accent-glow: rgba(37, 99, 235, 0.2);
-  --accent-glow-strong: rgba(37, 99, 235, 0.35);
+    linear-gradient(118deg, rgba(45, 97, 160, 0.10) 0 1px, transparent 1px 32%),
+    linear-gradient(28deg, rgba(45, 97, 160, 0.08) 0 1px, transparent 1px 36%),
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.70) 0 1px, transparent 2px),
+    radial-gradient(circle at 76% 22%, rgba(44, 86, 140, 0.28) 0 2px, transparent 3px),
+    linear-gradient(135deg, rgba(246, 251, 255, 0.90), rgba(210, 228, 242, 0.70));
+  --panel: rgba(250, 253, 255, 0.58);
+  --panel-strong: rgba(255, 255, 255, 0.80);
+  --panel-gradient: linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(239, 247, 253, 0.44));
+  --glass-highlight: rgba(255, 255, 255, 0.64);
+  --glass-sheen: linear-gradient(135deg, rgba(255, 255, 255, 0.70), rgba(255, 255, 255, 0.16) 44%, rgba(74, 123, 190, 0.07));
+  --glass-blur: 20px;
+  --glass-saturate: 1.35;
+  --border: rgba(55, 83, 116, 0.16);
+  --border-subtle: rgba(55, 83, 116, 0.09);
+  --text: #182536;
+  --text-muted: #516170;
+  --text-subtle: #7c8996;
+  --accent: #3f75d6;
+  --accent-hover: #2f61bb;
+  --accent-soft: rgba(63, 117, 214, 0.11);
+  --accent-glow: rgba(63, 117, 214, 0.18);
+  --accent-glow-strong: rgba(63, 117, 214, 0.30);
   --danger: #dc2626;
   --danger-soft: rgba(220, 38, 38, 0.1);
   --success: #16a34a;
@@ -31,10 +32,10 @@
   --warning: #d97706;
   --warning-soft: rgba(217, 119, 6, 0.1);
   --shadow-xs: 0 1px 2px rgba(30, 37, 48, 0.05);
-  --shadow-sm: 0 8px 22px rgba(30, 37, 48, 0.07), 0 1px 2px rgba(255, 255, 255, 0.65) inset;
-  --shadow-md: 0 18px 44px rgba(30, 37, 48, 0.10), 0 1px 0 rgba(255, 255, 255, 0.70) inset;
-  --shadow-lg: 0 28px 70px rgba(30, 37, 48, 0.14), 0 1px 0 rgba(255, 255, 255, 0.74) inset;
-  --shadow-xl: 0 36px 90px rgba(30, 37, 48, 0.18), 0 12px 30px rgba(30, 37, 48, 0.08);
+  --shadow-sm: 0 8px 18px rgba(46, 72, 100, 0.08), 0 1px 2px rgba(255, 255, 255, 0.62) inset;
+  --shadow-md: 0 16px 34px rgba(46, 72, 100, 0.11), 0 1px 0 rgba(255, 255, 255, 0.68) inset;
+  --shadow-lg: 0 22px 52px rgba(46, 72, 100, 0.14), 0 1px 0 rgba(255, 255, 255, 0.72) inset;
+  --shadow-xl: 0 30px 72px rgba(46, 72, 100, 0.18), 0 10px 24px rgba(46, 72, 100, 0.08);
   --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 10px;

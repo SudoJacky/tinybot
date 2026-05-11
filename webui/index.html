@@ -47,7 +47,7 @@
 
       <section class="sessions-panel">
         <div class="panel-header sessions-header">
-          <div class="panel-title-row">
+          <div class="panel-title-row sidebar-dropdown-toggle" id="sessions-toggle" tabindex="0" role="button" aria-expanded="true" aria-controls="session-list">
             <h2 data-i18n="ui.sessions">会话</h2>
             <span id="session-count" class="muted" style="color: var(--text-muted);">0</span>
           </div>
@@ -93,6 +93,7 @@
             <h2>COWORK</h2>
             <span id="cowork-session-count" class="compact-stats" aria-hidden="true">0</span>
           </header>
+          <div id="cowork-sidebar-session-list" class="cowork-sidebar-session-list"></div>
         </section>
         <section class="browser-panel compact-panel" id="browser-panel" hidden aria-hidden="true">
           <header class="section-header">
@@ -246,22 +247,18 @@
     </section>
 
     <!-- 右侧：精简面板 -->
-
-  </div>
-
   <section id="cowork-modal" class="cowork-page" aria-label="Cowork workspace">
     <div class="modal-overlay" id="cowork-modal-overlay"></div>
     <div class="cowork-page-content cowork-modal-content">
       <header class="modal-header cowork-page-header">
         <div class="cowork-title-block">
-          <p class="eyebrow">Cowork command center</p>
+          <p class="eyebrow">Cowork</p>
           <h2>Multi-agent workspace</h2>
-          <p>Coordinate goals, rounds, tasks, messages, and agent handoffs from one focused board.</p>
+          <p>Coordinate goals, rounds, tasks, messages, and agent handoffs.</p>
         </div>
         <div class="cowork-header-actions">
           <button id="cowork-refresh-button" class="button" type="button">Refresh</button>
-          <button id="cowork-home-button" class="button button-ghost" type="button" aria-label="Back to chat">Back to chat</button>
-          <button id="cowork-modal-close" class="button button-ghost" type="button" aria-label="Close cowork modal">Close</button>
+          <button id="cowork-modal-close" class="button button-ghost" type="button" aria-label="Back to chat">Back to chat</button>
         </div>
       </header>
       <div class="modal-body cowork-modal-body">
@@ -312,6 +309,23 @@
               </div>
             </div>
             <p id="cowork-active-goal" class="cowork-goal-text"></p>
+            <section class="cowork-graph-panel" aria-label="Cowork team map">
+              <div class="cowork-graph-header">
+                <div>
+                  <h4>Team map</h4>
+                  <p id="cowork-graph-caption">Live agent, task, message, and topic state.</p>
+                </div>
+                <div class="cowork-graph-controls" aria-label="Team map controls">
+                  <button id="cowork-graph-zoom-out" class="button button-icon" type="button" aria-label="Zoom out" title="Zoom out">-</button>
+                  <button id="cowork-graph-reset" class="button" type="button">Fit</button>
+                  <button id="cowork-graph-zoom-in" class="button button-icon" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+                </div>
+              </div>
+              <div id="cowork-graph-stage" class="cowork-graph-stage" tabindex="0" role="img" aria-label="Interactive cowork state graph">
+                <svg id="cowork-graph-svg" class="cowork-graph-svg" viewBox="0 0 1200 620" aria-hidden="true"></svg>
+              </div>
+              <div id="cowork-graph-inspector" class="cowork-graph-inspector">Select an agent, task, message, or topic.</div>
+            </section>
             <div id="cowork-insight-panel" class="cowork-insight-panel" hidden>
               <div>
                 <span class="cowork-kicker">Next step</span>
@@ -370,6 +384,8 @@
   </section>
 
   <!-- Skills 弹窗 -->
+  </div>
+
   <div id="skill-modal" class="modal">
     <div class="modal-overlay" id="skill-modal-overlay"></div>
     <div class="modal-content skill-modal-content">
