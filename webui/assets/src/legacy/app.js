@@ -1717,8 +1717,136 @@ function coworkGraphCreateSvg(tag, attributes = {}) {
   return element;
 }
 
+function coworkGraphAgentId(nodeId = "") {
+  const value = String(nodeId || "");
+  return value.startsWith("agent:") ? value.slice("agent:".length) : "";
+}
+
+function ensureCoworkAgentFieldPopover() {
+  if (elements.coworkAgentFieldPopover) {
+    return elements.coworkAgentFieldPopover;
+  }
+  if (!elements.coworkGraphStage) {
+    return null;
+  }
+  const existing = elements.coworkGraphStage.querySelector("#cowork-agent-field-popover");
+  if (existing) {
+    elements.coworkAgentFieldPopover = existing;
+    return existing;
+  }
+  const popover = document.createElement("div");
+  popover.id = "cowork-agent-field-popover";
+  popover.className = "cowork-agent-field-popover";
+  popover.hidden = true;
+  popover.addEventListener("pointerdown", (event) => event.stopPropagation());
+  popover.addEventListener("click", (event) => event.stopPropagation());
+  elements.coworkGraphStage.append(popover);
+  elements.coworkAgentFieldPopover = popover;
+  return popover;
+}
+
+function coworkAgentFieldItems(session, agentId) {
+  if (!session || !agentId) {
+    return { inbox: [], sent: [], messages: [], pending: [] };
+  }
+  const mailbox = [...(session.mailbox || [])]
+    .filter((record) => record.sender_id === agentId || (record.recipient_ids || []).includes(agentId))
+    .sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+  const messages = [...(session.messages || [])]
+    .filter((message) => message.sender_id === agentId || (message.recipient_ids || []).includes(agentId))
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  return {
+    inbox: mailbox.filter((record) => (record.recipient_ids || []).includes(agentId)).slice(0, 5),
+    sent: mailbox.filter((record) => record.sender_id === agentId).slice(0, 4),
+    pending: mailbox.filter((record) => (record.recipient_ids || []).includes(agentId) && record.requires_reply && ["delivered", "read"].includes(String(record.status || "").toLowerCase())).slice(0, 4),
+    messages: messages.slice(0, 5),
+  };
+}
+
+function renderCoworkAgentFieldPopover(session, selectedNode) {
+  const popover = ensureCoworkAgentFieldPopover();
+  if (!popover) return;
+  const agentId = coworkGraphAgentId(selectedNode?.id);
+  const agent = (session?.agents || []).find((item) => item.id === agentId);
+  if (!session || !selectedNode || selectedNode.kind !== "agent" || !agent) {
+    popover.hidden = true;
+    popover.textContent = "";
+    return;
+  }
+
+  const field = coworkAgentFieldItems(session, agentId);
+  const mailboxState = coworkAgentMailboxState(session, agentId);
+  const currentFocus = agent.current_task_title || agent.goal || selectedNode.detail || "Standing by";
+  const section = (title, items, renderItem, emptyText) => `
+    <section class="cowork-agent-field-section">
+      <h5>${escapeHtml(title)}</h5>
+      ${items.length ? items.map(renderItem).join("") : `<p class="cowork-agent-field-empty">${escapeHtml(emptyText)}</p>`}
+    </section>
+  `;
+
+  popover.hidden = false;
+  popover.innerHTML = `
+    <div class="cowork-agent-field-head">
+      <div>
+        <span class="cowork-kicker">Agent field</span>
+        <h4>${escapeHtml(agent.name || agent.id)}</h4>
+        <p>${escapeHtml(agent.role || "Agent")}</p>
+      </div>
+      <span class="${coworkStatusClass(agent.status)}">${escapeHtml(agent.status || "idle")}</span>
+    </div>
+    <div class="cowork-agent-field-focus">
+      <strong>Current focus</strong>
+      <p>${escapeHtml(compactText(currentFocus, 180))}</p>
+    </div>
+    <div class="cowork-agent-field-stats">
+      <span>Inbox ${agent.inbox_count || 0}</span>
+      <span>Pending ${field.pending.length}</span>
+      <span>Rounds ${agent.rounds || 0}</span>
+      ${mailboxState.waitingOn ? `<span>Waiting on ${escapeHtml(mailboxState.waitingOn)}</span>` : ""}
+    </div>
+    ${section("Needs attention", field.pending, (record) => `
+      <article class="cowork-agent-field-item urgent">
+        <strong>${escapeHtml(record.sender_id || "sender")} -> ${escapeHtml((record.recipient_ids || []).join(", ") || agentId)}</strong>
+        <p>${escapeHtml(compactText(record.content || "", 150))}</p>
+        <small>${escapeHtml([record.request_type || "reply", record.status || "delivered", record.updated_at || record.created_at || ""].filter(Boolean).join(" - "))}</small>
+      </article>
+    `, "No pending replies.")}
+    ${section("Inbox", field.inbox, (record) => `
+      <article class="cowork-agent-field-item">
+        <strong>${escapeHtml(record.sender_id || "sender")}</strong>
+        <p>${escapeHtml(compactText(record.content || "", 150))}</p>
+        <small>${escapeHtml([record.kind || "message", record.status || "queued", record.created_at || ""].filter(Boolean).join(" - "))}</small>
+      </article>
+    `, "No inbox items.")}
+    ${section("Sent", field.sent, (record) => `
+      <article class="cowork-agent-field-item">
+        <strong>to ${escapeHtml((record.recipient_ids || []).join(", ") || "team")}</strong>
+        <p>${escapeHtml(compactText(record.content || "", 150))}</p>
+        <small>${escapeHtml([record.kind || "message", record.status || "queued", record.created_at || ""].filter(Boolean).join(" - "))}</small>
+      </article>
+    `, "No sent mailbox items.")}
+    ${section("Recent dialog", field.messages, (message) => `
+      <article class="cowork-agent-field-item">
+        <strong>${escapeHtml(message.sender_id || "sender")} -> ${escapeHtml((message.recipient_ids || []).join(", ") || "team")}</strong>
+        <p>${escapeHtml(compactText(message.content || "", 150))}</p>
+        <small>${escapeHtml(message.created_at || "")}</small>
+      </article>
+    `, "No dialog yet.")}
+  `;
+}
+
 function coworkGraphNodes(session) {
   if (!session) return { nodes: [], edges: [] };
+  if (session.graph && Array.isArray(session.graph.nodes) && Array.isArray(session.graph.edges)) {
+    return {
+      nodes: session.graph.nodes,
+      edges: session.graph.edges.map((edge) => ({
+        ...edge,
+        from: edge.from || edge.source,
+        to: edge.to || edge.target,
+      })),
+    };
+  }
   const nodes = [{
     id: "session",
     kind: "session",
@@ -1841,14 +1969,16 @@ function renderCoworkGraph(session) {
   svg.textContent = "";
   const { nodes, edges } = coworkGraphNodes(session);
   if (elements.coworkGraphCaption) {
+    const stats = session?.graph?.stats;
     elements.coworkGraphCaption.textContent = session
-      ? `${nodes.length} nodes - ${edges.length} links - drag to pan, wheel to zoom, click to inspect`
-      : "Start or select a session to see the team state.";
+      ? `${stats?.agents || Math.max(0, nodes.length - 1)} focused agents - ${stats?.communications || edges.filter((edge) => edge.kind === "communication").length} communication links`
+      : "Start or select a session to see the agent field.";
   }
   if (!nodes.length) {
     const empty = coworkGraphCreateSvg("text", { x: 600, y: 310, "text-anchor": "middle", class: "cowork-graph-empty-text" });
     empty.textContent = "No cowork session selected";
     svg.append(empty);
+    renderCoworkAgentFieldPopover(null, null);
     if (elements.coworkGraphInspector) {
       elements.coworkGraphInspector.textContent = "Select or start a session.";
     }
@@ -1879,8 +2009,8 @@ function renderCoworkGraph(session) {
       role: "button",
       "aria-label": coworkGraphNodeLabel(node),
     });
-    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : node.kind === "message" ? 190 : 154;
-    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : node.kind === "message" ? 70 : 64;
+    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : node.kind === "message" ? 190 : node.kind === "thread" ? 174 : 154;
+    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : node.kind === "message" ? 70 : node.kind === "thread" ? 66 : 64;
     const rect = coworkGraphCreateSvg("rect", {
       x: -width / 2,
       y: -height / 2,
@@ -1907,7 +2037,6 @@ function renderCoworkGraph(session) {
       event.stopPropagation();
       state.activeCoworkGraphNode = node.id;
       renderCoworkGraph(session);
-      renderCoworkThreads(session?.threads || []);
     });
     group.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -1921,8 +2050,12 @@ function renderCoworkGraph(session) {
   svg.append(viewport);
   const selected = nodeMap.get(state.activeCoworkGraphNode) || nodes[0];
   if (elements.coworkGraphInspector) {
-    elements.coworkGraphInspector.textContent = `${coworkGraphNodeLabel(selected)} - ${selected.status || "active"} - ${selected.detail || ""}`;
+    const totalAgents = session?.graph?.stats?.total_agents || session?.agents?.length || 0;
+    const hiddenAgents = Math.max(0, totalAgents - (session?.graph?.stats?.agents || 0));
+    const hiddenText = selected.kind === "session" && hiddenAgents ? ` - ${hiddenAgents} more agent(s) hidden` : "";
+    elements.coworkGraphInspector.textContent = `${coworkGraphNodeLabel(selected)} - ${selected.status || "active"} - ${selected.detail || ""}${hiddenText}`;
   }
+  renderCoworkAgentFieldPopover(session, selected);
 }
 
 function setCoworkGraphZoom(nextScale, origin = { x: 600, y: 310 }) {
@@ -1955,6 +2088,8 @@ function setupCoworkGraphInteractions() {
     setCoworkGraphZoom(state.coworkGraphView.scale * (event.deltaY > 0 ? 0.92 : 1.08), origin);
   }, { passive: false });
   stage.addEventListener("pointerdown", (event) => {
+    if (event.target.closest?.(".cowork-agent-field-popover")) return;
+    if (event.target.closest?.(".cowork-graph-node")) return;
     if (event.button !== 0) return;
     stage.setPointerCapture(event.pointerId);
     state.coworkGraphDrag = {
@@ -1978,6 +2113,11 @@ function setupCoworkGraphInteractions() {
   });
   stage.addEventListener("pointercancel", () => {
     state.coworkGraphDrag = null;
+  });
+  stage.addEventListener("click", (event) => {
+    if (event.target.closest?.(".cowork-graph-node") || event.target.closest?.(".cowork-agent-field-popover")) return;
+    state.activeCoworkGraphNode = "session";
+    renderCoworkGraph(state.activeCoworkSession);
   });
 }
 
@@ -2303,14 +2443,24 @@ function renderCoworkTimeline(session) {
     at: message.created_at || "",
     message,
   }));
-  const eventItems = (session.events || [])
-    .map((event) => ({
-      kind: "event",
-      at: event.created_at || "",
-      event,
-      statusText: coworkTimelineStatus(event),
+  const traceItems = Array.isArray(session.trace)
+    ? session.trace.map((trace) => ({
+      kind: "trace",
+      at: trace.at || "",
+      trace,
+      statusText: trace.detail || trace.action || "",
     }))
-    .filter((item) => item.statusText);
+    : [];
+  const eventItems = traceItems.length
+    ? traceItems
+    : (session.events || [])
+      .map((event) => ({
+        kind: "event",
+        at: event.created_at || "",
+        event,
+        statusText: coworkTimelineStatus(event),
+      }))
+      .filter((item) => item.statusText);
   const items = [...messageItems, ...eventItems]
     .sort((a, b) => String(a.at).localeCompare(String(b.at)))
     .slice(-80);
@@ -2337,6 +2487,13 @@ function renderCoworkTimeline(session) {
       const recipients = (message.recipient_ids || []).length ? `to ${(message.recipient_ids || []).join(", ")}` : "broadcast";
       item.querySelector("span").textContent = `${thread?.topic || "Discussion"} - ${recipients} - ${message.created_at || ""}`;
       item.querySelector("p").textContent = message.content || "";
+    } else if (itemData.kind === "trace") {
+      const trace = itemData.trace;
+      item.className = "cowork-chat-event";
+      item.innerHTML = `<span></span><strong></strong>`;
+      item.querySelector("span").className = coworkStatusClass(trace.status || trace.stage || "active");
+      item.querySelector("span").textContent = String(trace.stage || "trace").replaceAll("_", " ");
+      item.querySelector("strong").textContent = `${trace.action || "Trace"} - ${trace.detail || ""}${trace.at ? ` - ${trace.at}` : ""}`;
     } else {
       const event = itemData.event;
       item.className = "cowork-chat-event";

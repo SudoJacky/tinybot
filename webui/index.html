@@ -292,7 +292,7 @@
                 <div class="cowork-graph-header">
                   <div>
                     <h4>Agent field</h4>
-                    <p id="cowork-graph-caption">Live agent, task, message, and topic state.</p>
+                    <p id="cowork-graph-caption">Focused agents and the live communication between them.</p>
                   </div>
                   <div class="cowork-graph-controls" aria-label="Team map controls">
                     <button id="cowork-graph-zoom-out" class="button button-icon" type="button" aria-label="Zoom out" title="Zoom out">-</button>
@@ -302,8 +302,9 @@
                 </div>
                 <div id="cowork-graph-stage" class="cowork-graph-stage" tabindex="0" role="img" aria-label="Interactive cowork state graph">
                   <svg id="cowork-graph-svg" class="cowork-graph-svg" viewBox="0 0 1200 620" aria-hidden="true"></svg>
+                  <div id="cowork-agent-field-popover" class="cowork-agent-field-popover" hidden></div>
                 </div>
-                <div id="cowork-graph-inspector" class="cowork-graph-inspector">Select an agent, task, message, or topic.</div>
+                <div id="cowork-graph-inspector" class="cowork-graph-inspector">Select an agent to inspect its current focus and communication state.</div>
               </section>
               <section class="cowork-team-chat">
                 <h4>Activity</h4>

@@ -885,6 +885,120 @@ html.theme-switching .theme-toggle svg {
   min-height: 320px;
 }
 
+.cowork-agent-field-popover {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 4;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100% - 28px));
+  max-height: calc(100% - 28px);
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--cowork-line));
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: default;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--cowork-surface) 96%, var(--accent-soft)), var(--cowork-surface));
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
+}
+
+.cowork-agent-field-popover[hidden] {
+  display: none;
+}
+
+.cowork-agent-field-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cowork-agent-field-head h4 {
+  margin: 2px 0 0;
+  font-size: 15px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.cowork-agent-field-head p,
+.cowork-agent-field-focus p,
+.cowork-agent-field-item p,
+.cowork-agent-field-empty {
+  margin: 0;
+  color: var(--cowork-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cowork-agent-field-focus {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--cowork-line);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--cowork-surface) 78%, transparent);
+}
+
+.cowork-agent-field-focus strong,
+.cowork-agent-field-section h5 {
+  margin: 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cowork-agent-field-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cowork-agent-field-stats span {
+  padding: 4px 7px;
+  border: 1px solid var(--cowork-line);
+  border-radius: 999px;
+  color: var(--cowork-muted);
+  font-size: 11px;
+  font-weight: 760;
+  background: color-mix(in srgb, var(--cowork-surface) 74%, transparent);
+}
+
+.cowork-agent-field-section {
+  display: grid;
+  gap: 6px;
+}
+
+.cowork-agent-field-item {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid var(--cowork-line);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--cowork-surface) 82%, transparent);
+}
+
+.cowork-agent-field-item.urgent {
+  border-color: color-mix(in srgb, var(--cowork-amber) 44%, var(--cowork-line));
+  background: color-mix(in srgb, var(--cowork-amber) 8%, var(--cowork-surface));
+}
+
+.cowork-agent-field-item strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.cowork-agent-field-item small {
+  color: var(--cowork-muted);
+  font-size: 11px;
+}
+
 .cowork-graph-edge {
   fill: none;
   stroke: color-mix(in srgb, var(--cowork-cyan) 34%, transparent);
@@ -896,13 +1010,38 @@ html.theme-switching .theme-toggle svg {
   stroke: color-mix(in srgb, var(--cowork-amber) 38%, transparent);
 }
 
+.cowork-graph-edge-member {
+  stroke: color-mix(in srgb, var(--cowork-cyan) 30%, transparent);
+}
+
 .cowork-graph-edge-topic {
+  stroke: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.cowork-graph-edge-discussion {
   stroke: color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .cowork-graph-edge-message {
   stroke: color-mix(in srgb, var(--cowork-green) 42%, transparent);
   stroke-dasharray: 5 7;
+}
+
+.cowork-graph-edge-mailbox {
+  stroke: color-mix(in srgb, var(--cowork-green) 42%, transparent);
+  stroke-dasharray: 5 7;
+}
+
+.cowork-graph-edge-communication {
+  stroke: color-mix(in srgb, var(--cowork-green) 46%, transparent);
+  stroke-width: 1.8;
+  stroke-dasharray: 5 7;
+}
+
+.cowork-graph-edge-depends_on,
+.cowork-graph-edge-blocks {
+  stroke: color-mix(in srgb, var(--cowork-red) 44%, transparent);
+  stroke-dasharray: 3 6;
 }
 
 .cowork-graph-edge.pulse {
@@ -940,6 +1079,10 @@ html.theme-switching .theme-toggle svg {
 }
 
 .cowork-graph-node-topic rect {
+  fill: color-mix(in srgb, var(--accent-soft) 28%, var(--cowork-surface));
+}
+
+.cowork-graph-node-thread rect {
   fill: color-mix(in srgb, var(--accent-soft) 28%, var(--cowork-surface));
 }
 
