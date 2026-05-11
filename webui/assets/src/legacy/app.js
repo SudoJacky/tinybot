@@ -1733,16 +1733,31 @@ function coworkGraphNodes(session) {
   const tasks = session.tasks || [];
   const threads = session.threads || [];
   const messages = session.messages || [];
+  const mailbox = session.mailbox || [];
+  const mailboxByAgent = new Map();
+  for (const record of mailbox) {
+    for (const recipientId of record.recipient_ids || []) {
+      const entry = mailboxByAgent.get(recipientId) || { inbox: 0, pending: 0 };
+      entry.inbox += 1;
+      if (record.requires_reply || ["queued", "delivered", "read"].includes(String(record.status || "").toLowerCase())) {
+        entry.pending += 1;
+      }
+      mailboxByAgent.set(recipientId, entry);
+    }
+  }
   const radiusX = Math.max(230, Math.min(350, 170 + agents.length * 28));
   const radiusY = Math.max(150, Math.min(230, 120 + agents.length * 16));
   agents.forEach((agent, index) => {
     const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(agents.length, 1);
+    const mailboxState = mailboxByAgent.get(agent.id) || { inbox: agent.inbox_count || 0, pending: 0 };
+    const activeTask = agent.current_task_title || agent.goal || "Standing by";
     nodes.push({
       id: `agent:${agent.id}`,
       kind: "agent",
       title: agent.name || agent.id,
-      detail: compactText(`${agent.role || "Agent"} - ${agent.current_task_title || agent.goal || ""}`, 170),
+      detail: compactText(`${agent.role || "Agent"} - ${activeTask}`, 170),
       status: agent.status || "idle",
+      badge: `in ${mailboxState.inbox} / wait ${mailboxState.pending} / r${agent.rounds || 0}`,
       x: 600 + Math.cos(angle) * radiusX,
       y: 310 + Math.sin(angle) * radiusY,
     });
@@ -1759,6 +1774,7 @@ function coworkGraphNodes(session) {
       title: task.title || task.id || "Task",
       detail: compactText(task.result_data?.answer || task.result || task.description || "Waiting for output", 180),
       status: task.status || "pending",
+      badge: task.assigned_agent_id ? `owner ${task.assigned_agent_id}` : "unassigned",
       x: column ? 1010 : 190,
       y: 100 + row * 76,
     });
@@ -1771,6 +1787,7 @@ function coworkGraphNodes(session) {
       title: thread.topic || thread.id,
       detail: `${thread.message_count || 0} messages - ${(thread.participant_ids || []).join(", ")}`,
       status: thread.status || "active",
+      badge: `${thread.message_count || 0} msgs`,
       x: 260 + index * 136,
       y: 560,
     });
@@ -1781,6 +1798,18 @@ function coworkGraphNodes(session) {
     const recipient = (message.recipient_ids || []).find(Boolean);
     if (recipient) {
       edges.push({ from: sender, to: `agent:${recipient}`, kind: "message", pulse: index >= 5 });
+    }
+  });
+  const recentMailbox = mailbox.slice(-12);
+  recentMailbox.forEach((record, index) => {
+    const sender = record.sender_id ? `agent:${record.sender_id}` : "session";
+    for (const recipient of record.recipient_ids || []) {
+      edges.push({
+        from: sender,
+        to: `agent:${recipient}`,
+        kind: "message",
+        pulse: index >= Math.max(0, recentMailbox.length - 4) || Boolean(record.requires_reply),
+      });
     }
   });
   return { nodes, edges };
@@ -1830,8 +1859,8 @@ function renderCoworkGraph(session) {
       role: "button",
       "aria-label": coworkGraphNodeLabel(node),
     });
-    const width = node.kind === "session" ? 190 : 154;
-    const height = node.kind === "session" ? 78 : 64;
+    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : 154;
+    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : 64;
     const rect = coworkGraphCreateSvg("rect", {
       x: -width / 2,
       y: -height / 2,
@@ -1852,7 +1881,7 @@ function renderCoworkGraph(session) {
     const meta = coworkGraphCreateSvg("text", { x: -width / 2 + 14, y: 8, class: "cowork-graph-node-meta" });
     meta.textContent = compactText(String(node.detail || node.status || ""), node.kind === "session" ? 34 : 26);
     const badge = coworkGraphCreateSvg("text", { x: -width / 2 + 14, y: height / 2 - 12, class: "cowork-graph-node-badge" });
-    badge.textContent = String(node.status || node.kind).replaceAll("_", " ");
+    badge.textContent = String(node.badge || node.status || node.kind).replaceAll("_", " ");
     group.append(rect, dot, title, meta, badge);
     group.addEventListener("click", (event) => {
       event.stopPropagation();
