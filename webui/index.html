@@ -47,7 +47,7 @@
 
       <section class="sessions-panel">
         <div class="panel-header sessions-header">
-          <div class="panel-title-row">
+          <div class="panel-title-row sidebar-dropdown-toggle" id="sessions-toggle" tabindex="0" role="button" aria-expanded="true" aria-controls="session-list">
             <h2 data-i18n="ui.sessions">会话</h2>
             <span id="session-count" class="muted" style="color: var(--text-muted);">0</span>
           </div>
@@ -93,6 +93,7 @@
             <h2>COWORK</h2>
             <span id="cowork-session-count" class="compact-stats" aria-hidden="true">0</span>
           </header>
+          <div id="cowork-sidebar-session-list" class="cowork-sidebar-session-list"></div>
         </section>
         <section class="browser-panel compact-panel" id="browser-panel" hidden aria-hidden="true">
           <header class="section-header">

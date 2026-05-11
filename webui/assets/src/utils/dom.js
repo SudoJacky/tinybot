@@ -1,6 +1,7 @@
 export const elements = {
   sessionList: document.querySelector("#session-list"),
   sessionCount: document.querySelector("#session-count"),
+  sessionsToggle: document.querySelector("#sessions-toggle"),
   chatTitle: document.querySelector("#chat-title"),
   connectionStatus: document.querySelector("#connection-status"),
   messageList: document.querySelector("#message-list"),
@@ -222,6 +223,7 @@ export const elements = {
   clearGraphFilterButton: null,
   coworkToggle: document.querySelector("#cowork-toggle"),
   coworkSessionCount: document.querySelector("#cowork-session-count"),
+  coworkSidebarSessionList: document.querySelector("#cowork-sidebar-session-list"),
   coworkModal: document.querySelector("#cowork-modal"),
   coworkModalOverlay: document.querySelector("#cowork-modal-overlay"),
   coworkModalClose: document.querySelector("#cowork-modal-close"),

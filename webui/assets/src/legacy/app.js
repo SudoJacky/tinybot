@@ -309,6 +309,14 @@ function updateActiveChatTitle() {
   elements.chatTitle.title = state.activeChatId || "";
 }
 
+function setSidebarDropdown(section) {
+  const isCowork = section === "cowork";
+  document.body.classList.toggle("sidebar-cowork-open", isCowork);
+  document.body.classList.toggle("sidebar-sessions-open", !isCowork);
+  elements.sessionsToggle?.setAttribute("aria-expanded", String(!isCowork));
+  elements.coworkToggle?.setAttribute("aria-expanded", String(isCowork));
+}
+
 function renderApprovalPanel() {
   if (!elements.approvalPanel || !elements.approvalList) {
     return;
@@ -1370,6 +1378,7 @@ function renderSessions() {
     button.className = "session-item";
     if (item.key === state.activeSessionKey) {
       button.classList.add("active");
+      wrapper.classList.add("expanded");
     }
     button.dataset.chatId = item.chat_id;
 
@@ -1472,6 +1481,7 @@ async function loadSessionFiles(sessionKey) {
 function activateChat(chatId) {
   state.activeChatId = chatId;
   state.activeSessionKey = sessionKeyForChat(chatId);
+  setSidebarDropdown("sessions");
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
@@ -1594,7 +1604,7 @@ function openCoworkModal() {
   if (window.location.pathname === "/cowork") {
     document.body.classList.add("cowork-page-active");
   }
-  elements.coworkToggle?.setAttribute("aria-expanded", "true");
+  setSidebarDropdown("cowork");
   elements.coworkModal?.classList.add("active");
   loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
 }
@@ -1604,7 +1614,7 @@ function closeCoworkModal() {
     window.history.pushState({}, "", "/");
   }
   document.body.classList.remove("cowork-page-active");
-  elements.coworkToggle?.setAttribute("aria-expanded", "false");
+  setSidebarDropdown("sessions");
   elements.coworkModal?.classList.remove("active");
 }
 
@@ -1927,22 +1937,32 @@ function renderCoworkSessions() {
   if (elements.coworkSessionCount) {
     elements.coworkSessionCount.textContent = String(state.coworkSessions.length);
   }
-  if (!elements.coworkSessionList) {
+  const lists = [elements.coworkSessionList, elements.coworkSidebarSessionList].filter(Boolean);
+  if (!lists.length) {
     return;
   }
-  elements.coworkSessionList.textContent = "";
+  for (const list of lists) {
+    list.textContent = "";
+  }
   if (state.coworkLoading) {
-    elements.coworkSessionList.append(coworkEmpty("Loading sessions..."));
+    for (const list of lists) {
+      list.append(coworkEmpty("Loading sessions..."));
+    }
     return;
   }
   if (!state.coworkSessions.length) {
-    elements.coworkSessionList.append(coworkEmpty("No cowork sessions."));
+    for (const list of lists) {
+      list.append(coworkEmpty("No cowork sessions."));
+    }
     return;
   }
-  for (const session of state.coworkSessions) {
+  const createSessionButton = (session, compact = false) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "cowork-session-item";
+    if (compact) {
+      button.classList.add("cowork-sidebar-session-item");
+    }
     if (session.id === state.activeCoworkSessionId) {
       button.classList.add("active");
     }
@@ -1952,8 +1972,27 @@ function renderCoworkSessions() {
     `;
     button.querySelector(".cowork-session-title").textContent = session.title || session.id;
     button.querySelector(".cowork-session-meta").textContent = `${session.status || "active"} - ${session.updated_at || ""}`;
-    button.addEventListener("click", () => loadCoworkSession(session.id).catch((error) => setCoworkError(error.message || String(error))));
-    elements.coworkSessionList.append(button);
+    button.addEventListener("click", () => {
+      if (!document.body.classList.contains("cowork-page-active")) {
+        openCoworkModal();
+      } else {
+        setSidebarDropdown("cowork");
+      }
+      loadCoworkSession(session.id).catch((error) => setCoworkError(error.message || String(error)));
+    });
+    return button;
+  };
+  for (const session of state.coworkSessions) {
+    elements.coworkSessionList?.append(createSessionButton(session));
+    if (elements.coworkSidebarSessionList) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "cowork-sidebar-session-wrapper";
+      if (session.id === state.activeCoworkSessionId) {
+        wrapper.classList.add("expanded");
+      }
+      wrapper.append(createSessionButton(session, true));
+      elements.coworkSidebarSessionList.append(wrapper);
+    }
   }
 }
 
@@ -6827,10 +6866,16 @@ function bindEvents() {
   });
 
   elements.newChatButton.addEventListener("click", async () => {
+    if (document.body.classList.contains("cowork-page-active")) {
+      closeCoworkModal();
+    } else {
+      setSidebarDropdown("sessions");
+    }
     await createNewChat();
   });
 
   elements.refreshButton.addEventListener("click", async () => {
+    setSidebarDropdown("sessions");
     await loadSessions();
     await loadEditableFiles();
     await loadSystemStatus();
@@ -6971,6 +7016,24 @@ function bindEvents() {
   });
   elements.skillsModalOverlay.addEventListener("click", closeSkillsModal);
   elements.skillsModalClose.addEventListener("click", closeSkillsModal);
+
+  elements.sessionsToggle?.addEventListener("click", () => {
+    if (document.body.classList.contains("cowork-page-active")) {
+      closeCoworkModal();
+    } else {
+      setSidebarDropdown("sessions");
+    }
+  });
+  elements.sessionsToggle?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (document.body.classList.contains("cowork-page-active")) {
+        closeCoworkModal();
+      } else {
+        setSidebarDropdown("sessions");
+      }
+    }
+  });
 
   // Cowork modal events
   elements.coworkToggle?.addEventListener("click", openCoworkModal);
@@ -7740,6 +7803,8 @@ async function init() {
     await loadConfig();
     if (window.location.pathname === "/cowork") {
       openCoworkModal();
+    } else {
+      setSidebarDropdown("sessions");
     }
     if (state.activeFilePath) {
       sendSocketMessage({ type: "subscribe_file", path: state.activeFilePath });

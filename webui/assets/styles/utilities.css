@@ -1995,3 +1995,135 @@ html.theme-switching .theme-toggle svg {
     width: 100%;
   }
 }
+
+/* ========== Sidebar Session Dropdowns ========== */
+body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) {
+  --sidebar-active-section: sessions;
+}
+
+.sidebar-dropdown-toggle {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+  margin: -3px -6px;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.sidebar-dropdown-toggle:hover,
+.sidebar-dropdown-toggle:focus-visible {
+  background: color-mix(in srgb, var(--panel-strong) 62%, var(--bg-subtle));
+  box-shadow: var(--shadow-xs);
+  outline: none;
+}
+
+.sidebar-dropdown-toggle::after,
+.cowork-panel .section-header::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.58;
+  transform: rotate(45deg);
+  transition: transform var(--transition-base), opacity var(--transition-fast);
+}
+
+.sidebar-sessions-open .sidebar-dropdown-toggle::after,
+body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .sidebar-dropdown-toggle::after,
+.sidebar-cowork-open .cowork-panel .section-header::after {
+  opacity: 0.82;
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.sidebar-cowork-open .sessions-panel {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.sidebar-cowork-open .session-list {
+  display: none;
+}
+
+.sidebar-cowork-open .sidebar-feature-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 0;
+}
+
+.cowork-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cowork-sidebar-session-list {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 1px 0;
+}
+
+.sidebar-cowork-open .cowork-sidebar-session-list {
+  display: flex;
+}
+
+.sidebar-cowork-open .cowork-panel {
+  flex: 1 1 auto;
+}
+
+.sidebar-cowork-open .cowork-panel .section-header {
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+}
+
+.sidebar-sessions-open .cowork-panel,
+body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
+  flex: 0 0 auto;
+}
+
+.session-item-wrapper,
+.cowork-sidebar-session-wrapper {
+  border-radius: var(--radius-sm);
+}
+
+.session-item-wrapper.expanded,
+.cowork-sidebar-session-wrapper.expanded {
+  background: color-mix(in srgb, var(--panel-strong) 46%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  box-shadow: var(--shadow-xs);
+}
+
+.session-item-wrapper.expanded .session-item {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.session-item-wrapper.expanded .session-item,
+.cowork-sidebar-session-wrapper.expanded .cowork-session-item {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cowork-sidebar-session-item {
+  min-height: 0;
+  padding: 7px 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.cowork-sidebar-session-item .cowork-session-title {
+  font-size: 11px;
+}
+
+.cowork-sidebar-session-item .cowork-session-meta {
+  font-size: 10px;
+}
+
+.sidebar.collapsed .sidebar-dropdown-toggle,
+.sidebar.collapsed .cowork-sidebar-session-list {
+  display: none;
+}
