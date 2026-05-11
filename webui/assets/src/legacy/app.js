@@ -1735,6 +1735,7 @@ function coworkGraphNodes(session) {
   const mailbox = session.mailbox || [];
   const agentIds = new Set(agents.map((agent) => agent.id).filter(Boolean));
   const mailboxByAgent = new Map();
+  const agentPositions = new Map();
   for (const record of mailbox) {
     for (const recipientId of record.recipient_ids || []) {
       const entry = mailboxByAgent.get(recipientId) || { inbox: 0, pending: 0 };
@@ -1761,6 +1762,10 @@ function coworkGraphNodes(session) {
       x: 600 + Math.cos(angle) * radiusX,
       y: 310 + Math.sin(angle) * radiusY,
     });
+    agentPositions.set(agent.id, {
+      x: 600 + Math.cos(angle) * radiusX,
+      y: 310 + Math.sin(angle) * radiusY,
+    });
     edges.push({ from: "session", to: `agent:${agent.id}`, kind: "agent" });
   });
   const taskSlots = tasks.slice(0, 12);
@@ -1780,26 +1785,34 @@ function coworkGraphNodes(session) {
     });
     edges.push({ from: owner, to: `task:${task.id || index}`, kind: "task" });
   });
-  const recentAgentMessages = messages
-    .filter((message) => agentIds.has(message.sender_id) && String(message.content || "").trim())
-    .slice(-10);
-  recentAgentMessages.forEach((message, index) => {
-    const sender = `agent:${message.sender_id}`;
-    const columnCount = Math.min(Math.max(recentAgentMessages.length, 1), 5);
-    const column = index % columnCount;
-    const row = Math.floor(index / columnCount);
-    nodes.push({
-      id: `message:${message.id || message.message_id || `${message.sender_id}:${index}`}`,
-      kind: "message",
-      title: message.sender_id || "Agent",
-      detail: compactText(message.content || "", 180),
-      status: "delivered",
-      badge: compactText(message.created_at || "message", 26),
-      x: 180 + column * 210,
-      y: 520 + row * 78,
+  const messagesByAgent = new Map();
+  for (const message of messages) {
+    if (!agentIds.has(message.sender_id) || !String(message.content || "").trim()) continue;
+    const bucket = messagesByAgent.get(message.sender_id) || [];
+    bucket.push(message);
+    messagesByAgent.set(message.sender_id, bucket);
+  }
+  for (const [agentId, agentMessages] of messagesByAgent.entries()) {
+    const position = agentPositions.get(agentId);
+    if (!position) continue;
+    const recent = agentMessages.slice(-2);
+    recent.forEach((message, index) => {
+      const messageId = `message:${message.id || message.message_id || `${agentId}:${message.created_at || index}`}`;
+      const side = position.y > 330 ? -1 : 1;
+      const spread = recent.length === 1 ? 0 : (index === 0 ? -66 : 66);
+      nodes.push({
+        id: messageId,
+        kind: "message",
+        title: message.sender_id || "Agent",
+        detail: compactText(message.content || "", 180),
+        status: "delivered",
+        badge: compactText(message.created_at || "message", 26),
+        x: Math.max(120, Math.min(1080, position.x + spread)),
+        y: Math.max(74, Math.min(560, position.y + side * (92 + index * 10))),
+      });
+      edges.push({ from: `agent:${agentId}`, to: messageId, kind: "message", pulse: index === recent.length - 1 });
     });
-    edges.push({ from: sender, to: `message:${message.id || message.message_id || `${message.sender_id}:${index}`}`, kind: "message", pulse: index >= recentAgentMessages.length - 3 });
-  });
+  }
   messages.slice(-8).forEach((message, index) => {
     const sender = message.sender_id ? `agent:${message.sender_id}` : "session";
     const recipient = (message.recipient_ids || []).find(Boolean);
@@ -2144,7 +2157,6 @@ function renderCoworkAgents(session) {
       `Inbox ${agent.inbox_count || 0}`,
       `Pending replies ${mailboxState.pendingCount}`,
       mailboxState.waitingOn ? `waiting on ${mailboxState.waitingOn}` : "",
-      mailboxState.lastMessage ? `last: ${compactText(mailboxState.lastMessage, 72)}` : "",
       `Rounds ${agent.rounds || 0}`,
     ].filter(Boolean).join(" - ");
     elements.coworkAgentList.append(item);
@@ -4458,7 +4470,7 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
       if (!active && !shouldShowAllLabels && (node.degree || 0) < 2) {
         continue;
       }
-      ctx.font = `${active ? 600 : 500} ${Math.max(10, 11 / view.scale)}px Inter, system-ui, sans-serif`;
+      ctx.font = `${active ? 600 : 500} ${Math.max(10, 11 / view.scale)}px "Segoe UI", system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       const label = compactGraphLabel(node.label || node.id);
@@ -4481,7 +4493,7 @@ function renderKnowledgeGraphCanvas(canvas, nodes, edges, controls = {}) {
   function drawGraphTooltip(title, subtitle, point) {
     if (!point || !title) return;
     const text = `${title} · ${subtitle}`;
-    ctx.font = "12px Inter, system-ui, sans-serif";
+    ctx.font = '12px "Segoe UI", system-ui, sans-serif';
     const width = Math.min(280, ctx.measureText(text).width + 18);
     const x = Math.min(runtime.width - width - 12, Math.max(12, point.x + 12));
     const y = Math.min(runtime.height - 34, Math.max(12, point.y - 28));
@@ -7822,6 +7834,14 @@ async function init() {
   applyUiMode(state.uiMode);
   bindEvents();
   resizeComposer();
+  const wantsCoworkPage = window.location.pathname === "/cowork";
+  if (wantsCoworkPage) {
+    document.body.classList.add("cowork-page-active");
+    setSidebarDropdown("cowork");
+    elements.coworkModal?.classList.add("active");
+  } else {
+    setSidebarDropdown("sessions");
+  }
 
   try {
     await bootstrap();
@@ -7832,15 +7852,11 @@ async function init() {
     await loadTools();
     await loadSkills();
     await loadCoworkSessions().catch((error) => console.warn("Cowork init failed", error));
-    await loadKnowledgeStats();
-    await loadKnowledgeDocs();
-    await loadKnowledgeGraph();
-    await loadConfig();
-    if (window.location.pathname === "/cowork") {
-      openCoworkModal();
-    } else {
-      setSidebarDropdown("sessions");
-    }
+    await loadKnowledgeStats().catch((error) => console.warn("Knowledge stats init failed", error));
+    await loadKnowledgeDocs().catch((error) => console.warn("Knowledge docs init failed", error));
+    await loadKnowledgeGraph().catch((error) => console.warn("Knowledge graph init failed", error));
+    await loadConfig().catch((error) => console.warn("Config init failed", error));
+    if (wantsCoworkPage) openCoworkModal();
     if (state.activeFilePath) {
       sendSocketMessage({ type: "subscribe_file", path: state.activeFilePath });
     }
@@ -7850,6 +7866,11 @@ async function init() {
   } catch (error) {
     console.error(error);
     removeInitSkeleton();
+    if (wantsCoworkPage) {
+      document.body.classList.add("cowork-page-active");
+      setSidebarDropdown("cowork");
+      elements.coworkModal?.classList.add("active");
+    }
     setStatus(t("status.initFailed"), "error");
     setError(error.message || t("status.initFailed"));
   }
