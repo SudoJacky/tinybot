@@ -1594,6 +1594,7 @@ function openCoworkModal() {
   if (window.location.pathname === "/cowork") {
     document.body.classList.add("cowork-page-active");
   }
+  elements.coworkToggle?.setAttribute("aria-expanded", "true");
   elements.coworkModal?.classList.add("active");
   loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
 }
@@ -1603,6 +1604,7 @@ function closeCoworkModal() {
     window.history.pushState({}, "", "/");
   }
   document.body.classList.remove("cowork-page-active");
+  elements.coworkToggle?.setAttribute("aria-expanded", "false");
   elements.coworkModal?.classList.remove("active");
 }
 
