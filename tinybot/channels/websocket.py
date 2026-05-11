@@ -17,6 +17,7 @@ from typing import Any
 from loguru import logger
 
 from tinybot.api.cowork import cowork_session_snapshot
+from tinybot.cowork.snapshot import build_cowork_graph, build_cowork_trace
 from tinybot.bus.events import OutboundMessage
 from tinybot.bus.queue import MessageBus
 from tinybot.channels.base import BaseChannel
@@ -411,6 +412,7 @@ class WebSocketChannel(BaseChannel):
         app.router.add_get("/api/cowork/sessions", self.handle_list_cowork_sessions)
         app.router.add_post("/api/cowork/sessions", self.handle_create_cowork_session)
         app.router.add_get("/api/cowork/sessions/{session_id}", self.handle_get_cowork_session)
+        app.router.add_get("/api/cowork/sessions/{session_id}/graph", self.handle_get_cowork_graph)
         app.router.add_delete("/api/cowork/sessions/{session_id}", self.handle_delete_cowork_session)
         app.router.add_post("/api/cowork/sessions/{session_id}/run", self.handle_run_cowork_session)
         app.router.add_post("/api/cowork/sessions/{session_id}/pause", self.handle_pause_cowork_session)
@@ -1246,6 +1248,17 @@ class WebSocketChannel(BaseChannel):
         if session is None:
             return web.json_response({"error": "cowork session not found"}, status=404)
         return web.json_response({"session": self._serialize_cowork_session(session)})
+
+    async def handle_get_cowork_graph(self, request: web.Request) -> web.Response:
+        if not self._is_authorized(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        service = self._cowork_service()
+        if service is None:
+            return web.json_response({"error": "cowork is not available"}, status=503)
+        session = service.get_session(request.match_info["session_id"])
+        if session is None:
+            return web.json_response({"error": "cowork session not found"}, status=404)
+        return web.json_response({"graph": build_cowork_graph(session), "trace": build_cowork_trace(session)})
 
     async def handle_delete_cowork_session(self, request: web.Request) -> web.Response:
         if not self._is_authorized(request):

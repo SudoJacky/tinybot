@@ -896,13 +896,32 @@ html.theme-switching .theme-toggle svg {
   stroke: color-mix(in srgb, var(--cowork-amber) 38%, transparent);
 }
 
+.cowork-graph-edge-member {
+  stroke: color-mix(in srgb, var(--cowork-cyan) 30%, transparent);
+}
+
 .cowork-graph-edge-topic {
+  stroke: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.cowork-graph-edge-discussion {
   stroke: color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .cowork-graph-edge-message {
   stroke: color-mix(in srgb, var(--cowork-green) 42%, transparent);
   stroke-dasharray: 5 7;
+}
+
+.cowork-graph-edge-mailbox {
+  stroke: color-mix(in srgb, var(--cowork-green) 42%, transparent);
+  stroke-dasharray: 5 7;
+}
+
+.cowork-graph-edge-depends_on,
+.cowork-graph-edge-blocks {
+  stroke: color-mix(in srgb, var(--cowork-red) 44%, transparent);
+  stroke-dasharray: 3 6;
 }
 
 .cowork-graph-edge.pulse {
@@ -940,6 +959,10 @@ html.theme-switching .theme-toggle svg {
 }
 
 .cowork-graph-node-topic rect {
+  fill: color-mix(in srgb, var(--accent-soft) 28%, var(--cowork-surface));
+}
+
+.cowork-graph-node-thread rect {
   fill: color-mix(in srgb, var(--accent-soft) 28%, var(--cowork-surface));
 }
 

@@ -1719,6 +1719,16 @@ function coworkGraphCreateSvg(tag, attributes = {}) {
 
 function coworkGraphNodes(session) {
   if (!session) return { nodes: [], edges: [] };
+  if (session.graph && Array.isArray(session.graph.nodes) && Array.isArray(session.graph.edges)) {
+    return {
+      nodes: session.graph.nodes,
+      edges: session.graph.edges.map((edge) => ({
+        ...edge,
+        from: edge.from || edge.source,
+        to: edge.to || edge.target,
+      })),
+    };
+  }
   const nodes = [{
     id: "session",
     kind: "session",
@@ -1879,8 +1889,8 @@ function renderCoworkGraph(session) {
       role: "button",
       "aria-label": coworkGraphNodeLabel(node),
     });
-    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : node.kind === "message" ? 190 : 154;
-    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : node.kind === "message" ? 70 : 64;
+    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : node.kind === "message" ? 190 : node.kind === "thread" ? 174 : 154;
+    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : node.kind === "message" ? 70 : node.kind === "thread" ? 66 : 64;
     const rect = coworkGraphCreateSvg("rect", {
       x: -width / 2,
       y: -height / 2,
@@ -2303,14 +2313,24 @@ function renderCoworkTimeline(session) {
     at: message.created_at || "",
     message,
   }));
-  const eventItems = (session.events || [])
-    .map((event) => ({
-      kind: "event",
-      at: event.created_at || "",
-      event,
-      statusText: coworkTimelineStatus(event),
+  const traceItems = Array.isArray(session.trace)
+    ? session.trace.map((trace) => ({
+      kind: "trace",
+      at: trace.at || "",
+      trace,
+      statusText: trace.detail || trace.action || "",
     }))
-    .filter((item) => item.statusText);
+    : [];
+  const eventItems = traceItems.length
+    ? traceItems
+    : (session.events || [])
+      .map((event) => ({
+        kind: "event",
+        at: event.created_at || "",
+        event,
+        statusText: coworkTimelineStatus(event),
+      }))
+      .filter((item) => item.statusText);
   const items = [...messageItems, ...eventItems]
     .sort((a, b) => String(a.at).localeCompare(String(b.at)))
     .slice(-80);
@@ -2337,6 +2357,13 @@ function renderCoworkTimeline(session) {
       const recipients = (message.recipient_ids || []).length ? `to ${(message.recipient_ids || []).join(", ")}` : "broadcast";
       item.querySelector("span").textContent = `${thread?.topic || "Discussion"} - ${recipients} - ${message.created_at || ""}`;
       item.querySelector("p").textContent = message.content || "";
+    } else if (itemData.kind === "trace") {
+      const trace = itemData.trace;
+      item.className = "cowork-chat-event";
+      item.innerHTML = `<span></span><strong></strong>`;
+      item.querySelector("span").className = coworkStatusClass(trace.status || trace.stage || "active");
+      item.querySelector("span").textContent = String(trace.stage || "trace").replaceAll("_", " ");
+      item.querySelector("strong").textContent = `${trace.action || "Trace"} - ${trace.detail || ""}${trace.at ? ` - ${trace.at}` : ""}`;
     } else {
       const event = itemData.event;
       item.className = "cowork-chat-event";

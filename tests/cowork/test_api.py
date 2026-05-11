@@ -108,6 +108,9 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert session["agents"][0]["current_task_title"] is None
     assert "completion_decision" in session
     assert "final_draft" in session
+    assert session["graph"]["stats"]["agents"] == 1
+    assert any(node["id"] == "agent:planner" for node in session["graph"]["nodes"])
+    assert session["trace"][-1]["type"] == "session.created"
 
     response = await cowork_api_client.get("/api/cowork/sessions")
     assert response.status == 200
@@ -116,6 +119,12 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}")
     assert response.status == 200
     assert (await response.json())["session"]["messages"]
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/graph")
+    assert response.status == 200
+    graph_payload = await response.json()
+    assert graph_payload["graph"]["stats"]["tasks"] == 1
+    assert graph_payload["trace"][-1]["action"] == "Session created"
 
     response = await cowork_api_client.post(f"/api/cowork/sessions/{session_id}/messages", json={"content": "Add QA"})
     assert response.status == 200

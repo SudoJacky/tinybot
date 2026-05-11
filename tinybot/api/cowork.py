@@ -6,6 +6,8 @@ from typing import Any
 
 from aiohttp import web
 
+from tinybot.cowork.snapshot import build_cowork_graph, build_cowork_trace
+
 
 def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, Any]:
     """Return a JSON-safe snapshot for a cowork session."""
@@ -112,7 +114,7 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         }
         for event in session.events[-80:]
     ]
-    return {
+    snapshot = {
         "id": session.id,
         "title": session.title,
         "goal": session.goal,
@@ -130,6 +132,10 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "mailbox": mailbox,
         "events": events,
     }
+    if verbose:
+        snapshot["graph"] = build_cowork_graph(session)
+        snapshot["trace"] = build_cowork_trace(session)
+    return snapshot
 
 
 def _cowork_service(app: web.Application):
@@ -206,6 +212,16 @@ async def handle_get_session(request: web.Request) -> web.Response:
     if session is None:
         return web.json_response({"error": "cowork session not found"}, status=404)
     return web.json_response({"session": cowork_session_snapshot(session)})
+
+
+async def handle_get_session_graph(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    return web.json_response({"graph": build_cowork_graph(session), "trace": build_cowork_trace(session)})
 
 
 async def handle_delete_session(request: web.Request) -> web.Response:
@@ -317,6 +333,7 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_get("/api/cowork/sessions", handle_list_sessions)
     app.router.add_post("/api/cowork/sessions", handle_create_session)
     app.router.add_get("/api/cowork/sessions/{session_id}", handle_get_session)
+    app.router.add_get("/api/cowork/sessions/{session_id}/graph", handle_get_session_graph)
     app.router.add_delete("/api/cowork/sessions/{session_id}", handle_delete_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/run", handle_run_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/pause", handle_pause_session)
