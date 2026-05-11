@@ -732,6 +732,252 @@ html.theme-switching .theme-toggle svg {
   text-align: center;
 }
 
+.cowork-page-active {
+  background: var(--bg);
+}
+
+.cowork-page-active #cowork-modal {
+  min-height: 100vh;
+  padding: 16px 20px 18px;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent-soft) 48%, transparent), transparent 28%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.54), rgba(239, 247, 253, 0.26));
+}
+
+[data-theme="dark"] .cowork-page-active #cowork-modal {
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent-soft) 28%, transparent), transparent 30%),
+    linear-gradient(145deg, rgba(30, 41, 59, 0.42), rgba(15, 23, 42, 0.24));
+}
+
+.cowork-page-active .cowork-modal-content {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  min-height: calc(100vh - 34px);
+  max-height: calc(100vh - 34px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--panel-strong) 82%, transparent);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+.cowork-page-active .cowork-page-header {
+  position: relative;
+  top: auto;
+  min-height: 76px;
+  padding: 14px 18px;
+  border-radius: calc(var(--radius-xl) - 1px) calc(var(--radius-xl) - 1px) 0 0;
+  box-shadow: none;
+}
+
+.cowork-page-active .cowork-modal-body {
+  display: grid;
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  padding: 0;
+}
+
+.cowork-page-active .cowork-create {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+  margin: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.cowork-page-active .cowork-workspace {
+  display: contents;
+}
+
+.cowork-page-active .cowork-session-pane {
+  grid-column: 1;
+  grid-row: 2;
+  border-width: 0 1px 0 0;
+  border-radius: 0 0 0 calc(var(--radius-xl) - 1px);
+  box-shadow: none;
+}
+
+.cowork-page-active .cowork-detail-pane {
+  grid-column: 2;
+  grid-row: 2;
+  overflow: auto;
+  border: 0;
+  border-radius: 0 0 calc(var(--radius-xl) - 1px) 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cowork-graph-panel {
+  display: grid;
+  grid-template-rows: auto minmax(320px, 42vh) auto;
+  min-height: 430px;
+  overflow: hidden;
+  border: 1px solid var(--cowork-line);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(var(--cowork-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--cowork-grid-line) 1px, transparent 1px),
+    color-mix(in srgb, var(--cowork-surface) 72%, #020617);
+  background-size: 28px 28px, 28px 28px, auto;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
+
+.cowork-graph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cowork-line);
+  background: color-mix(in srgb, var(--cowork-surface) 82%, transparent);
+}
+
+.cowork-graph-header h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cowork-graph-header p {
+  margin: 3px 0 0;
+  color: var(--cowork-muted);
+  font-size: 12px;
+}
+
+.cowork-graph-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cowork-graph-controls .button {
+  min-height: 30px;
+  border-radius: var(--radius-xs);
+}
+
+.cowork-graph-stage {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.cowork-graph-stage:active {
+  cursor: grabbing;
+}
+
+.cowork-graph-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+}
+
+.cowork-graph-edge {
+  fill: none;
+  stroke: color-mix(in srgb, var(--cowork-cyan) 34%, transparent);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.cowork-graph-edge-task {
+  stroke: color-mix(in srgb, var(--cowork-amber) 38%, transparent);
+}
+
+.cowork-graph-edge-topic {
+  stroke: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.cowork-graph-edge-message {
+  stroke: color-mix(in srgb, var(--cowork-green) 42%, transparent);
+  stroke-dasharray: 5 7;
+}
+
+.cowork-graph-edge.pulse {
+  animation: cowork-edge-pulse 1.8s linear infinite;
+}
+
+@keyframes cowork-edge-pulse {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+.cowork-graph-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.cowork-graph-node rect {
+  filter: drop-shadow(0 8px 18px rgba(15, 23, 42, 0.15));
+  transition: stroke-width var(--transition-fast), filter var(--transition-fast), transform var(--transition-fast);
+}
+
+.cowork-graph-node:hover rect,
+.cowork-graph-node:focus-visible rect,
+.cowork-graph-node.active rect {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 34%, transparent));
+}
+
+.cowork-graph-node-session rect {
+  fill: color-mix(in srgb, var(--accent-soft) 50%, var(--cowork-surface));
+}
+
+.cowork-graph-node-task rect {
+  fill: color-mix(in srgb, var(--cowork-amber) 8%, var(--cowork-surface));
+}
+
+.cowork-graph-node-topic rect {
+  fill: color-mix(in srgb, var(--accent-soft) 28%, var(--cowork-surface));
+}
+
+.cowork-graph-node-title {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.cowork-graph-node-meta,
+.cowork-graph-node-badge,
+.cowork-graph-empty-text {
+  fill: var(--cowork-muted);
+  font-size: 11px;
+}
+
+.cowork-graph-node-badge {
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cowork-graph-inspector {
+  min-height: 34px;
+  padding: 9px 14px;
+  overflow: hidden;
+  border-top: 1px solid var(--cowork-line);
+  color: var(--cowork-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--cowork-surface) 84%, transparent);
+}
+
+.cowork-page-active .cowork-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 350px);
+}
+
 @media (max-width: 1100px) {
   .cowork-page-header,
   .cowork-modal-body {
@@ -759,6 +1005,29 @@ html.theme-switching .theme-toggle svg {
   .cowork-workspace,
   .cowork-grid {
     grid-template-columns: 1fr;
+  }
+
+  .cowork-page-active .cowork-modal-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .cowork-page-active .cowork-session-pane,
+  .cowork-page-active .cowork-detail-pane {
+    grid-column: 1;
+    border-right: 0;
+    border-radius: 0;
+  }
+
+  .cowork-page-active .cowork-session-pane {
+    grid-row: 2;
+    border-bottom: 1px solid var(--cowork-line);
+  }
+
+  .cowork-page-active .cowork-detail-pane {
+    grid-row: 3;
+    overflow: visible;
   }
 
   .cowork-run-controls {
@@ -842,6 +1111,29 @@ html.theme-switching .theme-toggle svg {
   .cowork-create {
     grid-template-columns: 1fr;
     padding: 14px;
+  }
+
+  .cowork-page-active #cowork-modal {
+    padding: 0;
+  }
+
+  .cowork-page-active .cowork-modal-content {
+    min-height: 100vh;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .cowork-graph-panel {
+    grid-template-rows: auto minmax(280px, 48vh) auto;
+    min-height: 390px;
+  }
+
+  .cowork-graph-header {
+    align-items: flex-start;
+  }
+
+  .cowork-graph-header p {
+    max-width: 210px;
   }
 
   .cowork-create-copy p {

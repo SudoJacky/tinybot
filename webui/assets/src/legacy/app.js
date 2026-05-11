@@ -1685,6 +1685,242 @@ function coworkTimelineStatusLabel(type = "") {
   return `${head}: ${tail}`.replaceAll("_", " ");
 }
 
+function coworkGraphStatusColor(status = "") {
+  const value = String(status || "idle").toLowerCase();
+  if (["completed", "replied"].includes(value)) return "var(--cowork-green)";
+  if (["failed", "blocked", "expired"].includes(value)) return "var(--cowork-red)";
+  if (["pending", "paused", "idle", "queued"].includes(value)) return "var(--cowork-amber)";
+  return "var(--cowork-cyan)";
+}
+
+function coworkGraphNodeLabel(node) {
+  return `${node.kind}: ${node.title}`;
+}
+
+function coworkGraphCreateSvg(tag, attributes = {}) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [key, value] of Object.entries(attributes)) {
+    element.setAttribute(key, String(value));
+  }
+  return element;
+}
+
+function coworkGraphNodes(session) {
+  if (!session) return { nodes: [], edges: [] };
+  const nodes = [{
+    id: "session",
+    kind: "session",
+    title: session.title || session.id || "Cowork",
+    detail: compactText(session.goal || "Shared mission", 180),
+    status: session.status || "active",
+    x: 600,
+    y: 310,
+  }];
+  const edges = [];
+  const agents = session.agents || [];
+  const tasks = session.tasks || [];
+  const threads = session.threads || [];
+  const messages = session.messages || [];
+  const radiusX = Math.max(230, Math.min(350, 170 + agents.length * 28));
+  const radiusY = Math.max(150, Math.min(230, 120 + agents.length * 16));
+  agents.forEach((agent, index) => {
+    const angle = -Math.PI / 2 + (Math.PI * 2 * index) / Math.max(agents.length, 1);
+    nodes.push({
+      id: `agent:${agent.id}`,
+      kind: "agent",
+      title: agent.name || agent.id,
+      detail: compactText(`${agent.role || "Agent"} - ${agent.current_task_title || agent.goal || ""}`, 170),
+      status: agent.status || "idle",
+      x: 600 + Math.cos(angle) * radiusX,
+      y: 310 + Math.sin(angle) * radiusY,
+    });
+    edges.push({ from: "session", to: `agent:${agent.id}`, kind: "agent" });
+  });
+  const taskSlots = tasks.slice(0, 12);
+  taskSlots.forEach((task, index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const owner = task.assigned_agent_id ? `agent:${task.assigned_agent_id}` : "session";
+    nodes.push({
+      id: `task:${task.id || index}`,
+      kind: "task",
+      title: task.title || task.id || "Task",
+      detail: compactText(task.result_data?.answer || task.result || task.description || "Waiting for output", 180),
+      status: task.status || "pending",
+      x: column ? 1010 : 190,
+      y: 100 + row * 76,
+    });
+    edges.push({ from: owner, to: `task:${task.id || index}`, kind: "task" });
+  });
+  threads.slice(0, 6).forEach((thread, index) => {
+    nodes.push({
+      id: `thread:${thread.id}`,
+      kind: "topic",
+      title: thread.topic || thread.id,
+      detail: `${thread.message_count || 0} messages - ${(thread.participant_ids || []).join(", ")}`,
+      status: thread.status || "active",
+      x: 260 + index * 136,
+      y: 560,
+    });
+    edges.push({ from: "session", to: `thread:${thread.id}`, kind: "topic" });
+  });
+  messages.slice(-8).forEach((message, index) => {
+    const sender = message.sender_id ? `agent:${message.sender_id}` : "session";
+    const recipient = (message.recipient_ids || []).find(Boolean);
+    if (recipient) {
+      edges.push({ from: sender, to: `agent:${recipient}`, kind: "message", pulse: index >= 5 });
+    }
+  });
+  return { nodes, edges };
+}
+
+function renderCoworkGraph(session) {
+  if (!elements.coworkGraphSvg) return;
+  const svg = elements.coworkGraphSvg;
+  svg.textContent = "";
+  const { nodes, edges } = coworkGraphNodes(session);
+  if (elements.coworkGraphCaption) {
+    elements.coworkGraphCaption.textContent = session
+      ? `${nodes.length} nodes - ${edges.length} links - drag to pan, wheel to zoom, click to inspect`
+      : "Start or select a session to see the team state.";
+  }
+  if (!nodes.length) {
+    const empty = coworkGraphCreateSvg("text", { x: 600, y: 310, "text-anchor": "middle", class: "cowork-graph-empty-text" });
+    empty.textContent = "No cowork session selected";
+    svg.append(empty);
+    if (elements.coworkGraphInspector) {
+      elements.coworkGraphInspector.textContent = "Select or start a session.";
+    }
+    return;
+  }
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const viewport = coworkGraphCreateSvg("g", {
+    class: "cowork-graph-viewport",
+    transform: `translate(${state.coworkGraphView.x} ${state.coworkGraphView.y}) scale(${state.coworkGraphView.scale})`,
+  });
+  const edgeLayer = coworkGraphCreateSvg("g", { class: "cowork-graph-edges" });
+  const nodeLayer = coworkGraphCreateSvg("g", { class: "cowork-graph-nodes" });
+  for (const edge of edges) {
+    const from = nodeMap.get(edge.from);
+    const to = nodeMap.get(edge.to);
+    if (!from || !to) continue;
+    const line = coworkGraphCreateSvg("path", {
+      d: `M ${from.x} ${from.y} C ${(from.x + to.x) / 2} ${from.y}, ${(from.x + to.x) / 2} ${to.y}, ${to.x} ${to.y}`,
+      class: `cowork-graph-edge cowork-graph-edge-${edge.kind}${edge.pulse ? " pulse" : ""}`,
+    });
+    edgeLayer.append(line);
+  }
+  for (const node of nodes) {
+    const group = coworkGraphCreateSvg("g", {
+      class: `cowork-graph-node cowork-graph-node-${node.kind}${state.activeCoworkGraphNode === node.id ? " active" : ""}`,
+      transform: `translate(${node.x} ${node.y})`,
+      tabindex: "0",
+      role: "button",
+      "aria-label": coworkGraphNodeLabel(node),
+    });
+    const width = node.kind === "session" ? 190 : 154;
+    const height = node.kind === "session" ? 78 : 64;
+    const rect = coworkGraphCreateSvg("rect", {
+      x: -width / 2,
+      y: -height / 2,
+      width,
+      height,
+      rx: 8,
+      fill: "var(--cowork-surface)",
+      stroke: coworkGraphStatusColor(node.status),
+    });
+    const dot = coworkGraphCreateSvg("circle", {
+      cx: -width / 2 + 16,
+      cy: -height / 2 + 16,
+      r: 5,
+      fill: coworkGraphStatusColor(node.status),
+    });
+    const title = coworkGraphCreateSvg("text", { x: -width / 2 + 28, y: -height / 2 + 20, class: "cowork-graph-node-title" });
+    title.textContent = compactText(node.title, node.kind === "session" ? 28 : 20);
+    const meta = coworkGraphCreateSvg("text", { x: -width / 2 + 14, y: 8, class: "cowork-graph-node-meta" });
+    meta.textContent = compactText(String(node.detail || node.status || ""), node.kind === "session" ? 34 : 26);
+    const badge = coworkGraphCreateSvg("text", { x: -width / 2 + 14, y: height / 2 - 12, class: "cowork-graph-node-badge" });
+    badge.textContent = String(node.status || node.kind).replaceAll("_", " ");
+    group.append(rect, dot, title, meta, badge);
+    group.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.activeCoworkGraphNode = node.id;
+      if (node.kind === "topic") state.activeCoworkThreadId = node.id.replace(/^thread:/, "");
+      renderCoworkGraph(session);
+      renderCoworkThreads(session?.threads || []);
+    });
+    group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        group.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      }
+    });
+    nodeLayer.append(group);
+  }
+  viewport.append(edgeLayer, nodeLayer);
+  svg.append(viewport);
+  const selected = nodeMap.get(state.activeCoworkGraphNode) || nodes[0];
+  if (elements.coworkGraphInspector) {
+    elements.coworkGraphInspector.textContent = `${coworkGraphNodeLabel(selected)} - ${selected.status || "active"} - ${selected.detail || ""}`;
+  }
+}
+
+function setCoworkGraphZoom(nextScale, origin = { x: 600, y: 310 }) {
+  const oldScale = state.coworkGraphView.scale;
+  const scale = Math.min(2.3, Math.max(0.45, nextScale));
+  state.coworkGraphView.x = origin.x - ((origin.x - state.coworkGraphView.x) / oldScale) * scale;
+  state.coworkGraphView.y = origin.y - ((origin.y - state.coworkGraphView.y) / oldScale) * scale;
+  state.coworkGraphView.scale = scale;
+  renderCoworkGraph(state.activeCoworkSession);
+}
+
+function resetCoworkGraphView() {
+  state.coworkGraphView = { scale: 1, x: 0, y: 0 };
+  renderCoworkGraph(state.activeCoworkSession);
+}
+
+function setupCoworkGraphInteractions() {
+  const stage = elements.coworkGraphStage;
+  if (!stage || !elements.coworkGraphSvg) return;
+  elements.coworkGraphZoomOut?.addEventListener("click", () => setCoworkGraphZoom(state.coworkGraphView.scale * 0.86));
+  elements.coworkGraphZoomIn?.addEventListener("click", () => setCoworkGraphZoom(state.coworkGraphView.scale * 1.16));
+  elements.coworkGraphReset?.addEventListener("click", resetCoworkGraphView);
+  stage.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const rect = stage.getBoundingClientRect();
+    const origin = {
+      x: ((event.clientX - rect.left) / rect.width) * 1200,
+      y: ((event.clientY - rect.top) / rect.height) * 620,
+    };
+    setCoworkGraphZoom(state.coworkGraphView.scale * (event.deltaY > 0 ? 0.92 : 1.08), origin);
+  }, { passive: false });
+  stage.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    stage.setPointerCapture(event.pointerId);
+    state.coworkGraphDrag = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      startX: state.coworkGraphView.x,
+      startY: state.coworkGraphView.y,
+    };
+  });
+  stage.addEventListener("pointermove", (event) => {
+    const drag = state.coworkGraphDrag;
+    if (!drag || drag.id !== event.pointerId) return;
+    const rect = stage.getBoundingClientRect();
+    state.coworkGraphView.x = drag.startX + ((event.clientX - drag.x) / rect.width) * 1200;
+    state.coworkGraphView.y = drag.startY + ((event.clientY - drag.y) / rect.height) * 620;
+    renderCoworkGraph(state.activeCoworkSession);
+  });
+  stage.addEventListener("pointerup", () => {
+    state.coworkGraphDrag = null;
+  });
+  stage.addEventListener("pointercancel", () => {
+    state.coworkGraphDrag = null;
+  });
+}
+
 function renderCoworkSessions() {
   if (elements.coworkSessionCount) {
     elements.coworkSessionCount.textContent = String(state.coworkSessions.length);
@@ -1771,6 +2007,7 @@ function renderCoworkDetail() {
   renderCoworkInsights(session);
   renderCoworkThreads(threads);
   renderCoworkTimeline(session);
+  renderCoworkGraph(session);
   renderCoworkAgentOptions(session?.agents || []);
 }
 
@@ -2090,9 +2327,14 @@ async function loadCoworkSession(sessionId) {
     throw new Error(`load cowork session failed: ${response.status}`);
   }
   const payload = await response.json();
+  const previousSessionId = state.activeCoworkSessionId;
   state.activeCoworkSession = payload.session || null;
   state.activeCoworkSessionId = state.activeCoworkSession?.id || "";
   state.activeCoworkThreadId = state.activeCoworkSession?.threads?.[0]?.id || "";
+  if (previousSessionId !== state.activeCoworkSessionId) {
+    state.activeCoworkGraphNode = "session";
+    state.coworkGraphView = { scale: 1, x: 0, y: 0 };
+  }
   renderCoworkSessions();
   renderCoworkDetail();
 }
@@ -6763,6 +7005,7 @@ function bindEvents() {
     }
   });
   elements.coworkTaskButton?.addEventListener("click", addCoworkTask);
+  setupCoworkGraphInteractions();
 
   // Workspace modal events
   elements.workspaceToggle.addEventListener("click", openWorkspaceModal);
