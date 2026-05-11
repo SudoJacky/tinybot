@@ -206,6 +206,19 @@
   height: 19px;
 }
 
+.sidebar-actions .sidebar-icon-new-chat {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: white;
+  box-shadow: var(--shadow-sm), 0 10px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.sidebar-actions .sidebar-icon-new-chat:hover,
+.sidebar-actions .sidebar-icon-new-chat:focus-visible {
+  background: linear-gradient(135deg, var(--accent-hover), var(--accent));
+  color: white;
+}
+
 .sidebar.collapsed .sessions-panel {
   position: absolute;
   top: 72px;
