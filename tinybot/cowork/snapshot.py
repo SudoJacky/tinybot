@@ -46,6 +46,7 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
     current WebUI code and teacher-inspired graph components can consume it.
     """
 
+    visible_agent_limit = 6
     nodes: list[dict[str, Any]] = [
         {
             "id": "session",
@@ -61,25 +62,46 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
     ]
     edges: list[dict[str, Any]] = []
 
-    agents = list(session.agents.values())
+    def agent_priority(agent: Any) -> tuple[int, int, int, int]:
+        waiting = sum(
+            1
+            for record in session.mailbox.values()
+            if agent.id in record.recipient_ids and record.requires_reply and record.status in {"delivered", "read"}
+        )
+        open_tasks = sum(
+            1
+            for task in session.tasks.values()
+            if task.assigned_agent_id == agent.id and task.status in {"pending", "in_progress"}
+        )
+        active_status = 1 if agent.status in {"working", "waiting", "blocked"} else 0
+        return (active_status, waiting, open_tasks, len(agent.inbox))
+
+    agents = sorted(session.agents.values(), key=agent_priority, reverse=True)[:visible_agent_limit]
+    visible_agent_ids = {agent.id for agent in agents}
     agent_radius_x = max(240, min(360, 180 + len(agents) * 26))
     agent_radius_y = max(155, min(230, 118 + len(agents) * 14))
-    agent_positions: dict[str, tuple[float, float]] = {}
     for index, agent in enumerate(agents):
         angle = -math.pi / 2 + (math.tau * index) / max(len(agents), 1)
         x = 600 + math.cos(angle) * agent_radius_x
         y = 310 + math.sin(angle) * agent_radius_y
-        ready_tasks = [
-            task.id
-            for task in session.tasks.values()
-            if task.assigned_agent_id == agent.id and task.status in {"pending", "in_progress"}
-        ]
         pending_replies = [
             record.id
             for record in session.mailbox.values()
             if agent.id in record.recipient_ids and record.requires_reply and record.status in {"delivered", "read"}
         ]
-        detail = agent.current_task_title or agent.goal or agent.role
+        latest_direct = next(
+            (
+                record
+                for record in reversed(list(session.mailbox.values()))
+                if agent.id in record.recipient_ids or record.sender_id == agent.id
+            ),
+            None,
+        )
+        detail_parts = [
+            agent.role or "Agent",
+            agent.current_task_title or agent.goal,
+            latest_direct.content if latest_direct else "",
+        ]
         nodes.append(
             {
                 "id": f"agent:{agent.id}",
@@ -87,114 +109,33 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
                 "kind": "agent",
                 "label": agent.name,
                 "title": agent.name,
-                "detail": _compact(f"{agent.role} - {detail}", 180),
+                "detail": _compact(" - ".join(part for part in detail_parts if part), 220),
                 "status": agent.status,
                 "tone": _status_tone(agent.status),
-                "badge": f"in {len(agent.inbox)} / wait {len(pending_replies)} / tasks {len(ready_tasks)}",
+                "badge": f"in {len(agent.inbox)} / wait {len(pending_replies)} / r{agent.rounds or 0}",
                 "x": round(x, 2),
                 "y": round(y, 2),
             }
         )
-        agent_positions[agent.id] = (x, y)
         _add_edge(edges, "session", f"agent:{agent.id}", "member")
-
-    tasks = list(session.tasks.values())[:16]
-    for index, task in enumerate(tasks):
-        column = index % 2
-        row = index // 2
-        owner = f"agent:{task.assigned_agent_id}" if task.assigned_agent_id in session.agents else "session"
-        node_id = f"task:{task.id}"
-        nodes.append(
-            {
-                "id": node_id,
-                "entity_id": task.id,
-                "kind": "task",
-                "label": task.title,
-                "title": task.title,
-                "detail": _compact(task.result_data.get("answer") or task.result or task.description, 190),
-                "status": task.status,
-                "tone": _status_tone(task.status),
-                "badge": task.assigned_agent_id or "unassigned",
-                "x": 190 if column == 0 else 1010,
-                "y": 98 + row * 76,
-            }
-        )
-        _add_edge(edges, owner, node_id, "task")
-        for dependency in task.dependencies:
-            if dependency in session.tasks:
-                _add_edge(edges, f"task:{dependency}", node_id, "depends_on")
-
-    for thread_index, thread in enumerate(list(session.threads.values())[:8]):
-        x = 600 + (-1 if thread_index % 2 == 0 else 1) * 315
-        y = 72 + (thread_index // 2) * 66
-        node_id = f"thread:{thread.id}"
-        nodes.append(
-            {
-                "id": node_id,
-                "entity_id": thread.id,
-                "kind": "thread",
-                "label": thread.topic,
-                "title": thread.topic,
-                "detail": _compact(thread.summary or f"{len(thread.message_ids)} message(s)", 160),
-                "status": thread.status,
-                "tone": _status_tone(thread.status),
-                "badge": f"{len(thread.participant_ids)} participants",
-                "x": x,
-                "y": y,
-            }
-        )
-        for participant_id in thread.participant_ids:
-            if participant_id in session.agents:
-                _add_edge(edges, f"agent:{participant_id}", node_id, "discussion")
 
     recent_mailbox = list(session.mailbox.values())[-14:]
     for index, record in enumerate(recent_mailbox):
-        sender = f"agent:{record.sender_id}" if record.sender_id in session.agents else "session"
+        sender = f"agent:{record.sender_id}" if record.sender_id in visible_agent_ids else "session"
         for recipient_id in record.recipient_ids:
-            if recipient_id not in session.agents:
+            if recipient_id not in visible_agent_ids:
                 continue
             _add_edge(
                 edges,
                 sender,
                 f"agent:{recipient_id}",
-                "mailbox",
+                "communication",
                 pulse=index >= max(0, len(recent_mailbox) - 4) or record.requires_reply,
                 status=record.status,
                 request_type=record.request_type,
                 requires_reply=record.requires_reply,
+                detail=_compact(record.content, 180),
             )
-            if record.blocking_task_id in session.tasks:
-                _add_edge(edges, f"agent:{recipient_id}", f"task:{record.blocking_task_id}", "blocks")
-
-    messages_by_agent: dict[str, list[Any]] = {}
-    for message in session.messages.values():
-        if message.sender_id in session.agents and str(message.content or "").strip():
-            messages_by_agent.setdefault(message.sender_id, []).append(message)
-    for agent_id, messages in messages_by_agent.items():
-        position = agent_positions.get(agent_id)
-        if position is None:
-            continue
-        for index, message in enumerate(messages[-2:]):
-            node_id = f"message:{message.id}"
-            x, y = position
-            side = -1 if y > 330 else 1
-            spread = 0 if len(messages[-2:]) == 1 else (-68 if index == 0 else 68)
-            nodes.append(
-                {
-                    "id": node_id,
-                    "entity_id": message.id,
-                    "kind": "message",
-                    "label": session.agents[agent_id].name,
-                    "title": session.agents[agent_id].name,
-                    "detail": _compact(message.content, 180),
-                    "status": "delivered",
-                    "tone": "active",
-                    "badge": _compact(message.created_at, 32),
-                    "x": max(120, min(1080, x + spread)),
-                    "y": max(74, min(560, y + side * (92 + index * 10))),
-                }
-            )
-            _add_edge(edges, f"agent:{agent_id}", node_id, "message", pulse=index == len(messages[-2:]) - 1)
 
     return {
         "nodes": nodes,
@@ -202,10 +143,12 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
         "stats": {
             "nodes": len(nodes),
             "edges": len(edges),
-            "agents": len(session.agents),
+            "agents": len(agents),
+            "total_agents": len(session.agents),
             "tasks": len(session.tasks),
             "threads": len(session.threads),
             "mailbox": len(session.mailbox),
+            "communications": sum(1 for edge in edges if edge.get("kind") == "communication"),
         },
     }
 

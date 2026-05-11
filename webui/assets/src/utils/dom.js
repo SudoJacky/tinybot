@@ -264,6 +264,7 @@ export const elements = {
   coworkGraphSvg: document.querySelector("#cowork-graph-svg"),
   coworkGraphCaption: document.querySelector("#cowork-graph-caption"),
   coworkGraphInspector: document.querySelector("#cowork-graph-inspector"),
+  coworkAgentFieldPopover: document.querySelector("#cowork-agent-field-popover"),
   coworkGraphZoomOut: document.querySelector("#cowork-graph-zoom-out"),
   coworkGraphReset: document.querySelector("#cowork-graph-reset"),
   coworkGraphZoomIn: document.querySelector("#cowork-graph-zoom-in"),

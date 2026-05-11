@@ -110,6 +110,7 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert "final_draft" in session
     assert session["graph"]["stats"]["agents"] == 1
     assert any(node["id"] == "agent:planner" for node in session["graph"]["nodes"])
+    assert not any(node["kind"] in {"task", "thread", "message"} for node in session["graph"]["nodes"])
     assert session["trace"][-1]["type"] == "session.created"
 
     response = await cowork_api_client.get("/api/cowork/sessions")
