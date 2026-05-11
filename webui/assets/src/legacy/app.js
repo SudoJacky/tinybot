@@ -6883,6 +6883,9 @@ function bindEvents() {
     if (!target) {
       return;
     }
+    if (document.body.classList.contains("cowork-page-active")) {
+      closeCoworkModal();
+    }
     await attachSession(target.dataset.chatId);
   });
 
@@ -6977,7 +6980,6 @@ function bindEvents() {
   });
   elements.coworkModalOverlay?.addEventListener("click", closeCoworkModal);
   elements.coworkModalClose?.addEventListener("click", closeCoworkModal);
-  elements.coworkHomeButton?.addEventListener("click", leaveCoworkPage);
   elements.coworkStartButton?.addEventListener("click", startCoworkSession);
   elements.coworkRefreshButton?.addEventListener("click", () => {
     loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));

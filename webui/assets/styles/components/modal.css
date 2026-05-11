@@ -393,14 +393,6 @@
   display: none;
 }
 
-#cowork-home-button {
-  display: none;
-}
-
-.cowork-page-active #cowork-home-button {
-  display: inline-flex;
-}
-
 .cowork-page-content {
   display: flex;
   flex-direction: column;

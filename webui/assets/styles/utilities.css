@@ -1014,10 +1014,6 @@ html.theme-switching .theme-toggle svg {
   display: none;
 }
 
-.cowork-page-active #cowork-home-button {
-  display: inline-flex;
-}
-
 .cowork-page-active .cowork-modal-content {
   width: 100%;
   min-height: 0;
