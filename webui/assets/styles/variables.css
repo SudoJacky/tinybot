@@ -46,8 +46,8 @@
   --transition-base: 200ms ease;
   --transition-slow: 300ms ease;
   --transition-theme: 400ms ease;
-  --font-sans: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+  --font-sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
 }
 
 /* 深色主题 - 科技感 */

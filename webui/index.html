@@ -13,10 +13,6 @@
   <meta name="twitter:description" content="A lightweight personal AI assistant framework with Web UI, tools, and automation.">
   <meta name="twitter:image" content="/assets/social-preview.svg">
   <link rel="icon" type="image/svg+xml" href="/assets/logo-mark.svg">
-  <!-- Inter font -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/styles/main.css">
   <!-- Highlight.js for code syntax highlighting -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light-theme">
@@ -262,24 +258,6 @@
         </div>
       </header>
       <div class="modal-body cowork-modal-body">
-        <section class="cowork-create">
-          <div class="cowork-create-copy">
-            <span class="cowork-kicker">New mission</span>
-            <label class="config-label" for="cowork-goal-input">Goal</label>
-            <p>Set the objective once, then let the workspace keep every agent, task, and decision visible.</p>
-          </div>
-          <div class="cowork-create-input">
-            <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe the shared goal..."></textarea>
-            <div class="cowork-toolbar cowork-create-actions">
-              <label class="config-checkbox-label">
-                <input id="cowork-auto-run" type="checkbox" checked />
-                <span>Run to finish</span>
-              </label>
-              <button id="cowork-start-button" class="button button-primary" type="button">Start Cowork</button>
-            </div>
-          </div>
-          <span id="cowork-error" class="error-text"></span>
-        </section>
         <div class="cowork-workspace">
           <aside class="cowork-session-pane">
             <div class="cowork-pane-header">
@@ -309,74 +287,96 @@
               </div>
             </div>
             <p id="cowork-active-goal" class="cowork-goal-text"></p>
-            <section class="cowork-graph-panel" aria-label="Cowork team map">
-              <div class="cowork-graph-header">
-                <div>
-                  <h4>Team map</h4>
-                  <p id="cowork-graph-caption">Live agent, task, message, and topic state.</p>
+            <div class="cowork-primary-column">
+              <section class="cowork-graph-panel" aria-label="Cowork team map">
+                <div class="cowork-graph-header">
+                  <div>
+                    <h4>Agent field</h4>
+                    <p id="cowork-graph-caption">Live agent, task, message, and topic state.</p>
+                  </div>
+                  <div class="cowork-graph-controls" aria-label="Team map controls">
+                    <button id="cowork-graph-zoom-out" class="button button-icon" type="button" aria-label="Zoom out" title="Zoom out">-</button>
+                    <button id="cowork-graph-reset" class="button" type="button">Fit</button>
+                    <button id="cowork-graph-zoom-in" class="button button-icon" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+                  </div>
                 </div>
-                <div class="cowork-graph-controls" aria-label="Team map controls">
-                  <button id="cowork-graph-zoom-out" class="button button-icon" type="button" aria-label="Zoom out" title="Zoom out">-</button>
-                  <button id="cowork-graph-reset" class="button" type="button">Fit</button>
-                  <button id="cowork-graph-zoom-in" class="button button-icon" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+                <div id="cowork-graph-stage" class="cowork-graph-stage" tabindex="0" role="img" aria-label="Interactive cowork state graph">
+                  <svg id="cowork-graph-svg" class="cowork-graph-svg" viewBox="0 0 1200 620" aria-hidden="true"></svg>
                 </div>
-              </div>
-              <div id="cowork-graph-stage" class="cowork-graph-stage" tabindex="0" role="img" aria-label="Interactive cowork state graph">
-                <svg id="cowork-graph-svg" class="cowork-graph-svg" viewBox="0 0 1200 620" aria-hidden="true"></svg>
-              </div>
-              <div id="cowork-graph-inspector" class="cowork-graph-inspector">Select an agent, task, message, or topic.</div>
-            </section>
-            <div id="cowork-insight-panel" class="cowork-insight-panel" hidden>
-              <div>
-                <span class="cowork-kicker">Next step</span>
-                <strong id="cowork-insight-action">-</strong>
-                <p id="cowork-insight-reason"></p>
-              </div>
-              <div>
-                <span class="cowork-kicker">Blockers</span>
-                <p id="cowork-insight-blockers"></p>
-              </div>
-              <pre id="cowork-final-draft" class="cowork-final-draft"></pre>
-            </div>
-            <div class="cowork-metrics" aria-label="Cowork session metrics">
-              <div class="cowork-metric cowork-metric-agents"><span id="cowork-agent-total">0</span><small>Agents</small></div>
-              <div class="cowork-metric cowork-metric-tasks"><span id="cowork-task-total">0</span><small>Tasks</small></div>
-              <div class="cowork-metric cowork-metric-messages"><span id="cowork-message-total">0</span><small>Messages</small></div>
-              <div class="cowork-metric cowork-metric-topics"><span id="cowork-thread-total">0</span><small>Topics</small></div>
-            </div>
-            <div class="cowork-command-strip">
-              <div class="cowork-message-row">
-                <input id="cowork-message-input" class="config-input" type="text" placeholder="Send a constraint or update to the team..." />
-                <button id="cowork-message-button" class="button" type="button">Send</button>
-              </div>
-              <div class="cowork-task-row">
-                <input id="cowork-task-title" class="config-input" type="text" placeholder="Add task title" />
-                <select id="cowork-task-agent" class="config-select"></select>
-                <button id="cowork-task-button" class="button" type="button">Add task</button>
-              </div>
-            </div>
-            <div class="cowork-grid">
+                <div id="cowork-graph-inspector" class="cowork-graph-inspector">Select an agent, task, message, or topic.</div>
+              </section>
               <section class="cowork-team-chat">
-                <h4>Team chat</h4>
+                <h4>Activity</h4>
                 <div id="cowork-message-list" class="cowork-list cowork-chat-list" aria-live="polite"></div>
               </section>
-              <section class="cowork-agents-section">
-                <h4>Agents</h4>
-                <div id="cowork-agent-list" class="cowork-list"></div>
-              </section>
-              <section class="cowork-tasks-section">
-                <h4>Tasks</h4>
-                <div id="cowork-task-list" class="cowork-list"></div>
-              </section>
-              <section class="cowork-mailbox-section">
-                <h4>Mailbox</h4>
-                <div id="cowork-mailbox-list" class="cowork-list"></div>
-              </section>
-              <section class="cowork-threads-section">
-                <h4>Topics</h4>
-                <div id="cowork-thread-list" class="cowork-list"></div>
-              </section>
             </div>
+            <aside class="cowork-action-rail" aria-label="Cowork controls and status">
+              <section class="cowork-create">
+                <div class="cowork-create-copy">
+                  <span class="cowork-kicker">New mission</span>
+                  <label class="config-label" for="cowork-goal-input">Goal</label>
+                  <p>Set the objective once, then let the workspace keep every agent, task, and decision visible.</p>
+                </div>
+                <div class="cowork-create-input">
+                  <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe the shared goal..."></textarea>
+                  <div class="cowork-toolbar cowork-create-actions">
+                    <label class="config-checkbox-label">
+                      <input id="cowork-auto-run" type="checkbox" checked />
+                      <span>Run to finish</span>
+                    </label>
+                    <button id="cowork-start-button" class="button button-primary" type="button">Start Cowork</button>
+                  </div>
+                </div>
+                <span id="cowork-error" class="error-text" aria-live="polite"></span>
+              </section>
+              <div class="cowork-command-strip">
+                <div class="cowork-message-row">
+                  <input id="cowork-message-input" class="config-input" type="text" placeholder="Send a constraint or update to the team..." />
+                  <button id="cowork-message-button" class="button" type="button">Send</button>
+                </div>
+                <div class="cowork-task-row">
+                  <input id="cowork-task-title" class="config-input" type="text" placeholder="Add task title" />
+                  <select id="cowork-task-agent" class="config-select"></select>
+                  <button id="cowork-task-button" class="button" type="button">Add task</button>
+                </div>
+              </div>
+              <div id="cowork-insight-panel" class="cowork-insight-panel" hidden>
+                <div>
+                  <span class="cowork-kicker">Next step</span>
+                  <strong id="cowork-insight-action">-</strong>
+                  <p id="cowork-insight-reason"></p>
+                </div>
+                <div>
+                  <span class="cowork-kicker">Blockers</span>
+                  <p id="cowork-insight-blockers"></p>
+                </div>
+                <pre id="cowork-final-draft" class="cowork-final-draft"></pre>
+              </div>
+              <div class="cowork-metrics" aria-label="Cowork session metrics">
+                <div class="cowork-metric cowork-metric-agents"><span id="cowork-agent-total">0</span><small>Agents</small></div>
+                <div class="cowork-metric cowork-metric-tasks"><span id="cowork-task-total">0</span><small>Tasks</small></div>
+                <div class="cowork-metric cowork-metric-messages"><span id="cowork-message-total">0</span><small>Messages</small></div>
+                <div class="cowork-metric cowork-metric-topics"><span id="cowork-thread-total">0</span><small>Topics</small></div>
+              </div>
+              <div class="cowork-grid">
+                <section class="cowork-agents-section">
+                  <h4>Agents</h4>
+                  <div id="cowork-agent-list" class="cowork-list"></div>
+                </section>
+                <section class="cowork-tasks-section">
+                  <h4>Tasks</h4>
+                  <div id="cowork-task-list" class="cowork-list"></div>
+                </section>
+                <section class="cowork-mailbox-section">
+                  <h4>Mailbox</h4>
+                  <div id="cowork-mailbox-list" class="cowork-list"></div>
+                </section>
+                <section class="cowork-threads-section">
+                  <h4>Topics</h4>
+                  <div id="cowork-thread-list" class="cowork-list"></div>
+                </section>
+              </div>
+            </aside>
           </section>
         </div>
       </div>

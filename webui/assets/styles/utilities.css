@@ -943,6 +943,10 @@ html.theme-switching .theme-toggle svg {
   fill: color-mix(in srgb, var(--accent-soft) 28%, var(--cowork-surface));
 }
 
+.cowork-graph-node-message rect {
+  fill: color-mix(in srgb, var(--cowork-green) 8%, var(--cowork-surface));
+}
+
 .cowork-graph-node-title {
   fill: var(--text);
   font-size: 13px;
@@ -2196,4 +2200,781 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
   z-index: 1;
   flex: 0 0 auto;
   min-height: 360px;
+}
+
+/* ========== Cowork Three-Column Workspace ========== */
+.cowork-page-active .cowork-modal-content {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel-strong) 74%, transparent), color-mix(in srgb, var(--bg) 92%, var(--panel-strong))),
+    var(--bg);
+}
+
+.cowork-page-active .cowork-page-header {
+  border-bottom-color: var(--cowork-line);
+  background: color-mix(in srgb, var(--panel-strong) 86%, var(--bg));
+}
+
+.cowork-page-active .cowork-modal-body {
+  display: grid;
+  grid-template-columns: minmax(238px, 280px) minmax(420px, 1fr) minmax(318px, 360px);
+  grid-template-rows: auto auto minmax(118px, 0.38fr) minmax(142px, 0.44fr) minmax(118px, 0.34fr) minmax(98px, 0.28fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg) 72%, var(--panel-strong));
+}
+
+.cowork-page-active .cowork-workspace,
+.cowork-page-active .cowork-detail-pane,
+.cowork-page-active .cowork-grid {
+  display: contents !important;
+}
+
+.cowork-page-active .cowork-create,
+.cowork-page-active .cowork-session-pane,
+.cowork-page-active .cowork-detail-header,
+.cowork-page-active .cowork-goal-text,
+.cowork-page-active .cowork-team-chat,
+.cowork-page-active .cowork-graph-panel,
+.cowork-page-active .cowork-command-strip,
+.cowork-page-active .cowork-insight-panel,
+.cowork-page-active .cowork-tasks-section,
+.cowork-page-active .cowork-mailbox-section,
+.cowork-page-active .cowork-threads-section {
+  min-width: 0;
+  min-height: 0;
+  border-color: var(--cowork-line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.cowork-page-active .cowork-session-pane {
+  display: flex !important;
+  grid-column: 1;
+  grid-row: 1 / 3;
+  overflow: hidden;
+  border-width: 0 1px 1px 0;
+  background: color-mix(in srgb, var(--panel-strong) 76%, var(--bg));
+}
+
+.cowork-page-active .cowork-team-chat {
+  grid-column: 1;
+  grid-row: 3 / 7;
+  overflow: hidden;
+  border-width: 0 1px 0 0;
+  background: color-mix(in srgb, var(--panel-strong) 66%, var(--bg));
+}
+
+.cowork-page-active .cowork-detail-header {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 14px;
+  border-width: 0 1px 1px 0;
+  background: color-mix(in srgb, var(--panel-strong) 70%, var(--bg));
+}
+
+.cowork-page-active .cowork-active-heading {
+  gap: 6px;
+}
+
+.cowork-page-active .cowork-active-heading h3 {
+  max-width: 100%;
+  font-size: 19px;
+}
+
+.cowork-page-active .cowork-run-controls {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
+.cowork-page-active .cowork-run-controls .cowork-limit-label {
+  display: inline-flex;
+}
+
+.cowork-page-active .cowork-goal-text {
+  grid-column: 2;
+  grid-row: 2;
+  max-width: none;
+  padding: 10px 14px;
+  border-width: 0 1px 1px 0;
+  background: color-mix(in srgb, var(--panel-strong) 52%, var(--bg));
+}
+
+.cowork-page-active .cowork-graph-panel {
+  grid-column: 2;
+  grid-row: 3 / 7;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  min-height: 0;
+  border-width: 0 1px 0 0;
+  background:
+    linear-gradient(var(--cowork-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--cowork-grid-line) 1px, transparent 1px),
+    radial-gradient(circle at 52% 45%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 28%),
+    color-mix(in srgb, #050713 88%, var(--accent));
+  background-size: 30px 30px, 30px 30px, auto, auto;
+}
+
+.cowork-page-active .cowork-graph-header,
+.cowork-page-active .cowork-graph-inspector {
+  background: rgba(6, 9, 22, 0.82);
+}
+
+.cowork-page-active .cowork-graph-header {
+  padding: 10px 12px;
+}
+
+.cowork-page-active .cowork-graph-stage,
+.cowork-page-active .cowork-graph-svg {
+  min-height: 0;
+}
+
+.cowork-page-active .cowork-create {
+  grid-column: 3;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  overflow: hidden;
+  padding: 12px;
+  border-width: 0 0 1px;
+  background: color-mix(in srgb, var(--panel-strong) 78%, var(--bg));
+}
+
+.cowork-page-active .cowork-create-copy {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding-left: 0;
+}
+
+.cowork-page-active .cowork-create-copy p,
+.cowork-page-active .cowork-create::before {
+  display: none;
+}
+
+.cowork-page-active .cowork-create-input {
+  gap: 8px;
+}
+
+.cowork-page-active .cowork-goal-input {
+  min-height: 74px;
+  max-height: 110px;
+  resize: vertical;
+}
+
+.cowork-page-active .cowork-command-strip {
+  grid-column: 3;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 12px;
+  border-width: 0 0 1px;
+  background: color-mix(in srgb, var(--panel-strong) 68%, var(--bg));
+}
+
+.cowork-page-active .cowork-message-row,
+.cowork-page-active .cowork-task-row {
+  grid-template-columns: 1fr;
+}
+
+.cowork-page-active .cowork-message-row .button,
+.cowork-page-active .cowork-task-row .button {
+  width: 100%;
+}
+
+.cowork-page-active .cowork-insight-panel {
+  grid-column: 3;
+  grid-row: 3;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  overflow: auto;
+  padding: 12px;
+  border-width: 0 0 1px;
+  background: color-mix(in srgb, var(--panel-strong) 62%, var(--bg));
+}
+
+.cowork-page-active .cowork-insight-panel[hidden] {
+  display: none;
+}
+
+.cowork-page-active .cowork-final-draft {
+  max-height: 92px;
+}
+
+.cowork-page-active .cowork-agents-section {
+  display: none;
+}
+
+.cowork-page-active .cowork-tasks-section {
+  grid-column: 3;
+  grid-row: 4;
+}
+
+.cowork-page-active .cowork-mailbox-section {
+  grid-column: 3;
+  grid-row: 5;
+}
+
+.cowork-page-active .cowork-threads-section {
+  grid-column: 3;
+  grid-row: 6;
+  border-bottom: 0;
+}
+
+.cowork-page-active .cowork-tasks-section,
+.cowork-page-active .cowork-mailbox-section,
+.cowork-page-active .cowork-threads-section {
+  display: flex;
+  overflow: hidden;
+  padding: 12px;
+  border-width: 0 0 1px;
+  background: color-mix(in srgb, var(--panel-strong) 58%, var(--bg));
+}
+
+.cowork-page-active .cowork-session-list,
+.cowork-page-active .cowork-chat-list,
+.cowork-page-active .cowork-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.cowork-page-active .cowork-metrics {
+  display: none;
+}
+
+@media (max-width: 1280px) {
+  .cowork-page-active .cowork-modal-body {
+    grid-template-columns: minmax(220px, 250px) minmax(360px, 1fr) minmax(300px, 330px);
+  }
+}
+
+@media (max-width: 1100px) {
+  .cowork-page-active .cowork-modal-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto minmax(420px, 58vh) auto auto auto auto auto;
+    overflow: auto;
+  }
+
+  .cowork-page-active .cowork-session-pane,
+  .cowork-page-active .cowork-detail-header,
+  .cowork-page-active .cowork-goal-text,
+  .cowork-page-active .cowork-graph-panel,
+  .cowork-page-active .cowork-create,
+  .cowork-page-active .cowork-command-strip,
+  .cowork-page-active .cowork-team-chat,
+  .cowork-page-active .cowork-tasks-section,
+  .cowork-page-active .cowork-mailbox-section,
+  .cowork-page-active .cowork-threads-section,
+  .cowork-page-active .cowork-insight-panel {
+    grid-column: 1;
+    border-width: 0 0 1px;
+  }
+
+  .cowork-page-active .cowork-session-pane { grid-row: 1; max-height: 220px; }
+  .cowork-page-active .cowork-create { grid-row: 2; }
+  .cowork-page-active .cowork-detail-header { grid-row: 3; }
+  .cowork-page-active .cowork-goal-text { grid-row: 4; }
+  .cowork-page-active .cowork-graph-panel { grid-row: 5; min-height: 420px; }
+  .cowork-page-active .cowork-command-strip { grid-row: 6; }
+  .cowork-page-active .cowork-insight-panel { grid-row: 7; }
+  .cowork-page-active .cowork-team-chat { grid-row: 8; min-height: 320px; }
+  .cowork-page-active .cowork-tasks-section { grid-row: 9; min-height: 220px; }
+  .cowork-page-active .cowork-mailbox-section { grid-row: 10; min-height: 180px; }
+  .cowork-page-active .cowork-threads-section { grid-row: 11; min-height: 160px; }
+}
+
+/* ========== Cowork Focused Workspace ========== */
+.cowork-page-active .cowork-modal-body {
+  display: flex !important;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding: 14px;
+}
+
+.cowork-page-active .cowork-workspace {
+  display: grid !important;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.cowork-page-active .cowork-session-pane {
+  display: flex !important;
+  grid-column: auto !important;
+  grid-row: auto !important;
+  gap: 10px;
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+}
+
+.cowork-page-active .cowork-pane-header {
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.cowork-page-active .cowork-detail-pane {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.cowork-page-active .cowork-detail-header {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-strong) 70%, transparent);
+}
+
+.cowork-page-active .cowork-active-heading .eyebrow {
+  display: inline-flex;
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--warning) 36%, var(--border-subtle));
+  border-radius: var(--radius-xs);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cowork-page-active .cowork-active-heading h3 {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cowork-page-active .cowork-run-controls {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-start;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.cowork-page-active .cowork-run-controls .button,
+.cowork-page-active .cowork-limit-label {
+  min-height: 32px;
+  border-radius: var(--radius-sm);
+}
+
+.cowork-page-active #cowork-run-button {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
+  background: var(--accent);
+  color: white;
+}
+
+.cowork-page-active #cowork-run-until-idle-button {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cowork-page-active #cowork-summary-button,
+.cowork-page-active #cowork-delete-button {
+  display: inline-flex;
+}
+
+.cowork-page-active .cowork-goal-text {
+  display: block;
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+  max-width: none;
+  min-height: 38px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-strong) 58%, transparent);
+}
+
+.cowork-page-active .cowork-primary-column {
+  display: grid;
+  grid-column: 1;
+  grid-row: 3;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.cowork-page-active .cowork-graph-panel {
+  grid-column: auto !important;
+  grid-row: auto !important;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(color-mix(in srgb, var(--accent) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent) 1px, transparent 1px),
+    color-mix(in srgb, var(--bg-subtle) 76%, var(--panel-strong));
+  background-size: 28px 28px, 28px 28px, auto;
+}
+
+.cowork-page-active .cowork-graph-header,
+.cowork-page-active .cowork-graph-inspector {
+  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+}
+
+.cowork-page-active .cowork-graph-header h4 {
+  color: var(--text);
+}
+
+.cowork-page-active .cowork-graph-stage,
+.cowork-page-active .cowork-graph-svg {
+  min-height: 0;
+}
+
+.cowork-page-active .cowork-team-chat {
+  display: none !important;
+}
+
+.cowork-page-active .cowork-action-rail {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1 / 4;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cowork-page-active .cowork-create,
+.cowork-page-active .cowork-command-strip,
+.cowork-page-active .cowork-insight-panel,
+.cowork-page-active .cowork-metrics,
+.cowork-page-active .cowork-grid > section {
+  grid-column: auto !important;
+  grid-row: auto !important;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+  box-shadow: none;
+}
+
+.cowork-page-active .cowork-create {
+  display: grid;
+  gap: 10px;
+  overflow: visible;
+  padding: 12px;
+}
+
+.cowork-page-active .cowork-create-copy {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+}
+
+.cowork-page-active .cowork-create-copy p,
+.cowork-page-active .cowork-create::before {
+  display: none;
+}
+
+.cowork-page-active .cowork-create .config-label {
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.cowork-page-active .cowork-goal-input {
+  min-height: 76px;
+  max-height: 130px;
+  resize: vertical;
+}
+
+.cowork-page-active .cowork-create-actions {
+  justify-content: space-between;
+}
+
+.cowork-page-active .cowork-create-actions .config-checkbox-label {
+  display: inline-flex;
+}
+
+.cowork-page-active .cowork-command-strip {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 12px;
+}
+
+.cowork-page-active .cowork-message-row,
+.cowork-page-active .cowork-task-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.cowork-page-active .cowork-message-row .button,
+.cowork-page-active .cowork-task-row .button {
+  width: 100%;
+}
+
+.cowork-page-active .cowork-insight-panel {
+  grid-template-columns: 1fr;
+  gap: 10px;
+  overflow: visible;
+  padding: 12px;
+}
+
+.cowork-page-active .cowork-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cowork-page-active .cowork-metric {
+  min-height: 56px;
+  padding: 10px;
+}
+
+.cowork-page-active .cowork-metric span {
+  font-size: 20px;
+}
+
+.cowork-page-active .cowork-grid {
+  display: flex !important;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.cowork-page-active .cowork-agents-section {
+  display: flex;
+}
+
+.cowork-page-active .cowork-grid > section {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 150px;
+  max-height: 230px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.cowork-page-active .cowork-tasks-section {
+  min-height: 190px;
+  max-height: 300px;
+}
+
+.cowork-page-active .cowork-chat-list,
+.cowork-page-active .cowork-session-list,
+.cowork-page-active .cowork-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.cowork-page-active .cowork-grid h4 {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.cowork-page-active .cowork-grid h4::after {
+  display: none;
+}
+
+.cowork-page-active .cowork-empty {
+  min-height: 44px;
+}
+
+@media (max-width: 1320px) {
+  .cowork-page-active .cowork-workspace {
+    grid-template-columns: minmax(160px, 190px) minmax(0, 1fr);
+  }
+
+  .cowork-page-active .cowork-detail-pane {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 310px);
+  }
+}
+
+@media (max-width: 1100px) {
+  .cowork-page-active .cowork-modal-body {
+    overflow: auto;
+  }
+
+  .cowork-page-active .cowork-workspace,
+  .cowork-page-active .cowork-detail-pane,
+  .cowork-page-active .cowork-primary-column {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+  }
+
+  .cowork-page-active .cowork-session-pane,
+  .cowork-page-active .cowork-detail-header,
+  .cowork-page-active .cowork-goal-text,
+  .cowork-page-active .cowork-primary-column,
+  .cowork-page-active .cowork-action-rail {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+
+  .cowork-page-active .cowork-session-pane {
+    max-height: 220px;
+  }
+
+  .cowork-page-active .cowork-graph-panel {
+    min-height: 420px;
+  }
+
+  .cowork-page-active .cowork-team-chat {
+    min-height: 320px;
+  }
+
+  .cowork-page-active .cowork-action-rail {
+    overflow: visible;
+  }
+}
+
+/* ========== Cowork Responsive Cleanup ========== */
+.cowork-page-active .cowork-workspace {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.cowork-page-active .cowork-session-pane {
+  display: none !important;
+}
+
+.cowork-page-active .cowork-detail-pane {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px) !important;
+}
+
+.cowork-page-active .cowork-action-rail {
+  align-self: stretch;
+  overflow-x: hidden;
+  padding-right: 2px;
+}
+
+.cowork-page-active .cowork-action-rail > * {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.cowork-page-active .cowork-create,
+.cowork-page-active .cowork-command-strip,
+.cowork-page-active .cowork-insight-panel,
+.cowork-page-active .cowork-metrics,
+.cowork-page-active .cowork-grid > section,
+.cowork-page-active .cowork-detail-header,
+.cowork-page-active .cowork-goal-text,
+.cowork-page-active .cowork-team-chat,
+.cowork-page-active .cowork-graph-panel {
+  background-color: color-mix(in srgb, var(--panel-strong) 88%, var(--bg));
+}
+
+.cowork-page-active .cowork-create-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 8px;
+}
+
+.cowork-page-active .cowork-create-actions .button {
+  min-width: 104px;
+}
+
+.cowork-page-active .cowork-metrics {
+  order: 2;
+}
+
+.cowork-page-active .cowork-command-strip {
+  order: 3;
+}
+
+.cowork-page-active .cowork-grid {
+  order: 4;
+}
+
+.cowork-page-active .cowork-metric {
+  overflow: hidden;
+}
+
+.cowork-page-active .cowork-metric::after {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .cowork-page-active .cowork-modal-body {
+    overflow: auto;
+  }
+
+  .cowork-page-active .cowork-detail-pane {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto auto;
+    overflow: visible;
+  }
+
+  .cowork-page-active .cowork-detail-header,
+  .cowork-page-active .cowork-goal-text,
+  .cowork-page-active .cowork-primary-column,
+  .cowork-page-active .cowork-action-rail {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+  }
+
+  .cowork-page-active .cowork-primary-column {
+    grid-template-rows: minmax(420px, 62vh);
+  }
+
+  .cowork-page-active .cowork-action-rail {
+    overflow: visible;
+  }
+
+  .cowork-page-active .cowork-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cowork-page-active .cowork-grid > section {
+    max-height: 260px;
+  }
+}
+
+@media (max-width: 760px) {
+  .cowork-page-active .cowork-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cowork-page-active .cowork-create-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .cowork-page-active .cowork-create-actions .button {
+    width: 100%;
+  }
 }
