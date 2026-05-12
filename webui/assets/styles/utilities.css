@@ -1083,8 +1083,12 @@ html.theme-switching .theme-toggle svg {
 }
 
 .cowork-graph-node {
-  cursor: pointer;
+  cursor: grab;
   outline: none;
+}
+
+.cowork-graph-node:active {
+  cursor: grabbing;
 }
 
 .cowork-graph-node rect {

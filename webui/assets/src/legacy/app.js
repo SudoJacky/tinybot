@@ -1727,6 +1727,30 @@ function coworkMailboxRoute(record, fallbackRecipient = "team") {
   return `${record?.sender_id || "sender"} -> ${(record?.recipient_ids || []).join(", ") || fallbackRecipient}`;
 }
 
+function coworkApplyGraphNodePositions(sessionId, nodes) {
+  const sessionPositions = state.coworkGraphNodePositions?.get(sessionId || "") || new Map();
+  for (const node of nodes) {
+    const position = sessionPositions.get(node.id);
+    if (!position) continue;
+    node.x = position.x;
+    node.y = position.y;
+  }
+  return nodes;
+}
+
+function coworkRememberGraphNodePosition(sessionId, nodeId, x, y) {
+  if (!state.coworkGraphNodePositions) {
+    state.coworkGraphNodePositions = new Map();
+  }
+  const key = sessionId || "";
+  const sessionPositions = state.coworkGraphNodePositions.get(key) || new Map();
+  sessionPositions.set(nodeId, {
+    x: Math.max(80, Math.min(1120, x)),
+    y: Math.max(58, Math.min(582, y)),
+  });
+  state.coworkGraphNodePositions.set(key, sessionPositions);
+}
+
 function coworkGraphAgentId(nodeId = "") {
   const value = String(nodeId || "");
   return value.startsWith("agent:") ? value.slice("agent:".length) : "";
@@ -1860,6 +1884,7 @@ function coworkGraphNodes(session) {
         from: edge.from || edge.source,
         to: edge.to || edge.target,
       }));
+    coworkApplyGraphNodePositions(session.id, nodes);
     return coworkGraphWithMailboxOverlay(session, nodes, edges);
   }
   const nodes = [{
@@ -1985,6 +2010,7 @@ function coworkGraphNodes(session) {
       });
     }
   });
+  coworkApplyGraphNodePositions(session.id, nodes);
   return coworkGraphWithMailboxOverlay(session, nodes, edges);
 }
 
@@ -2010,12 +2036,11 @@ function coworkGraphWithMailboxOverlay(session, nodes, edges) {
     const recipientNode = agentNodes.get(firstRecipient) || nodeMap.get(`agent:${firstRecipient}`) || nodeMap.get("session");
     if (!senderNode || !recipientNode) return;
 
-    const senderX = Number.isFinite(Number(senderNode.x)) ? Number(senderNode.x) : 420;
-    const senderY = Number.isFinite(Number(senderNode.y)) ? Number(senderNode.y) : 260;
-    const recipientX = Number.isFinite(Number(recipientNode.x)) ? Number(recipientNode.x) : 780;
-    const recipientY = Number.isFinite(Number(recipientNode.y)) ? Number(recipientNode.y) : 360;
-    const rowOffset = (index % 3 - 1) * 54;
-    const stackOffset = Math.floor(index / 3) * 42;
+    const laneIndex = index % 3;
+    const laneRow = Math.floor(index / 3);
+    const topLane = index % 2 === 0;
+    const laneX = 315 + laneIndex * 285;
+    const laneY = topLane ? 112 + laneRow * 42 : 484 - laneRow * 42;
     const messageNodeId = `mailbox:${record.id || record.message_id || `${record.sender_id}:${firstRecipient}:${record.created_at || index}`}`;
     const route = coworkMailboxRoute(record, firstRecipient || "team");
     const messageNode = {
@@ -2025,8 +2050,8 @@ function coworkGraphWithMailboxOverlay(session, nodes, edges) {
       detail: compactText(record.content || "", 190),
       status: record.requires_reply ? "pending" : (record.status || "delivered"),
       badge: [record.requires_reply ? "reply needed" : record.status || "sent", record.updated_at || record.created_at || ""].filter(Boolean).join(" - "),
-      x: Math.max(130, Math.min(1070, (senderX + recipientX) / 2 + rowOffset)),
-      y: Math.max(84, Math.min(560, (senderY + recipientY) / 2 + 82 + stackOffset)),
+      x: Math.max(130, Math.min(1070, laneX)),
+      y: Math.max(84, Math.min(560, laneY)),
     };
     nodes.push(messageNode);
     nodeMap.set(messageNodeId, messageNode);
@@ -2036,7 +2061,6 @@ function coworkGraphWithMailboxOverlay(session, nodes, edges) {
       to: messageNodeId,
       kind: "mailbox",
       pulse: true,
-      label: route,
     });
     for (const recipient of recipients) {
       const targetNode = agentNodes.get(recipient) || nodeMap.get(`agent:${recipient}`);
@@ -2046,7 +2070,6 @@ function coworkGraphWithMailboxOverlay(session, nodes, edges) {
         to: targetNode.id,
         kind: "mailbox",
         pulse: Boolean(record.requires_reply),
-        label: `${route}: ${compactText(record.content || "", 70)}`,
       });
     }
   });
@@ -2064,6 +2087,7 @@ function coworkGraphWithMailboxOverlay(session, nodes, edges) {
     node.notice = compactText(`${coworkMailboxRoute(record)}: ${record.content || ""}`, 82);
     node.noticeUrgent = Boolean(record.requires_reply);
   }
+  coworkApplyGraphNodePositions(session?.id, nodes);
   return { nodes, edges };
 }
 
@@ -2137,8 +2161,8 @@ function renderCoworkGraph(session) {
       role: "button",
       "aria-label": coworkGraphNodeLabel(node),
     });
-    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : node.kind === "message" ? 190 : node.kind === "thread" ? 174 : 154;
-    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : node.kind === "message" ? 70 : node.kind === "thread" ? 66 : 64;
+    const width = node.kind === "session" ? 204 : node.kind === "agent" ? 172 : node.kind === "message" ? 250 : node.kind === "thread" ? 174 : 154;
+    const height = node.kind === "session" ? 82 : node.kind === "agent" ? 72 : node.kind === "message" ? 78 : node.kind === "thread" ? 66 : 64;
     const rect = coworkGraphCreateSvg("rect", {
       x: -width / 2,
       y: -height / 2,
@@ -2155,9 +2179,9 @@ function renderCoworkGraph(session) {
       fill: coworkGraphStatusColor(node.status),
     });
     const title = coworkGraphCreateSvg("text", { x: -width / 2 + 28, y: -height / 2 + 20, class: "cowork-graph-node-title" });
-    title.textContent = compactText(node.title, node.kind === "session" ? 28 : 20);
+    title.textContent = compactText(node.title, node.kind === "session" ? 28 : node.kind === "message" ? 34 : 20);
     const meta = coworkGraphCreateSvg("text", { x: -width / 2 + 14, y: 8, class: "cowork-graph-node-meta" });
-    meta.textContent = compactText(String(node.detail || node.status || ""), node.kind === "session" ? 34 : 26);
+    meta.textContent = compactText(String(node.detail || node.status || ""), node.kind === "session" ? 34 : node.kind === "message" ? 42 : 26);
     const badge = coworkGraphCreateSvg("text", { x: -width / 2 + 14, y: height / 2 - 12, class: "cowork-graph-node-badge" });
     badge.textContent = String(node.badge || node.status || node.kind).replaceAll("_", " ");
     group.append(rect, dot, title, meta, badge);
@@ -2183,8 +2207,30 @@ function renderCoworkGraph(session) {
       notice.append(noticeRect, noticeLabel);
       group.append(notice);
     }
+    group.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.stopPropagation();
+      event.preventDefault();
+      elements.coworkGraphStage?.setPointerCapture?.(event.pointerId);
+      state.activeCoworkGraphNode = node.id;
+      state.coworkGraphDrag = {
+        kind: "node",
+        id: event.pointerId,
+        nodeId: node.id,
+        sessionId: session?.id || "",
+        x: event.clientX,
+        y: event.clientY,
+        startNodeX: node.x,
+        startNodeY: node.y,
+        moved: false,
+      };
+    });
     group.addEventListener("click", (event) => {
       event.stopPropagation();
+      if (state.coworkGraphSuppressClick === node.id) {
+        state.coworkGraphSuppressClick = "";
+        return;
+      }
       state.activeCoworkGraphNode = node.id;
       renderCoworkGraph(session);
     });
@@ -2255,11 +2301,24 @@ function setupCoworkGraphInteractions() {
     const drag = state.coworkGraphDrag;
     if (!drag || drag.id !== event.pointerId) return;
     const rect = stage.getBoundingClientRect();
+    if (drag.kind === "node") {
+      const dx = ((event.clientX - drag.x) / rect.width) * 1200 / state.coworkGraphView.scale;
+      const dy = ((event.clientY - drag.y) / rect.height) * 620 / state.coworkGraphView.scale;
+      const nextX = drag.startNodeX + dx;
+      const nextY = drag.startNodeY + dy;
+      drag.moved = drag.moved || Math.abs(dx) > 2 || Math.abs(dy) > 2;
+      coworkRememberGraphNodePosition(drag.sessionId, drag.nodeId, nextX, nextY);
+      renderCoworkGraph(state.activeCoworkSession);
+      return;
+    }
     state.coworkGraphView.x = drag.startX + ((event.clientX - drag.x) / rect.width) * 1200;
     state.coworkGraphView.y = drag.startY + ((event.clientY - drag.y) / rect.height) * 620;
     renderCoworkGraph(state.activeCoworkSession);
   });
   stage.addEventListener("pointerup", () => {
+    if (state.coworkGraphDrag?.kind === "node" && state.coworkGraphDrag.moved) {
+      state.coworkGraphSuppressClick = state.coworkGraphDrag.nodeId;
+    }
     state.coworkGraphDrag = null;
   });
   stage.addEventListener("pointercancel", () => {
