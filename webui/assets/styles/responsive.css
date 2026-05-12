@@ -240,6 +240,10 @@
     justify-content: stretch;
   }
 
+  .cowork-mode-label {
+    grid-template-columns: 1fr;
+  }
+
   .cowork-create-actions .button {
     flex: 1;
   }

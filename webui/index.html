@@ -320,6 +320,14 @@
                 </div>
                 <div class="cowork-create-input">
                   <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe the shared goal..."></textarea>
+                  <label class="config-label cowork-mode-label" for="cowork-workflow-mode">
+                    Mode
+                    <select id="cowork-workflow-mode" class="config-select">
+                      <option value="hybrid">Hybrid</option>
+                      <option value="supervisor">Supervisor</option>
+                      <option value="peer_handoff">Peer handoff</option>
+                    </select>
+                  </label>
                   <div class="cowork-toolbar cowork-create-actions">
                     <label class="config-checkbox-label">
                       <input id="cowork-auto-run" type="checkbox" checked />
@@ -343,6 +351,11 @@
               </div>
               <div id="cowork-insight-panel" class="cowork-insight-panel" hidden>
                 <div>
+                  <span class="cowork-kicker">Mode</span>
+                  <strong id="cowork-insight-mode">-</strong>
+                  <p id="cowork-insight-focus"></p>
+                </div>
+                <div>
                   <span class="cowork-kicker">Next step</span>
                   <strong id="cowork-insight-action">-</strong>
                   <p id="cowork-insight-reason"></p>
@@ -350,6 +363,11 @@
                 <div>
                   <span class="cowork-kicker">Blockers</span>
                   <p id="cowork-insight-blockers"></p>
+                </div>
+                <div id="cowork-artifact-panel" class="cowork-artifact-panel" hidden>
+                  <span class="cowork-kicker">Workspace</span>
+                  <p id="cowork-workspace-dir"></p>
+                  <div id="cowork-artifact-list" class="cowork-artifact-list"></div>
                 </div>
                 <pre id="cowork-final-draft" class="cowork-final-draft"></pre>
               </div>

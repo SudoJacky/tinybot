@@ -1674,6 +1674,12 @@ function coworkTimelineStatus(event) {
   if (type === "scheduler.idle") return "Idle";
   if (type === "scheduler.budget_exhausted") return "Run limit reached";
   if (type === "scheduler.agent_budget_exhausted") return "Agent run limit reached";
+  if (type === "workflow.handoff") return "Peer handoff";
+  if (type === "workflow.review_requested") return "Review requested";
+  if (type === "workflow.handoff_rewritten") return "Handoff kept with current agent";
+  if (type === "workflow.focus_updated") return "Focus updated";
+  if (type === "workflow.step_complete") return "Workflow step complete";
+  if (type === "workflow.blocked") return "Workflow blocked";
   if (type === "session.created") return "Session created";
   if (type === "session.reopened") return "Session reopened";
   if (type === "session.paused") return "Paused";
@@ -1971,7 +1977,7 @@ function renderCoworkGraph(session) {
   if (elements.coworkGraphCaption) {
     const stats = session?.graph?.stats;
     elements.coworkGraphCaption.textContent = session
-      ? `${stats?.agents || Math.max(0, nodes.length - 1)} focused agents - ${stats?.communications || edges.filter((edge) => edge.kind === "communication").length} communication links`
+      ? `${String(session.workflow_mode || "hybrid").replaceAll("_", " ")} - ${stats?.agents || Math.max(0, nodes.length - 1)} focused agents - ${stats?.communications || edges.filter((edge) => edge.kind === "communication").length} communication links`
       : "Start or select a session to see the agent field.";
   }
   if (!nodes.length) {
@@ -2188,7 +2194,9 @@ function renderCoworkDetail() {
   const session = state.activeCoworkSession;
   const hasSession = Boolean(session);
   if (elements.coworkActiveStatus) {
-    elements.coworkActiveStatus.textContent = hasSession ? `${session.status} - ${session.rounds || 0} rounds` : "No session";
+    elements.coworkActiveStatus.textContent = hasSession
+      ? `${session.status} - ${String(session.workflow_mode || "hybrid").replaceAll("_", " ")} - ${session.rounds || 0} rounds`
+      : "No session";
   }
   if (elements.coworkActiveTitle) {
     elements.coworkActiveTitle.textContent = hasSession ? session.title : "Select or start a session";
@@ -2249,19 +2257,45 @@ function renderCoworkInsights(session) {
   const decision = session.completion_decision || {};
   const blockers = decision.blocked || [];
   const hasDraft = Boolean((session.final_draft || "").trim());
-  const hasDecision = Boolean(decision.next_action || decision.reason || blockers.length || hasDraft);
+  const artifacts = Array.isArray(session.artifacts) ? session.artifacts : [];
+  const focusText = session.current_focus_task || decision.focus_task || "";
+  const hasContext = Boolean(session.workflow_mode || focusText || session.workspace_dir || artifacts.length);
+  const hasDecision = Boolean(decision.next_action || decision.reason || blockers.length || hasDraft || hasContext);
   elements.coworkInsightPanel.hidden = !hasDecision;
   if (!hasDecision) return;
+  if (elements.coworkInsightMode) {
+    elements.coworkInsightMode.textContent = String(session.workflow_mode || decision.workflow_mode || "hybrid").replaceAll("_", " ");
+  }
+  if (elements.coworkInsightFocus) {
+    elements.coworkInsightFocus.textContent = focusText ? compactText(focusText, 220) : "No active focus.";
+  }
   if (elements.coworkInsightAction) {
     elements.coworkInsightAction.textContent = String(decision.next_action || "observe").replaceAll("_", " ");
   }
   if (elements.coworkInsightReason) {
-    elements.coworkInsightReason.textContent = decision.reason || "";
+    const goalReview = decision.goal_review?.reason ? `Goal review: ${decision.goal_review.reason}` : "";
+    elements.coworkInsightReason.textContent = [decision.reason || "", goalReview].filter(Boolean).join(" ");
   }
   if (elements.coworkInsightBlockers) {
     elements.coworkInsightBlockers.textContent = blockers.length
       ? blockers.map((item) => `${item.request_type || "reply"}: ${compactText(item.content || "", 80)}`).join(" | ")
       : "No blocking replies.";
+  }
+  if (elements.coworkArtifactPanel) {
+    const hasArtifacts = Boolean(session.workspace_dir || artifacts.length);
+    elements.coworkArtifactPanel.hidden = !hasArtifacts;
+    if (elements.coworkWorkspaceDir) {
+      elements.coworkWorkspaceDir.textContent = session.workspace_dir || "No confirmed workspace.";
+    }
+    if (elements.coworkArtifactList) {
+      elements.coworkArtifactList.textContent = "";
+      for (const artifact of artifacts.slice(-8)) {
+        const item = document.createElement("span");
+        item.textContent = compactText(artifact, 64);
+        item.title = artifact;
+        elements.coworkArtifactList.append(item);
+      }
+    }
   }
   if (elements.coworkFinalDraft) {
     elements.coworkFinalDraft.hidden = !hasDraft;
@@ -2622,6 +2656,7 @@ async function startCoworkSession() {
       headers: authHeaders(),
       body: JSON.stringify({
         goal,
+        workflow_mode: elements.coworkWorkflowMode?.value || "hybrid",
         auto_run: Boolean(elements.coworkAutoRun?.checked),
         max_rounds: coworkNumberInput(elements.coworkRoundLimit, 20, 1, 20),
         max_agents: coworkNumberInput(elements.coworkAgentLimit, 3, 1, 10),

@@ -509,6 +509,13 @@
   resize: vertical;
 }
 
+.cowork-mode-label {
+  display: grid;
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
 .cowork-toolbar,
 .cowork-message-row,
 .cowork-task-row {
@@ -667,6 +674,39 @@
   font-size: 11px;
   font-weight: 650;
   text-transform: uppercase;
+}
+
+.cowork-artifact-panel {
+  display: grid;
+  gap: 6px;
+}
+
+.cowork-artifact-panel[hidden] {
+  display: none;
+}
+
+.cowork-artifact-panel p {
+  overflow-wrap: anywhere;
+}
+
+.cowork-artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cowork-artifact-list span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 4px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-subtle) 76%, var(--panel-strong));
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .cowork-command-strip {
