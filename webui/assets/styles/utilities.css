@@ -896,6 +896,8 @@ html.theme-switching .theme-toggle svg {
   max-height: calc(100% - 28px);
   padding: 12px;
   overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--cowork-line));
   border-radius: var(--radius-sm);
   color: var(--text);
@@ -994,6 +996,16 @@ html.theme-switching .theme-toggle svg {
   font-weight: 800;
 }
 
+.cowork-agent-field-route {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cowork-agent-field-route span {
+  color: var(--cowork-green);
+}
+
 .cowork-agent-field-item small {
   color: var(--cowork-muted);
   font-size: 11px;
@@ -1048,6 +1060,23 @@ html.theme-switching .theme-toggle svg {
   animation: cowork-edge-pulse 1.8s linear infinite;
 }
 
+.cowork-graph-edge-label {
+  pointer-events: none;
+}
+
+.cowork-graph-edge-label rect {
+  fill: color-mix(in srgb, var(--cowork-surface) 92%, transparent);
+  stroke: color-mix(in srgb, var(--cowork-green) 32%, var(--cowork-line));
+  stroke-width: 1;
+  filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.12));
+}
+
+.cowork-graph-edge-label text {
+  fill: var(--text);
+  font-size: 10px;
+  font-weight: 760;
+}
+
 @keyframes cowork-edge-pulse {
   from { stroke-dashoffset: 24; }
   to { stroke-dashoffset: 0; }
@@ -1088,6 +1117,28 @@ html.theme-switching .theme-toggle svg {
 
 .cowork-graph-node-message rect {
   fill: color-mix(in srgb, var(--cowork-green) 8%, var(--cowork-surface));
+}
+
+.cowork-graph-node-notice {
+  pointer-events: none;
+}
+
+.cowork-graph-node-notice rect {
+  fill: color-mix(in srgb, var(--cowork-green) 10%, var(--cowork-surface));
+  stroke: color-mix(in srgb, var(--cowork-green) 38%, var(--cowork-line));
+  stroke-width: 1;
+  filter: drop-shadow(0 8px 16px rgba(15, 23, 42, 0.12));
+}
+
+.cowork-graph-node-notice.urgent rect {
+  fill: color-mix(in srgb, var(--cowork-amber) 12%, var(--cowork-surface));
+  stroke: color-mix(in srgb, var(--cowork-amber) 48%, var(--cowork-line));
+}
+
+.cowork-graph-node-notice text {
+  fill: var(--text);
+  font-size: 10px;
+  font-weight: 760;
 }
 
 .cowork-graph-node-title {

@@ -1723,14 +1723,26 @@ function coworkGraphCreateSvg(tag, attributes = {}) {
   return element;
 }
 
+function coworkMailboxRoute(record, fallbackRecipient = "team") {
+  return `${record?.sender_id || "sender"} -> ${(record?.recipient_ids || []).join(", ") || fallbackRecipient}`;
+}
+
 function coworkGraphAgentId(nodeId = "") {
   const value = String(nodeId || "");
   return value.startsWith("agent:") ? value.slice("agent:".length) : "";
 }
 
 function ensureCoworkAgentFieldPopover() {
+  const bindPopoverEvents = (popover) => {
+    if (!popover || popover.dataset.coworkPopoverBound === "true") return popover;
+    popover.dataset.coworkPopoverBound = "true";
+    popover.addEventListener("pointerdown", (event) => event.stopPropagation());
+    popover.addEventListener("click", (event) => event.stopPropagation());
+    popover.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+    return popover;
+  };
   if (elements.coworkAgentFieldPopover) {
-    return elements.coworkAgentFieldPopover;
+    return bindPopoverEvents(elements.coworkAgentFieldPopover);
   }
   if (!elements.coworkGraphStage) {
     return null;
@@ -1738,17 +1750,15 @@ function ensureCoworkAgentFieldPopover() {
   const existing = elements.coworkGraphStage.querySelector("#cowork-agent-field-popover");
   if (existing) {
     elements.coworkAgentFieldPopover = existing;
-    return existing;
+    return bindPopoverEvents(existing);
   }
   const popover = document.createElement("div");
   popover.id = "cowork-agent-field-popover";
   popover.className = "cowork-agent-field-popover";
   popover.hidden = true;
-  popover.addEventListener("pointerdown", (event) => event.stopPropagation());
-  popover.addEventListener("click", (event) => event.stopPropagation());
   elements.coworkGraphStage.append(popover);
   elements.coworkAgentFieldPopover = popover;
-  return popover;
+  return bindPopoverEvents(popover);
 }
 
 function coworkAgentFieldItems(session, agentId) {
@@ -1812,21 +1822,21 @@ function renderCoworkAgentFieldPopover(session, selectedNode) {
     </div>
     ${section("Needs attention", field.pending, (record) => `
       <article class="cowork-agent-field-item urgent">
-        <strong>${escapeHtml(record.sender_id || "sender")} -> ${escapeHtml((record.recipient_ids || []).join(", ") || agentId)}</strong>
+        <strong class="cowork-agent-field-route">${escapeHtml(record.sender_id || "sender")} <span aria-hidden="true">-></span> ${escapeHtml((record.recipient_ids || []).join(", ") || agentId)}</strong>
         <p>${escapeHtml(compactText(record.content || "", 150))}</p>
         <small>${escapeHtml([record.request_type || "reply", record.status || "delivered", record.updated_at || record.created_at || ""].filter(Boolean).join(" - "))}</small>
       </article>
     `, "No pending replies.")}
     ${section("Inbox", field.inbox, (record) => `
       <article class="cowork-agent-field-item">
-        <strong>${escapeHtml(record.sender_id || "sender")}</strong>
+        <strong class="cowork-agent-field-route">${escapeHtml(record.sender_id || "sender")} <span aria-hidden="true">-></span> ${escapeHtml((record.recipient_ids || []).join(", ") || agentId)}</strong>
         <p>${escapeHtml(compactText(record.content || "", 150))}</p>
         <small>${escapeHtml([record.kind || "message", record.status || "queued", record.created_at || ""].filter(Boolean).join(" - "))}</small>
       </article>
     `, "No inbox items.")}
     ${section("Sent", field.sent, (record) => `
       <article class="cowork-agent-field-item">
-        <strong>to ${escapeHtml((record.recipient_ids || []).join(", ") || "team")}</strong>
+        <strong class="cowork-agent-field-route">${escapeHtml(record.sender_id || agentId)} <span aria-hidden="true">-></span> ${escapeHtml((record.recipient_ids || []).join(", ") || "team")}</strong>
         <p>${escapeHtml(compactText(record.content || "", 150))}</p>
         <small>${escapeHtml([record.kind || "message", record.status || "queued", record.created_at || ""].filter(Boolean).join(" - "))}</small>
       </article>
@@ -1844,14 +1854,13 @@ function renderCoworkAgentFieldPopover(session, selectedNode) {
 function coworkGraphNodes(session) {
   if (!session) return { nodes: [], edges: [] };
   if (session.graph && Array.isArray(session.graph.nodes) && Array.isArray(session.graph.edges)) {
-    return {
-      nodes: session.graph.nodes,
-      edges: session.graph.edges.map((edge) => ({
+    const nodes = session.graph.nodes.map((node) => ({ ...node }));
+    const edges = session.graph.edges.map((edge) => ({
         ...edge,
         from: edge.from || edge.source,
         to: edge.to || edge.target,
-      })),
-    };
+      }));
+    return coworkGraphWithMailboxOverlay(session, nodes, edges);
   }
   const nodes = [{
     id: "session",
@@ -1869,6 +1878,7 @@ function coworkGraphNodes(session) {
   const mailbox = session.mailbox || [];
   const agentIds = new Set(agents.map((agent) => agent.id).filter(Boolean));
   const mailboxByAgent = new Map();
+  const mailboxNoticeByAgent = new Map();
   const agentPositions = new Map();
   for (const record of mailbox) {
     for (const recipientId of record.recipient_ids || []) {
@@ -1878,6 +1888,10 @@ function coworkGraphNodes(session) {
         entry.pending += 1;
       }
       mailboxByAgent.set(recipientId, entry);
+      mailboxNoticeByAgent.set(recipientId, record);
+    }
+    if (record.sender_id) {
+      mailboxNoticeByAgent.set(record.sender_id, record);
     }
   }
   const radiusX = Math.max(230, Math.min(350, 170 + agents.length * 28));
@@ -1893,6 +1907,10 @@ function coworkGraphNodes(session) {
       detail: compactText(`${agent.role || "Agent"} - ${activeTask}`, 170),
       status: agent.status || "idle",
       badge: `in ${mailboxState.inbox} / wait ${mailboxState.pending} / r${agent.rounds || 0}`,
+      notice: mailboxNoticeByAgent.get(agent.id)
+        ? compactText(`${mailboxNoticeByAgent.get(agent.id).sender_id || "sender"} -> ${(mailboxNoticeByAgent.get(agent.id).recipient_ids || []).join(", ") || "team"}: ${mailboxNoticeByAgent.get(agent.id).content || ""}`, 82)
+        : "",
+      noticeUrgent: mailboxState.pending > 0,
       x: 600 + Math.cos(angle) * radiusX,
       y: 310 + Math.sin(angle) * radiusY,
     });
@@ -1961,11 +1979,91 @@ function coworkGraphNodes(session) {
       edges.push({
         from: sender,
         to: `agent:${recipient}`,
-        kind: "message",
+        kind: "mailbox",
         pulse: index >= Math.max(0, recentMailbox.length - 4) || Boolean(record.requires_reply),
+        label: `${record.sender_id || "sender"} -> ${recipient}: ${compactText(record.content || "", 70)}`,
       });
     }
   });
+  return coworkGraphWithMailboxOverlay(session, nodes, edges);
+}
+
+function coworkGraphWithMailboxOverlay(session, nodes, edges) {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const agents = session?.agents || [];
+  const agentNodes = new Map();
+  for (const agent of agents) {
+    const id = `agent:${agent.id}`;
+    const node = nodeMap.get(id) || nodes.find((item) => item.kind === "agent" && (item.agent_id === agent.id || item.title === agent.name || item.title === agent.id));
+    if (node) agentNodes.set(agent.id, node);
+  }
+  const recentMailbox = [...(session?.mailbox || [])]
+    .filter((record) => record.sender_id && (record.recipient_ids || []).length && String(record.content || "").trim())
+    .sort((a, b) => String(a.updated_at || a.created_at || "").localeCompare(String(b.updated_at || b.created_at || "")))
+    .slice(-6);
+  if (!recentMailbox.length) return { nodes, edges };
+
+  recentMailbox.forEach((record, index) => {
+    const recipients = (record.recipient_ids || []).filter(Boolean);
+    const firstRecipient = recipients[0];
+    const senderNode = agentNodes.get(record.sender_id) || nodeMap.get(`agent:${record.sender_id}`) || nodeMap.get("session");
+    const recipientNode = agentNodes.get(firstRecipient) || nodeMap.get(`agent:${firstRecipient}`) || nodeMap.get("session");
+    if (!senderNode || !recipientNode) return;
+
+    const senderX = Number.isFinite(Number(senderNode.x)) ? Number(senderNode.x) : 420;
+    const senderY = Number.isFinite(Number(senderNode.y)) ? Number(senderNode.y) : 260;
+    const recipientX = Number.isFinite(Number(recipientNode.x)) ? Number(recipientNode.x) : 780;
+    const recipientY = Number.isFinite(Number(recipientNode.y)) ? Number(recipientNode.y) : 360;
+    const rowOffset = (index % 3 - 1) * 54;
+    const stackOffset = Math.floor(index / 3) * 42;
+    const messageNodeId = `mailbox:${record.id || record.message_id || `${record.sender_id}:${firstRecipient}:${record.created_at || index}`}`;
+    const route = coworkMailboxRoute(record, firstRecipient || "team");
+    const messageNode = {
+      id: messageNodeId,
+      kind: "message",
+      title: route,
+      detail: compactText(record.content || "", 190),
+      status: record.requires_reply ? "pending" : (record.status || "delivered"),
+      badge: [record.requires_reply ? "reply needed" : record.status || "sent", record.updated_at || record.created_at || ""].filter(Boolean).join(" - "),
+      x: Math.max(130, Math.min(1070, (senderX + recipientX) / 2 + rowOffset)),
+      y: Math.max(84, Math.min(560, (senderY + recipientY) / 2 + 82 + stackOffset)),
+    };
+    nodes.push(messageNode);
+    nodeMap.set(messageNodeId, messageNode);
+
+    edges.push({
+      from: senderNode.id,
+      to: messageNodeId,
+      kind: "mailbox",
+      pulse: true,
+      label: route,
+    });
+    for (const recipient of recipients) {
+      const targetNode = agentNodes.get(recipient) || nodeMap.get(`agent:${recipient}`);
+      if (!targetNode) continue;
+      edges.push({
+        from: messageNodeId,
+        to: targetNode.id,
+        kind: "mailbox",
+        pulse: Boolean(record.requires_reply),
+        label: `${route}: ${compactText(record.content || "", 70)}`,
+      });
+    }
+  });
+
+  const latestByAgent = new Map();
+  for (const record of recentMailbox) {
+    if (record.sender_id) latestByAgent.set(record.sender_id, record);
+    for (const recipient of record.recipient_ids || []) {
+      latestByAgent.set(recipient, record);
+    }
+  }
+  for (const [agentId, record] of latestByAgent.entries()) {
+    const node = agentNodes.get(agentId) || nodeMap.get(`agent:${agentId}`);
+    if (!node) continue;
+    node.notice = compactText(`${coworkMailboxRoute(record)}: ${record.content || ""}`, 82);
+    node.noticeUrgent = Boolean(record.requires_reply);
+  }
   return { nodes, edges };
 }
 
@@ -1996,8 +2094,9 @@ function renderCoworkGraph(session) {
     transform: `translate(${state.coworkGraphView.x} ${state.coworkGraphView.y}) scale(${state.coworkGraphView.scale})`,
   });
   const edgeLayer = coworkGraphCreateSvg("g", { class: "cowork-graph-edges" });
+  const labelLayer = coworkGraphCreateSvg("g", { class: "cowork-graph-edge-labels" });
   const nodeLayer = coworkGraphCreateSvg("g", { class: "cowork-graph-nodes" });
-  for (const edge of edges) {
+  for (const [index, edge] of edges.entries()) {
     const from = nodeMap.get(edge.from);
     const to = nodeMap.get(edge.to);
     if (!from || !to) continue;
@@ -2006,6 +2105,29 @@ function renderCoworkGraph(session) {
       class: `cowork-graph-edge cowork-graph-edge-${edge.kind}${edge.pulse ? " pulse" : ""}`,
     });
     edgeLayer.append(line);
+    if (edge.label && index >= Math.max(0, edges.length - 10)) {
+      const labelGroup = coworkGraphCreateSvg("g", {
+        class: `cowork-graph-edge-label cowork-graph-edge-label-${edge.kind}`,
+        transform: `translate(${(from.x + to.x) / 2} ${(from.y + to.y) / 2})`,
+      });
+      const labelText = compactText(edge.label, 58);
+      const labelWidth = Math.min(310, Math.max(118, labelText.length * 6.4 + 18));
+      const labelRect = coworkGraphCreateSvg("rect", {
+        x: -labelWidth / 2,
+        y: -14,
+        width: labelWidth,
+        height: 24,
+        rx: 12,
+      });
+      const label = coworkGraphCreateSvg("text", {
+        x: 0,
+        y: 2,
+        "text-anchor": "middle",
+      });
+      label.textContent = labelText;
+      labelGroup.append(labelRect, label);
+      labelLayer.append(labelGroup);
+    }
   }
   for (const node of nodes) {
     const group = coworkGraphCreateSvg("g", {
@@ -2039,6 +2161,28 @@ function renderCoworkGraph(session) {
     const badge = coworkGraphCreateSvg("text", { x: -width / 2 + 14, y: height / 2 - 12, class: "cowork-graph-node-badge" });
     badge.textContent = String(node.badge || node.status || node.kind).replaceAll("_", " ");
     group.append(rect, dot, title, meta, badge);
+    if (node.kind === "agent" && node.notice) {
+      const noticeText = compactText(node.notice, 46);
+      const noticeWidth = Math.min(250, Math.max(108, noticeText.length * 6.2 + 18));
+      const notice = coworkGraphCreateSvg("g", {
+        class: `cowork-graph-node-notice${node.noticeUrgent ? " urgent" : ""}`,
+        transform: `translate(${Math.max(-width / 2, -noticeWidth / 2)} ${height / 2 + 10})`,
+      });
+      const noticeRect = coworkGraphCreateSvg("rect", {
+        x: 0,
+        y: 0,
+        width: noticeWidth,
+        height: 24,
+        rx: 12,
+      });
+      const noticeLabel = coworkGraphCreateSvg("text", {
+        x: 10,
+        y: 16,
+      });
+      noticeLabel.textContent = noticeText;
+      notice.append(noticeRect, noticeLabel);
+      group.append(notice);
+    }
     group.addEventListener("click", (event) => {
       event.stopPropagation();
       state.activeCoworkGraphNode = node.id;
@@ -2052,7 +2196,7 @@ function renderCoworkGraph(session) {
     });
     nodeLayer.append(group);
   }
-  viewport.append(edgeLayer, nodeLayer);
+  viewport.append(edgeLayer, labelLayer, nodeLayer);
   svg.append(viewport);
   const selected = nodeMap.get(state.activeCoworkGraphNode) || nodes[0];
   if (elements.coworkGraphInspector) {
@@ -2085,6 +2229,7 @@ function setupCoworkGraphInteractions() {
   elements.coworkGraphZoomIn?.addEventListener("click", () => setCoworkGraphZoom(state.coworkGraphView.scale * 1.16));
   elements.coworkGraphReset?.addEventListener("click", resetCoworkGraphView);
   stage.addEventListener("wheel", (event) => {
+    if (event.target.closest?.(".cowork-agent-field-popover")) return;
     event.preventDefault();
     const rect = stage.getBoundingClientRect();
     const origin = {
