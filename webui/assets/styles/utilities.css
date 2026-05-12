@@ -3176,3 +3176,165 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
     width: 100%;
   }
 }
+
+/* Unified cowork composer: create a mission when no session is active, otherwise send a team message. */
+.cowork-page-active .cowork-detail-pane {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px) !important;
+  grid-template-rows: minmax(0, 1fr) auto !important;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.cowork-page-active .cowork-primary-column {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  min-height: 0;
+}
+
+.cowork-page-active .cowork-action-rail {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cowork-page-active .cowork-create.cowork-composer {
+  display: grid;
+  grid-column: 1 / 3 !important;
+  grid-row: 2 !important;
+  position: relative;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-strong) 92%, var(--bg));
+}
+
+.cowork-page-active .cowork-composer .cowork-create-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+}
+
+.cowork-page-active .cowork-composer .cowork-create-copy p {
+  display: none;
+}
+
+.cowork-page-active .cowork-composer .cowork-create-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px;
+  grid-template-areas:
+    "tabs tabs"
+    "input send"
+    "hidden hidden";
+  gap: 8px;
+}
+
+.cowork-page-active .cowork-mode-tabs {
+  display: inline-flex;
+  grid-area: tabs;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  gap: 2px;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-subtle) 84%, var(--panel-strong));
+}
+
+.cowork-page-active .cowork-mode-tabs[hidden] {
+  display: none;
+}
+
+.cowork-page-active .cowork-mode-tab {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cowork-page-active .cowork-mode-tab:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+}
+
+.cowork-page-active .cowork-mode-tab.active {
+  color: #fff;
+  background: color-mix(in srgb, var(--accent) 82%, #111827);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.cowork-page-active .cowork-composer .cowork-goal-input {
+  grid-area: input;
+  min-height: 52px;
+  max-height: 112px;
+  resize: vertical;
+}
+
+.cowork-page-active .cowork-composer .cowork-mode-label {
+  grid-area: hidden;
+  grid-template-columns: max-content minmax(180px, 320px);
+  width: fit-content;
+}
+
+.cowork-page-active .cowork-composer .hidden-control,
+.cowork-page-active .cowork-composer .cowork-mode-label[hidden] {
+  display: none !important;
+}
+
+.cowork-page-active .cowork-composer .cowork-create-actions {
+  display: grid;
+  grid-area: send;
+  grid-template-columns: 1fr;
+  align-items: end;
+  justify-content: end;
+}
+
+.cowork-page-active .cowork-composer .error-text {
+  position: absolute;
+  left: 12px;
+  bottom: 4px;
+}
+
+.cowork-page-active .cowork-composer .composer-send {
+  grid-column: auto;
+  width: 52px;
+  min-width: 52px;
+  height: 52px;
+}
+
+.cowork-page-active .cowork-command-strip,
+.cowork-page-active .cowork-task-row {
+  display: none !important;
+}
+
+@media (max-width: 1180px) {
+  .cowork-page-active .cowork-detail-pane {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: minmax(420px, 1fr) auto auto !important;
+  }
+
+  .cowork-page-active .cowork-primary-column,
+  .cowork-page-active .cowork-action-rail,
+  .cowork-page-active .cowork-create.cowork-composer {
+    grid-column: 1 !important;
+  }
+
+  .cowork-page-active .cowork-action-rail {
+    grid-row: 2 !important;
+  }
+
+  .cowork-page-active .cowork-create.cowork-composer {
+    grid-row: 3 !important;
+  }
+}

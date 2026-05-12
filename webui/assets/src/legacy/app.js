@@ -2407,6 +2407,29 @@ function renderCoworkDetail() {
   }
   if (elements.coworkActiveGoal) {
     elements.coworkActiveGoal.textContent = hasSession ? session.goal : "";
+    elements.coworkActiveGoal.hidden = !hasSession || !session.goal;
+  }
+  if (elements.coworkComposerKicker) {
+    elements.coworkComposerKicker.textContent = hasSession ? "Message" : "New mission";
+  }
+  if (elements.coworkComposerLabel) {
+    elements.coworkComposerLabel.textContent = hasSession ? "Message" : "Goal";
+  }
+  if (elements.coworkGoalInput) {
+    elements.coworkGoalInput.placeholder = hasSession
+      ? "Send a constraint or update to the team..."
+      : "Describe the shared goal...";
+  }
+  if (elements.coworkModeLabel) {
+    elements.coworkModeLabel.hidden = hasSession;
+  }
+  if (elements.coworkModeTabs) {
+    elements.coworkModeTabs.hidden = hasSession;
+  }
+  if (elements.coworkStartButton) {
+    const label = hasSession ? "Send message" : "Start Cowork";
+    elements.coworkStartButton.setAttribute("aria-label", label);
+    elements.coworkStartButton.title = label;
   }
   if (elements.coworkAgentTotal) {
     elements.coworkAgentTotal.textContent = String(session?.agents?.length || 0);
@@ -2844,6 +2867,18 @@ function scheduleCoworkRefresh(sessionId = "") {
   }, 250);
 }
 
+function setCoworkWorkflowMode(mode) {
+  if (elements.coworkWorkflowMode) {
+    elements.coworkWorkflowMode.value = mode;
+  }
+  const tabs = elements.coworkModeTabs?.querySelectorAll(".cowork-mode-tab") || [];
+  tabs.forEach((tab) => {
+    const active = tab.dataset.mode === mode;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-checked", active ? "true" : "false");
+  });
+}
+
 async function startCoworkSession() {
   const goal = elements.coworkGoalInput?.value.trim() || "";
   if (!goal) {
@@ -2887,6 +2922,14 @@ async function startCoworkSession() {
       elements.coworkStartButton.disabled = false;
     }
   }
+}
+
+async function submitCoworkComposer() {
+  if (state.activeCoworkSessionId) {
+    await sendCoworkMessage();
+    return;
+  }
+  await startCoworkSession();
 }
 
 async function runCoworkRound(options = {}) {
@@ -2959,8 +3002,11 @@ async function deleteCoworkSession() {
 
 async function sendCoworkMessage() {
   if (!state.activeCoworkSessionId) return;
-  const content = elements.coworkMessageInput?.value.trim() || "";
+  const content = elements.coworkGoalInput?.value.trim() || elements.coworkMessageInput?.value.trim() || "";
   if (!content) return;
+  if (elements.coworkStartButton) {
+    elements.coworkStartButton.disabled = true;
+  }
   if (elements.coworkMessageButton) {
     elements.coworkMessageButton.disabled = true;
   }
@@ -2976,12 +3022,18 @@ async function sendCoworkMessage() {
     }
     const payload = await response.json();
     state.activeCoworkSession = payload.session || state.activeCoworkSession;
+    if (elements.coworkGoalInput) {
+      elements.coworkGoalInput.value = "";
+    }
     if (elements.coworkMessageInput) {
       elements.coworkMessageInput.value = "";
     }
     renderCoworkDetail();
     await runCoworkRound();
   } finally {
+    if (elements.coworkStartButton) {
+      elements.coworkStartButton.disabled = false;
+    }
     if (elements.coworkMessageButton) {
       elements.coworkMessageButton.disabled = false;
     }
@@ -7508,7 +7560,20 @@ function bindEvents() {
   });
   elements.coworkModalOverlay?.addEventListener("click", closeCoworkModal);
   elements.coworkModalClose?.addEventListener("click", closeCoworkModal);
-  elements.coworkStartButton?.addEventListener("click", startCoworkSession);
+  elements.coworkStartButton?.addEventListener("click", () => {
+    submitCoworkComposer().catch((error) => setCoworkError(error.message || String(error)));
+  });
+  elements.coworkModeTabs?.addEventListener("click", (event) => {
+    const tab = event.target.closest?.(".cowork-mode-tab");
+    if (!tab) return;
+    setCoworkWorkflowMode(tab.dataset.mode || "hybrid");
+  });
+  elements.coworkGoalInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      submitCoworkComposer().catch((error) => setCoworkError(error.message || String(error)));
+    }
+  });
   elements.coworkRefreshButton?.addEventListener("click", () => {
     loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
   });

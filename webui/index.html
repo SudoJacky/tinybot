@@ -296,44 +296,6 @@
               </section>
             </div>
             <aside class="cowork-action-rail" aria-label="Cowork controls and status">
-              <section class="cowork-create">
-                <div class="cowork-create-copy">
-                  <span class="cowork-kicker">New mission</span>
-                  <label class="config-label" for="cowork-goal-input">Goal</label>
-                  <p>Set the objective once, then let the workspace keep every agent, task, and decision visible.</p>
-                </div>
-                <div class="cowork-create-input">
-                  <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="3" placeholder="Describe the shared goal..."></textarea>
-                  <label class="config-label cowork-mode-label" for="cowork-workflow-mode">
-                    Mode
-                    <select id="cowork-workflow-mode" class="config-select">
-                      <option value="hybrid">Hybrid</option>
-                      <option value="orchestrator">Orchestrator</option>
-                      <option value="team">Agent team</option>
-                      <option value="generator_verifier">Generator verifier</option>
-                      <option value="message_bus">Message bus</option>
-                      <option value="shared_state">Shared state</option>
-                      <option value="supervisor">Supervisor</option>
-                      <option value="peer_handoff">Peer handoff</option>
-                    </select>
-                  </label>
-                  <div class="cowork-toolbar cowork-create-actions">
-                    <button id="cowork-start-button" class="button button-primary" type="button">Start Cowork</button>
-                  </div>
-                </div>
-                <span id="cowork-error" class="error-text" aria-live="polite"></span>
-              </section>
-              <div class="cowork-command-strip">
-                <div class="cowork-message-row">
-                  <input id="cowork-message-input" class="config-input" type="text" placeholder="Send a constraint or update to the team..." />
-                  <button id="cowork-message-button" class="button" type="button">Send</button>
-                </div>
-                <div class="cowork-task-row">
-                  <input id="cowork-task-title" class="config-input" type="text" placeholder="Add task title" />
-                  <select id="cowork-task-agent" class="config-select"></select>
-                  <button id="cowork-task-button" class="button" type="button">Add task</button>
-                </div>
-              </div>
               <div id="cowork-insight-panel" class="cowork-insight-panel" hidden>
                 <div>
                   <span class="cowork-kicker">Mode</span>
@@ -381,6 +343,45 @@
                 </section>
               </div>
             </aside>
+            <section class="cowork-create cowork-composer">
+              <div class="cowork-create-copy">
+                <span id="cowork-composer-kicker" class="cowork-kicker">New mission</span>
+                <label id="cowork-composer-label" class="config-label" for="cowork-goal-input">Goal</label>
+                <p>Set the objective once, then let the workspace keep every agent, task, and decision visible.</p>
+              </div>
+              <div class="cowork-create-input">
+                <div id="cowork-mode-tabs" class="cowork-mode-tabs" role="radiogroup" aria-label="Cowork mode">
+                  <button class="cowork-mode-tab active" type="button" data-mode="hybrid" role="radio" aria-checked="true">总览</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="orchestrator" role="radio" aria-checked="false">智能体</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="peer_handoff" role="radio" aria-checked="false">协作编排</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="message_bus" role="radio" aria-checked="false">运行</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="shared_state" role="radio" aria-checked="false">设置</button>
+                </div>
+                <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" placeholder="Describe the shared goal..."></textarea>
+                <label id="cowork-mode-label" class="config-label cowork-mode-label hidden-control" for="cowork-workflow-mode">
+                  Mode
+                  <select id="cowork-workflow-mode" class="config-select">
+                    <option value="hybrid">Hybrid</option>
+                    <option value="orchestrator">Orchestrator</option>
+                    <option value="team">Agent team</option>
+                    <option value="generator_verifier">Generator verifier</option>
+                    <option value="message_bus">Message bus</option>
+                    <option value="shared_state">Shared state</option>
+                    <option value="supervisor">Supervisor</option>
+                    <option value="peer_handoff">Peer handoff</option>
+                  </select>
+                </label>
+                <div class="cowork-toolbar cowork-create-actions">
+                  <span id="cowork-error" class="error-text" aria-live="polite"></span>
+                  <button id="cowork-start-button" class="button button-primary composer-send" type="button" aria-label="Start Cowork">
+                    <svg class="icon-send" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M22 2 11 13" />
+                      <path d="m22 2-7 20-4-9-9-4Z" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </section>
           </section>
         </div>
       </div>
