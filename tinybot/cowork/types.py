@@ -21,6 +21,7 @@ WorkflowMode = Literal[
     "message_bus",
     "shared_state",
     "peer_handoff",
+    "swarm",
 ]
 
 
@@ -142,6 +143,49 @@ class CoworkEvent:
 
 
 @dataclass
+class CoworkTraceSpan:
+    """A structured observability span for Cowork runtime activity."""
+
+    id: str
+    session_id: str
+    run_id: str | None
+    round_id: str | None
+    kind: str
+    name: str
+    actor_id: str | None = None
+    parent_id: str | None = None
+    status: str = "completed"
+    started_at: str = field(default_factory=now_iso)
+    ended_at: str | None = None
+    duration_ms: int | None = None
+    input_ref: str = ""
+    output_ref: str = ""
+    summary: str = ""
+    data: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+
+
+@dataclass
+class CoworkRunMetrics:
+    """Compact metrics for a user-triggered Cowork run."""
+
+    run_id: str
+    status: str = "running"
+    rounds: int = 0
+    agent_calls: int = 0
+    tool_calls: int = 0
+    messages: int = 0
+    tasks_created: int = 0
+    tasks_completed: int = 0
+    artifacts_created: int = 0
+    tokens_prompt: int = 0
+    tokens_completion: int = 0
+    tokens_total: int = 0
+    started_at: str = field(default_factory=now_iso)
+    ended_at: str | None = None
+
+
+@dataclass
 class CoworkSession:
     """A dynamic multi-agent collaboration session."""
 
@@ -156,6 +200,9 @@ class CoworkSession:
     messages: dict[str, CoworkMessage] = field(default_factory=dict)
     mailbox: dict[str, CoworkMailboxRecord] = field(default_factory=dict)
     events: list[CoworkEvent] = field(default_factory=list)
+    trace_spans: list[CoworkTraceSpan] = field(default_factory=list)
+    run_metrics: list[CoworkRunMetrics] = field(default_factory=list)
+    scheduler_decisions: list[dict[str, Any]] = field(default_factory=list)
     current_focus_task: str = ""
     workspace_dir: str = ""
     artifacts: list[str] = field(default_factory=list)
@@ -163,6 +210,7 @@ class CoworkSession:
     shared_summary: str = ""
     final_draft: str = ""
     completion_decision: dict[str, Any] = field(default_factory=dict)
+    swarm_plan: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
     rounds: int = 0

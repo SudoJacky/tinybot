@@ -90,6 +90,7 @@ async def cowork_api_client(temp_workspace):
     )
     server = TestServer(app)
     client = TestClient(server)
+    client.cowork_service = service
     await client.start_server()
     try:
         yield client
@@ -108,10 +109,15 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert session["agents"][0]["current_task_title"] is None
     assert "completion_decision" in session
     assert "final_draft" in session
+    assert "trace_spans" in session
+    assert "task_dag" in session
+    assert "artifact_index" in session
     assert session["graph"]["stats"]["agents"] == 1
     assert any(node["id"] == "agent:planner" for node in session["graph"]["nodes"])
     assert not any(node["kind"] in {"task", "thread", "message"} for node in session["graph"]["nodes"])
     assert session["trace"][-1]["type"] == "session.created"
+    assert any(span["kind"] == "session" for span in session["trace_spans"])
+    assert any(node["id"] == "task:task_1" for node in session["task_dag"]["nodes"])
 
     response = await cowork_api_client.get("/api/cowork/sessions")
     assert response.status == 200
@@ -127,6 +133,14 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert graph_payload["graph"]["stats"]["tasks"] == 1
     assert graph_payload["trace"][-1]["action"] == "Session created"
 
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/trace")
+    assert response.status == 200
+    assert (await response.json())["trace_spans"]
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/dag")
+    assert response.status == 200
+    assert (await response.json())["task_dag"]["stats"]["tasks"] == 1
+
     response = await cowork_api_client.post(f"/api/cowork/sessions/{session_id}/messages", json={"content": "Add QA"})
     assert response.status == 200
     payload = await response.json()
@@ -139,7 +153,30 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
         json={"title": "Check docs", "assigned_agent_id": "planner"},
     )
     assert response.status == 200
-    assert any(task["title"] == "Check docs" for task in (await response.json())["session"]["tasks"])
+    add_task_payload = await response.json()
+    assert any(task["title"] == "Check docs" for task in add_task_payload["session"]["tasks"])
+    check_docs_task = next(task for task in add_task_payload["session"]["tasks"] if task["title"] == "Check docs")
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session_id}/tasks/{check_docs_task['id']}/assign",
+        json={"assigned_agent_id": "planner"},
+    )
+    assert response.status == 200
+
+    service_session = cowork_api_client.cowork_service.get_session(session_id)
+    cowork_api_client.cowork_service.complete_task(service_session, check_docs_task["id"], "bad", status="failed")
+    response = await cowork_api_client.post(f"/api/cowork/sessions/{session_id}/tasks/{check_docs_task['id']}/retry")
+    assert response.status == 200
+    assert (
+        next(task for task in (await response.json())["session"]["tasks"] if task["id"] == check_docs_task["id"])[
+            "status"
+        ]
+        == "pending"
+    )
+
+    response = await cowork_api_client.post(f"/api/cowork/sessions/{session_id}/tasks/task_1/review")
+    assert response.status == 200
+    assert (await response.json())["review_task_id"]
 
     response = await cowork_api_client.post(f"/api/cowork/sessions/{session_id}/run", json={"max_rounds": 1})
     assert response.status == 200

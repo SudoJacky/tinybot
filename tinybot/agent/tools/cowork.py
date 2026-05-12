@@ -572,11 +572,24 @@ class CoworkTool(Tool):
 
         round_limit = min(max(1, int(max_rounds or 1)), 20)
         agent_limit = min(max(1, int(max_agents or 1)), 10)
+        run_id = self.service._new_id("run")
+        run_span = self.service.start_trace_span(
+            session,
+            kind="scheduler",
+            name="Cowork run",
+            run_id=run_id,
+            actor_id="scheduler",
+            input_ref=f"max_rounds={round_limit}, max_agents={agent_limit}",
+            summary=f"Run Cowork session with up to {round_limit} rounds and {agent_limit} agents per round",
+        )
+        self.service.start_run_metrics(session, run_id)
         agent_calls = 0
         consecutive_runs: dict[str, int] = {}
         synthesis_ran = False
         lines = []
+        completed_rounds = 0
         for round_index in range(round_limit):
+            round_id = f"{run_id}:round:{round_index + 1}"
             profile = self.service.workflow_profile(session.workflow_mode)
             effective_agent_limit = 1 if profile in {"orchestrator", "generator_verifier", "peer_handoff"} else agent_limit
             before_signature = self.service.progress_signature(session)
@@ -585,6 +598,17 @@ class CoworkTool(Tool):
             if not active:
                 lines.append(f"Round {round_index + 1}: no ready agents.")
                 self.service.add_event(session, "scheduler.idle", "Cowork scheduler stopped because no agents are ready")
+                self.service.add_trace_event(
+                    session,
+                    kind="scheduler",
+                    name="Scheduler idle",
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
+                    actor_id="scheduler",
+                    status="skipped",
+                    summary="No ready agents",
+                )
                 break
             remaining_calls = _MAX_RUN_AGENT_CALLS - agent_calls
             if remaining_calls <= 0:
@@ -595,19 +619,64 @@ class CoworkTool(Tool):
                     "Cowork scheduler stopped at the agent call budget",
                     data={"max_agent_calls": _MAX_RUN_AGENT_CALLS},
                 )
+                self.service.add_trace_event(
+                    session,
+                    kind="scheduler",
+                    name="Agent call budget exhausted",
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
+                    actor_id="scheduler",
+                    status="blocked",
+                    summary="Agent call budget exhausted",
+                    data={"max_agent_calls": _MAX_RUN_AGENT_CALLS, "agent_calls": agent_calls},
+                )
                 break
             if len(active) > remaining_calls:
                 active = active[:remaining_calls]
             names = ", ".join(agent.id for agent in active)
             lines.append(f"Round {round_index + 1}: running {names}")
+            candidate_scores = self.service.agent_readiness_scores(session)
+            self.service.record_scheduler_decision(
+                session,
+                run_id=run_id,
+                round_id=round_id,
+                selected_agent_ids=[agent.id for agent in active],
+                candidate_scores=candidate_scores,
+                reason=f"Selected {names} using {profile} readiness scoring",
+                budget_remaining={
+                    "agent_calls": max(0, _MAX_RUN_AGENT_CALLS - agent_calls - len(active)),
+                    "rounds": max(0, round_limit - round_index - 1),
+                    "effective_agent_limit": effective_agent_limit,
+                },
+            )
+            round_span = self.service.start_trace_span(
+                session,
+                kind="scheduler",
+                name=f"Scheduler round {round_index + 1}",
+                run_id=run_id,
+                round_id=round_id,
+                parent_id=run_span.id,
+                actor_id="scheduler",
+                input_ref=names,
+                summary=f"Running {names}",
+                data={"agent_ids": [agent.id for agent in active], "profile": profile, "candidate_scores": candidate_scores},
+            )
             self.service.add_event(
                 session,
                 "scheduler.round",
                 f"Cowork scheduler running round {round_index + 1} with {names}",
                 data={"round": round_index + 1, "agent_ids": [agent.id for agent in active]},
             )
-            await asyncio.gather(*(self._run_agent(session, agent) for agent in active))
+            await asyncio.gather(*(self._run_agent(session, agent, run_id=run_id, round_id=round_id, parent_span_id=round_span.id) for agent in active))
+            self.service.finish_trace_span(
+                session,
+                round_span,
+                output_ref=f"Ran {len(active)} agent(s)",
+                summary=f"Round {round_index + 1} finished",
+            )
             agent_calls += len(active)
+            completed_rounds += 1
             for agent in active:
                 consecutive_runs[agent.id] = consecutive_runs.get(agent.id, 0) + 1
             for agent_id in list(consecutive_runs):
@@ -652,6 +721,16 @@ class CoworkTool(Tool):
             else:
                 self.service.add_event(session, "scheduler.budget_exhausted", "Cowork scheduler stopped at the run budget")
         self.service.assess_session(session)
+        run_status = "completed" if session.status == "completed" else "stopped"
+        self.service.finish_run_metrics(session, run_id, status=run_status, rounds=completed_rounds, agent_calls=agent_calls)
+        self.service.finish_trace_span(
+            session,
+            run_span,
+            status=run_status,
+            output_ref=f"rounds={completed_rounds}, agent_calls={agent_calls}",
+            summary=f"Cowork run {run_status}",
+            save=True,
+        )
         lines.append("")
         lines.append(self.service.format_status(session, verbose=False))
         return "\n".join(lines)
@@ -794,7 +873,15 @@ class CoworkTool(Tool):
             return text[start : end + 1]
         return ""
 
-    async def _run_agent(self, session: CoworkSession, agent: CoworkAgent) -> None:
+    async def _run_agent(
+        self,
+        session: CoworkSession,
+        agent: CoworkAgent,
+        *,
+        run_id: str | None = None,
+        round_id: str | None = None,
+        parent_span_id: str | None = None,
+    ) -> None:
         fresh = self.service.get_session(session.id)
         if fresh:
             session = fresh
@@ -815,6 +902,22 @@ class CoworkTool(Tool):
             agent.current_task_title = None
         agent.status = "working"
         self.service.add_event(session, "agent.started", f"{agent.name} started a cowork round", actor_id=agent.id)
+        agent_span = self.service.start_trace_span(
+            session,
+            kind="agent",
+            name=f"Run {agent.name}",
+            run_id=run_id,
+            round_id=round_id,
+            parent_id=parent_span_id,
+            actor_id=agent.id,
+            input_ref=task.title if task else "inbox",
+            summary=f"{agent.name} started",
+            data={
+                "agent_id": agent.id,
+                "task_id": getattr(task, "id", None),
+                "unread_message_ids": [message.id for message in unread],
+            },
+        )
 
         tools = self._build_agent_tools(session.id, agent)
         messages = [
@@ -848,8 +951,23 @@ class CoworkTool(Tool):
                     save=False,
                 )
             self._apply_agent_progress(session, agent, progress, unread, previous_message_ids)
+            self.service.finish_trace_span(
+                session,
+                agent_span,
+                status="completed" if progress.get("status") != "failed" else "failed",
+                output_ref=progress.get("public_note") or progress.get("private_note") or content,
+                summary=f"{agent.name} finished with action {progress.get('action') or 'continue'}",
+                data={"progress": progress},
+            )
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
+            self.service.finish_trace_span(
+                session,
+                agent_span,
+                status="failed",
+                summary=f"{agent.name} failed",
+                error=str(exc),
+            )
             self.service.fail_agent_run(session, agent.id, str(exc))
 
     def _apply_agent_progress(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import hashlib
 from typing import Any
 
 from tinybot.cowork.types import CoworkEvent, CoworkSession
@@ -224,3 +225,181 @@ def build_cowork_trace(session: CoworkSession, *, limit: int = 80) -> list[dict[
             }
         )
     return trace
+
+
+def build_cowork_task_dag(session: CoworkSession) -> dict[str, Any]:
+    """Return a task-first DAG projection for observable Cowork planning."""
+
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": "goal",
+            "kind": "goal",
+            "label": session.title,
+            "title": session.title,
+            "detail": _compact(session.goal, 260),
+            "status": session.status,
+            "tone": _status_tone(session.status),
+        }
+    ]
+    edges: list[dict[str, Any]] = []
+
+    for task in session.tasks.values():
+        nodes.append(
+            {
+                "id": f"task:{task.id}",
+                "entity_id": task.id,
+                "kind": "task",
+                "label": task.title,
+                "title": task.title,
+                "detail": _compact(task.result_data.get("answer") or task.result or task.description, 260),
+                "status": task.status,
+                "tone": _status_tone(task.status),
+                "owner": task.assigned_agent_id,
+                "confidence": task.confidence,
+                "updated_at": task.updated_at,
+            }
+        )
+        if task.dependencies:
+            for dependency in task.dependencies:
+                if dependency in session.tasks:
+                    _add_edge(edges, f"task:{dependency}", f"task:{task.id}", "depends_on")
+                else:
+                    _add_edge(edges, "goal", f"task:{task.id}", "root")
+        else:
+            _add_edge(edges, "goal", f"task:{task.id}", "root")
+        if task.assigned_agent_id and task.assigned_agent_id in session.agents:
+            agent = session.agents[task.assigned_agent_id]
+            agent_node_id = f"agent:{agent.id}"
+            if not any(node["id"] == agent_node_id for node in nodes):
+                nodes.append(
+                    {
+                        "id": agent_node_id,
+                        "entity_id": agent.id,
+                        "kind": "agent",
+                        "label": agent.name,
+                        "title": agent.name,
+                        "detail": _compact(agent.role, 120),
+                        "status": agent.status,
+                        "tone": _status_tone(agent.status),
+                    }
+                )
+            _add_edge(edges, agent_node_id, f"task:{task.id}", "owns")
+        for artifact in _task_artifacts(task):
+            artifact_id = f"artifact:{hashlib.sha1(f'{task.id}:{artifact}'.encode('utf-8')).hexdigest()[:12]}"
+            nodes.append(
+                {
+                    "id": artifact_id,
+                    "kind": "artifact",
+                    "label": _compact(artifact, 80),
+                    "title": artifact,
+                    "detail": artifact,
+                    "status": "completed",
+                    "tone": "completed",
+                    "source_task_id": task.id,
+                }
+            )
+            _add_edge(edges, f"task:{task.id}", artifact_id, "produced")
+
+    for record in session.mailbox.values():
+        if not record.requires_reply or record.status not in {"delivered", "read"}:
+            continue
+        blocked_task_id = record.blocking_task_id
+        if not blocked_task_id or blocked_task_id not in session.tasks:
+            continue
+        blocker_id = f"blocker:{record.id}"
+        nodes.append(
+            {
+                "id": blocker_id,
+                "entity_id": record.id,
+                "kind": "blocker",
+                "label": record.request_type or "Reply needed",
+                "title": record.request_type or "Reply needed",
+                "detail": _compact(record.content, 220),
+                "status": record.status,
+                "tone": _status_tone(record.status),
+                "sender_id": record.sender_id,
+                "recipient_ids": record.recipient_ids,
+            }
+        )
+        _add_edge(edges, blocker_id, f"task:{blocked_task_id}", "blocks")
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "stats": {
+            "nodes": len(nodes),
+            "edges": len(edges),
+            "tasks": len(session.tasks),
+            "blocked_tasks": sum(1 for node in nodes if node.get("kind") == "blocker"),
+            "artifacts": sum(1 for node in nodes if node.get("kind") == "artifact"),
+        },
+    }
+
+
+def build_cowork_artifact_index(session: CoworkSession) -> list[dict[str, Any]]:
+    """Return artifacts linked back to their source tasks and agents."""
+
+    artifacts: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for task in session.tasks.values():
+        for value in _task_artifacts(task):
+            key = (task.id, value)
+            if key in seen:
+                continue
+            seen.add(key)
+            artifacts.append(
+                {
+                    "id": f"artifact_{len(artifacts) + 1}",
+                    "kind": _artifact_kind(value),
+                    "path_or_url": value,
+                    "source_agent_id": task.assigned_agent_id,
+                    "source_task_id": task.id,
+                    "source_task_title": task.title,
+                    "created_at": task.updated_at,
+                    "summary": _compact(value, 160),
+                    "confidence": task.confidence,
+                }
+            )
+    for value in getattr(session, "artifacts", []):
+        text = str(value or "").strip()
+        if not text or any(item["path_or_url"] == text for item in artifacts):
+            continue
+        artifacts.append(
+            {
+                "id": f"artifact_{len(artifacts) + 1}",
+                "kind": _artifact_kind(text),
+                "path_or_url": text,
+                "source_agent_id": None,
+                "source_task_id": None,
+                "source_task_title": "",
+                "created_at": session.updated_at,
+                "summary": _compact(text, 160),
+                "confidence": None,
+            }
+        )
+    return artifacts
+
+
+def _task_artifacts(task: Any) -> list[str]:
+    data = getattr(task, "result_data", {}) or {}
+    values: list[Any] = []
+    for key in ("artifacts", "artifact_paths", "generated_files", "files", "paths"):
+        raw = data.get(key)
+        if isinstance(raw, list):
+            values.extend(raw)
+        elif isinstance(raw, str):
+            values.append(raw)
+    return [str(value).strip() for value in values if str(value or "").strip()]
+
+
+def _artifact_kind(value: str) -> str:
+    text = value.lower()
+    if text.startswith(("http://", "https://")):
+        return "url"
+    if text.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")):
+        return "image"
+    if text.endswith((".csv", ".tsv", ".xlsx", ".xls")):
+        return "table"
+    if text.endswith((".patch", ".diff")):
+        return "diff"
+    return "file"

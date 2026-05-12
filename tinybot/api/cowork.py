@@ -6,7 +6,12 @@ from typing import Any
 
 from aiohttp import web
 
-from tinybot.cowork.snapshot import build_cowork_graph, build_cowork_trace
+from tinybot.cowork.snapshot import (
+    build_cowork_artifact_index,
+    build_cowork_graph,
+    build_cowork_task_dag,
+    build_cowork_trace,
+)
 
 
 def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, Any]:
@@ -119,6 +124,47 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         }
         for event in session.events[-80:]
     ]
+    trace_spans = [
+        {
+            "id": span.id,
+            "session_id": span.session_id,
+            "run_id": span.run_id,
+            "round_id": span.round_id,
+            "parent_id": span.parent_id,
+            "kind": span.kind,
+            "name": span.name,
+            "actor_id": span.actor_id,
+            "status": span.status,
+            "started_at": span.started_at,
+            "ended_at": span.ended_at,
+            "duration_ms": span.duration_ms,
+            "input_ref": span.input_ref if verbose else "",
+            "output_ref": span.output_ref if verbose else "",
+            "summary": span.summary,
+            "data": span.data if verbose else {},
+            "error": span.error,
+        }
+        for span in getattr(session, "trace_spans", [])[-160:]
+    ] if verbose else []
+    run_metrics = [
+        {
+            "run_id": metric.run_id,
+            "status": metric.status,
+            "rounds": metric.rounds,
+            "agent_calls": metric.agent_calls,
+            "tool_calls": metric.tool_calls,
+            "messages": metric.messages,
+            "tasks_created": metric.tasks_created,
+            "tasks_completed": metric.tasks_completed,
+            "artifacts_created": metric.artifacts_created,
+            "tokens_prompt": metric.tokens_prompt,
+            "tokens_completion": metric.tokens_completion,
+            "tokens_total": metric.tokens_total,
+            "started_at": metric.started_at,
+            "ended_at": metric.ended_at,
+        }
+        for metric in getattr(session, "run_metrics", [])[-20:]
+    ]
     snapshot = {
         "id": session.id,
         "title": session.title,
@@ -142,10 +188,16 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "messages": messages,
         "mailbox": mailbox,
         "events": events,
+        "trace_spans": trace_spans,
+        "run_metrics": run_metrics,
+        "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-40:] if verbose else [],
+        "swarm_plan": getattr(session, "swarm_plan", {}),
     }
     if verbose:
         snapshot["graph"] = build_cowork_graph(session)
         snapshot["trace"] = build_cowork_trace(session)
+        snapshot["task_dag"] = build_cowork_task_dag(session)
+        snapshot["artifact_index"] = build_cowork_artifact_index(session)
     return snapshot
 
 
@@ -234,6 +286,32 @@ async def handle_get_session_graph(request: web.Request) -> web.Response:
     if session is None:
         return web.json_response({"error": "cowork session not found"}, status=404)
     return web.json_response({"graph": build_cowork_graph(session), "trace": build_cowork_trace(session)})
+
+
+async def handle_get_session_trace(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    return web.json_response(
+        {
+            "trace_spans": cowork_session_snapshot(session).get("trace_spans", []),
+            "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-80:],
+            "run_metrics": cowork_session_snapshot(session).get("run_metrics", []),
+        }
+    )
+
+
+async def handle_get_session_dag(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    return web.json_response({"task_dag": build_cowork_task_dag(session), "artifact_index": build_cowork_artifact_index(session)})
 
 
 async def handle_delete_session(request: web.Request) -> web.Response:
@@ -334,6 +412,54 @@ async def handle_add_task(request: web.Request) -> web.Response:
     return web.json_response({"result": result, "session": cowork_session_snapshot(session) if session else None})
 
 
+async def handle_retry_task(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.retry_task(session, request.match_info["task_id"])
+    status = 400 if result.startswith("Error:") else 200
+    return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+
+
+async def handle_assign_task(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.assign_task(session, request.match_info["task_id"], str(payload.get("assigned_agent_id") or ""))
+    status = 400 if result.startswith("Error:") else 200
+    return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+
+
+async def handle_request_task_review(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.request_task_review(
+        session,
+        request.match_info["task_id"],
+        reviewer_agent_id=str(payload.get("reviewer_agent_id") or "") if isinstance(payload, dict) else None,
+    )
+    if isinstance(result, str):
+        return web.json_response({"error": result}, status=400)
+    return web.json_response({"review_task_id": result.id, "session": cowork_session_snapshot(session)})
+
+
 async def handle_summary(request: web.Request) -> web.Response:
     tool = _cowork_tool(request.app)
     if tool is None:
@@ -348,10 +474,15 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_post("/api/cowork/sessions", handle_create_session)
     app.router.add_get("/api/cowork/sessions/{session_id}", handle_get_session)
     app.router.add_get("/api/cowork/sessions/{session_id}/graph", handle_get_session_graph)
+    app.router.add_get("/api/cowork/sessions/{session_id}/trace", handle_get_session_trace)
+    app.router.add_get("/api/cowork/sessions/{session_id}/dag", handle_get_session_dag)
     app.router.add_delete("/api/cowork/sessions/{session_id}", handle_delete_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/run", handle_run_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/pause", handle_pause_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/resume", handle_resume_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/messages", handle_send_message)
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks", handle_add_task)
+    app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/retry", handle_retry_task)
+    app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/assign", handle_assign_task)
+    app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/review", handle_request_task_review)
     app.router.add_get("/api/cowork/sessions/{session_id}/summary", handle_summary)

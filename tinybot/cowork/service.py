@@ -18,15 +18,21 @@ from tinybot.cowork.types import (
     CoworkEvent,
     CoworkMailboxRecord,
     CoworkMessage,
+    CoworkRunMetrics,
     CoworkSession,
     CoworkTask,
     CoworkThread,
+    CoworkTraceSpan,
     now_iso,
 )
+from tinybot.cowork.trace import CoworkTraceRecorder
 
 
 _MAX_PRIVATE_SUMMARY_CHARS = 6000
 _MAX_EVENT_COUNT = 500
+_MAX_TRACE_SPAN_COUNT = 1000
+_MAX_RUN_METRIC_COUNT = 80
+_MAX_SCHEDULER_DECISION_COUNT = 200
 _MAX_MAILBOX_RECORDS = 300
 _CONVERGENCE_IDLE_ROUNDS = 2
 _SHARED_MEMORY_BUCKETS = ("findings", "claims", "risks", "open_questions", "decisions", "artifacts")
@@ -39,6 +45,7 @@ _WORKFLOW_MODES = {
     "message_bus",
     "shared_state",
     "peer_handoff",
+    "swarm",
 }
 
 
@@ -50,6 +57,7 @@ class CoworkService:
         self.cowork_dir = workspace / "cowork"
         self._sessions: dict[str, CoworkSession] | None = None
         self._listeners: list[Callable[[CoworkSession, CoworkEvent], None]] = []
+        self.traces = CoworkTraceRecorder(self._new_id)
 
     @property
     def store_path(self) -> Path:
@@ -109,6 +117,7 @@ class CoworkService:
                     shared_summary=raw.get("shared_summary", ""),
                     final_draft=raw.get("final_draft", ""),
                     completion_decision=raw.get("completion_decision", {}),
+                    swarm_plan=raw.get("swarm_plan", {}) if isinstance(raw.get("swarm_plan", {}), dict) else {},
                     created_at=raw.get("created_at", now_iso()),
                     updated_at=raw.get("updated_at", now_iso()),
                     rounds=raw.get("rounds", 0),
@@ -220,6 +229,54 @@ class CoworkService:
                         created_at=item.get("created_at", now_iso()),
                     )
                     for item in raw.get("events", [])
+                ]
+                session.trace_spans = [
+                    CoworkTraceSpan(
+                        id=item["id"],
+                        session_id=item.get("session_id", raw["id"]),
+                        run_id=item.get("run_id"),
+                        round_id=item.get("round_id"),
+                        kind=item.get("kind", "event"),
+                        name=item.get("name", item.get("kind", "event")),
+                        actor_id=item.get("actor_id"),
+                        parent_id=item.get("parent_id"),
+                        status=item.get("status", "completed"),
+                        started_at=item.get("started_at", item.get("created_at", now_iso())),
+                        ended_at=item.get("ended_at"),
+                        duration_ms=item.get("duration_ms"),
+                        input_ref=item.get("input_ref", ""),
+                        output_ref=item.get("output_ref", ""),
+                        summary=item.get("summary", ""),
+                        data=item.get("data", {}) if isinstance(item.get("data", {}), dict) else {},
+                        error=item.get("error"),
+                    )
+                    for item in raw.get("trace_spans", [])
+                    if isinstance(item, dict) and item.get("id")
+                ]
+                session.run_metrics = [
+                    CoworkRunMetrics(
+                        run_id=item["run_id"],
+                        status=item.get("status", "completed"),
+                        rounds=int(item.get("rounds", 0) or 0),
+                        agent_calls=int(item.get("agent_calls", 0) or 0),
+                        tool_calls=int(item.get("tool_calls", 0) or 0),
+                        messages=int(item.get("messages", 0) or 0),
+                        tasks_created=int(item.get("tasks_created", 0) or 0),
+                        tasks_completed=int(item.get("tasks_completed", 0) or 0),
+                        artifacts_created=int(item.get("artifacts_created", 0) or 0),
+                        tokens_prompt=int(item.get("tokens_prompt", 0) or 0),
+                        tokens_completion=int(item.get("tokens_completion", 0) or 0),
+                        tokens_total=int(item.get("tokens_total", 0) or 0),
+                        started_at=item.get("started_at", now_iso()),
+                        ended_at=item.get("ended_at"),
+                    )
+                    for item in raw.get("run_metrics", [])
+                    if isinstance(item, dict) and item.get("run_id")
+                ]
+                session.scheduler_decisions = [
+                    dict(item)
+                    for item in raw.get("scheduler_decisions", [])
+                    if isinstance(item, dict)
                 ]
                 sessions[session.id] = session
             self._sessions = sessions
@@ -353,6 +410,15 @@ class CoworkService:
             data={"goal": goal, "workflow_mode": session.workflow_mode, "focus_task": session.current_focus_task},
             save=False,
         )
+        self.add_trace_event(
+            session,
+            kind="session",
+            name="Session created",
+            actor_id="user",
+            summary=f"Created cowork session '{session.title}'",
+            data={"goal": goal, "workflow_mode": session.workflow_mode, "focus_task": session.current_focus_task},
+            save=False,
+        )
         self.assess_session(session, save=False)
         sessions[session.id] = session
         self._touch(session)
@@ -463,6 +529,17 @@ class CoworkService:
         else:
             message = f"Task '{task.title}' added to the shared task pool"
         self.add_event(session, "task.created", message, data={"task_id": task.id, "assigned_agent_id": assigned_agent_id}, save=False)
+        self.add_trace_event(
+            session,
+            kind="task",
+            name="Task created",
+            actor_id=assigned_agent_id,
+            status=task.status,
+            input_ref=task.description,
+            summary=message,
+            data={"task_id": task.id, "assigned_agent_id": assigned_agent_id, "dependencies": task.dependencies},
+            save=False,
+        )
         self._touch(session)
         if save:
             self._save()
@@ -490,6 +567,16 @@ class CoworkService:
             "task.assigned",
             f"Task '{task.title}' assigned to {agent.name}",
             actor_id=agent_id,
+            data={"task_id": task.id, "assigned_agent_id": agent_id},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="task",
+            name="Task assigned",
+            actor_id=agent_id,
+            status=task.status,
+            summary=f"Task '{task.title}' assigned to {agent.name}",
             data={"task_id": task.id, "assigned_agent_id": agent_id},
             save=False,
         )
@@ -521,6 +608,16 @@ class CoworkService:
             event_type,
             f"{agent.name} claimed task '{task.title}'",
             actor_id=agent_id,
+            data={"task_id": task.id, "assigned_agent_id": agent_id, "previous_owner": previous_owner},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="task",
+            name="Task claimed" if event_type == "task.claimed" else "Task selected",
+            actor_id=agent_id,
+            status=task.status,
+            summary=f"{agent.name} claimed task '{task.title}'",
             data={"task_id": task.id, "assigned_agent_id": agent_id, "previous_owner": previous_owner},
             save=False,
         )
@@ -558,6 +655,19 @@ class CoworkService:
             f"Task '{task.title}' {status}",
             actor_id=task.assigned_agent_id,
             data={"task_id": task_id},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="task",
+            name=f"Task {status}",
+            actor_id=task.assigned_agent_id,
+            status=status,
+            input_ref=task.description,
+            output_ref=result,
+            summary=f"Task '{task.title}' {status}",
+            data={"task_id": task_id, "confidence": task.confidence, "result_data": result_data},
+            error=result if status == "failed" else None,
             save=False,
         )
         if status == "completed":
@@ -1069,6 +1179,167 @@ class CoworkService:
         self._touch(session)
         self._save()
 
+    def add_trace_span(
+        self,
+        session: CoworkSession,
+        span: CoworkTraceSpan,
+        *,
+        save: bool = True,
+    ) -> CoworkTraceSpan:
+        if span not in session.trace_spans:
+            session.trace_spans.append(span)
+        if len(session.trace_spans) > _MAX_TRACE_SPAN_COUNT:
+            session.trace_spans = session.trace_spans[-_MAX_TRACE_SPAN_COUNT:]
+        if save:
+            self._touch(session)
+            self._save()
+        return span
+
+    def start_trace_span(
+        self,
+        session: CoworkSession,
+        *,
+        kind: str,
+        name: str,
+        run_id: str | None = None,
+        round_id: str | None = None,
+        actor_id: str | None = None,
+        parent_id: str | None = None,
+        input_ref: str = "",
+        summary: str = "",
+        data: dict[str, Any] | None = None,
+        save: bool = False,
+    ) -> CoworkTraceSpan:
+        span = self.traces.start_span(
+            session,
+            kind=kind,
+            name=name,
+            run_id=run_id,
+            round_id=round_id,
+            actor_id=actor_id,
+            parent_id=parent_id,
+            input_ref=input_ref,
+            summary=summary,
+            data=data,
+        )
+        self.add_trace_span(session, span, save=save)
+        return span
+
+    def finish_trace_span(
+        self,
+        session: CoworkSession,
+        span: CoworkTraceSpan,
+        *,
+        status: str = "completed",
+        output_ref: str = "",
+        summary: str = "",
+        data: dict[str, Any] | None = None,
+        error: str | None = None,
+        save: bool = False,
+    ) -> CoworkTraceSpan:
+        if error:
+            self.traces.fail_span(span, error, summary=summary)
+        else:
+            self.traces.finish_span(span, status=status, output_ref=output_ref, summary=summary, data=data)
+        self.add_trace_span(session, span, save=save)
+        return span
+
+    def add_trace_event(
+        self,
+        session: CoworkSession,
+        *,
+        kind: str,
+        name: str,
+        status: str = "completed",
+        actor_id: str | None = None,
+        run_id: str | None = None,
+        round_id: str | None = None,
+        parent_id: str | None = None,
+        input_ref: str = "",
+        output_ref: str = "",
+        summary: str = "",
+        data: dict[str, Any] | None = None,
+        error: str | None = None,
+        save: bool = False,
+    ) -> CoworkTraceSpan:
+        span = self.traces.event_span(
+            session,
+            kind=kind,
+            name=name,
+            status=status,
+            actor_id=actor_id,
+            run_id=run_id,
+            round_id=round_id,
+            parent_id=parent_id,
+            input_ref=input_ref,
+            output_ref=output_ref,
+            summary=summary,
+            data=data,
+            error=error,
+        )
+        self.add_trace_span(session, span, save=save)
+        return span
+
+    def start_run_metrics(self, session: CoworkSession, run_id: str) -> CoworkRunMetrics:
+        metric = CoworkRunMetrics(run_id=run_id)
+        session.run_metrics.append(metric)
+        if len(session.run_metrics) > _MAX_RUN_METRIC_COUNT:
+            session.run_metrics = session.run_metrics[-_MAX_RUN_METRIC_COUNT:]
+        return metric
+
+    def finish_run_metrics(
+        self,
+        session: CoworkSession,
+        run_id: str,
+        *,
+        status: str = "completed",
+        rounds: int = 0,
+        agent_calls: int = 0,
+    ) -> CoworkRunMetrics | None:
+        metric = next((item for item in reversed(session.run_metrics) if item.run_id == run_id), None)
+        if metric is None:
+            return None
+        metric.status = status
+        metric.rounds = rounds
+        metric.agent_calls = agent_calls
+        metric.messages = len(session.messages)
+        metric.tasks_created = len(session.tasks)
+        metric.tasks_completed = sum(1 for task in session.tasks.values() if task.status == "completed")
+        metric.artifacts_created = len(session.artifacts)
+        metric.ended_at = now_iso()
+        return metric
+
+    def record_scheduler_decision(
+        self,
+        session: CoworkSession,
+        *,
+        run_id: str | None,
+        round_id: str,
+        selected_agent_ids: list[str],
+        candidate_scores: list[dict[str, Any]],
+        reason: str,
+        budget_remaining: dict[str, Any] | None = None,
+        save: bool = False,
+    ) -> dict[str, Any]:
+        decision = {
+            "id": self._new_id("dec"),
+            "run_id": run_id,
+            "round_id": round_id,
+            "selected_agent_ids": selected_agent_ids,
+            "candidate_scores": candidate_scores,
+            "reason": reason,
+            "blocked": list((session.completion_decision or {}).get("blocked", [])),
+            "budget_remaining": budget_remaining or {},
+            "created_at": now_iso(),
+        }
+        session.scheduler_decisions.append(decision)
+        if len(session.scheduler_decisions) > _MAX_SCHEDULER_DECISION_COUNT:
+            session.scheduler_decisions = session.scheduler_decisions[-_MAX_SCHEDULER_DECISION_COUNT:]
+        if save:
+            self._touch(session)
+            self._save()
+        return decision
+
     def add_event(
         self,
         session: CoworkSession,
@@ -1118,8 +1389,124 @@ class CoworkService:
                 save=False,
             )
         self.add_event(session, "agent.failed", f"{agent.name} failed: {error}", actor_id=agent_id, save=False)
+        self.add_trace_event(
+            session,
+            kind="agent",
+            name="Agent failed",
+            actor_id=agent_id,
+            status="failed",
+            summary=f"{agent.name} failed",
+            data={"agent_id": agent_id, "task_id": task_id},
+            error=error,
+            save=False,
+        )
         self._touch(session)
         self._save()
+
+    def retry_task(self, session: CoworkSession, task_id: str, *, save: bool = True) -> str:
+        task = session.tasks.get(task_id)
+        if not task:
+            return f"Error: task '{task_id}' not found"
+        if task.status not in {"failed", "skipped", "completed"}:
+            return f"Error: task '{task_id}' is {task.status}; only failed, skipped, or completed tasks can be retried"
+        previous_status = task.status
+        task.status = "pending"
+        task.error = None
+        task.updated_at = now_iso()
+        if session.status == "completed":
+            session.status = "active"
+        if task.assigned_agent_id in session.agents:
+            agent = session.agents[task.assigned_agent_id]
+            if agent.status in {"done", "failed", "idle"}:
+                agent.status = "waiting"
+        self.add_event(
+            session,
+            "task.retried",
+            f"Task '{task.title}' queued for retry",
+            actor_id="user",
+            data={"task_id": task.id, "previous_status": previous_status},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="task",
+            name="Task retried",
+            actor_id="user",
+            status="pending",
+            summary=f"Task '{task.title}' queued for retry",
+            data={"task_id": task.id, "previous_status": previous_status, "assigned_agent_id": task.assigned_agent_id},
+            save=False,
+        )
+        self.assess_session(session, save=False)
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Task '{task.title}' queued for retry."
+
+    def request_task_review(
+        self,
+        session: CoworkSession,
+        task_id: str,
+        reviewer_agent_id: str | None = None,
+        *,
+        save: bool = True,
+    ) -> CoworkTask | str:
+        source = session.tasks.get(task_id)
+        if not source:
+            return f"Error: task '{task_id}' not found"
+        reviewer_id = self._slug(reviewer_agent_id) if reviewer_agent_id else ""
+        if reviewer_id not in session.agents:
+            reviewer = next((agent for agent in session.agents.values() if self._is_reviewer_agent(agent)), None)
+            reviewer_id = reviewer.id if reviewer else self.lead_agent_id(session)
+        title = f"Review {source.title}"
+        existing = next(
+            (
+                task
+                for task in session.tasks.values()
+                if task.status in {"pending", "in_progress"}
+                and task.assigned_agent_id == reviewer_id
+                and task.dependencies == [source.id]
+                and self._looks_like_review_task(task.title, task.description)
+            ),
+            None,
+        )
+        if existing:
+            return existing
+        review_task = self.add_task(
+            session,
+            title=title,
+            description=(
+                "Review the source task for correctness, completeness, risks, missing evidence, "
+                f"and whether it satisfies the original goal. Source task: {source.id}. "
+                f"Result: {(source.result or '')[:1000]}"
+            ),
+            assigned_agent_id=reviewer_id,
+            dependencies=[source.id],
+            save=False,
+        )
+        self.add_event(
+            session,
+            "task.review_requested",
+            f"Review requested for task '{source.title}'",
+            actor_id="user",
+            data={"task_id": source.id, "review_task_id": review_task.id, "reviewer_agent_id": reviewer_id},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="review",
+            name="Review requested",
+            actor_id="user",
+            status="pending",
+            summary=f"Review requested for task '{source.title}'",
+            data={"task_id": source.id, "review_task_id": review_task.id, "reviewer_agent_id": reviewer_id},
+            save=False,
+        )
+        self.assess_session(session, save=False)
+        self._touch(session)
+        if save:
+            self._save()
+        return review_task
 
     def format_status(self, session: CoworkSession, *, verbose: bool = False) -> str:
         lines = [
