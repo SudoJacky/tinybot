@@ -2861,9 +2861,9 @@ async function startCoworkSession() {
       body: JSON.stringify({
         goal,
         workflow_mode: elements.coworkWorkflowMode?.value || "hybrid",
-        auto_run: Boolean(elements.coworkAutoRun?.checked),
-        max_rounds: coworkNumberInput(elements.coworkRoundLimit, 20, 1, 20),
-        max_agents: coworkNumberInput(elements.coworkAgentLimit, 3, 1, 10),
+        auto_run: true,
+        max_rounds: 20,
+        max_agents: 3,
       }),
     });
     if (!response.ok) {
@@ -2961,21 +2961,31 @@ async function sendCoworkMessage() {
   if (!state.activeCoworkSessionId) return;
   const content = elements.coworkMessageInput?.value.trim() || "";
   if (!content) return;
-  const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/messages`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({ content, recipient_ids: [] }),
-  });
-  if (!response.ok) {
-    setCoworkError(`send message failed: ${response.status}`);
-    return;
+  if (elements.coworkMessageButton) {
+    elements.coworkMessageButton.disabled = true;
   }
-  const payload = await response.json();
-  state.activeCoworkSession = payload.session || state.activeCoworkSession;
-  if (elements.coworkMessageInput) {
-    elements.coworkMessageInput.value = "";
+  try {
+    const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/messages`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ content, recipient_ids: [] }),
+    });
+    if (!response.ok) {
+      setCoworkError(`send message failed: ${response.status}`);
+      return;
+    }
+    const payload = await response.json();
+    state.activeCoworkSession = payload.session || state.activeCoworkSession;
+    if (elements.coworkMessageInput) {
+      elements.coworkMessageInput.value = "";
+    }
+    renderCoworkDetail();
+    await runCoworkRound();
+  } finally {
+    if (elements.coworkMessageButton) {
+      elements.coworkMessageButton.disabled = false;
+    }
   }
-  renderCoworkDetail();
 }
 
 async function addCoworkTask() {
@@ -2983,21 +2993,31 @@ async function addCoworkTask() {
   const title = elements.coworkTaskTitle?.value.trim() || "";
   const assigned = elements.coworkTaskAgent?.value || "";
   if (!title || !assigned) return;
-  const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/tasks`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify({ title, assigned_agent_id: assigned }),
-  });
-  if (!response.ok) {
-    setCoworkError(`add task failed: ${response.status}`);
-    return;
+  if (elements.coworkTaskButton) {
+    elements.coworkTaskButton.disabled = true;
   }
-  const payload = await response.json();
-  state.activeCoworkSession = payload.session || state.activeCoworkSession;
-  if (elements.coworkTaskTitle) {
-    elements.coworkTaskTitle.value = "";
+  try {
+    const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/tasks`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ title, assigned_agent_id: assigned }),
+    });
+    if (!response.ok) {
+      setCoworkError(`add task failed: ${response.status}`);
+      return;
+    }
+    const payload = await response.json();
+    state.activeCoworkSession = payload.session || state.activeCoworkSession;
+    if (elements.coworkTaskTitle) {
+      elements.coworkTaskTitle.value = "";
+    }
+    renderCoworkDetail();
+    await runCoworkRound();
+  } finally {
+    if (elements.coworkTaskButton) {
+      elements.coworkTaskButton.disabled = false;
+    }
   }
-  renderCoworkDetail();
 }
 
 async function showCoworkSummary() {
