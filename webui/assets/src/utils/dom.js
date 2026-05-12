@@ -283,6 +283,7 @@ export const elements = {
   coworkMailboxList: document.querySelector("#cowork-mailbox-list"),
   coworkThreadList: document.querySelector("#cowork-thread-list"),
   coworkMessageList: document.querySelector("#cowork-message-list"),
+  coworkStatusFeed: document.querySelector("#cowork-status-feed"),
   coworkEventList: document.querySelector("#cowork-event-list"),
   globalKnowledgeToast: null,
   globalKnowledgeToastTitle: null,

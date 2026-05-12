@@ -3338,3 +3338,175 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
     grid-row: 3 !important;
   }
 }
+
+/* Unified cowork status dialog */
+.cowork-page-active .cowork-detail-pane {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px) !important;
+}
+
+.cowork-page-active .cowork-action-rail {
+  overflow: hidden;
+  padding-right: 0;
+}
+
+.cowork-status-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-strong) 92%, var(--bg));
+}
+
+.cowork-status-dialog-header {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--panel-strong) 82%, transparent);
+}
+
+.cowork-status-dialog-header h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cowork-status-dialog-header p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.cowork-status-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.cowork-status-counts span {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--bg-subtle) 78%, transparent);
+  font-size: 11px;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.cowork-status-counts strong {
+  display: block;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.cowork-status-feed {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.cowork-status-feed-section {
+  display: grid;
+  gap: 8px;
+}
+
+.cowork-status-feed-section h5 {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cowork-status-bubble {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-strong) 90%, transparent);
+  box-shadow: none;
+}
+
+.cowork-status-bubble.overview {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-soft) 34%, var(--panel-strong));
+}
+
+.cowork-status-bubble.from-user {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-soft) 48%, var(--panel-strong));
+}
+
+.cowork-status-bubble.event {
+  background: transparent;
+  box-shadow: none;
+}
+
+.cowork-status-bubble.active,
+.cowork-status-bubble[tabindex]:hover,
+.cowork-status-bubble[tabindex]:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border-subtle));
+  outline: none;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.cowork-status-bubble-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cowork-status-bubble strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.3;
+}
+
+.cowork-status-bubble p {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.48;
+  overflow-wrap: anywhere;
+}
+
+.cowork-status-bubble small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.cowork-page-active .cowork-metrics,
+.cowork-page-active .cowork-grid {
+  display: none !important;
+}
+
+@media (max-width: 1180px) {
+  .cowork-page-active .cowork-detail-pane {
+    grid-template-columns: 1fr !important;
+  }
+
+  .cowork-status-dialog {
+    min-height: 360px;
+  }
+}
