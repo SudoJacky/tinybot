@@ -53,9 +53,10 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
             "kind": "session",
             "label": session.title,
             "title": session.title,
-            "detail": _compact(session.goal, 220),
+            "detail": _compact(session.current_focus_task or session.goal, 220),
             "status": session.status,
             "tone": _status_tone(session.status),
+            "badge": getattr(session, "workflow_mode", "hybrid"),
             "x": 600,
             "y": 310,
         }
@@ -148,6 +149,7 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
             "tasks": len(session.tasks),
             "threads": len(session.threads),
             "mailbox": len(session.mailbox),
+            "artifacts": len(getattr(session, "artifacts", [])),
             "communications": sum(1 for edge in edges if edge.get("kind") == "communication"),
         },
     }

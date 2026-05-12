@@ -1223,6 +1223,7 @@ class WebSocketChannel(BaseChannel):
         result = await tool.execute(
             action="start",
             goal=goal,
+            workflow_mode=str(payload.get("workflow_mode") or "hybrid"),
             auto_run=bool(payload.get("auto_run", False)),
             max_rounds=int(payload.get("max_rounds", 1) or 1),
             max_agents=int(payload.get("max_agents", 3) or 3),

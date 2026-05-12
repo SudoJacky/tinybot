@@ -12,6 +12,7 @@ TaskStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
 SessionStatus = Literal["active", "paused", "completed", "failed"]
 ThreadStatus = Literal["open", "resolved"]
 MailboxStatus = Literal["queued", "delivered", "read", "replied", "expired"]
+WorkflowMode = Literal["hybrid", "supervisor", "peer_handoff"]
 
 
 def now_iso() -> str:
@@ -134,12 +135,16 @@ class CoworkSession:
     title: str
     goal: str
     status: SessionStatus = "active"
+    workflow_mode: WorkflowMode = "hybrid"
     agents: dict[str, CoworkAgent] = field(default_factory=dict)
     tasks: dict[str, CoworkTask] = field(default_factory=dict)
     threads: dict[str, CoworkThread] = field(default_factory=dict)
     messages: dict[str, CoworkMessage] = field(default_factory=dict)
     mailbox: dict[str, CoworkMailboxRecord] = field(default_factory=dict)
     events: list[CoworkEvent] = field(default_factory=list)
+    current_focus_task: str = ""
+    workspace_dir: str = ""
+    artifacts: list[str] = field(default_factory=list)
     shared_summary: str = ""
     final_draft: str = ""
     completion_decision: dict[str, Any] = field(default_factory=dict)

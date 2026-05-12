@@ -374,6 +374,7 @@ class CoworkInternalTool(Tool):
             enum=["start", "status", "list", "send_message", "add_task", "assign_task", "run", "pause", "resume", "summary"],
         ),
         goal=StringSchema("Goal for a new cowork session"),
+        workflow_mode=StringSchema("Cowork workflow mode", enum=["hybrid", "supervisor", "peer_handoff"]),
         session_id=StringSchema("Cowork session id"),
         recipient_ids=ArraySchema(StringSchema("Agent id"), description="Message recipients"),
         content=StringSchema("Message content"),
@@ -430,6 +431,7 @@ class CoworkTool(Tool):
         self,
         action: str,
         goal: str = "",
+        workflow_mode: str = "hybrid",
         session_id: str = "",
         recipient_ids: list[str] | None = None,
         content: str = "",
@@ -450,7 +452,13 @@ class CoworkTool(Tool):
                 return "Error: goal is required for cowork start"
             planned_title, agents, tasks = await self.planner.plan(goal)
             tasks = CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
-            session = self.service.create_session(goal=goal, title=planned_title, agents=agents, tasks=tasks)
+            session = self.service.create_session(
+                goal=goal,
+                title=planned_title,
+                agents=agents,
+                tasks=tasks,
+                workflow_mode=workflow_mode or "hybrid",
+            )
             response = f"Cowork session started: {session.id}\n\n{self.service.format_status(session, verbose=True)}"
             if auto_run:
                 run_result = await self._run_session(session, max_rounds=max_rounds, max_agents=max_agents)
@@ -661,6 +669,10 @@ class CoworkTool(Tool):
                 return loose
             return {
                 "status": "idle",
+                "action": "continue",
+                "target_agent_id": "",
+                "task_title": "",
+                "action_reason": "",
                 "public_note": text or "Cowork round completed.",
                 "private_note": text or "Cowork round completed.",
                 "requests": [],
@@ -673,10 +685,21 @@ class CoworkTool(Tool):
             status = "waiting"
         if status not in {"idle", "waiting", "blocked", "done", "failed"}:
             status = "idle"
+        action = str(parsed.get("action") or "").strip().lower()
+        if action in {"delegate", "handoff_to"}:
+            action = "handoff"
+        if action in {"answer_user", "respond"}:
+            action = "respond_user"
+        if action not in {"", "continue", "handoff", "review", "complete", "respond_user", "block"}:
+            action = ""
         public_note = str(parsed.get("public_note") or parsed.get("note") or "").strip()
         private_note = str(parsed.get("private_note") or public_note or text).strip()
         return {
             "status": status,
+            "action": action or ("block" if status == "blocked" else "continue"),
+            "target_agent_id": str(parsed.get("target_agent_id") or parsed.get("assigned_agent_id") or "").strip(),
+            "task_title": str(parsed.get("task_title") or parsed.get("title") or "").strip(),
+            "action_reason": str(parsed.get("reason") or parsed.get("action_reason") or "").strip(),
             "public_note": public_note,
             "private_note": private_note,
             "requests": parsed.get("requests") if isinstance(parsed.get("requests"), list) else [],
@@ -699,6 +722,10 @@ class CoworkTool(Tool):
             return None
         return {
             "status": status,
+            "action": "continue",
+            "target_agent_id": "",
+            "task_title": "",
+            "action_reason": "",
             "public_note": public_note,
             "private_note": private_note or public_note,
             "requests": [],
@@ -746,6 +773,7 @@ class CoworkTool(Tool):
             task.updated_at = now_iso()
             agent.current_task_id = task.id
             agent.current_task_title = task.title
+            session.current_focus_task = f"{task.title}: {task.description}"
         else:
             task = None
             agent.current_task_id = None
@@ -799,7 +827,9 @@ class CoworkTool(Tool):
     ) -> None:
         public_note = str(progress.get("public_note") or "").strip()
         private_note = str(progress.get("private_note") or public_note or "Cowork round completed.").strip()
-        if public_note and self._is_substantive_public_note(public_note):
+        action = str(progress.get("action") or "continue").strip().lower()
+        suppress_public_note = self._apply_workflow_action(session, agent, progress, public_note, private_note)
+        if public_note and not suppress_public_note and self._is_substantive_public_note(public_note):
             if previous_message_ids is not None and self._agent_sent_substantive_message_this_round(session, agent.id, previous_message_ids):
                 self.service.add_event(
                     session,
@@ -818,7 +848,7 @@ class CoworkTool(Tool):
                     data={"note": public_note[:240]},
                     save=False,
                 )
-        elif public_note:
+        elif public_note and not suppress_public_note:
             self.service.add_event(
                 session,
                 "agent.progress_note",
@@ -888,10 +918,108 @@ class CoworkTool(Tool):
             session,
             agent.id,
             private_note,
-            status=str(progress.get("status") or "idle"),
+            status="blocked" if action == "block" else str(progress.get("status") or "idle"),
             publish_note=False,
         )
         self.service.assess_session(session)
+
+    def _apply_workflow_action(
+        self,
+        session: CoworkSession,
+        agent: CoworkAgent,
+        progress: dict[str, Any],
+        public_note: str,
+        private_note: str,
+    ) -> bool:
+        action = str(progress.get("action") or "continue").strip().lower()
+        target_agent_id = str(progress.get("target_agent_id") or "").strip()
+        task_title = str(progress.get("task_title") or "").strip()
+        reason = str(progress.get("action_reason") or private_note or public_note or "").strip()
+
+        if action in {"handoff", "review"}:
+            if not target_agent_id or target_agent_id == agent.id or target_agent_id not in session.agents:
+                session.current_focus_task = task_title or session.current_focus_task or session.goal
+                self.service.add_event(
+                    session,
+                    "workflow.handoff_rewritten",
+                    f"{agent.name} proposed an invalid {action}; current agent will continue",
+                    actor_id=agent.id,
+                    data={"target_agent_id": target_agent_id, "task_title": task_title},
+                    save=False,
+                )
+                return False
+
+            title = task_title or f"{'Review' if action == 'review' else 'Continue'} work from {agent.name}"
+            task = self.service.add_task(
+                session,
+                title=title,
+                description=reason or public_note or title,
+                assigned_agent_id=target_agent_id,
+                save=False,
+            )
+            self.mailbox.deliver(
+                session,
+                CoworkEnvelope(
+                    sender_id=agent.id,
+                    recipient_ids=[target_agent_id],
+                    content=reason or public_note or title,
+                    visibility="direct",
+                    kind="question" if action == "review" else "task_request",
+                    request_type="review" if action == "review" else "produce",
+                    requires_reply=action == "review",
+                    priority=70 if action == "review" else 40,
+                    blocking_task_id=task.id,
+                ),
+                save=False,
+            )
+            session.current_focus_task = title
+            self.service.add_event(
+                session,
+                "workflow.review_requested" if action == "review" else "workflow.handoff",
+                f"{agent.name} routed work to {session.agents[target_agent_id].name}",
+                actor_id=agent.id,
+                data={"target_agent_id": target_agent_id, "task_id": task.id, "task_title": title},
+                save=False,
+            )
+            return True
+
+        if action == "continue":
+            if task_title:
+                session.current_focus_task = task_title
+                self.service.add_event(
+                    session,
+                    "workflow.focus_updated",
+                    f"{agent.name} kept focus on: {task_title}",
+                    actor_id=agent.id,
+                    data={"focus_task": task_title},
+                    save=False,
+                )
+            return False
+
+        if action == "block":
+            session.current_focus_task = reason or task_title or session.current_focus_task
+            self.service.add_event(
+                session,
+                "workflow.blocked",
+                f"{agent.name} reported a blocker",
+                actor_id=agent.id,
+                data={"reason": reason, "focus_task": session.current_focus_task},
+                save=False,
+            )
+            return False
+
+        if action == "complete":
+            self.service.add_event(
+                session,
+                "workflow.step_complete",
+                f"{agent.name} reported this workflow step complete",
+                actor_id=agent.id,
+                data={"reason": reason, "focus_task": session.current_focus_task},
+                save=False,
+            )
+            return False
+
+        return False
 
     def _route_public_note(
         self,
@@ -1116,6 +1244,9 @@ Context policy:
 Shared cowork goal:
 {session.goal}
 
+Workflow mode:
+{getattr(session, "workflow_mode", "hybrid")}
+
 Other agents:
 {agents}
 
@@ -1123,6 +1254,10 @@ Use cowork_internal only when another participant needs a concrete request, repl
 Only the lead should synthesize user-facing team answers after a broadcast. Non-lead agents should contribute their own result once; if answering another agent's request, reply to that agent instead of also addressing the user.
 End your turn with a compact JSON object, not prose. The JSON should use:
 status: idle | waiting | blocked | done | failed | needs_review
+action: continue | handoff | review | complete | respond_user | block
+target_agent_id: required only for handoff or review, and never yourself
+task_title: concrete next focus task for continue, handoff, or review
+reason: short business reason for the action
 public_note: the actual user-facing answer/content. Do not write status-only text such as "I completed the introduction"; if you do not have final content for the user, leave this empty.
 private_note: concise private memory update, including progress/status details
 requests: optional list of mailbox messages, each with recipient_ids, content, visibility, requires_reply, priority, deadline_round, correlation_id, request_type, expected_output_schema, blocking_task_id
@@ -1160,6 +1295,8 @@ new_task_suggestions: optional list of task objects with title, description, ass
             for t in session.tasks.values()
             if t.status == "completed" and t.result
         ][-5:]
+        artifacts = "\n".join(f"- {item}" for item in getattr(session, "artifacts", [])[-8:]) or "(none yet)"
+        workspace_dir = getattr(session, "workspace_dir", "") or "(not confirmed yet)"
         return f"""Run one cowork round.
 
 Private context summary:
@@ -1167,6 +1304,15 @@ Private context summary:
 
 Shared session memory:
 {session.shared_summary or "(none yet)"}
+
+Current scheduler focus:
+{getattr(session, "current_focus_task", "") or session.goal}
+
+Shared workspace directory:
+{workspace_dir}
+
+Known artifacts:
+{artifacts}
 
 Current assigned task:
 {task_text}
@@ -1192,8 +1338,10 @@ Expected behavior:
 6. If you need work and no task is assigned, use the shared task pool: prefer the lowest ready unassigned task id and call cowork_internal claim_task before working on it.
 7. If you complete the current task, call cowork_internal complete_task with the actual useful result, not a status-only sentence.
 8. Prefer structured completed_task_results when you have findings, risks, artifacts, open questions, or confidence.
-9. If you are the lead and teammate replies are in your inbox, synthesize those replies into a user-facing public_note instead of asking for more work.
-10. End with the structured JSON progress object described in your system instructions.
+9. Use action=handoff when another specialist should own the next task; use action=review when another specialist should validate your result; use action=continue when you should keep working.
+10. Use action=complete only when your current step is actually complete; do not use it for partial progress.
+11. If you are the lead and teammate replies are in your inbox, synthesize those replies into a user-facing public_note instead of asking for more work.
+12. End with the structured JSON progress object described in your system instructions.
 """
 
     @staticmethod

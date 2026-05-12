@@ -61,6 +61,10 @@ class CoworkService:
                     title=raw["title"],
                     goal=raw["goal"],
                     status=raw.get("status", "active"),
+                    workflow_mode=raw.get("workflow_mode", "hybrid"),
+                    current_focus_task=raw.get("current_focus_task", ""),
+                    workspace_dir=raw.get("workspace_dir", ""),
+                    artifacts=raw.get("artifacts", []) if isinstance(raw.get("artifacts", []), list) else [],
                     shared_summary=raw.get("shared_summary", ""),
                     final_draft=raw.get("final_draft", ""),
                     completion_decision=raw.get("completion_decision", {}),
@@ -212,10 +216,19 @@ class CoworkService:
         self._save()
         return True
 
-    def create_session(self, goal: str, title: str, agents: list[dict[str, Any]], tasks: list[dict[str, Any]]) -> CoworkSession:
+    def create_session(
+        self,
+        goal: str,
+        title: str,
+        agents: list[dict[str, Any]],
+        tasks: list[dict[str, Any]],
+        *,
+        workflow_mode: str = "hybrid",
+    ) -> CoworkSession:
         sessions = self._load()
         session_id = self._new_id("cw")
-        session = CoworkSession(id=session_id, title=title.strip() or "Cowork Session", goal=goal)
+        mode = workflow_mode if workflow_mode in {"hybrid", "supervisor", "peer_handoff"} else "hybrid"
+        session = CoworkSession(id=session_id, title=title.strip() or "Cowork Session", goal=goal, workflow_mode=mode)  # type: ignore[arg-type]
         for raw in agents:
             agent_id = self._slug(raw.get("id") or raw.get("name") or raw.get("role") or "agent")
             base_id = agent_id
@@ -272,6 +285,8 @@ class CoworkService:
                 assigned_agent_id=first_agent,
             )
 
+        session.current_focus_task = self._derive_focus_task(session) or goal
+
         lead_id = self.lead_agent_id(session)
         kickoff = self.create_thread(session, "Kickoff", ["user", lead_id], save=False)
         self.send_message(
@@ -282,7 +297,13 @@ class CoworkService:
             thread_id=kickoff.id,
             save=False,
         )
-        self.add_event(session, "session.created", f"Created cowork session '{session.title}'", data={"goal": goal}, save=False)
+        self.add_event(
+            session,
+            "session.created",
+            f"Created cowork session '{session.title}'",
+            data={"goal": goal, "workflow_mode": session.workflow_mode, "focus_task": session.current_focus_task},
+            save=False,
+        )
         self.assess_session(session, save=False)
         sessions[session.id] = session
         self._touch(session)
@@ -382,6 +403,7 @@ class CoworkService:
             dependencies=dependencies or [],
         )
         session.tasks[task_id] = task
+        session.current_focus_task = f"{task.title}: {task.description}"
         if assigned_agent_id:
             agent = session.agents[assigned_agent_id]
             if agent.status == "idle":
@@ -406,6 +428,7 @@ class CoworkService:
             return f"Error: task '{task_id}' is already {task.status}"
         task.assigned_agent_id = agent_id
         task.updated_at = now_iso()
+        session.current_focus_task = f"{task.title}: {task.description}"
         agent = session.agents[agent_id]
         if agent.status == "idle":
             agent.status = "waiting"
@@ -433,6 +456,7 @@ class CoworkService:
         previous_owner = task.assigned_agent_id
         task.assigned_agent_id = agent_id
         task.updated_at = now_iso()
+        session.current_focus_task = f"{task.title}: {task.description}"
         agent = session.agents[agent_id]
         if agent.status == "idle":
             agent.status = "waiting"
@@ -482,6 +506,7 @@ class CoworkService:
             save=False,
         )
         if status == "completed":
+            self._merge_task_artifacts(session, result_data)
             self.refresh_shared_memory(session, save=False)
         self._update_completion_state(session)
         self._touch(session)
@@ -601,6 +626,7 @@ class CoworkService:
         ]
 
     def assess_session(self, session: CoworkSession, *, save: bool = True) -> dict[str, Any]:
+        session.current_focus_task = self._derive_focus_task(session)
         pending_tasks = [task for task in session.tasks.values() if task.status == "pending"]
         active_tasks = [task for task in session.tasks.values() if task.status == "in_progress"]
         failed_tasks = [task for task in session.tasks.values() if task.status == "failed"]
@@ -627,6 +653,7 @@ class CoworkService:
             }
             for record in pending_replies
         ]
+        goal_review = self.review_goal_completion(session)
         if session.status == "completed":
             next_action = "complete"
             reason = "The cowork session is complete."
@@ -642,9 +669,12 @@ class CoworkService:
         elif pending_tasks or active_tasks:
             next_action = "run_next_round"
             reason = f"{len(pending_tasks) + len(active_tasks)} task(s) still need progress."
-        elif session.tasks:
+        elif session.tasks and goal_review["ready"]:
             next_action = "summarize"
             reason = "All known tasks are complete or skipped."
+        elif session.tasks:
+            next_action = "review_goal_completion"
+            reason = goal_review["reason"]
         else:
             next_action = "plan"
             reason = "No tasks exist yet."
@@ -654,6 +684,11 @@ class CoworkService:
             "blocked": blocked,
             "ready_to_finish": next_action == "summarize",
             "readiness": self.agent_readiness_scores(session)[:6],
+            "workflow_mode": session.workflow_mode,
+            "focus_task": session.current_focus_task,
+            "workspace_dir": session.workspace_dir,
+            "artifacts": session.artifacts[-8:],
+            "goal_review": goal_review,
             "updated_at": now_iso(),
         }
         session.completion_decision = decision
@@ -673,6 +708,7 @@ class CoworkService:
                 values = data.get(key)
                 if isinstance(values, list):
                     bucket.extend(str(item).strip() for item in values if str(item).strip())
+            self._merge_task_artifacts(session, data)
             if not data and task.result:
                 facts.append(f"{task.title}: {task.result[:280]}")
         lines = []
@@ -688,6 +724,72 @@ class CoworkService:
             self._touch(session)
             self._save()
         return session.shared_summary
+
+    def review_goal_completion(self, session: CoworkSession) -> dict[str, Any]:
+        """Heuristic root-goal review inspired by peer handoff workflows.
+
+        This is intentionally deterministic: it prevents obvious early exits
+        without adding an extra LLM call to every cowork round.
+        """
+
+        completed = [task for task in session.tasks.values() if task.status == "completed"]
+        open_questions = [
+            item
+            for task in completed
+            if isinstance(task.result_data.get("open_questions"), list)
+            for item in (task.result_data.get("open_questions") or [])
+            if str(item).strip()
+        ]
+        failed = [task for task in session.tasks.values() if task.status == "failed"]
+        if failed:
+            return {"ready": False, "reason": f"{len(failed)} failed task(s) need review.", "missing": ["failed_tasks"]}
+        if open_questions:
+            return {"ready": False, "reason": "Completed work still contains open questions.", "missing": ["open_questions"]}
+
+        goal_text = session.goal.lower()
+        delivery_markers = (
+            "code",
+            "implement",
+            "build",
+            "edit",
+            "write file",
+            "create file",
+            "fix",
+            "test",
+            "docs",
+            "document",
+            "app",
+            "page",
+            "浠ｇ爜",
+            "瀹炵幇",
+            "淇",
+            "鏂囦欢",
+            "椤甸潰",
+            "鏂囨。",
+        )
+        likely_delivery_goal = any(marker in goal_text for marker in delivery_markers)
+        has_artifacts = bool(session.artifacts)
+        has_structured_answer = any(
+            task.result_data.get("answer") or task.result_data.get("findings")
+            for task in completed
+        )
+        has_visible_result = any(
+            message.sender_id != "user" and "user" in message.recipient_ids and message.content.strip()
+            for message in session.messages.values()
+        )
+        if likely_delivery_goal and not has_artifacts:
+            return {
+                "ready": False,
+                "reason": "The goal appears to require concrete deliverables, but no artifact paths are confirmed yet.",
+                "missing": ["artifacts"],
+            }
+        if completed and not (has_structured_answer or has_visible_result or session.final_draft):
+            return {
+                "ready": False,
+                "reason": "Tasks are marked complete, but there is no structured answer or user-facing result yet.",
+                "missing": ["final_answer"],
+            }
+        return {"ready": bool(completed), "reason": "Known task results appear sufficient.", "missing": []}
 
     def add_mailbox_record(self, session: CoworkSession, record: CoworkMailboxRecord, *, save: bool = True) -> CoworkMailboxRecord:
         session.mailbox[record.id] = record
@@ -837,7 +939,9 @@ class CoworkService:
         lines = [
             f"## {session.title} ({session.id})",
             f"Status: {session.status}",
+            f"Mode: {session.workflow_mode}",
             f"Goal: {session.goal}",
+            f"Focus: {session.current_focus_task or '-'}",
             f"Rounds: {session.rounds}",
             "",
             "### Agents",
@@ -871,6 +975,11 @@ class CoworkService:
             lines.append("### Cowork Intelligence")
             lines.append(f"- Next action: {decision.get('next_action', '-')}")
             lines.append(f"- Reason: {decision.get('reason', '-')}")
+            if decision.get("goal_review"):
+                goal_review = decision["goal_review"]
+                lines.append(f"- Goal review: {goal_review.get('reason', '-')}")
+            if session.artifacts:
+                lines.append(f"- Artifacts: {', '.join(session.artifacts[-5:])}")
         return "\n".join(lines)
 
     @staticmethod
@@ -937,6 +1046,18 @@ class CoworkService:
         )
         if session.tasks and not unresolved_replies and all(task.status in {"completed", "skipped"} for task in session.tasks.values()):
             self.refresh_shared_memory(session, save=False)
+            goal_review = self.review_goal_completion(session)
+            if not goal_review.get("ready"):
+                session.current_focus_task = str(goal_review.get("reason") or session.current_focus_task or session.goal)
+                session.completion_decision = {
+                    "next_action": "review_goal_completion",
+                    "reason": goal_review.get("reason", "Review whether the original goal is fully satisfied."),
+                    "blocked": [],
+                    "ready_to_finish": False,
+                    "goal_review": goal_review,
+                    "updated_at": now_iso(),
+                }
+                return
             session.status = "completed"
             for agent in session.agents.values():
                 if agent.status not in {"failed", "blocked"}:
@@ -946,6 +1067,7 @@ class CoworkService:
                 "reason": "All tasks are complete and there are no unresolved reply requests.",
                 "blocked": [],
                 "ready_to_finish": True,
+                "goal_review": goal_review,
                 "updated_at": now_iso(),
             }
 
@@ -1005,6 +1127,56 @@ class CoworkService:
         if confidence > 1:
             confidence = confidence / 100
         return min(max(confidence, 0), 1)
+
+    def _derive_focus_task(self, session: CoworkSession) -> str:
+        pending_replies = [
+            record
+            for record in session.mailbox.values()
+            if record.requires_reply and record.status in {"delivered", "read"}
+        ]
+        if pending_replies:
+            record = max(pending_replies, key=lambda item: (item.priority, item.created_at))
+            return f"Resolve {record.request_type or 'reply'} request from {record.sender_id}: {record.content[:220]}"
+
+        active = [task for task in session.tasks.values() if task.status == "in_progress"]
+        if active:
+            task = sorted(active, key=lambda item: item.updated_at)[0]
+            return f"{task.title}: {task.description}"
+
+        ready = [
+            task
+            for task in session.tasks.values()
+            if task.status == "pending" and self._task_dependencies_done(session, task)
+        ]
+        if ready:
+            task = sorted(ready, key=lambda item: item.id)[0]
+            return f"{task.title}: {task.description}"
+
+        completed = [task for task in session.tasks.values() if task.status == "completed"]
+        if completed:
+            review = self.review_goal_completion(session)
+            if not review.get("ready"):
+                return str(review.get("reason") or "Review whether the original goal is fully satisfied.")
+            return "Synthesize completed work into the final answer."
+        return session.goal
+
+    def _merge_task_artifacts(self, session: CoworkSession, result_data: dict[str, Any]) -> None:
+        values: list[Any] = []
+        for key in ("artifacts", "artifact_paths", "generated_files", "files", "paths"):
+            raw = result_data.get(key)
+            if isinstance(raw, list):
+                values.extend(raw)
+            elif isinstance(raw, str):
+                values.append(raw)
+        output_dir = result_data.get("output_dir") or result_data.get("workspace_dir")
+        if isinstance(output_dir, str) and output_dir.strip():
+            session.workspace_dir = output_dir.strip()
+        for value in values:
+            text = str(value or "").strip()
+            if text and text not in session.artifacts:
+                session.artifacts.append(text)
+        if len(session.artifacts) > 80:
+            session.artifacts = session.artifacts[-80:]
 
     @staticmethod
     def _lead_should_synthesize(session: CoworkSession) -> bool:
