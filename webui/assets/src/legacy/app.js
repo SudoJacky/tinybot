@@ -1606,6 +1606,7 @@ function openCoworkModal() {
   }
   setSidebarDropdown("cowork");
   elements.coworkModal?.classList.add("active");
+  requestAnimationFrame(() => setCoworkWorkflowMode(elements.coworkWorkflowMode?.value || "hybrid"));
   loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
 }
 
@@ -2431,18 +2432,6 @@ function renderCoworkDetail() {
     elements.coworkStartButton.setAttribute("aria-label", label);
     elements.coworkStartButton.title = label;
   }
-  if (elements.coworkAgentTotal) {
-    elements.coworkAgentTotal.textContent = String(session?.agents?.length || 0);
-  }
-  if (elements.coworkTaskTotal) {
-    elements.coworkTaskTotal.textContent = String(session?.tasks?.length || 0);
-  }
-  if (elements.coworkMessageTotal) {
-    elements.coworkMessageTotal.textContent = String(session?.messages?.length || 0);
-  }
-  if (elements.coworkThreadTotal) {
-    elements.coworkThreadTotal.textContent = String(session?.threads?.length || 0);
-  }
   for (const button of [
     elements.coworkRunButton,
     elements.coworkRunUntilIdleButton,
@@ -3107,11 +3096,17 @@ function setCoworkWorkflowMode(mode) {
     elements.coworkWorkflowMode.value = mode;
   }
   const tabs = elements.coworkModeTabs?.querySelectorAll(".cowork-mode-tab") || [];
+  let activeTab = null;
   tabs.forEach((tab) => {
     const active = tab.dataset.mode === mode;
     tab.classList.toggle("active", active);
     tab.setAttribute("aria-checked", active ? "true" : "false");
+    if (active) activeTab = tab;
   });
+  if (elements.coworkModeTabs && activeTab) {
+    elements.coworkModeTabs.style.setProperty("--cowork-mode-indicator-x", `${activeTab.offsetLeft}px`);
+    elements.coworkModeTabs.style.setProperty("--cowork-mode-indicator-w", `${activeTab.offsetWidth}px`);
+  }
 }
 
 async function startCoworkSession() {
@@ -7802,6 +7797,9 @@ function bindEvents() {
     const tab = event.target.closest?.(".cowork-mode-tab");
     if (!tab) return;
     setCoworkWorkflowMode(tab.dataset.mode || "hybrid");
+  });
+  window.addEventListener("resize", () => {
+    setCoworkWorkflowMode(elements.coworkWorkflowMode?.value || "hybrid");
   });
   elements.coworkGoalInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
