@@ -1223,6 +1223,7 @@ class WebSocketChannel(BaseChannel):
         result = await tool.execute(
             action="start",
             goal=goal,
+            workflow_mode=str(payload.get("workflow_mode") or "hybrid"),
             auto_run=bool(payload.get("auto_run", False)),
             max_rounds=int(payload.get("max_rounds", 1) or 1),
             max_agents=int(payload.get("max_agents", 3) or 3),
@@ -1335,6 +1336,8 @@ class WebSocketChannel(BaseChannel):
             recipient_ids=payload.get("recipient_ids") or [],
             content=content,
             thread_id=str(payload.get("thread_id") or ""),
+            topic=str(payload.get("topic") or ""),
+            event_type=str(payload.get("event_type") or ""),
         )
         service = self._cowork_service()
         session = service.get_session(session_id) if service else None

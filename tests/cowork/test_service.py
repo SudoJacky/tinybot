@@ -126,7 +126,49 @@ def test_complete_task_extracts_structured_result_and_shared_memory(temp_workspa
     assert task.result_data["answer"] == "Choose option A."
     assert task.confidence == 0.8
     assert "A is cheaper" in session.shared_summary
+    assert session.shared_memory["findings"][0]["text"] == "A is cheaper"
+    assert session.shared_memory["risks"][0]["source_task_id"] == task_id
+    assert session.shared_memory["open_questions"][0]["text"] == "Confirm final budget"
     assert "Choose option A." in session.final_draft
+
+
+def test_create_session_accepts_new_cowork_modes_and_subscriptions(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Route events",
+        "Events",
+        [
+            {
+                "id": "router",
+                "name": "Router",
+                "role": "Router",
+                "goal": "Route",
+                "responsibilities": [],
+                "subscriptions": ["incident", "triage"],
+            }
+        ],
+        [],
+        workflow_mode="message_bus",
+    )
+
+    assert session.workflow_mode == "message_bus"
+    assert session.agents["router"].subscriptions == ["incident", "triage"]
+
+    fallback = service.create_session("Unknown mode", "Unknown", [], [], workflow_mode="missing")
+
+    assert fallback.workflow_mode == "hybrid"
+
+
+def test_round_progress_tracks_convergence(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Converge", "Converge", [], [])
+    before = service.progress_signature(session)
+
+    assert service.record_round_progress(session, before) is False
+    assert session.no_progress_rounds == 1
+    assert service.record_round_progress(session, service.progress_signature(session)) is False
+    assert service.convergence_reached(session) is True
+    assert service.assess_session(session)["next_action"] == "review_convergence"
 
 
 def test_loads_minimal_legacy_store_payload(temp_workspace):

@@ -12,6 +12,7 @@ Cowork is a persistent multi-agent workspace for goals that benefit from several
 - Agent-to-agent messages through the internal cowork tool
 - Readiness scoring for smarter scheduling
 - Structured task results, shared memory, blocker snapshots, and final drafts
+- Composable workflow modes for orchestrator, long-lived teams, generator-verifier review, message bus routing, and shared-state collaboration
 
 ## Basic Use
 
@@ -105,6 +106,20 @@ Cowork follows the same basic shape as an agent team:
 - The user can still monitor all mailbox messages, events, tasks, and agent status through the Cowork UI/API.
 - When an agent answers another agent's reply-required request, the answer is routed back to the requester and marks the mailbox record as replied.
 
+## Workflow Modes
+
+Cowork uses one persistent runtime with mode-specific coordination policies instead of five separate systems. Existing `hybrid`, `supervisor`, and `peer_handoff` values remain supported.
+
+- `orchestrator` / `supervisor`: lead-first planning, bounded delegation, and final synthesis. The scheduler runs one ready agent per round.
+- `team`: long-lived agents keep private summaries and own domain work across rounds.
+- `generator_verifier`: producers create answers or artifacts, then reviewer agents receive explicit rubric-based verification tasks.
+- `message_bus`: mailbox records act as event envelopes with `topic`, `event_type`, `lineage_id`, and `caused_by_envelope_id`; agents can subscribe to topics.
+- `shared_state`: agents contribute durable findings, claims, risks, open questions, decisions, and artifacts to structured shared memory.
+- `peer_handoff`: ownership moves one concrete step at a time through handoff or review tasks.
+- `hybrid`: the default mix, using the lightest mechanism that fits the current goal.
+
+The scheduler also tracks convergence. If consecutive rounds produce no new tracked messages, tasks, completed results, artifacts, or shared-memory entries, the session reports `review_convergence` instead of spending more rounds.
+
 ## Structured Results and Intelligence
 
 Agents can return structured task results as well as prose:
@@ -125,6 +140,7 @@ Cowork stores this on the task, rolls recent completed work into shared session 
 
 Mailbox records can also carry collaboration protocol hints:
 
+- `topic`, `event_type`, `lineage_id`, and `caused_by_envelope_id`: event routing and lineage metadata for message-bus style workflows
 - `request_type`: `clarify`, `verify`, `produce`, `review`, or `unblock`
 - `expected_output_schema`: a lightweight shape for the expected reply
 - `blocking_task_id`: the task currently waiting on the reply

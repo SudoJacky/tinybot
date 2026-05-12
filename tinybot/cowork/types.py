@@ -12,6 +12,16 @@ TaskStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
 SessionStatus = Literal["active", "paused", "completed", "failed"]
 ThreadStatus = Literal["open", "resolved"]
 MailboxStatus = Literal["queued", "delivered", "read", "replied", "expired"]
+WorkflowMode = Literal[
+    "hybrid",
+    "supervisor",
+    "orchestrator",
+    "team",
+    "generator_verifier",
+    "message_bus",
+    "shared_state",
+    "peer_handoff",
+]
 
 
 def now_iso() -> str:
@@ -28,6 +38,7 @@ class CoworkAgent:
     goal: str
     responsibilities: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
+    subscriptions: list[str] = field(default_factory=list)
     communication_policy: str = "Ask other agents for missing information, validation, or review when useful."
     context_policy: str = "Use private context plus relevant shared session state; avoid repeating full history."
     status: AgentStatus = "idle"
@@ -80,6 +91,8 @@ class CoworkMailboxRecord:
     content: str
     visibility: str = "direct"
     kind: str = "message"
+    topic: str = ""
+    event_type: str = ""
     request_type: str = ""
     status: MailboxStatus = "queued"
     thread_id: str | None = None
@@ -88,7 +101,9 @@ class CoworkMailboxRecord:
     priority: int = 0
     deadline_round: int | None = None
     correlation_id: str | None = None
+    lineage_id: str | None = None
     reply_to_envelope_id: str | None = None
+    caused_by_envelope_id: str | None = None
     expected_output_schema: dict[str, Any] = field(default_factory=dict)
     blocking_task_id: str | None = None
     escalate_after_rounds: int | None = None
@@ -134,18 +149,24 @@ class CoworkSession:
     title: str
     goal: str
     status: SessionStatus = "active"
+    workflow_mode: WorkflowMode = "hybrid"
     agents: dict[str, CoworkAgent] = field(default_factory=dict)
     tasks: dict[str, CoworkTask] = field(default_factory=dict)
     threads: dict[str, CoworkThread] = field(default_factory=dict)
     messages: dict[str, CoworkMessage] = field(default_factory=dict)
     mailbox: dict[str, CoworkMailboxRecord] = field(default_factory=dict)
     events: list[CoworkEvent] = field(default_factory=list)
+    current_focus_task: str = ""
+    workspace_dir: str = ""
+    artifacts: list[str] = field(default_factory=list)
+    shared_memory: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     shared_summary: str = ""
     final_draft: str = ""
     completion_decision: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
     rounds: int = 0
+    no_progress_rounds: int = 0
 
     def agent(self, agent_id: str) -> CoworkAgent | None:
         return self.agents.get(agent_id)

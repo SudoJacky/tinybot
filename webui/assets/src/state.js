@@ -58,6 +58,8 @@ export const state = {
   activeCoworkSessionId: "",
   activeCoworkThreadId: "",
   activeCoworkGraphNode: "",
+  coworkGraphSuppressClick: "",
+  coworkGraphNodePositions: new Map(),
   coworkGraphView: { scale: 1, x: 0, y: 0 },
   coworkGraphDrag: null,
   coworkLoading: false,

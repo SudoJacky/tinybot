@@ -668,6 +668,79 @@ async def test_cowork_tool_applies_structured_agent_progress(temp_workspace):
 
 
 @pytest.mark.asyncio
+async def test_generator_verifier_mode_creates_review_task_after_generation(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Generate and verify answer",
+        "GV",
+        [
+            {"id": "generator", "name": "Generator", "role": "Generator", "goal": "Generate", "responsibilities": []},
+            {
+                "id": "reviewer",
+                "name": "Reviewer",
+                "role": "Quality reviewer",
+                "goal": "Verify",
+                "responsibilities": ["Review quality"],
+            },
+        ],
+        [{"id": "draft", "title": "Draft answer", "description": "Draft", "assigned_agent_id": "generator"}],
+        workflow_mode="generator_verifier",
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = SequenceRunner(
+        [
+            json.dumps(
+                {
+                    "status": "done",
+                    "public_note": "Draft result",
+                    "private_note": "Drafted.",
+                    "completed_task_ids": ["draft"],
+                    "completed_task_results": [{"task_id": "draft", "answer": "Draft result"}],
+                }
+            )
+        ]
+    )
+
+    await tool.execute(action="run", session_id=session.id, max_rounds=1, max_agents=2)
+    updated = service.get_session(session.id)
+
+    review_tasks = [
+        task for task in updated.tasks.values() if task.assigned_agent_id == "reviewer" and task.status == "pending"
+    ]
+    assert review_tasks
+    assert review_tasks[0].dependencies == ["draft"]
+    assert any(record.request_type == "review" and record.topic == "review" for record in updated.mailbox.values())
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_mode_runs_single_ready_agent_per_round(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Coordinate sequentially",
+        "Orchestrator",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "worker", "name": "Worker", "role": "Worker", "goal": "Work", "responsibilities": []},
+        ],
+        [
+            {"id": "lead_task", "title": "Lead task", "description": "Lead", "assigned_agent_id": "coordinator"},
+            {"id": "worker_task", "title": "Worker task", "description": "Worker", "assigned_agent_id": "worker"},
+        ],
+        workflow_mode="orchestrator",
+    )
+    for agent_id in session.agents:
+        service.mark_messages_read(session, agent_id)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = FakeRunner()
+
+    await tool.execute(action="run", session_id=session.id, max_rounds=1, max_agents=2)
+
+    assert len(tool.runner.specs) == 1
+
+
+@pytest.mark.asyncio
 async def test_cowork_scheduler_continues_when_mailbox_makes_peer_ready(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session(
