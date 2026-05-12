@@ -50,6 +50,7 @@ _TEAM_TOOL = [
                                 "goal": {"type": "string"},
                                 "responsibilities": {"type": "array", "items": {"type": "string"}},
                                 "tools": {"type": "array", "items": {"type": "string"}},
+                                "subscriptions": {"type": "array", "items": {"type": "string"}},
                                 "communication_policy": {"type": "string"},
                                 "context_policy": {"type": "string"},
                             },
@@ -94,6 +95,7 @@ Goal:
 
 Create 3-6 agents. Do not hard-code software roles unless the goal is software work.
 Each agent should have a distinct responsibility, private perspective, and clear reason to communicate with others.
+Add 2-5 short subscriptions per agent for message-bus routing, such as domain names, request types, or event topics.
 Include a reviewer/evaluator only when the goal has meaningful risk, verification needs, code changes, research claims, or decision tradeoffs.
 Create exactly one initial task assigned to the lead/coordinator. The lead is responsible for deciding whether to message or assign tasks to other agents later.
 Workspace: {self.workspace}
@@ -160,6 +162,7 @@ Workspace: {self.workspace}
                 "goal": f"Review assumptions, risks, and completeness for: {goal}",
                 "responsibilities": ["Check claims and assumptions", "Find gaps or risks", "Recommend whether to finish or continue"],
                 "tools": ["read_file", "list_dir", "cowork_internal"],
+                "subscriptions": ["review", "verify", "risk", "quality", "verification_requested"],
                 "communication_policy": "Review completed work when asked by the lead or when a task needs validation.",
                 "context_policy": "Use shared summaries, task results, and targeted file reads instead of replaying the full conversation.",
             },
@@ -198,7 +201,8 @@ Workspace: {self.workspace}
         recipient_ids=ArraySchema(StringSchema("Agent id"), description="Message recipients"),
         content=StringSchema("Message content or task result"),
         thread_id=StringSchema("Discussion thread id"),
-        topic=StringSchema("Thread topic"),
+        topic=StringSchema("Thread topic or message bus topic"),
+        event_type=StringSchema("Message bus event type"),
         title=StringSchema("Task title"),
         assigned_agent_id=StringSchema("Agent id for new task"),
         dependencies=ArraySchema(StringSchema("Task id"), description="New task dependencies"),
@@ -209,7 +213,9 @@ Workspace: {self.workspace}
         priority=IntegerSchema(description="Mailbox priority from 0 to 100", minimum=0, maximum=100),
         deadline_round=IntegerSchema(description="Round number or relative round budget when this envelope expires", minimum=1, maximum=100),
         correlation_id=StringSchema("Stable id that groups a question with replies"),
+        lineage_id=StringSchema("Stable id that links cascaded events"),
         reply_to_envelope_id=StringSchema("Envelope id this message replies to"),
+        caused_by_envelope_id=StringSchema("Envelope id that caused this event"),
         request_type=StringSchema("Request protocol type", enum=["", "clarify", "verify", "produce", "review", "unblock"]),
         expected_output_schema=ObjectSchema(description="Expected JSON-like output shape for the reply"),
         blocking_task_id=StringSchema("Task id blocked by this request"),
@@ -244,6 +250,7 @@ class CoworkInternalTool(Tool):
         content: str = "",
         thread_id: str = "",
         topic: str = "",
+        event_type: str = "",
         title: str = "",
         description: str = "",
         assigned_agent_id: str = "",
@@ -254,7 +261,9 @@ class CoworkInternalTool(Tool):
         priority: int = 0,
         deadline_round: int | None = None,
         correlation_id: str = "",
+        lineage_id: str = "",
         reply_to_envelope_id: str = "",
+        caused_by_envelope_id: str = "",
         request_type: str = "",
         expected_output_schema: dict[str, Any] | None = None,
         blocking_task_id: str = "",
@@ -289,12 +298,16 @@ class CoworkInternalTool(Tool):
                     thread_id=thread_id or None,
                     visibility="direct" if recipient_ids else "group",
                     kind="question" if requires_reply else "message",
+                    topic=topic,
+                    event_type=event_type,
                     request_type=request_type if request_type in {"", "clarify", "verify", "produce", "review", "unblock"} else "",
                     requires_reply=requires_reply,
                     priority=max(0, min(100, int(priority or 0))),
                     deadline_round=deadline_round,
                     correlation_id=correlation_id or None,
+                    lineage_id=lineage_id or None,
                     reply_to_envelope_id=reply_to_envelope_id or None,
+                    caused_by_envelope_id=caused_by_envelope_id or None,
                     expected_output_schema=expected_output_schema or {},
                     blocking_task_id=blocking_task_id or None,
                     escalate_after_rounds=escalate_after_rounds,
@@ -374,11 +387,16 @@ class CoworkInternalTool(Tool):
             enum=["start", "status", "list", "send_message", "add_task", "assign_task", "run", "pause", "resume", "summary"],
         ),
         goal=StringSchema("Goal for a new cowork session"),
-        workflow_mode=StringSchema("Cowork workflow mode", enum=["hybrid", "supervisor", "peer_handoff"]),
+        workflow_mode=StringSchema(
+            "Cowork workflow mode",
+            enum=["hybrid", "supervisor", "orchestrator", "team", "generator_verifier", "message_bus", "shared_state", "peer_handoff"],
+        ),
         session_id=StringSchema("Cowork session id"),
         recipient_ids=ArraySchema(StringSchema("Agent id"), description="Message recipients"),
         content=StringSchema("Message content"),
         thread_id=StringSchema("Discussion thread id"),
+        topic=StringSchema("Message bus topic"),
+        event_type=StringSchema("Message bus event type"),
         title=StringSchema("Task title"),
         task_id=StringSchema("Task id"),
         assigned_agent_id=StringSchema("Agent id"),
@@ -436,6 +454,8 @@ class CoworkTool(Tool):
         recipient_ids: list[str] | None = None,
         content: str = "",
         thread_id: str = "",
+        topic: str = "",
+        event_type: str = "",
         title: str = "",
         task_id: str = "",
         description: str = "",
@@ -506,6 +526,8 @@ class CoworkTool(Tool):
                     content=content,
                     thread_id=thread_id or None,
                     visibility="direct" if recipient_ids else "group",
+                    topic=topic,
+                    event_type=event_type,
                 ),
             )
             return f"Sent message {message.id}."
@@ -555,7 +577,10 @@ class CoworkTool(Tool):
         synthesis_ran = False
         lines = []
         for round_index in range(round_limit):
-            active = self.service.select_active_agents(session, limit=agent_limit)
+            profile = self.service.workflow_profile(session.workflow_mode)
+            effective_agent_limit = 1 if profile in {"orchestrator", "generator_verifier", "peer_handoff"} else agent_limit
+            before_signature = self.service.progress_signature(session)
+            active = self.service.select_active_agents(session, limit=effective_agent_limit)
             active = self._filter_self_activated_agents(session, active, consecutive_runs)
             if not active:
                 lines.append(f"Round {round_index + 1}: no ready agents.")
@@ -589,7 +614,17 @@ class CoworkTool(Tool):
                 if agent_id not in {agent.id for agent in active}:
                     consecutive_runs[agent_id] = 0
             session = self.service.get_session(session.id) or session
+            self.service.record_round_progress(session, before_signature)
             decision = self.service.assess_session(session)
+            if self.service.convergence_reached(session):
+                lines.append(f"Session stopped after {session.no_progress_rounds} no-progress rounds.")
+                self.service.add_event(
+                    session,
+                    "scheduler.converged",
+                    "Cowork scheduler stopped because recent rounds produced no new tracked progress",
+                    data={"no_progress_rounds": session.no_progress_rounds},
+                )
+                break
             if (
                 not synthesis_ran
                 and agent_calls < _MAX_RUN_AGENT_CALLS
@@ -874,12 +909,16 @@ class CoworkTool(Tool):
                     content=content,
                     visibility=visibility,  # type: ignore[arg-type]
                     kind="question" if request.get("requires_reply") else "message",
+                    topic=str(request.get("topic") or ""),
+                    event_type=str(request.get("event_type") or ""),
                     request_type=self._request_type(request.get("request_type")),
                     requires_reply=bool(request.get("requires_reply", False)),
                     priority=self._bounded_int(request.get("priority"), default=0, minimum=0, maximum=100),
                     deadline_round=self._deadline_round(session, request.get("deadline_round")),
                     correlation_id=str(request.get("correlation_id") or "") or None,
+                    lineage_id=str(request.get("lineage_id") or "") or None,
                     reply_to_envelope_id=str(request.get("reply_to_envelope_id") or "") or None,
+                    caused_by_envelope_id=str(request.get("caused_by_envelope_id") or "") or None,
                     thread_id=str(request.get("thread_id") or "") or None,
                     expected_output_schema=request.get("expected_output_schema") if isinstance(request.get("expected_output_schema"), dict) else {},
                     blocking_task_id=str(request.get("blocking_task_id") or "") or None,
@@ -901,6 +940,8 @@ class CoworkTool(Tool):
                 result_payload = completed_results.get(task_id_text)
                 result_text = json.dumps(result_payload, ensure_ascii=False) if result_payload else public_note or private_note
                 self.service.complete_task(session, task_id_text, result_text, status="completed")
+                if self.service.workflow_profile(session.workflow_mode) == "generator_verifier":
+                    self._ensure_verifier_task(session, agent, task_id_text, result_text)
         for suggestion in progress.get("new_task_suggestions") or []:
             if not isinstance(suggestion, dict):
                 continue
@@ -922,6 +963,51 @@ class CoworkTool(Tool):
             publish_note=False,
         )
         self.service.assess_session(session)
+
+    def _ensure_verifier_task(self, session: CoworkSession, agent: CoworkAgent, source_task_id: str, result_text: str) -> None:
+        if self.service._is_reviewer_agent(agent):
+            return
+        reviewer = next((candidate for candidate in session.agents.values() if self.service._is_reviewer_agent(candidate)), None)
+        if reviewer is None:
+            return
+        title = f"Verify result from {agent.name}"
+        if any(
+            task.status == "pending"
+            and task.assigned_agent_id == reviewer.id
+            and task.description.find(source_task_id) >= 0
+            for task in session.tasks.values()
+        ):
+            return
+        task = self.service.add_task(
+            session,
+            title=title,
+            description=(
+                "Review the completed task against this rubric: correctness, completeness, risks, open questions, "
+                f"and whether the original goal is satisfied. Source task: {source_task_id}. Result: {result_text[:1200]}"
+            ),
+            assigned_agent_id=reviewer.id,
+            dependencies=[source_task_id],
+            save=False,
+        )
+        if session.status == "completed":
+            session.status = "active"
+        self.mailbox.deliver(
+            session,
+            CoworkEnvelope(
+                sender_id=agent.id,
+                recipient_ids=[reviewer.id],
+                content=f"Please verify task {source_task_id} using the review rubric.",
+                visibility="direct",
+                kind="question",
+                request_type="review",
+                requires_reply=True,
+                priority=75,
+                blocking_task_id=task.id,
+                topic="review",
+                event_type="verification_requested",
+            ),
+            save=False,
+        )
 
     def _apply_workflow_action(
         self,
@@ -965,6 +1051,8 @@ class CoworkTool(Tool):
                     content=reason or public_note or title,
                     visibility="direct",
                     kind="question" if action == "review" else "task_request",
+                    topic="review" if action == "review" else "handoff",
+                    event_type="review_requested" if action == "review" else "handoff_requested",
                     request_type="review" if action == "review" else "produce",
                     requires_reply=action == "review",
                     priority=70 if action == "review" else 40,
@@ -1227,6 +1315,7 @@ class CoworkTool(Tool):
     def _build_agent_system_prompt(session: CoworkSession, agent: CoworkAgent) -> str:
         responsibilities = "\n".join(f"- {item}" for item in agent.responsibilities) or "- Contribute to the shared goal."
         agents = "\n".join(f"- {a.id}: {a.name} / {a.role}" for a in session.agents.values())
+        workflow_guidance = CoworkTool._workflow_guidance(session)
         return f"""You are {agent.name}, a stateful cowork agent.
 
 Role: {agent.role}
@@ -1247,6 +1336,9 @@ Shared cowork goal:
 Workflow mode:
 {getattr(session, "workflow_mode", "hybrid")}
 
+Workflow guidance:
+{workflow_guidance}
+
 Other agents:
 {agents}
 
@@ -1260,7 +1352,7 @@ task_title: concrete next focus task for continue, handoff, or review
 reason: short business reason for the action
 public_note: the actual user-facing answer/content. Do not write status-only text such as "I completed the introduction"; if you do not have final content for the user, leave this empty.
 private_note: concise private memory update, including progress/status details
-requests: optional list of mailbox messages, each with recipient_ids, content, visibility, requires_reply, priority, deadline_round, correlation_id, request_type, expected_output_schema, blocking_task_id
+requests: optional list of mailbox messages, each with recipient_ids, content, visibility, topic, event_type, requires_reply, priority, deadline_round, correlation_id, lineage_id, reply_to_envelope_id, caused_by_envelope_id, request_type, expected_output_schema, blocking_task_id
 completed_task_ids: optional list of task ids you completed
 completed_task_results: optional list of structured task results with task_id, answer, findings, risks, open_questions, artifacts, confidence from 0 to 1
 new_task_suggestions: optional list of task objects with title, description, assigned_agent_id, dependencies
@@ -1297,6 +1389,12 @@ new_task_suggestions: optional list of task objects with title, description, ass
         ][-5:]
         artifacts = "\n".join(f"- {item}" for item in getattr(session, "artifacts", [])[-8:]) or "(none yet)"
         workspace_dir = getattr(session, "workspace_dir", "") or "(not confirmed yet)"
+        memory_counts = session.shared_memory if isinstance(getattr(session, "shared_memory", {}), dict) else {}
+        memory_lines = []
+        for bucket in ("findings", "claims", "risks", "open_questions", "decisions", "artifacts"):
+            entries = memory_counts.get(bucket, []) if isinstance(memory_counts.get(bucket, []), list) else []
+            if entries:
+                memory_lines.append(f"- {bucket}: {len(entries)}")
         return f"""Run one cowork round.
 
 Private context summary:
@@ -1304,6 +1402,9 @@ Private context summary:
 
 Shared session memory:
 {session.shared_summary or "(none yet)"}
+
+Structured shared memory:
+{chr(10).join(memory_lines) if memory_lines else "(none yet)"}
 
 Current scheduler focus:
 {getattr(session, "current_focus_task", "") or session.goal}
@@ -1341,8 +1442,45 @@ Expected behavior:
 9. Use action=handoff when another specialist should own the next task; use action=review when another specialist should validate your result; use action=continue when you should keep working.
 10. Use action=complete only when your current step is actually complete; do not use it for partial progress.
 11. If you are the lead and teammate replies are in your inbox, synthesize those replies into a user-facing public_note instead of asking for more work.
-12. End with the structured JSON progress object described in your system instructions.
+12. In message_bus mode, include topic/event_type/lineage_id when publishing event-like requests.
+13. In shared_state mode, put durable findings, risks, open questions, decisions, and artifacts in completed_task_results.
+14. End with the structured JSON progress object described in your system instructions.
 """
+
+    @staticmethod
+    def _workflow_guidance(session: CoworkSession) -> str:
+        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", "hybrid"))
+        guidance = {
+            "orchestrator": (
+                "A lead coordinates the plan, delegates bounded tasks, and synthesizes results. "
+                "Non-lead agents should do assigned work and return concise results rather than expanding scope."
+            ),
+            "team": (
+                "Agents are long-lived owners of their domains. Preserve local context, avoid duplicate work, "
+                "and keep handoffs explicit through tasks or reply-required requests."
+            ),
+            "generator_verifier": (
+                "Separate producing from checking. Generators should emit concrete artifacts or answers; reviewers "
+                "should use an explicit rubric with pass/fail, issues, risks, and required fixes."
+            ),
+            "message_bus": (
+                "Treat coordination as event routing. Publish focused messages with topic, event_type, lineage_id, "
+                "and caused_by_envelope_id so downstream agents can trace why they were activated."
+            ),
+            "shared_state": (
+                "Treat the session as a shared whiteboard. Add durable findings, claims, risks, open questions, "
+                "decisions, and artifacts to structured task results so others can build on them."
+            ),
+            "peer_handoff": (
+                "Move ownership one concrete step at a time. Use handoff/review only when a named specialist should "
+                "own the next step, and include the exact expected output."
+            ),
+            "hybrid": (
+                "Use the lightest mechanism that fits: direct work first, task handoff when ownership changes, "
+                "review when quality matters, and shared memory for durable findings."
+            ),
+        }
+        return guidance.get(profile, guidance["hybrid"])
 
     @staticmethod
     def _format_summary(session: CoworkSession) -> str:

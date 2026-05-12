@@ -23,13 +23,17 @@ class CoworkEnvelope:
     recipient_ids: list[str] = field(default_factory=list)
     visibility: EnvelopeVisibility = "direct"
     kind: EnvelopeKind = "message"
+    topic: str = ""
+    event_type: str = ""
     request_type: EnvelopeRequestType = ""
     thread_id: str | None = None
     requires_reply: bool = False
     priority: int = 0
     deadline_round: int | None = None
     correlation_id: str | None = None
+    lineage_id: str | None = None
     reply_to_envelope_id: str | None = None
+    caused_by_envelope_id: str | None = None
     expected_output_schema: dict[str, object] = field(default_factory=dict)
     blocking_task_id: str | None = None
     escalate_after_rounds: int | None = None
@@ -64,13 +68,17 @@ class CoworkMailbox:
             content=envelope.content,
             visibility=envelope.visibility,
             kind=envelope.kind,
+            topic=envelope.topic,
+            event_type=envelope.event_type,
             request_type=envelope.request_type,
             thread_id=thread_id,
             requires_reply=envelope.requires_reply or envelope.kind == "question",
             priority=max(0, min(100, int(envelope.priority or 0))),
             deadline_round=envelope.deadline_round,
             correlation_id=envelope.correlation_id or self.service._new_id("corr"),
+            lineage_id=envelope.lineage_id or envelope.correlation_id or self.service._new_id("lin"),
             reply_to_envelope_id=envelope.reply_to_envelope_id,
+            caused_by_envelope_id=envelope.caused_by_envelope_id or envelope.reply_to_envelope_id,
             expected_output_schema=dict(envelope.expected_output_schema or {}),
             blocking_task_id=envelope.blocking_task_id,
             escalate_after_rounds=envelope.escalate_after_rounds,
@@ -85,10 +93,14 @@ class CoworkMailbox:
                 "envelope_id": record.id,
                 "visibility": record.visibility,
                 "kind": record.kind,
+                "topic": record.topic,
+                "event_type": record.event_type,
                 "priority": record.priority,
                 "requires_reply": record.requires_reply,
                 "deadline_round": record.deadline_round,
                 "correlation_id": record.correlation_id,
+                "lineage_id": record.lineage_id,
+                "caused_by_envelope_id": record.caused_by_envelope_id,
                 "recipients": recipients,
             },
             save=False,
@@ -119,11 +131,15 @@ class CoworkMailbox:
                 "thread_id": message.thread_id,
                 "visibility": envelope.visibility,
                 "kind": envelope.kind,
+                "topic": record.topic,
+                "event_type": record.event_type,
                 "recipients": recipients,
                 "requires_reply": record.requires_reply,
                 "priority": record.priority,
                 "deadline_round": record.deadline_round,
                 "correlation_id": record.correlation_id,
+                "lineage_id": record.lineage_id,
+                "caused_by_envelope_id": record.caused_by_envelope_id,
             },
             save=save,
         )
@@ -185,6 +201,8 @@ class CoworkMailbox:
                 and record.content.strip() == normalized_content
                 and record.visibility == envelope.visibility
                 and record.kind == envelope.kind
+                and record.topic == envelope.topic
+                and record.event_type == envelope.event_type
                 and (thread_id is None or record.thread_id == thread_id)
             ):
                 return record
@@ -232,6 +250,14 @@ class CoworkMailbox:
         known = set(session.agents) | {"user"}
         explicit = [recipient for recipient in dict.fromkeys(envelope.recipient_ids) if recipient in known]
         lead_id = CoworkMailbox._lead_agent_id(session)
+        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", "hybrid"))
+        if profile == "message_bus" and envelope.sender_id != "user" and not explicit:
+            routed = CoworkMailbox._subscribed_recipients(session, envelope)
+            if routed:
+                return routed
+        if profile == "message_bus" and envelope.sender_id == "user" and envelope.visibility == "group":
+            routed = CoworkMailbox._subscribed_recipients(session, envelope)
+            return routed or [agent_id for agent_id in session.agents if agent_id != envelope.sender_id]
         if envelope.sender_id == "user":
             return [lead_id]
         if envelope.visibility == "user":
@@ -247,6 +273,26 @@ class CoworkMailbox:
                 explicit = [recipient for recipient in dict.fromkeys(explicit) if recipient != envelope.sender_id]
             return explicit
         return ["user"] if envelope.sender_id == lead_id else [lead_id]
+
+    @staticmethod
+    def _subscribed_recipients(session: CoworkSession, envelope: CoworkEnvelope) -> list[str]:
+        labels = {
+            str(envelope.topic or "").lower(),
+            str(envelope.event_type or "").lower(),
+            str(envelope.request_type or "").lower(),
+            str(envelope.kind or "").lower(),
+        }
+        labels = {label for label in labels if label}
+        if not labels:
+            return []
+        recipients = []
+        for agent in session.agents.values():
+            if agent.id == envelope.sender_id:
+                continue
+            subscriptions = {str(item or "").lower() for item in getattr(agent, "subscriptions", [])}
+            if labels & subscriptions:
+                recipients.append(agent.id)
+        return recipients
 
     @staticmethod
     def _lead_agent_id(session: CoworkSession) -> str:

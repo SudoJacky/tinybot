@@ -152,6 +152,61 @@ def test_mailbox_persists_protocol_fields(temp_workspace):
     assert record.escalate_after_rounds == 2
 
 
+def test_message_bus_routes_group_events_by_topic_subscription(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Route by topic",
+        "Bus",
+        [
+            {
+                "id": "router",
+                "name": "Router",
+                "role": "Router",
+                "goal": "Route",
+                "responsibilities": [],
+                "subscriptions": ["triage"],
+            },
+            {
+                "id": "researcher",
+                "name": "Researcher",
+                "role": "Research",
+                "goal": "Research",
+                "responsibilities": [],
+                "subscriptions": ["research"],
+            },
+            {
+                "id": "analyst",
+                "name": "Analyst",
+                "role": "Analysis",
+                "goal": "Analyze",
+                "responsibilities": [],
+                "subscriptions": ["incident"],
+            },
+        ],
+        [],
+        workflow_mode="message_bus",
+    )
+    mailbox = CoworkMailbox(service)
+
+    message = mailbox.deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="user",
+            content="Investigate incident",
+            visibility="group",
+            topic="incident",
+            event_type="alert",
+            lineage_id="lin_1",
+        ),
+    )
+
+    assert message.recipient_ids == ["analyst"]
+    record = next(record for record in session.mailbox.values() if record.message_id == message.id)
+    assert record.topic == "incident"
+    assert record.event_type == "alert"
+    assert record.lineage_id == "lin_1"
+
+
 def test_user_message_reopens_completed_session_and_wakes_lead(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Answer follow ups", "Follow ups", [], [])

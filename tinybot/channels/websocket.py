@@ -1336,6 +1336,8 @@ class WebSocketChannel(BaseChannel):
             recipient_ids=payload.get("recipient_ids") or [],
             content=content,
             thread_id=str(payload.get("thread_id") or ""),
+            topic=str(payload.get("topic") or ""),
+            event_type=str(payload.get("event_type") or ""),
         )
         service = self._cowork_service()
         session = service.get_session(session_id) if service else None
