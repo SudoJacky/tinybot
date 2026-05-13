@@ -863,6 +863,18 @@ class CoworkTool(Tool):
             self.service.record_round_progress(session, before_signature)
             decision = self.service.assess_session(session)
             if self.service.convergence_reached(session):
+                next_active = self.service.select_active_agents(session, limit=effective_agent_limit)
+                if next_active and not self._filter_self_activated_agents(session, next_active, consecutive_runs):
+                    lines.append(f"Round {round_index + 2}: no ready agents.")
+                    self.service.record_stop_reason(
+                        session,
+                        "idle",
+                        "Cowork scheduler stopped because no agents are ready",
+                        run_id=run_id,
+                        round_id=round_id,
+                        parent_id=run_span.id,
+                    )
+                    break
                 lines.append(f"Session stopped after {session.no_progress_rounds} no-progress rounds.")
                 self.service.record_stop_reason(
                     session,
