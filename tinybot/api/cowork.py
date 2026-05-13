@@ -6,12 +6,38 @@ from typing import Any
 
 from aiohttp import web
 
+from tinybot.cowork.blueprint import budget_remaining, default_budget_usage, export_session_blueprint, normalize_budget_limits
 from tinybot.cowork.snapshot import (
     build_cowork_artifact_index,
     build_cowork_graph,
     build_cowork_task_dag,
     build_cowork_trace,
 )
+
+
+def _budget_snapshot(session: Any) -> dict[str, Any]:
+    limits = normalize_budget_limits(getattr(session, "budget_limits", {}) or {})
+    usage = default_budget_usage()
+    usage.update(getattr(session, "budget_usage", {}) or {})
+    usage["stop_reason"] = getattr(session, "stop_reason", "") or usage.get("stop_reason", "")
+    return {
+        "limits": limits,
+        "usage": usage,
+        "remaining": budget_remaining(limits, usage),
+        "stop_reason": usage.get("stop_reason", ""),
+    }
+
+
+def _blueprint_metadata(blueprint: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(blueprint, dict) or not blueprint:
+        return {}
+    return {
+        "id": blueprint.get("id", ""),
+        "schema_version": blueprint.get("schema_version", ""),
+        "lead_agent_id": blueprint.get("lead_agent_id", ""),
+        "agent_count": len(blueprint.get("agents", []) if isinstance(blueprint.get("agents"), list) else []),
+        "task_count": len(blueprint.get("tasks", []) if isinstance(blueprint.get("tasks"), list) else []),
+    }
 
 
 def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, Any]:
@@ -35,8 +61,12 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
                 "current_task_id": agent.current_task_id,
                 "current_task_title": current_task_title,
                 "last_active_at": agent.last_active_at,
-                "rounds": agent.rounds,
-            }
+            "rounds": agent.rounds,
+            "parent_agent_id": getattr(agent, "parent_agent_id", None),
+            "team_id": getattr(agent, "team_id", ""),
+            "lifecycle_status": getattr(agent, "lifecycle_status", "active"),
+            "source_blueprint_id": getattr(agent, "source_blueprint_id", ""),
+        }
         )
     tasks = [
         {
@@ -46,10 +76,19 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
             "assigned_agent_id": task.assigned_agent_id,
             "dependencies": task.dependencies,
             "status": task.status,
-            "result": task.result,
-            "result_data": task.result_data,
+            "result": task.result if verbose else "",
+            "result_data": task.result_data if verbose else {},
             "confidence": task.confidence,
             "error": task.error,
+            "priority": getattr(task, "priority", 0),
+            "expected_output": getattr(task, "expected_output", ""),
+            "review_required": getattr(task, "review_required", False),
+            "reviewer_agent_ids": getattr(task, "reviewer_agent_ids", []),
+            "review_status": getattr(task, "review_status", ""),
+            "fanout_group_id": getattr(task, "fanout_group_id", ""),
+            "merge_task_id": getattr(task, "merge_task_id", ""),
+            "source_blueprint_id": getattr(task, "source_blueprint_id", ""),
+            "runtime_created": getattr(task, "runtime_created", False),
             "created_at": task.created_at,
             "updated_at": task.updated_at,
         }
@@ -105,6 +144,7 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
             "expected_output_schema": record.expected_output_schema,
             "blocking_task_id": record.blocking_task_id,
             "escalate_after_rounds": record.escalate_after_rounds,
+            "escalated_at": getattr(record, "escalated_at", None),
             "read_by": record.read_by,
             "replied_by": record.replied_by,
             "created_at": record.created_at,
@@ -160,6 +200,7 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
             "tokens_prompt": metric.tokens_prompt,
             "tokens_completion": metric.tokens_completion,
             "tokens_total": metric.tokens_total,
+            "stop_reason": getattr(metric, "stop_reason", ""),
             "started_at": metric.started_at,
             "ended_at": metric.ended_at,
         }
@@ -178,6 +219,12 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "shared_summary": session.shared_summary,
         "final_draft": session.final_draft,
         "completion_decision": session.completion_decision,
+        "budget": _budget_snapshot(session),
+        "budget_state": _budget_snapshot(session),
+        "stop_reason": getattr(session, "stop_reason", ""),
+        "blueprint": getattr(session, "blueprint", {}) if verbose else {},
+        "blueprint_metadata": _blueprint_metadata(getattr(session, "blueprint", {}) or {}),
+        "blueprint_diagnostics": getattr(session, "blueprint_diagnostics", []),
         "created_at": session.created_at,
         "updated_at": session.updated_at,
         "rounds": session.rounds,
@@ -241,14 +288,58 @@ async def handle_list_sessions(request: web.Request) -> web.Response:
     return web.json_response({"items": [cowork_session_snapshot(session, verbose=False) for session in sessions]})
 
 
-async def handle_create_session(request: web.Request) -> web.Response:
-    tool = _cowork_tool(request.app)
+async def handle_validate_blueprint(request: web.Request) -> web.Response:
     service = _cowork_service(request.app)
-    if tool is None or service is None:
+    if service is None:
         return web.json_response({"error": "cowork is not available"}, status=503)
     payload = await _json_body(request)
     if isinstance(payload, web.Response):
         return payload
+    blueprint = payload.get("blueprint", payload)
+    result = service.validate_blueprint(blueprint if isinstance(blueprint, dict) else {})
+    return web.json_response(result, status=200 if result.get("ok") else 400)
+
+
+async def handle_preview_blueprint(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    blueprint = payload.get("blueprint", payload)
+    result = service.preview_blueprint(blueprint if isinstance(blueprint, dict) else {})
+    return web.json_response(result, status=200 if result.get("ok") else 400)
+
+
+async def handle_create_session(request: web.Request) -> web.Response:
+    tool = _cowork_tool(request.app)
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    if isinstance(payload.get("blueprint"), dict):
+        session, diagnostics = service.create_session_from_blueprint(payload["blueprint"])
+        if session is None:
+            return web.json_response({"error": "blueprint validation failed", "diagnostics": diagnostics}, status=400)
+        if payload.get("auto_run"):
+            tool = _cowork_tool(request.app)
+            if tool is not None:
+                await tool.execute(
+                    action="run",
+                    session_id=session.id,
+                    max_rounds=int(payload.get("max_rounds", payload.get("rounds", 1)) or 1),
+                    max_agents=int(payload.get("max_agents", payload.get("parallel_width", 3)) or 3),
+                    max_agent_calls=int(payload.get("max_agent_calls", 0) or 0) or None,
+                    run_until_idle=bool(payload.get("run_until_idle", False)),
+                    stop_on_blocker=bool(payload.get("stop_on_blocker", False)),
+                )
+                session = service.get_session(session.id) or session
+        return web.json_response({"result": f"started {session.id}", "session": cowork_session_snapshot(session), "diagnostics": diagnostics})
+    if tool is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
     goal = str(payload.get("goal") or "").strip()
     if not goal:
         return web.json_response({"error": "goal is required"}, status=400)
@@ -260,6 +351,9 @@ async def handle_create_session(request: web.Request) -> web.Response:
         auto_run=bool(payload.get("auto_run", False)),
         max_rounds=int(payload.get("max_rounds", 1) or 1),
         max_agents=int(payload.get("max_agents", 3) or 3),
+        max_agent_calls=int(payload.get("max_agent_calls", 0) or 0) or None,
+        run_until_idle=bool(payload.get("run_until_idle", False)),
+        stop_on_blocker=bool(payload.get("stop_on_blocker", False)),
     )
     sessions = service.list_sessions(include_completed=True)
     session = next((item for item in sessions if item.id not in existing_ids), None)
@@ -297,11 +391,22 @@ async def handle_get_session_trace(request: web.Request) -> web.Response:
         return web.json_response({"error": "cowork session not found"}, status=404)
     return web.json_response(
         {
+            "trace": build_cowork_trace(session),
             "trace_spans": cowork_session_snapshot(session).get("trace_spans", []),
             "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-80:],
             "run_metrics": cowork_session_snapshot(session).get("run_metrics", []),
         }
     )
+
+
+async def handle_export_session_blueprint(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    return web.json_response({"blueprint": export_session_blueprint(session)})
 
 
 async def handle_get_session_dag(request: web.Request) -> web.Response:
@@ -337,7 +442,10 @@ async def handle_run_session(request: web.Request) -> web.Response:
         action="run",
         session_id=session_id,
         max_rounds=int(payload.get("max_rounds", 1) or 1),
-        max_agents=int(payload.get("max_agents", 3) or 3),
+        max_agents=int(payload.get("max_agents", payload.get("parallel_width", 3)) or 3),
+        max_agent_calls=int(payload.get("max_agent_calls", 0) or 0) or None,
+        run_until_idle=bool(payload.get("run_until_idle", False)),
+        stop_on_blocker=bool(payload.get("stop_on_blocker", False)),
     )
     service = _cowork_service(request.app)
     session = service.get_session(session_id) if service else None
@@ -470,11 +578,14 @@ async def handle_summary(request: web.Request) -> web.Response:
 
 
 def register_cowork_routes(app: web.Application) -> None:
+    app.router.add_post("/api/cowork/blueprints/validate", handle_validate_blueprint)
+    app.router.add_post("/api/cowork/blueprints/preview", handle_preview_blueprint)
     app.router.add_get("/api/cowork/sessions", handle_list_sessions)
     app.router.add_post("/api/cowork/sessions", handle_create_session)
     app.router.add_get("/api/cowork/sessions/{session_id}", handle_get_session)
     app.router.add_get("/api/cowork/sessions/{session_id}/graph", handle_get_session_graph)
     app.router.add_get("/api/cowork/sessions/{session_id}/trace", handle_get_session_trace)
+    app.router.add_get("/api/cowork/sessions/{session_id}/blueprint", handle_export_session_blueprint)
     app.router.add_get("/api/cowork/sessions/{session_id}/dag", handle_get_session_dag)
     app.router.add_delete("/api/cowork/sessions/{session_id}", handle_delete_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/run", handle_run_session)

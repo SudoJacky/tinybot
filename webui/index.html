@@ -282,11 +282,15 @@
                 </label>
                 <label class="cowork-limit-label">
                   Agents
-                  <input id="cowork-agent-limit" class="config-input cowork-limit-input" type="number" min="1" max="10" value="3">
+                  <input id="cowork-agent-limit" class="config-input cowork-limit-input" type="number" min="1" max="50" value="3">
+                </label>
+                <label class="cowork-limit-label">
+                  Calls
+                  <input id="cowork-agent-call-limit" class="config-input cowork-limit-input" type="number" min="1" max="500" value="30">
                 </label>
                 <button id="cowork-run-button" class="button button-primary" type="button">Run until idle</button>
                 <button id="cowork-run-until-idle-button" class="button" type="button">One round</button>
-                <button id="cowork-pause-button" class="button" type="button">Pause</button>
+                <button id="cowork-pause-button" class="button" type="button">Emergency stop</button>
                 <button id="cowork-resume-button" class="button" type="button">Resume</button>
                 <button id="cowork-summary-button" class="button" type="button">Summary</button>
                 <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
@@ -362,6 +366,13 @@
                   <div id="cowork-observable-artifact-list" class="cowork-list cowork-projection-list"></div>
                   <div id="cowork-final-draft" class="cowork-final-draft" hidden></div>
                 </section>
+                <section class="cowork-ops-panel" aria-label="Blockers and output state">
+                  <div class="cowork-panel-heading">
+                    <h4>Blockers</h4>
+                    <span id="cowork-blocker-summary" class="cowork-panel-note">No blockers</span>
+                  </div>
+                  <div id="cowork-blocker-panel" class="cowork-list cowork-projection-list"></div>
+                </section>
               </section>
             </div>
             <aside class="cowork-action-rail" aria-label="Cowork read-only status dialog">
@@ -395,6 +406,15 @@
                   <button class="cowork-mode-tab" type="button" data-mode="peer_handoff" role="radio" aria-checked="false">接力交接</button>
                 </div>
                 <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" placeholder="Describe the shared goal..."></textarea>
+                <details class="cowork-blueprint-editor">
+                  <summary>Blueprint</summary>
+                  <textarea id="cowork-blueprint-input" class="config-input cowork-blueprint-input" rows="6" spellcheck="false" placeholder='{"goal":"...","agents":[],"tasks":[],"budgets":{"parallel_width":3}}'></textarea>
+                  <div class="cowork-toolbar cowork-blueprint-actions">
+                    <button id="cowork-blueprint-validate-button" class="button" type="button">Validate</button>
+                    <button id="cowork-blueprint-preview-button" class="button" type="button">Preview</button>
+                    <span id="cowork-blueprint-status" class="cowork-panel-note"></span>
+                  </div>
+                </details>
                 <label id="cowork-mode-label" class="config-label cowork-mode-label hidden-control" for="cowork-workflow-mode">
                   Mode
                   <select id="cowork-workflow-mode" class="config-select">

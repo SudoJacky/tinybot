@@ -1,6 +1,7 @@
 """CLI commands for tinybot."""
 
 import asyncio
+import json
 import os
 import random
 import signal
@@ -1775,18 +1776,95 @@ cowork_app = typer.Typer(help="Run standalone multi-agent Cowork sessions")
 app.add_typer(cowork_app, name="cowork")
 
 
+def _load_cowork_blueprint_file(path: str) -> dict[str, Any]:
+    blueprint_path = Path(path).expanduser().resolve()
+    try:
+        return json.loads(blueprint_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"Blueprint must be valid JSON: {exc}") from exc
+
+
 @cowork_app.command("start")
 def cowork_start(
-        goal: str = typer.Argument(..., help="Goal for the cowork session"),
+        goal: str = typer.Argument("", help="Goal for the cowork session"),
+        blueprint_file: str | None = typer.Option(None, "--blueprint", "-b", help="Launch from a Cowork blueprint JSON file"),
         auto_run: bool = typer.Option(False, "--run/--no-run", help="Run one or more rounds immediately"),
         max_rounds: int = typer.Option(1, "--rounds", "-r", min=1, max=20, help="Scheduling rounds to run"),
-        max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=10, help="Max agents per round"),
+        max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=50, help="Max agents per round"),
+        max_agent_calls: int | None = typer.Option(None, "--agent-calls", min=1, max=500, help="Max agent calls for this run"),
+        run_until_idle: bool = typer.Option(False, "--until-idle", help="Run until idle, completion, blocker, convergence, or budget stop"),
         workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
         config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
 ):
     """Start an independent Cowork session."""
     runtime = _make_cowork_runtime(config, workspace)
-    result = asyncio.run(runtime.start(goal, auto_run=auto_run, max_rounds=max_rounds, max_agents=max_agents))
+    blueprint = _load_cowork_blueprint_file(blueprint_file) if blueprint_file else None
+    result = asyncio.run(
+        runtime.start(
+            goal,
+            auto_run=auto_run,
+            max_rounds=max_rounds,
+            max_agents=max_agents,
+            max_agent_calls=max_agent_calls,
+            run_until_idle=run_until_idle,
+            blueprint=blueprint,
+        )
+    )
+    console.print(Markdown(result))
+
+
+@cowork_app.command("validate-blueprint")
+def cowork_validate_blueprint(
+        blueprint_file: str = typer.Argument(..., help="Cowork blueprint JSON file"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Validate a Cowork blueprint without creating a session."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = runtime.service.validate_blueprint(_load_cowork_blueprint_file(blueprint_file))
+    console.print_json(data=result)
+    if not result.get("ok"):
+        raise typer.Exit(code=1)
+
+
+@cowork_app.command("preview-blueprint")
+def cowork_preview_blueprint(
+        blueprint_file: str = typer.Argument(..., help="Cowork blueprint JSON file"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Preview a Cowork blueprint graph and budget plan without creating a session."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = runtime.service.preview_blueprint(_load_cowork_blueprint_file(blueprint_file))
+    console.print_json(data=result)
+    if not result.get("ok"):
+        raise typer.Exit(code=1)
+
+
+@cowork_app.command("launch-blueprint")
+def cowork_launch_blueprint(
+        blueprint_file: str = typer.Argument(..., help="Cowork blueprint JSON file"),
+        auto_run: bool = typer.Option(False, "--run/--no-run", help="Run immediately after launch"),
+        max_rounds: int = typer.Option(1, "--rounds", "-r", min=1, max=200, help="Scheduling rounds to run"),
+        max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=50, help="Max agents per round"),
+        max_agent_calls: int | None = typer.Option(None, "--agent-calls", min=1, max=500, help="Max agent calls for this run"),
+        run_until_idle: bool = typer.Option(False, "--until-idle", help="Run until idle, completion, blocker, convergence, or budget stop"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Launch a Cowork session from a validated blueprint JSON file."""
+    runtime = _make_cowork_runtime(config, workspace)
+    result = asyncio.run(
+        runtime.start(
+            "",
+            auto_run=auto_run,
+            max_rounds=max_rounds,
+            max_agents=max_agents,
+            max_agent_calls=max_agent_calls,
+            run_until_idle=run_until_idle,
+            blueprint=_load_cowork_blueprint_file(blueprint_file),
+        )
+    )
     console.print(Markdown(result))
 
 
@@ -1828,14 +1906,26 @@ def cowork_status(
 @cowork_app.command("run")
 def cowork_run(
         session_id: str = typer.Argument(..., help="Cowork session id"),
-        max_rounds: int = typer.Option(1, "--rounds", "-r", min=1, max=20, help="Scheduling rounds to run"),
-        max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=10, help="Max agents per round"),
+        max_rounds: int = typer.Option(1, "--rounds", "-r", min=1, max=200, help="Scheduling rounds to run"),
+        max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=50, help="Max agents per round"),
+        max_agent_calls: int | None = typer.Option(None, "--agent-calls", min=1, max=500, help="Max agent calls for this run"),
+        run_until_idle: bool = typer.Option(False, "--until-idle", help="Run until idle, completion, blocker, convergence, or budget stop"),
+        stop_on_blocker: bool = typer.Option(False, "--stop-on-blocker", help="Stop if unresolved blockers are visible"),
         workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
         config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
 ):
     """Run more Cowork scheduling rounds."""
     runtime = _make_cowork_runtime(config, workspace)
-    result = asyncio.run(runtime.run(session_id, max_rounds=max_rounds, max_agents=max_agents))
+    result = asyncio.run(
+        runtime.run(
+            session_id,
+            max_rounds=max_rounds,
+            max_agents=max_agents,
+            max_agent_calls=max_agent_calls,
+            run_until_idle=run_until_idle,
+            stop_on_blocker=stop_on_blocker,
+        )
+    )
     console.print(Markdown(result))
 
 
@@ -1897,6 +1987,21 @@ def cowork_summary(
     runtime = _make_cowork_runtime(config, workspace)
     result = asyncio.run(runtime.execute("summary", session_id=session_id))
     console.print(Markdown(result))
+
+
+@cowork_app.command("export-blueprint")
+def cowork_export_blueprint(
+        session_id: str = typer.Argument(..., help="Cowork session id"),
+        workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+        config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Export a reusable blueprint from an existing Cowork session."""
+    runtime = _make_cowork_runtime(config, workspace)
+    session = runtime.service.get_session(session_id)
+    if session is None:
+        console.print(f"Session not found: {session_id}")
+        raise typer.Exit(code=1)
+    console.print_json(data=runtime.service.export_blueprint(session))
 
 
 

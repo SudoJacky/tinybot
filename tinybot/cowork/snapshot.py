@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import math
 import hashlib
+from collections import Counter, defaultdict
 from typing import Any
 
-from tinybot.cowork.types import CoworkEvent, CoworkSession
+from tinybot.cowork.types import CoworkEvent, CoworkSession, now_iso
 
 
 def _compact(value: Any, limit: int = 180) -> str:
@@ -40,31 +41,32 @@ def _add_edge(edges: list[dict[str, Any]], source: str, target: str, kind: str, 
     edges.append(payload)
 
 
-def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
+def build_cowork_graph(
+    session: CoworkSession,
+    *,
+    node_limit: int = 160,
+    edge_limit: int = 260,
+) -> dict[str, Any]:
     """Return a stable graph projection of a Cowork session.
 
     The shape intentionally includes both ``from/to`` and ``source/target`` so
     current WebUI code and teacher-inspired graph components can consume it.
     """
 
-    visible_agent_limit = 6
-    nodes: list[dict[str, Any]] = [
-        {
-            "id": "session",
-            "kind": "session",
-            "label": session.title,
-            "title": session.title,
-            "detail": _compact(session.current_focus_task or session.goal, 220),
-            "status": session.status,
-            "tone": _status_tone(session.status),
-            "badge": getattr(session, "workflow_mode", "hybrid"),
-            "x": 600,
-            "y": 310,
-        }
-    ]
+    nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
+    node_rank: dict[str, int] = {}
 
-    def agent_priority(agent: Any) -> tuple[int, int, int, int]:
+    def add_node(node: dict[str, Any], *, rank: int = 100) -> None:
+        node.setdefault("label", node.get("title", node.get("id", "")))
+        node.setdefault("title", node.get("label", node.get("id", "")))
+        node.setdefault("detail", "")
+        node.setdefault("status", "idle")
+        node.setdefault("tone", _status_tone(str(node.get("status", ""))))
+        nodes.append(node)
+        node_rank[node["id"]] = rank
+
+    def agent_priority(agent: Any) -> tuple[int, int, int, int, int]:
         waiting = sum(
             1
             for record in session.mailbox.values()
@@ -76,14 +78,49 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
             if task.assigned_agent_id == agent.id and task.status in {"pending", "in_progress"}
         )
         active_status = 1 if agent.status in {"working", "waiting", "blocked"} else 0
-        return (active_status, waiting, open_tasks, len(agent.inbox))
+        retired = 1 if getattr(agent, "lifecycle_status", "active") == "retired" else 0
+        return (active_status, waiting, open_tasks, len(agent.inbox), -retired)
 
-    agents = sorted(session.agents.values(), key=agent_priority, reverse=True)[:visible_agent_limit]
-    visible_agent_ids = {agent.id for agent in agents}
-    agent_radius_x = max(240, min(360, 180 + len(agents) * 26))
-    agent_radius_y = max(155, min(230, 118 + len(agents) * 14))
-    for index, agent in enumerate(agents):
-        angle = -math.pi / 2 + (math.tau * index) / max(len(agents), 1)
+    add_node(
+        {
+            "id": "session",
+            "kind": "session",
+            "label": session.title,
+            "title": session.title,
+            "detail": _compact(session.current_focus_task or session.goal, 220),
+            "status": session.status,
+            "tone": _status_tone(session.status),
+            "badge": getattr(session, "workflow_mode", "hybrid"),
+            "x": 600,
+            "y": 310,
+            "workflow_mode": getattr(session, "workflow_mode", "hybrid"),
+            "source_blueprint_id": (getattr(session, "blueprint", {}) or {}).get("id", ""),
+        },
+        rank=0,
+    )
+
+    budget_state = getattr(session, "budget_usage", {}) or {}
+    add_node(
+        {
+            "id": "budget",
+            "kind": "budget",
+            "label": "Budget",
+            "title": "Budget",
+            "detail": _compact(f"calls {budget_state.get('agent_calls', 0)} / rounds {budget_state.get('rounds', 0)} / stop {getattr(session, 'stop_reason', '') or '-'}", 180),
+            "status": "blocked" if getattr(session, "stop_reason", "") and "budget" in getattr(session, "stop_reason", "") else "active",
+            "badge": getattr(session, "stop_reason", "") or "limits",
+            "x": 980,
+            "y": 82,
+        },
+        rank=8,
+    )
+    _add_edge(edges, "session", "budget", "has_budget")
+
+    all_agents = sorted(session.agents.values(), key=agent_priority, reverse=True)
+    agent_radius_x = max(260, min(390, 190 + min(len(all_agents), 12) * 16))
+    agent_radius_y = max(165, min(245, 122 + min(len(all_agents), 12) * 9))
+    for index, agent in enumerate(all_agents):
+        angle = -math.pi / 2 + (math.tau * index) / max(len(all_agents), 1)
         x = 600 + math.cos(angle) * agent_radius_x
         y = 310 + math.sin(angle) * agent_radius_y
         pending_replies = [
@@ -104,7 +141,7 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
             agent.current_task_title or agent.goal,
             latest_direct.content if latest_direct else "",
         ]
-        nodes.append(
+        add_node(
             {
                 "id": f"agent:{agent.id}",
                 "entity_id": agent.id,
@@ -117,22 +154,144 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
                 "badge": f"in {len(agent.inbox)} / wait {len(pending_replies)} / r{agent.rounds or 0}",
                 "x": round(x, 2),
                 "y": round(y, 2),
-            }
+                "parent_agent_id": getattr(agent, "parent_agent_id", None),
+                "team_id": getattr(agent, "team_id", ""),
+                "lifecycle_status": getattr(agent, "lifecycle_status", "active"),
+                "source_blueprint_id": getattr(agent, "source_blueprint_id", ""),
+                "source_event_id": getattr(agent, "source_event_id", ""),
+                "runtime_created": not bool(getattr(agent, "source_blueprint_id", "")),
+            },
+            rank=10 + index,
         )
         _add_edge(edges, "session", f"agent:{agent.id}", "member")
+        parent_agent_id = getattr(agent, "parent_agent_id", None)
+        if parent_agent_id and parent_agent_id in session.agents:
+            _add_edge(edges, f"agent:{parent_agent_id}", f"agent:{agent.id}", "parent_of", team_id=getattr(agent, "team_id", ""))
+            _add_edge(edges, f"agent:{parent_agent_id}", f"agent:{agent.id}", "spawned", source_event_id=getattr(agent, "source_event_id", ""))
 
-    recent_mailbox = list(session.mailbox.values())[-14:]
-    for index, record in enumerate(recent_mailbox):
-        sender = f"agent:{record.sender_id}" if record.sender_id in visible_agent_ids else "session"
+    task_base_y = 72
+    for index, task in enumerate(session.tasks.values()):
+        add_node(
+            {
+                "id": f"task:{task.id}",
+                "entity_id": task.id,
+                "kind": "task",
+                "label": task.title,
+                "title": task.title,
+                "detail": _compact(task.result_data.get("answer") or task.result or task.description, 220),
+                "status": task.status,
+                "tone": _status_tone(task.status),
+                "badge": task.assigned_agent_id or "shared",
+                "x": 160 + (index % 4) * 190,
+                "y": task_base_y + (index // 4) * 74,
+                "owner": task.assigned_agent_id,
+                "dependencies": task.dependencies,
+                "priority": getattr(task, "priority", 0),
+                "review_required": getattr(task, "review_required", False),
+                "review_status": getattr(task, "review_status", ""),
+                "fanout_group_id": getattr(task, "fanout_group_id", ""),
+                "merge_task_id": getattr(task, "merge_task_id", ""),
+                "source_blueprint_id": getattr(task, "source_blueprint_id", ""),
+                "source_event_id": getattr(task, "source_event_id", ""),
+                "runtime_created": getattr(task, "runtime_created", False),
+            },
+            rank=40 + index,
+        )
+        _add_edge(edges, "session", f"task:{task.id}", "has_task")
+        if task.assigned_agent_id and task.assigned_agent_id in session.agents:
+            _add_edge(edges, f"task:{task.id}", f"agent:{task.assigned_agent_id}", "assigned_to")
+        for dependency in task.dependencies:
+            if dependency in session.tasks:
+                _add_edge(edges, f"task:{dependency}", f"task:{task.id}", "depends_on")
+        if getattr(task, "merge_task_id", "") and task.merge_task_id in session.tasks:
+            _add_edge(edges, f"task:{task.id}", f"task:{task.merge_task_id}", "synthesizes")
+
+    for index, thread in enumerate(session.threads.values()):
+        add_node(
+            {
+                "id": f"thread:{thread.id}",
+                "entity_id": thread.id,
+                "kind": "thread",
+                "label": thread.topic,
+                "title": thread.topic,
+                "detail": _compact(thread.summary or f"{len(thread.message_ids)} message(s)", 160),
+                "status": thread.status,
+                "badge": f"{len(thread.message_ids)} msg",
+                "x": 1080,
+                "y": 170 + index * 58,
+            },
+            rank=70 + index,
+        )
+        _add_edge(edges, "session", f"thread:{thread.id}", "has_thread")
+        for participant_id in thread.participant_ids:
+            if participant_id in session.agents:
+                _add_edge(edges, f"thread:{thread.id}", f"agent:{participant_id}", "participant")
+
+    for index, message in enumerate(list(session.messages.values())[-80:]):
+        node_id = f"message:{message.id}"
+        add_node(
+            {
+                "id": node_id,
+                "entity_id": message.id,
+                "kind": "message",
+                "label": _compact(message.content, 52),
+                "title": _compact(message.content, 80),
+                "detail": _compact(message.content, 220),
+                "status": "read" if message.read_by else "delivered",
+                "badge": message.sender_id,
+                "x": 1040,
+                "y": 430 + (index % 8) * 42,
+                "thread_id": message.thread_id,
+            },
+            rank=110 + index,
+        )
+        sender = f"agent:{message.sender_id}" if message.sender_id in session.agents else "session"
+        _add_edge(edges, sender, node_id, "sent")
+        if message.thread_id in session.threads:
+            _add_edge(edges, f"thread:{message.thread_id}", node_id, "contains")
+        for recipient_id in message.recipient_ids:
+            if recipient_id in session.agents:
+                _add_edge(edges, node_id, f"agent:{recipient_id}", "delivered_to")
+
+    for index, record in enumerate(session.mailbox.values()):
+        node_id = f"mailbox:{record.id}"
+        add_node(
+            {
+                "id": node_id,
+                "entity_id": record.id,
+                "kind": "mailbox",
+                "label": record.request_type or record.kind or "mailbox",
+                "title": record.request_type or record.kind or "Mailbox",
+                "detail": _compact(record.content, 220),
+                "status": record.status,
+                "badge": "reply" if record.requires_reply else record.kind,
+                "x": 72 + (index % 5) * 145,
+                "y": 540 + (index // 5) * 48,
+                "sender_id": record.sender_id,
+                "recipient_ids": record.recipient_ids,
+                "topic": getattr(record, "topic", ""),
+                "event_type": getattr(record, "event_type", ""),
+                "request_type": record.request_type,
+                "correlation_id": record.correlation_id,
+                "lineage_id": getattr(record, "lineage_id", None),
+                "reply_to_envelope_id": record.reply_to_envelope_id,
+                "caused_by_envelope_id": getattr(record, "caused_by_envelope_id", None),
+                "blocking_task_id": record.blocking_task_id,
+                "escalated_at": getattr(record, "escalated_at", None),
+            },
+            rank=90 + index,
+        )
+        sender = f"agent:{record.sender_id}" if record.sender_id in session.agents else "session"
+        _add_edge(edges, sender, node_id, "sent", topic=getattr(record, "topic", ""), event_type=getattr(record, "event_type", ""))
         for recipient_id in record.recipient_ids:
-            if recipient_id not in visible_agent_ids:
+            if recipient_id not in session.agents:
                 continue
             _add_edge(
                 edges,
-                sender,
+                node_id,
                 f"agent:{recipient_id}",
-                "communication",
-                pulse=index >= max(0, len(recent_mailbox) - 4) or record.requires_reply,
+                "delivered_to",
+                pulse=record.requires_reply,
                 status=record.status,
                 topic=getattr(record, "topic", ""),
                 event_type=getattr(record, "event_type", ""),
@@ -141,22 +300,206 @@ def build_cowork_graph(session: CoworkSession) -> dict[str, Any]:
                 requires_reply=record.requires_reply,
                 detail=_compact(record.content, 180),
             )
+        if record.message_id in session.messages:
+            _add_edge(edges, node_id, f"message:{record.message_id}", "materialized_as")
+        if record.thread_id in session.threads:
+            _add_edge(edges, node_id, f"thread:{record.thread_id}", "in_thread")
+        if record.reply_to_envelope_id and record.reply_to_envelope_id in session.mailbox:
+            _add_edge(edges, node_id, f"mailbox:{record.reply_to_envelope_id}", "replied_to")
+        if record.caused_by_envelope_id and record.caused_by_envelope_id in session.mailbox:
+            _add_edge(edges, node_id, f"mailbox:{record.caused_by_envelope_id}", "caused_by")
+        if record.blocking_task_id and record.blocking_task_id in session.tasks:
+            _add_edge(edges, node_id, f"task:{record.blocking_task_id}", "blocks")
+
+    for index, artifact in enumerate(_session_artifacts(session)):
+        artifact_id = artifact["id"]
+        add_node(
+            {
+                "id": artifact_id,
+                "kind": "artifact",
+                "label": _compact(artifact["value"], 70),
+                "title": artifact["value"],
+                "detail": artifact["value"],
+                "status": "completed",
+                "badge": artifact.get("kind", "artifact"),
+                "x": 980,
+                "y": 520 + index * 46,
+                "source_task_id": artifact.get("source_task_id"),
+                "source_agent_id": artifact.get("source_agent_id"),
+            },
+            rank=130 + index,
+        )
+        if artifact.get("source_task_id") in session.tasks:
+            _add_edge(edges, f"task:{artifact['source_task_id']}", artifact_id, "produced")
+        if artifact.get("source_agent_id") in session.agents:
+            _add_edge(edges, f"agent:{artifact['source_agent_id']}", artifact_id, "produced")
+
+    memory_index = 0
+    memory = getattr(session, "shared_memory", {}) or {}
+    if isinstance(memory, dict):
+        for bucket, entries in memory.items():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries[-12:]:
+                if not isinstance(entry, dict):
+                    continue
+                memory_id = f"memory:{bucket}:{memory_index}"
+                memory_index += 1
+                add_node(
+                    {
+                        "id": memory_id,
+                        "kind": "memory",
+                        "label": bucket,
+                        "title": bucket,
+                        "detail": _compact(entry.get("text", ""), 220),
+                        "status": "completed",
+                        "badge": bucket,
+                        "x": 56 + (memory_index % 6) * 150,
+                        "y": 24 + (memory_index // 6) * 50,
+                        "source_task_id": entry.get("source_task_id"),
+                        "author": entry.get("author"),
+                    },
+                    rank=140 + memory_index,
+                )
+                if entry.get("source_task_id") in session.tasks:
+                    _add_edge(edges, f"task:{entry['source_task_id']}", memory_id, "uses_memory")
+                if entry.get("author") in session.agents:
+                    _add_edge(edges, f"agent:{entry['author']}", memory_id, "uses_memory")
+
+    if getattr(session, "completion_decision", None):
+        decision = session.completion_decision
+        add_node(
+            {
+                "id": "decision:latest",
+                "kind": "decision",
+                "label": decision.get("next_action", "decision"),
+                "title": decision.get("next_action", "Decision"),
+                "detail": _compact(decision.get("reason", ""), 220),
+                "status": "completed" if decision.get("ready_to_finish") else "pending",
+                "badge": getattr(session, "stop_reason", "") or "latest",
+                "x": 600,
+                "y": 36,
+            },
+            rank=5,
+        )
+        _add_edge(edges, "session", "decision:latest", "has_decision")
+        for blocker in decision.get("blocked", []) if isinstance(decision.get("blocked", []), list) else []:
+            if blocker.get("id") in session.mailbox:
+                _add_edge(edges, f"mailbox:{blocker['id']}", "decision:latest", "blocks")
+
+    total_nodes = len(nodes)
+    total_edges = len(edges)
+    visible_ids = _focused_node_ids(nodes, node_rank, node_limit)
+    visible_nodes = [node for node in nodes if node["id"] in visible_ids]
+    visible_edges = [edge for edge in edges if edge.get("from") in visible_ids and edge.get("to") in visible_ids][:edge_limit]
+    hidden_nodes = max(0, total_nodes - len(visible_nodes))
+    hidden_edges = max(0, total_edges - len(visible_edges))
+    node_kinds = Counter(node["kind"] for node in nodes)
+    edge_kinds = Counter(edge["kind"] for edge in edges)
+    visible_node_kinds = Counter(node["kind"] for node in visible_nodes)
+    visible_edge_kinds = Counter(edge["kind"] for edge in visible_edges)
 
     return {
-        "nodes": nodes,
-        "edges": edges,
+        "schema_version": "cowork.graph.v2",
+        "generated_at": now_iso(),
+        "nodes": visible_nodes,
+        "edges": visible_edges,
         "stats": {
-            "nodes": len(nodes),
-            "edges": len(edges),
-            "agents": len(agents),
+            "nodes": len(visible_nodes),
+            "edges": len(visible_edges),
+            "total_nodes": total_nodes,
+            "total_edges": total_edges,
+            "hidden_nodes": hidden_nodes,
+            "hidden_edges": hidden_edges,
+            "node_kinds": dict(sorted(visible_node_kinds.items())),
+            "edge_kinds": dict(sorted(visible_edge_kinds.items())),
+            "total_node_kinds": dict(sorted(node_kinds.items())),
+            "total_edge_kinds": dict(sorted(edge_kinds.items())),
+            "agents": visible_node_kinds.get("agent", 0),
             "total_agents": len(session.agents),
             "tasks": len(session.tasks),
             "threads": len(session.threads),
             "mailbox": len(session.mailbox),
-            "artifacts": len(getattr(session, "artifacts", [])),
-            "communications": sum(1 for edge in edges if edge.get("kind") == "communication"),
+            "artifacts": len(_session_artifacts(session)),
+            "memory": sum(len(entries) for entries in (getattr(session, "shared_memory", {}) or {}).values() if isinstance(entries, list)),
+            "communications": sum(1 for edge in visible_edges if edge.get("kind") in {"delivered_to", "sent"}),
+        },
+        "truncated": {
+            "nodes": hidden_nodes > 0,
+            "edges": hidden_edges > 0,
+            "hidden_nodes": hidden_nodes,
+            "hidden_edges": hidden_edges,
+            "limits": {"nodes": node_limit, "edges": edge_limit},
         },
     }
+
+
+def _focused_node_ids(nodes: list[dict[str, Any]], node_rank: dict[str, int], limit: int) -> set[str]:
+    if len(nodes) <= limit:
+        return {node["id"] for node in nodes}
+    per_kind_limits = {
+        "session": 1,
+        "budget": 1,
+        "decision": 2,
+        "agent": 40,
+        "task": 50,
+        "thread": 18,
+        "mailbox": 34,
+        "message": 28,
+        "artifact": 18,
+        "memory": 18,
+    }
+    by_kind: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for node in nodes:
+        by_kind[str(node.get("kind") or "other")].append(node)
+    selected: set[str] = set()
+    for kind, items in by_kind.items():
+        kind_limit = per_kind_limits.get(kind, 10)
+        ordered = sorted(items, key=lambda node: node_rank.get(node["id"], 1000))
+        selected.update(node["id"] for node in ordered[:kind_limit])
+    if len(selected) > limit:
+        ordered_selected = sorted((node for node in nodes if node["id"] in selected), key=lambda node: node_rank.get(node["id"], 1000))
+        selected = {node["id"] for node in ordered_selected[:limit]}
+    elif len(selected) < limit:
+        for node in sorted(nodes, key=lambda item: node_rank.get(item["id"], 1000)):
+            selected.add(node["id"])
+            if len(selected) >= limit:
+                break
+    return selected
+
+
+def _session_artifacts(session: CoworkSession) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for task in session.tasks.values():
+        for value in _task_artifacts(task):
+            key = (task.id, value)
+            if key in seen:
+                continue
+            seen.add(key)
+            artifacts.append(
+                {
+                    "id": f"artifact:{hashlib.sha1(f'{task.id}:{value}'.encode('utf-8')).hexdigest()[:12]}",
+                    "value": value,
+                    "kind": _artifact_kind(value),
+                    "source_task_id": task.id,
+                    "source_agent_id": task.assigned_agent_id,
+                }
+            )
+    for value in getattr(session, "artifacts", []):
+        text = str(value or "").strip()
+        if not text or any(item["value"] == text for item in artifacts):
+            continue
+        artifacts.append(
+            {
+                "id": f"artifact:{hashlib.sha1(text.encode('utf-8')).hexdigest()[:12]}",
+                "value": text,
+                "kind": _artifact_kind(text),
+                "source_task_id": None,
+                "source_agent_id": None,
+            }
+        )
+    return artifacts
 
 
 def _event_stage(event: CoworkEvent) -> str:
@@ -193,9 +536,9 @@ def _event_action(event: CoworkEvent) -> str:
 
 
 def build_cowork_trace(session: CoworkSession, *, limit: int = 80) -> list[dict[str, Any]]:
-    """Return teacher-style trace cards derived from Cowork events."""
+    """Return timeline trace cards derived from events, spans, and scheduler decisions."""
 
-    trace = []
+    trace: list[dict[str, Any]] = []
     for event in session.events[-limit:]:
         actor_id = event.actor_id or str(event.data.get("agent_id") or "")
         actor = session.agents.get(actor_id)
@@ -222,9 +565,84 @@ def build_cowork_trace(session: CoworkSession, *, limit: int = 80) -> list[dict[
                 "node_id": node_id,
                 "next_node_id": next_node_id,
                 "payload": event.data,
+                "source": "event",
             }
         )
-    return trace
+    for decision in getattr(session, "scheduler_decisions", [])[-limit:]:
+        selected = decision.get("selected_agent_ids", [])
+        reasons = {
+            item.get("agent_id"): item.get("activation_reasons", [])
+            for item in decision.get("candidate_scores", [])
+            if isinstance(item, dict)
+        }
+        trace.append(
+            {
+                "id": decision.get("id"),
+                "type": "scheduler.decision",
+                "stage": "scheduler",
+                "action": "Scheduler selected agents",
+                "detail": decision.get("reason", ""),
+                "actor_id": "scheduler",
+                "actor_name": "Scheduler",
+                "at": decision.get("created_at", ""),
+                "status": "active" if selected else "skipped",
+                "node_id": "session",
+                "next_node_id": f"agent:{selected[0]}" if selected else "",
+                "payload": {
+                    **decision,
+                    "readiness_scores": decision.get("candidate_scores", []),
+                    "activation_reasons": reasons,
+                    "budget_usage": getattr(session, "budget_usage", {}),
+                },
+                "source": "scheduler_decision",
+            }
+        )
+    for span in getattr(session, "trace_spans", [])[-limit:]:
+        payload = dict(getattr(span, "data", {}) or {})
+        stage = getattr(span, "kind", "trace") or "trace"
+        trace.append(
+            {
+                "id": span.id,
+                "type": f"span.{stage}",
+                "stage": stage,
+                "action": span.name,
+                "detail": span.summary or span.output_ref or span.input_ref,
+                "actor_id": span.actor_id,
+                "actor_name": session.agents.get(span.actor_id).name if span.actor_id in session.agents else span.actor_id,
+                "at": span.ended_at or span.started_at,
+                "status": span.status,
+                "node_id": f"agent:{span.actor_id}" if span.actor_id in session.agents else "session",
+                "next_node_id": f"task:{payload.get('task_id')}" if payload.get("task_id") in session.tasks else "",
+                "payload": {
+                    **payload,
+                    "run_id": span.run_id,
+                    "round_id": span.round_id,
+                    "input_ref": span.input_ref,
+                    "output_ref": span.output_ref,
+                    "error": span.error,
+                },
+                "source": "trace_span",
+            }
+        )
+    if getattr(session, "stop_reason", "") and not any(item.get("payload", {}).get("stop_reason") == session.stop_reason for item in trace):
+        trace.append(
+            {
+                "id": f"stop:{session.id}:{session.stop_reason}",
+                "type": "scheduler.stop",
+                "stage": "scheduler",
+                "action": "Stop reason",
+                "detail": session.stop_reason.replace("_", " "),
+                "actor_id": "scheduler",
+                "actor_name": "Scheduler",
+                "at": session.updated_at,
+                "status": "blocked" if "budget" in session.stop_reason or "blocker" in session.stop_reason else "completed",
+                "node_id": "session",
+                "next_node_id": "",
+                "payload": {"stop_reason": session.stop_reason, "budget_usage": getattr(session, "budget_usage", {})},
+                "source": "derived",
+            }
+        )
+    return sorted(trace, key=lambda item: str(item.get("at") or ""))[-limit:]
 
 
 def build_cowork_task_dag(session: CoworkSession) -> dict[str, Any]:
