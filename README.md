@@ -15,14 +15,16 @@
 
 A lightweight personal AI assistant framework that integrates Large Language Models with multiple chat platforms, tool systems, and automation mechanisms.
 
-## Brand assets
-
-- README logo: [`webui/assets/logo.svg`](webui/assets/logo.svg)
-- Favicon / app mark: [`webui/assets/logo-mark.svg`](webui/assets/logo-mark.svg)
-- Social preview source: [`webui/assets/social-preview.svg`](webui/assets/social-preview.svg)
-- Installer icon source: use `webui/assets/logo.svg` for square app icons, or `webui/assets/logo-mark.svg` for compact launcher icons.
-
 ## Change log
+
+<details>
+<summary>2026.05.13 Evolved Cowork into a graph-driven, blueprint-aware agent swarm control plane.</summary>
+
+Cowork now exposes versioned graph/trace snapshots, reusable JSON blueprints, budget-aware run controls, blocker panels, blueprint validation/preview APIs.
+
+![cowork](./show/webui_cowork_agent_field_v2.PNG)
+
+</details>
 
 <details>
 <summary>2026.05.11 It significantly enhances the performance and presentation effect of cowork.</summary>
@@ -97,7 +99,7 @@ dark mode
 
 ### Agent cowork!
 
-![cowork](./show/webui_cowork_agent_field.PNG)
+![cowork](./show/webui_cowork_agent_field_v2.PNG)
 
 ### 🧠 Agentic DAG Task Scheduling
 

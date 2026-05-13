@@ -17,6 +17,7 @@ from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, IntegerSchema, ObjectSchema, StringSchema, tool_parameters_schema
 from tinybot.agent.tools.shell import ExecTool
 from tinybot.cowork.service import CoworkService
+from tinybot.cowork.blueprint import normalize_blueprint
 from tinybot.cowork.types import CoworkAgent, CoworkSession, now_iso
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.config.schema import ExecToolConfig
@@ -196,7 +197,18 @@ Workspace: {self.workspace}
     tool_parameters_schema(
         action=StringSchema(
             "Internal cowork action",
-            enum=["send_message", "create_thread", "complete_task", "add_task", "assign_task", "claim_task", "update_status"],
+            enum=[
+                "send_message",
+                "create_thread",
+                "complete_task",
+                "add_task",
+                "assign_task",
+                "claim_task",
+                "update_status",
+                "spawn_agent",
+                "spawn_subteam",
+                "retire_agent",
+            ],
         ),
         recipient_ids=ArraySchema(StringSchema("Agent id"), description="Message recipients"),
         content=StringSchema("Message content or task result"),
@@ -220,6 +232,14 @@ Workspace: {self.workspace}
         expected_output_schema=ObjectSchema(description="Expected JSON-like output shape for the reply"),
         blocking_task_id=StringSchema("Task id blocked by this request"),
         escalate_after_rounds=IntegerSchema(description="Ask the lead to intervene after this many rounds", minimum=1, maximum=20),
+        role=StringSchema("Role for a spawned agent or subteam member"),
+        goal=StringSchema("Goal for a spawned agent or subteam"),
+        responsibilities=ArraySchema(StringSchema("Responsibility"), description="Spawned agent responsibilities"),
+        tools=ArraySchema(StringSchema("Tool name"), description="Spawned agent tool allowlist"),
+        subscriptions=ArraySchema(StringSchema("Topic"), description="Spawned agent subscriptions"),
+        agents=ArraySchema(ObjectSchema(description="Subteam agent spec"), description="Subteam agent specs"),
+        tasks=ArraySchema(ObjectSchema(description="Subteam task spec"), description="Subteam fanout tasks"),
+        team_id=StringSchema("Subteam id"),
         required=["action"],
     )
 )
@@ -268,6 +288,14 @@ class CoworkInternalTool(Tool):
         expected_output_schema: dict[str, Any] | None = None,
         blocking_task_id: str = "",
         escalate_after_rounds: int | None = None,
+        role: str = "",
+        goal: str = "",
+        responsibilities: list[str] | None = None,
+        tools: list[str] | None = None,
+        subscriptions: list[str] | None = None,
+        agents: list[dict[str, Any]] | None = None,
+        tasks: list[dict[str, Any]] | None = None,
+        team_id: str = "",
         **kwargs: Any,
     ) -> str:
         session = self.service.get_session(self.session_id)
@@ -348,6 +376,44 @@ class CoworkInternalTool(Tool):
             )
             return f"Added task {task.id}: {task.title}"
 
+        if action == "spawn_agent":
+            if not role.strip():
+                return "Error: role is required"
+            spawned = self.service.spawn_agent(
+                session,
+                parent_agent_id=self.sender_id,
+                role=role,
+                goal=goal or content or session.goal,
+                responsibilities=responsibilities or [],
+                tools=tools or ["cowork_internal"],
+                subscriptions=subscriptions or [],
+                reason=content or kwargs.get("reason", ""),
+                source_event_id=caused_by_envelope_id or reply_to_envelope_id,
+                team_id=team_id,
+            )
+            if isinstance(spawned, str):
+                return spawned
+            return f"Spawned agent {spawned.id}: {spawned.name}"
+
+        if action == "spawn_subteam":
+            if not agents:
+                return "Error: agents are required"
+            spawned = self.service.spawn_subteam(
+                session,
+                parent_agent_id=self.sender_id,
+                team_id=team_id or title or "subteam",
+                agents=agents,
+                tasks=tasks or [],
+                reason=content or kwargs.get("reason", ""),
+            )
+            if isinstance(spawned, str):
+                return spawned
+            return f"Spawned subteam {spawned['team_id']} with {len(spawned['agent_ids'])} agent(s)."
+
+        if action == "retire_agent":
+            target_id = assigned_agent_id or kwargs.get("agent_id") or self.sender_id
+            return self.service.retire_agent(session, str(target_id), reason=content or kwargs.get("reason", ""))
+
         if action == "update_status":
             agent = session.agents[self.sender_id]
             if status in {"idle", "working", "waiting", "blocked", "done", "failed"}:
@@ -384,7 +450,21 @@ class CoworkInternalTool(Tool):
     tool_parameters_schema(
         action=StringSchema(
             "Cowork action",
-            enum=["start", "status", "list", "send_message", "add_task", "assign_task", "run", "pause", "resume", "summary"],
+            enum=[
+                "start",
+                "status",
+                "list",
+                "send_message",
+                "add_task",
+                "assign_task",
+                "run",
+                "pause",
+                "resume",
+                "summary",
+                "validate_blueprint",
+                "preview_blueprint",
+                "export_blueprint",
+            ],
         ),
         goal=StringSchema("Goal for a new cowork session"),
         workflow_mode=StringSchema(
@@ -402,10 +482,13 @@ class CoworkInternalTool(Tool):
         assigned_agent_id=StringSchema("Agent id"),
         dependencies=ArraySchema(StringSchema("Task id"), description="Task dependencies"),
         max_rounds=IntegerSchema(description="Maximum scheduling rounds", minimum=1, maximum=20),
-        max_agents=IntegerSchema(description="Maximum agents to run per round", minimum=1, maximum=10),
+        max_agents=IntegerSchema(description="Maximum agents to run per round", minimum=1, maximum=50),
+        max_agent_calls=IntegerSchema(description="Maximum agent calls for this run", minimum=1, maximum=500),
+        run_until_idle=BooleanSchema(description="Continue until idle, completion, blocker, convergence, or budget stop", default=False),
+        stop_on_blocker=BooleanSchema(description="Stop as soon as unresolved blockers are visible", default=False),
         auto_run=BooleanSchema(description="Run one cowork round immediately after start", default=False),
         verbose=BooleanSchema(description="Show detailed status", default=False),
-        extra_properties={"description": StringSchema("Task description")},
+        extra_properties={"description": StringSchema("Task description"), "blueprint": ObjectSchema(description="Cowork blueprint payload")},
         required=["action"],
     )
 )
@@ -463,25 +546,70 @@ class CoworkTool(Tool):
         dependencies: list[str] | None = None,
         max_rounds: int = 1,
         max_agents: int = 3,
+        max_agent_calls: int | None = None,
+        run_until_idle: bool = False,
+        stop_on_blocker: bool = False,
         auto_run: bool = False,
         verbose: bool = False,
+        blueprint: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> str:
+        if action == "validate_blueprint":
+            result = self.service.validate_blueprint(blueprint or kwargs)
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
+        if action == "preview_blueprint":
+            result = self.service.preview_blueprint(blueprint or kwargs)
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
         if action == "start":
+            if blueprint:
+                session, diagnostics = self.service.create_session_from_blueprint(blueprint)
+                if session is None:
+                    return "Error: blueprint validation failed\n" + json.dumps(diagnostics, ensure_ascii=False, indent=2)
+                response = f"Cowork session started from blueprint: {session.id}\n\n{self.service.format_status(session, verbose=True)}"
+                if auto_run:
+                    run_result = await self._run_session(
+                        session,
+                        max_rounds=max_rounds,
+                        max_agents=max_agents,
+                        max_agent_calls=max_agent_calls,
+                        run_until_idle=run_until_idle,
+                        stop_on_blocker=stop_on_blocker,
+                    )
+                    response += f"\n\n## Run Result\n{run_result}"
+                return response
             if not goal.strip():
                 return "Error: goal is required for cowork start"
             planned_title, agents, tasks = await self.planner.plan(goal)
             tasks = CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
+            generated_blueprint = normalize_blueprint(
+                {
+                    "goal": goal,
+                    "title": planned_title,
+                    "workflow_mode": workflow_mode or "hybrid",
+                    "agents": agents,
+                    "tasks": tasks,
+                }
+            )
             session = self.service.create_session(
                 goal=goal,
                 title=planned_title,
                 agents=agents,
                 tasks=tasks,
                 workflow_mode=workflow_mode or "hybrid",
+                blueprint=generated_blueprint,
             )
             response = f"Cowork session started: {session.id}\n\n{self.service.format_status(session, verbose=True)}"
             if auto_run:
-                run_result = await self._run_session(session, max_rounds=max_rounds, max_agents=max_agents)
+                run_result = await self._run_session(
+                    session,
+                    max_rounds=max_rounds,
+                    max_agents=max_agents,
+                    max_agent_calls=max_agent_calls,
+                    run_until_idle=run_until_idle,
+                    stop_on_blocker=stop_on_blocker,
+                )
                 response += f"\n\n## Run Result\n{run_result}"
             return response
 
@@ -500,6 +628,9 @@ class CoworkTool(Tool):
 
         if action == "summary":
             return self._format_summary(session)
+
+        if action == "export_blueprint":
+            return json.dumps(self.service.export_blueprint(session), ensure_ascii=False, indent=2)
 
         if action == "pause":
             if session.status == "completed":
@@ -552,7 +683,14 @@ class CoworkTool(Tool):
             return self.service.assign_task(session, task_id, assigned_agent_id)
 
         if action == "run":
-            return await self._run_session(session, max_rounds=max_rounds, max_agents=max_agents)
+            return await self._run_session(
+                session,
+                max_rounds=max_rounds,
+                max_agents=max_agents,
+                max_agent_calls=max_agent_calls,
+                run_until_idle=run_until_idle,
+                stop_on_blocker=stop_on_blocker,
+            )
 
         return f"Error: unknown action '{action}'"
 
@@ -564,50 +702,158 @@ class CoworkTool(Tool):
             return f"Error: cowork session '{session_id}' not found"
         return session
 
-    async def _run_session(self, session: CoworkSession, *, max_rounds: int, max_agents: int) -> str:
+    async def _run_session(
+        self,
+        session: CoworkSession,
+        *,
+        max_rounds: int,
+        max_agents: int,
+        max_agent_calls: int | None = None,
+        run_until_idle: bool = False,
+        stop_on_blocker: bool = False,
+    ) -> str:
         if session.status == "paused":
+            self.service.record_stop_reason(session, "paused", f"Session {session.id} is paused.", save=True)
             return f"Session {session.id} is paused."
         if session.status == "completed":
+            self.service.record_stop_reason(session, "completed", f"Session {session.id} is already completed.", save=True)
             return f"Session {session.id} is already completed."
 
-        round_limit = min(max(1, int(max_rounds or 1)), 20)
-        agent_limit = min(max(1, int(max_agents or 1)), 10)
+        budget_state = self.service.ensure_session_budget(session)
+        limits = budget_state["limits"]
+        default_round_limit = int(limits.get("max_rounds_per_run") or 20)
+        round_limit = min(max(1, int(max_rounds or default_round_limit)), default_round_limit)
+        if run_until_idle:
+            round_limit = default_round_limit
+        budget_parallel_width = int(limits.get("parallel_width") or 3)
+        agent_limit = min(max(1, int(max_agents or budget_parallel_width)), max(1, budget_parallel_width))
+        run_agent_call_limit = int(max_agent_calls or limits.get("max_agent_calls_per_run") or _MAX_RUN_AGENT_CALLS)
+        run_id = self.service._new_id("run")
+        run_span = self.service.start_trace_span(
+            session,
+            kind="scheduler",
+            name="Cowork run",
+            run_id=run_id,
+            actor_id="scheduler",
+            input_ref=f"max_rounds={round_limit}, max_agents={agent_limit}, max_agent_calls={run_agent_call_limit}",
+            summary=f"Run Cowork session with up to {round_limit} rounds, {agent_limit} agents per round, and {run_agent_call_limit} agent calls",
+            data={"run_until_idle": run_until_idle, "stop_on_blocker": stop_on_blocker, "budget": budget_state},
+        )
+        self.service.start_run_metrics(session, run_id)
         agent_calls = 0
         consecutive_runs: dict[str, int] = {}
         synthesis_ran = False
         lines = []
+        completed_rounds = 0
         for round_index in range(round_limit):
+            round_id = f"{run_id}:round:{round_index + 1}"
             profile = self.service.workflow_profile(session.workflow_mode)
             effective_agent_limit = 1 if profile in {"orchestrator", "generator_verifier", "peer_handoff"} else agent_limit
             before_signature = self.service.progress_signature(session)
+            if stop_on_blocker:
+                blocker_decision = self.service.assess_session(session, save=False)
+                if blocker_decision.get("blocked") or blocker_decision.get("review_blockers") or blocker_decision.get("fanout_blockers"):
+                    lines.append(f"Round {round_index + 1}: stopped on blocker.")
+                    self.service.record_stop_reason(
+                        session,
+                        "blocker",
+                        "Cowork scheduler stopped because blockers are visible",
+                        run_id=run_id,
+                        round_id=round_id,
+                        parent_id=run_span.id,
+                        data={"decision": blocker_decision},
+                    )
+                    break
+            exhausted = self.service.budget_exhaustion_reason(
+                session,
+                run_agent_calls=agent_calls,
+                run_agent_call_limit=run_agent_call_limit,
+            )
+            if exhausted:
+                lines.append(f"Round {round_index + 1}: {exhausted.replace('_', ' ')}.")
+                self.service.record_stop_reason(
+                    session,
+                    exhausted,
+                    "Cowork scheduler stopped at a configured budget limit",
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
+                    data={"budget": self.service.budget_state(session), "agent_calls": agent_calls},
+                )
+                break
             active = self.service.select_active_agents(session, limit=effective_agent_limit)
             active = self._filter_self_activated_agents(session, active, consecutive_runs)
             if not active:
                 lines.append(f"Round {round_index + 1}: no ready agents.")
-                self.service.add_event(session, "scheduler.idle", "Cowork scheduler stopped because no agents are ready")
+                self.service.record_stop_reason(
+                    session,
+                    "idle",
+                    "Cowork scheduler stopped because no agents are ready",
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
+                )
                 break
-            remaining_calls = _MAX_RUN_AGENT_CALLS - agent_calls
+            remaining_calls = run_agent_call_limit - agent_calls
             if remaining_calls <= 0:
                 lines.append(f"Round {round_index + 1}: agent call budget exhausted.")
-                self.service.add_event(
+                self.service.record_stop_reason(
                     session,
-                    "scheduler.agent_budget_exhausted",
+                    "agent_call_budget_exhausted",
                     "Cowork scheduler stopped at the agent call budget",
-                    data={"max_agent_calls": _MAX_RUN_AGENT_CALLS},
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
+                    data={"max_agent_calls": run_agent_call_limit, "agent_calls": agent_calls},
                 )
                 break
             if len(active) > remaining_calls:
                 active = active[:remaining_calls]
             names = ", ".join(agent.id for agent in active)
             lines.append(f"Round {round_index + 1}: running {names}")
+            candidate_scores = self.service.agent_readiness_scores(session)
+            self.service.record_scheduler_decision(
+                session,
+                run_id=run_id,
+                round_id=round_id,
+                selected_agent_ids=[agent.id for agent in active],
+                candidate_scores=candidate_scores,
+                reason=f"Selected {names} using {profile} readiness scoring",
+                budget_remaining={
+                    "agent_calls": max(0, run_agent_call_limit - agent_calls - len(active)),
+                    "rounds": max(0, round_limit - round_index - 1),
+                    "effective_agent_limit": effective_agent_limit,
+                    "session": self.service.budget_state(session).get("remaining", {}),
+                },
+            )
+            round_span = self.service.start_trace_span(
+                session,
+                kind="scheduler",
+                name=f"Scheduler round {round_index + 1}",
+                run_id=run_id,
+                round_id=round_id,
+                parent_id=run_span.id,
+                actor_id="scheduler",
+                input_ref=names,
+                summary=f"Running {names}",
+                data={"agent_ids": [agent.id for agent in active], "profile": profile, "candidate_scores": candidate_scores},
+            )
             self.service.add_event(
                 session,
                 "scheduler.round",
                 f"Cowork scheduler running round {round_index + 1} with {names}",
                 data={"round": round_index + 1, "agent_ids": [agent.id for agent in active]},
             )
-            await asyncio.gather(*(self._run_agent(session, agent) for agent in active))
+            await asyncio.gather(*(self._run_agent(session, agent, run_id=run_id, round_id=round_id, parent_span_id=round_span.id) for agent in active))
+            self.service.finish_trace_span(
+                session,
+                round_span,
+                output_ref=f"Ran {len(active)} agent(s)",
+                summary=f"Round {round_index + 1} finished",
+            )
             agent_calls += len(active)
+            completed_rounds += 1
+            self.service.record_budget_usage(session, rounds=1, agent_calls=len(active), save=False)
             for agent in active:
                 consecutive_runs[agent.id] = consecutive_runs.get(agent.id, 0) + 1
             for agent_id in list(consecutive_runs):
@@ -618,40 +864,87 @@ class CoworkTool(Tool):
             decision = self.service.assess_session(session)
             if self.service.convergence_reached(session):
                 lines.append(f"Session stopped after {session.no_progress_rounds} no-progress rounds.")
-                self.service.add_event(
+                self.service.record_stop_reason(
                     session,
-                    "scheduler.converged",
+                    "convergence",
                     "Cowork scheduler stopped because recent rounds produced no new tracked progress",
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
                     data={"no_progress_rounds": session.no_progress_rounds},
                 )
                 break
             if (
                 not synthesis_ran
-                and agent_calls < _MAX_RUN_AGENT_CALLS
+                and agent_calls < run_agent_call_limit
                 and self._lead_ready_to_synthesize_replies(session)
             ):
                 await self._run_lead_synthesis(session, lines, round_index + 2)
                 agent_calls += 1
+                self.service.record_budget_usage(session, agent_calls=1, save=False)
                 synthesis_ran = True
                 session = self.service.get_session(session.id) or session
                 decision = self.service.assess_session(session)
             if session.status == "completed":
                 lines.append("Session completed.")
+                self.service.record_stop_reason(
+                    session,
+                    "completed",
+                    "Cowork scheduler stopped because the session completed",
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
+                )
                 break
             if decision.get("ready_to_finish") and not self.service.select_active_agents(session, limit=1):
                 lines.append("Session is ready for summary.")
+                self.service.record_stop_reason(
+                    session,
+                    "ready_to_finish",
+                    "Cowork scheduler stopped because the session is ready for summary",
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
+                )
+                break
+            if not run_until_idle and completed_rounds >= round_limit:
+                self.service.record_stop_reason(
+                    session,
+                    "max_rounds",
+                    "Cowork scheduler stopped at the requested round limit",
+                    run_id=run_id,
+                    round_id=round_id,
+                    parent_id=run_span.id,
+                )
                 break
         else:
             session = self.service.get_session(session.id) or session
             if (
                 not synthesis_ran
-                and agent_calls < _MAX_RUN_AGENT_CALLS
+                and agent_calls < run_agent_call_limit
                 and self._lead_ready_to_synthesize_replies(session)
             ):
                 await self._run_lead_synthesis(session, lines, round_limit + 1)
+                self.service.record_budget_usage(session, agent_calls=1, save=False)
             else:
-                self.service.add_event(session, "scheduler.budget_exhausted", "Cowork scheduler stopped at the run budget")
+                self.service.record_stop_reason(
+                    session,
+                    "max_rounds",
+                    "Cowork scheduler stopped at the run budget",
+                    run_id=run_id,
+                    parent_id=run_span.id,
+                )
         self.service.assess_session(session)
+        run_status = "completed" if session.status == "completed" else "stopped"
+        self.service.finish_run_metrics(session, run_id, status=run_status, rounds=completed_rounds, agent_calls=agent_calls)
+        self.service.finish_trace_span(
+            session,
+            run_span,
+            status=run_status,
+            output_ref=f"rounds={completed_rounds}, agent_calls={agent_calls}",
+            summary=f"Cowork run {run_status}",
+            save=True,
+        )
         lines.append("")
         lines.append(self.service.format_status(session, verbose=False))
         return "\n".join(lines)
@@ -794,7 +1087,15 @@ class CoworkTool(Tool):
             return text[start : end + 1]
         return ""
 
-    async def _run_agent(self, session: CoworkSession, agent: CoworkAgent) -> None:
+    async def _run_agent(
+        self,
+        session: CoworkSession,
+        agent: CoworkAgent,
+        *,
+        run_id: str | None = None,
+        round_id: str | None = None,
+        parent_span_id: str | None = None,
+    ) -> None:
         fresh = self.service.get_session(session.id)
         if fresh:
             session = fresh
@@ -815,6 +1116,22 @@ class CoworkTool(Tool):
             agent.current_task_title = None
         agent.status = "working"
         self.service.add_event(session, "agent.started", f"{agent.name} started a cowork round", actor_id=agent.id)
+        agent_span = self.service.start_trace_span(
+            session,
+            kind="agent",
+            name=f"Run {agent.name}",
+            run_id=run_id,
+            round_id=round_id,
+            parent_id=parent_span_id,
+            actor_id=agent.id,
+            input_ref=task.title if task else "inbox",
+            summary=f"{agent.name} started",
+            data={
+                "agent_id": agent.id,
+                "task_id": getattr(task, "id", None),
+                "unread_message_ids": [message.id for message in unread],
+            },
+        )
 
         tools = self._build_agent_tools(session.id, agent)
         messages = [
@@ -848,8 +1165,23 @@ class CoworkTool(Tool):
                     save=False,
                 )
             self._apply_agent_progress(session, agent, progress, unread, previous_message_ids)
+            self.service.finish_trace_span(
+                session,
+                agent_span,
+                status="completed" if progress.get("status") != "failed" else "failed",
+                output_ref=progress.get("public_note") or progress.get("private_note") or content,
+                summary=f"{agent.name} finished with action {progress.get('action') or 'continue'}",
+                data={"progress": progress},
+            )
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
+            self.service.finish_trace_span(
+                session,
+                agent_span,
+                status="failed",
+                summary=f"{agent.name} failed",
+                error=str(exc),
+            )
             self.service.fail_agent_run(session, agent.id, str(exc))
 
     def _apply_agent_progress(
@@ -1356,6 +1688,7 @@ requests: optional list of mailbox messages, each with recipient_ids, content, v
 completed_task_ids: optional list of task ids you completed
 completed_task_results: optional list of structured task results with task_id, answer, findings, risks, open_questions, artifacts, confidence from 0 to 1
 new_task_suggestions: optional list of task objects with title, description, assigned_agent_id, dependencies
+Use cowork_internal spawn_agent or spawn_subteam only when the session budget allows it and a bounded specialist or fanout group is necessary; include role, goal, responsibilities, tools, subscriptions, and reason.
 """
 
     @staticmethod
@@ -1444,7 +1777,8 @@ Expected behavior:
 11. If you are the lead and teammate replies are in your inbox, synthesize those replies into a user-facing public_note instead of asking for more work.
 12. In message_bus mode, include topic/event_type/lineage_id when publishing event-like requests.
 13. In shared_state mode, put durable findings, risks, open questions, decisions, and artifacts in completed_task_results.
-14. End with the structured JSON progress object described in your system instructions.
+14. Request dynamic agents or subteams only for bounded specialist work that cannot be handled by the current team.
+15. End with the structured JSON progress object described in your system instructions.
 """
 
     @staticmethod

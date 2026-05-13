@@ -41,11 +41,13 @@ def test_create_session_persists_agents_threads_and_lead_inbox(temp_workspace):
     assert len(session.threads) == 1
     assert session.agents["planner"].inbox
     assert session.agents["budget"].inbox == []
+    assert any(span.kind == "session" and span.name == "Session created" for span in session.trace_spans)
 
     reloaded = CoworkService(temp_workspace).get_session(session.id)
     assert reloaded is not None
     assert reloaded.goal == "Plan a research trip"
     assert reloaded.tasks["1"].assigned_agent_id == "planner"
+    assert reloaded.trace_spans[0].kind == "session"
 
 
 def test_send_message_and_mark_read(temp_workspace):
@@ -101,6 +103,37 @@ def test_complete_task_updates_session_state(temp_workspace):
     assert session.tasks[task_id].status == "completed"
     assert session.status in {"active", "completed"}
     assert any(event.type == "task.completed" for event in session.events)
+    assert any(span.kind == "task" and span.name == "Task completed" for span in session.trace_spans)
+
+
+def test_retry_task_queues_failed_task(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Retry work", "Retry", [], [])
+    task_id = next(iter(session.tasks))
+    service.complete_task(session, task_id, "failed once", status="failed")
+
+    result = service.retry_task(session, task_id)
+
+    assert "queued for retry" in result
+    assert session.tasks[task_id].status == "pending"
+    assert session.tasks[task_id].error is None
+    assert any(event.type == "task.retried" for event in session.events)
+    assert any(span.kind == "task" and span.name == "Task retried" for span in session.trace_spans)
+
+
+def test_request_task_review_creates_review_task(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Review work", "Review", [], [])
+    task_id = next(iter(session.tasks))
+    service.complete_task(session, task_id, "answer")
+
+    review_task = service.request_task_review(session, task_id)
+
+    assert not isinstance(review_task, str)
+    assert review_task.dependencies == [task_id]
+    assert review_task.assigned_agent_id in session.agents
+    assert any(event.type == "task.review_requested" for event in session.events)
+    assert any(span.kind == "review" and span.name == "Review requested" for span in session.trace_spans)
 
 
 def test_complete_task_extracts_structured_result_and_shared_memory(temp_workspace):

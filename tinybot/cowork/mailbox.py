@@ -143,6 +143,35 @@ class CoworkMailbox:
             },
             save=save,
         )
+        self.service.add_trace_event(
+            session,
+            kind="mailbox",
+            name="Mailbox delivered",
+            actor_id=envelope.sender_id,
+            status=record.status,
+            input_ref=envelope.content,
+            output_ref=message.id,
+            summary=f"{record.sender_id} -> {', '.join(recipients)}",
+            data={
+                "envelope_id": record.id,
+                "message_id": message.id,
+                "thread_id": message.thread_id,
+                "visibility": envelope.visibility,
+                "kind": envelope.kind,
+                "topic": record.topic,
+                "event_type": record.event_type,
+                "request_type": record.request_type,
+                "recipients": recipients,
+                "requires_reply": record.requires_reply,
+                "priority": record.priority,
+                "deadline_round": record.deadline_round,
+                "correlation_id": record.correlation_id,
+                "lineage_id": record.lineage_id,
+                "caused_by_envelope_id": record.caused_by_envelope_id,
+                "blocking_task_id": record.blocking_task_id,
+            },
+            save=save,
+        )
         self.service.assess_session(session, save=save)
         return message
 

@@ -15,6 +15,11 @@ import { t, getLanguage, setLanguage } from '../i18n/index.js';
 // and DOM assumptions heavily. Future refactors can move each section into
 // src/features/* and src/components/* with focused tests.
 
+const COWORK_DEFAULT_RUN_ROUNDS = 20;
+const COWORK_DEFAULT_RUN_AGENTS = 3;
+const COWORK_DEFAULT_RUN_AGENT_CALLS = 30;
+const COWORK_NODE_CLICK_MOVE_THRESHOLD = 4;
+
 function setStatus(text, kind = "idle") {
   if (!elements.connectionStatus) {
     return;
@@ -1639,10 +1644,230 @@ function coworkEmpty(text) {
   return empty;
 }
 
-function coworkNumberInput(element, fallback, min, max) {
-  const value = Number.parseInt(element?.value || "", 10);
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(Math.max(value, min), max);
+function coworkArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function coworkSafeSession(session) {
+  if (!session) return null;
+  return {
+    ...session,
+    agents: coworkArray(session.agents),
+    tasks: coworkArray(session.tasks),
+    threads: coworkArray(session.threads),
+    messages: coworkArray(session.messages),
+    mailbox: coworkArray(session.mailbox),
+    events: coworkArray(session.events),
+    trace: coworkArray(session.trace),
+    trace_spans: coworkArray(session.trace_spans),
+    artifact_index: coworkArray(session.artifact_index),
+    artifacts: coworkArray(session.artifacts),
+    scheduler_decisions: coworkArray(session.scheduler_decisions),
+    run_metrics: coworkArray(session.run_metrics),
+    completion_decision: session.completion_decision || {},
+    budget_state: session.budget_state || session.budget || { limits: {}, usage: {}, remaining: {} },
+    graph: session.graph || null,
+    blueprint: session.blueprint || null,
+  };
+}
+
+function coworkPayloadText(payload, max = 1800) {
+  if (!payload || (typeof payload === "object" && !Object.keys(payload).length)) return "";
+  try {
+    return compactText(JSON.stringify(payload, null, 2), max);
+  } catch {
+    return compactText(String(payload), max);
+  }
+}
+
+function coworkStatusTone(status = "") {
+  const value = String(status || "").toLowerCase();
+  if (["ok", "done", "complete", "completed", "replied", "success"].includes(value)) return "done";
+  if (["failed", "error", "blocked", "expired", "issue"].includes(value)) return "issue";
+  if (["running", "active", "in_progress", "delivered", "read"].includes(value)) return "running";
+  if (["paused", "pending", "queued", "idle", "skipped"].includes(value)) return "pending";
+  return value || "event";
+}
+
+function coworkTraceStage(trace) {
+  const stage = String(trace?.stage || trace?.kind || "").toLowerCase();
+  const type = String(trace?.type || "").toLowerCase();
+  if (stage) return stage;
+  if (type.includes("scheduler")) return "scheduler";
+  if (type.includes("agent")) return "agent";
+  if (type.includes("task")) return "task";
+  if (type.includes("mailbox") || type.includes("thread")) return "mailbox";
+  if (type.includes("review")) return "review";
+  if (type.includes("workflow")) return "workflow";
+  return "event";
+}
+
+function coworkTraceAction(trace) {
+  return String(trace?.action || trace?.name || trace?.title || trace?.type || "Trace event").replaceAll("_", " ");
+}
+
+function coworkTraceTarget(trace) {
+  if (trace?.next_node_id) return String(trace.next_node_id).replace(/^agent:/, "").replace(/^task:/, "task ");
+  if (trace?.payload?.task_id) return `task ${trace.payload.task_id}`;
+  if (trace?.payload?.assigned_agent_id) return trace.payload.assigned_agent_id;
+  if (trace?.actor_name) return trace.actor_name;
+  if (trace?.actor_id) return trace.actor_id;
+  return "";
+}
+
+function coworkTraceActor(trace) {
+  const stage = coworkTraceStage(trace);
+  const actorName = String(trace?.actor_name || trace?.actor_id || "").trim();
+  if (actorName) {
+    return {
+      key: `${stage}:${actorName}`,
+      label: actorName,
+      subtitle: stage === "agent" ? "Agent Trace Card" : `${stage.replaceAll("_", " ")} Trace Card`,
+      kind: stage,
+    };
+  }
+  if (stage === "scheduler") return { key: "scheduler", label: "Scheduler", subtitle: "Scheduler Trace Card", kind: "scheduler" };
+  if (stage === "workflow") return { key: "workflow", label: "Workflow", subtitle: "Workflow Trace Card", kind: "workflow" };
+  if (stage === "task") return { key: "task-runtime", label: "Task Runtime", subtitle: "Task Trace Card", kind: "task" };
+  if (stage === "mailbox") return { key: "mailbox-runtime", label: "Mailbox", subtitle: "Mailbox Trace Card", kind: "mailbox" };
+  return { key: "system-runtime", label: "System Entry", subtitle: "System Trace Card", kind: "system" };
+}
+
+function coworkTraceItems(session) {
+  const safe = coworkSafeSession(session);
+  if (!safe) return [];
+  if (safe.trace.length) return safe.trace;
+  const spanItems = safe.trace_spans.map((span) => ({
+    id: span.id,
+    type: `span.${span.kind || "trace"}`,
+    stage: span.kind || "trace",
+    action: span.name || span.kind || "Trace span",
+    detail: span.summary || span.error || span.output_ref || span.input_ref || "",
+    actor_id: span.actor_id || "",
+    actor_name: span.actor_id || "",
+    at: span.ended_at || span.started_at || "",
+    status: span.status || "active",
+    payload: span.data || {},
+    source: "trace_span",
+  }));
+  const eventItems = safe.events.map((event) => ({
+    id: event.id,
+    type: event.type || "event",
+    stage: String(event.type || "").split(".")[0] || "event",
+    action: coworkTimelineStatusLabel(event.type),
+    detail: event.message || "",
+    actor_id: event.actor_id || event.data?.agent_id || "",
+    actor_name: event.actor_id || event.data?.agent_id || "",
+    at: event.created_at || "",
+    status: event.data?.status || String(event.type || "").split(".").pop() || "event",
+    payload: event.data || {},
+    source: "event",
+  }));
+  return [...eventItems, ...spanItems]
+    .sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")))
+    .slice(-100);
+}
+
+function coworkTraceViewModel(session) {
+  const filter = state.coworkTraceFilter || "all";
+  const mode = state.coworkTraceMode || "key";
+  const items = coworkTraceItems(session)
+    .filter((trace) => {
+      const stage = coworkTraceStage(trace);
+      const status = String(trace.status || "").toLowerCase();
+      return filter === "all" || stage === filter || (filter === "error" && ["failed", "error", "blocked"].includes(status));
+    })
+    .map((trace, index) => ({
+      id: trace.id || `${trace.type || "trace"}:${trace.at || index}:${index}`,
+      action: coworkTraceAction(trace),
+      detail: String(trace.detail || trace.summary || trace.message || "").trim(),
+      target: coworkTraceTarget(trace),
+      stage: coworkTraceStage(trace),
+      status: coworkStatusTone(trace.status || trace.type),
+      at: trace.at || trace.created_at || trace.started_at || "",
+      payloadText: coworkPayloadText(trace.payload || trace.data || {}),
+      raw: trace,
+    }));
+  const groups = [];
+  for (const item of items) {
+    const actor = coworkTraceActor(item.raw);
+    const last = groups[groups.length - 1];
+    if (last && last.key === actor.key && mode === "key") {
+      last.steps.push(item);
+      continue;
+    }
+    groups.push({ ...actor, steps: [item] });
+  }
+  return { mode, filter, items, groups };
+}
+
+function coworkConversationViewModel(session) {
+  const safe = coworkSafeSession(session);
+  if (!safe) return { items: [], finalDraft: "", blockers: [] };
+  const agentsById = new Map(safe.agents.map((agent) => [agent.id, agent]));
+  const threadsById = new Map(safe.threads.map((thread) => [thread.id, thread]));
+  const messages = safe.messages.map((message, index) => {
+    const sender = agentsById.get(message.sender_id);
+    const thread = threadsById.get(message.thread_id);
+    return {
+      id: message.id || message.message_id || `message:${index}`,
+      kind: "message",
+      role: message.sender_id === "user" ? "user" : "agent",
+      avatar: (sender?.name || message.sender_id || "?").slice(0, 1).toUpperCase(),
+      title: sender ? `${sender.name} / ${sender.role || "Agent"}` : message.sender_id || "sender",
+      meta: [thread?.topic || "Discussion", message.created_at || ""].filter(Boolean).join(" - "),
+      body: message.content || "",
+      at: message.created_at || "",
+    };
+  });
+  const statusEvents = coworkTraceItems(safe)
+    .filter((trace) => ["scheduler", "workflow", "task"].includes(coworkTraceStage(trace)))
+    .slice(-18)
+    .map((trace, index) => ({
+      id: trace.id || `status:${index}`,
+      kind: "status",
+      status: coworkStatusTone(trace.status || trace.type),
+      title: coworkTraceAction(trace),
+      body: String(trace.detail || "").trim(),
+      meta: [coworkTraceStage(trace), trace.at || ""].filter(Boolean).join(" - "),
+      at: trace.at || "",
+    }));
+  const blockers = [
+    ...(safe.completion_decision.blocked || []),
+    ...(safe.completion_decision.review_blockers || []),
+    ...(safe.completion_decision.fanout_blockers || []),
+    ...(safe.completion_decision.disagreements || []),
+  ];
+  const items = [...messages, ...statusEvents]
+    .sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")))
+    .slice(-90);
+  return {
+    items,
+    finalDraft: String(safe.final_draft || "").trim(),
+    completionDecision: safe.completion_decision,
+    blockers,
+  };
+}
+
+function coworkGraphViewModel(session) {
+  const safe = coworkSafeSession(session);
+  const graph = coworkGraphNodes(safe);
+  const stats = safe?.graph?.stats || {};
+  const activeNodeId = state.activeCoworkGraphNode || graph.nodes[0]?.id || "session";
+  const selectedNode = graph.nodes.find((node) => node.id === activeNodeId) || graph.nodes[0] || null;
+  return {
+    nodes: graph.nodes,
+    edges: graph.edges,
+    activeNodeId,
+    selectedNode,
+    stats,
+    hiddenCounts: {
+      nodes: stats.hidden_nodes || stats.hidden || 0,
+      edges: stats.hidden_edges || 0,
+      agents: Math.max(0, (stats.total_agents || safe?.agents?.length || 0) - (stats.agents || safe?.agents?.length || 0)),
+      tasks: Math.max(0, (stats.total_tasks || safe?.tasks?.length || 0) - (stats.tasks || safe?.tasks?.length || 0)),
+    },
+  };
 }
 
 function coworkAgentMailboxState(session, agentId) {
@@ -1728,6 +1953,110 @@ function coworkMailboxRoute(record, fallbackRecipient = "team") {
   return `${record?.sender_id || "sender"} -> ${(record?.recipient_ids || []).join(", ") || fallbackRecipient}`;
 }
 
+function coworkFieldFlowItem({ label, title, body = "", meta = "", status = "active" }) {
+  const item = document.createElement("article");
+  item.className = "cowork-field-flow-item";
+  item.innerHTML = `
+    <span></span>
+    <div>
+      <strong></strong>
+      <p></p>
+      <small></small>
+    </div>
+  `;
+  item.querySelector("span").className = coworkStatusClass(status);
+  item.querySelector("span").textContent = label;
+  item.querySelector("strong").textContent = title;
+  item.querySelector("p").textContent = body;
+  item.querySelector("small").textContent = meta;
+  return item;
+}
+
+function renderCoworkFieldOverlay(session) {
+  if (!elements.coworkFieldOverlay) return;
+  const overlay = elements.coworkFieldOverlay;
+  overlay.textContent = "";
+  if (!session) {
+    overlay.append(coworkEmpty("Agent field is waiting for a session."));
+    return;
+  }
+  const agents = session.agents || [];
+  const tasks = session.tasks || [];
+  const spans = session.trace_spans || [];
+  const mailbox = session.mailbox || [];
+  const latestRun = [...(session.run_metrics || [])].pop();
+  const latestDecision = [...(session.scheduler_decisions || [])].pop();
+  const completed = tasks.filter((task) => task.status === "completed").length;
+  const blocked = tasks.filter((task) => ["failed", "blocked"].includes(String(task.status || ""))).length;
+
+  const status = document.createElement("section");
+  status.className = "cowork-field-overlay-status";
+  const chips = [
+    [`${agents.length}`, "agents"],
+    [`${completed}/${tasks.length}`, "tasks"],
+    [`${spans.length}`, "spans"],
+    [latestRun?.status || session.status || "idle", "run"],
+    [blocked ? `${blocked} blocked` : "clear", "blocks"],
+  ];
+  for (const [value, label] of chips) {
+    const chip = document.createElement("div");
+    chip.className = "cowork-field-status-chip";
+    chip.innerHTML = "<strong></strong><span></span>";
+    chip.querySelector("strong").textContent = value;
+    chip.querySelector("span").textContent = label;
+    status.append(chip);
+  }
+
+  const flows = document.createElement("section");
+  flows.className = "cowork-field-flow";
+  const flowHeader = document.createElement("div");
+  flowHeader.className = "cowork-field-flow-header";
+  flowHeader.innerHTML = "<strong>Live flow</strong><span></span>";
+  flowHeader.querySelector("span").textContent = latestDecision
+    ? compactText(latestDecision.reason || "scheduler decided next work", 80)
+    : "messages, instructions, and status updates";
+  flows.append(flowHeader);
+
+  const messageItems = mailbox
+    .filter((record) => record.sender_id || (record.recipient_ids || []).length)
+    .slice(-4)
+    .map((record) => ({
+      at: record.updated_at || record.created_at || "",
+      node: coworkFieldFlowItem({
+        label: "msg",
+        title: coworkMailboxRoute(record),
+        body: compactText(record.content || "", 96),
+        meta: [record.kind || "mailbox", record.requires_reply ? "reply required" : record.status || "", record.updated_at || record.created_at || ""].filter(Boolean).join(" - "),
+        status: record.requires_reply ? "pending" : record.status || "delivered",
+      }),
+    }));
+  const instructionItems = spans
+    .filter((span) => ["scheduler", "task", "review", "agent", "session"].includes(span.kind))
+    .slice(-5)
+    .map((span) => ({
+      at: span.started_at || span.ended_at || "",
+      node: coworkFieldFlowItem({
+        label: span.kind === "scheduler" ? "cmd" : span.kind,
+        title: span.name || span.kind,
+        body: compactText(span.summary || span.error || "", 96),
+        meta: [span.actor_id ? `actor ${span.actor_id}` : "", span.round_id ? `round ${span.round_id}` : "", span.status || ""].filter(Boolean).join(" - "),
+        status: span.status || "active",
+      }),
+    }));
+  const flowItems = [...messageItems, ...instructionItems]
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    .slice(0, 7);
+  if (!flowItems.length) {
+    flows.append(coworkEmpty("No live flow yet."));
+  } else {
+    for (const item of flowItems) {
+      flows.append(item.node);
+    }
+  }
+
+  overlay.append(status, flows);
+}
+
 function coworkApplyGraphNodePositions(sessionId, nodes) {
   const sessionPositions = state.coworkGraphNodePositions?.get(sessionId || "") || new Map();
   for (const node of nodes) {
@@ -1755,6 +2084,23 @@ function coworkRememberGraphNodePosition(sessionId, nodeId, x, y) {
 function coworkGraphAgentId(nodeId = "") {
   const value = String(nodeId || "");
   return value.startsWith("agent:") ? value.slice("agent:".length) : "";
+}
+
+function selectCoworkGraphNode(session, nodeId, { render = true } = {}) {
+  const { nodes } = coworkGraphNodes(session);
+  const node = nodes.find((item) => item.id === nodeId);
+  if (!node) return;
+  state.activeCoworkGraphNode = node.id;
+  if (node.kind === "agent") {
+    selectCoworkEntity("agent", coworkGraphAgentId(node.id) || node.entity_id || node.id);
+  } else if (node.kind === "task") {
+    selectCoworkEntity("task", String(node.id || "").replace(/^task:/, ""));
+  } else {
+    selectCoworkEntity("node", node.id);
+  }
+  if (render) {
+    renderCoworkGraph(session);
+  }
 }
 
 function ensureCoworkAgentFieldPopover() {
@@ -2099,10 +2445,14 @@ function renderCoworkGraph(session) {
   const { nodes, edges } = coworkGraphNodes(session);
   if (elements.coworkGraphCaption) {
     const stats = session?.graph?.stats;
+    const spans = session?.trace_spans?.length || 0;
+    const mailboxCount = session?.mailbox?.length || 0;
+    const latestDecision = [...(session?.scheduler_decisions || [])].pop();
     elements.coworkGraphCaption.textContent = session
-      ? `${String(session.workflow_mode || "hybrid").replaceAll("_", " ")} - ${stats?.agents || Math.max(0, nodes.length - 1)} focused agents - ${stats?.communications || edges.filter((edge) => edge.kind === "communication").length} communication links`
+      ? `${String(session.workflow_mode || "hybrid").replaceAll("_", " ")} - ${stats?.agents || Math.max(0, nodes.length - 1)} agents - ${mailboxCount} messages - ${spans} instructions${latestDecision?.reason ? ` - ${compactText(latestDecision.reason, 72)}` : ""}`
       : "Start or select a session to see the agent field.";
   }
+  renderCoworkFieldOverlay(session);
   if (!nodes.length) {
     const empty = coworkGraphCreateSvg("text", { x: 600, y: 310, "text-anchor": "middle", class: "cowork-graph-empty-text" });
     empty.textContent = "No cowork session selected";
@@ -2121,6 +2471,35 @@ function renderCoworkGraph(session) {
   const edgeLayer = coworkGraphCreateSvg("g", { class: "cowork-graph-edges" });
   const labelLayer = coworkGraphCreateSvg("g", { class: "cowork-graph-edge-labels" });
   const nodeLayer = coworkGraphCreateSvg("g", { class: "cowork-graph-nodes" });
+  const agentNodes = nodes.filter((node) => node.kind === "agent");
+  if (agentNodes.length >= 2) {
+    const minX = Math.min(...agentNodes.map((node) => node.x)) - 110;
+    const maxX = Math.max(...agentNodes.map((node) => node.x)) + 110;
+    const minY = Math.min(...agentNodes.map((node) => node.y)) - 90;
+    const maxY = Math.max(...agentNodes.map((node) => node.y)) + 100;
+    const peerGroup = coworkGraphCreateSvg("g", { class: "cowork-graph-peer-zone" });
+    const peerRect = coworkGraphCreateSvg("rect", {
+      x: Math.max(44, minX),
+      y: Math.max(44, minY),
+      width: Math.min(1112, maxX) - Math.max(44, minX),
+      height: Math.min(576, maxY) - Math.max(44, minY),
+      rx: 28,
+    });
+    const peerTitle = coworkGraphCreateSvg("text", {
+      x: Math.max(64, minX + 20),
+      y: Math.max(70, minY + 28),
+      class: "cowork-graph-peer-title",
+    });
+    const peerMeta = coworkGraphCreateSvg("text", {
+      x: Math.max(64, minX + 20),
+      y: Math.max(90, minY + 48),
+      class: "cowork-graph-peer-meta",
+    });
+    peerTitle.textContent = "Peer Collaboration Zone";
+    peerMeta.textContent = "Agents coordinate here; handoff and mailbox edges appear as the run evolves.";
+    peerGroup.append(peerRect, peerTitle, peerMeta);
+    viewport.append(peerGroup);
+  }
   for (const [index, edge] of edges.entries()) {
     const from = nodeMap.get(edge.from);
     const to = nodeMap.get(edge.to);
@@ -2230,10 +2609,10 @@ function renderCoworkGraph(session) {
       event.stopPropagation();
       if (state.coworkGraphSuppressClick === node.id) {
         state.coworkGraphSuppressClick = "";
+        state.coworkGraphIgnoreStageClick = false;
         return;
       }
-      state.activeCoworkGraphNode = node.id;
-      renderCoworkGraph(session);
+      selectCoworkGraphNode(session, node.id);
     });
     group.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -2303,11 +2682,14 @@ function setupCoworkGraphInteractions() {
     if (!drag || drag.id !== event.pointerId) return;
     const rect = stage.getBoundingClientRect();
     if (drag.kind === "node") {
+      const pixelDx = event.clientX - drag.x;
+      const pixelDy = event.clientY - drag.y;
+      drag.moved = drag.moved || Math.hypot(pixelDx, pixelDy) > COWORK_NODE_CLICK_MOVE_THRESHOLD;
+      if (!drag.moved) return;
       const dx = ((event.clientX - drag.x) / rect.width) * 1200 / state.coworkGraphView.scale;
       const dy = ((event.clientY - drag.y) / rect.height) * 620 / state.coworkGraphView.scale;
       const nextX = drag.startNodeX + dx;
       const nextY = drag.startNodeY + dy;
-      drag.moved = drag.moved || Math.abs(dx) > 2 || Math.abs(dy) > 2;
       coworkRememberGraphNodePosition(drag.sessionId, drag.nodeId, nextX, nextY);
       renderCoworkGraph(state.activeCoworkSession);
       return;
@@ -2316,9 +2698,17 @@ function setupCoworkGraphInteractions() {
     state.coworkGraphView.y = drag.startY + ((event.clientY - drag.y) / rect.height) * 620;
     renderCoworkGraph(state.activeCoworkSession);
   });
-  stage.addEventListener("pointerup", () => {
-    if (state.coworkGraphDrag?.kind === "node" && state.coworkGraphDrag.moved) {
-      state.coworkGraphSuppressClick = state.coworkGraphDrag.nodeId;
+  stage.addEventListener("pointerup", (event) => {
+    const drag = state.coworkGraphDrag;
+    if (drag?.id === event.pointerId && stage.hasPointerCapture?.(event.pointerId)) {
+      stage.releasePointerCapture(event.pointerId);
+    }
+    if (drag?.kind === "node") {
+      state.coworkGraphSuppressClick = drag.nodeId;
+      state.coworkGraphIgnoreStageClick = true;
+      if (!drag.moved) {
+        selectCoworkGraphNode(state.activeCoworkSession, drag.nodeId);
+      }
     }
     state.coworkGraphDrag = null;
   });
@@ -2326,6 +2716,11 @@ function setupCoworkGraphInteractions() {
     state.coworkGraphDrag = null;
   });
   stage.addEventListener("click", (event) => {
+    if (state.coworkGraphIgnoreStageClick) {
+      state.coworkGraphIgnoreStageClick = false;
+      state.coworkGraphSuppressClick = "";
+      return;
+    }
     if (event.target.closest?.(".cowork-graph-node") || event.target.closest?.(".cowork-agent-field-popover")) return;
     state.activeCoworkGraphNode = "session";
     renderCoworkGraph(state.activeCoworkSession);
@@ -2370,7 +2765,22 @@ function renderCoworkSessions() {
       <span class="cowork-session-meta"></span>
     `;
     button.querySelector(".cowork-session-title").textContent = session.title || session.id;
-    button.querySelector(".cowork-session-meta").textContent = `${session.status || "active"} - ${session.updated_at || ""}`;
+    const decision = session.completion_decision || {};
+    const budget = session.budget_state || session.budget || {};
+    const usage = budget.usage || {};
+    const blockerCount = (decision.blocked || []).length
+      + (decision.review_blockers || []).length
+      + (decision.fanout_blockers || []).length
+      + (decision.disagreements || []).length;
+    button.querySelector(".cowork-session-meta").textContent = [
+      session.workflow_mode || "hybrid",
+      session.status || "active",
+      usage.agent_calls !== undefined ? `calls ${usage.agent_calls}` : "",
+      blockerCount ? `${blockerCount} blockers` : "",
+      decision.next_action || "",
+      session.stop_reason || "",
+      session.updated_at || "",
+    ].filter(Boolean).join(" - ");
     button.addEventListener("click", () => {
       if (!document.body.classList.contains("cowork-page-active")) {
         openCoworkModal();
@@ -2395,8 +2805,436 @@ function renderCoworkSessions() {
   }
 }
 
+function coworkSelectionId(type, item) {
+  if (!item) return "";
+  if (type === "task") return item.entity_id || item.id || "";
+  if (type === "agent") return item.id || item.entity_id || "";
+  if (type === "artifact") return item.id || item.path_or_url || item.title || "";
+  if (type === "mailbox") return item.id || "";
+  if (type === "span") return item.id || "";
+  if (type === "node") return item.id || "";
+  return item.id || "";
+}
+
+function selectCoworkEntity(type, id) {
+  state.activeCoworkSelection = { type, id };
+  renderCoworkObservability(state.activeCoworkSession);
+  renderCoworkSelectedInspector(state.activeCoworkSession);
+}
+
+function coworkFindSelected(session) {
+  const selection = state.activeCoworkSelection || {};
+  const type = selection.type || "";
+  const id = selection.id || "";
+  if (!session || !type || !id) return null;
+  if (type === "task") {
+    return { type, item: (session.tasks || []).find((task) => task.id === id) || null };
+  }
+  if (type === "agent") {
+    return { type, item: (session.agents || []).find((agent) => agent.id === id) || null };
+  }
+  if (type === "span") {
+    return { type, item: (session.trace_spans || []).find((span) => span.id === id) || null };
+  }
+  if (type === "artifact") {
+    return { type, item: (session.artifact_index || []).find((artifact) => coworkSelectionId("artifact", artifact) === id) || null };
+  }
+  if (type === "mailbox") {
+    return { type, item: (session.mailbox || []).find((record) => record.id === id) || null };
+  }
+  if (type === "node") {
+    return { type, item: (session.task_dag?.nodes || []).find((node) => node.id === id) || null };
+  }
+  return null;
+}
+
+function ensureCoworkSelection(session) {
+  const found = coworkFindSelected(session);
+  if (found?.item) return;
+  state.activeCoworkSelection = { type: "", id: "" };
+}
+
+function coworkInteractiveCard(type, id, className = "cowork-card cowork-observable-card") {
+  const item = document.createElement("article");
+  item.className = className;
+  item.tabIndex = 0;
+  if ((state.activeCoworkSelection?.type || "") === type && (state.activeCoworkSelection?.id || "") === id) {
+    item.classList.add("active");
+  }
+  item.addEventListener("click", () => selectCoworkEntity(type, id));
+  item.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectCoworkEntity(type, id);
+    }
+  });
+  return item;
+}
+
+function appendCoworkMetric(container, value, label) {
+  const metric = document.createElement("div");
+  metric.className = "cowork-metric";
+  metric.innerHTML = "<span></span><small></small>";
+  metric.querySelector("span").textContent = String(value ?? "-");
+  metric.querySelector("small").textContent = label;
+  container.append(metric);
+}
+
+function renderCoworkRunMetrics(session) {
+  if (!elements.coworkRunMetrics) return;
+  elements.coworkRunMetrics.textContent = "";
+  const latest = [...(session?.run_metrics || [])].pop();
+  const budget = session?.budget_state || session?.budget || {};
+  const usage = budget.usage || {};
+  const limits = budget.limits || {};
+  appendCoworkMetric(elements.coworkRunMetrics, usage.rounds ?? session?.rounds ?? latest?.rounds ?? 0, "Rounds");
+  appendCoworkMetric(elements.coworkRunMetrics, usage.agent_calls ?? latest?.agent_calls ?? 0, "Agent calls");
+  appendCoworkMetric(elements.coworkRunMetrics, latest?.tasks_completed || (session?.tasks || []).filter((task) => task.status === "completed").length, "Done");
+  appendCoworkMetric(elements.coworkRunMetrics, session?.stop_reason || latest?.stop_reason || latest?.status || session?.status || "idle", "Stop");
+  appendCoworkMetric(elements.coworkRunMetrics, limits.parallel_width ?? "-", "Width");
+  const decision = [...(session?.scheduler_decisions || [])].pop();
+  if (elements.coworkSchedulerSummary) {
+    const selected = decision?.selected_agent_ids?.length ? ` -> ${decision.selected_agent_ids.join(", ")}` : "";
+    elements.coworkSchedulerSummary.textContent = decision
+      ? compactText(`${decision.reason || "Scheduler decision"}${selected}`, 96)
+      : "No decisions";
+  }
+}
+
+function renderCoworkBlockers(session) {
+  if (!elements.coworkBlockerPanel) return;
+  const panel = elements.coworkBlockerPanel;
+  panel.textContent = "";
+  const decision = session?.completion_decision || {};
+  const blockers = [
+    ...(decision.blocked || []).map((item) => ({ ...item, kind: "reply" })),
+    ...(decision.review_blockers || []).map((item) => ({ ...item, kind: "review" })),
+    ...(decision.fanout_blockers || []).map((item) => ({ ...item, kind: "merge" })),
+    ...(decision.disagreements || []).map((item) => ({ ...item, kind: "disagreement" })),
+  ];
+  if (elements.coworkBlockerSummary) {
+    elements.coworkBlockerSummary.textContent = blockers.length
+      ? `${blockers.length} open / ${session?.stop_reason || decision.next_action || "attention"}`
+      : (session?.final_draft ? "Final output ready" : "No blockers");
+  }
+  if (!blockers.length) {
+    panel.append(coworkEmpty(session?.final_draft ? "Final output is available." : "No unresolved blockers."));
+    return;
+  }
+  for (const blocker of blockers.slice(0, 20)) {
+    const id = blocker.id || blocker.task_id || blocker.fanout_group_id || blocker.kind;
+    const item = coworkInteractiveCard(blocker.id ? "mailbox" : blocker.task_id ? "task" : "node", id, "cowork-card cowork-observable-card");
+    item.innerHTML = `
+      <div class="cowork-card-row">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+      <small></small>
+    `;
+    item.querySelector("strong").textContent = blocker.task_title || blocker.request_type || blocker.kind || id;
+    item.querySelector("span").className = coworkStatusClass(blocker.kind || "blocked");
+    item.querySelector("span").textContent = blocker.kind || "blocked";
+    item.querySelector("p").textContent = compactText(blocker.content || blocker.text || blocker.reason || "", 160);
+    item.querySelector("small").textContent = [
+      blocker.from ? `From ${blocker.from}` : "",
+      blocker.to?.length ? `To ${blocker.to.join(", ")}` : "",
+      blocker.blocking_task_id ? `Task ${blocker.blocking_task_id}` : "",
+      blocker.review_status ? `Review ${blocker.review_status}` : "",
+    ].filter(Boolean).join(" - ");
+    panel.append(item);
+  }
+}
+
+function renderCoworkTaskDag(session) {
+  if (!elements.coworkTaskDagList) return;
+  const list = elements.coworkTaskDagList;
+  list.textContent = "";
+  const nodes = session?.task_dag?.nodes || [];
+  const edges = session?.task_dag?.edges || [];
+  const taskNodes = nodes.filter((node) => node.kind !== "agent").slice(0, 28);
+  if (elements.coworkDagSummary) {
+    elements.coworkDagSummary.textContent = nodes.length ? `${nodes.length} nodes / ${edges.length} edges` : "No graph";
+  }
+  if (!taskNodes.length) {
+    list.append(coworkEmpty("No DAG nodes yet."));
+    return;
+  }
+  for (const node of taskNodes) {
+    const type = node.kind === "task" ? "task" : node.kind === "blocker" ? "mailbox" : "node";
+    const id = type === "task" ? node.entity_id : type === "mailbox" ? String(node.id || "").replace(/^blocker:/, "") : coworkSelectionId(type, node);
+    const item = coworkInteractiveCard(type, id || node.id);
+    item.innerHTML = `
+      <div class="cowork-card-row">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+      <small></small>
+    `;
+    item.querySelector("strong").textContent = node.title || node.label || node.id;
+    item.querySelector("span").className = coworkStatusClass(node.status || node.kind);
+    item.querySelector("span").textContent = node.kind || "node";
+    item.querySelector("p").textContent = compactText(node.detail || "", 140);
+    item.querySelector("small").textContent = [
+      node.owner ? `Owner ${node.owner}` : "",
+      node.confidence !== null && node.confidence !== undefined ? `Confidence ${Math.round(Number(node.confidence) * 100)}%` : "",
+      node.updated_at || "",
+    ].filter(Boolean).join(" - ");
+    list.append(item);
+  }
+}
+
+function renderCoworkTraceSpans(session) {
+  if (!elements.coworkTraceList) return;
+  const list = elements.coworkTraceList;
+  list.textContent = "";
+  if (elements.coworkTraceFilter && elements.coworkTraceFilter.value !== state.coworkTraceFilter) {
+    elements.coworkTraceFilter.value = state.coworkTraceFilter || "all";
+  }
+  const view = coworkTraceViewModel(session);
+  if (elements.coworkTraceModeTabs) {
+    elements.coworkTraceModeTabs.dataset.active = view.mode;
+    for (const button of elements.coworkTraceModeTabs.querySelectorAll("[data-mode]")) {
+      const active = button.dataset.mode === view.mode;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    }
+  }
+  if (!view.items.length) {
+    list.append(coworkEmpty("No trace events yet."));
+    return;
+  }
+  if (view.mode === "detail") {
+    for (const step of [...view.items].reverse()) {
+      const item = coworkInteractiveCard("span", step.raw?.id || step.id, "cowork-card cowork-observable-card cowork-trace-card cowork-trace-detail-card");
+      item.innerHTML = `
+        <div class="cowork-card-row">
+          <strong></strong>
+          <span></span>
+        </div>
+        <p></p>
+        <small></small>
+      `;
+      item.querySelector("strong").textContent = step.action;
+      item.querySelector("span").className = coworkStatusClass(step.status);
+      item.querySelector("span").textContent = step.stage;
+      item.querySelector("p").textContent = compactText(step.detail || step.target || "Trace event", 220);
+      item.querySelector("small").textContent = [step.target ? `Target ${step.target}` : "", step.at].filter(Boolean).join(" - ");
+      if (step.payloadText) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        const pre = document.createElement("pre");
+        summary.textContent = "Payload";
+        pre.textContent = step.payloadText;
+        details.append(summary, pre);
+        item.append(details);
+      }
+      list.append(item);
+    }
+    list.scrollTop = list.scrollHeight;
+    return;
+  }
+  for (const group of view.groups.slice(-32).reverse()) {
+    const card = document.createElement("article");
+    card.className = `cowork-trace-group cowork-trace-group-${group.kind}`;
+    const head = document.createElement("div");
+    head.className = "cowork-trace-group-head";
+    const titleWrap = document.createElement("div");
+    const title = document.createElement("strong");
+    const subtitle = document.createElement("span");
+    const count = document.createElement("span");
+    title.textContent = group.label;
+    subtitle.textContent = group.subtitle;
+    count.className = "cowork-status cowork-status-active";
+    count.textContent = `${group.steps.length} steps`;
+    titleWrap.append(title, subtitle);
+    head.append(titleWrap, count);
+    card.append(head);
+    const flow = document.createElement("div");
+    flow.className = "cowork-trace-flow";
+    for (const step of group.steps.slice(-8)) {
+      const row = coworkInteractiveCard("span", step.raw?.id || step.id, "cowork-trace-step");
+      row.innerHTML = `
+        <div class="cowork-trace-dot"></div>
+        <div class="cowork-trace-step-body">
+          <div class="cowork-trace-step-top">
+            <strong></strong>
+            <span></span>
+          </div>
+          <small></small>
+          <p></p>
+        </div>
+      `;
+      row.querySelector(".cowork-trace-step-top strong").textContent = step.action;
+      row.querySelector(".cowork-trace-step-top span").className = coworkStatusClass(step.status);
+      row.querySelector(".cowork-trace-step-top span").textContent = step.status;
+      row.querySelector("small").textContent = [step.target ? `Target ${step.target}` : "", step.stage, step.at].filter(Boolean).join(" - ");
+      row.querySelector("p").textContent = compactText(step.detail || "Trace event", 220);
+      if (step.payloadText) {
+        const pre = document.createElement("pre");
+        pre.className = "cowork-trace-json-block";
+        pre.textContent = step.payloadText;
+        row.querySelector(".cowork-trace-step-body").append(pre);
+      }
+      flow.append(row);
+    }
+    card.append(flow);
+    list.append(card);
+  }
+  list.scrollTop = list.scrollHeight;
+}
+
+function renderCoworkArtifacts(session) {
+  if (!elements.coworkObservableArtifactList) return;
+  const list = elements.coworkObservableArtifactList;
+  list.textContent = "";
+  const artifacts = session?.artifact_index || [];
+  if (elements.coworkArtifactSummary) {
+    elements.coworkArtifactSummary.textContent = artifacts.length ? `${artifacts.length} linked` : "No artifacts";
+  }
+  if (!artifacts.length) {
+    list.append(coworkEmpty("No linked artifacts yet."));
+  } else {
+    for (const artifact of artifacts.slice(-20).reverse()) {
+      const id = coworkSelectionId("artifact", artifact);
+      const item = coworkInteractiveCard("artifact", id, "cowork-card cowork-observable-card cowork-artifact-card");
+      item.innerHTML = `
+        <div class="cowork-card-row">
+          <strong></strong>
+          <span></span>
+        </div>
+        <p></p>
+        <small></small>
+      `;
+      item.querySelector("strong").textContent = artifact.summary || artifact.path_or_url || artifact.id;
+      item.querySelector("span").className = coworkStatusClass("completed");
+      item.querySelector("span").textContent = artifact.kind || "file";
+      item.querySelector("p").textContent = compactText(artifact.path_or_url || "", 140);
+      item.querySelector("small").textContent = [
+        artifact.source_task_title ? `Task ${artifact.source_task_title}` : "",
+        artifact.source_agent_id ? `Agent ${artifact.source_agent_id}` : "",
+        artifact.created_at || "",
+      ].filter(Boolean).join(" - ");
+      list.append(item);
+    }
+  }
+  if (elements.coworkFinalDraft) {
+    const hasDraft = Boolean((session?.final_draft || "").trim());
+    elements.coworkFinalDraft.hidden = !hasDraft;
+    elements.coworkFinalDraft.textContent = hasDraft ? compactText(session.final_draft, 1400) : "";
+  }
+}
+
+function renderCoworkObservability(session) {
+  renderCoworkRunMetrics(session);
+  renderCoworkTaskDag(session);
+  renderCoworkTraceSpans(session);
+  renderCoworkArtifacts(session);
+  renderCoworkBlockers(session);
+  renderCoworkSecondaryPanels();
+}
+
+function renderCoworkSecondaryPanels() {
+  const activeTab = state.coworkSecondaryTab || "trace";
+  if (elements.coworkSecondaryTabs) {
+    elements.coworkSecondaryTabs.dataset.active = activeTab;
+    for (const button of elements.coworkSecondaryTabs.querySelectorAll("[data-tab]")) {
+      const active = button.dataset.tab === activeTab;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    }
+  }
+  const root = elements.coworkModal;
+  if (root) {
+    root.dataset.coworkSecondaryTab = activeTab;
+    root.classList.toggle("cowork-graph-collapsed", Boolean(state.coworkGraphCollapsed));
+    root.classList.toggle("cowork-trace-collapsed", Boolean(state.coworkTraceCollapsed));
+  }
+  if (elements.coworkGraphCollapseButton) {
+    elements.coworkGraphCollapseButton.textContent = state.coworkGraphCollapsed ? ">" : "<";
+    elements.coworkGraphCollapseButton.setAttribute("aria-label", state.coworkGraphCollapsed ? "Expand workflow graph" : "Collapse workflow graph");
+  }
+  if (elements.coworkTraceCollapseButton) {
+    elements.coworkTraceCollapseButton.textContent = state.coworkTraceCollapsed ? "<" : ">";
+    elements.coworkTraceCollapseButton.setAttribute("aria-label", state.coworkTraceCollapsed ? "Expand trace" : "Collapse trace");
+  }
+  if (elements.coworkGraphRailButton) {
+    elements.coworkGraphRailButton.hidden = !state.coworkGraphCollapsed;
+  }
+  if (elements.coworkTraceRailButton) {
+    elements.coworkTraceRailButton.hidden = !state.coworkTraceCollapsed;
+  }
+}
+
+function inspectorRow(label, value) {
+  const row = document.createElement("div");
+  row.className = "cowork-inspector-row";
+  const key = document.createElement("span");
+  key.textContent = label;
+  const val = document.createElement("strong");
+  val.textContent = value || "-";
+  row.append(key, val);
+  return row;
+}
+
+function renderCoworkSelectedInspector(session) {
+  if (!elements.coworkSelectedInspector) return;
+  ensureCoworkSelection(session);
+  const found = coworkFindSelected(session);
+  const item = found?.item;
+  const type = found?.type || "";
+  elements.coworkSelectedInspector.textContent = "";
+  if (elements.coworkInspectorKind) {
+    elements.coworkInspectorKind.textContent = item ? type : "Nothing selected";
+  }
+  if (!item) {
+    elements.coworkSelectedInspector.append(coworkEmpty("Select a task, agent, trace span, artifact, or mailbox record."));
+    updateCoworkTaskActionControls(null);
+    return;
+  }
+  const title = document.createElement("h5");
+  title.textContent = item.title || item.name || item.summary || item.name || item.id || type;
+  const body = document.createElement("p");
+  body.textContent = compactText(item.detail || item.description || item.summary || item.result || item.content || item.goal || item.error || "", 520);
+  elements.coworkSelectedInspector.append(title);
+  elements.coworkSelectedInspector.append(
+    inspectorRow("Status", item.status || item.kind || "-"),
+    inspectorRow("Owner", item.assigned_agent_id || item.owner || item.actor_id || item.source_agent_id || "-"),
+    inspectorRow("Updated", item.updated_at || item.ended_at || item.created_at || item.started_at || "-"),
+    body,
+  );
+  if (item.data || item.result_data || item.payload) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Payload";
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(item.data || item.result_data || item.payload, null, 2);
+    details.append(summary, pre);
+    elements.coworkSelectedInspector.append(details);
+  }
+  updateCoworkTaskActionControls(type === "task" ? item : null);
+}
+
+function updateCoworkTaskActionControls(task) {
+  const hasTask = Boolean(task && state.activeCoworkSessionId);
+  const pending = Boolean(state.coworkPendingAction);
+  for (const button of [elements.coworkTaskAssignButton, elements.coworkTaskRetryButton, elements.coworkTaskReviewButton]) {
+    if (button) button.disabled = !hasTask || pending;
+  }
+  if (elements.coworkTaskRetryButton && task) {
+    elements.coworkTaskRetryButton.disabled = !["failed", "blocked", "skipped"].includes(String(task.status || "").toLowerCase()) || pending;
+  }
+  if (elements.coworkTaskAgent) {
+    elements.coworkTaskAgent.disabled = !hasTask || pending;
+    if (task?.assigned_agent_id && [...elements.coworkTaskAgent.options].some((option) => option.value === task.assigned_agent_id)) {
+      elements.coworkTaskAgent.value = task.assigned_agent_id;
+    }
+  }
+}
+
 function renderCoworkDetail() {
-  const session = state.activeCoworkSession;
+  const session = coworkSafeSession(state.activeCoworkSession);
   const hasSession = Boolean(session);
   if (elements.coworkActiveStatus) {
     elements.coworkActiveStatus.textContent = hasSession
@@ -2433,8 +3271,6 @@ function renderCoworkDetail() {
     elements.coworkStartButton.title = label;
   }
   for (const button of [
-    elements.coworkRunButton,
-    elements.coworkRunUntilIdleButton,
     elements.coworkSummaryButton,
     elements.coworkMessageButton,
     elements.coworkTaskButton,
@@ -2445,15 +3281,16 @@ function renderCoworkDetail() {
     if (button) button.disabled = !hasSession;
   }
   if (hasSession) {
-    if (elements.coworkRunButton) elements.coworkRunButton.disabled = session.status !== "active";
-    if (elements.coworkRunUntilIdleButton) elements.coworkRunUntilIdleButton.disabled = session.status !== "active";
-    if (elements.coworkPauseButton) elements.coworkPauseButton.disabled = session.status !== "active";
-    if (elements.coworkResumeButton) elements.coworkResumeButton.disabled = session.status !== "paused";
+    const pending = Boolean(state.coworkPendingAction);
+    if (elements.coworkPauseButton) elements.coworkPauseButton.disabled = pending || session.status !== "active";
+    if (elements.coworkResumeButton) elements.coworkResumeButton.disabled = pending || session.status !== "paused";
   }
   const threads = session?.threads || [];
   if (hasSession && !threads.some((thread) => thread.id === state.activeCoworkThreadId)) {
     state.activeCoworkThreadId = threads[0]?.id || "";
   }
+  ensureCoworkSelection(session);
+  renderCoworkObservability(session);
   renderCoworkAgents(session);
   renderCoworkTasks(session?.tasks || []);
   renderCoworkMailbox(session);
@@ -2462,6 +3299,7 @@ function renderCoworkDetail() {
   renderCoworkStatusFeed(session, threads);
   renderCoworkGraph(session);
   renderCoworkAgentOptions(session?.agents || []);
+  renderCoworkSelectedInspector(session);
 }
 
 function renderCoworkInsights(session) {
@@ -2673,7 +3511,10 @@ function renderCoworkStatusFeed(session, threads = []) {
           mailboxState.waitingOn ? `waiting on ${mailboxState.waitingOn}` : "",
           `Rounds ${agent.rounds || 0}`,
         ].filter(Boolean).join(" - "),
+        interactive: true,
       }));
+      const item = agentSection.lastElementChild;
+      item?.addEventListener("click", () => selectCoworkEntity("agent", agent.id));
     }
   }
   feed.append(agentSection);
@@ -2693,7 +3534,10 @@ function renderCoworkStatusFeed(session, threads = []) {
           task.confidence !== null && task.confidence !== undefined ? `Confidence ${Math.round(Number(task.confidence) * 100)}%` : "",
           task.dependencies?.length ? `Depends ${task.dependencies.join(", ")}` : "",
         ].filter(Boolean).join(" - "),
+        interactive: true,
       }));
+      const item = taskSection.lastElementChild;
+      item?.addEventListener("click", () => selectCoworkEntity("task", task.id));
     }
   }
   feed.append(taskSection);
@@ -2716,7 +3560,10 @@ function renderCoworkStatusFeed(session, threads = []) {
           record.priority ? `priority ${record.priority}` : "",
           record.correlation_id ? `corr ${record.correlation_id}` : "",
         ].filter(Boolean).join(" - "),
+        interactive: true,
       }));
+      const item = mailboxSection.lastElementChild;
+      item?.addEventListener("click", () => selectCoworkEntity("mailbox", record.id));
     }
   }
   feed.append(mailboxSection);
@@ -2757,14 +3604,16 @@ function renderCoworkStatusFeed(session, threads = []) {
 function renderCoworkAgents(session) {
   if (!elements.coworkAgentList) return;
   const agents = session?.agents || [];
+  if (elements.coworkAgentSummary) {
+    elements.coworkAgentSummary.textContent = agents.length ? `${agents.length} agents` : "No agents";
+  }
   elements.coworkAgentList.textContent = "";
   if (!agents.length) {
     elements.coworkAgentList.append(coworkEmpty("No agents."));
     return;
   }
   for (const agent of agents) {
-    const item = document.createElement("article");
-    item.className = "cowork-card";
+    const item = coworkInteractiveCard("agent", agent.id, "cowork-card cowork-observable-card cowork-agent-lane");
     item.innerHTML = `
       <div class="cowork-card-row">
         <strong></strong>
@@ -2921,6 +3770,56 @@ function renderCoworkTimeline(session) {
     elements.coworkMessageList.append(coworkEmpty("Select or start a session."));
     return;
   }
+  const conversationView = coworkConversationViewModel(session);
+  if (conversationView.blockers.length) {
+    const blocker = document.createElement("article");
+    blocker.className = "cowork-chat-event cowork-chat-blocker";
+    blocker.innerHTML = `<span></span><strong></strong>`;
+    blocker.querySelector("span").className = coworkStatusClass("blocked");
+    blocker.querySelector("span").textContent = `${conversationView.blockers.length} blocker${conversationView.blockers.length === 1 ? "" : "s"}`;
+    blocker.querySelector("strong").textContent = compactText(conversationView.blockers.map((item) => item.content || item.reason || item.task_title || item.kind || "Needs attention").join(" | "), 220);
+    elements.coworkMessageList.append(blocker);
+  }
+  if (conversationView.finalDraft) {
+    const output = document.createElement("article");
+    output.className = "cowork-final-output-card";
+    const title = document.createElement("strong");
+    const body = document.createElement("p");
+    title.textContent = "Session Output";
+    body.textContent = compactText(conversationView.finalDraft, 1800);
+    output.append(title, body);
+    elements.coworkMessageList.append(output);
+  }
+  if (!conversationView.items.length) {
+    elements.coworkMessageList.append(coworkEmpty("No team activity yet."));
+    return;
+  }
+  for (const itemData of conversationView.items) {
+    const item = document.createElement("article");
+    if (itemData.kind === "message") {
+      item.className = `cowork-chat-message ${itemData.role === "user" ? "from-user" : "from-agent"}`;
+      item.innerHTML = `
+        <div class="cowork-chat-avatar"></div>
+        <div class="cowork-chat-bubble">
+          <div class="cowork-chat-meta"><strong></strong><span></span></div>
+          <p></p>
+        </div>
+      `;
+      item.querySelector(".cowork-chat-avatar").textContent = itemData.avatar;
+      item.querySelector("strong").textContent = itemData.title;
+      item.querySelector("span").textContent = itemData.meta;
+      item.querySelector("p").textContent = itemData.body;
+    } else {
+      item.className = "cowork-chat-event";
+      item.innerHTML = `<span></span><strong></strong>`;
+      item.querySelector("span").className = coworkStatusClass(itemData.status);
+      item.querySelector("span").textContent = itemData.status || "event";
+      item.querySelector("strong").textContent = compactText([itemData.title, itemData.body, itemData.meta].filter(Boolean).join(" - "), 220);
+    }
+    elements.coworkMessageList.append(item);
+  }
+  elements.coworkMessageList.scrollTop = elements.coworkMessageList.scrollHeight;
+  return;
   const agentsById = new Map((session.agents || []).map((agent) => [agent.id, agent]));
   const threadById = new Map((session.threads || []).map((thread) => [thread.id, thread]));
   const messageItems = (session.messages || []).map((message) => ({
@@ -3060,9 +3959,12 @@ async function loadCoworkSession(sessionId) {
   const previousSessionId = state.activeCoworkSessionId;
   state.activeCoworkSession = payload.session || null;
   state.activeCoworkSessionId = state.activeCoworkSession?.id || "";
-  state.activeCoworkThreadId = state.activeCoworkSession?.threads?.[0]?.id || "";
+  if (!state.activeCoworkSession?.threads?.some((thread) => thread.id === state.activeCoworkThreadId)) {
+    state.activeCoworkThreadId = state.activeCoworkSession?.threads?.[0]?.id || "";
+  }
   if (previousSessionId !== state.activeCoworkSessionId) {
     state.activeCoworkGraphNode = "session";
+    state.activeCoworkSelection = { type: "", id: "" };
     state.coworkGraphView = { scale: 1, x: 0, y: 0 };
   }
   renderCoworkSessions();
@@ -3109,9 +4011,58 @@ function setCoworkWorkflowMode(mode) {
   }
 }
 
+function coworkBlueprintPayload() {
+  const text = elements.coworkBlueprintInput?.value.trim() || "";
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Blueprint JSON is invalid: ${error.message || error}`);
+  }
+}
+
+async function validateCoworkBlueprint({ preview = false } = {}) {
+  const blueprint = coworkBlueprintPayload();
+  if (!blueprint) {
+    if (elements.coworkBlueprintStatus) elements.coworkBlueprintStatus.textContent = "No blueprint JSON";
+    return null;
+  }
+  const response = await fetch(`${state.coworkApiPath}/blueprints/${preview ? "preview" : "validate"}`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ blueprint }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  const diagnostics = payload.diagnostics || [];
+  const errors = diagnostics.filter((item) => item.severity === "error").length;
+  const warnings = diagnostics.filter((item) => item.severity === "warning").length;
+  if (elements.coworkBlueprintStatus) {
+    elements.coworkBlueprintStatus.textContent = payload.ok
+      ? `Valid${warnings ? ` / ${warnings} warning(s)` : ""}`
+      : `${errors || diagnostics.length} error(s)`;
+  }
+  if (!response.ok) {
+    setCoworkError((diagnostics[0]?.message || payload.error || `blueprint ${preview ? "preview" : "validation"} failed`));
+  } else {
+    setCoworkError("");
+  }
+  if (preview && payload.graph_preview && state.activeCoworkSession) {
+    state.activeCoworkSession.graph = payload.graph_preview;
+    renderCoworkGraph(state.activeCoworkSession);
+  }
+  return payload;
+}
+
 async function startCoworkSession() {
   const goal = elements.coworkGoalInput?.value.trim() || "";
-  if (!goal) {
+  let blueprint = null;
+  try {
+    blueprint = coworkBlueprintPayload();
+  } catch (error) {
+    setCoworkError(error.message || String(error));
+    return;
+  }
+  if (!goal && !blueprint) {
     setCoworkError("Goal is required.");
     return;
   }
@@ -3125,10 +4076,13 @@ async function startCoworkSession() {
       headers: authHeaders(),
       body: JSON.stringify({
         goal,
+        blueprint,
         workflow_mode: elements.coworkWorkflowMode?.value || "hybrid",
         auto_run: true,
-        max_rounds: 20,
-        max_agents: 3,
+        max_rounds: COWORK_DEFAULT_RUN_ROUNDS,
+        max_agents: COWORK_DEFAULT_RUN_AGENTS,
+        max_agent_calls: COWORK_DEFAULT_RUN_AGENT_CALLS,
+        run_until_idle: true,
       }),
     });
     if (!response.ok) {
@@ -3140,6 +4094,9 @@ async function startCoworkSession() {
     state.activeCoworkSessionId = state.activeCoworkSession?.id || "";
     if (elements.coworkGoalInput) {
       elements.coworkGoalInput.value = "";
+    }
+    if (elements.coworkBlueprintInput && blueprint) {
+      elements.coworkBlueprintInput.value = "";
     }
     await loadCoworkSessions();
     if (state.activeCoworkSessionId) {
@@ -3162,10 +4119,10 @@ async function submitCoworkComposer() {
   await startCoworkSession();
 }
 
-async function runCoworkRound(options = {}) {
+async function runCoworkRound() {
   if (!state.activeCoworkSessionId) return;
-  const singleRound = Boolean(options.singleRound);
-  const triggerButton = singleRound ? elements.coworkRunUntilIdleButton : elements.coworkRunButton;
+  const triggerButton = elements.coworkStartButton;
+  state.coworkPendingAction = "run_until_idle";
   if (triggerButton) {
     triggerButton.disabled = true;
   }
@@ -3174,8 +4131,11 @@ async function runCoworkRound(options = {}) {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
-        max_rounds: singleRound ? 1 : coworkNumberInput(elements.coworkRoundLimit, 20, 1, 20),
-        max_agents: coworkNumberInput(elements.coworkAgentLimit, 3, 1, 10),
+        max_rounds: COWORK_DEFAULT_RUN_ROUNDS,
+        max_agents: COWORK_DEFAULT_RUN_AGENTS,
+        max_agent_calls: COWORK_DEFAULT_RUN_AGENT_CALLS,
+        run_until_idle: true,
+        stop_on_blocker: false,
       }),
     });
     if (!response.ok) throw new Error(`run cowork failed: ${response.status}`);
@@ -3186,26 +4146,86 @@ async function runCoworkRound(options = {}) {
   } catch (error) {
     setCoworkError(error.message || String(error));
   } finally {
+    state.coworkPendingAction = "";
     if (triggerButton) {
       triggerButton.disabled = false;
     }
+    renderCoworkDetail();
   }
 }
 
 async function setCoworkSessionStatus(action) {
   if (!state.activeCoworkSessionId) return;
-  const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/${action}`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  if (!response.ok) {
-    setCoworkError(`${action} cowork failed: ${response.status}`);
+  state.coworkPendingAction = action;
+  renderCoworkDetail();
+  try {
+    const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/${action}`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!response.ok) {
+      setCoworkError(`${action} cowork failed: ${response.status}`);
+      return;
+    }
+    const payload = await response.json();
+    state.activeCoworkSession = payload.session || state.activeCoworkSession;
+    renderCoworkDetail();
+    await loadCoworkSessions();
+  } finally {
+    state.coworkPendingAction = "";
+    renderCoworkDetail();
+  }
+}
+
+function coworkSelectedTask() {
+  const found = coworkFindSelected(state.activeCoworkSession);
+  return found?.type === "task" ? found.item : null;
+}
+
+async function mutateCoworkTask(action, payload = {}) {
+  const task = coworkSelectedTask();
+  if (!state.activeCoworkSessionId || !task?.id) return;
+  state.coworkPendingAction = action;
+  renderCoworkDetail();
+  try {
+    const response = await fetch(
+      `${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/tasks/${encodeURIComponent(task.id)}/${action}`,
+      {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      },
+    );
+    const responsePayload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(responsePayload.error || responsePayload.result || `${action} task failed: ${response.status}`);
+    }
+    state.activeCoworkSession = responsePayload.session || state.activeCoworkSession;
+    renderCoworkDetail();
+    await loadCoworkSessions();
+  } catch (error) {
+    setCoworkError(error.message || String(error));
+  } finally {
+    state.coworkPendingAction = "";
+    renderCoworkDetail();
+  }
+}
+
+async function assignSelectedCoworkTask() {
+  const assignedAgentId = elements.coworkTaskAgent?.value || "";
+  if (!assignedAgentId) {
+    setCoworkError("Choose an agent before assigning.");
     return;
   }
-  const payload = await response.json();
-  state.activeCoworkSession = payload.session || state.activeCoworkSession;
-  renderCoworkDetail();
-  await loadCoworkSessions();
+  await mutateCoworkTask("assign", { assigned_agent_id: assignedAgentId });
+}
+
+async function retrySelectedCoworkTask() {
+  await mutateCoworkTask("retry");
+}
+
+async function requestSelectedCoworkTaskReview() {
+  await mutateCoworkTask("review");
 }
 
 async function deleteCoworkSession() {
@@ -7813,8 +8833,44 @@ function bindEvents() {
   elements.coworkIncludeCompleted?.addEventListener("change", () => {
     loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
   });
-  elements.coworkRunButton?.addEventListener("click", () => runCoworkRound());
-  elements.coworkRunUntilIdleButton?.addEventListener("click", () => runCoworkRound({ singleRound: true }));
+  elements.coworkBlueprintValidateButton?.addEventListener("click", () => {
+    validateCoworkBlueprint().catch((error) => setCoworkError(error.message || String(error)));
+  });
+  elements.coworkBlueprintPreviewButton?.addEventListener("click", () => {
+    validateCoworkBlueprint({ preview: true }).catch((error) => setCoworkError(error.message || String(error)));
+  });
+  elements.coworkTraceFilter?.addEventListener("change", () => {
+    state.coworkTraceFilter = elements.coworkTraceFilter?.value || "all";
+    renderCoworkTraceSpans(state.activeCoworkSession);
+  });
+  elements.coworkTraceModeTabs?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-mode]");
+    if (!button) return;
+    state.coworkTraceMode = button.dataset.mode || "key";
+    renderCoworkTraceSpans(state.activeCoworkSession);
+  });
+  elements.coworkSecondaryTabs?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-tab]");
+    if (!button) return;
+    state.coworkSecondaryTab = button.dataset.tab || "trace";
+    renderCoworkSecondaryPanels();
+  });
+  elements.coworkGraphCollapseButton?.addEventListener("click", () => {
+    state.coworkGraphCollapsed = !state.coworkGraphCollapsed;
+    renderCoworkSecondaryPanels();
+  });
+  elements.coworkGraphRailButton?.addEventListener("click", () => {
+    state.coworkGraphCollapsed = false;
+    renderCoworkSecondaryPanels();
+  });
+  elements.coworkTraceCollapseButton?.addEventListener("click", () => {
+    state.coworkTraceCollapsed = !state.coworkTraceCollapsed;
+    renderCoworkSecondaryPanels();
+  });
+  elements.coworkTraceRailButton?.addEventListener("click", () => {
+    state.coworkTraceCollapsed = false;
+    renderCoworkSecondaryPanels();
+  });
   elements.coworkPauseButton?.addEventListener("click", () => {
     setCoworkSessionStatus("pause").catch((error) => setCoworkError(error.message || String(error)));
   });
@@ -7833,6 +8889,15 @@ function bindEvents() {
     }
   });
   elements.coworkTaskButton?.addEventListener("click", addCoworkTask);
+  elements.coworkTaskAssignButton?.addEventListener("click", () => {
+    assignSelectedCoworkTask().catch((error) => setCoworkError(error.message || String(error)));
+  });
+  elements.coworkTaskRetryButton?.addEventListener("click", () => {
+    retrySelectedCoworkTask().catch((error) => setCoworkError(error.message || String(error)));
+  });
+  elements.coworkTaskReviewButton?.addEventListener("click", () => {
+    requestSelectedCoworkTaskReview().catch((error) => setCoworkError(error.message || String(error)));
+  });
   setupCoworkGraphInteractions();
 
   // Workspace modal events

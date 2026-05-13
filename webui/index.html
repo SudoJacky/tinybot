@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8">
@@ -258,7 +258,7 @@
         </div>
       </header>
       <div class="modal-body cowork-modal-body">
-        <div class="cowork-workspace">
+        <div class="cowork-workspace cowork-collab-workspace">
           <aside class="cowork-session-pane">
             <div class="cowork-pane-header">
               <h3>Sessions</h3>
@@ -270,15 +270,28 @@
             <div id="cowork-session-list" class="cowork-session-list"></div>
           </aside>
           <section class="cowork-detail-pane">
+            <header class="cowork-detail-header">
+              <div class="cowork-active-heading">
+                <p id="cowork-active-status" class="cowork-session-meta">No session</p>
+                <h3 id="cowork-active-title">Select or start a session</h3>
+              </div>
+              <div class="cowork-toolbar cowork-session-actions">
+                <button id="cowork-pause-button" class="button" type="button">Emergency stop</button>
+                <button id="cowork-resume-button" class="button" type="button">Resume</button>
+                <button id="cowork-summary-button" class="button" type="button">Summary</button>
+                <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
+              </div>
+            </header>
             <p id="cowork-active-goal" class="cowork-goal-text"></p>
             <div class="cowork-primary-column">
               <section class="cowork-graph-panel" aria-label="Cowork team map">
                 <div class="cowork-graph-header">
                   <div>
-                    <h4>Agent field</h4>
+                    <h4>Workflow Graph</h4>
                     <p id="cowork-graph-caption">Focused agents and the live communication between them.</p>
                   </div>
                   <div class="cowork-graph-controls" aria-label="Team map controls">
+                    <button id="cowork-graph-collapse-button" class="button button-icon cowork-panel-collapse-button" type="button" aria-label="Collapse workflow graph" title="Collapse workflow graph">&lt;</button>
                     <button id="cowork-graph-zoom-out" class="button button-icon" type="button" aria-label="Zoom out" title="Zoom out">-</button>
                     <button id="cowork-graph-reset" class="button" type="button">Fit</button>
                     <button id="cowork-graph-zoom-in" class="button button-icon" type="button" aria-label="Zoom in" title="Zoom in">+</button>
@@ -287,15 +300,118 @@
                 <div id="cowork-graph-stage" class="cowork-graph-stage" tabindex="0" role="img" aria-label="Interactive cowork state graph">
                   <svg id="cowork-graph-svg" class="cowork-graph-svg" viewBox="0 0 1200 620" aria-hidden="true"></svg>
                   <div id="cowork-agent-field-popover" class="cowork-agent-field-popover" hidden></div>
+                  <div id="cowork-field-overlay" class="cowork-field-overlay" aria-live="polite"></div>
                 </div>
                 <div id="cowork-graph-inspector" class="cowork-graph-inspector">Select an agent to inspect its current focus and communication state.</div>
               </section>
-              <section class="cowork-team-chat">
-                <h4>Activity</h4>
+              <section id="cowork-conversation-panel" class="cowork-team-chat cowork-conversation-panel">
+                <h4>Conversation</h4>
                 <div id="cowork-message-list" class="cowork-list cowork-chat-list" aria-live="polite"></div>
+              </section>
+              <section class="cowork-observability-grid" aria-label="Cowork observability">
+                <div id="cowork-secondary-tabs" class="cowork-secondary-tabs" role="tablist" aria-label="Cowork detail views" data-active="trace">
+                  <button class="cowork-secondary-tab active" type="button" data-tab="trace" role="tab" aria-selected="true">Trace</button>
+                  <button class="cowork-secondary-tab" type="button" data-tab="tasks" role="tab" aria-selected="false">Tasks</button>
+                  <button class="cowork-secondary-tab" type="button" data-tab="mailbox" role="tab" aria-selected="false">Mailbox</button>
+                  <button class="cowork-secondary-tab" type="button" data-tab="outputs" role="tab" aria-selected="false">Outputs</button>
+                </div>
+                <section class="cowork-ops-panel cowork-run-panel" aria-label="Run metrics">
+                  <div class="cowork-panel-heading">
+                    <h4>Run metrics</h4>
+                    <span id="cowork-scheduler-summary" class="cowork-panel-note">No decisions</span>
+                  </div>
+                  <div id="cowork-run-metrics" class="cowork-metrics cowork-compact-metrics"></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Task DAG" data-cowork-panel="tasks">
+                  <div class="cowork-panel-heading">
+                    <h4>Task DAG</h4>
+                    <span id="cowork-dag-summary" class="cowork-panel-note">No graph</span>
+                  </div>
+                  <div id="cowork-task-dag-list" class="cowork-list cowork-projection-list"></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Agent lanes" data-cowork-panel="tasks">
+                  <div class="cowork-panel-heading">
+                    <h4>Agent lanes</h4>
+                    <span id="cowork-agent-summary" class="cowork-panel-note">No agents</span>
+                  </div>
+                  <div id="cowork-agent-list" class="cowork-list cowork-projection-list"></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Tasks" data-cowork-panel="tasks">
+                  <div class="cowork-panel-heading">
+                    <h4>Tasks</h4>
+                    <span class="cowork-panel-note">Shared pool</span>
+                  </div>
+                  <div id="cowork-task-list" class="cowork-list cowork-projection-list"></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Mailbox" data-cowork-panel="mailbox">
+                  <div class="cowork-panel-heading">
+                    <h4>Mailbox</h4>
+                    <span class="cowork-panel-note">Agent messages</span>
+                  </div>
+                  <div id="cowork-mailbox-list" class="cowork-list cowork-projection-list"></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Threads" data-cowork-panel="mailbox">
+                  <div class="cowork-panel-heading">
+                    <h4>Threads</h4>
+                    <span class="cowork-panel-note">Topics</span>
+                  </div>
+                  <div id="cowork-thread-list" class="cowork-list cowork-projection-list"></div>
+                </section>
+                <section class="cowork-ops-panel cowork-trace-panel" aria-label="Trace timeline" data-cowork-panel="trace">
+                  <div class="cowork-panel-heading">
+                    <h4>Trace</h4>
+                    <div class="cowork-trace-toolbar">
+                      <div id="cowork-trace-mode-tabs" class="cowork-trace-mode-tabs" role="tablist" aria-label="Trace mode" data-active="key">
+                        <button class="cowork-trace-mode-button active" type="button" data-mode="key" role="tab" aria-selected="true">Key</button>
+                        <button class="cowork-trace-mode-button" type="button" data-mode="detail" role="tab" aria-selected="false">All</button>
+                      </div>
+                      <select id="cowork-trace-filter" class="config-select cowork-filter-select" aria-label="Trace filter">
+                        <option value="all">All</option>
+                        <option value="scheduler">Scheduler</option>
+                        <option value="agent">Agent</option>
+                        <option value="task">Task</option>
+                        <option value="mailbox">Mailbox</option>
+                        <option value="review">Review</option>
+                        <option value="error">Error</option>
+                      </select>
+                      <button id="cowork-trace-collapse-button" class="button button-icon cowork-panel-collapse-button" type="button" aria-label="Collapse trace" title="Collapse trace">&gt;</button>
+                    </div>
+                  </div>
+                  <div id="cowork-trace-list" class="cowork-list cowork-projection-list"></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Artifacts and final draft" data-cowork-panel="outputs">
+                  <div class="cowork-panel-heading">
+                    <h4>Artifacts</h4>
+                    <span id="cowork-artifact-summary" class="cowork-panel-note">No artifacts</span>
+                  </div>
+                  <div id="cowork-observable-artifact-list" class="cowork-list cowork-projection-list"></div>
+                  <div id="cowork-final-draft" class="cowork-final-draft" hidden></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Blockers and output state" data-cowork-panel="outputs">
+                  <div class="cowork-panel-heading">
+                    <h4>Blockers</h4>
+                    <span id="cowork-blocker-summary" class="cowork-panel-note">No blockers</span>
+                  </div>
+                  <div id="cowork-blocker-panel" class="cowork-list cowork-projection-list"></div>
+                </section>
               </section>
             </div>
             <aside class="cowork-action-rail" aria-label="Cowork read-only status dialog">
+              <section class="cowork-inspector-panel" aria-label="Selected cowork entity">
+                <div class="cowork-panel-heading">
+                  <h4>Inspector</h4>
+                  <span id="cowork-inspector-kind" class="cowork-panel-note">Nothing selected</span>
+                </div>
+                <div id="cowork-selected-inspector" class="cowork-selected-inspector"></div>
+                <div class="cowork-task-controls">
+                  <input id="cowork-task-title" class="config-input" type="text" placeholder="Add a task..." />
+                  <select id="cowork-task-agent" class="config-select" aria-label="Assign task to agent"></select>
+                  <button id="cowork-task-button" class="button" type="button">Add</button>
+                  <button id="cowork-task-assign-button" class="button" type="button">Assign</button>
+                  <button id="cowork-task-retry-button" class="button" type="button">Retry</button>
+                  <button id="cowork-task-review-button" class="button" type="button">Review</button>
+                </div>
+              </section>
               <section class="cowork-status-dialog" aria-label="Cowork status and activity">
                 <div id="cowork-status-feed" class="cowork-status-feed" aria-live="polite"></div>
               </section>
@@ -313,6 +429,15 @@
                   <button class="cowork-mode-tab" type="button" data-mode="peer_handoff" role="radio" aria-checked="false">接力交接</button>
                 </div>
                 <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" placeholder="Describe the shared goal..."></textarea>
+                <details class="cowork-blueprint-editor">
+                  <summary>Blueprint</summary>
+                  <textarea id="cowork-blueprint-input" class="config-input cowork-blueprint-input" rows="6" spellcheck="false" placeholder='{"goal":"...","agents":[],"tasks":[],"budgets":{"parallel_width":3}}'></textarea>
+                  <div class="cowork-toolbar cowork-blueprint-actions">
+                    <button id="cowork-blueprint-validate-button" class="button" type="button">Validate</button>
+                    <button id="cowork-blueprint-preview-button" class="button" type="button">Preview</button>
+                    <span id="cowork-blueprint-status" class="cowork-panel-note"></span>
+                  </div>
+                </details>
                 <label id="cowork-mode-label" class="config-label cowork-mode-label hidden-control" for="cowork-workflow-mode">
                   Mode
                   <select id="cowork-workflow-mode" class="config-select">

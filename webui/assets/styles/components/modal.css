@@ -529,6 +529,30 @@
   justify-content: flex-end;
 }
 
+.cowork-blueprint-editor {
+  border: 1px solid var(--cowork-line);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.cowork-blueprint-editor summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--cowork-muted);
+}
+
+.cowork-blueprint-input {
+  margin-top: 8px;
+  min-height: 132px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.cowork-blueprint-actions {
+  margin-top: 8px;
+}
+
 .cowork-workspace {
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);

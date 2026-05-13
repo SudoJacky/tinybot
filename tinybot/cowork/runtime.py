@@ -34,21 +34,46 @@ class CoworkRuntime:
             restrict_to_workspace=config.tools.restrict_to_workspace,
         )
 
-    async def start(self, goal: str, *, auto_run: bool = False, max_rounds: int = 1, max_agents: int = 3) -> str:
+    async def start(
+        self,
+        goal: str,
+        *,
+        auto_run: bool = False,
+        max_rounds: int = 1,
+        max_agents: int = 3,
+        max_agent_calls: int | None = None,
+        run_until_idle: bool = False,
+        blueprint: dict[str, Any] | None = None,
+    ) -> str:
         return await self.tool.execute(
             action="start",
             goal=goal,
             auto_run=auto_run,
             max_rounds=max_rounds,
             max_agents=max_agents,
+            max_agent_calls=max_agent_calls,
+            run_until_idle=run_until_idle,
+            blueprint=blueprint,
         )
 
-    async def run(self, session_id: str, *, max_rounds: int = 1, max_agents: int = 3) -> str:
+    async def run(
+        self,
+        session_id: str,
+        *,
+        max_rounds: int = 1,
+        max_agents: int = 3,
+        max_agent_calls: int | None = None,
+        run_until_idle: bool = False,
+        stop_on_blocker: bool = False,
+    ) -> str:
         return await self.tool.execute(
             action="run",
             session_id=session_id,
             max_rounds=max_rounds,
             max_agents=max_agents,
+            max_agent_calls=max_agent_calls,
+            run_until_idle=run_until_idle,
+            stop_on_blocker=stop_on_blocker,
         )
 
     async def execute(self, action: str, **kwargs: Any) -> str:

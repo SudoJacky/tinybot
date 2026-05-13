@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 
-AgentStatus = Literal["idle", "working", "waiting", "blocked", "done", "failed"]
+AgentStatus = Literal["idle", "working", "waiting", "blocked", "done", "failed", "retired"]
 TaskStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
 SessionStatus = Literal["active", "paused", "completed", "failed"]
 ThreadStatus = Literal["open", "resolved"]
@@ -21,6 +21,7 @@ WorkflowMode = Literal[
     "message_bus",
     "shared_state",
     "peer_handoff",
+    "swarm",
 ]
 
 
@@ -48,6 +49,12 @@ class CoworkAgent:
     current_task_title: str | None = None
     last_active_at: str | None = None
     rounds: int = 0
+    parent_agent_id: str | None = None
+    team_id: str = ""
+    lifecycle_status: str = "active"
+    source_blueprint_id: str = ""
+    source_event_id: str = ""
+    spawn_reason: str = ""
 
 
 @dataclass
@@ -64,6 +71,16 @@ class CoworkTask:
     result_data: dict[str, Any] = field(default_factory=dict)
     confidence: float | None = None
     error: str | None = None
+    priority: int = 0
+    expected_output: str = ""
+    review_required: bool = False
+    reviewer_agent_ids: list[str] = field(default_factory=list)
+    review_status: str = ""
+    fanout_group_id: str = ""
+    merge_task_id: str = ""
+    source_blueprint_id: str = ""
+    source_event_id: str = ""
+    runtime_created: bool = False
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
 
@@ -107,6 +124,7 @@ class CoworkMailboxRecord:
     expected_output_schema: dict[str, Any] = field(default_factory=dict)
     blocking_task_id: str | None = None
     escalate_after_rounds: int | None = None
+    escalated_at: str | None = None
     read_by: list[str] = field(default_factory=list)
     replied_by: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=now_iso)
@@ -142,6 +160,50 @@ class CoworkEvent:
 
 
 @dataclass
+class CoworkTraceSpan:
+    """A structured observability span for Cowork runtime activity."""
+
+    id: str
+    session_id: str
+    run_id: str | None
+    round_id: str | None
+    kind: str
+    name: str
+    actor_id: str | None = None
+    parent_id: str | None = None
+    status: str = "completed"
+    started_at: str = field(default_factory=now_iso)
+    ended_at: str | None = None
+    duration_ms: int | None = None
+    input_ref: str = ""
+    output_ref: str = ""
+    summary: str = ""
+    data: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+
+
+@dataclass
+class CoworkRunMetrics:
+    """Compact metrics for a user-triggered Cowork run."""
+
+    run_id: str
+    status: str = "running"
+    rounds: int = 0
+    agent_calls: int = 0
+    tool_calls: int = 0
+    messages: int = 0
+    tasks_created: int = 0
+    tasks_completed: int = 0
+    artifacts_created: int = 0
+    tokens_prompt: int = 0
+    tokens_completion: int = 0
+    tokens_total: int = 0
+    stop_reason: str = ""
+    started_at: str = field(default_factory=now_iso)
+    ended_at: str | None = None
+
+
+@dataclass
 class CoworkSession:
     """A dynamic multi-agent collaboration session."""
 
@@ -156,6 +218,15 @@ class CoworkSession:
     messages: dict[str, CoworkMessage] = field(default_factory=dict)
     mailbox: dict[str, CoworkMailboxRecord] = field(default_factory=dict)
     events: list[CoworkEvent] = field(default_factory=list)
+    trace_spans: list[CoworkTraceSpan] = field(default_factory=list)
+    run_metrics: list[CoworkRunMetrics] = field(default_factory=list)
+    scheduler_decisions: list[dict[str, Any]] = field(default_factory=list)
+    budget_limits: dict[str, Any] = field(default_factory=dict)
+    budget_usage: dict[str, Any] = field(default_factory=dict)
+    stop_reason: str = ""
+    blueprint: dict[str, Any] = field(default_factory=dict)
+    blueprint_diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    runtime_state: dict[str, Any] = field(default_factory=dict)
     current_focus_task: str = ""
     workspace_dir: str = ""
     artifacts: list[str] = field(default_factory=list)
@@ -163,6 +234,7 @@ class CoworkSession:
     shared_summary: str = ""
     final_draft: str = ""
     completion_decision: dict[str, Any] = field(default_factory=dict)
+    swarm_plan: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
     rounds: int = 0
