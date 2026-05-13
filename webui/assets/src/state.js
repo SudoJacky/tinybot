@@ -62,6 +62,7 @@ export const state = {
   coworkTraceFilter: "all",
   coworkPendingAction: "",
   coworkGraphSuppressClick: "",
+  coworkGraphIgnoreStageClick: false,
   coworkGraphNodePositions: new Map(),
   coworkGraphView: { scale: 1, x: 0, y: 0 },
   coworkGraphDrag: null,

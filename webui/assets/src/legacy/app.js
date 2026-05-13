@@ -15,6 +15,11 @@ import { t, getLanguage, setLanguage } from '../i18n/index.js';
 // and DOM assumptions heavily. Future refactors can move each section into
 // src/features/* and src/components/* with focused tests.
 
+const COWORK_DEFAULT_RUN_ROUNDS = 20;
+const COWORK_DEFAULT_RUN_AGENTS = 3;
+const COWORK_DEFAULT_RUN_AGENT_CALLS = 30;
+const COWORK_NODE_CLICK_MOVE_THRESHOLD = 4;
+
 function setStatus(text, kind = "idle") {
   if (!elements.connectionStatus) {
     return;
@@ -1639,12 +1644,6 @@ function coworkEmpty(text) {
   return empty;
 }
 
-function coworkNumberInput(element, fallback, min, max) {
-  const value = Number.parseInt(element?.value || "", 10);
-  if (!Number.isFinite(value)) return fallback;
-  return Math.min(Math.max(value, min), max);
-}
-
 function coworkAgentMailboxState(session, agentId) {
   const mailbox = session?.mailbox || [];
   const pending = mailbox.filter((record) => (
@@ -1859,6 +1858,23 @@ function coworkRememberGraphNodePosition(sessionId, nodeId, x, y) {
 function coworkGraphAgentId(nodeId = "") {
   const value = String(nodeId || "");
   return value.startsWith("agent:") ? value.slice("agent:".length) : "";
+}
+
+function selectCoworkGraphNode(session, nodeId, { render = true } = {}) {
+  const { nodes } = coworkGraphNodes(session);
+  const node = nodes.find((item) => item.id === nodeId);
+  if (!node) return;
+  state.activeCoworkGraphNode = node.id;
+  if (node.kind === "agent") {
+    selectCoworkEntity("agent", coworkGraphAgentId(node.id) || node.entity_id || node.id);
+  } else if (node.kind === "task") {
+    selectCoworkEntity("task", String(node.id || "").replace(/^task:/, ""));
+  } else {
+    selectCoworkEntity("node", node.id);
+  }
+  if (render) {
+    renderCoworkGraph(session);
+  }
 }
 
 function ensureCoworkAgentFieldPopover() {
@@ -2338,17 +2354,10 @@ function renderCoworkGraph(session) {
       event.stopPropagation();
       if (state.coworkGraphSuppressClick === node.id) {
         state.coworkGraphSuppressClick = "";
+        state.coworkGraphIgnoreStageClick = false;
         return;
       }
-      state.activeCoworkGraphNode = node.id;
-      if (node.kind === "agent") {
-        selectCoworkEntity("agent", coworkGraphAgentId(node.id) || node.entity_id || node.id);
-      } else if (node.kind === "task") {
-        selectCoworkEntity("task", String(node.id || "").replace(/^task:/, ""));
-      } else {
-        selectCoworkEntity("node", node.id);
-      }
-      renderCoworkGraph(session);
+      selectCoworkGraphNode(session, node.id);
     });
     group.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
@@ -2418,11 +2427,14 @@ function setupCoworkGraphInteractions() {
     if (!drag || drag.id !== event.pointerId) return;
     const rect = stage.getBoundingClientRect();
     if (drag.kind === "node") {
+      const pixelDx = event.clientX - drag.x;
+      const pixelDy = event.clientY - drag.y;
+      drag.moved = drag.moved || Math.hypot(pixelDx, pixelDy) > COWORK_NODE_CLICK_MOVE_THRESHOLD;
+      if (!drag.moved) return;
       const dx = ((event.clientX - drag.x) / rect.width) * 1200 / state.coworkGraphView.scale;
       const dy = ((event.clientY - drag.y) / rect.height) * 620 / state.coworkGraphView.scale;
       const nextX = drag.startNodeX + dx;
       const nextY = drag.startNodeY + dy;
-      drag.moved = drag.moved || Math.abs(dx) > 2 || Math.abs(dy) > 2;
       coworkRememberGraphNodePosition(drag.sessionId, drag.nodeId, nextX, nextY);
       renderCoworkGraph(state.activeCoworkSession);
       return;
@@ -2431,9 +2443,17 @@ function setupCoworkGraphInteractions() {
     state.coworkGraphView.y = drag.startY + ((event.clientY - drag.y) / rect.height) * 620;
     renderCoworkGraph(state.activeCoworkSession);
   });
-  stage.addEventListener("pointerup", () => {
-    if (state.coworkGraphDrag?.kind === "node" && state.coworkGraphDrag.moved) {
-      state.coworkGraphSuppressClick = state.coworkGraphDrag.nodeId;
+  stage.addEventListener("pointerup", (event) => {
+    const drag = state.coworkGraphDrag;
+    if (drag?.id === event.pointerId && stage.hasPointerCapture?.(event.pointerId)) {
+      stage.releasePointerCapture(event.pointerId);
+    }
+    if (drag?.kind === "node") {
+      state.coworkGraphSuppressClick = drag.nodeId;
+      state.coworkGraphIgnoreStageClick = true;
+      if (!drag.moved) {
+        selectCoworkGraphNode(state.activeCoworkSession, drag.nodeId);
+      }
     }
     state.coworkGraphDrag = null;
   });
@@ -2441,6 +2461,11 @@ function setupCoworkGraphInteractions() {
     state.coworkGraphDrag = null;
   });
   stage.addEventListener("click", (event) => {
+    if (state.coworkGraphIgnoreStageClick) {
+      state.coworkGraphIgnoreStageClick = false;
+      state.coworkGraphSuppressClick = "";
+      return;
+    }
     if (event.target.closest?.(".cowork-graph-node") || event.target.closest?.(".cowork-agent-field-popover")) return;
     state.activeCoworkGraphNode = "session";
     renderCoworkGraph(state.activeCoworkSession);
@@ -2898,8 +2923,6 @@ function renderCoworkDetail() {
     elements.coworkStartButton.title = label;
   }
   for (const button of [
-    elements.coworkRunButton,
-    elements.coworkRunUntilIdleButton,
     elements.coworkSummaryButton,
     elements.coworkMessageButton,
     elements.coworkTaskButton,
@@ -2911,8 +2934,6 @@ function renderCoworkDetail() {
   }
   if (hasSession) {
     const pending = Boolean(state.coworkPendingAction);
-    if (elements.coworkRunButton) elements.coworkRunButton.disabled = pending || session.status !== "active";
-    if (elements.coworkRunUntilIdleButton) elements.coworkRunUntilIdleButton.disabled = pending || session.status !== "active";
     if (elements.coworkPauseButton) elements.coworkPauseButton.disabled = pending || session.status !== "active";
     if (elements.coworkResumeButton) elements.coworkResumeButton.disabled = pending || session.status !== "paused";
   }
@@ -3660,9 +3681,9 @@ async function startCoworkSession() {
         blueprint,
         workflow_mode: elements.coworkWorkflowMode?.value || "hybrid",
         auto_run: true,
-        max_rounds: coworkNumberInput(elements.coworkRoundLimit, 20, 1, 200),
-        max_agents: coworkNumberInput(elements.coworkAgentLimit, 3, 1, 50),
-        max_agent_calls: coworkNumberInput(elements.coworkAgentCallLimit, 30, 1, 500),
+        max_rounds: COWORK_DEFAULT_RUN_ROUNDS,
+        max_agents: COWORK_DEFAULT_RUN_AGENTS,
+        max_agent_calls: COWORK_DEFAULT_RUN_AGENT_CALLS,
         run_until_idle: true,
       }),
     });
@@ -3700,12 +3721,10 @@ async function submitCoworkComposer() {
   await startCoworkSession();
 }
 
-async function runCoworkRound(options = {}) {
+async function runCoworkRound() {
   if (!state.activeCoworkSessionId) return;
-  const singleRound = Boolean(options.singleRound);
-  const untilIdle = Boolean(options.untilIdle);
-  const triggerButton = singleRound ? elements.coworkRunUntilIdleButton : elements.coworkRunButton;
-  state.coworkPendingAction = singleRound ? "run_one_round" : "run_until_idle";
+  const triggerButton = elements.coworkStartButton;
+  state.coworkPendingAction = "run_until_idle";
   if (triggerButton) {
     triggerButton.disabled = true;
   }
@@ -3714,10 +3733,10 @@ async function runCoworkRound(options = {}) {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
-        max_rounds: singleRound ? 1 : coworkNumberInput(elements.coworkRoundLimit, 20, 1, 200),
-        max_agents: coworkNumberInput(elements.coworkAgentLimit, 3, 1, 50),
-        max_agent_calls: coworkNumberInput(elements.coworkAgentCallLimit, 30, 1, 500),
-        run_until_idle: untilIdle || !singleRound,
+        max_rounds: COWORK_DEFAULT_RUN_ROUNDS,
+        max_agents: COWORK_DEFAULT_RUN_AGENTS,
+        max_agent_calls: COWORK_DEFAULT_RUN_AGENT_CALLS,
+        run_until_idle: true,
         stop_on_blocker: false,
       }),
     });
@@ -8416,8 +8435,6 @@ function bindEvents() {
   elements.coworkIncludeCompleted?.addEventListener("change", () => {
     loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
   });
-  elements.coworkRunButton?.addEventListener("click", () => runCoworkRound({ untilIdle: true }));
-  elements.coworkRunUntilIdleButton?.addEventListener("click", () => runCoworkRound({ singleRound: true }));
   elements.coworkBlueprintValidateButton?.addEventListener("click", () => {
     validateCoworkBlueprint().catch((error) => setCoworkError(error.message || String(error)));
   });

@@ -368,17 +368,21 @@ html.theme-switching .theme-toggle svg {
   max-width: 720px;
 }
 
+.cowork-session-actions {
+  justify-content: flex-end;
+  max-width: 520px;
+}
+
 .cowork-run-controls .button {
   min-height: 38px;
   padding-inline: 12px;
   border-radius: var(--radius-sm);
 }
 
-#cowork-run-button,
-#cowork-run-until-idle-button {
-  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
-  background: color-mix(in srgb, var(--accent-soft) 78%, var(--cowork-surface));
-  color: var(--accent);
+.cowork-session-actions .button {
+  min-height: 34px;
+  padding-inline: 12px;
+  border-radius: var(--radius-sm);
 }
 
 #cowork-delete-button {
@@ -2020,13 +2024,6 @@ html.theme-switching .theme-toggle svg {
   display: none;
 }
 
-.cowork-page-active #cowork-run-button,
-.cowork-page-active #cowork-run-until-idle-button {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--panel-strong) 78%, transparent);
-  color: var(--text);
-}
-
 .cowork-page-active .cowork-goal-text {
   grid-column: auto;
   grid-row: auto;
@@ -2491,6 +2488,14 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
   padding-bottom: 1px;
 }
 
+.cowork-page-active .cowork-session-actions {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
 .cowork-page-active .cowork-run-controls .cowork-limit-label {
   display: inline-flex;
 }
@@ -2789,18 +2794,6 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
 .cowork-page-active .cowork-limit-label {
   min-height: 32px;
   border-radius: var(--radius-sm);
-}
-
-.cowork-page-active #cowork-run-button {
-  border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
-  background: var(--accent);
-  color: white;
-}
-
-.cowork-page-active #cowork-run-until-idle-button {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 
 .cowork-page-active #cowork-summary-button,
@@ -3926,4 +3919,8 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
   .cowork-panel-note {
     max-width: 100%;
   }
+}
+
+.cowork-page-active .cowork-detail-header {
+  display: none !important;
 }
