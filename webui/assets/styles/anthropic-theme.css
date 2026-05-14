@@ -1,0 +1,522 @@
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+body::before,
+body::after,
+[data-theme="dark"] body::before,
+[data-theme="dark"] body::after {
+  display: none;
+}
+
+a {
+  color: var(--accent);
+}
+
+.shell {
+  height: calc(100vh - 32px);
+  margin: 16px;
+  border-color: var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--bg);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .shell {
+  background: var(--bg);
+}
+
+.sidebar,
+.chat-panel,
+.right-panel {
+  border-color: var(--border);
+  border-radius: 0;
+  background: var(--panel);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.sidebar::before,
+.sidebar::after,
+.chat-panel::before,
+.chat-panel::after,
+.right-panel::before,
+.right-panel::after {
+  display: none;
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .sidebar {
+  border-right-color: var(--border);
+  box-shadow: none;
+}
+
+.chat-panel,
+[data-theme="dark"] .chat-panel {
+  background: var(--bg);
+}
+
+.brand {
+  min-height: 50px;
+  gap: 12px;
+}
+
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  flex-basis: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--text);
+  box-shadow: none;
+}
+
+.brand-mark::before,
+.brand-mark::after {
+  display: none;
+}
+
+.brand-logo {
+  width: 26px;
+  height: 26px;
+  filter: invert(1);
+}
+
+[data-theme="dark"] .brand-logo {
+  filter: none;
+}
+
+.brand h1,
+.topbar h2,
+.modal-title,
+.cowork-page-title,
+.config-section-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.brand h1 {
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.05;
+}
+
+.brand p,
+.eyebrow,
+.sidebar-nav-label,
+.tool-activity-label,
+.task-progress-metric-label,
+.approval-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.button,
+.theme-toggle,
+select,
+input,
+textarea {
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.button {
+  min-height: 40px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.button::before {
+  display: none;
+}
+
+.button:hover,
+.theme-toggle:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--bg) 82%, var(--surface-card));
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
+.button:focus-visible,
+.theme-toggle:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.button-primary,
+.button-primary.button-small,
+#settings-button,
+.sidebar-actions .sidebar-icon-new-chat,
+.toggle-on {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-primary);
+  box-shadow: none;
+}
+
+.button-primary:hover,
+#settings-button:hover,
+.sidebar-actions .sidebar-icon-new-chat:hover,
+.sidebar-actions .sidebar-icon-new-chat:focus-visible {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
+.button-ghost {
+  background: transparent;
+  border-color: var(--border-subtle);
+}
+
+.button-icon,
+.theme-toggle {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+.topbar,
+.composer {
+  border-color: var(--border);
+  background: var(--bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.topbar {
+  padding: 18px 24px 16px;
+}
+
+.topbar h2 {
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+.message-list {
+  padding: 28px 32px;
+  gap: 18px;
+  background:
+    linear-gradient(90deg, transparent 0, transparent calc(100% - 1px), var(--border-subtle) calc(100% - 1px)),
+    var(--bg);
+}
+
+.message {
+  border-color: var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.message-user {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-primary);
+}
+
+.message-user .message-meta,
+.message-user .message-role,
+.message-user .message-time,
+.message-user .message-content,
+.message-user .message-copy-btn {
+  color: var(--on-primary);
+}
+
+.message-assistant {
+  background: transparent;
+  border-color: transparent;
+}
+
+.message-system,
+.message-collapse-group,
+.task-progress-card,
+.message-reasoning,
+.typing-indicator,
+.empty-state,
+.global-knowledge-toast,
+.approval-panel,
+.browser-snapshot,
+.tool-activity,
+.compact-item,
+.system-status,
+.status-item,
+.session-file-chip {
+  border-color: var(--border);
+  background: var(--surface-card);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.message-tool,
+.message-progress {
+  color: var(--text-muted);
+}
+
+.message-text h1,
+.message-text h2,
+.message-text h3,
+.message-text h4 {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.message-text a,
+.message-reasoning-summary::before,
+.tool-activity-content-details summary::before,
+.cowork-panel .section-header,
+.cowork-panel h2,
+.skill-name-clickable:hover {
+  color: var(--accent);
+}
+
+.message-text code,
+.message-text pre,
+.tool-activity-body,
+.tool-activity-pre,
+.tool-activity-empty,
+.browser-frame-wrap {
+  border-color: color-mix(in srgb, var(--on-dark-soft) 20%, transparent);
+  background: var(--surface-dark-soft);
+  color: var(--on-dark);
+}
+
+.message-text pre code {
+  color: inherit;
+}
+
+.message-text blockquote {
+  background: var(--surface-soft);
+  border-left-color: var(--accent);
+  color: var(--text-muted);
+}
+
+.message-text th {
+  background: var(--surface-card);
+}
+
+.composer {
+  padding: 16px 24px 20px;
+}
+
+.composer-row {
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  gap: 10px;
+}
+
+.composer-input {
+  min-height: 48px;
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  box-shadow: none;
+}
+
+.composer-input:focus {
+  border-color: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.composer-file,
+.composer-send {
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+}
+
+.panel-header h2,
+.compact-panel h2,
+.section-header h2,
+.tool-name,
+.skill-header .skill-name,
+.compact-item-name,
+.session-key,
+.status-value,
+.task-progress-title,
+.approval-title {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.sessions-panel {
+  gap: 10px;
+}
+
+.session-list {
+  gap: 5px;
+}
+
+.session-item {
+  border-radius: var(--radius-md);
+}
+
+.session-item:hover,
+.session-item:focus-visible,
+.session-item.active,
+[data-theme="dark"] .session-item:hover,
+[data-theme="dark"] .session-item:focus-visible,
+[data-theme="dark"] .session-item.active,
+.sidebar-feature-panel .compact-panel .section-header:hover,
+.sidebar-feature-panel .compact-panel .section-header:focus-visible,
+.section-header.clickable:hover {
+  border-color: var(--border);
+  background: var(--surface-card);
+  box-shadow: none;
+}
+
+.compact-panel .section-header {
+  min-height: 36px;
+  border-radius: var(--radius-md);
+}
+
+.status {
+  border-color: var(--border);
+  background: var(--surface-card);
+  box-shadow: none;
+}
+
+.status-connected {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.status-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.usage-bar-track,
+[data-theme="dark"] .usage-bar-track,
+.global-knowledge-progress {
+  background: var(--surface-cream-strong);
+}
+
+.usage-bar-fill,
+.global-knowledge-progress-bar,
+.task-progress-bar-fill,
+.typing-indicator-dot {
+  background: var(--accent);
+}
+
+.usage-bar-safe,
+.task-status-completed,
+.skill-status-dot.enabled,
+.toggle-always {
+  background: var(--success);
+}
+
+.usage-bar-caution,
+.usage-bar-warning,
+.task-status-paused {
+  background: var(--warning);
+}
+
+.usage-bar-danger,
+.task-status-failed {
+  background: var(--danger);
+}
+
+.modal-content,
+.settings-modal-content,
+.cowork-modal-content {
+  border-color: var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-overlay,
+.help-backdrop,
+[data-theme="dark"] .help-backdrop {
+  background: rgba(20, 20, 19, 0.42);
+}
+
+.config-toolbar,
+.modal-header,
+.modal-footer {
+  border-color: var(--border);
+  background: var(--surface-soft);
+}
+
+.settings-bar #language-toggle,
+.theme-toggle {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.skip-link {
+  background: var(--accent);
+  color: var(--on-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 24%, transparent);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 38%, transparent);
+}
+
+@media (max-width: 1100px) {
+  .shell {
+    height: auto;
+    min-height: calc(100vh - 32px);
+  }
+
+  .sidebar {
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 640px) {
+  .shell {
+    margin: 10px;
+    border-radius: var(--radius-lg);
+  }
+
+  .topbar h2 {
+    font-size: 26px;
+  }
+
+  .message-list {
+    padding: 20px 16px;
+  }
+
+  .sidebar,
+  .chat-panel {
+    border-radius: 0;
+  }
+}

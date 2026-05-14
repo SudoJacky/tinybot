@@ -274,6 +274,7 @@
               <div class="cowork-active-heading">
                 <p id="cowork-active-status" class="cowork-session-meta">No session</p>
                 <h3 id="cowork-active-title">Select or start a session</h3>
+                <p id="cowork-active-goal" class="cowork-goal-text"></p>
               </div>
               <div class="cowork-toolbar cowork-session-actions">
                 <button id="cowork-pause-button" class="button" type="button">Emergency stop</button>
@@ -282,7 +283,6 @@
                 <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
               </div>
             </header>
-            <p id="cowork-active-goal" class="cowork-goal-text"></p>
             <div class="cowork-primary-column">
               <section class="cowork-graph-panel" aria-label="Cowork team map">
                 <div class="cowork-graph-header">
@@ -396,7 +396,7 @@
                 </section>
               </section>
             </div>
-            <aside class="cowork-action-rail" aria-label="Cowork read-only status dialog">
+            <aside class="cowork-action-rail" aria-label="Cowork selected entity actions">
               <section class="cowork-inspector-panel" aria-label="Selected cowork entity">
                 <div class="cowork-panel-heading">
                   <h4>Inspector</h4>
@@ -411,9 +411,6 @@
                   <button id="cowork-task-retry-button" class="button" type="button">Retry</button>
                   <button id="cowork-task-review-button" class="button" type="button">Review</button>
                 </div>
-              </section>
-              <section class="cowork-status-dialog" aria-label="Cowork status and activity">
-                <div id="cowork-status-feed" class="cowork-status-feed" aria-live="polite"></div>
               </section>
             </aside>
             <section class="cowork-create cowork-composer">
