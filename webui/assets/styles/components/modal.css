@@ -849,6 +849,12 @@
   line-height: 1.45;
 }
 
+.cowork-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .cowork-mailbox-card {
   min-height: 68px;
 }

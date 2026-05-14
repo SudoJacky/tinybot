@@ -156,6 +156,7 @@ def build_cowork_graph(
                 "y": round(y, 2),
                 "parent_agent_id": getattr(agent, "parent_agent_id", None),
                 "team_id": getattr(agent, "team_id", ""),
+                "lifetime": getattr(agent, "lifetime", "persistent"),
                 "lifecycle_status": getattr(agent, "lifecycle_status", "active"),
                 "source_blueprint_id": getattr(agent, "source_blueprint_id", ""),
                 "source_event_id": getattr(agent, "source_event_id", ""),
@@ -755,7 +756,7 @@ def build_cowork_task_dag(session: CoworkSession) -> dict[str, Any]:
 
 
 def build_cowork_artifact_index(session: CoworkSession) -> list[dict[str, Any]]:
-    """Return artifacts linked back to their source tasks and agents."""
+    """Return artifacts linked back to their source tasks, work units, and agents."""
 
     artifacts: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -795,6 +796,33 @@ def build_cowork_artifact_index(session: CoworkSession) -> list[dict[str, Any]]:
                 "confidence": None,
             }
         )
+    plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+    for unit in plan.get("work_units", []) if isinstance(plan.get("work_units", []), list) else []:
+        if not isinstance(unit, dict):
+            continue
+        for artifact in unit.get("artifacts") or []:
+            value = artifact.get("path_or_url") or artifact.get("path") or artifact.get("url") if isinstance(artifact, dict) else artifact
+            text = str(value or "").strip()
+            if not text:
+                continue
+            key = (str(unit.get("id") or ""), text)
+            if key in seen or any(item["path_or_url"] == text for item in artifacts):
+                continue
+            seen.add(key)
+            artifacts.append(
+                {
+                    "id": f"artifact_{len(artifacts) + 1}",
+                    "kind": (artifact.get("kind") if isinstance(artifact, dict) else "") or _artifact_kind(text),
+                    "path_or_url": text,
+                    "source_agent_id": unit.get("assigned_agent_id"),
+                    "source_task_id": unit.get("source_task_id"),
+                    "source_work_unit_id": unit.get("id"),
+                    "source_task_title": unit.get("title", ""),
+                    "created_at": unit.get("updated_at") or session.updated_at,
+                    "summary": artifact.get("summary") if isinstance(artifact, dict) else _compact(text, 160),
+                    "confidence": unit.get("confidence"),
+                }
+            )
     return artifacts
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -265,6 +266,7 @@ Workspace: {self.workspace}
         agents=ArraySchema(ObjectSchema(description="Subteam agent spec"), description="Subteam agent specs"),
         tasks=ArraySchema(ObjectSchema(description="Subteam task spec"), description="Subteam fanout tasks"),
         team_id=StringSchema("Subteam id"),
+        work_unit_id=StringSchema("Swarm work-unit id that caused a spawned agent"),
         required=["action"],
     )
 )
@@ -321,6 +323,7 @@ class CoworkInternalTool(Tool):
         agents: list[dict[str, Any]] | None = None,
         tasks: list[dict[str, Any]] | None = None,
         team_id: str = "",
+        work_unit_id: str = "",
         **kwargs: Any,
     ) -> str:
         session = self.service.get_session(self.session_id)
@@ -415,6 +418,7 @@ class CoworkInternalTool(Tool):
                 reason=content or kwargs.get("reason", ""),
                 source_event_id=caused_by_envelope_id or reply_to_envelope_id,
                 team_id=team_id,
+                work_unit_id=work_unit_id,
             )
             if isinstance(spawned, str):
                 return spawned
@@ -494,7 +498,7 @@ class CoworkInternalTool(Tool):
         goal=StringSchema("Goal for a new cowork session"),
         workflow_mode=StringSchema(
             "Cowork workflow mode",
-            enum=["hybrid", "supervisor", "orchestrator", "team", "generator_verifier", "message_bus", "shared_state", "peer_handoff"],
+            enum=["hybrid", "supervisor", "orchestrator", "team", "generator_verifier", "message_bus", "shared_state", "peer_handoff", "swarm"],
         ),
         session_id=StringSchema("Cowork session id"),
         recipient_ids=ArraySchema(StringSchema("Agent id"), description="Message recipients"),
@@ -606,13 +610,14 @@ class CoworkTool(Tool):
                 return response
             if not goal.strip():
                 return "Error: goal is required for cowork start"
-            planned_title, agents, tasks = await self.planner.plan(goal, workflow_mode=workflow_mode or "hybrid")
-            tasks = CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
+            mode = CoworkService.normalize_workflow_mode(workflow_mode or "hybrid")
+            planned_title, agents, tasks = await self.planner.plan(goal, workflow_mode=mode)
+            tasks = tasks if mode == "swarm" and tasks else CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
             generated_blueprint = normalize_blueprint(
                 {
                     "goal": goal,
                     "title": planned_title,
-                    "workflow_mode": workflow_mode or "hybrid",
+                    "workflow_mode": mode,
                     "agents": agents,
                     "tasks": tasks,
                 }
@@ -622,7 +627,7 @@ class CoworkTool(Tool):
                 title=planned_title,
                 agents=agents,
                 tasks=tasks,
-                workflow_mode=workflow_mode or "hybrid",
+                workflow_mode=mode,
                 blueprint=generated_blueprint,
             )
             response = f"Cowork session started: {session.id}\n\n{self.service.format_status(session, verbose=True)}"
@@ -754,6 +759,7 @@ class CoworkTool(Tool):
         agent_limit = min(max(1, int(max_agents or budget_parallel_width)), max(1, budget_parallel_width))
         run_agent_call_limit = int(max_agent_calls or limits.get("max_agent_calls_per_run") or _MAX_RUN_AGENT_CALLS)
         run_id = self.service._new_id("run")
+        run_started_at = time.monotonic()
         run_span = self.service.start_trace_span(
             session,
             kind="scheduler",
@@ -793,6 +799,7 @@ class CoworkTool(Tool):
                 session,
                 run_agent_calls=agent_calls,
                 run_agent_call_limit=run_agent_call_limit,
+                elapsed_wall_time_seconds=time.monotonic() - run_started_at,
             )
             if exhausted:
                 lines.append(f"Round {round_index + 1}: {exhausted.replace('_', ' ')}.")
@@ -973,6 +980,7 @@ class CoworkTool(Tool):
                 )
         self.service.assess_session(session)
         run_status = "completed" if session.status == "completed" else "stopped"
+        self.service.record_budget_usage(session, wall_time_seconds=time.monotonic() - run_started_at, save=False)
         self.service.finish_run_metrics(session, run_id, status=run_status, rounds=completed_rounds, agent_calls=agent_calls)
         self.service.finish_trace_span(
             session,
@@ -1140,10 +1148,24 @@ class CoworkTool(Tool):
 
         previous_message_ids = set(session.messages)
         unread = self.service.mark_messages_read(session, agent.id)
-        task = self.service.next_task_for(session, agent.id)
+        task = None
+        if agent.current_task_id and agent.current_task_id in session.tasks:
+            current = session.tasks[agent.current_task_id]
+            if current.status in {"pending", "in_progress"} and current.assigned_agent_id in {None, "", agent.id}:
+                task = current
+        if task is None:
+            task = self.service.next_task_for(session, agent.id)
         if task:
-            task.status = "in_progress"
-            task.updated_at = now_iso()
+            if session.workflow_mode == "swarm":
+                unit = self.service.swarm_work_unit_for_task(session, task.id)
+                if unit and unit.get("status") != "in_progress":
+                    self.service.start_work_unit(session, str(unit.get("id")), agent.id, run_id=run_id, round_id=round_id, save=False)
+                elif task.status != "in_progress":
+                    task.status = "in_progress"
+                    task.updated_at = now_iso()
+            else:
+                task.status = "in_progress"
+                task.updated_at = now_iso()
             agent.current_task_id = task.id
             agent.current_task_title = task.title
             session.current_focus_task = f"{task.title}: {task.description}"
@@ -1748,8 +1770,20 @@ Use cowork_internal spawn_agent or spawn_subteam only when the session budget al
             for record in pending_requests[:8]
         ]
         task_text = "No ready assigned task."
+        gate_text = ""
         if task:
             task_text = f"{task.id}: {task.title}\n{task.description}"
+            source_event_id = str(getattr(task, "source_event_id", "") or "")
+            if source_event_id.startswith("swarm_reducer:"):
+                gate_text = (
+                    "Swarm reducer gate: return a JSON object with answer, findings, decisions, risks, "
+                    "open_questions, artifact_summary, confidence, missing_work, and source_work_unit_ids."
+                )
+            elif source_event_id.startswith("swarm_reviewer:"):
+                gate_text = (
+                    "Swarm reviewer gate: return a JSON object with verdict pass, needs_revision, or blocked; "
+                    "issues; required_fixes; and confidence. Ambiguous verdicts block completion."
+                )
         threads = session.open_threads_for(agent.id)
         thread_lines = [f"- {thread.id}: {thread.topic} ({len(thread.message_ids)} messages)" for thread in threads[:8]]
         completed = [
@@ -1800,6 +1834,9 @@ Open discussions:
 Recent completed task results:
 {chr(10).join(completed) if completed else "(none)"}
 
+Swarm gate contract:
+{gate_text or "(none)"}
+
 Expected behavior:
 1. Make concrete progress on your current task or inbox.
 2. If the current task is directly answerable, produce the actual answer in public_note instead of asking another agent for permission.
@@ -1845,6 +1882,10 @@ Expected behavior:
             "peer_handoff": (
                 "Move ownership one concrete step at a time. Use handoff/review only when a named specialist should "
                 "own the next step, and include the exact expected output."
+            ),
+            "swarm": (
+                "Use explicit work units, dependencies, expected outputs, and reducer/reviewer handoffs. Keep work "
+                "bounded, avoid duplicate fan-out, and report artifacts, risks, confidence, and open questions in structured task results."
             ),
             "hybrid": (
                 "Use the lightest mechanism that fits: direct work first, task handoff when ownership changes, "

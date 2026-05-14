@@ -236,6 +236,62 @@ async def test_cowork_blueprint_api_routes(cowork_api_client):
 
 
 @pytest.mark.asyncio
+async def test_cowork_swarm_steering_budget_and_work_unit_api(cowork_api_client):
+    service = cowork_api_client.cowork_service
+    session = service.create_session(
+        "Steer swarm",
+        "Steer swarm",
+        [
+            {"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]},
+            {"id": "worker", "name": "Worker", "role": "Worker", "goal": "Work", "tools": ["cowork_internal"]},
+        ],
+        [{"id": "unit_a", "title": "Unit A", "description": "A", "assigned_agent_id": "worker"}],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 1},
+    )
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/messages",
+        json={"content": "Prioritize evidence before reducing."},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert (
+        payload["session"]["swarm_plan"]["user_steering"][-1]["instruction"] == "Prioritize evidence before reducing."
+    )
+    assert payload["session"]["messages"][-1]["recipient_ids"] == ["lead"]
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/budget",
+        json={"budgets": {"parallel_width": 2, "max_agent_calls": 4}},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["budget"]["limits"]["parallel_width"] == 2
+    assert payload["budget"]["limits"]["max_agent_calls_per_run"] == 4
+
+    service.fail_work_unit(session, "unit_a", "boom")
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/work-units/unit_a/retry",
+        json={"reason": "try again"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    unit = next(item for item in payload["session"]["swarm_plan"]["work_units"] if item["id"] == "unit_a")
+    assert unit["status"] == "ready"
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/work-units/unit_a/skip",
+        json={"reason": "not needed"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    unit = next(item for item in payload["session"]["swarm_plan"]["work_units"] if item["id"] == "unit_a")
+    assert unit["status"] == "skipped"
+    assert unit["skip_reason"] == "not needed"
+
+
+@pytest.mark.asyncio
 async def test_existing_api_routes_remain_registered(cowork_api_client):
     response = await cowork_api_client.get("/health")
     assert response.status == 200

@@ -12,6 +12,17 @@ TaskStatus = Literal["pending", "in_progress", "completed", "failed", "skipped"]
 SessionStatus = Literal["active", "paused", "completed", "failed"]
 ThreadStatus = Literal["open", "resolved"]
 MailboxStatus = Literal["queued", "delivered", "read", "replied", "expired"]
+SwarmPlanStatus = Literal["draft", "active", "reducing", "reviewing", "completed", "blocked", "failed", "cancelled"]
+SwarmWorkUnitStatus = Literal[
+    "pending",
+    "ready",
+    "in_progress",
+    "completed",
+    "failed",
+    "skipped",
+    "needs_revision",
+    "cancelled",
+]
 WorkflowMode = Literal[
     "hybrid",
     "supervisor",
@@ -51,6 +62,7 @@ class CoworkAgent:
     rounds: int = 0
     parent_agent_id: str | None = None
     team_id: str = ""
+    lifetime: str = "persistent"
     lifecycle_status: str = "active"
     source_blueprint_id: str = ""
     source_event_id: str = ""
@@ -201,6 +213,73 @@ class CoworkRunMetrics:
     stop_reason: str = ""
     started_at: str = field(default_factory=now_iso)
     ended_at: str | None = None
+
+
+@dataclass
+class CoworkWorkUnit:
+    """A deterministic unit of swarm work."""
+
+    id: str
+    title: str
+    description: str
+    input: dict[str, Any] = field(default_factory=dict)
+    expected_output_schema: dict[str, Any] = field(default_factory=dict)
+    completion_criteria: list[str] = field(default_factory=list)
+    assigned_agent_id: str | None = None
+    dependencies: list[str] = field(default_factory=list)
+    status: SwarmWorkUnitStatus = "pending"
+    priority: int = 0
+    attempts: int = 0
+    max_attempts: int = 2
+    tool_allowlist: list[str] = field(default_factory=list)
+    result: dict[str, Any] = field(default_factory=dict)
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    risks: list[str] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    confidence: float | None = None
+    error: str | None = None
+    source_task_id: str | None = None
+    source_blueprint_id: str = ""
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkSwarmPlan:
+    """A first-class swarm execution plan."""
+
+    id: str
+    goal: str
+    status: SwarmPlanStatus = "draft"
+    strategy: str = "map_reduce"
+    lead_agent_id: str = ""
+    reducer_agent_id: str = ""
+    reviewer_agent_id: str | None = None
+    work_units: list[CoworkWorkUnit] = field(default_factory=list)
+    reducer: dict[str, Any] = field(default_factory=dict)
+    review: dict[str, Any] = field(default_factory=dict)
+    budgets: dict[str, Any] = field(default_factory=dict)
+    policy: dict[str, Any] = field(default_factory=dict)
+    diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkEvaluationResult:
+    """A deterministic evaluation record for swarm completion checks."""
+
+    id: str
+    kind: str
+    status: Literal["pass", "warn", "block", "error"] = "warn"
+    score: float | None = None
+    summary: str = ""
+    issues: list[dict[str, Any]] = field(default_factory=list)
+    blocking_work_unit_ids: list[str] = field(default_factory=list)
+    blocking_task_ids: list[str] = field(default_factory=list)
+    recommended_actions: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
 
 
 @dataclass

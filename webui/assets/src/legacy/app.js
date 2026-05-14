@@ -1779,10 +1779,12 @@ function coworkSafeSession(session) {
     artifacts: coworkArray(session.artifacts),
     scheduler_decisions: coworkArray(session.scheduler_decisions),
     run_metrics: coworkArray(session.run_metrics),
+    evaluation_results: coworkArray(session.evaluation_results),
     completion_decision: session.completion_decision || {},
     budget_state: session.budget_state || session.budget || { limits: {}, usage: {}, remaining: {} },
     graph: session.graph || null,
     blueprint: session.blueprint || null,
+    swarm_plan: session.swarm_plan || {},
   };
 }
 
@@ -2927,6 +2929,7 @@ function coworkSelectionId(type, item) {
   if (type === "artifact") return item.id || item.path_or_url || item.title || "";
   if (type === "mailbox") return item.id || "";
   if (type === "span") return item.id || "";
+  if (type === "work_unit") return item.id || "";
   if (type === "node") return item.id || "";
   return item.id || "";
 }
@@ -2953,6 +2956,9 @@ function coworkFindSelected(session) {
   }
   if (type === "artifact") {
     return { type, item: (session.artifact_index || []).find((artifact) => coworkSelectionId("artifact", artifact) === id) || null };
+  }
+  if (type === "work_unit") {
+    return { type, item: (session.swarm_plan?.work_units || []).find((unit) => unit.id === id) || null };
   }
   if (type === "mailbox") {
     return { type, item: (session.mailbox || []).find((record) => record.id === id) || null };
@@ -3013,6 +3019,154 @@ function renderCoworkRunMetrics(session) {
     elements.coworkSchedulerSummary.textContent = decision
       ? compactText(`${decision.reason || "Scheduler decision"}${selected}`, 96)
       : "No decisions";
+  }
+}
+
+function renderCoworkSwarmPlan(session) {
+  if (!elements.coworkSwarmPlanPanel) return;
+  const panel = elements.coworkSwarmPlanPanel;
+  panel.textContent = "";
+  const plan = session?.swarm_plan || {};
+  const units = Array.isArray(plan.work_units) ? plan.work_units : [];
+  if (elements.coworkSwarmPlanSummary) {
+    elements.coworkSwarmPlanSummary.textContent = plan.id
+      ? `${plan.status || "active"} / ${units.length} units`
+      : "No plan";
+  }
+  if (!plan.id) {
+    panel.append(coworkEmpty("No swarm plan for this session."));
+    return;
+  }
+  const budget = session?.budget_state || session?.budget || {};
+  const limits = budget.limits || {};
+  const usage = budget.usage || {};
+  const card = document.createElement("article");
+  card.className = "cowork-card cowork-observable-card";
+  card.innerHTML = `
+    <div class="cowork-card-row">
+      <strong></strong>
+      <span></span>
+    </div>
+    <p></p>
+    <small></small>
+  `;
+  card.querySelector("strong").textContent = plan.strategy || "swarm";
+  card.querySelector("span").className = coworkStatusClass(plan.status || "active");
+  card.querySelector("span").textContent = plan.status || "active";
+  card.querySelector("p").textContent = compactText(plan.goal || session?.goal || "", 180);
+  card.querySelector("small").textContent = [
+    limits.parallel_width !== undefined ? `width ${limits.parallel_width}` : "",
+    limits.max_work_units !== undefined ? `units ${units.length}/${limits.max_work_units}` : `${units.length} units`,
+    usage.agent_calls !== undefined ? `calls ${usage.agent_calls}` : "",
+    session?.stop_reason || "",
+  ].filter(Boolean).join(" - ");
+  panel.append(card);
+}
+
+function renderCoworkWorkUnits(session) {
+  if (!elements.coworkWorkUnitList) return;
+  const list = elements.coworkWorkUnitList;
+  list.textContent = "";
+  const units = session?.swarm_plan?.work_units || [];
+  const counts = units.reduce((acc, unit) => {
+    const status = unit.status || "unknown";
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  if (elements.coworkWorkUnitSummary) {
+    elements.coworkWorkUnitSummary.textContent = units.length
+      ? Object.entries(counts).map(([status, count]) => `${status} ${count}`).join(" / ")
+      : "No units";
+  }
+  if (!units.length) {
+    list.append(coworkEmpty("No swarm work units yet."));
+    return;
+  }
+  for (const unit of units.slice(0, 60)) {
+    const item = coworkInteractiveCard("work_unit", unit.id, "cowork-card cowork-observable-card");
+    item.innerHTML = `
+      <div class="cowork-card-row">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+      <small></small>
+      <div class="cowork-card-actions"></div>
+    `;
+    item.querySelector("strong").textContent = unit.title || unit.id;
+    item.querySelector("span").className = coworkStatusClass(unit.status || "pending");
+    item.querySelector("span").textContent = unit.kind ? `${unit.kind}:${unit.status || "pending"}` : (unit.status || "pending");
+    item.querySelector("p").textContent = compactText(unit.result?.answer || unit.error || unit.description || "", 180);
+    item.querySelector("small").textContent = [
+      unit.assigned_agent_id ? `Agent ${unit.assigned_agent_id}` : "",
+      unit.dependencies?.length ? `Deps ${unit.dependencies.join(", ")}` : "",
+      unit.confidence !== null && unit.confidence !== undefined ? `Confidence ${Math.round(Number(unit.confidence) * 100)}%` : "",
+      unit.replan_reason || "",
+    ].filter(Boolean).join(" - ");
+    const actions = item.querySelector(".cowork-card-actions");
+    if (["failed", "needs_revision"].includes(String(unit.status || ""))) {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "button button-small";
+      retry.textContent = "Retry";
+      retry.disabled = Boolean(state.coworkPendingAction);
+      retry.addEventListener("click", (event) => {
+        event.stopPropagation();
+        mutateCoworkWorkUnit(unit.id, "retry", { reason: "retry from UI" }).catch((error) => setCoworkError(error.message || String(error)));
+      });
+      actions.append(retry);
+    }
+    if (["failed", "blocked", "pending", "ready", "needs_revision"].includes(String(unit.status || ""))) {
+      const skip = document.createElement("button");
+      skip.type = "button";
+      skip.className = "button button-small";
+      skip.textContent = "Skip";
+      skip.disabled = Boolean(state.coworkPendingAction);
+      skip.addEventListener("click", (event) => {
+        event.stopPropagation();
+        mutateCoworkWorkUnit(unit.id, "skip", { reason: "skipped from UI" }).catch((error) => setCoworkError(error.message || String(error)));
+      });
+      actions.append(skip);
+    }
+    list.append(item);
+  }
+}
+
+function renderCoworkEvaluations(session) {
+  if (!elements.coworkEvaluationList) return;
+  const list = elements.coworkEvaluationList;
+  list.textContent = "";
+  const evaluations = session?.evaluation_results || session?.completion_decision?.evaluations || [];
+  const blockers = evaluations.filter((item) => ["block", "error"].includes(String(item.status || "")));
+  if (elements.coworkEvaluationSummary) {
+    elements.coworkEvaluationSummary.textContent = evaluations.length
+      ? `${blockers.length} blockers / ${evaluations.length} evals`
+      : "No evals";
+  }
+  if (!evaluations.length) {
+    list.append(coworkEmpty("No evaluation results yet."));
+    return;
+  }
+  for (const evaluation of evaluations.slice(-12).reverse()) {
+    const item = document.createElement("article");
+    item.className = "cowork-card cowork-observable-card";
+    item.innerHTML = `
+      <div class="cowork-card-row">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+      <small></small>
+    `;
+    item.querySelector("strong").textContent = String(evaluation.kind || "evaluation").replaceAll("_", " ");
+    item.querySelector("span").className = coworkStatusClass(evaluation.status || "warn");
+    item.querySelector("span").textContent = evaluation.status || "warn";
+    item.querySelector("p").textContent = compactText(evaluation.summary || "", 180);
+    item.querySelector("small").textContent = [
+      evaluation.score !== null && evaluation.score !== undefined ? `Score ${Math.round(Number(evaluation.score) * 100)}%` : "",
+      evaluation.recommended_actions?.length ? evaluation.recommended_actions.join(", ") : "",
+    ].filter(Boolean).join(" - ");
+    list.append(item);
   }
 }
 
@@ -3243,10 +3397,13 @@ function renderCoworkArtifacts(session) {
 
 function renderCoworkObservability(session) {
   renderCoworkRunMetrics(session);
+  renderCoworkSwarmPlan(session);
+  renderCoworkWorkUnits(session);
   renderCoworkTaskDag(session);
   renderCoworkTraceSpans(session);
   renderCoworkArtifacts(session);
   renderCoworkBlockers(session);
+  renderCoworkEvaluations(session);
   renderCoworkSecondaryPanels();
 }
 
@@ -3304,7 +3461,7 @@ function renderCoworkSelectedInspector(session) {
     elements.coworkInspectorKind.textContent = item ? type : "Nothing selected";
   }
   if (!item) {
-    elements.coworkSelectedInspector.append(coworkEmpty("Select a task, agent, trace span, artifact, or mailbox record."));
+    elements.coworkSelectedInspector.append(coworkEmpty("Select a task, work unit, agent, trace span, artifact, or mailbox record."));
     updateCoworkTaskActionControls(null);
     return;
   }
@@ -4325,6 +4482,32 @@ async function mutateCoworkTask(action, payload = {}) {
     await loadCoworkSessions();
   } catch (error) {
     setCoworkError(error.message || String(error));
+  } finally {
+    state.coworkPendingAction = "";
+    renderCoworkDetail();
+  }
+}
+
+async function mutateCoworkWorkUnit(workUnitId, action, payload = {}) {
+  if (!state.activeCoworkSessionId || !workUnitId) return;
+  state.coworkPendingAction = `work_unit_${action}`;
+  renderCoworkDetail();
+  try {
+    const response = await fetch(
+      `${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/work-units/${encodeURIComponent(workUnitId)}/${action}`,
+      {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      },
+    );
+    const responsePayload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(responsePayload.error || responsePayload.result || `${action} work unit failed: ${response.status}`);
+    }
+    state.activeCoworkSession = responsePayload.session || state.activeCoworkSession;
+    renderCoworkDetail();
+    await loadCoworkSessions();
   } finally {
     state.coworkPendingAction = "";
     renderCoworkDetail();

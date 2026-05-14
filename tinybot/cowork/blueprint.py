@@ -38,9 +38,12 @@ DEFAULT_BUDGET_LIMITS: dict[str, int | float | None] = {
     "max_agent_calls_per_run": 30,
     "max_agent_calls_total": None,
     "max_spawned_agents": 0,
+    "max_work_units": 30,
+    "max_retry_attempts": 2,
     "max_tool_calls": None,
     "max_tokens": None,
     "max_cost": None,
+    "max_wall_time_seconds": None,
 }
 
 BUDGET_HARD_CAPS: dict[str, int | float] = {
@@ -49,9 +52,12 @@ BUDGET_HARD_CAPS: dict[str, int | float] = {
     "max_agent_calls_per_run": 500,
     "max_agent_calls_total": 5000,
     "max_spawned_agents": 200,
+    "max_work_units": 1000,
+    "max_retry_attempts": 20,
     "max_tool_calls": 10000,
     "max_tokens": 20_000_000,
     "max_cost": 10_000.0,
+    "max_wall_time_seconds": 7 * 24 * 60 * 60,
 }
 
 
@@ -156,6 +162,8 @@ def normalize_budget_limits(value: Any | None) -> dict[str, Any]:
         "agent_calls": "max_agent_calls_per_run",
         "max_agents": "parallel_width",
         "parallelism": "parallel_width",
+        "work_units": "max_work_units",
+        "retry_attempts": "max_retry_attempts",
     }
     for key, raw_value in raw.items():
         target = aliases.get(str(key), str(key))
@@ -178,6 +186,7 @@ def default_budget_usage() -> dict[str, Any]:
         "tokens_completion": 0,
         "tokens_total": 0,
         "cost": 0.0,
+        "wall_time_seconds": 0.0,
         "stop_reason": "",
     }
 
@@ -192,6 +201,7 @@ def budget_remaining(limits: dict[str, Any], usage: dict[str, Any]) -> dict[str,
         "max_tool_calls": "tool_calls",
         "max_tokens": "tokens_total",
         "max_cost": "cost",
+        "max_wall_time_seconds": "wall_time_seconds",
     }
     for limit_key, usage_key in mapping.items():
         limit = limits.get(limit_key)
@@ -754,6 +764,8 @@ def _budget_diagnostics(raw: Any, normalized: dict[str, Any]) -> list[BlueprintD
         "agent_calls": "max_agent_calls_per_run",
         "max_agents": "parallel_width",
         "parallelism": "parallel_width",
+        "work_units": "max_work_units",
+        "retry_attempts": "max_retry_attempts",
     }
     for key, raw_value in raw_dict.items():
         target = aliases.get(str(key), str(key))

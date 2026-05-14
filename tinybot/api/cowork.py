@@ -64,6 +64,7 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
             "rounds": agent.rounds,
             "parent_agent_id": getattr(agent, "parent_agent_id", None),
             "team_id": getattr(agent, "team_id", ""),
+            "lifetime": getattr(agent, "lifetime", "persistent"),
             "lifecycle_status": getattr(agent, "lifecycle_status", "active"),
             "source_blueprint_id": getattr(agent, "source_blueprint_id", ""),
         }
@@ -239,6 +240,7 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "run_metrics": run_metrics,
         "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-40:] if verbose else [],
         "swarm_plan": getattr(session, "swarm_plan", {}),
+        "evaluation_results": (getattr(session, "runtime_state", {}) or {}).get("swarm_evaluations", []),
     }
     if verbose:
         snapshot["graph"] = build_cowork_graph(session)
@@ -473,7 +475,8 @@ async def _simple_tool_action(request: web.Request, action: str) -> web.Response
 
 async def handle_send_message(request: web.Request) -> web.Response:
     tool = _cowork_tool(request.app)
-    if tool is None:
+    service = _cowork_service(request.app)
+    if tool is None and service is None:
         return web.json_response({"error": "cowork is not available"}, status=503)
     payload = await _json_body(request)
     if isinstance(payload, web.Response):
@@ -482,6 +485,13 @@ async def handle_send_message(request: web.Request) -> web.Response:
     if not content:
         return web.json_response({"error": "content is required"}, status=400)
     session_id = request.match_info["session_id"]
+    session = service.get_session(session_id) if service else None
+    if session is not None and getattr(session, "workflow_mode", "") == "swarm" and not payload.get("recipient_ids"):
+        result = service.steer_swarm(session, content)
+        status = 400 if result.startswith("Error:") else 200
+        return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+    if tool is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
     result = await tool.execute(
         action="send_message",
         session_id=session_id,
@@ -491,7 +501,6 @@ async def handle_send_message(request: web.Request) -> web.Response:
         topic=str(payload.get("topic") or ""),
         event_type=str(payload.get("event_type") or ""),
     )
-    service = _cowork_service(request.app)
     session = service.get_session(session_id) if service else None
     return web.json_response({"result": result, "session": cowork_session_snapshot(session) if session else None})
 
@@ -568,6 +577,54 @@ async def handle_request_task_review(request: web.Request) -> web.Response:
     return web.json_response({"review_task_id": result.id, "session": cowork_session_snapshot(session)})
 
 
+async def handle_retry_work_unit(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.retry_work_unit(session, request.match_info["work_unit_id"], reason=str(payload.get("reason") or ""))
+    status = 400 if result.startswith("Error:") else 200
+    return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+
+
+async def handle_skip_work_unit(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.skip_work_unit(session, request.match_info["work_unit_id"], reason=str(payload.get("reason") or ""))
+    status = 400 if result.startswith("Error:") else 200
+    return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+
+
+async def handle_update_session_budget(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    budgets = payload.get("budgets", payload)
+    if not isinstance(budgets, dict):
+        return web.json_response({"error": "budgets must be an object"}, status=400)
+    budget_state = service.set_session_budgets(session, budgets)
+    return web.json_response({"budget": budget_state, "session": cowork_session_snapshot(session)})
+
+
 async def handle_summary(request: web.Request) -> web.Response:
     tool = _cowork_tool(request.app)
     if tool is None:
@@ -596,4 +653,7 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/retry", handle_retry_task)
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/assign", handle_assign_task)
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/review", handle_request_task_review)
+    app.router.add_post("/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/retry", handle_retry_work_unit)
+    app.router.add_post("/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/skip", handle_skip_work_unit)
+    app.router.add_post("/api/cowork/sessions/{session_id}/budget", handle_update_session_budget)
     app.router.add_get("/api/cowork/sessions/{session_id}/summary", handle_summary)

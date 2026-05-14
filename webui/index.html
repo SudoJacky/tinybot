@@ -322,6 +322,20 @@
                   </div>
                   <div id="cowork-run-metrics" class="cowork-metrics cowork-compact-metrics"></div>
                 </section>
+                <section class="cowork-ops-panel" aria-label="Swarm plan">
+                  <div class="cowork-panel-heading">
+                    <h4>Swarm plan</h4>
+                    <span id="cowork-swarm-plan-summary" class="cowork-panel-note">No plan</span>
+                  </div>
+                  <div id="cowork-swarm-plan-panel" class="cowork-list cowork-projection-list"></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Work units" data-cowork-panel="tasks">
+                  <div class="cowork-panel-heading">
+                    <h4>Work units</h4>
+                    <span id="cowork-work-unit-summary" class="cowork-panel-note">No units</span>
+                  </div>
+                  <div id="cowork-work-unit-list" class="cowork-list cowork-projection-list"></div>
+                </section>
                 <section class="cowork-ops-panel" aria-label="Task DAG" data-cowork-panel="tasks">
                   <div class="cowork-panel-heading">
                     <h4>Task DAG</h4>
@@ -394,6 +408,13 @@
                   </div>
                   <div id="cowork-blocker-panel" class="cowork-list cowork-projection-list"></div>
                 </section>
+                <section class="cowork-ops-panel" aria-label="Evaluations" data-cowork-panel="outputs">
+                  <div class="cowork-panel-heading">
+                    <h4>Evaluations</h4>
+                    <span id="cowork-evaluation-summary" class="cowork-panel-note">No evals</span>
+                  </div>
+                  <div id="cowork-evaluation-list" class="cowork-list cowork-projection-list"></div>
+                </section>
               </section>
             </div>
             <aside class="cowork-action-rail" aria-label="Cowork selected entity actions">
@@ -424,6 +445,7 @@
                   <button class="cowork-mode-tab" type="button" data-mode="shared_state" role="radio" aria-checked="false">共享状态</button>
                   <button class="cowork-mode-tab" type="button" data-mode="supervisor" role="radio" aria-checked="false">监督者</button>
                   <button class="cowork-mode-tab" type="button" data-mode="peer_handoff" role="radio" aria-checked="false">接力交接</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="swarm" role="radio" aria-checked="false">Swarm</button>
                 </div>
                 <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" placeholder="Describe the shared goal..."></textarea>
                 <details class="cowork-blueprint-editor">
@@ -446,6 +468,7 @@
                     <option value="shared_state">Shared state</option>
                     <option value="supervisor">Supervisor</option>
                     <option value="peer_handoff">Peer handoff</option>
+                    <option value="swarm">Swarm</option>
                   </select>
                 </label>
                 <div class="cowork-toolbar cowork-create-actions">
