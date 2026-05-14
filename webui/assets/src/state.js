@@ -1,5 +1,10 @@
 export const state = {
   token: "",
+  tokenTtlS: 300,
+  tokenIssuedAt: 0,
+  tokenRefreshPath: "/webui/refresh-token",
+  tokenRefreshTimer: null,
+  tokenRefreshPromise: null,
   wsPath: "/ws",
   sessionsPath: "/api/sessions",
   workspaceFilesPath: "/api/workspace/files",

@@ -56,6 +56,21 @@ async def _bootstrap_token(client: TestClient) -> str:
 
 
 @pytest.mark.asyncio
+async def test_refresh_token_endpoint(web_client):
+    token = await _bootstrap_token(web_client)
+
+    response = await web_client.post(
+        "/webui/refresh-token",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["token"] == token
+    assert payload["token_ttl_s"] == 300
+
+
+@pytest.mark.asyncio
 async def test_session_rest_endpoints(web_channel, web_client):
     _, _, session_manager = web_channel
     session = session_manager.get_or_create("websocket:chat-1")

@@ -19,6 +19,9 @@ const COWORK_DEFAULT_RUN_ROUNDS = 20;
 const COWORK_DEFAULT_RUN_AGENTS = 3;
 const COWORK_DEFAULT_RUN_AGENT_CALLS = 30;
 const COWORK_NODE_CLICK_MOVE_THRESHOLD = 4;
+const nativeFetch = window.fetch.bind(window);
+const BOOTSTRAP_PATH = "/webui/bootstrap";
+const DEFAULT_TOKEN_REFRESH_PATH = "/webui/refresh-token";
 
 function setStatus(text, kind = "idle") {
   if (!elements.connectionStatus) {
@@ -231,6 +234,114 @@ function authHeaders() {
     "Content-Type": "application/json",
   };
 }
+
+function resolveRequestUrl(input) {
+  const rawUrl = input instanceof Request ? input.url : String(input);
+  return new URL(rawUrl, window.location.href);
+}
+
+function shouldRecoverAuth(input) {
+  const url = resolveRequestUrl(input);
+  if (url.origin !== window.location.origin) {
+    return false;
+  }
+  return url.pathname !== BOOTSTRAP_PATH && url.pathname !== state.tokenRefreshPath;
+}
+
+function withFreshAuth(input, init = {}) {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  if (init.headers) {
+    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  }
+  headers.set("Authorization", `Bearer ${state.token}`);
+
+  if (input instanceof Request) {
+    return [new Request(input, { ...init, headers }), undefined];
+  }
+  return [input, { ...init, headers }];
+}
+
+function applyBootstrapPayload(payload) {
+  state.token = payload.token;
+  state.wsPath = payload.ws_path || "/ws";
+  state.sessionsPath = payload.sessions_path || "/api/sessions";
+  state.workspaceFilesPath = payload.workspace_files_path || "/api/workspace/files";
+  state.coworkApiPath = payload.cowork_path || "/api/cowork";
+  state.tokenTtlS = payload.token_ttl_s || state.tokenTtlS || 300;
+  state.tokenIssuedAt = Date.now();
+  state.tokenRefreshPath = payload.refresh_token_path || DEFAULT_TOKEN_REFRESH_PATH;
+  scheduleTokenRefresh();
+}
+
+async function fetchBootstrapToken() {
+  const response = await nativeFetch(BOOTSTRAP_PATH, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`bootstrap failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  applyBootstrapPayload(payload);
+  return payload;
+}
+
+async function refreshAuthToken({ allowBootstrap = true } = {}) {
+  if (state.tokenRefreshPromise) {
+    return state.tokenRefreshPromise;
+  }
+
+  state.tokenRefreshPromise = (async () => {
+    if (state.token) {
+      const response = await nativeFetch(state.tokenRefreshPath || DEFAULT_TOKEN_REFRESH_PATH, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${state.token}` },
+        cache: "no-store",
+      });
+      if (response.ok) {
+        const payload = await response.json();
+        state.token = payload.token || state.token;
+        state.tokenTtlS = payload.token_ttl_s || state.tokenTtlS || 300;
+        state.tokenIssuedAt = Date.now();
+        scheduleTokenRefresh();
+        return payload;
+      }
+      if (!allowBootstrap || response.status !== 401) {
+        throw new Error(`token refresh failed: ${response.status}`);
+      }
+    }
+    return fetchBootstrapToken();
+  })();
+
+  try {
+    return await state.tokenRefreshPromise;
+  } finally {
+    state.tokenRefreshPromise = null;
+  }
+}
+
+function scheduleTokenRefresh() {
+  if (state.tokenRefreshTimer) {
+    window.clearTimeout(state.tokenRefreshTimer);
+  }
+  if (!state.tokenTtlS) {
+    return;
+  }
+  const delayMs = Math.max(30_000, Math.floor(state.tokenTtlS * 700));
+  state.tokenRefreshTimer = window.setTimeout(() => {
+    refreshAuthToken({ allowBootstrap: true }).catch((error) => {
+      console.warn("Unable to refresh WebUI token", error);
+    });
+  }, delayMs);
+}
+
+window.fetch = async function fetchWithAuthRecovery(input, init = {}) {
+  const response = await nativeFetch(input, init);
+  if (response.status !== 401 || !shouldRecoverAuth(input)) {
+    return response;
+  }
+
+  await refreshAuthToken({ allowBootstrap: true });
+  const [retryInput, retryInit] = withFreshAuth(input, init);
+  return nativeFetch(retryInput, retryInit);
+};
 
 function resizeComposer() {
   elements.composerInput.style.height = "auto";
@@ -1498,16 +1609,7 @@ function activateChat(chatId) {
 
 async function bootstrap() {
   setStatus(t("status.connecting"), "idle");
-  const response = await fetch("/webui/bootstrap");
-  if (!response.ok) {
-    throw new Error(`bootstrap failed: ${response.status}`);
-  }
-  const payload = await response.json();
-  state.token = payload.token;
-  state.wsPath = payload.ws_path || "/ws";
-  state.sessionsPath = payload.sessions_path || "/api/sessions";
-  state.workspaceFilesPath = payload.workspace_files_path || "/api/workspace/files";
-  state.coworkApiPath = payload.cowork_path || "/api/cowork";
+  await fetchBootstrapToken();
 }
 
 async function loadSessions() {
