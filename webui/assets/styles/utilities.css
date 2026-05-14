@@ -696,9 +696,68 @@ html.theme-switching .theme-toggle svg {
   font-weight: 780;
 }
 
-.cowork-chat-bubble p {
+.cowork-chat-body {
+  overflow-wrap: anywhere;
+}
+
+.cowork-chat-body.is-plain {
+  white-space: pre-wrap;
+}
+
+.cowork-chat-body > :first-child {
+  margin-top: 0;
+}
+
+.cowork-chat-body > :last-child {
+  margin-bottom: 0;
+}
+
+.cowork-chat-body p,
+.cowork-chat-body li {
   font-size: 13px;
   line-height: 1.55;
+}
+
+.cowork-chat-body p,
+.cowork-chat-body ul,
+.cowork-chat-body ol,
+.cowork-chat-body blockquote,
+.cowork-chat-body pre {
+  margin: 0 0 9px;
+}
+
+.cowork-chat-body ul,
+.cowork-chat-body ol {
+  padding-left: 19px;
+}
+
+.cowork-chat-body h1,
+.cowork-chat-body h2,
+.cowork-chat-body h3,
+.cowork-chat-body h4 {
+  margin: 12px 0 7px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.cowork-chat-body code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--cowork-line) 55%, transparent);
+  font-size: 12px;
+}
+
+.cowork-chat-body pre {
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--cowork-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel) 90%, var(--cowork-line));
+}
+
+.cowork-chat-body pre code {
+  padding: 0;
+  background: transparent;
 }
 
 .cowork-chat-event {

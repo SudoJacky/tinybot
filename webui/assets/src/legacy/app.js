@@ -79,6 +79,19 @@ function renderMarkdown(target, content) {
   }
 }
 
+function renderCoworkMessageBody(target, content, { markdown = true } = {}) {
+  target.classList.toggle("is-plain", !markdown);
+  if (!markdown) {
+    target.textContent = content || "";
+    return;
+  }
+  renderMarkdown(target, content || "");
+  target.querySelectorAll("a").forEach((link) => {
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noreferrer");
+  });
+}
+
 function setFileError(text = "") {
   elements.fileError.textContent = text;
 }
@@ -3886,9 +3899,10 @@ function renderCoworkTimeline(session) {
     const output = document.createElement("article");
     output.className = "cowork-final-output-card";
     const title = document.createElement("strong");
-    const body = document.createElement("p");
+    const body = document.createElement("div");
+    body.className = "cowork-chat-body";
     title.textContent = "Session Output";
-    body.textContent = compactText(conversationView.finalDraft, 1800);
+    renderCoworkMessageBody(body, compactText(conversationView.finalDraft, 1800));
     output.append(title, body);
     elements.coworkMessageList.append(output);
   }
@@ -3904,13 +3918,15 @@ function renderCoworkTimeline(session) {
         <div class="cowork-chat-avatar"></div>
         <div class="cowork-chat-bubble">
           <div class="cowork-chat-meta"><strong></strong><span></span></div>
-          <p></p>
+          <div class="cowork-chat-body"></div>
         </div>
       `;
       item.querySelector(".cowork-chat-avatar").textContent = itemData.avatar;
       item.querySelector("strong").textContent = itemData.title;
       item.querySelector("span").textContent = itemData.meta;
-      item.querySelector("p").textContent = itemData.body;
+      renderCoworkMessageBody(item.querySelector(".cowork-chat-body"), itemData.body, {
+        markdown: itemData.role !== "user",
+      });
     } else {
       item.className = "cowork-chat-event";
       item.innerHTML = `<span></span><strong></strong>`;
@@ -3965,14 +3981,16 @@ function renderCoworkTimeline(session) {
         <div class="cowork-chat-avatar"></div>
         <div class="cowork-chat-bubble">
           <div class="cowork-chat-meta"><strong></strong><span></span></div>
-          <p></p>
+          <div class="cowork-chat-body"></div>
         </div>
       `;
       item.querySelector(".cowork-chat-avatar").textContent = (sender?.name || message.sender_id || "?").slice(0, 1).toUpperCase();
       item.querySelector("strong").textContent = sender ? `${sender.name} / ${sender.role}` : message.sender_id || "sender";
       const recipients = (message.recipient_ids || []).length ? `to ${(message.recipient_ids || []).join(", ")}` : "broadcast";
       item.querySelector("span").textContent = `${thread?.topic || "Discussion"} - ${recipients} - ${message.created_at || ""}`;
-      item.querySelector("p").textContent = message.content || "";
+      renderCoworkMessageBody(item.querySelector(".cowork-chat-body"), message.content || "", {
+        markdown: message.sender_id !== "user",
+      });
     } else if (itemData.kind === "trace") {
       const trace = itemData.trace;
       item.className = "cowork-chat-event";
