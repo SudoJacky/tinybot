@@ -88,13 +88,38 @@ class CoworkTeamPlanner:
         self.model = model
         self.workspace = workspace
 
-    async def plan(self, goal: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    async def plan(self, goal: str, workflow_mode: str = "hybrid") -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+        mode = CoworkService.normalize_workflow_mode(workflow_mode)
+        mode_guidance = {
+            "orchestrator": (
+                "Prefer one lead/coordinator plus only the specialists that are clearly needed. "
+                "Simple goals may use a single coordinator."
+            ),
+            "supervisor": (
+                "Prefer one supervisor plus only the specialists that are clearly needed. "
+                "Simple goals may use a single supervisor."
+            ),
+            "team": "Create a small long-lived team with domain owners; avoid generic researcher/analyst roles unless they fit the goal.",
+            "generator_verifier": "Use producer and verifier roles. Add more agents only when separate domains are required.",
+            "message_bus": "Create topic-oriented subscribers/publishers whose subscriptions match the goal.",
+            "shared_state": "Create contributors who maintain distinct shared-state buckets such as findings, risks, decisions, or artifacts.",
+            "peer_handoff": "Create agents that own sequential handoff steps. Keep the chain short.",
+            "swarm": "Create a bounded swarm plan with focused specialists and clear merge/synthesis ownership.",
+            "hybrid": "Choose the smallest useful team. For simple goals, one coordinator is enough; add specialists only for distinct workstreams.",
+        }.get(mode, "Choose the smallest useful team.")
         prompt = f"""Design a dynamic cowork team for this user goal.
 
 Goal:
 {goal}
 
-Create 3-6 agents. Do not hard-code software roles unless the goal is software work.
+Workflow mode:
+{mode}
+
+Mode guidance:
+{mode_guidance}
+
+Create 1-6 agents. Do not hard-code software roles unless the goal is software work.
+Use fewer agents when the goal is simple, conversational, or directly answerable.
 Each agent should have a distinct responsibility, private perspective, and clear reason to communicate with others.
 Add 2-5 short subscriptions per agent for message-bus routing, such as domain names, request types, or event topics.
 Include a reviewer/evaluator only when the goal has meaningful risk, verification needs, code changes, research claims, or decision tradeoffs.
@@ -123,7 +148,7 @@ Workspace: {self.workspace}
                 )
         except Exception as exc:
             logger.warning("Cowork team planning failed, using fallback team: {}", exc)
-        agents = CoworkService.default_team(goal)
+        agents = CoworkService.default_team(goal, workflow_mode=mode)
         agents = self._ensure_reviewer_if_needed(goal, agents)
         tasks = self._leader_initial_tasks(goal, agents, [])
         return "Cowork Session", agents, tasks
@@ -581,7 +606,7 @@ class CoworkTool(Tool):
                 return response
             if not goal.strip():
                 return "Error: goal is required for cowork start"
-            planned_title, agents, tasks = await self.planner.plan(goal)
+            planned_title, agents, tasks = await self.planner.plan(goal, workflow_mode=workflow_mode or "hybrid")
             tasks = CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
             generated_blueprint = normalize_blueprint(
                 {

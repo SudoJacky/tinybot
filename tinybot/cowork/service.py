@@ -600,7 +600,7 @@ class CoworkService:
             )
 
         if not session.agents:
-            for raw in self.default_team(goal):
+            for raw in self.default_team(goal, workflow_mode=mode):
                 session.agents[raw["id"]] = CoworkAgent(**raw)
 
         for raw in tasks:
@@ -2219,36 +2219,108 @@ class CoworkService:
         return "\n".join(lines)
 
     @staticmethod
-    def default_team(goal: str) -> list[dict[str, Any]]:
-        return [
-            {
-                "id": "coordinator",
-                "name": "Coordinator",
-                "role": "Team coordinator",
-                "goal": f"Keep the collaboration focused on: {goal}",
-                "responsibilities": ["Break down work", "Route questions", "Synthesize final progress"],
-                "tools": ["cowork_internal"],
-                "subscriptions": ["coordination", "handoff", "unblock", "decision", "summary"],
-            },
-            {
-                "id": "researcher",
-                "name": "Researcher",
-                "role": "Information gatherer",
-                "goal": f"Gather useful facts and constraints for: {goal}",
-                "responsibilities": ["Investigate relevant sources", "Summarize findings", "Flag uncertainty"],
-                "tools": ["read_file", "list_dir", "cowork_internal"],
-                "subscriptions": ["research", "produce", "finding", "source", "context"],
-            },
-            {
-                "id": "analyst",
-                "name": "Analyst",
-                "role": "Reasoning and verification partner",
-                "goal": f"Check assumptions and turn findings into decisions for: {goal}",
-                "responsibilities": ["Compare options", "Verify claims", "Identify risks"],
-                "tools": ["read_file", "list_dir", "cowork_internal"],
-                "subscriptions": ["analysis", "review", "verify", "risk", "decision"],
-            },
-        ]
+    def default_team(goal: str, *, workflow_mode: str = "hybrid") -> list[dict[str, Any]]:
+        mode = CoworkService.normalize_workflow_mode(workflow_mode)
+        lead = {
+            "id": "coordinator",
+            "name": "Coordinator",
+            "role": "Team coordinator",
+            "goal": f"Keep the collaboration focused on: {goal}",
+            "responsibilities": ["Break down work", "Route questions", "Synthesize final progress"],
+            "tools": ["cowork_internal"],
+            "subscriptions": ["coordination", "handoff", "unblock", "decision", "summary"],
+        }
+        researcher = {
+            "id": "researcher",
+            "name": "Researcher",
+            "role": "Information gatherer",
+            "goal": f"Gather useful facts and constraints for: {goal}",
+            "responsibilities": ["Investigate relevant sources", "Summarize findings", "Flag uncertainty"],
+            "tools": ["read_file", "list_dir", "cowork_internal"],
+            "subscriptions": ["research", "produce", "finding", "source", "context"],
+        }
+        analyst = {
+            "id": "analyst",
+            "name": "Analyst",
+            "role": "Reasoning and verification partner",
+            "goal": f"Check assumptions and turn findings into decisions for: {goal}",
+            "responsibilities": ["Compare options", "Verify claims", "Identify risks"],
+            "tools": ["read_file", "list_dir", "cowork_internal"],
+            "subscriptions": ["analysis", "review", "verify", "risk", "decision"],
+        }
+        if mode in {"orchestrator", "supervisor"}:
+            return [lead]
+        if mode == "generator_verifier":
+            return [
+                {
+                    "id": "producer",
+                    "name": "Producer",
+                    "role": "Primary answer producer",
+                    "goal": f"Produce a concrete answer or artifact for: {goal}",
+                    "responsibilities": ["Create the main output", "State assumptions", "Hand off for verification"],
+                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "subscriptions": ["produce", "draft", "artifact", "handoff"],
+                },
+                {
+                    "id": "verifier",
+                    "name": "Verifier",
+                    "role": "Quality verifier",
+                    "goal": f"Verify correctness, gaps, and risks for: {goal}",
+                    "responsibilities": ["Check the output", "Identify issues", "Recommend fixes or approval"],
+                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "subscriptions": ["verify", "review", "risk", "quality"],
+                },
+            ]
+        if mode == "message_bus":
+            return [
+                lead,
+                {
+                    "id": "router",
+                    "name": "Router",
+                    "role": "Message bus router",
+                    "goal": f"Route topic-specific requests for: {goal}",
+                    "responsibilities": ["Classify requests", "Maintain lineage", "Escalate blockers"],
+                    "tools": ["cowork_internal"],
+                    "subscriptions": ["routing", "event", "lineage", "unblock"],
+                },
+            ]
+        if mode == "shared_state":
+            return [
+                lead,
+                {
+                    "id": "memory_curator",
+                    "name": "Memory Curator",
+                    "role": "Shared-state curator",
+                    "goal": f"Keep durable findings, risks, decisions, and artifacts organized for: {goal}",
+                    "responsibilities": ["Extract shared memory", "Track open questions", "Keep decisions explicit"],
+                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "subscriptions": ["finding", "risk", "decision", "artifact", "memory"],
+                },
+            ]
+        if mode == "peer_handoff":
+            return [
+                {
+                    "id": "planner",
+                    "name": "Planner",
+                    "role": "First-step planner",
+                    "goal": f"Define the next concrete handoff step for: {goal}",
+                    "responsibilities": ["Frame the next step", "Hand off clearly", "Avoid parallel duplication"],
+                    "tools": ["cowork_internal"],
+                    "subscriptions": ["plan", "handoff", "next_step"],
+                },
+                {
+                    "id": "finisher",
+                    "name": "Finisher",
+                    "role": "Completion owner",
+                    "goal": f"Complete the final handoff and synthesize the answer for: {goal}",
+                    "responsibilities": ["Receive handoffs", "Complete the last step", "Summarize results"],
+                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "subscriptions": ["handoff", "complete", "summary"],
+                },
+            ]
+        if mode in {"team", "swarm"}:
+            return [lead, researcher]
+        return [lead, researcher, analyst]
 
     @staticmethod
     def lead_agent_id(session: CoworkSession) -> str:
