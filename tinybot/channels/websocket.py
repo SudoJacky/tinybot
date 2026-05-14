@@ -387,6 +387,7 @@ class WebSocketChannel(BaseChannel):
     def _build_app(self) -> web.Application:
         app = web.Application()
         app.router.add_get(self.bootstrap_path, self.handle_bootstrap)
+        app.router.add_post("/webui/refresh-token", self.handle_refresh_token)
         app.router.add_get(self.sessions_path, self.handle_list_sessions)
         app.router.add_get(f"{self.sessions_path}/{{key}}/messages", self.handle_get_messages)
         app.router.add_delete(f"{self.sessions_path}/{{key}}", self.handle_delete_session)
@@ -568,9 +569,25 @@ class WebSocketChannel(BaseChannel):
                 "token": token,
                 "ws_path": self.ws_path,
                 "token_ttl_s": self.token_manager.ttl_s,
+                "refresh_token_path": "/webui/refresh-token",
                 "sessions_path": self.sessions_path,
                 "workspace_files_path": "/api/workspace/files",
                 "cowork_path": "/api/cowork",
+            }
+        )
+
+    async def handle_refresh_token(self, request: web.Request) -> web.Response:
+        if not _is_loopback_request(request):
+            return web.json_response({"error": "token refresh is limited to localhost"}, status=403)
+
+        token = _extract_bearer_token(request)
+        if not self.token_manager.refresh(token or ""):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        return web.json_response(
+            {
+                "token": token,
+                "token_ttl_s": self.token_manager.ttl_s,
             }
         )
 
