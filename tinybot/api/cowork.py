@@ -10,9 +10,11 @@ from tinybot.cowork.blueprint import budget_remaining, default_budget_usage, exp
 from tinybot.cowork.snapshot import (
     build_cowork_artifact_index,
     build_cowork_graph,
+    build_cowork_large_swarm_summary,
     build_cowork_task_dag,
     build_cowork_trace,
 )
+from tinybot.cowork.swarm import build_swarm_scheduler_queues
 
 
 def _budget_snapshot(session: Any) -> dict[str, Any]:
@@ -241,6 +243,8 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-40:] if verbose else [],
         "swarm_plan": getattr(session, "swarm_plan", {}),
         "evaluation_results": (getattr(session, "runtime_state", {}) or {}).get("swarm_evaluations", []),
+        "swarm_queues": build_swarm_scheduler_queues(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
+        "large_swarm_summary": build_cowork_large_swarm_summary(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
     }
     if verbose:
         snapshot["graph"] = build_cowork_graph(session)
@@ -419,6 +423,27 @@ async def handle_get_session_dag(request: web.Request) -> web.Response:
     if session is None:
         return web.json_response({"error": "cowork session not found"}, status=404)
     return web.json_response({"task_dag": build_cowork_task_dag(session), "artifact_index": build_cowork_artifact_index(session)})
+
+
+async def handle_get_session_artifacts(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    artifacts = build_cowork_artifact_index(session)
+    return web.json_response({"artifact_index": artifacts, "large_swarm_summary": build_cowork_large_swarm_summary(session)})
+
+
+async def handle_get_session_queues(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    return web.json_response({"swarm_queues": build_swarm_scheduler_queues(session)})
 
 
 async def handle_delete_session(request: web.Request) -> web.Response:
@@ -608,6 +633,21 @@ async def handle_skip_work_unit(request: web.Request) -> web.Response:
     return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
 
 
+async def handle_cancel_work_unit(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.cancel_work_unit(session, request.match_info["work_unit_id"], reason=str(payload.get("reason") or ""))
+    status = 400 if result.startswith("Error:") else 200
+    return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+
+
 async def handle_update_session_budget(request: web.Request) -> web.Response:
     service = _cowork_service(request.app)
     if service is None:
@@ -644,6 +684,8 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_get("/api/cowork/sessions/{session_id}/trace", handle_get_session_trace)
     app.router.add_get("/api/cowork/sessions/{session_id}/blueprint", handle_export_session_blueprint)
     app.router.add_get("/api/cowork/sessions/{session_id}/dag", handle_get_session_dag)
+    app.router.add_get("/api/cowork/sessions/{session_id}/artifacts", handle_get_session_artifacts)
+    app.router.add_get("/api/cowork/sessions/{session_id}/queues", handle_get_session_queues)
     app.router.add_delete("/api/cowork/sessions/{session_id}", handle_delete_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/run", handle_run_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/pause", handle_pause_session)
@@ -655,5 +697,6 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/review", handle_request_task_review)
     app.router.add_post("/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/retry", handle_retry_work_unit)
     app.router.add_post("/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/skip", handle_skip_work_unit)
+    app.router.add_post("/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/cancel", handle_cancel_work_unit)
     app.router.add_post("/api/cowork/sessions/{session_id}/budget", handle_update_session_budget)
     app.router.add_get("/api/cowork/sessions/{session_id}/summary", handle_summary)

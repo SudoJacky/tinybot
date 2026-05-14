@@ -159,6 +159,115 @@ def update_work_unit_readiness(plan: dict[str, Any], tasks: dict[str, CoworkTask
     return plan
 
 
+def build_swarm_scheduler_queues(session: Any) -> dict[str, Any]:
+    """Project a swarm plan into durable scheduler queues."""
+
+    plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+    units = [unit for unit in plan.get("work_units", []) if isinstance(unit, dict)]
+    tasks = getattr(session, "tasks", {}) or {}
+    completed_units = {unit.get("id") for unit in units if unit.get("status") in {"completed", "skipped"}}
+    completed_tasks = {task_id for task_id, task in tasks.items() if getattr(task, "status", "") in {"completed", "skipped"}}
+    running_agents = {
+        str(unit.get("assigned_agent_id"))
+        for unit in units
+        if unit.get("status") == "in_progress" and unit.get("assigned_agent_id")
+    }
+    queues: dict[str, list[dict[str, Any]]] = {
+        "ready": [],
+        "blocked": [],
+        "running": [],
+        "completed": [],
+        "failed_retry": [],
+        "cancelled": [],
+    }
+
+    for unit in units:
+        item = _queue_item(unit, completed_units | completed_tasks, running_agents)
+        status = str(unit.get("status") or "pending")
+        if status == "in_progress":
+            queues["running"].append(item)
+        elif status in {"completed", "skipped"}:
+            queues["completed"].append(item)
+        elif status in {"failed", "needs_revision"}:
+            attempts = int(unit.get("attempts", 0) or 0)
+            max_attempts = int(unit.get("max_attempts", 1) or 1)
+            if attempts < max_attempts:
+                queues["failed_retry"].append(item)
+            else:
+                item["block_reason"] = "max_attempts_reached"
+                queues["blocked"].append(item)
+        elif status == "cancelled":
+            queues["cancelled"].append(item)
+        elif item["blocked_by"]:
+            queues["blocked"].append(item)
+        else:
+            queues["ready"].append(item)
+
+    for key in queues:
+        queues[key].sort(key=lambda item: (-int(item.get("priority", 0) or 0), item.get("created_at", ""), item.get("id", "")))
+    queues["ready"] = _fair_order_by_workstream(queues["ready"])
+    queues["failed_retry"] = _fair_order_by_workstream(queues["failed_retry"])
+    limits = getattr(session, "budget_limits", {}) or {}
+    usage = getattr(session, "budget_usage", {}) or {}
+    parallel_width = max(1, int(limits.get("parallel_width", 1) or 1))
+    return {
+        "schema_version": "cowork.swarm_queues.v1",
+        "plan_id": plan.get("id", ""),
+        "plan_status": plan.get("status", ""),
+        "generated_at": now_iso(),
+        "parallel_width": parallel_width,
+        "available_slots": max(0, parallel_width - len(queues["running"])),
+        "queues": queues,
+        "counts": {key: len(value) for key, value in queues.items()},
+        "budget": {"limits": limits, "usage": usage},
+    }
+
+
+def _queue_item(unit: dict[str, Any], completed: set[str], running_agents: set[str]) -> dict[str, Any]:
+    dependencies = [str(item) for item in unit.get("dependencies", []) if str(item).strip()]
+    blocked_by = [item for item in dependencies if item not in completed]
+    return {
+        "id": unit.get("id", ""),
+        "title": unit.get("title", ""),
+        "status": unit.get("status", "pending"),
+        "priority": int(unit.get("priority", 0) or 0),
+        "assigned_agent_id": unit.get("assigned_agent_id"),
+        "dependencies": dependencies,
+        "blocked_by": blocked_by,
+        "attempts": int(unit.get("attempts", 0) or 0),
+        "max_attempts": int(unit.get("max_attempts", 1) or 1),
+        "workstream": unit.get("team_id") or unit.get("fanout_group_id") or unit.get("kind") or "default",
+        "created_at": unit.get("created_at", ""),
+        "updated_at": unit.get("updated_at", ""),
+        "reason": _queue_reason(unit, blocked_by, running_agents),
+    }
+
+
+def _queue_reason(unit: dict[str, Any], blocked_by: list[str], running_agents: set[str]) -> str:
+    if blocked_by:
+        return f"Waiting on dependencies: {', '.join(blocked_by)}"
+    status = str(unit.get("status") or "pending")
+    if status == "in_progress":
+        return f"Running on {unit.get('assigned_agent_id') or 'an agent'}"
+    if status in {"failed", "needs_revision"}:
+        return "Eligible for retry" if int(unit.get("attempts", 0) or 0) < int(unit.get("max_attempts", 1) or 1) else "Retry budget exhausted"
+    if unit.get("assigned_agent_id") in running_agents:
+        return "Owner is already running another work unit"
+    return "Dependencies satisfied and scheduling budget permitting"
+
+
+def _fair_order_by_workstream(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        groups.setdefault(str(item.get("workstream") or "default"), []).append(item)
+    ordered: list[dict[str, Any]] = []
+    while any(groups.values()):
+        for key in sorted(groups):
+            if groups[key]:
+                ordered.append(groups[key].pop(0))
+    return ordered
+
+
 def work_unit_result_from_task(task: CoworkTask) -> dict[str, Any]:
     data = task.result_data if isinstance(task.result_data, dict) else {}
     artifacts = []

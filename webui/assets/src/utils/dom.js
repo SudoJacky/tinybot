@@ -254,6 +254,7 @@ export const elements = {
   coworkArtifactList: document.querySelector("#cowork-artifact-list"),
   coworkFinalDraft: document.querySelector("#cowork-final-draft"),
   coworkSchedulerSummary: document.querySelector("#cowork-scheduler-summary"),
+  coworkConsoleFilter: document.querySelector("#cowork-console-filter"),
   coworkRunMetrics: document.querySelector("#cowork-run-metrics"),
   coworkSwarmPlanSummary: document.querySelector("#cowork-swarm-plan-summary"),
   coworkSwarmPlanPanel: document.querySelector("#cowork-swarm-plan-panel"),

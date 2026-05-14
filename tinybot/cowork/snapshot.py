@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import math
 import hashlib
+import mimetypes
 from collections import Counter, defaultdict
+from pathlib import Path
 from typing import Any
 
+from tinybot.cowork.swarm import build_swarm_scheduler_queues
 from tinybot.cowork.types import CoworkEvent, CoworkSession, now_iso
 
 
@@ -759,44 +762,50 @@ def build_cowork_artifact_index(session: CoworkSession) -> list[dict[str, Any]]:
     """Return artifacts linked back to their source tasks, work units, and agents."""
 
     artifacts: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     for task in session.tasks.values():
         for value in _task_artifacts(task):
-            key = (task.id, value)
+            key = _artifact_key(value)
             if key in seen:
                 continue
             seen.add(key)
-            artifacts.append(
-                {
-                    "id": f"artifact_{len(artifacts) + 1}",
-                    "kind": _artifact_kind(value),
-                    "path_or_url": value,
-                    "source_agent_id": task.assigned_agent_id,
-                    "source_task_id": task.id,
-                    "source_task_title": task.title,
-                    "created_at": task.updated_at,
-                    "summary": _compact(value, 160),
-                    "confidence": task.confidence,
-                }
+            artifacts.append(_artifact_record(
+                session,
+                artifact_id=f"artifact_{len(artifacts) + 1}",
+                path_or_url=value,
+                source_agent_id=task.assigned_agent_id,
+                source_task_id=task.id,
+                source_task_title=task.title,
+                created_at=task.updated_at,
+                summary=_compact(value, 160),
+                confidence=task.confidence,
+            )
             )
     for value in getattr(session, "artifacts", []):
         text = str(value or "").strip()
-        if not text or any(item["path_or_url"] == text for item in artifacts):
+        key = _artifact_key(text)
+        if not text or key in seen:
             continue
-        artifacts.append(
-            {
-                "id": f"artifact_{len(artifacts) + 1}",
-                "kind": _artifact_kind(text),
-                "path_or_url": text,
-                "source_agent_id": None,
-                "source_task_id": None,
-                "source_task_title": "",
-                "created_at": session.updated_at,
-                "summary": _compact(text, 160),
-                "confidence": None,
-            }
+        seen.add(key)
+        artifacts.append(_artifact_record(
+            session,
+            artifact_id=f"artifact_{len(artifacts) + 1}",
+            path_or_url=text,
+            source_agent_id=None,
+            source_task_id=None,
+            source_task_title="",
+            created_at=session.updated_at,
+            summary=_compact(text, 160),
+            confidence=None,
+        )
         )
     plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+    span_by_work_unit: dict[str, str] = {}
+    for span in getattr(session, "trace_spans", []):
+        data = getattr(span, "data", {}) or {}
+        work_unit_id = data.get("work_unit_id")
+        if work_unit_id:
+            span_by_work_unit[str(work_unit_id)] = span.id
     for unit in plan.get("work_units", []) if isinstance(plan.get("work_units", []), list) else []:
         if not isinstance(unit, dict):
             continue
@@ -805,25 +814,114 @@ def build_cowork_artifact_index(session: CoworkSession) -> list[dict[str, Any]]:
             text = str(value or "").strip()
             if not text:
                 continue
-            key = (str(unit.get("id") or ""), text)
-            if key in seen or any(item["path_or_url"] == text for item in artifacts):
+            key = _artifact_key(text)
+            if key in seen:
                 continue
             seen.add(key)
-            artifacts.append(
-                {
-                    "id": f"artifact_{len(artifacts) + 1}",
-                    "kind": (artifact.get("kind") if isinstance(artifact, dict) else "") or _artifact_kind(text),
-                    "path_or_url": text,
-                    "source_agent_id": unit.get("assigned_agent_id"),
-                    "source_task_id": unit.get("source_task_id"),
-                    "source_work_unit_id": unit.get("id"),
-                    "source_task_title": unit.get("title", ""),
-                    "created_at": unit.get("updated_at") or session.updated_at,
-                    "summary": artifact.get("summary") if isinstance(artifact, dict) else _compact(text, 160),
-                    "confidence": unit.get("confidence"),
-                }
+            artifacts.append(_artifact_record(
+                session,
+                artifact_id=f"artifact_{len(artifacts) + 1}",
+                path_or_url=text,
+                source_agent_id=unit.get("assigned_agent_id"),
+                source_task_id=unit.get("source_task_id"),
+                source_work_unit_id=unit.get("id"),
+                source_span_id=span_by_work_unit.get(str(unit.get("id") or "")),
+                source_task_title=unit.get("title", ""),
+                created_at=unit.get("updated_at") or session.updated_at,
+                summary=artifact.get("summary") if isinstance(artifact, dict) else _compact(text, 160),
+                confidence=unit.get("confidence"),
+                kind=(artifact.get("kind") if isinstance(artifact, dict) else "") or "",
+            )
             )
     return artifacts
+
+
+def build_cowork_large_swarm_summary(session: CoworkSession) -> dict[str, Any]:
+    plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+    units = [unit for unit in plan.get("work_units", []) if isinstance(unit, dict)]
+    status_counts = Counter(str(unit.get("status") or "unknown") for unit in units)
+    workstreams: dict[str, dict[str, Any]] = {}
+    for unit in units:
+        key = str(unit.get("team_id") or unit.get("fanout_group_id") or unit.get("kind") or "default")
+        group = workstreams.setdefault(
+            key,
+            {"id": key, "title": key.replace("_", " "), "count": 0, "status_counts": Counter(), "sample_unit_ids": []},
+        )
+        group["count"] += 1
+        group["status_counts"][str(unit.get("status") or "unknown")] += 1
+        if len(group["sample_unit_ids"]) < 8:
+            group["sample_unit_ids"].append(unit.get("id"))
+    return {
+        "schema_version": "cowork.large_swarm.v1",
+        "enabled": len(units) >= 40,
+        "total_work_units": len(units),
+        "status_counts": dict(status_counts),
+        "workstreams": [
+            {**group, "status_counts": dict(group["status_counts"])}
+            for group in sorted(workstreams.values(), key=lambda item: item["count"], reverse=True)
+        ],
+        "render_limit": 60,
+        "generated_at": now_iso(),
+    }
+
+
+def _artifact_key(path_or_url: str) -> str:
+    return hashlib.sha1(str(path_or_url or "").strip().lower().encode("utf-8")).hexdigest()
+
+
+def _artifact_record(
+    session: CoworkSession,
+    *,
+    artifact_id: str,
+    path_or_url: str,
+    source_agent_id: str | None,
+    source_task_id: str | None,
+    source_task_title: str,
+    created_at: str,
+    summary: str,
+    confidence: float | None,
+    kind: str = "",
+    source_work_unit_id: str | None = None,
+    source_span_id: str | None = None,
+) -> dict[str, Any]:
+    status, file_hash, mime_type = _artifact_file_metadata(session, path_or_url)
+    return {
+        "id": artifact_id,
+        "kind": kind or _artifact_kind(path_or_url),
+        "path_or_url": path_or_url,
+        "source_agent_id": source_agent_id,
+        "source_task_id": source_task_id,
+        "source_work_unit_id": source_work_unit_id,
+        "source_span_id": source_span_id,
+        "source_task_title": source_task_title,
+        "created_at": created_at,
+        "summary": summary,
+        "hash": file_hash,
+        "mime_type": mime_type,
+        "confidence": confidence,
+        "status": status,
+        "missing": status == "missing",
+    }
+
+
+def _artifact_file_metadata(session: CoworkSession, path_or_url: str) -> tuple[str, str, str]:
+    value = str(path_or_url or "").strip()
+    if not value or value.startswith(("http://", "https://")):
+        return ("linked" if value else "unresolved", "", mimetypes.guess_type(value)[0] or "")
+    path = Path(value)
+    if not path.is_absolute() and getattr(session, "workspace_dir", ""):
+        path = Path(session.workspace_dir) / path
+    mime_type = mimetypes.guess_type(value)[0] or ""
+    if not path.exists() or not path.is_file():
+        return "missing", "", mime_type
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return "available", digest.hexdigest(), mime_type
+    except Exception:
+        return "unresolved", "", mime_type
 
 
 def _task_artifacts(task: Any) -> list[str]:

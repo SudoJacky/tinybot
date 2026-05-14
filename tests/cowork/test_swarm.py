@@ -2,7 +2,7 @@ import pytest
 
 from tinybot.agent.tools.cowork import CoworkTool
 from tinybot.cowork.service import CoworkService
-from tinybot.cowork.swarm import normalize_swarm_plan, validate_swarm_plan
+from tinybot.cowork.swarm import build_swarm_scheduler_queues, normalize_swarm_plan, validate_swarm_plan
 from tinybot.providers.base import LLMResponse, ToolCallRequest
 
 
@@ -208,17 +208,20 @@ def test_work_unit_lifecycle_start_fail_retry_skip(temp_workspace):
     failed = service.fail_work_unit(session, unit_id, "boom")
     retried = service.retry_work_unit(session, unit_id, reason="try again")
     skipped = service.skip_work_unit(session, unit_id, reason="not needed")
+    cancelled = service.cancel_work_unit(session, unit_id, reason="stop")
 
     unit = session.swarm_plan["work_units"][0]
     assert "started" in started
     assert "failed" in failed
     assert "queued for retry" in retried
     assert "skipped" in skipped
-    assert unit["status"] == "skipped"
+    assert "cancelled" in cancelled
+    assert unit["status"] == "cancelled"
     assert any(span.name == "Work unit started" for span in session.trace_spans)
     assert any(span.name == "Work unit failed" for span in session.trace_spans)
     assert any(span.name == "Work unit retried" for span in session.trace_spans)
     assert any(span.name == "Work unit skipped" for span in session.trace_spans)
+    assert any(span.name == "Work unit cancelled" for span in session.trace_spans)
 
 
 def test_temporary_worker_inherits_swarm_tool_policy(temp_workspace):
@@ -593,3 +596,68 @@ def test_swarm_evaluation_blocks_missing_artifact(temp_workspace):
     )
     assert artifact_eval["status"] == "block"
     assert session.completion_decision["next_action"] == "resolve_evaluation_blockers"
+
+
+def test_phase3_event_log_snapshot_and_replay_load(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Replayable swarm",
+        "Replay",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [{"id": "unit_a", "title": "Unit A", "description": "A", "assigned_agent_id": "lead"}],
+        workflow_mode="swarm",
+    )
+    service.add_event(session, "test.event", "extra event")
+    event_log = temp_workspace / "cowork" / "events" / f"{session.id}.jsonl"
+    snapshot = temp_workspace / "cowork" / "snapshots" / f"{session.id}.json"
+    artifact_index = temp_workspace / "cowork" / "artifacts" / session.id / "index.json"
+
+    assert event_log.exists()
+    assert snapshot.exists()
+    assert artifact_index.exists()
+
+    (temp_workspace / "cowork" / "store.json").unlink()
+    reloaded = CoworkService(temp_workspace)
+    loaded = reloaded.get_session(session.id)
+
+    assert loaded is not None
+    assert loaded.workflow_mode == "swarm"
+    assert any(event.type == "test.event" for event in loaded.events)
+
+
+def test_phase3_interrupted_trace_recovery_from_snapshot(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Interrupted", "Interrupted", [], [], workflow_mode="swarm")
+    span = service.start_trace_span(session, kind="agent", name="Running worker", actor_id=next(iter(session.agents)))
+    service._save()
+    (temp_workspace / "cowork" / "store.json").unlink()
+
+    loaded = CoworkService(temp_workspace).get_session(session.id)
+
+    assert loaded is not None
+    recovered = next(item for item in loaded.trace_spans if item.id == span.id)
+    assert recovered.status == "failed"
+    assert recovered.error == "Interrupted before the process stopped."
+
+
+def test_phase3_swarm_scheduler_queue_projection(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Queue swarm",
+        "Queues",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [
+            {"id": "unit_a", "title": "A", "description": "A", "assigned_agent_id": "lead"},
+            {"id": "unit_b", "title": "B", "description": "B", "assigned_agent_id": "lead", "dependencies": ["unit_a"]},
+        ],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 3},
+    )
+
+    queues = build_swarm_scheduler_queues(session)
+
+    assert queues["schema_version"] == "cowork.swarm_queues.v1"
+    assert queues["parallel_width"] == 3
+    assert [item["id"] for item in queues["queues"]["ready"]] == ["unit_a"]
+    assert [item["id"] for item in queues["queues"]["blocked"]] == ["unit_b"]
+    assert queues["queues"]["blocked"][0]["blocked_by"] == ["unit_a"]

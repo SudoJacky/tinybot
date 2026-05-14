@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import re
 import tempfile
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import MISSING, asdict, fields
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,14 @@ from tinybot.cowork.blueprint import (
     session_inputs_from_blueprint,
     validate_blueprint,
 )
-from tinybot.cowork.swarm import normalize_swarm_plan, update_work_unit_readiness, work_unit_result_from_task
+from tinybot.cowork.event_log import CoworkEventLogStore
+from tinybot.cowork.snapshot import build_cowork_artifact_index
+from tinybot.cowork.swarm import (
+    build_swarm_scheduler_queues,
+    normalize_swarm_plan,
+    update_work_unit_readiness,
+    work_unit_result_from_task,
+)
 from tinybot.cowork.types import (
     CoworkAgent,
     CoworkEvaluationResult,
@@ -73,6 +80,7 @@ class CoworkService:
         self._sessions: dict[str, CoworkSession] | None = None
         self._listeners: list[Callable[[CoworkSession, CoworkEvent], None]] = []
         self.traces = CoworkTraceRecorder(self._new_id)
+        self.event_log = CoworkEventLogStore(self.cowork_dir)
         self._mutation_lock = threading.RLock()
 
     @property
@@ -109,12 +117,13 @@ class CoworkService:
 
     def _ensure_dir(self) -> None:
         self.cowork_dir.mkdir(parents=True, exist_ok=True)
+        self.event_log.ensure_dirs()
 
     def _load(self) -> dict[str, CoworkSession]:
         if self._sessions is not None:
             return self._sessions
         if not self.store_path.exists():
-            self._sessions = {}
+            self._sessions = self._load_event_log_sessions()
             return self._sessions
         try:
             data = json.loads(self.store_path.read_text(encoding="utf-8"))
@@ -325,10 +334,131 @@ class CoworkService:
                 self.ensure_session_budget(session)
                 sessions[session.id] = session
             self._sessions = sessions
+            self._save_event_log_layout([asdict(session) for session in sessions.values()])
         except Exception as exc:
             logger.warning("Failed to load cowork store: {}", exc)
             self._sessions = {}
         return self._sessions
+
+    def _load_event_log_sessions(self) -> dict[str, CoworkSession]:
+        sessions: dict[str, CoworkSession] = {}
+        for raw in self.event_log.read_snapshot_payloads():
+            try:
+                session = self._hydrate_session(raw)
+                self._replay_event_log(session)
+                self._recover_interrupted_runtime(session)
+                self.ensure_session_budget(session)
+                sessions[session.id] = session
+            except Exception as exc:
+                logger.warning("Failed to load cowork snapshot: {}", exc)
+        return sessions
+
+    def _hydrate_session(self, raw: dict[str, Any]) -> CoworkSession:
+        session = CoworkSession(
+            id=str(raw.get("id") or self._new_id("cw")),
+            title=str(raw.get("title") or "Cowork Session"),
+            goal=str(raw.get("goal") or ""),
+            status=raw.get("status", "active"),
+            workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", "hybrid")),
+            current_focus_task=raw.get("current_focus_task", ""),
+            workspace_dir=raw.get("workspace_dir", ""),
+            artifacts=raw.get("artifacts", []) if isinstance(raw.get("artifacts", []), list) else [],
+            shared_memory=self._normalize_shared_memory(raw.get("shared_memory", {})),
+            shared_summary=raw.get("shared_summary", ""),
+            final_draft=raw.get("final_draft", ""),
+            completion_decision=raw.get("completion_decision", {}) if isinstance(raw.get("completion_decision", {}), dict) else {},
+            swarm_plan=raw.get("swarm_plan", {}) if isinstance(raw.get("swarm_plan", {}), dict) else {},
+            budget_limits=normalize_budget_limits(raw.get("budget_limits") or raw.get("budgets")),
+            budget_usage={
+                **default_budget_usage(),
+                **(raw.get("budget_usage", {}) if isinstance(raw.get("budget_usage", {}), dict) else {}),
+            },
+            stop_reason=str(raw.get("stop_reason") or ""),
+            blueprint=raw.get("blueprint", {}) if isinstance(raw.get("blueprint", {}), dict) else {},
+            blueprint_diagnostics=raw.get("blueprint_diagnostics", []) if isinstance(raw.get("blueprint_diagnostics", []), list) else [],
+            runtime_state=raw.get("runtime_state", {}) if isinstance(raw.get("runtime_state", {}), dict) else {},
+            created_at=raw.get("created_at", now_iso()),
+            updated_at=raw.get("updated_at", now_iso()),
+            rounds=int(raw.get("rounds", 0) or 0),
+            no_progress_rounds=int(raw.get("no_progress_rounds", 0) or 0),
+        )
+        session.agents = self._hydrate_dataclass_map(raw.get("agents", {}), CoworkAgent)
+        session.tasks = self._hydrate_dataclass_map(raw.get("tasks", {}), CoworkTask)
+        session.threads = self._hydrate_dataclass_map(raw.get("threads", {}), CoworkThread)
+        session.messages = self._hydrate_dataclass_map(raw.get("messages", {}), CoworkMessage)
+        session.mailbox = self._hydrate_dataclass_map(raw.get("mailbox", {}), CoworkMailboxRecord)
+        session.events = self._hydrate_dataclass_list(raw.get("events", []), CoworkEvent)
+        session.trace_spans = self._hydrate_dataclass_list(raw.get("trace_spans", []), CoworkTraceSpan)
+        session.run_metrics = self._hydrate_dataclass_list(raw.get("run_metrics", []), CoworkRunMetrics)
+        session.scheduler_decisions = [dict(item) for item in raw.get("scheduler_decisions", []) if isinstance(item, dict)]
+        return session
+
+    def _hydrate_dataclass_map(self, raw: Any, cls: type[Any]) -> dict[str, Any]:
+        items = raw.values() if isinstance(raw, dict) else raw if isinstance(raw, list) else []
+        result: dict[str, Any] = {}
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            hydrated = self._hydrate_dataclass(item, cls)
+            result[getattr(hydrated, "id")] = hydrated
+        return result
+
+    def _hydrate_dataclass_list(self, raw: Any, cls: type[Any]) -> list[Any]:
+        if not isinstance(raw, list):
+            return []
+        return [self._hydrate_dataclass(item, cls) for item in raw if isinstance(item, dict)]
+
+    def _hydrate_dataclass(self, raw: dict[str, Any], cls: type[Any]) -> Any:
+        kwargs: dict[str, Any] = {}
+        for field_info in fields(cls):
+            if field_info.name in raw:
+                kwargs[field_info.name] = raw[field_info.name]
+            elif field_info.default is not MISSING:
+                kwargs[field_info.name] = field_info.default
+            elif field_info.default_factory is not MISSING:  # type: ignore[comparison-overlap]
+                kwargs[field_info.name] = field_info.default_factory()  # type: ignore[misc]
+        return cls(**kwargs)
+
+    def _replay_event_log(self, session: CoworkSession) -> None:
+        known_event_ids = {event.id for event in session.events}
+        known_span_ids = {span.id for span in session.trace_spans}
+        for record in self.event_log.read_events(session.id):
+            payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+            if record.get("category") == "event":
+                event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else payload
+                event_id = str(event_payload.get("id") or record.get("id") or "")
+                if event_id and event_id not in known_event_ids:
+                    event_payload = {
+                        "id": event_id,
+                        "type": event_payload.get("type") or record.get("type") or "event",
+                        "message": event_payload.get("message") or "",
+                        "actor_id": event_payload.get("actor_id") or record.get("actor_id"),
+                        "data": event_payload.get("data", {}) if isinstance(event_payload.get("data", {}), dict) else {},
+                        "created_at": event_payload.get("created_at") or record.get("created_at") or now_iso(),
+                    }
+                    session.events.append(self._hydrate_dataclass(event_payload, CoworkEvent))
+                    known_event_ids.add(event_id)
+            elif record.get("category") == "trace":
+                span_payload = payload.get("span") if isinstance(payload.get("span"), dict) else payload
+                span_id = str(span_payload.get("id") or record.get("id") or "")
+                if span_id and span_id not in known_span_ids:
+                    span_payload = {"id": span_id, "session_id": session.id, **span_payload}
+                    session.trace_spans.append(self._hydrate_dataclass(span_payload, CoworkTraceSpan))
+                    known_span_ids.add(span_id)
+        session.events = session.events[-_MAX_EVENT_COUNT:]
+        session.trace_spans = session.trace_spans[-_MAX_TRACE_SPAN_COUNT:]
+
+    def _recover_interrupted_runtime(self, session: CoworkSession) -> None:
+        recovered = False
+        for span in session.trace_spans:
+            if span.status in {"pending", "running", "in_progress"} and not span.ended_at:
+                span.status = "failed"
+                span.ended_at = now_iso()
+                span.error = span.error or "Interrupted before the process stopped."
+                span.summary = span.summary or "Interrupted runtime span recovered on load."
+                recovered = True
+        if recovered:
+            session.runtime_state["interrupted_span_recovery_at"] = now_iso()
 
     def _save(self) -> None:
         if self._sessions is None:
@@ -340,9 +470,20 @@ class CoworkService:
             with open(fd, "w", encoding="utf-8") as handle:
                 json.dump(data, handle, indent=2, ensure_ascii=False)
             Path(temp_path).replace(self.store_path)
+            self._save_event_log_layout(data["sessions"])
         except Exception:
             Path(temp_path).unlink(missing_ok=True)
             raise
+
+    def _save_event_log_layout(self, sessions: list[dict[str, Any]]) -> None:
+        for raw in sessions:
+            session_id = str(raw.get("id") or "")
+            if not session_id:
+                continue
+            self.event_log.write_snapshot(session_id, raw)
+            session = self._sessions.get(session_id) if self._sessions else None
+            if session is not None:
+                self.event_log.write_artifact_index(session_id, build_cowork_artifact_index(session))
 
     def list_sessions(self, include_completed: bool = False) -> list[CoworkSession]:
         sessions = list(self._load().values())
@@ -445,6 +586,9 @@ class CoworkService:
             "remaining": budget_remaining(limits, usage),
             "stop_reason": stop_reason,
         }
+
+    def swarm_scheduler_queues(self, session: CoworkSession) -> dict[str, Any]:
+        return build_swarm_scheduler_queues(session)
 
     def set_session_budgets(self, session: CoworkSession, budgets: dict[str, Any], *, save: bool = True) -> dict[str, Any]:
         session.budget_limits = normalize_budget_limits({**(getattr(session, "budget_limits", {}) or {}), **(budgets or {})})
@@ -2003,6 +2147,15 @@ class CoworkService:
             session.trace_spans.append(span)
         if len(session.trace_spans) > _MAX_TRACE_SPAN_COUNT:
             session.trace_spans = session.trace_spans[-_MAX_TRACE_SPAN_COUNT:]
+        self.event_log.append(
+            session.id,
+            "trace.span_recorded",
+            category="trace",
+            actor_id=span.actor_id,
+            event_id=span.id,
+            created_at=span.ended_at or span.started_at,
+            payload={"span": asdict(span)},
+        )
         if save:
             self._touch(session)
             self._save()
@@ -2149,6 +2302,15 @@ class CoworkService:
         session.scheduler_decisions.append(decision)
         if len(session.scheduler_decisions) > _MAX_SCHEDULER_DECISION_COUNT:
             session.scheduler_decisions = session.scheduler_decisions[-_MAX_SCHEDULER_DECISION_COUNT:]
+        self.event_log.append(
+            session.id,
+            "scheduler.decision",
+            category="scheduler",
+            actor_id="scheduler",
+            event_id=decision["id"],
+            created_at=decision["created_at"],
+            payload={"decision": decision},
+        )
         if save:
             self._touch(session)
             self._save()
@@ -2168,6 +2330,15 @@ class CoworkService:
         session.events.append(event)
         if len(session.events) > _MAX_EVENT_COUNT:
             session.events = session.events[-_MAX_EVENT_COUNT:]
+        self.event_log.append(
+            session.id,
+            event_type,
+            category="event",
+            actor_id=actor_id,
+            event_id=event.id,
+            created_at=event.created_at,
+            payload={"event": asdict(event)},
+        )
         self._notify_listeners(session, event)
         if save:
             self._touch(session)
@@ -2325,6 +2496,8 @@ class CoworkService:
                     self.start_work_unit(session, str(unit.get("id")), reducer_task.assigned_agent_id or self.lead_agent_id(session), save=False)
                 return [session.agents[reducer_task.assigned_agent_id or self.lead_agent_id(session)]]
 
+        queues = self.swarm_scheduler_queues(session)
+        session.runtime_state["swarm_queues"] = queues
         running_signatures = {
             self._swarm_unit_signature(unit)
             for unit in self._swarm_work_units(session)
@@ -2332,7 +2505,16 @@ class CoworkService:
         }
         selected: list[CoworkAgent] = []
         selected_ids: set[str] = set()
-        for unit in sorted(self.ready_swarm_work_units(session), key=self._swarm_unit_priority):
+        queued_unit_ids = [
+            str(item.get("id"))
+            for item in [*queues.get("queues", {}).get("ready", []), *queues.get("queues", {}).get("failed_retry", [])]
+            if item.get("id")
+        ]
+        units_by_id = {str(unit.get("id")): unit for unit in self._swarm_work_units(session) if isinstance(unit, dict)}
+        for unit_id in queued_unit_ids:
+            unit = units_by_id.get(unit_id)
+            if not unit:
+                continue
             if len(selected) >= slots:
                 break
             signature = self._swarm_unit_signature(unit)
@@ -3095,6 +3277,8 @@ class CoworkService:
         unit["attempts"] = attempts + 1
         unit["status"] = "pending"
         unit["error"] = None
+        unit["priority"] = int(unit.get("priority", 0) or 0) + 10
+        unit["priority_boost_reason"] = reason or "user_retry"
         unit["updated_at"] = now_iso()
         source_task_id = unit.get("source_task_id")
         if source_task_id in session.tasks:
@@ -3147,6 +3331,35 @@ class CoworkService:
         if save:
             self._save()
         return f"Work unit '{unit.get('title') or work_unit_id}' skipped."
+
+    def cancel_work_unit(self, session: CoworkSession, work_unit_id: str, *, reason: str = "", save: bool = True) -> str:
+        unit = self._find_swarm_work_unit(session, work_unit_id)
+        if unit is None:
+            return f"Error: work unit '{work_unit_id}' not found"
+        unit["status"] = "cancelled"
+        unit["cancel_reason"] = reason
+        unit["updated_at"] = now_iso()
+        source_task_id = unit.get("source_task_id")
+        if source_task_id in session.tasks:
+            task = session.tasks[source_task_id]
+            task.status = "skipped"
+            task.result = reason or "Cancelled."
+            task.updated_at = unit["updated_at"]
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Work unit cancelled",
+            actor_id="user",
+            status="cancelled",
+            summary=f"Work unit '{unit.get('title') or work_unit_id}' cancelled",
+            data={"work_unit_id": work_unit_id, "reason": reason},
+            save=False,
+        )
+        self.assess_session(session, save=False)
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Work unit '{unit.get('title') or work_unit_id}' cancelled."
 
     @staticmethod
     def _find_swarm_work_unit(session: CoworkSession, work_unit_id: str) -> dict[str, Any] | None:

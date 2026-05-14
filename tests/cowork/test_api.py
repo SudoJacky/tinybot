@@ -269,6 +269,16 @@ async def test_cowork_swarm_steering_budget_and_work_unit_api(cowork_api_client)
     payload = await response.json()
     assert payload["budget"]["limits"]["parallel_width"] == 2
     assert payload["budget"]["limits"]["max_agent_calls_per_run"] == 4
+    assert "swarm_queues" in payload["session"]
+    assert payload["session"]["swarm_queues"]["counts"]["ready"] == 1
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/queues")
+    assert response.status == 200
+    assert (await response.json())["swarm_queues"]["schema_version"] == "cowork.swarm_queues.v1"
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/artifacts")
+    assert response.status == 200
+    assert "artifact_index" in await response.json()
 
     service.fail_work_unit(session, "unit_a", "boom")
     response = await cowork_api_client.post(
@@ -289,6 +299,15 @@ async def test_cowork_swarm_steering_budget_and_work_unit_api(cowork_api_client)
     unit = next(item for item in payload["session"]["swarm_plan"]["work_units"] if item["id"] == "unit_a")
     assert unit["status"] == "skipped"
     assert unit["skip_reason"] == "not needed"
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/work-units/unit_a/cancel",
+        json={"reason": "stop"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    unit = next(item for item in payload["session"]["swarm_plan"]["work_units"] if item["id"] == "unit_a")
+    assert unit["status"] == "cancelled"
 
 
 @pytest.mark.asyncio
