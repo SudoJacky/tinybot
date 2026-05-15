@@ -17,6 +17,19 @@ def test_minimal_blueprint_preview_does_not_persist_session(temp_workspace):
     assert service.list_sessions(include_completed=True) == []
 
 
+def test_blueprint_uses_adaptive_starter_and_accepts_hybrid_alias(temp_workspace):
+    service = CoworkService(temp_workspace)
+
+    preview = service.preview_blueprint({"goal": "Plan launch", "workflow_mode": "hybrid"})
+    architecture_preview = service.preview_blueprint({"goal": "Plan launch", "architecture": "hybrid"})
+    unknown = validate_blueprint({"goal": "Plan launch", "architecture": "mystery"})
+
+    assert preview["blueprint"]["workflow_mode"] == "adaptive_starter"
+    assert architecture_preview["blueprint"]["workflow_mode"] == "adaptive_starter"
+    assert unknown["blueprint"]["workflow_mode"] == "adaptive_starter"
+    assert any(item["code"] == "unknown_architecture_fallback" for item in unknown["diagnostics"])
+
+
 def test_blueprint_validation_reports_duplicate_missing_cycle_and_policy_errors():
     blueprint = {
         "goal": "Validate",

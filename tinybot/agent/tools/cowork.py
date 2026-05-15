@@ -17,8 +17,9 @@ from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTo
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, IntegerSchema, ObjectSchema, StringSchema, tool_parameters_schema
 from tinybot.agent.tools.shell import ExecTool
-from tinybot.cowork.service import CoworkService
+from tinybot.cowork.architecture import ADAPTIVE_STARTER
 from tinybot.cowork.blueprint import normalize_blueprint
+from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkAgent, CoworkSession, now_iso
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.config.schema import ExecToolConfig
@@ -89,7 +90,7 @@ class CoworkTeamPlanner:
         self.model = model
         self.workspace = workspace
 
-    async def plan(self, goal: str, workflow_mode: str = "hybrid") -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    async def plan(self, goal: str, workflow_mode: str = ADAPTIVE_STARTER) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
         mode = CoworkService.normalize_workflow_mode(workflow_mode)
         mode_guidance = {
             "orchestrator": (
@@ -106,14 +107,14 @@ class CoworkTeamPlanner:
             "shared_state": "Create contributors who maintain distinct shared-state buckets such as findings, risks, decisions, or artifacts.",
             "peer_handoff": "Create agents that own sequential handoff steps. Keep the chain short.",
             "swarm": "Create a bounded swarm plan with focused specialists and clear merge/synthesis ownership.",
-            "hybrid": "Choose the smallest useful team. For simple goals, one coordinator is enough; add specialists only for distinct workstreams.",
+            "adaptive_starter": "Choose the smallest useful team. For simple goals, one coordinator is enough; add specialists only for distinct workstreams.",
         }.get(mode, "Choose the smallest useful team.")
         prompt = f"""Design a dynamic cowork team for this user goal.
 
 Goal:
 {goal}
 
-Workflow mode:
+Architecture:
 {mode}
 
 Mode guidance:
@@ -497,8 +498,8 @@ class CoworkInternalTool(Tool):
         ),
         goal=StringSchema("Goal for a new cowork session"),
         workflow_mode=StringSchema(
-            "Cowork workflow mode",
-            enum=["hybrid", "supervisor", "orchestrator", "team", "generator_verifier", "message_bus", "shared_state", "peer_handoff", "swarm"],
+            "Cowork architecture. Legacy value 'hybrid' is accepted as adaptive_starter.",
+            enum=["adaptive_starter", "hybrid", "supervisor", "orchestrator", "team", "generator_verifier", "message_bus", "shared_state", "peer_handoff", "swarm"],
         ),
         session_id=StringSchema("Cowork session id"),
         recipient_ids=ArraySchema(StringSchema("Agent id"), description="Message recipients"),
@@ -517,7 +518,11 @@ class CoworkInternalTool(Tool):
         stop_on_blocker=BooleanSchema(description="Stop as soon as unresolved blockers are visible", default=False),
         auto_run=BooleanSchema(description="Run one cowork round immediately after start", default=False),
         verbose=BooleanSchema(description="Show detailed status", default=False),
-        extra_properties={"description": StringSchema("Task description"), "blueprint": ObjectSchema(description="Cowork blueprint payload")},
+        extra_properties={
+            "description": StringSchema("Task description"),
+            "blueprint": ObjectSchema(description="Cowork blueprint payload"),
+            "architecture": StringSchema("Cowork architecture"),
+        },
         required=["action"],
     )
 )
@@ -561,7 +566,7 @@ class CoworkTool(Tool):
         self,
         action: str,
         goal: str = "",
-        workflow_mode: str = "hybrid",
+        workflow_mode: str = ADAPTIVE_STARTER,
         session_id: str = "",
         recipient_ids: list[str] | None = None,
         content: str = "",
@@ -610,7 +615,7 @@ class CoworkTool(Tool):
                 return response
             if not goal.strip():
                 return "Error: goal is required for cowork start"
-            mode = CoworkService.normalize_workflow_mode(workflow_mode or "hybrid")
+            mode = CoworkService.normalize_workflow_mode(kwargs.get("architecture") or workflow_mode or ADAPTIVE_STARTER)
             planned_title, agents, tasks = await self.planner.plan(goal, workflow_mode=mode)
             tasks = tasks if mode == "swarm" and tasks else CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
             generated_blueprint = normalize_blueprint(
@@ -1724,8 +1729,8 @@ Context policy:
 Shared cowork goal:
 {session.goal}
 
-Workflow mode:
-{getattr(session, "workflow_mode", "hybrid")}
+Architecture:
+{getattr(session, "workflow_mode", ADAPTIVE_STARTER)}
 
 Workflow guidance:
 {workflow_guidance}
@@ -1857,7 +1862,7 @@ Expected behavior:
 
     @staticmethod
     def _workflow_guidance(session: CoworkSession) -> str:
-        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", "hybrid"))
+        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", ADAPTIVE_STARTER))
         guidance = {
             "orchestrator": (
                 "A lead coordinates the plan, delegates bounded tasks, and synthesizes results. "

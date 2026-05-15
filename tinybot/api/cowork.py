@@ -7,6 +7,7 @@ from typing import Any
 from aiohttp import web
 
 from tinybot.cowork.blueprint import budget_remaining, default_budget_usage, export_session_blueprint, normalize_budget_limits
+from tinybot.cowork.policies import default_policy_registry
 from tinybot.cowork.snapshot import (
     build_cowork_artifact_index,
     build_cowork_graph,
@@ -44,6 +45,7 @@ def _blueprint_metadata(blueprint: dict[str, Any]) -> dict[str, Any]:
 
 def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, Any]:
     """Return a JSON-safe snapshot for a cowork session."""
+    policy = default_policy_registry().resolve(getattr(session, "workflow_mode", "adaptive_starter"))
     agents = []
     for agent in session.agents.values():
         current_task_title = agent.current_task_title
@@ -214,7 +216,8 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "title": session.title,
         "goal": session.goal,
         "status": session.status,
-        "workflow_mode": getattr(session, "workflow_mode", "hybrid"),
+        "workflow_mode": getattr(session, "workflow_mode", "adaptive_starter"),
+        "architecture": getattr(session, "workflow_mode", "adaptive_starter"),
         "current_focus_task": getattr(session, "current_focus_task", ""),
         "workspace_dir": getattr(session, "workspace_dir", ""),
         "artifacts": getattr(session, "artifacts", []),
@@ -247,6 +250,8 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "large_swarm_summary": build_cowork_large_swarm_summary(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
     }
     if verbose:
+        snapshot["architecture_topology"] = policy.topology(session).payload
+        snapshot["organization_projection"] = policy.build_projection(session).payload
         snapshot["graph"] = build_cowork_graph(session)
         snapshot["trace"] = build_cowork_trace(session)
         snapshot["task_dag"] = build_cowork_task_dag(session)
@@ -353,7 +358,7 @@ async def handle_create_session(request: web.Request) -> web.Response:
     result = await tool.execute(
         action="start",
         goal=goal,
-        workflow_mode=str(payload.get("workflow_mode") or "hybrid"),
+        workflow_mode=str(payload.get("architecture") or payload.get("workflow_mode") or payload.get("mode") or "adaptive_starter"),
         auto_run=bool(payload.get("auto_run", False)),
         max_rounds=int(payload.get("max_rounds", 1) or 1),
         max_agents=int(payload.get("max_agents", 3) or 3),
@@ -385,7 +390,15 @@ async def handle_get_session_graph(request: web.Request) -> web.Response:
     session = service.get_session(request.match_info["session_id"])
     if session is None:
         return web.json_response({"error": "cowork session not found"}, status=404)
-    return web.json_response({"graph": build_cowork_graph(session), "trace": build_cowork_trace(session)})
+    policy = default_policy_registry().resolve(getattr(session, "workflow_mode", "adaptive_starter"))
+    return web.json_response(
+        {
+            "graph": build_cowork_graph(session),
+            "trace": build_cowork_trace(session),
+            "architecture_topology": policy.topology(session).payload,
+            "organization_projection": policy.build_projection(session).payload,
+        }
+    )
 
 
 async def handle_get_session_trace(request: web.Request) -> web.Response:

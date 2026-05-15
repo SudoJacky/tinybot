@@ -24,6 +24,7 @@ SwarmWorkUnitStatus = Literal[
     "cancelled",
 ]
 WorkflowMode = Literal[
+    "adaptive_starter",
     "hybrid",
     "supervisor",
     "orchestrator",
@@ -290,7 +291,7 @@ class CoworkSession:
     title: str
     goal: str
     status: SessionStatus = "active"
-    workflow_mode: WorkflowMode = "hybrid"
+    workflow_mode: WorkflowMode = "adaptive_starter"
     agents: dict[str, CoworkAgent] = field(default_factory=dict)
     tasks: dict[str, CoworkTask] = field(default_factory=dict)
     threads: dict[str, CoworkThread] = field(default_factory=dict)

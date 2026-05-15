@@ -177,6 +177,8 @@ def test_cowork_tool_schemas_are_json_serializable(temp_workspace):
     assert "description" in external.parameters["properties"]
     assert "description" in internal.parameters["properties"]
     assert "request_type" in internal.parameters["properties"]
+    assert "adaptive_starter" in external.parameters["properties"]["workflow_mode"]["enum"]
+    assert "hybrid" in external.parameters["properties"]["workflow_mode"]["enum"]
 
 
 def test_cowork_agent_tools_follow_agent_allowlist(temp_workspace):

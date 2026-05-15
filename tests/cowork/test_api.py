@@ -236,6 +236,21 @@ async def test_cowork_blueprint_api_routes(cowork_api_client):
 
 
 @pytest.mark.asyncio
+async def test_cowork_api_prefers_architecture_and_normalizes_legacy_alias(cowork_api_client):
+    response = await cowork_api_client.post(
+        "/api/cowork/sessions",
+        json={"goal": "Clarify launch plan", "architecture": "hybrid"},
+    )
+
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session"]["workflow_mode"] == "adaptive_starter"
+    assert payload["session"]["architecture"] == "adaptive_starter"
+    assert payload["session"]["architecture_topology"]["architecture"] == "adaptive_starter"
+    assert payload["session"]["organization_projection"]["display_name"] == "Adaptive Starter"
+
+
+@pytest.mark.asyncio
 async def test_cowork_swarm_steering_budget_and_work_unit_api(cowork_api_client):
     service = cowork_api_client.cowork_service
     session = service.create_session(
@@ -275,6 +290,12 @@ async def test_cowork_swarm_steering_budget_and_work_unit_api(cowork_api_client)
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/queues")
     assert response.status == 200
     assert (await response.json())["swarm_queues"]["schema_version"] == "cowork.swarm_queues.v1"
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/graph")
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["architecture_topology"]["architecture"] == "swarm"
+    assert payload["organization_projection"]["sections"][0]["id"] == "swarm_plan"
 
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/artifacts")
     assert response.status == 200

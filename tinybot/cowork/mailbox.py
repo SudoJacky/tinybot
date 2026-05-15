@@ -279,7 +279,7 @@ class CoworkMailbox:
         known = set(session.agents) | {"user"}
         explicit = [recipient for recipient in dict.fromkeys(envelope.recipient_ids) if recipient in known]
         lead_id = CoworkMailbox._lead_agent_id(session)
-        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", "hybrid"))
+        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", "adaptive_starter"))
         if profile == "message_bus" and envelope.sender_id != "user" and not explicit:
             routed = CoworkMailbox._subscribed_recipients(session, envelope)
             if routed:

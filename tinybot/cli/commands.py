@@ -1788,6 +1788,7 @@ def _load_cowork_blueprint_file(path: str) -> dict[str, Any]:
 def cowork_start(
         goal: str = typer.Argument("", help="Goal for the cowork session"),
         blueprint_file: str | None = typer.Option(None, "--blueprint", "-b", help="Launch from a Cowork blueprint JSON file"),
+        architecture: str = typer.Option("adaptive_starter", "--architecture", help="Cowork architecture; legacy 'hybrid' is accepted"),
         auto_run: bool = typer.Option(False, "--run/--no-run", help="Run one or more rounds immediately"),
         max_rounds: int = typer.Option(1, "--rounds", "-r", min=1, max=20, help="Scheduling rounds to run"),
         max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=50, help="Max agents per round"),
@@ -1808,6 +1809,7 @@ def cowork_start(
             max_agent_calls=max_agent_calls,
             run_until_idle=run_until_idle,
             blueprint=blueprint,
+            architecture=architecture,
         )
     )
     console.print(Markdown(result))

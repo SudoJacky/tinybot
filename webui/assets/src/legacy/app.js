@@ -1726,7 +1726,7 @@ function openCoworkModal() {
   }
   setSidebarDropdown("cowork");
   elements.coworkModal?.classList.add("active");
-  requestAnimationFrame(() => setCoworkWorkflowMode(elements.coworkWorkflowMode?.value || "hybrid"));
+  requestAnimationFrame(() => setCoworkWorkflowMode(elements.coworkWorkflowMode?.value || "adaptive_starter"));
   loadCoworkSessions().catch((error) => setCoworkError(error.message || String(error)));
 }
 
@@ -2586,7 +2586,7 @@ function renderCoworkGraph(session) {
     const mailboxCount = session?.mailbox?.length || 0;
     const latestDecision = [...(session?.scheduler_decisions || [])].pop();
     elements.coworkGraphCaption.textContent = session
-      ? `${String(session.workflow_mode || "hybrid").replaceAll("_", " ")} - ${stats?.agents || Math.max(0, nodes.length - 1)} agents - ${mailboxCount} messages - ${spans} instructions${latestDecision?.reason ? ` - ${compactText(latestDecision.reason, 72)}` : ""}`
+      ? `${coworkArchitectureLabel(session.architecture || session.workflow_mode)} - ${stats?.agents || Math.max(0, nodes.length - 1)} agents - ${mailboxCount} messages - ${spans} instructions${latestDecision?.reason ? ` - ${compactText(latestDecision.reason, 72)}` : ""}`
       : "Start or select a session to see the agent field.";
   }
   renderCoworkFieldOverlay(session);
@@ -2910,7 +2910,7 @@ function renderCoworkSessions() {
       + (decision.fanout_blockers || []).length
       + (decision.disagreements || []).length;
     button.querySelector(".cowork-session-meta").textContent = [
-      session.workflow_mode || "hybrid",
+      coworkArchitectureLabel(session.architecture || session.workflow_mode),
       session.status || "active",
       usage.agent_calls !== undefined ? `calls ${usage.agent_calls}` : "",
       blockerCount ? `${blockerCount} blockers` : "",
@@ -3601,7 +3601,7 @@ function renderCoworkDetail() {
   const hasSession = Boolean(session);
   if (elements.coworkActiveStatus) {
     elements.coworkActiveStatus.textContent = hasSession
-      ? `${session.status} - ${String(session.workflow_mode || "hybrid").replaceAll("_", " ")} - ${session.rounds || 0} rounds`
+      ? `${session.status} - ${coworkArchitectureLabel(session.architecture || session.workflow_mode)} - ${session.rounds || 0} rounds`
       : "No session";
   }
   if (elements.coworkConsoleFilter && elements.coworkConsoleFilter.value !== (state.coworkConsoleFilter || "")) {
@@ -3684,7 +3684,7 @@ function renderCoworkInsights(session) {
   elements.coworkInsightPanel.hidden = !hasDecision;
   if (!hasDecision) return;
   if (elements.coworkInsightMode) {
-    elements.coworkInsightMode.textContent = String(session.workflow_mode || decision.workflow_mode || "hybrid").replaceAll("_", " ");
+    elements.coworkInsightMode.textContent = coworkArchitectureLabel(session.architecture || session.workflow_mode || decision.architecture || decision.workflow_mode);
   }
   if (elements.coworkInsightFocus) {
     elements.coworkInsightFocus.textContent = focusText ? compactText(focusText, 220) : "No active focus.";
@@ -3839,7 +3839,7 @@ function renderCoworkStatusFeed(session, threads = []) {
   const focusText = session.current_focus_task || decision.focus_task || "";
   const overview = coworkStatusFeedSection("Current state");
   overview.append(coworkStatusBubble({
-    title: String(session.workflow_mode || decision.workflow_mode || "hybrid").replaceAll("_", " "),
+    title: coworkArchitectureLabel(session.architecture || session.workflow_mode || decision.architecture || decision.workflow_mode),
     status: decision.next_action || session.status || "observe",
     body: compactText([focusText || "No active focus.", decision.reason || ""].filter(Boolean).join(" "), 260),
     meta: [
@@ -4365,7 +4365,29 @@ function scheduleCoworkRefresh(sessionId = "") {
   }, 250);
 }
 
+function coworkArchitectureValue(value = "") {
+  const architecture = String(value || "adaptive_starter");
+  return architecture === "hybrid" ? "adaptive_starter" : architecture;
+}
+
+function coworkArchitectureLabel(value = "") {
+  const architecture = coworkArchitectureValue(value);
+  const labels = {
+    adaptive_starter: "Adaptive Starter",
+    orchestrator: "Orchestrator",
+    supervisor: "Supervisor",
+    team: "Agent Team",
+    generator_verifier: "Generator-Verifier",
+    message_bus: "Message Bus",
+    shared_state: "Shared State",
+    peer_handoff: "Peer Handoff",
+    swarm: "Swarm",
+  };
+  return labels[architecture] || architecture.replaceAll("_", " ");
+}
+
 function setCoworkWorkflowMode(mode) {
+  mode = coworkArchitectureValue(mode);
   if (elements.coworkWorkflowMode) {
     elements.coworkWorkflowMode.value = mode;
   }
@@ -4449,7 +4471,8 @@ async function startCoworkSession() {
       body: JSON.stringify({
         goal,
         blueprint,
-        workflow_mode: elements.coworkWorkflowMode?.value || "hybrid",
+        architecture: coworkArchitectureValue(elements.coworkWorkflowMode?.value),
+        workflow_mode: coworkArchitectureValue(elements.coworkWorkflowMode?.value),
         auto_run: true,
         max_rounds: COWORK_DEFAULT_RUN_ROUNDS,
         max_agents: COWORK_DEFAULT_RUN_AGENTS,
@@ -9214,10 +9237,10 @@ function bindEvents() {
   elements.coworkModeTabs?.addEventListener("click", (event) => {
     const tab = event.target.closest?.(".cowork-mode-tab");
     if (!tab) return;
-    setCoworkWorkflowMode(tab.dataset.mode || "hybrid");
+    setCoworkWorkflowMode(tab.dataset.mode || "adaptive_starter");
   });
   window.addEventListener("resize", () => {
-    setCoworkWorkflowMode(elements.coworkWorkflowMode?.value || "hybrid");
+    setCoworkWorkflowMode(elements.coworkWorkflowMode?.value || "adaptive_starter");
   });
   elements.coworkGoalInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {

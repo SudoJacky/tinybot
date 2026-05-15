@@ -189,7 +189,23 @@ def test_create_session_accepts_new_cowork_modes_and_subscriptions(temp_workspac
 
     fallback = service.create_session("Unknown mode", "Unknown", [], [], workflow_mode="missing")
 
-    assert fallback.workflow_mode == "hybrid"
+    assert fallback.workflow_mode == "adaptive_starter"
+
+
+def test_canonical_architecture_names_and_legacy_alias_load(temp_workspace):
+    service = CoworkService(temp_workspace)
+    default_session = service.create_session("Clarify goal", "Default", [], [])
+    legacy_input = service.create_session("Legacy input", "Legacy", [], [], workflow_mode="hybrid")
+
+    assert default_session.workflow_mode == "adaptive_starter"
+    assert legacy_input.workflow_mode == "adaptive_starter"
+    assert service.workflow_profile("adaptive_starter") == "hybrid"
+    assert service.architecture_policy("hybrid").architecture == "adaptive_starter"
+    assert service.architecture_policy("swarm").architecture == "swarm"
+
+    reloaded = CoworkService(temp_workspace).get_session(legacy_input.id)
+    assert reloaded is not None
+    assert reloaded.workflow_mode == "adaptive_starter"
 
 
 def test_round_progress_tracks_convergence(temp_workspace):
@@ -240,6 +256,37 @@ def test_loads_minimal_legacy_store_payload(temp_workspace):
     assert session is not None
     assert session.agents["agent"].status == "idle"
     assert session.agents["agent"].current_task_title is None
+
+
+def test_loads_legacy_hybrid_store_as_adaptive_starter(temp_workspace):
+    store_dir = temp_workspace / "cowork"
+    store_dir.mkdir()
+    (store_dir / "store.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "sessions": [
+                    {
+                        "id": "cw_hybrid",
+                        "title": "Legacy Hybrid",
+                        "goal": "Keep old mode readable",
+                        "workflow_mode": "hybrid",
+                        "agents": {},
+                        "tasks": {},
+                        "threads": {},
+                        "messages": {},
+                        "events": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    session = CoworkService(temp_workspace).get_session("cw_hybrid")
+
+    assert session is not None
+    assert session.workflow_mode == "adaptive_starter"
 
 
 def test_default_team_fallback_and_ready_task_dependencies(temp_workspace):

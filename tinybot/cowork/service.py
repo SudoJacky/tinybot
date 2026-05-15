@@ -15,6 +15,12 @@ from typing import Any
 
 from loguru import logger
 
+from tinybot.cowork.architecture import (
+    ACCEPTED_ARCHITECTURE_VALUES,
+    ADAPTIVE_STARTER,
+    architecture_label,
+    normalize_architecture_name,
+)
 from tinybot.cowork.blueprint import (
     budget_remaining,
     default_budget_usage,
@@ -26,6 +32,7 @@ from tinybot.cowork.blueprint import (
     validate_blueprint,
 )
 from tinybot.cowork.event_log import CoworkEventLogStore
+from tinybot.cowork.policies import ArchitectureRuntimePolicy, default_policy_registry
 from tinybot.cowork.snapshot import build_cowork_artifact_index
 from tinybot.cowork.swarm import (
     build_swarm_scheduler_queues,
@@ -58,17 +65,7 @@ _MAX_MAILBOX_RECORDS = 300
 _CONVERGENCE_IDLE_ROUNDS = 2
 _DEFAULT_RUN_AGENT_CALLS = 30
 _SHARED_MEMORY_BUCKETS = ("findings", "claims", "risks", "open_questions", "decisions", "artifacts")
-_WORKFLOW_MODES = {
-    "hybrid",
-    "supervisor",
-    "orchestrator",
-    "team",
-    "generator_verifier",
-    "message_bus",
-    "shared_state",
-    "peer_handoff",
-    "swarm",
-}
+_WORKFLOW_MODES = ACCEPTED_ARCHITECTURE_VALUES
 
 
 class CoworkService:
@@ -81,6 +78,7 @@ class CoworkService:
         self._listeners: list[Callable[[CoworkSession, CoworkEvent], None]] = []
         self.traces = CoworkTraceRecorder(self._new_id)
         self.event_log = CoworkEventLogStore(self.cowork_dir)
+        self.policy_registry = default_policy_registry()
         self._mutation_lock = threading.RLock()
 
     @property
@@ -89,15 +87,19 @@ class CoworkService:
 
     @staticmethod
     def normalize_workflow_mode(value: Any) -> str:
-        mode = str(value or "hybrid").strip().lower().replace("-", "_")
-        return mode if mode in _WORKFLOW_MODES else "hybrid"
+        return normalize_architecture_name(value)
 
     @staticmethod
     def workflow_profile(value: Any) -> str:
         mode = CoworkService.normalize_workflow_mode(value)
         if mode in {"supervisor", "orchestrator"}:
             return "orchestrator"
-        return mode
+        if mode == "peer_handoff":
+            return "peer_handoff"
+        return default_policy_registry().resolve(mode).runtime_profile
+
+    def architecture_policy(self, value: Any) -> ArchitectureRuntimePolicy:
+        return self.policy_registry.resolve(self.normalize_workflow_mode(value))
 
     @staticmethod
     def _normalize_shared_memory(value: Any) -> dict[str, list[dict[str, Any]]]:
@@ -134,7 +136,7 @@ class CoworkService:
                     title=raw["title"],
                     goal=raw["goal"],
                     status=raw.get("status", "active"),
-                    workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", "hybrid")),
+                    workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", ADAPTIVE_STARTER)),
                     current_focus_task=raw.get("current_focus_task", ""),
                     workspace_dir=raw.get("workspace_dir", ""),
                     artifacts=raw.get("artifacts", []) if isinstance(raw.get("artifacts", []), list) else [],
@@ -359,7 +361,7 @@ class CoworkService:
             title=str(raw.get("title") or "Cowork Session"),
             goal=str(raw.get("goal") or ""),
             status=raw.get("status", "active"),
-            workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", "hybrid")),
+            workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", ADAPTIVE_STARTER)),
             current_focus_task=raw.get("current_focus_task", ""),
             workspace_dir=raw.get("workspace_dir", ""),
             artifacts=raw.get("artifacts", []) if isinstance(raw.get("artifacts", []), list) else [],
@@ -759,7 +761,7 @@ class CoworkService:
         agents: list[dict[str, Any]],
         tasks: list[dict[str, Any]],
         *,
-        workflow_mode: str = "hybrid",
+        workflow_mode: str = ADAPTIVE_STARTER,
         budgets: dict[str, Any] | None = None,
         blueprint: dict[str, Any] | None = None,
         blueprint_diagnostics: list[dict[str, Any]] | None = None,
@@ -767,6 +769,7 @@ class CoworkService:
         sessions = self._load()
         session_id = self._new_id("cw")
         mode = self.normalize_workflow_mode(workflow_mode)
+        policy = self.architecture_policy(mode)
         session = CoworkSession(id=session_id, title=title.strip() or "Cowork Session", goal=goal, workflow_mode=mode)  # type: ignore[arg-type]
         session.shared_memory = self._normalize_shared_memory(session.shared_memory)
         session.budget_limits = normalize_budget_limits(budgets)
@@ -875,7 +878,13 @@ class CoworkService:
             session,
             "session.created",
             f"Created cowork session '{session.title}'",
-            data={"goal": goal, "workflow_mode": session.workflow_mode, "focus_task": session.current_focus_task},
+            data={
+                "goal": goal,
+                "workflow_mode": session.workflow_mode,
+                "architecture": session.workflow_mode,
+                "architecture_policy": policy.__class__.__name__,
+                "focus_task": session.current_focus_task,
+            },
             save=False,
         )
         self.add_trace_event(
@@ -884,7 +893,13 @@ class CoworkService:
             name="Session created",
             actor_id="user",
             summary=f"Created cowork session '{session.title}'",
-            data={"goal": goal, "workflow_mode": session.workflow_mode, "focus_task": session.current_focus_task},
+            data={
+                "goal": goal,
+                "workflow_mode": session.workflow_mode,
+                "architecture": session.workflow_mode,
+                "architecture_policy": policy.__class__.__name__,
+                "focus_task": session.current_focus_task,
+            },
             save=False,
         )
         if session.swarm_plan:
@@ -3562,7 +3577,7 @@ class CoworkService:
         lines = [
             f"## {session.title} ({session.id})",
             f"Status: {session.status}",
-            f"Mode: {session.workflow_mode}",
+            f"Architecture: {session.workflow_mode} ({architecture_label(session.workflow_mode)})",
             f"Goal: {session.goal}",
             f"Focus: {session.current_focus_task or '-'}",
             f"Rounds: {session.rounds}",
@@ -3606,7 +3621,7 @@ class CoworkService:
         return "\n".join(lines)
 
     @staticmethod
-    def default_team(goal: str, *, workflow_mode: str = "hybrid") -> list[dict[str, Any]]:
+    def default_team(goal: str, *, workflow_mode: str = ADAPTIVE_STARTER) -> list[dict[str, Any]]:
         mode = CoworkService.normalize_workflow_mode(workflow_mode)
         lead = {
             "id": "coordinator",

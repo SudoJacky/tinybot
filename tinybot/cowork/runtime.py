@@ -44,10 +44,12 @@ class CoworkRuntime:
         max_agent_calls: int | None = None,
         run_until_idle: bool = False,
         blueprint: dict[str, Any] | None = None,
+        architecture: str = "",
     ) -> str:
         return await self.tool.execute(
             action="start",
             goal=goal,
+            workflow_mode=architecture,
             auto_run=auto_run,
             max_rounds=max_rounds,
             max_agents=max_agents,
