@@ -1,5 +1,7 @@
 from tinybot.cowork.policies import default_policy_registry
+from tinybot.cowork.policies.base import StepSelectionResult
 from tinybot.cowork.policies.adaptive_starter import AdaptiveStarterPolicy
+from tinybot.cowork.policies.swarm import SwarmPolicy
 from tinybot.cowork.service import CoworkService
 
 
@@ -21,10 +23,10 @@ def test_policy_capability_hooks_delegate_during_migration():
 
     assert policy.topology(None).status == "available"
     assert policy.initialize_branch(None).status == "delegated"
-    assert policy.select_step(None).status == "delegated"
+    assert policy.select_step(None).status == "available"
     assert policy.route_envelope(None, None).status == "delegated"
     assert policy.handle_delegation(None, {}).status == "allowed"
-    assert policy.evaluate_completion(None).status == "delegated"
+    assert policy.evaluate_completion(None).status == "continue"
     assert policy.build_projection(None).status == "available"
 
 
@@ -202,6 +204,42 @@ def test_swarm_policy_selects_steps_and_tracks_synthesis_gate(temp_workspace):
     decision = policy.evaluate_completion(session)
     assert decision.status == "continue"
     assert decision.payload["next_action"] == "run_reducer"
+
+
+def test_swarm_service_scheduler_uses_policy_step_selection(temp_workspace):
+    class UnitBFirstSwarmPolicy(SwarmPolicy):
+        def select_step(self, session, *, candidates=None):
+            queues = self.scheduler_queues(session)
+            selected = [item for item in queues["queues"]["ready"] if item["id"] == "unit_b"]
+            return StepSelectionResult(
+                status="available",
+                reason="test policy selects unit_b first",
+                payload={"selected_work_units": selected, "queues": queues},
+            )
+
+    service = CoworkService(temp_workspace)
+    service.policy_registry.register(UnitBFirstSwarmPolicy())
+    session = service.create_session(
+        "Policy-owned swarm scheduling",
+        "Swarm",
+        [
+            {"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead"},
+            {"id": "a", "name": "A", "role": "Worker", "goal": "A"},
+            {"id": "b", "name": "B", "role": "Worker", "goal": "B"},
+        ],
+        [
+            {"id": "unit_a", "title": "A", "description": "A", "assigned_agent_id": "a"},
+            {"id": "unit_b", "title": "B", "description": "B", "assigned_agent_id": "b"},
+        ],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 1},
+    )
+
+    selected = service.select_active_agents(session, limit=1)
+
+    assert [agent.id for agent in selected] == ["b"]
+    assert session.swarm_plan["work_units"][0]["status"] == "ready"
+    assert session.swarm_plan["work_units"][1]["status"] == "in_progress"
 
 
 def test_adaptive_starter_policy_recommends_derivation_target(temp_workspace):

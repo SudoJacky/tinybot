@@ -18,6 +18,16 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
     display_name = "Swarm"
     runtime_profile = "swarm"
 
+    def scheduler_queues(self, session: Any) -> dict[str, Any]:
+        return build_swarm_scheduler_queues(session)
+
+    def reducer_should_run(self, session: Any) -> bool:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        if not plan or plan.get("status") in {"completed", "failed", "cancelled", "blocked"}:
+            return False
+        decision = self.evaluate_completion(session)
+        return decision.payload.get("next_action") == "synthesize_swarm"
+
     def topology(self, session: Any, *, branch_id: str = "default") -> TopologyResult:
         result = super().topology(session, branch_id=branch_id)
         payload = dict(result.payload)
@@ -48,7 +58,7 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
             "plan_id": plan.get("id", ""),
             "strategy": plan.get("strategy", ""),
             "work_unit_count": len(work_units),
-            "queue_counts": (build_swarm_scheduler_queues(session).get("counts") or {}) if plan else {},
+            "queue_counts": (self.scheduler_queues(session).get("counts") or {}) if plan else {},
         }
         return TopologyResult(status=result.status, reason=result.reason, payload=payload)
 
@@ -56,7 +66,7 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
         result = super().build_projection(session, branch_id=branch_id)
         payload = dict(result.payload)
         plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
-        queues = build_swarm_scheduler_queues(session) if plan else {}
+        queues = self.scheduler_queues(session) if plan else {}
         completion = self.evaluate_completion(session)
         payload["sections"] = [
             {
@@ -104,7 +114,7 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
         return ProjectionResult(status=result.status, reason=result.reason, payload=payload)
 
     def select_step(self, session: Any, *, candidates: list[Any] | None = None) -> StepSelectionResult:
-        queues = build_swarm_scheduler_queues(session)
+        queues = self.scheduler_queues(session)
         ready = queues.get("queues", {}).get("ready", []) if queues else []
         failed_retry = queues.get("queues", {}).get("failed_retry", []) if queues else []
         selected = (ready or failed_retry)[: max(1, int(queues.get("available_slots", 1) or 1))]
@@ -155,6 +165,7 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
         blocked_units = [unit for unit in units if unit.get("status") in {"failed", "blocked", "needs_revision"}]
         pending_main = [unit for unit in main_units if unit.get("status") not in {"completed", "skipped", "cancelled"}]
         review_required = bool((plan.get("review") if isinstance(plan.get("review"), dict) else {}).get("required"))
+        evaluation_blockers = self._blocking_evaluations(session)
         if plan.get("status") == "blocked" or blocked_units:
             status = "blocked"
             next_action = "resolve_swarm_blocker"
@@ -179,6 +190,10 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
             status = "continue"
             next_action = "run_reviewer"
             reason = "Review gate is pending."
+        elif evaluation_blockers:
+            status = "blocked"
+            next_action = "resolve_evaluation_blockers"
+            reason = f"{len(evaluation_blockers)} swarm evaluation(s) block completion."
         else:
             status = "complete"
             next_action = "complete"
@@ -195,5 +210,16 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
                 "source_work_unit_ids": [unit.get("id") for unit in main_units],
                 "requires_synthesis": not reducer_units,
                 "review_required": review_required,
+                "evaluations": self._evaluations(session),
             },
         )
+
+    @staticmethod
+    def _evaluations(session: Any) -> list[dict[str, Any]]:
+        runtime_state = getattr(session, "runtime_state", {}) if isinstance(getattr(session, "runtime_state", {}), dict) else {}
+        evaluations = runtime_state.get("swarm_evaluations")
+        return [item for item in evaluations if isinstance(item, dict)] if isinstance(evaluations, list) else []
+
+    @classmethod
+    def _blocking_evaluations(cls, session: Any) -> list[dict[str, Any]]:
+        return [item for item in cls._evaluations(session) if item.get("status") in {"block", "error"}]

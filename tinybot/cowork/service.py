@@ -1053,6 +1053,10 @@ class CoworkService:
         }
 
     def swarm_scheduler_queues(self, session: CoworkSession) -> dict[str, Any]:
+        policy = self.architecture_policy(session.workflow_mode)
+        scheduler_queues = getattr(policy, "scheduler_queues", None)
+        if callable(scheduler_queues):
+            return scheduler_queues(session)
         return build_swarm_scheduler_queues(session)
 
     def set_session_budgets(self, session: CoworkSession, budgets: dict[str, Any], *, save: bool = True) -> dict[str, Any]:
@@ -3764,7 +3768,8 @@ class CoworkService:
                     self.start_work_unit(session, str(unit.get("id")), reducer_task.assigned_agent_id or self.lead_agent_id(session), save=False)
                 return [session.agents[reducer_task.assigned_agent_id or self.lead_agent_id(session)]]
 
-        queues = self.swarm_scheduler_queues(session)
+        selection = self.architecture_policy(session.workflow_mode).select_step(session)
+        queues = selection.payload.get("queues") if isinstance(selection.payload.get("queues"), dict) else self.swarm_scheduler_queues(session)
         session.runtime_state["swarm_queues"] = queues
         running_signatures = {
             self._swarm_unit_signature(unit)
@@ -3773,11 +3778,18 @@ class CoworkService:
         }
         selected: list[CoworkAgent] = []
         selected_ids: set[str] = set()
+        selected_work_units = selection.payload.get("selected_work_units")
         queued_unit_ids = [
             str(item.get("id"))
-            for item in [*queues.get("queues", {}).get("ready", []), *queues.get("queues", {}).get("failed_retry", [])]
-            if item.get("id")
+            for item in (selected_work_units if isinstance(selected_work_units, list) else [])
+            if isinstance(item, dict) and item.get("id")
         ]
+        if not queued_unit_ids:
+            queued_unit_ids = [
+                str(item.get("id"))
+                for item in [*queues.get("queues", {}).get("ready", []), *queues.get("queues", {}).get("failed_retry", [])]
+                if item.get("id")
+            ]
         units_by_id = {str(unit.get("id")): unit for unit in self._swarm_work_units(session) if isinstance(unit, dict)}
         for unit_id in queued_unit_ids:
             unit = units_by_id.get(unit_id)
@@ -3817,8 +3829,13 @@ class CoworkService:
         return None
 
     def swarm_reducer_should_run(self, session: CoworkSession) -> bool:
+        if session.workflow_mode != "swarm":
+            return False
+        reducer_should_run = getattr(self.architecture_policy(session.workflow_mode), "reducer_should_run", None)
+        if callable(reducer_should_run):
+            return bool(reducer_should_run(session))
         plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
-        if session.workflow_mode != "swarm" or not plan or plan.get("status") in {"completed", "failed", "cancelled", "blocked"}:
+        if not plan or plan.get("status") in {"completed", "failed", "cancelled", "blocked"}:
             return False
         base_units = [
             unit
@@ -4827,10 +4844,15 @@ class CoworkService:
         return review_task
 
     def format_status(self, session: CoworkSession, *, verbose: bool = False) -> str:
+        branch_id = getattr(session, "current_branch_id", "default") or "default"
+        branches = getattr(session, "branches", {}) if isinstance(getattr(session, "branches", {}), dict) else {}
+        branch = branches.get(branch_id)
+        architecture = getattr(branch, "architecture", getattr(session, "workflow_mode", "adaptive_starter"))
         lines = [
             f"## {session.title} ({session.id})",
             f"Status: {session.status}",
-            f"Architecture: {session.workflow_mode} ({architecture_label(session.workflow_mode)})",
+            f"Architecture: {architecture} ({architecture_label(architecture)})",
+            f"Current branch: {branch_id} [{getattr(branch, 'status', '-') if branch else '-'}]",
             f"Goal: {session.goal}",
             f"Focus: {session.current_focus_task or '-'}",
             f"Rounds: {session.rounds}",
@@ -4860,6 +4882,13 @@ class CoworkService:
             lines.append("### Recent Events")
             for event in session.events[-10:]:
                 lines.append(f"- [{event.created_at}] {event.type}: {event.message}")
+        if verbose and branches:
+            lines.append("")
+            lines.append("### Branches")
+            for item in branches.values():
+                source = f", source={item.source_branch_id}" if item.source_branch_id else ""
+                result = ", result=yes" if item.branch_result else ""
+                lines.append(f"- {item.id}: {item.architecture} [{item.status}]{source}{result}")
         decision = session.completion_decision or self.assess_session(session, save=False)
         if verbose and decision:
             lines.append("")
@@ -5045,25 +5074,36 @@ class CoworkService:
                 }
                 return
             if session.workflow_mode == "swarm":
+                swarm_policy = self.architecture_policy(session.workflow_mode)
+                policy_decision = swarm_policy.evaluate_completion(session)
                 plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
-                if plan.get("status") == "blocked":
+                if policy_decision.status == "blocked" and policy_decision.payload.get("next_action") == "resolve_swarm_blocker":
                     session.status = "active"
                     session.completion_decision = {
                         "next_action": "resolve_swarm_blocker",
-                        "reason": "The swarm plan is blocked and needs user intervention or an allowed alternative.",
-                        "blocked": [{"id": "swarm_plan", "request_type": getattr(session, "stop_reason", "") or "blocked", "content": "Swarm plan is blocked."}],
+                        "reason": policy_decision.reason
+                        or "The swarm plan is blocked and needs user intervention or an allowed alternative.",
+                        "blocked": [
+                            {"id": "swarm_plan", "request_type": getattr(session, "stop_reason", "") or "blocked", "content": "Swarm plan is blocked."}
+                        ],
                         "ready_to_finish": False,
                         "swarm_plan": plan,
+                        "policy_completion": policy_decision.payload,
                         "updated_at": now_iso(),
                     }
                     return
                 evaluations = self.evaluate_swarm_completion(session, save=False)
-                blocking_evaluations = [item for item in evaluations if item.get("status") in {"block", "error"}]
-                if blocking_evaluations:
+                policy_decision = swarm_policy.evaluate_completion(session)
+                blocking_evaluations = [
+                    item
+                    for item in policy_decision.payload.get("evaluations", evaluations)
+                    if isinstance(item, dict) and item.get("status") in {"block", "error"}
+                ]
+                if policy_decision.status == "blocked" and policy_decision.payload.get("next_action") == "resolve_evaluation_blockers":
                     session.status = "active"
                     session.completion_decision = {
                         "next_action": "resolve_evaluation_blockers",
-                        "reason": f"{len(blocking_evaluations)} swarm evaluation(s) block completion.",
+                        "reason": policy_decision.reason or f"{len(blocking_evaluations)} swarm evaluation(s) block completion.",
                         "blocked": [
                             {
                                 "id": item.get("id"),
@@ -5074,6 +5114,7 @@ class CoworkService:
                         ],
                         "ready_to_finish": False,
                         "evaluations": evaluations,
+                        "policy_completion": policy_decision.payload,
                         "updated_at": now_iso(),
                     }
                     return

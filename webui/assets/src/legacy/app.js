@@ -1775,6 +1775,10 @@ function coworkSafeSession(session) {
     events: coworkArray(session.events),
     trace: coworkArray(session.trace),
     trace_spans: coworkArray(session.trace_spans),
+    agent_steps: coworkArray(session.agent_steps),
+    observation_details: session.observation_details || {},
+    branch_results: coworkArray(session.branch_results),
+    session_final_result: session.session_final_result || {},
     artifact_index: coworkArray(session.artifact_index),
     artifacts: coworkArray(session.artifacts),
     scheduler_decisions: coworkArray(session.scheduler_decisions),
@@ -1907,6 +1911,8 @@ function coworkTraceItems(session) {
 function coworkTraceViewModel(session) {
   const filter = state.coworkTraceFilter || "all";
   const mode = state.coworkTraceMode || "key";
+  const safe = coworkSafeSession(session);
+  const stepsById = new Map((safe?.agent_steps || []).map((step) => [step.id, step]));
   const items = coworkTraceItems(session)
     .filter((trace) => {
       const stage = coworkTraceStage(trace);
@@ -1914,17 +1920,23 @@ function coworkTraceViewModel(session) {
       const stageMatch = filter === "all" || stage === filter || (filter === "error" && ["failed", "error", "blocked"].includes(status));
       return stageMatch && coworkMatchesConsoleFilter(trace, ["action", "detail", "message", "actor_id", "actor_name", "type"]);
     })
-    .map((trace, index) => ({
-      id: trace.id || `${trace.type || "trace"}:${trace.at || index}:${index}`,
-      action: coworkTraceAction(trace),
-      detail: String(trace.detail || trace.summary || trace.message || "").trim(),
-      target: coworkTraceTarget(trace),
-      stage: coworkTraceStage(trace),
-      status: coworkStatusTone(trace.status || trace.type),
-      at: trace.at || trace.created_at || trace.started_at || "",
-      payloadText: coworkPayloadText(trace.payload || trace.data || {}),
-      raw: trace,
-    }));
+    .map((trace, index) => {
+      const id = trace.id || `${trace.type || "trace"}:${trace.at || index}:${index}`;
+      const agentStep = stepsById.get(id) || stepsById.get(trace.payload?.step_id || "");
+      return {
+        id,
+        action: coworkTraceAction(trace),
+        detail: String(trace.detail || trace.summary || trace.message || "").trim(),
+        target: coworkTraceTarget(trace),
+        stage: coworkTraceStage(trace),
+        status: coworkStatusTone(trace.status || trace.type),
+        at: trace.at || trace.created_at || trace.started_at || "",
+        payloadText: coworkPayloadText(trace.payload || trace.data || {}),
+        observations: coworkTraceObservations(agentStep),
+        stepDetailRef: agentStep?.detail_ref || agentStep?.summary?.detail_ref || "",
+        raw: trace,
+      };
+    });
   const groups = [];
   for (const item of items) {
     const actor = coworkTraceActor(item.raw);
@@ -1936,6 +1948,146 @@ function coworkTraceViewModel(session) {
     groups.push({ ...actor, steps: [item] });
   }
   return { mode, filter, items, groups };
+}
+
+function coworkTraceObservations(step) {
+  if (!step) return [];
+  const tools = coworkArray(step.tool_observations).map((observation) => ({
+    ...observation,
+    observation_kind: "tool",
+  }));
+  const browser = coworkArray(step.browser_observations).map((observation) => ({
+    ...observation,
+    observation_kind: "browser",
+  }));
+  return [...tools, ...browser];
+}
+
+function coworkObservationTitle(observation) {
+  if (observation.observation_kind === "tool") {
+    return observation.tool_name || observation.purpose || observation.id || "Tool observation";
+  }
+  return observation.title || observation.resource_ref || observation.purpose || observation.id || "Browser observation";
+}
+
+function coworkObservationSummary(observation) {
+  const parts = [
+    observation.purpose,
+    observation.result_summary,
+    observation.resource_ref,
+    observation.duration_ms !== null && observation.duration_ms !== undefined ? `${observation.duration_ms}ms` : "",
+    observation.redacted ? "redacted" : "",
+    observation.sensitive ? "sensitive" : "",
+  ].filter(Boolean);
+  return compactText(parts.join(" - "), 220);
+}
+
+function renderCoworkObservationContent(detail, target) {
+  target.textContent = "";
+  const stateText = detail?.state || "unavailable";
+  const summary = detail?.summary || detail?.unavailable_reason || "";
+  const meta = document.createElement("small");
+  meta.textContent = [
+    stateText,
+    detail?.content_type || "",
+    detail?.redacted ? "redacted" : "",
+    detail?.sensitivity || "",
+  ].filter(Boolean).join(" - ");
+  target.append(meta);
+  if (summary) {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = compactText(summary, 320);
+    target.append(paragraph);
+  }
+  const content = detail?.content || "";
+  if (content) {
+    const pre = document.createElement("pre");
+    pre.className = "cowork-trace-json-block";
+    pre.textContent = content;
+    target.append(pre);
+  } else if (detail?.unavailable_reason) {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = detail.unavailable_reason;
+    target.append(paragraph);
+  }
+}
+
+async function loadCoworkObservationDetail(detailRef, target, button) {
+  if (!state.activeCoworkSessionId || !detailRef) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Loading";
+  }
+  try {
+    const response = await fetch(
+      `${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/observations/${encodeURIComponent(detailRef)}`,
+      { headers: authHeaders() },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok && response.status !== 403) {
+      throw new Error(payload.error || "Failed to load observation detail");
+    }
+    renderCoworkObservationContent(payload.detail || {}, target);
+    if (button) button.textContent = "Loaded";
+  } catch (error) {
+    target.textContent = error.message || String(error);
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Retry detail";
+    }
+  }
+}
+
+function renderCoworkTraceObservations(observations) {
+  if (!observations.length) return null;
+  const panel = document.createElement("div");
+  panel.className = "cowork-observation-list";
+  const heading = document.createElement("strong");
+  heading.textContent = `Observations (${observations.length})`;
+  panel.append(heading);
+  for (const observation of observations) {
+    const details = document.createElement("details");
+    details.className = "cowork-observation-item";
+    details.addEventListener("click", (event) => event.stopPropagation());
+    const summary = document.createElement("summary");
+    const title = document.createElement("span");
+    const status = document.createElement("span");
+    title.textContent = coworkObservationTitle(observation);
+    status.className = coworkStatusClass(observation.status || observation.observation_kind || "active");
+    status.textContent = observation.observation_kind === "tool" ? "Tool" : "Browser";
+    summary.append(title, status);
+    const body = document.createElement("div");
+    body.className = "cowork-observation-body";
+    const text = document.createElement("p");
+    text.textContent = coworkObservationSummary(observation) || "No summary.";
+    body.append(text);
+    if (observation.observation_kind === "tool" && observation.parameter_summary && Object.keys(observation.parameter_summary).length) {
+      const pre = document.createElement("pre");
+      pre.className = "cowork-trace-json-block";
+      pre.textContent = coworkPayloadText(observation.parameter_summary, 700);
+      body.append(pre);
+    }
+    if (observation.detail_ref) {
+      const actions = document.createElement("div");
+      actions.className = "cowork-card-actions";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "button button-small";
+      button.textContent = "Load detail";
+      const target = document.createElement("div");
+      target.className = "cowork-observation-detail";
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        loadCoworkObservationDetail(observation.detail_ref, target, button);
+      });
+      actions.append(button);
+      body.append(actions, target);
+    }
+    details.append(summary, body);
+    panel.append(details);
+  }
+  return panel;
 }
 
 function coworkConversationViewModel(session) {
@@ -2942,6 +3094,192 @@ function renderCoworkSessions() {
   }
 }
 
+function renderCoworkBranches(session) {
+  const list = elements.coworkBranchList;
+  if (!list) return;
+  list.textContent = "";
+  const branches = Array.isArray(session?.branches) ? session.branches : [];
+  list.hidden = !session || !branches.length;
+  if (!session || !branches.length) return;
+  const currentBranchId = session.current_branch_id || session.current_branch?.id || "default";
+  for (const branch of branches) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "cowork-branch-chip";
+    const active = branch.id === currentBranchId || branch.current === true;
+    button.classList.toggle("active", active);
+    button.disabled = active || Boolean(state.coworkPendingAction);
+    button.innerHTML = `
+      <strong></strong>
+      <span></span>
+    `;
+    const title = branch.title || branch.id || "branch";
+    button.querySelector("strong").textContent = `${title}${branch.source_branch_id ? " (derived)" : ""}`;
+    button.querySelector("span").textContent = [
+      coworkArchitectureLabel(branch.architecture || session.architecture || session.workflow_mode),
+      branch.status || "active",
+      branch.source_branch_id ? `from ${branch.source_branch_id}` : "",
+    ].filter(Boolean).join(" - ");
+    button.addEventListener("click", () => selectCoworkBranch(branch.id));
+    list.append(button);
+  }
+}
+
+function coworkBranchResults(session) {
+  const byId = new Map();
+  for (const result of coworkArray(session?.branch_results)) {
+    if (result?.id) byId.set(result.id, result);
+  }
+  for (const branch of coworkArray(session?.branches)) {
+    const result = branch?.branch_result;
+    if (result?.id && !byId.has(result.id)) byId.set(result.id, result);
+  }
+  return [...byId.values()].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+}
+
+function renderCoworkBranchResults(session) {
+  const list = elements.coworkBranchResultList;
+  if (!list) return;
+  list.textContent = "";
+  const results = coworkBranchResults(session);
+  const finalResult = session?.session_final_result || {};
+  if (elements.coworkBranchResultSummary) {
+    elements.coworkBranchResultSummary.textContent = finalResult.id
+      ? `${results.length} result(s) / final ${finalResult.source || "selected"}`
+      : (results.length ? `${results.length} result(s)` : "No results");
+  }
+  if (elements.coworkBranchMergeButton) {
+    elements.coworkBranchMergeButton.disabled = results.length < 2 || Boolean(state.coworkPendingAction);
+  }
+  if (!results.length) {
+    list.append(coworkEmpty("No completed branch results yet."));
+    return;
+  }
+  const branches = new Map(coworkArray(session?.branches).map((branch) => [branch.id, branch]));
+  for (const result of results.slice().reverse()) {
+    const branch = branches.get(result.source_branch_id) || {};
+    const selected = finalResult.selected_result_id === result.id || coworkArray(finalResult.source_result_ids).includes(result.id);
+    const item = document.createElement("article");
+    item.className = "cowork-card cowork-observable-card cowork-branch-result-card";
+    item.innerHTML = `
+      <div class="cowork-card-row">
+        <label class="cowork-branch-result-choice">
+          <input type="checkbox" checked />
+          <strong></strong>
+        </label>
+        <span></span>
+      </div>
+      <p></p>
+      <small></small>
+      <div class="cowork-card-actions"></div>
+    `;
+    const checkbox = item.querySelector("input");
+    checkbox.value = result.source_branch_id || "";
+    checkbox.disabled = Boolean(state.coworkPendingAction);
+    item.querySelector("strong").textContent = branch.title || result.source_branch_id || result.id;
+    item.querySelector("span").className = coworkStatusClass(selected ? "completed" : "active");
+    item.querySelector("span").textContent = selected ? "Final" : coworkArchitectureLabel(result.source_architecture || branch.architecture);
+    item.querySelector("p").textContent = compactText(result.summary || "", 260);
+    item.querySelector("small").textContent = [
+      result.source_branch_id ? `Branch ${result.source_branch_id}` : "",
+      result.confidence !== null && result.confidence !== undefined ? `Confidence ${Math.round(Number(result.confidence) * 100)}%` : "",
+      result.artifacts?.length ? `${result.artifacts.length} artifact(s)` : "",
+      result.created_at || "",
+    ].filter(Boolean).join(" - ");
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "button button-small";
+    select.textContent = selected ? "Selected" : "Select final";
+    select.disabled = selected || Boolean(state.coworkPendingAction);
+    select.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectCoworkBranchResult(result.source_branch_id, result.id).catch((error) => setCoworkError(error.message || String(error)));
+    });
+    item.querySelector(".cowork-card-actions").append(select);
+    list.append(item);
+  }
+}
+
+async function selectCoworkBranch(branchId) {
+  if (!state.activeCoworkSessionId || !branchId || state.coworkPendingAction) return;
+  state.coworkPendingAction = "select_branch";
+  setCoworkError("");
+  renderCoworkDetail();
+  try {
+    const response = await fetch(`${state.coworkApiPath}/sessions/${state.activeCoworkSessionId}/branches/${encodeURIComponent(branchId)}/select`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `select branch failed: ${response.status}`);
+    }
+    state.activeCoworkSession = coworkSafeSession(payload.session);
+    state.activeCoworkSessionId = state.activeCoworkSession?.id || state.activeCoworkSessionId;
+    renderCoworkDetail();
+    await loadCoworkSessions();
+  } catch (error) {
+    setCoworkError(error.message || String(error));
+  } finally {
+    state.coworkPendingAction = "";
+    renderCoworkDetail();
+  }
+}
+
+async function selectCoworkBranchResult(branchId, resultId) {
+  if (!state.activeCoworkSessionId || !branchId || state.coworkPendingAction) return;
+  state.coworkPendingAction = "select_branch_result";
+  setCoworkError("");
+  renderCoworkDetail();
+  try {
+    const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/branches/${encodeURIComponent(branchId)}/result/select-final`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ result_id: resultId }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `select result failed: ${response.status}`);
+    }
+    state.activeCoworkSession = coworkSafeSession(payload.session);
+    renderCoworkDetail();
+    await loadCoworkSessions();
+  } finally {
+    state.coworkPendingAction = "";
+    renderCoworkDetail();
+  }
+}
+
+async function mergeCoworkBranchResults() {
+  if (!state.activeCoworkSessionId || state.coworkPendingAction) return;
+  const checked = [...(elements.coworkBranchResultList?.querySelectorAll("input[type='checkbox']:checked") || [])];
+  const branchIds = checked.map((input) => input.value).filter(Boolean);
+  if (branchIds.length < 2) {
+    setCoworkError("Select at least two branch results to merge.");
+    return;
+  }
+  state.coworkPendingAction = "merge_branch_results";
+  setCoworkError("");
+  renderCoworkDetail();
+  try {
+    const response = await fetch(`${state.coworkApiPath}/sessions/${encodeURIComponent(state.activeCoworkSessionId)}/branch-results/merge`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ branch_ids: branchIds }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `merge results failed: ${response.status}`);
+    }
+    state.activeCoworkSession = coworkSafeSession(payload.session);
+    renderCoworkDetail();
+    await loadCoworkSessions();
+  } finally {
+    state.coworkPendingAction = "";
+    renderCoworkDetail();
+  }
+}
+
 function coworkSelectionId(type, item) {
   if (!item) return "";
   if (type === "task") return item.entity_id || item.id || "";
@@ -3039,6 +3377,45 @@ function renderCoworkRunMetrics(session) {
     elements.coworkSchedulerSummary.textContent = decision
       ? compactText(`${decision.reason || "Scheduler decision"}${selected}`, 96)
       : "No decisions";
+  }
+}
+
+function renderCoworkArchitectureProjection(session) {
+  const list = elements.coworkArchitectureProjectionList;
+  if (!list) return;
+  list.textContent = "";
+  const projection = session?.organization_projection || {};
+  const sections = Array.isArray(projection.sections) ? projection.sections : [];
+  if (elements.coworkArchitectureProjectionSummary) {
+    elements.coworkArchitectureProjectionSummary.textContent = projection.architecture
+      ? `${coworkArchitectureLabel(projection.architecture)} / ${sections.length} section(s)`
+      : "No projection";
+  }
+  if (!sections.length) {
+    list.append(coworkEmpty("No architecture projection for this session."));
+    return;
+  }
+  for (const section of sections) {
+    const items = Array.isArray(section.items) ? section.items : [];
+    const card = document.createElement("article");
+    card.className = "cowork-card cowork-observable-card";
+    card.innerHTML = `
+      <div class="cowork-card-row">
+        <strong></strong>
+        <span></span>
+      </div>
+      <p></p>
+      <small></small>
+    `;
+    card.querySelector("strong").textContent = section.title || section.id || "Projection";
+    card.querySelector("span").className = coworkStatusClass(items.length ? "active" : "pending");
+    card.querySelector("span").textContent = `${items.length} item(s)`;
+    card.querySelector("p").textContent = compactText(JSON.stringify(items.slice(0, 3), null, 2), 240);
+    card.querySelector("small").textContent = [
+      section.id || "",
+      coworkArchitectureLabel(projection.architecture || session?.architecture || session?.workflow_mode),
+    ].filter(Boolean).join(" - ");
+    list.append(card);
   }
 }
 
@@ -3388,6 +3765,10 @@ function renderCoworkTraceSpans(session) {
         details.append(summary, pre);
         item.append(details);
       }
+      const observations = renderCoworkTraceObservations(step.observations || []);
+      if (observations) {
+        item.append(observations);
+      }
       list.append(item);
     }
     list.scrollTop = list.scrollHeight;
@@ -3434,6 +3815,10 @@ function renderCoworkTraceSpans(session) {
         pre.className = "cowork-trace-json-block";
         pre.textContent = step.payloadText;
         row.querySelector(".cowork-trace-step-body").append(pre);
+      }
+      const observations = renderCoworkTraceObservations(step.observations || []);
+      if (observations) {
+        row.querySelector(".cowork-trace-step-body").append(observations);
       }
       flow.append(row);
     }
@@ -3488,11 +3873,13 @@ function renderCoworkArtifacts(session) {
 
 function renderCoworkObservability(session) {
   renderCoworkRunMetrics(session);
+  renderCoworkArchitectureProjection(session);
   renderCoworkSwarmPlan(session);
   renderCoworkWorkUnits(session);
   renderCoworkTaskDag(session);
   renderCoworkTraceSpans(session);
   renderCoworkArtifacts(session);
+  renderCoworkBranchResults(session);
   renderCoworkBlockers(session);
   renderCoworkEvaluations(session);
   renderCoworkSecondaryPanels();
@@ -3614,6 +4001,7 @@ function renderCoworkDetail() {
     elements.coworkActiveGoal.textContent = hasSession ? session.goal : "";
     elements.coworkActiveGoal.hidden = !hasSession || !session.goal;
   }
+  renderCoworkBranches(session);
   if (elements.coworkComposerKicker) {
     elements.coworkComposerKicker.textContent = hasSession ? "Message" : "New mission";
   }
@@ -9273,6 +9661,9 @@ function bindEvents() {
     if (!button) return;
     state.coworkTraceMode = button.dataset.mode || "key";
     renderCoworkTraceSpans(state.activeCoworkSession);
+  });
+  elements.coworkBranchMergeButton?.addEventListener("click", () => {
+    mergeCoworkBranchResults().catch((error) => setCoworkError(error.message || String(error)));
   });
   elements.coworkSecondaryTabs?.addEventListener("click", (event) => {
     const button = event.target.closest?.("[data-tab]");

@@ -12,19 +12,22 @@ Cowork is a persistent multi-agent workspace for goals that benefit from several
 - Agent-to-agent messages through the internal cowork tool
 - Readiness scoring for smarter scheduling
 - Structured task results, shared memory, blocker snapshots, and final drafts
-- Composable workflow modes for orchestrator, long-lived teams, generator-verifier review, message bus routing, and shared-state collaboration
+- Architecture runtime policies for Adaptive Starter, Agent Team, Generator-Verifier, Message Bus, Shared State, and Swarm
+- Cowork branches for architecture derivation, branch-local continuation, branch results, and explicit session final-result selection or merge
+- Agent Steps with default summaries, tool observations, browser observations, full-detail expansion, and sensitivity/redaction states
 - Versioned graph and trace projections for agents, tasks, mailbox envelopes, artifacts, memory, decisions, budgets, and scheduler causality
+- Architecture-specific organization projections inside one shared Cowork UI shell
 - Reusable Cowork blueprints for graph-oriented team setup, validation, preview, launch, and export
 - Session budgets for rounds, parallel width, agent calls, spawned agents, tool calls, tokens, cost hints, and explicit stop reasons
 
-## Four-Phase Swarm Model
+## Runtime Model
 
-Cowork now follows a four-phase model:
+Cowork follows a shared-session runtime model:
 
-1. Observability: every session can be projected as a versioned graph plus timeline trace.
-2. Blueprint: a structured graph-like blueprint can define agents, tasks, dependencies, routes, budgets, review gates, merge rules, and UI layout.
-3. Runtime: scheduling is budget-aware and can support bounded specialist/subteam creation, retirement, fanout merge, review gates, and stale blocker escalation.
-4. Control plane: the API, CLI, and WebUI all consume the same session snapshot, graph, trace, budget, blueprint, and blocker contracts.
+1. Cowork Session: one persistent collaboration container shared by every architecture.
+2. Architecture Runtime Policy: the architecture-specific owner of topology, scheduling, routing, delegation, completion, and projection semantics.
+3. Cowork Branch: an independent continuation inside the same session, optionally derived from a source branch with an organized Stage Record.
+4. Control plane: the API, CLI, and WebUI consume the same session snapshot, branches, graph, trace, budget, blueprint, Agent Steps, and blocker contracts.
 
 ## Basic Use
 
@@ -58,6 +61,7 @@ Cowork also has its own command group, so it can be used without entering the no
 
 ```bash
 uv run tinybot cowork start "Plan a seven-day family trip to Japan" --run --rounds 2
+uv run tinybot cowork start "Compare release plans" --architecture generator_verifier --run
 uv run tinybot cowork list
 uv run tinybot cowork status cw_xxxxxxxx --verbose
 uv run tinybot cowork run cw_xxxxxxxx --rounds 3
@@ -68,6 +72,8 @@ uv run tinybot cowork summary cw_xxxxxxxx
 ```
 
 This path constructs a standalone Cowork runtime instead of a full chat `AgentLoop`.
+
+Use `--architecture` for new CLI commands. The older `--mode` option is accepted as a compatibility alias, and legacy `hybrid` input normalizes to `adaptive_starter`.
 
 Blueprint commands:
 
@@ -166,6 +172,12 @@ GET  /api/cowork/sessions/{id}/graph
 GET  /api/cowork/sessions/{id}/trace
 GET  /api/cowork/sessions/{id}/blueprint
 POST /api/cowork/sessions/{id}/run     # accepts max_rounds, max_agents, max_agent_calls, run_until_idle, stop_on_blocker
+GET  /api/cowork/sessions/{id}/branches
+POST /api/cowork/sessions/{id}/branches/{branch_id}/select
+POST /api/cowork/sessions/{id}/branches/{branch_id}/derive
+POST /api/cowork/sessions/{id}/branches/{branch_id}/result/select-final
+POST /api/cowork/sessions/{id}/branch-results/merge
+GET  /api/cowork/sessions/{id}/observations/{detail_id}
 ```
 
 Send a message to agents:
@@ -207,17 +219,18 @@ Cowork follows the same basic shape as an agent team:
 - The user can still monitor all mailbox messages, events, tasks, and agent status through the Cowork UI/API.
 - When an agent answers another agent's reply-required request, the answer is routed back to the requester and marks the mailbox record as replied.
 
-## Workflow Modes
+## Architectures
 
-Cowork uses one persistent runtime with mode-specific coordination policies instead of five separate systems. Existing `hybrid`, `supervisor`, and `peer_handoff` values remain supported.
+Cowork uses one persistent session model with architecture runtime policies instead of separate systems. New sessions, blueprints, API responses, CLI output, and WebUI labels use canonical architecture names.
 
-- `orchestrator` / `supervisor`: lead-first planning, bounded delegation, and final synthesis. The scheduler runs one ready agent per round.
-- `team`: long-lived agents keep private summaries and own domain work across rounds.
-- `generator_verifier`: producers create answers or artifacts, then reviewer agents receive explicit rubric-based verification tasks.
-- `message_bus`: mailbox records act as event envelopes with `topic`, `event_type`, `lineage_id`, and `caused_by_envelope_id`; agents can subscribe to topics.
-- `shared_state`: agents contribute durable findings, claims, risks, open questions, decisions, and artifacts to structured shared memory.
-- `peer_handoff`: ownership moves one concrete step at a time through handoff or review tasks.
-- `hybrid`: the default mix, using the lightest mechanism that fits the current goal.
+- `adaptive_starter`: clarifies vague goals, recommends a concrete architecture, or starts the smallest useful collaboration structure.
+- `team`: long-running specialist agents keep private summaries, own worker domains, coordinate through tasks/messages, and synthesize through a coordinator.
+- `generator_verifier`: producers create candidate answers or artifacts, then verifiers check them against an explicit rubric and produce pass, revision, or blocker verdicts.
+- `message_bus`: mailbox records act as routed envelopes with topics, event types, lineage, subscribers, direct routes, and reply correlation.
+- `shared_state`: agents directly accumulate findings, evidence, competing claims, risks, open questions, decisions, and artifacts in shared memory.
+- `swarm`: dynamic sub-agent creation, parallel work units, queue-aware fanout, synthesis, review gates, and budget-aware horizontal scaling.
+
+Legacy stored `hybrid` values and legacy CLI/API inputs still load and normalize to `adaptive_starter`. `supervisor`, `orchestrator`, and `peer_handoff` are compatibility-era names, not current creation choices.
 
 The scheduler also tracks convergence. If consecutive rounds produce no new tracked messages, tasks, completed results, artifacts, or shared-memory entries, the session reports `review_convergence` instead of spending more rounds.
 
@@ -242,6 +255,24 @@ Verbose session snapshots and `/api/cowork/sessions/{id}/graph` return a `cowork
 - aggregate hidden counts when a focused graph omits nodes or edges
 
 Trace records merge user/agent messages, session events, scheduler decisions, trace spans, and derived stop reasons. Unknown event types are kept as generic trace records instead of being dropped.
+
+## Branches and Results
+
+Every session has a `default` Cowork Branch. A derived branch starts from a source branch and records a Stage Record with the derivation reason, inherited context summary, references, and decisions. The source branch remains available, and users may continue from either branch.
+
+Branch completion creates a Branch Result with summary, artifacts, decision metadata, confidence, source architecture, and source branch id. A Branch Result does not automatically overwrite the session output. The session gets a Session Final Result only when the user explicitly selects a branch result or merges multiple branch results.
+
+## Agent Steps and Observations
+
+Agent Step is the smallest observable execution unit. Native steps include branch, architecture, agent, task or work-unit reference, scheduler reason, action kind, status, timing, linked messages/artifacts/tasks/envelopes, and a compact Step Summary. Legacy trace spans and events are projected into Agent Step-like payloads for UI compatibility.
+
+Tool Observations record tool name, sanitized parameter summary, status, timing, and result summary. Browser Observations record purpose, resource reference, title, timing, result summary, artifacts, and sensitivity markers. Full Observation Detail is requested separately and can be `available`, `redacted`, `unavailable`, or denied by policy.
+
+## Runtime Policy Developer Notes
+
+Architecture-specific behavior belongs in `tinybot/cowork/policies/`. A policy should implement the capabilities that matter for its architecture: topology, branch initialization, step selection, envelope routing, delegation handling, completion evaluation, and organization projection.
+
+Keep shared lifecycle, persistence, API snapshots, branch result selection, budget accounting, and generic observability in `CoworkService`. Add a new architecture by registering a policy in the registry, defining canonical projection sections, adding public service/API tests, and avoiding architecture-specific session subclasses.
 
 ## Structured Results and Intelligence
 
@@ -271,8 +302,10 @@ Mailbox records can also carry collaboration protocol hints:
 
 ## Current Scope
 
-The implementation provides the core backend, tool interface, standalone CLI, API, and WebUI control plane. It supports persistent state, dynamic roles, discussion messages, repeated scheduling rounds, readiness scoring, structured results, blocker tracking, blueprint import/export, graph/trace observability, budget stop reasons, stale blocker escalation, and direct gateway access. Older stores remain JSON-compatible: missing blueprint, budget, graph, trace, lineage, memory, and decision fields default to empty or derived values during load.
+The implementation provides the core backend, tool interface, standalone CLI, API, and WebUI control plane. It supports persistent state, dynamic roles, discussion messages, architecture runtime policies, branch derivation, branch result selection/merge, Agent Step observability, repeated scheduling rounds, readiness scoring, structured results, blocker tracking, blueprint import/export, graph/trace observability, budget stop reasons, stale blocker escalation, and direct gateway access. Older stores remain JSON-compatible: missing blueprint, budget, graph, trace, lineage, memory, branches, Agent Steps, and decision fields default to empty or derived values during load.
 
 ## Migration Notes
 
-Plain-goal Cowork still works through the existing planner and fallback team. Those generated sessions now include an exportable blueprint, so users can start with a simple goal, inspect the generated structure, export it, and then edit the JSON for repeatable future launches. Runtime-only messages, completed results, private summaries, and event history are not included in exported blueprints unless a future import format explicitly asks for them.
+Plain-goal Cowork still works through the existing planner and fallback team. Those generated sessions now include an exportable blueprint, so users can start with a simple goal, inspect the generated structure, export it, and then edit the JSON for repeatable future launches. Runtime-only messages, completed results, branch results, private summaries, and event history are not included in exported blueprints unless a future import format explicitly asks for them.
+
+Stored `hybrid` workflow values are migration aliases. Loading a legacy session maps `hybrid` to `adaptive_starter` and creates a default Cowork Branch if branch metadata is absent. Compatibility aliases are accepted at input boundaries, but new UI, CLI, API, and blueprint output should use canonical architecture names.

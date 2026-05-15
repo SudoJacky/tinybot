@@ -295,6 +295,73 @@ async def test_cowork_api_prefers_architecture_and_normalizes_legacy_alias(cowor
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("architecture", "display_name", "section_ids"),
+    [
+        ("adaptive_starter", "Adaptive Starter", {"starter"}),
+        ("generator_verifier", "Generator-Verifier", {"rubric", "candidate_results", "verification_verdicts"}),
+        ("team", "Agent Team", {"coordinator", "worker_domains", "team_synthesis"}),
+        ("message_bus", "Message Bus", {"subscribers", "bus_envelopes"}),
+        ("shared_state", "Shared State", {"shared_knowledge_space", "competing_claims"}),
+        ("swarm", "Swarm", {"swarm_plan", "synthesis", "swarm_queues"}),
+    ],
+)
+async def test_cowork_api_session_detail_exposes_each_policy_projection(
+    cowork_api_client,
+    architecture,
+    display_name,
+    section_ids,
+):
+    service = cowork_api_client.cowork_service
+    session = service.create_session(
+        f"Exercise {architecture} policy",
+        f"{display_name} detail",
+        [
+            {"id": "lead", "name": "Lead", "role": "Coordinator", "goal": "Coordinate"},
+            {
+                "id": "worker",
+                "name": "Worker",
+                "role": "Worker",
+                "goal": "Work",
+                "responsibilities": ["Evidence"],
+                "subscriptions": ["incident"],
+            },
+            {"id": "verifier", "name": "Verifier", "role": "Verifier", "goal": "Verify"},
+        ],
+        [
+            {"id": "draft", "title": "Draft", "description": "Draft", "assigned_agent_id": "worker"},
+            {
+                "id": "verify",
+                "title": "Verify",
+                "description": "Verify",
+                "assigned_agent_id": "verifier",
+                "dependencies": ["draft"],
+            },
+        ],
+        workflow_mode=architecture,
+        blueprint={"rubric": ["correctness"], "max_iterations": 2},
+    )
+    if architecture == "message_bus":
+        CoworkMailbox(service).deliver(
+            session,
+            CoworkEnvelope(sender_id="user", visibility="group", topic="incident", content="Investigate"),
+        )
+    if architecture == "shared_state":
+        session.shared_memory["claims"].append({"text": "API projection is visible", "author": "worker"})
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}")
+
+    assert response.status == 200
+    payload = await response.json()
+    detail = payload["session"]
+    projection = detail["organization_projection"]
+    assert detail["architecture"] == architecture
+    assert detail["architecture_topology"]["architecture"] == architecture
+    assert projection["display_name"] == display_name
+    assert section_ids <= {section["id"] for section in projection["sections"]}
+
+
+@pytest.mark.asyncio
 async def test_cowork_branch_api_derives_lists_and_selects_branch(cowork_api_client):
     service = cowork_api_client.cowork_service
     session = service.create_session("Derive branch", "Derive branch", [], [])

@@ -18,6 +18,13 @@ A lightweight personal AI assistant framework that integrates Large Language Mod
 ## Change log
 
 <details>
+<summary>2026.05.15 Continued Cowork architecture runtime evolution.</summary>
+
+Cowork now uses canonical architectures (`adaptive_starter`, `team`, `generator_verifier`, `message_bus`, `shared_state`, `swarm`), branch-aware session snapshots, Agent Step observation detail expansion, architecture-specific projections, and explicit branch result selection or merge controls.
+
+</details>
+
+<details>
 <summary>2026.05.13 Evolved Cowork into a graph-driven, blueprint-aware agent swarm control plane.</summary>
 
 Cowork now exposes versioned graph/trace snapshots, reusable JSON blueprints, budget-aware run controls, blocker panels, blueprint validation/preview APIs.
@@ -98,6 +105,8 @@ dark mode
 ## ✨ Core Highlights
 
 ### Agent cowork!
+
+Cowork provides a shared multi-agent session model with architecture runtime policies, branch navigation, architecture-specific projections, observable Agent Steps, and explicit final-result selection.
 
 ![cowork](./show/webui_cowork_agent_field_v2.PNG)
 

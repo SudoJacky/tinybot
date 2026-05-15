@@ -275,6 +275,7 @@
                 <p id="cowork-active-status" class="cowork-session-meta">No session</p>
                 <h3 id="cowork-active-title">Select or start a session</h3>
                 <p id="cowork-active-goal" class="cowork-goal-text"></p>
+                <div id="cowork-branch-list" class="cowork-branch-list" aria-label="Cowork branches"></div>
               </div>
               <div class="cowork-toolbar cowork-session-actions">
                 <button id="cowork-pause-button" class="button" type="button">Emergency stop</button>
@@ -329,6 +330,13 @@
                     <span id="cowork-swarm-plan-summary" class="cowork-panel-note">No plan</span>
                   </div>
                   <div id="cowork-swarm-plan-panel" class="cowork-list cowork-projection-list"></div>
+                </section>
+                <section class="cowork-ops-panel" aria-label="Architecture projection">
+                  <div class="cowork-panel-heading">
+                    <h4>Architecture projection</h4>
+                    <span id="cowork-architecture-projection-summary" class="cowork-panel-note">No projection</span>
+                  </div>
+                  <div id="cowork-architecture-projection-list" class="cowork-list cowork-projection-list"></div>
                 </section>
                 <section class="cowork-ops-panel" aria-label="Work units" data-cowork-panel="tasks">
                   <div class="cowork-panel-heading">
@@ -402,6 +410,16 @@
                   <div id="cowork-observable-artifact-list" class="cowork-list cowork-projection-list"></div>
                   <div id="cowork-final-draft" class="cowork-final-draft" hidden></div>
                 </section>
+                <section class="cowork-ops-panel" aria-label="Branch results" data-cowork-panel="outputs">
+                  <div class="cowork-panel-heading">
+                    <h4>Branch results</h4>
+                    <span id="cowork-branch-result-summary" class="cowork-panel-note">No results</span>
+                  </div>
+                  <div id="cowork-branch-result-list" class="cowork-list cowork-projection-list"></div>
+                  <div class="cowork-card-actions">
+                    <button id="cowork-branch-merge-button" class="button button-small" type="button">Merge selected</button>
+                  </div>
+                </section>
                 <section class="cowork-ops-panel" aria-label="Blockers and output state" data-cowork-panel="outputs">
                   <div class="cowork-panel-heading">
                     <h4>Blockers</h4>
@@ -439,13 +457,10 @@
               <div class="cowork-create-input">
                 <div id="cowork-mode-tabs" class="cowork-mode-tabs" role="radiogroup" aria-label="Cowork architecture">
                   <button class="cowork-mode-tab active" type="button" data-mode="adaptive_starter" role="radio" aria-checked="true">Adaptive Starter</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="orchestrator" role="radio" aria-checked="false">主控编排</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="team" role="radio" aria-checked="false">团队自治</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="generator_verifier" role="radio" aria-checked="false">生成校验</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="message_bus" role="radio" aria-checked="false">消息总线</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="shared_state" role="radio" aria-checked="false">共享状态</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="supervisor" role="radio" aria-checked="false">监督者</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="peer_handoff" role="radio" aria-checked="false">接力交接</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="team" role="radio" aria-checked="false">Agent Team</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="generator_verifier" role="radio" aria-checked="false">Generator-Verifier</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="message_bus" role="radio" aria-checked="false">Message Bus</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="shared_state" role="radio" aria-checked="false">Shared State</button>
                   <button class="cowork-mode-tab" type="button" data-mode="swarm" role="radio" aria-checked="false">Swarm</button>
                 </div>
                 <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" placeholder="Describe the shared goal..."></textarea>
@@ -459,16 +474,13 @@
                   </div>
                 </details>
                 <label id="cowork-mode-label" class="config-label cowork-mode-label hidden-control" for="cowork-workflow-mode">
-                  Mode
+                  Architecture
                   <select id="cowork-workflow-mode" class="config-select">
                     <option value="adaptive_starter">Adaptive Starter</option>
-                    <option value="orchestrator">Orchestrator</option>
-                    <option value="team">Agent team</option>
-                    <option value="generator_verifier">Generator verifier</option>
-                    <option value="message_bus">Message bus</option>
-                    <option value="shared_state">Shared state</option>
-                    <option value="supervisor">Supervisor</option>
-                    <option value="peer_handoff">Peer handoff</option>
+                    <option value="team">Agent Team</option>
+                    <option value="generator_verifier">Generator-Verifier</option>
+                    <option value="message_bus">Message Bus</option>
+                    <option value="shared_state">Shared State</option>
                     <option value="swarm">Swarm</option>
                   </select>
                 </label>
