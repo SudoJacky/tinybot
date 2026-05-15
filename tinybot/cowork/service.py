@@ -47,8 +47,12 @@ from tinybot.cowork.types import (
     CoworkBranchResult,
     CoworkBrowserObservation,
     CoworkEvaluationResult,
+    CoworkDelegatedBrief,
+    CoworkDelegatedTask,
+    CoworkDelegationGuardrail,
     CoworkEvent,
     CoworkFullObservationDetail,
+    CoworkIsolatedSubAgentContext,
     CoworkMailboxRecord,
     CoworkMessage,
     CoworkRunMetrics,
@@ -57,18 +61,20 @@ from tinybot.cowork.types import (
     CoworkStageRecord,
     CoworkStepSummary,
     CoworkSensitiveArtifact,
+    CoworkSubAgentResult,
     CoworkTask,
     CoworkThread,
     CoworkToolObservation,
     CoworkTraceSpan,
     now_iso,
 )
-from tinybot.cowork.trace import CoworkTraceRecorder
+from tinybot.cowork.trace import CoworkTraceRecorder, compact_text, duration_ms
 
 
 _MAX_PRIVATE_SUMMARY_CHARS = 6000
 _MAX_EVENT_COUNT = 500
 _MAX_TRACE_SPAN_COUNT = 1000
+_MAX_AGENT_STEP_COUNT = 1000
 _MAX_RUN_METRIC_COUNT = 80
 _MAX_SCHEDULER_DECISION_COUNT = 200
 _MAX_MAILBOX_RECORDS = 300
@@ -200,6 +206,10 @@ class CoworkService:
                         source_blueprint_id=item.get("source_blueprint_id", ""),
                         source_event_id=item.get("source_event_id", ""),
                         spawn_reason=item.get("spawn_reason", ""),
+                        delegated_task_id=item.get("delegated_task_id", ""),
+                        delegated_brief_id=item.get("delegated_brief_id", ""),
+                        isolated_context_id=item.get("isolated_context_id", ""),
+                        sub_agent_scope=item.get("sub_agent_scope", ""),
                     )
                     for item in raw.get("agents", {}).values()
                 }
@@ -332,6 +342,17 @@ class CoworkService:
                     raw.get("sensitive_artifacts", {}),
                     CoworkSensitiveArtifact,
                 )
+                session.delegation_guardrails = self._hydrate_dataclass_map(
+                    raw.get("delegation_guardrails", {}),
+                    CoworkDelegationGuardrail,
+                )
+                session.delegated_briefs = self._hydrate_dataclass_map(raw.get("delegated_briefs", {}), CoworkDelegatedBrief)
+                session.delegated_tasks = self._hydrate_dataclass_map(raw.get("delegated_tasks", {}), CoworkDelegatedTask)
+                session.isolated_sub_agent_contexts = self._hydrate_dataclass_map(
+                    raw.get("isolated_sub_agent_contexts", {}),
+                    CoworkIsolatedSubAgentContext,
+                )
+                session.sub_agent_results = self._hydrate_dataclass_map(raw.get("sub_agent_results", {}), CoworkSubAgentResult)
                 session.run_metrics = [
                     CoworkRunMetrics(
                         run_id=item["run_id"],
@@ -427,6 +448,11 @@ class CoworkService:
         session.agent_steps = self._hydrate_agent_steps(raw.get("agent_steps", []))
         session.observation_details = self._hydrate_dataclass_map(raw.get("observation_details", {}), CoworkFullObservationDetail)
         session.sensitive_artifacts = self._hydrate_dataclass_map(raw.get("sensitive_artifacts", {}), CoworkSensitiveArtifact)
+        session.delegation_guardrails = self._hydrate_dataclass_map(raw.get("delegation_guardrails", {}), CoworkDelegationGuardrail)
+        session.delegated_briefs = self._hydrate_dataclass_map(raw.get("delegated_briefs", {}), CoworkDelegatedBrief)
+        session.delegated_tasks = self._hydrate_dataclass_map(raw.get("delegated_tasks", {}), CoworkDelegatedTask)
+        session.isolated_sub_agent_contexts = self._hydrate_dataclass_map(raw.get("isolated_sub_agent_contexts", {}), CoworkIsolatedSubAgentContext)
+        session.sub_agent_results = self._hydrate_dataclass_map(raw.get("sub_agent_results", {}), CoworkSubAgentResult)
         session.run_metrics = self._hydrate_dataclass_list(raw.get("run_metrics", []), CoworkRunMetrics)
         session.scheduler_decisions = [dict(item) for item in raw.get("scheduler_decisions", []) if isinstance(item, dict)]
         session.branches = self._hydrate_branch_map(raw.get("branches", {}), session)
@@ -1191,6 +1217,52 @@ class CoworkService:
             self._touch(session)
             self._save()
 
+    def emergency_stop(
+        self,
+        session: CoworkSession,
+        *,
+        reason: str = "",
+        actor_id: str = "user",
+        save: bool = True,
+    ) -> CoworkAgentStep:
+        explanation = reason.strip() or "Emergency Stop requested by user."
+        session.status = "paused"
+        branch = session.branches.get(session.current_branch_id or _DEFAULT_BRANCH_ID)
+        if branch:
+            branch.status = "paused"
+            branch.updated_at = now_iso()
+        self.record_stop_reason(
+            session,
+            "emergency_stop",
+            explanation,
+            data={
+                "control_scope": "emergency_stop",
+                "actor_id": actor_id,
+                "branch_id": session.current_branch_id or _DEFAULT_BRANCH_ID,
+            },
+            save=False,
+        )
+        step = self.start_agent_step(
+            session,
+            agent_id="scheduler",
+            action_kind="emergency_stop",
+            scheduler_reason=explanation,
+            input_summary=reason,
+            save=False,
+        )
+        self.finish_agent_step(
+            session,
+            step,
+            status="stopped",
+            output_summary="Emergency Stop recorded; future scheduling is paused.",
+            detail_content=explanation,
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return step
+
     def create_session(
         self,
         goal: str,
@@ -1240,6 +1312,10 @@ class CoworkService:
                 source_blueprint_id=str(raw.get("source_blueprint_id") or raw.get("id") or agent_id).strip(),
                 source_event_id=str(raw.get("source_event_id") or "").strip(),
                 spawn_reason=str(raw.get("spawn_reason") or "").strip(),
+                delegated_task_id=str(raw.get("delegated_task_id") or "").strip(),
+                delegated_brief_id=str(raw.get("delegated_brief_id") or "").strip(),
+                isolated_context_id=str(raw.get("isolated_context_id") or "").strip(),
+                sub_agent_scope=str(raw.get("sub_agent_scope") or "").strip(),
             )
 
         if not session.agents:
@@ -1592,6 +1668,197 @@ class CoworkService:
             self._save()
         return f"Task '{task.title}' assigned to {agent.name}."
 
+    def _authorized_delegation_references(
+        self,
+        session: CoworkSession,
+        parent_agent_id: str,
+        references: list[dict[str, Any]] | None,
+    ) -> tuple[list[dict[str, Any]], list[str], list[str], int]:
+        authorized: list[dict[str, Any]] = []
+        artifact_refs: list[str] = []
+        detail_refs: list[str] = []
+        redacted = 0
+        for raw in references or []:
+            item = dict(raw) if isinstance(raw, dict) else {"ref": str(raw)}
+            ref = str(item.get("ref") or item.get("id") or item.get("artifact_ref") or item.get("detail_ref") or "").strip()
+            ref_type = str(item.get("type") or item.get("kind") or "").strip()
+            if not ref:
+                redacted += 1
+                continue
+            sensitive_artifact = session.sensitive_artifacts.get(ref)
+            detail = session.observation_details.get(ref)
+            if sensitive_artifact and parent_agent_id not in sensitive_artifact.permitted_agent_ids:
+                redacted += 1
+                continue
+            if detail and detail.sensitivity and parent_agent_id not in detail.permitted_agent_ids:
+                redacted += 1
+                continue
+            safe_item = {
+                "ref": ref,
+                "type": ref_type or ("observation_detail" if detail else "artifact" if sensitive_artifact else "reference"),
+                "summary": compact_text(item.get("summary") or item.get("title") or ref, 240),
+            }
+            authorized.append(safe_item)
+            if safe_item["type"] in {"artifact", "sensitive_artifact"} or sensitive_artifact:
+                artifact_refs.append(ref)
+            if safe_item["type"] in {"observation_detail", "full_observation_detail"} or detail:
+                detail_refs.append(ref)
+        return authorized, list(dict.fromkeys(artifact_refs)), list(dict.fromkeys(detail_refs)), redacted
+
+    def _delegation_denials(
+        self,
+        session: CoworkSession,
+        *,
+        requested_tools: list[str],
+    ) -> list[str]:
+        state = self.budget_state(session)
+        limits = state["limits"]
+        usage = state["usage"]
+        denials: list[str] = []
+        max_spawned = limits.get("max_spawned_agents")
+        if max_spawned is not None and int(usage.get("spawned_agents", 0) or 0) >= int(max_spawned):
+            denials.append("spawned_agent_budget_exhausted")
+        max_concurrent = limits.get("max_concurrent_delegated_work")
+        active_delegated = [
+            item
+            for item in getattr(session, "delegated_tasks", {}).values()
+            if item.status in {"requested", "active"}
+        ]
+        if max_concurrent is not None and len(active_delegated) >= int(max_concurrent):
+            denials.append("concurrent_delegated_work_exhausted")
+        parallel_width = limits.get("parallel_width")
+        active_sub_agents = [
+            agent
+            for agent in session.agents.values()
+            if getattr(agent, "lifetime", "") == "temporary" and getattr(agent, "lifecycle_status", "active") != "retired"
+        ]
+        if parallel_width is not None and len(active_sub_agents) >= int(parallel_width):
+            denials.append("parallel_width_exhausted")
+        for limit_key, usage_key, reason in (
+            ("max_agent_calls_total", "agent_calls", "agent_call_budget_exhausted"),
+            ("max_tool_calls", "tool_calls", "tool_call_budget_exhausted"),
+            ("max_tokens", "tokens_total", "token_budget_exhausted"),
+            ("max_cost", "cost", "cost_budget_exhausted"),
+        ):
+            limit = limits.get(limit_key)
+            if limit is not None and usage.get(usage_key, 0) >= limit:
+                denials.append(reason)
+        allowed_tools = {"cowork_internal", "read_file", "list_dir", "write_file", "edit_file", "exec"}
+        disallowed = [item for item in requested_tools if item not in allowed_tools]
+        if disallowed:
+            denials.append(f"tool_not_supported:{','.join(disallowed)}")
+        return denials
+
+    def _delegation_allowed_tools(self, session: CoworkSession, requested_tools: list[str]) -> tuple[list[str], list[str]]:
+        policy = (getattr(session, "swarm_plan", {}) or {}).get("policy", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        policy_allowed = {str(item).strip() for item in policy.get("allowed_tools", []) if str(item).strip()} if isinstance(policy, dict) else set()
+        if not policy_allowed:
+            return requested_tools or ["cowork_internal"], []
+        kept = [item for item in requested_tools if item in policy_allowed]
+        removed = [item for item in requested_tools if item not in policy_allowed]
+        return kept or ["cowork_internal"], removed
+
+    def _open_delegated_task(
+        self,
+        session: CoworkSession,
+        *,
+        parent_agent_id: str,
+        task_goal: str,
+        constraints: list[str] | None = None,
+        input_references: list[dict[str, Any]] | None = None,
+        expected_output: str = "",
+        tools: list[str] | None = None,
+        stopping_criteria: list[str] | None = None,
+        work_unit_id: str = "",
+        save: bool = False,
+    ) -> tuple[CoworkDelegatedTask, CoworkDelegatedBrief, CoworkDelegationGuardrail, list[str]] | str:
+        self.ensure_session_branches(session)
+        self.ensure_session_budget(session)
+        if parent_agent_id not in session.agents:
+            return f"Error: parent agent '{parent_agent_id}' not found"
+        requested_tools = [str(item).strip() for item in (tools or ["cowork_internal"]) if str(item).strip()]
+        decision = self.architecture_policy(session.workflow_mode).handle_delegation(
+            session,
+            {
+                "parent_agent_id": parent_agent_id,
+                "task_goal": task_goal,
+                "tools": requested_tools,
+                "branch_id": session.current_branch_id,
+                "work_unit_id": work_unit_id,
+            },
+        )
+        allowed_by_policy = decision.status in {"allowed", "available"} and decision.payload.get("allowed", True)
+        allowed_tools, removed_by_policy = self._delegation_allowed_tools(session, requested_tools)
+        denials = [] if allowed_by_policy else [decision.reason or "delegation_denied_by_policy"]
+        denials.extend(self._delegation_denials(session, requested_tools=allowed_tools))
+        state = self.budget_state(session)
+        branch = self.current_branch(session)
+        guardrail = CoworkDelegationGuardrail(
+            id=self._new_id("guard"),
+            branch_id=branch.id,
+            architecture=branch.architecture,
+            parent_agent_id=parent_agent_id,
+            max_spawned_agents=state["limits"].get("max_spawned_agents"),
+            max_concurrent_delegated_work=state["limits"].get("max_concurrent_delegated_work"),
+            max_agent_calls_total=state["limits"].get("max_agent_calls_total"),
+            max_tool_calls=state["limits"].get("max_tool_calls"),
+            max_tokens=state["limits"].get("max_tokens"),
+            max_cost=state["limits"].get("max_cost"),
+            parallel_width=state["limits"].get("parallel_width"),
+            allowed_tools=list(allowed_tools),
+            denied_reasons=denials,
+        )
+        session.delegation_guardrails[guardrail.id] = guardrail
+        if denials:
+            if "spawned_agent_budget_exhausted" in denials:
+                self.record_stop_reason(
+                    session,
+                    "spawn_budget_exhausted",
+                    "Cowork agent spawn request was blocked by the spawned-agent budget",
+                    data={"parent_agent_id": parent_agent_id, "max_spawned_agents": state["limits"].get("max_spawned_agents")},
+                    save=False,
+                )
+            self.add_event(
+                session,
+                "delegation.denied",
+                "Sub-Agent delegation request was denied by guardrails",
+                actor_id=parent_agent_id,
+                data={"guardrail_id": guardrail.id, "denied_reasons": denials},
+                save=False,
+            )
+            if save:
+                self._touch(session)
+                self._save()
+            if denials == ["spawned_agent_budget_exhausted"]:
+                return "Error: spawned-agent budget exhausted"
+            return f"Error: delegation denied: {', '.join(denials)}"
+        safe_refs, artifact_refs, detail_refs, redacted_count = self._authorized_delegation_references(session, parent_agent_id, input_references)
+        brief = CoworkDelegatedBrief(
+            id=self._new_id("brief"),
+            parent_agent_id=parent_agent_id,
+            task_goal=compact_text(task_goal, 1200),
+            constraints=[compact_text(item, 240) for item in (constraints or []) if str(item).strip()],
+            input_references=safe_refs,
+            expected_output=compact_text(expected_output, 500),
+            allowed_tools=list(allowed_tools),
+            stopping_criteria=[compact_text(item, 240) for item in (stopping_criteria or []) if str(item).strip()],
+            authorized_artifact_refs=artifact_refs,
+            authorized_detail_refs=detail_refs,
+            redacted_reference_count=redacted_count,
+        )
+        delegated = CoworkDelegatedTask(
+            id=self._new_id("dtask"),
+            parent_agent_id=parent_agent_id,
+            brief_id=brief.id,
+            branch_id=branch.id,
+            architecture=branch.architecture,
+            status="requested",
+            guardrail_id=guardrail.id,
+        )
+        session.delegated_briefs[brief.id] = brief
+        session.delegated_tasks[delegated.id] = delegated
+        return delegated, brief, guardrail, removed_by_policy
+
     def spawn_agent(
         self,
         session: CoworkSession,
@@ -1607,35 +1874,30 @@ class CoworkService:
         source_event_id: str = "",
         team_id: str = "",
         work_unit_id: str = "",
+        delegated_task_id: str = "",
+        delegated_brief_id: str = "",
         save: bool = True,
     ) -> CoworkAgent | str:
-        self.ensure_session_budget(session)
-        if parent_agent_id not in session.agents:
-            return f"Error: parent agent '{parent_agent_id}' not found"
-        state = self.budget_state(session)
-        max_spawned = state["limits"].get("max_spawned_agents")
-        spawned = int(state["usage"].get("spawned_agents", 0) or 0)
-        if max_spawned is not None and spawned >= int(max_spawned):
-            self.record_stop_reason(
+        requested_tools = [str(item).strip() for item in (tools or ["cowork_internal"]) if str(item).strip()]
+        removed_by_policy: list[str] = []
+        delegated = session.delegated_tasks.get(delegated_task_id) if delegated_task_id else None
+        brief = session.delegated_briefs.get(delegated_brief_id) if delegated_brief_id else None
+        if delegated is None or brief is None:
+            opened = self._open_delegated_task(
                 session,
-                "spawn_budget_exhausted",
-                "Cowork agent spawn request was blocked by the spawned-agent budget",
-                data={"parent_agent_id": parent_agent_id, "max_spawned_agents": max_spawned},
+                parent_agent_id=parent_agent_id,
+                task_goal=goal,
+                constraints=responsibilities,
+                expected_output="Compact delegated result with answer, evidence, uncertainty, artifacts, and blockers.",
+                tools=requested_tools,
+                stopping_criteria=["Return the compact result to the parent agent and stop."],
+                work_unit_id=work_unit_id,
                 save=save,
             )
-            return "Error: spawned-agent budget exhausted"
-        allowed_tools = {"cowork_internal", "read_file", "list_dir", "write_file", "edit_file", "exec"}
-        requested_tools = [str(item).strip() for item in (tools or ["cowork_internal"]) if str(item).strip()]
-        disallowed = [item for item in requested_tools if item not in allowed_tools]
-        if disallowed:
-            return f"Error: tools not allowed for spawned agents: {', '.join(disallowed)}"
-        policy = (getattr(session, "swarm_plan", {}) or {}).get("policy", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
-        policy_allowed = {str(item).strip() for item in policy.get("allowed_tools", []) if str(item).strip()} if isinstance(policy, dict) else set()
-        removed_by_policy: list[str] = []
-        if policy_allowed:
-            kept_tools = [item for item in requested_tools if item in policy_allowed]
-            removed_by_policy = [item for item in requested_tools if item not in policy_allowed]
-            requested_tools = kept_tools or ["cowork_internal"]
+            if isinstance(opened, str):
+                return opened
+            delegated, brief, _guardrail, removed_by_policy = opened
+        requested_tools = list(brief.allowed_tools or requested_tools or ["cowork_internal"])
         base_id = self._slug(name or role or "specialist")
         agent_id = base_id
         counter = 2
@@ -1656,8 +1918,26 @@ class CoworkService:
             lifecycle_status="active",
             source_event_id=source_event_id,
             spawn_reason=reason,
+            delegated_task_id=delegated.id,
+            delegated_brief_id=brief.id,
+            sub_agent_scope="parent",
         )
         session.agents[agent_id] = agent
+        isolated = CoworkIsolatedSubAgentContext(
+            id=self._new_id("ictx"),
+            delegated_task_id=delegated.id,
+            sub_agent_id=agent.id,
+            parent_agent_id=parent_agent_id,
+            brief_id=brief.id,
+            summary=brief.task_goal,
+            artifact_refs=list(brief.authorized_artifact_refs),
+            detail_refs=list(brief.authorized_detail_refs),
+        )
+        agent.isolated_context_id = isolated.id
+        session.isolated_sub_agent_contexts[isolated.id] = isolated
+        delegated.sub_agent_id = agent.id
+        delegated.status = "active"
+        delegated.updated_at = now_iso()
         self.record_budget_usage(session, spawned_agents=1, save=False)
         self.add_event(
             session,
@@ -1673,6 +1953,10 @@ class CoworkService:
                 "work_unit_id": work_unit_id,
                 "lifetime": agent.lifetime,
                 "removed_tools_by_policy": removed_by_policy,
+                "delegated_task_id": delegated.id,
+                "delegated_brief_id": brief.id,
+                "isolated_context_id": isolated.id,
+                "sub_agent_scope": agent.sub_agent_scope,
             },
             save=False,
         )
@@ -1690,6 +1974,9 @@ class CoworkService:
                 "work_unit_id": work_unit_id,
                 "lifetime": agent.lifetime,
                 "removed_tools_by_policy": removed_by_policy,
+                "delegated_task_id": delegated.id,
+                "delegated_brief_id": brief.id,
+                "isolated_context_id": isolated.id,
             },
             save=False,
         )
@@ -1697,6 +1984,78 @@ class CoworkService:
             self._touch(session)
             self._save()
         return agent
+
+    def request_agent_delegation(
+        self,
+        session: CoworkSession,
+        *,
+        parent_agent_id: str,
+        task_goal: str,
+        role: str = "Delegated specialist",
+        name: str = "",
+        constraints: list[str] | None = None,
+        input_references: list[dict[str, Any]] | None = None,
+        expected_output: str = "",
+        tools: list[str] | None = None,
+        stopping_criteria: list[str] | None = None,
+        work_unit_id: str = "",
+        save: bool = True,
+    ) -> dict[str, Any] | str:
+        opened = self._open_delegated_task(
+            session,
+            parent_agent_id=parent_agent_id,
+            task_goal=task_goal,
+            constraints=constraints,
+            input_references=input_references,
+            expected_output=expected_output,
+            tools=tools,
+            stopping_criteria=stopping_criteria,
+            work_unit_id=work_unit_id,
+            save=save,
+        )
+        if isinstance(opened, str):
+            return opened
+        delegated, brief, guardrail, removed_by_policy = opened
+        agent = self.spawn_agent(
+            session,
+            parent_agent_id=parent_agent_id,
+            role=role,
+            goal=brief.task_goal,
+            name=name,
+            responsibilities=constraints or [],
+            tools=brief.allowed_tools,
+            reason=task_goal,
+            work_unit_id=work_unit_id,
+            delegated_task_id=delegated.id,
+            delegated_brief_id=brief.id,
+            save=False,
+        )
+        if isinstance(agent, str):
+            delegated.status = "denied"
+            delegated.error = agent
+            delegated.updated_at = now_iso()
+            if save:
+                self._touch(session)
+                self._save()
+            return agent
+        self.add_event(
+            session,
+            "delegation.created",
+            f"Delegated task '{delegated.id}' assigned to Sub-Agent {agent.name}",
+            actor_id=parent_agent_id,
+            data={
+                "delegated_task_id": delegated.id,
+                "delegated_brief_id": brief.id,
+                "sub_agent_id": agent.id,
+                "guardrail_id": guardrail.id,
+                "removed_tools_by_policy": removed_by_policy,
+            },
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return {"delegated_task": delegated, "brief": brief, "sub_agent": agent, "guardrail": guardrail}
 
     def spawn_subteam(
         self,
@@ -1780,12 +2139,19 @@ class CoworkService:
         agent.status = "retired"  # type: ignore[assignment]
         agent.current_task_id = None
         agent.current_task_title = None
+        delegated_task_id = getattr(agent, "delegated_task_id", "")
+        delegated = session.delegated_tasks.get(delegated_task_id) if delegated_task_id else None
+        if delegated and delegated.status not in {"completed", "failed", "denied"}:
+            delegated.status = "retired"
+            delegated.retired_at = now_iso()
+            delegated.updated_at = delegated.retired_at
+            delegated.error = delegated.error or reason or "Sub-Agent retired before returning a result."
         self.add_event(
             session,
             "agent.retired",
             f"{agent.name} retired from scheduling",
             actor_id=agent.id,
-            data={"agent_id": agent.id, "reason": reason},
+            data={"agent_id": agent.id, "reason": reason, "delegated_task_id": delegated_task_id},
             save=False,
         )
         self.add_trace_event(
@@ -1802,6 +2168,76 @@ class CoworkService:
             self._touch(session)
             self._save()
         return f"Agent '{agent.name}' retired."
+
+    def complete_sub_agent(
+        self,
+        session: CoworkSession,
+        sub_agent_id: str,
+        *,
+        answer: str,
+        evidence: list[dict[str, Any]] | None = None,
+        sources: list[str] | None = None,
+        uncertainty: str = "",
+        artifacts: list[str] | None = None,
+        blockers: list[str] | None = None,
+        status: str = "completed",
+        save: bool = True,
+    ) -> CoworkSubAgentResult | str:
+        agent_id = self._slug(sub_agent_id)
+        agent = session.agents.get(agent_id)
+        if not agent:
+            return f"Error: sub-agent '{agent_id}' not found"
+        delegated_task_id = getattr(agent, "delegated_task_id", "")
+        delegated = session.delegated_tasks.get(delegated_task_id) if delegated_task_id else None
+        if delegated is None or delegated.sub_agent_id != agent.id:
+            return f"Error: agent '{agent_id}' is not attached to a delegated task"
+        result_status = "failed" if status == "failed" or blockers else "completed"
+        result = CoworkSubAgentResult(
+            id=self._new_id("sres"),
+            delegated_task_id=delegated.id,
+            sub_agent_id=agent.id,
+            parent_agent_id=delegated.parent_agent_id,
+            answer=compact_text(answer, 2000),
+            evidence=list(evidence or []),
+            sources=[compact_text(item, 300) for item in (sources or []) if str(item).strip()],
+            uncertainty=compact_text(uncertainty, 500),
+            artifacts=list(artifacts or []),
+            blockers=[compact_text(item, 300) for item in (blockers or []) if str(item).strip()],
+            status=result_status,
+        )
+        session.sub_agent_results[result.id] = result
+        delegated.result_id = result.id
+        delegated.status = result_status  # type: ignore[assignment]
+        delegated.updated_at = now_iso()
+        agent.private_summary = self._merge_private_summary(agent.private_summary, answer)
+        self.add_event(
+            session,
+            "delegation.result.returned",
+            f"Sub-Agent {agent.name} returned a delegated result",
+            actor_id=agent.id,
+            data={
+                "delegated_task_id": delegated.id,
+                "sub_agent_id": agent.id,
+                "parent_agent_id": delegated.parent_agent_id,
+                "result_id": result.id,
+                "status": result.status,
+                "blockers": result.blockers,
+            },
+            save=False,
+        )
+        self.retire_agent(
+            session,
+            agent.id,
+            reason="Delegated task completed." if result_status == "completed" else "Delegated task failed.",
+            save=False,
+        )
+        delegated.status = result_status  # retirement preserves final completion/failure status
+        delegated.retired_at = now_iso()
+        delegated.updated_at = delegated.retired_at
+        if save:
+            self._touch(session)
+            self._save()
+        return result
 
     def claim_task(self, session: CoworkSession, agent_id: str, task_id: str | None = None, *, save: bool = True) -> CoworkTask | str:
         with self._mutation_lock:
@@ -2663,6 +3099,384 @@ class CoworkService:
             self.traces.finish_span(span, status=status, output_ref=output_ref, summary=summary, data=data)
         self.add_trace_span(session, span, save=save)
         return span
+
+    def start_agent_step(
+        self,
+        session: CoworkSession,
+        *,
+        agent_id: str | None,
+        action_kind: str,
+        scheduler_reason: str = "",
+        task_id: str | None = None,
+        work_unit_id: str | None = None,
+        input_summary: str = "",
+        linked_message_ids: list[str] | None = None,
+        linked_envelope_ids: list[str] | None = None,
+        source_span_id: str | None = None,
+        save: bool = False,
+    ) -> CoworkAgentStep:
+        """Record the beginning of a native Agent Step."""
+
+        branch_id = session.current_branch_id or _DEFAULT_BRANCH_ID
+        branch = session.branches.get(branch_id)
+        architecture = getattr(branch, "architecture", session.workflow_mode) if branch else session.workflow_mode
+        step = CoworkAgentStep(
+            id=self._new_id("step"),
+            session_id=session.id,
+            branch_id=branch_id,
+            architecture=self.normalize_workflow_mode(architecture),
+            agent_id=agent_id,
+            action_kind=action_kind,
+            scheduler_reason=compact_text(scheduler_reason, 240),
+            status="running",
+            task_id=task_id,
+            work_unit_id=work_unit_id,
+            input_summary=compact_text(input_summary, 500),
+            linked_message_ids=list(linked_message_ids or []),
+            linked_envelope_ids=list(linked_envelope_ids or []),
+            source_span_id=source_span_id,
+        )
+        session.agent_steps.append(step)
+        if len(session.agent_steps) > _MAX_AGENT_STEP_COUNT:
+            session.agent_steps = session.agent_steps[-_MAX_AGENT_STEP_COUNT:]
+        self.event_log.append(
+            session.id,
+            "agent_step.started",
+            category="observation",
+            actor_id=agent_id,
+            event_id=step.id,
+            created_at=step.started_at,
+            payload={"agent_step": asdict(step)},
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return step
+
+    def finish_agent_step(
+        self,
+        session: CoworkSession,
+        step: CoworkAgentStep,
+        *,
+        status: str = "completed",
+        output_summary: str = "",
+        error: str | None = None,
+        linked_message_ids: list[str] | None = None,
+        linked_artifact_refs: list[str] | None = None,
+        linked_task_ids: list[str] | None = None,
+        detail_content: str = "",
+        detail_content_type: str = "text/plain",
+        redacted: bool = False,
+        save: bool = False,
+    ) -> CoworkAgentStep:
+        ended_at = now_iso()
+        step.status = self._agent_step_status(status, error=error)
+        step.ended_at = ended_at
+        step.duration_ms = duration_ms(step.started_at, ended_at)
+        step.output_summary = compact_text(output_summary or error or step.output_summary, 600)
+        step.error = compact_text(error, 500) if error else None
+        if linked_message_ids:
+            step.linked_message_ids = list(dict.fromkeys([*step.linked_message_ids, *linked_message_ids]))
+        if linked_artifact_refs:
+            step.linked_artifact_refs = list(dict.fromkeys([*step.linked_artifact_refs, *linked_artifact_refs]))
+        if linked_task_ids:
+            step.linked_task_ids = list(dict.fromkeys([*step.linked_task_ids, *linked_task_ids]))
+        if detail_content:
+            detail = self.record_full_observation_detail(
+                session,
+                subject_id=step.id,
+                subject_type="agent_step",
+                summary=step.output_summary,
+                content=detail_content,
+                content_type=detail_content_type,
+                redacted=redacted,
+                save=False,
+            )
+            step.detail_ref = detail.id
+        step.summary = CoworkStepSummary(
+            id=f"summary:{step.id}",
+            step_id=step.id,
+            purpose=step.scheduler_reason or step.action_kind.replace("_", " ").title(),
+            action_kind=step.action_kind,
+            input_summary=compact_text(step.input_summary, 220),
+            outcome_summary=compact_text(step.output_summary or step.error or step.status, 240),
+            next_effect=compact_text(self._agent_step_next_effect(step), 180),
+            has_full_detail=bool(step.detail_ref),
+            detail_ref=step.detail_ref,
+            redacted=redacted,
+            created_at=ended_at,
+        )
+        self.event_log.append(
+            session.id,
+            "agent_step.finished",
+            category="observation",
+            actor_id=step.agent_id,
+            event_id=step.id,
+            created_at=ended_at,
+            payload={"agent_step": asdict(step)},
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return step
+
+    def record_tool_observation(
+        self,
+        session: CoworkSession,
+        step: CoworkAgentStep,
+        *,
+        tool_name: str,
+        purpose: str = "",
+        parameters: dict[str, Any] | None = None,
+        result: Any = "",
+        status: str = "completed",
+        started_at: str | None = None,
+        ended_at: str | None = None,
+        detail_content: str = "",
+        redacted: bool = False,
+        save: bool = False,
+    ) -> CoworkToolObservation:
+        started = started_at or now_iso()
+        ended = ended_at or now_iso()
+        observation = CoworkToolObservation(
+            id=self._new_id("toolobs"),
+            step_id=step.id,
+            tool_name=tool_name,
+            calling_agent_id=step.agent_id,
+            purpose=compact_text(purpose or f"Call {tool_name}", 240),
+            parameter_summary=self._sanitize_observation_parameters(parameters or {}),
+            result_summary=compact_text(result, 400),
+            status=self._observation_status(status, result=result),
+            started_at=started,
+            ended_at=ended,
+            duration_ms=duration_ms(started, ended),
+            redacted=redacted,
+        )
+        if detail_content:
+            detail = self.record_full_observation_detail(
+                session,
+                subject_id=observation.id,
+                subject_type="tool_observation",
+                summary=observation.result_summary,
+                content=detail_content,
+                redacted=redacted,
+                save=False,
+            )
+            observation.detail_ref = detail.id
+        step.tool_observations.append(observation)
+        self.event_log.append(
+            session.id,
+            "tool_observation.recorded",
+            category="observation",
+            actor_id=step.agent_id,
+            event_id=observation.id,
+            created_at=ended,
+            payload={"tool_observation": asdict(observation)},
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return observation
+
+    def record_browser_observation(
+        self,
+        session: CoworkSession,
+        step: CoworkAgentStep,
+        *,
+        purpose: str,
+        resource_ref: str = "",
+        title: str = "",
+        result_summary: str = "",
+        status: str = "completed",
+        accessed_at: str | None = None,
+        ended_at: str | None = None,
+        artifact_refs: list[str] | None = None,
+        detail_content: str = "",
+        sensitive: bool = False,
+        redacted: bool = False,
+        save: bool = False,
+    ) -> CoworkBrowserObservation:
+        started = accessed_at or now_iso()
+        ended = ended_at or now_iso()
+        observation = CoworkBrowserObservation(
+            id=self._new_id("browserobs"),
+            step_id=step.id,
+            purpose=compact_text(purpose, 240),
+            resource_ref=compact_text(resource_ref, 500),
+            title=compact_text(title, 240),
+            result_summary=compact_text(result_summary, 400),
+            status=self._observation_status(status),
+            accessed_at=started,
+            ended_at=ended,
+            duration_ms=duration_ms(started, ended),
+            artifact_refs=list(artifact_refs or []),
+            sensitive=sensitive,
+            redacted=redacted or sensitive,
+        )
+        if detail_content:
+            detail = self.record_full_observation_detail(
+                session,
+                subject_id=observation.id,
+                subject_type="browser_observation",
+                summary=observation.result_summary,
+                content=detail_content,
+                redacted=redacted or sensitive,
+                sensitivity="sensitive" if sensitive else "",
+                artifact_refs=observation.artifact_refs,
+                save=False,
+            )
+            observation.detail_ref = detail.id
+        if sensitive:
+            artifact = CoworkSensitiveArtifact(
+                id=self._new_id("sartifact"),
+                source_step_id=step.id,
+                source_observation_id=observation.id,
+                summary=observation.result_summary,
+                artifact_ref=observation.detail_ref or (observation.artifact_refs[0] if observation.artifact_refs else ""),
+            )
+            session.sensitive_artifacts[artifact.id] = artifact
+        step.browser_observations.append(observation)
+        self.event_log.append(
+            session.id,
+            "browser_observation.recorded",
+            category="observation",
+            actor_id=step.agent_id,
+            event_id=observation.id,
+            created_at=ended,
+            payload={"browser_observation": asdict(observation)},
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return observation
+
+    def record_full_observation_detail(
+        self,
+        session: CoworkSession,
+        *,
+        subject_id: str,
+        subject_type: str,
+        summary: str = "",
+        content: str = "",
+        content_type: str = "text/plain",
+        state: str = "available",
+        redacted: bool = False,
+        sensitivity: str = "",
+        unavailable_reason: str = "",
+        permitted_agent_ids: list[str] | None = None,
+        artifact_refs: list[str] | None = None,
+        save: bool = False,
+    ) -> CoworkFullObservationDetail:
+        detail = CoworkFullObservationDetail(
+            id=self._new_id("obsdetail"),
+            subject_id=subject_id,
+            subject_type=subject_type,
+            state=state if state in {"available", "redacted", "unavailable", "unauthorized"} else "available",  # type: ignore[arg-type]
+            summary=compact_text(summary, 400),
+            content=content,
+            content_type=content_type,
+            redacted=redacted,
+            sensitivity=sensitivity,
+            unavailable_reason=compact_text(unavailable_reason, 240),
+            permitted_agent_ids=list(permitted_agent_ids or []),
+            artifact_refs=list(artifact_refs or []),
+        )
+        session.observation_details[detail.id] = detail
+        if save:
+            self._touch(session)
+            self._save()
+        return detail
+
+    def get_observation_detail(
+        self,
+        session: CoworkSession,
+        detail_id: str,
+        *,
+        requester_agent_id: str | None = None,
+    ) -> CoworkFullObservationDetail:
+        detail = session.observation_details.get(detail_id)
+        if detail is None:
+            return CoworkFullObservationDetail(
+                id=detail_id,
+                subject_id=detail_id,
+                subject_type="unknown",
+                state="unavailable",
+                summary="Observation detail is not available.",
+                unavailable_reason="Detail was not persisted or has expired.",
+            )
+        if detail.state != "available":
+            return detail
+        if detail.sensitivity and requester_agent_id is not None and requester_agent_id not in detail.permitted_agent_ids:
+            return CoworkFullObservationDetail(
+                id=detail.id,
+                subject_id=detail.subject_id,
+                subject_type=detail.subject_type,
+                state="unauthorized",
+                summary=detail.summary,
+                content="",
+                content_type=detail.content_type,
+                redacted=True,
+                sensitivity=detail.sensitivity,
+                unavailable_reason="Requester is not permitted to open this sensitive observation detail.",
+                artifact_refs=list(detail.artifact_refs),
+                created_at=detail.created_at,
+            )
+        return detail
+
+    @staticmethod
+    def _agent_step_status(status: str, *, error: str | None = None) -> str:
+        if error:
+            return "failed"
+        value = str(status or "completed").strip().lower()
+        if value in {"completed", "failed", "blocked", "stopped", "running", "pending"}:
+            return value
+        if value in {"idle", "done", "success"}:
+            return "completed"
+        if value in {"cancelled", "canceled", "interrupted"}:
+            return "stopped"
+        return "completed"
+
+    @staticmethod
+    def _observation_status(status: str, *, result: Any = "") -> str:
+        value = str(status or "completed").strip().lower()
+        result_text = str(result or "").lstrip()
+        if result_text.startswith("Error"):
+            return "failed"
+        if value == "ok":
+            return "completed"
+        if value == "error":
+            return "failed"
+        if value in {"pending", "running", "completed", "failed", "redacted", "unavailable"}:
+            return value
+        return "completed"
+
+    @staticmethod
+    def _sanitize_observation_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+        sensitive_terms = ("secret", "token", "password", "api_key", "apikey", "credential", "authorization")
+        sanitized: dict[str, Any] = {}
+        for key, value in (parameters or {}).items():
+            key_text = str(key)
+            if any(term in key_text.lower() for term in sensitive_terms):
+                sanitized[key_text] = "[redacted]"
+            elif isinstance(value, (str, int, float, bool)) or value is None:
+                sanitized[key_text] = compact_text(value, 160)
+            elif isinstance(value, list):
+                sanitized[key_text] = f"list[{len(value)}]"
+            elif isinstance(value, dict):
+                sanitized[key_text] = f"object[{len(value)}]"
+            else:
+                sanitized[key_text] = type(value).__name__
+        return sanitized
+
+    @staticmethod
+    def _agent_step_next_effect(step: CoworkAgentStep) -> str:
+        if step.linked_task_ids:
+            return f"Updated task(s): {', '.join(step.linked_task_ids[:4])}"
+        if step.linked_message_ids:
+            return f"Linked message(s): {', '.join(step.linked_message_ids[:4])}"
+        if step.linked_artifact_refs:
+            return f"Linked artifact(s): {', '.join(step.linked_artifact_refs[:4])}"
+        return ""
 
     def add_trace_event(
         self,

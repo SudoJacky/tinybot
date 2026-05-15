@@ -71,12 +71,40 @@ class ArchitectureRuntimePolicy:
                 "role": agent.role,
                 "status": agent.status,
                 "responsibilities": list(getattr(agent, "responsibilities", []) or []),
+                "parent_agent_id": getattr(agent, "parent_agent_id", None),
+                "lifetime": getattr(agent, "lifetime", "persistent"),
+                "lifecycle_status": getattr(agent, "lifecycle_status", "active"),
+                "delegated_task_id": getattr(agent, "delegated_task_id", ""),
+                "sub_agent_scope": getattr(agent, "sub_agent_scope", ""),
             }
             for agent in getattr(session, "agents", {}).values()
         ]
         relationships = [
             {"from": "session", "to": agent["id"], "kind": "member"}
             for agent in roles
+        ]
+        relationships.extend(
+            {
+                "from": agent["parent_agent_id"],
+                "to": agent["id"],
+                "kind": "parent_of",
+                "delegated_task_id": agent.get("delegated_task_id", ""),
+            }
+            for agent in roles
+            if agent.get("parent_agent_id")
+        )
+        delegated_tasks = [
+            {
+                "id": item.id,
+                "parent_agent_id": item.parent_agent_id,
+                "sub_agent_id": item.sub_agent_id,
+                "brief_id": item.brief_id,
+                "status": item.status,
+                "scope": item.scope,
+                "result_id": item.result_id,
+            }
+            for item in getattr(session, "delegated_tasks", {}).values()
+            if getattr(item, "branch_id", branch_id) == branch_id
         ]
         return TopologyResult(
             status="available",
@@ -95,6 +123,7 @@ class ArchitectureRuntimePolicy:
                     "policy": self.__class__.__name__,
                     "display_name": self.display_name,
                     "runtime_profile": self.runtime_profile,
+                    "delegated_tasks": delegated_tasks,
                 },
             },
         )
@@ -109,14 +138,23 @@ class ArchitectureRuntimePolicy:
         return EnvelopeRoutingDecision(reason="Envelope routing is delegated to legacy Cowork mailbox during migration.")
 
     def handle_delegation(self, session: Any, request: dict[str, Any]) -> DelegationDecision:
-        return DelegationDecision(reason="Delegation handling is not native for this policy yet.")
+        tools = [str(item).strip() for item in request.get("tools", []) if str(item).strip()]
+        return DelegationDecision(
+            status="allowed",
+            reason="General agent delegation is allowed when service guardrails pass.",
+            payload={
+                "allowed": True,
+                "allowed_tools": tools,
+                "scope": "parent",
+            },
+        )
 
     def evaluate_completion(self, session: Any) -> CompletionDecision:
         return CompletionDecision(reason="Completion is delegated to legacy Cowork assessment during migration.")
 
     def build_projection(self, session: Any, *, branch_id: str = "default") -> ProjectionResult:
         topology = self.topology(session, branch_id=branch_id).payload
-        return ProjectionResult(
+        result = ProjectionResult(
             status="available",
             reason="Projection uses the policy topology plus legacy detail views during migration.",
             payload={
@@ -132,3 +170,13 @@ class ArchitectureRuntimePolicy:
                 },
             },
         )
+        delegated_tasks = topology.get("metadata", {}).get("delegated_tasks", [])
+        if delegated_tasks:
+            result.payload["sections"].append(
+                {
+                    "id": "delegation",
+                    "title": "Agent Delegation",
+                    "items": delegated_tasks,
+                }
+            )
+        return result

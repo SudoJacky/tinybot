@@ -11,6 +11,7 @@ from typing import Any
 
 from loguru import logger
 
+from tinybot.agent.hook import AgentHook, AgentHookContext
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.tools.base import Tool, tool_parameters
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
@@ -30,6 +31,92 @@ _AGENT_PROGRESS_STATUSES = {"idle", "waiting", "blocked", "done", "failed", "nee
 _MAX_RUN_AGENT_CALLS = 30
 _MAX_AGENT_SELF_ACTIVATIONS = 3
 _ITERATION_LIMIT_NOTE = "Cowork round ended because the tool iteration limit was reached."
+
+
+class _CoworkObservationHook(AgentHook):
+    """Bridge runner tool hooks into Cowork Tool Observations."""
+
+    def __init__(self, service: CoworkService, session: CoworkSession, step: Any) -> None:
+        self.service = service
+        self.session = session
+        self.step = step
+        self._started: dict[str, list[str]] = {}
+        self._params: dict[str, list[dict[str, Any]]] = {}
+
+    async def on_tool_start(self, context: AgentHookContext, tool_name: str, args: dict[str, Any]) -> None:
+        key = self._key(context, tool_name)
+        self._started.setdefault(key, []).append(now_iso())
+        self._params.setdefault(key, []).append(dict(args or {}))
+
+    async def on_tool_end(self, context: AgentHookContext, tool_name: str, result: Any) -> None:
+        key = self._key(context, tool_name)
+        started_values = self._started.get(key) or []
+        started_at = started_values.pop(0) if started_values else None
+        params = (self._params.get(key) or [{}]).pop(0)
+        status = "failed" if str(result or "").lstrip().startswith("Error") else "completed"
+        observation = self.service.record_tool_observation(
+            self.session,
+            self.step,
+            tool_name=tool_name,
+            purpose=f"{self.step.agent_id or 'agent'} called {tool_name}",
+            parameters=params,
+            result=result,
+            status=status,
+            started_at=started_at,
+            ended_at=now_iso(),
+            detail_content=str(result or ""),
+            redacted=False,
+            save=False,
+        )
+        if self._looks_like_browser_tool(tool_name, params):
+            self.service.record_browser_observation(
+                self.session,
+                self.step,
+                purpose=observation.purpose,
+                resource_ref=str(params.get("url") or params.get("resource") or params.get("query") or ""),
+                result_summary=observation.result_summary,
+                status=status,
+                accessed_at=started_at,
+                ended_at=observation.ended_at,
+                artifact_refs=[observation.detail_ref] if observation.detail_ref else [],
+                detail_content=str(result or ""),
+                sensitive=self._looks_sensitive_resource(params),
+                save=False,
+            )
+
+    async def on_error(self, context: AgentHookContext, error: Exception) -> None:
+        tool_name = context.current_tool or "tool"
+        key = self._key(context, tool_name)
+        started_values = self._started.get(key) or []
+        started_at = started_values.pop(0) if started_values else None
+        params = (self._params.get(key) or [{}]).pop(0)
+        self.service.record_tool_observation(
+            self.session,
+            self.step,
+            tool_name=tool_name,
+            purpose=f"{self.step.agent_id or 'agent'} called {tool_name}",
+            parameters=params,
+            result=f"{type(error).__name__}: {error}",
+            status="failed",
+            started_at=started_at,
+            ended_at=now_iso(),
+            detail_content=f"{type(error).__name__}: {error}",
+            save=False,
+        )
+
+    @staticmethod
+    def _key(context: AgentHookContext, tool_name: str) -> str:
+        return f"{context.iteration}:{tool_name}"
+
+    @staticmethod
+    def _looks_like_browser_tool(tool_name: str, params: dict[str, Any]) -> bool:
+        lowered = tool_name.lower()
+        return any(part in lowered for part in ("browser", "browse", "web", "url")) or "url" in params
+
+    @staticmethod
+    def _looks_sensitive_resource(params: dict[str, Any]) -> bool:
+        resource = str(params.get("url") or params.get("resource") or "").lower()
+        return resource.startswith("file:") or "localhost" in resource or "127.0.0.1" in resource
 
 
 _TEAM_TOOL = [
@@ -676,6 +763,10 @@ class CoworkTool(Tool):
             if session.status == "completed":
                 return f"Session {session.id} is already completed."
             session.status = "paused"
+            branch = session.branches.get(session.current_branch_id)
+            if branch:
+                branch.status = "paused"
+                branch.updated_at = now_iso()
             self.service.add_event(session, "session.paused", "Cowork session paused")
             return f"Paused cowork session {session.id}."
 
@@ -683,6 +774,10 @@ class CoworkTool(Tool):
             if session.status == "completed":
                 return f"Session {session.id} is already completed."
             session.status = "active"
+            branch = session.branches.get(session.current_branch_id)
+            if branch and branch.status == "paused":
+                branch.status = "active"
+                branch.updated_at = now_iso()
             self.service.add_event(session, "session.resumed", "Cowork session resumed")
             return f"Resumed cowork session {session.id}."
 
@@ -1201,6 +1296,23 @@ class CoworkTool(Tool):
                 "unread_message_ids": [message.id for message in unread],
             },
         )
+        work_unit_id = None
+        if task and session.workflow_mode == "swarm":
+            unit = self.service.swarm_work_unit_for_task(session, task.id)
+            if unit:
+                work_unit_id = str(unit.get("id") or "") or None
+        agent_step = self.service.start_agent_step(
+            session,
+            agent_id=agent.id,
+            action_kind="agent_run",
+            scheduler_reason=f"Scheduler selected {agent.id} for {task.title if task else 'inbox work'}",
+            task_id=getattr(task, "id", None),
+            work_unit_id=work_unit_id,
+            input_summary=task.description if task else "\n".join(message.content for message in unread[:4]),
+            linked_message_ids=[message.id for message in unread],
+            source_span_id=agent_span.id,
+            save=False,
+        )
 
         tools = self._build_agent_tools(session.id, agent)
         messages = [
@@ -1218,6 +1330,7 @@ class CoworkTool(Tool):
                     max_iterations_message="Cowork round ended because the tool iteration limit was reached.",
                     error_message=None,
                     fail_on_tool_error=False,
+                    hook=_CoworkObservationHook(self.service, session, agent_step),
                 )
             )
             content = result.final_content or result.error or "Cowork round completed without a final note."
@@ -1242,6 +1355,21 @@ class CoworkTool(Tool):
                 summary=f"{agent.name} finished with action {progress.get('action') or 'continue'}",
                 data={"progress": progress},
             )
+            linked_message_ids = [mid for mid in session.messages if mid not in previous_message_ids]
+            linked_task_ids = [str(item) for item in progress.get("completed_task_ids") or []]
+            if task and task.id not in linked_task_ids:
+                linked_task_ids.append(task.id)
+            self.service.finish_agent_step(
+                session,
+                agent_step,
+                status="completed" if progress.get("status") != "failed" else "failed",
+                output_summary=progress.get("public_note") or progress.get("private_note") or content,
+                linked_message_ids=linked_message_ids,
+                linked_artifact_refs=list(session.artifacts[-8:]),
+                linked_task_ids=linked_task_ids,
+                detail_content=content,
+                save=True,
+            )
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
             self.service.finish_trace_span(
@@ -1250,6 +1378,15 @@ class CoworkTool(Tool):
                 status="failed",
                 summary=f"{agent.name} failed",
                 error=str(exc),
+            )
+            self.service.finish_agent_step(
+                session,
+                agent_step,
+                status="failed",
+                output_summary=f"{agent.name} failed",
+                error=str(exc),
+                linked_task_ids=[task.id] if task else [],
+                save=False,
             )
             self.service.fail_agent_run(session, agent.id, str(exc))
 

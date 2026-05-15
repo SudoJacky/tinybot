@@ -17,6 +17,7 @@ BranchStatus = Literal["active", "paused", "completed", "failed"]
 AgentStepStatus = Literal["pending", "running", "completed", "failed", "blocked", "stopped"]
 ObservationStatus = Literal["pending", "running", "completed", "failed", "redacted", "unavailable"]
 ObservationDetailState = Literal["available", "redacted", "unavailable", "unauthorized"]
+DelegatedTaskStatus = Literal["requested", "active", "completed", "failed", "retired", "denied"]
 SwarmWorkUnitStatus = Literal[
     "pending",
     "ready",
@@ -72,6 +73,10 @@ class CoworkAgent:
     source_blueprint_id: str = ""
     source_event_id: str = ""
     spawn_reason: str = ""
+    delegated_task_id: str = ""
+    delegated_brief_id: str = ""
+    isolated_context_id: str = ""
+    sub_agent_scope: str = ""
 
 
 @dataclass
@@ -290,6 +295,99 @@ class CoworkSensitiveArtifact:
 
 
 @dataclass
+class CoworkDelegationGuardrail:
+    """Policy and budget limits evaluated before creating a Sub-Agent."""
+
+    id: str
+    branch_id: str
+    architecture: str
+    parent_agent_id: str
+    max_spawned_agents: int | None = None
+    max_concurrent_delegated_work: int | None = None
+    max_agent_calls_total: int | None = None
+    max_tool_calls: int | None = None
+    max_tokens: int | None = None
+    max_cost: float | None = None
+    parallel_width: int | None = None
+    allowed_tools: list[str] = field(default_factory=list)
+    denied_reasons: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkDelegatedBrief:
+    """Minimal brief passed to a Sub-Agent instead of parent private context."""
+
+    id: str
+    parent_agent_id: str
+    task_goal: str
+    constraints: list[str] = field(default_factory=list)
+    input_references: list[dict[str, Any]] = field(default_factory=list)
+    expected_output: str = ""
+    allowed_tools: list[str] = field(default_factory=list)
+    stopping_criteria: list[str] = field(default_factory=list)
+    authorized_artifact_refs: list[str] = field(default_factory=list)
+    authorized_detail_refs: list[str] = field(default_factory=list)
+    redacted_reference_count: int = 0
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkIsolatedSubAgentContext:
+    """Independent context owned by a Sub-Agent while completing a delegated task."""
+
+    id: str
+    delegated_task_id: str
+    sub_agent_id: str
+    parent_agent_id: str
+    brief_id: str
+    summary: str = ""
+    message_refs: list[str] = field(default_factory=list)
+    artifact_refs: list[str] = field(default_factory=list)
+    detail_refs: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkSubAgentResult:
+    """Compact Sub-Agent result returned to the Parent Agent."""
+
+    id: str
+    delegated_task_id: str
+    sub_agent_id: str
+    parent_agent_id: str
+    answer: str = ""
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    sources: list[str] = field(default_factory=list)
+    uncertainty: str = ""
+    artifacts: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+    status: str = "completed"
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkDelegatedTask:
+    """Parent-scoped delegated work assigned to one temporary Sub-Agent."""
+
+    id: str
+    parent_agent_id: str
+    brief_id: str
+    branch_id: str
+    architecture: str
+    sub_agent_id: str | None = None
+    status: DelegatedTaskStatus = "requested"
+    scope: str = "parent"
+    result_id: str | None = None
+    guardrail_id: str | None = None
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+    retired_at: str | None = None
+    error: str | None = None
+
+
+@dataclass
 class CoworkAgentStep:
     """Smallest observable unit of Cowork agent execution."""
 
@@ -505,6 +603,11 @@ class CoworkSession:
     agent_steps: list[CoworkAgentStep] = field(default_factory=list)
     observation_details: dict[str, CoworkFullObservationDetail] = field(default_factory=dict)
     sensitive_artifacts: dict[str, CoworkSensitiveArtifact] = field(default_factory=dict)
+    delegation_guardrails: dict[str, CoworkDelegationGuardrail] = field(default_factory=dict)
+    delegated_briefs: dict[str, CoworkDelegatedBrief] = field(default_factory=dict)
+    delegated_tasks: dict[str, CoworkDelegatedTask] = field(default_factory=dict)
+    isolated_sub_agent_contexts: dict[str, CoworkIsolatedSubAgentContext] = field(default_factory=dict)
+    sub_agent_results: dict[str, CoworkSubAgentResult] = field(default_factory=dict)
     run_metrics: list[CoworkRunMetrics] = field(default_factory=list)
     scheduler_decisions: list[dict[str, Any]] = field(default_factory=list)
     budget_limits: dict[str, Any] = field(default_factory=dict)

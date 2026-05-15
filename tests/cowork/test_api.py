@@ -144,6 +144,32 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert trace_payload["agent_steps"]
     assert trace_payload["trace"]
 
+    service = cowork_api_client.cowork_service
+    session_obj = service.get_session(session_id)
+    step = service.start_agent_step(
+        session_obj,
+        agent_id="planner",
+        action_kind="agent_run",
+        scheduler_reason="API detail check",
+        input_summary="Check detail endpoint",
+    )
+    detail = service.record_full_observation_detail(
+        session_obj,
+        subject_id=step.id,
+        subject_type="agent_step",
+        summary="Detail summary",
+        content="Detail content",
+    )
+    service.finish_agent_step(session_obj, step, output_summary="Finished", save=True)
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/observations/{detail.id}")
+    assert response.status == 200
+    assert (await response.json())["detail"]["content"] == "Detail content"
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/observations/missing")
+    assert response.status == 404
+    assert (await response.json())["detail"]["state"] == "unavailable"
+
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/dag")
     assert response.status == 200
     assert (await response.json())["task_dag"]["stats"]["tasks"] == 1
@@ -199,7 +225,20 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
 
     response = await cowork_api_client.post(f"/api/cowork/sessions/{session_id}/resume")
     assert response.status == 200
-    assert (await response.json())["session"]["status"] == "active"
+    payload = await response.json()
+    assert payload["session"]["status"] == "active"
+    assert "emergency_stop" in payload["session"]["control_scopes"]
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session_id}/emergency-stop",
+        json={"reason": "manual stop"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session"]["status"] == "paused"
+    assert payload["session"]["stop_reason"] == "emergency_stop"
+    assert payload["agent_step"]["action_kind"] == "emergency_stop"
+    assert payload["agent_step"]["status"] == "stopped"
 
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/summary")
     assert response.status == 200

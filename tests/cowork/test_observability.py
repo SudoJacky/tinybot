@@ -188,6 +188,105 @@ def test_trace_includes_native_agent_steps(temp_workspace):
     assert any(item["source"] == "agent_step" and item["id"] == "step_1" for item in trace)
 
 
+def test_native_agent_step_records_tool_and_browser_observations(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Observe native steps", "Observe", [], [])
+    agent_id = next(iter(session.agents))
+
+    step = service.start_agent_step(
+        session,
+        agent_id=agent_id,
+        action_kind="agent_run",
+        scheduler_reason="Ready task",
+        task_id="task_1",
+        input_summary="Run a tool with secret parameters",
+    )
+    tool_observation = service.record_tool_observation(
+        session,
+        step,
+        tool_name="exec",
+        purpose="Run command",
+        parameters={"command": "echo ok", "api_token": "secret"},
+        result="ok",
+        detail_content="full result",
+    )
+    browser_observation = service.record_browser_observation(
+        session,
+        step,
+        purpose="Inspect local page",
+        resource_ref="http://localhost:3000",
+        title="Local app",
+        result_summary="Loaded page",
+        detail_content="<html>private</html>",
+        sensitive=True,
+    )
+    service.finish_agent_step(
+        session,
+        step,
+        output_summary="Agent finished",
+        linked_task_ids=["task_1"],
+        detail_content="full agent result",
+    )
+
+    payload = build_cowork_agent_steps(session)
+    native = payload[-1]
+
+    assert native["projected"] is False
+    assert native["branch_id"] == session.current_branch_id
+    assert native["architecture"] == "adaptive_starter"
+    assert native["status"] == "completed"
+    assert native["summary"]["has_full_detail"] is True
+    assert native["tool_observations"][0]["id"] == tool_observation.id
+    assert native["tool_observations"][0]["parameter_summary"]["api_token"] == "[redacted]"
+    assert native["tool_observations"][0]["result_summary"] == "ok"
+    assert native["browser_observations"][0]["id"] == browser_observation.id
+    assert native["browser_observations"][0]["sensitive"] is True
+    assert native["browser_observations"][0]["redacted"] is True
+    assert session.sensitive_artifacts
+
+
+def test_full_observation_detail_states(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Details", "Details", [], [])
+
+    detail = service.record_full_observation_detail(
+        session,
+        subject_id="toolobs_1",
+        subject_type="tool_observation",
+        summary="Sensitive detail",
+        content="secret content",
+        sensitivity="sensitive",
+        permitted_agent_ids=["agent_allowed"],
+    )
+
+    allowed = service.get_observation_detail(session, detail.id, requester_agent_id="agent_allowed")
+    denied = service.get_observation_detail(session, detail.id, requester_agent_id="agent_denied")
+    missing = service.get_observation_detail(session, "missing")
+
+    assert allowed.state == "available"
+    assert allowed.content == "secret content"
+    assert denied.state == "unauthorized"
+    assert denied.content == ""
+    assert denied.redacted is True
+    assert missing.state == "unavailable"
+
+
+def test_emergency_stop_is_observable_agent_step(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Stop", "Stop", [], [])
+
+    step = service.emergency_stop(session, reason="Unsafe to continue")
+    steps = build_cowork_agent_steps(session)
+    trace = build_cowork_trace(session)
+
+    assert session.status == "paused"
+    assert session.stop_reason == "emergency_stop"
+    assert step.status == "stopped"
+    assert steps[-1]["action_kind"] == "emergency_stop"
+    assert steps[-1]["summary"]["outcome_summary"] == "Emergency Stop recorded; future scheduling is paused."
+    assert any(item["payload"].get("stop_reason") == "emergency_stop" for item in trace)
+
+
 def test_parallel_mailbox_replies_track_all_required_agents(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Replies", "Replies", [], [])

@@ -23,7 +23,7 @@ def test_policy_capability_hooks_delegate_during_migration():
     assert policy.initialize_branch(None).status == "delegated"
     assert policy.select_step(None).status == "delegated"
     assert policy.route_envelope(None, None).status == "delegated"
-    assert policy.handle_delegation(None, {}).status == "delegated"
+    assert policy.handle_delegation(None, {}).status == "allowed"
     assert policy.evaluate_completion(None).status == "delegated"
     assert policy.build_projection(None).status == "available"
 

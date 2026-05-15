@@ -408,6 +408,144 @@ def test_branch_merge_creates_candidate_final_result_from_multiple_branch_result
     assert session.session_final_result == merged
 
 
+def test_agent_delegation_creates_parent_scoped_sub_agent_with_brief(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Delegate bounded research",
+        "Delegation",
+        [{"id": "lead", "name": "Lead", "role": "Coordinator", "goal": "Coordinate"}],
+        [],
+        workflow_mode="agent_team",
+        budgets={"max_spawned_agents": 2, "parallel_width": 2},
+    )
+
+    created = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Inspect only the supplied artifact references.",
+        constraints=["Do not read parent private context."],
+        input_references=[{"type": "artifact", "ref": "artifact://summary", "summary": "Prepared summary"}],
+        expected_output="Answer with cited evidence.",
+        tools=["cowork_internal", "read_file"],
+        stopping_criteria=["Return result to parent."],
+    )
+
+    assert not isinstance(created, str)
+    sub_agent = created["sub_agent"]
+    brief = created["brief"]
+    delegated = created["delegated_task"]
+    assert sub_agent.parent_agent_id == "lead"
+    assert sub_agent.lifetime == "temporary"
+    assert sub_agent.sub_agent_scope == "parent"
+    assert sub_agent.delegated_task_id == delegated.id
+    assert sub_agent.delegated_brief_id == brief.id
+    assert brief.task_goal == "Inspect only the supplied artifact references."
+    assert brief.input_references == [{"ref": "artifact://summary", "type": "artifact", "summary": "Prepared summary"}]
+    assert "private_summary" not in brief.__dict__
+    assert delegated.status == "active"
+    assert delegated.scope == "parent"
+    assert session.isolated_sub_agent_contexts[sub_agent.isolated_context_id].brief_id == brief.id
+    assert (
+        service.architecture_policy(session.workflow_mode)
+        .topology(session)
+        .payload["metadata"]["delegated_tasks"][0]["id"]
+        == delegated.id
+    )
+
+
+def test_delegation_guardrails_filter_context_tools_and_budgets(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Guard delegation",
+        "Guardrails",
+        [{"id": "lead", "name": "Lead", "role": "Coordinator", "goal": "Coordinate"}],
+        [],
+        workflow_mode="swarm",
+        budgets={"max_spawned_agents": 1, "parallel_width": 1, "max_concurrent_delegated_work": 1},
+        blueprint={"policy": {"allowed_tools": ["cowork_internal", "read_file"], "allow_exec": False}},
+    )
+    detail = service.record_full_observation_detail(
+        session,
+        subject_id="tool_private",
+        subject_type="tool_observation",
+        summary="Private tool result",
+        content="secret",
+        sensitivity="private",
+        permitted_agent_ids=["other"],
+        save=False,
+    )
+
+    created = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Use permitted context only.",
+        input_references=[{"type": "observation_detail", "ref": detail.id}],
+        tools=["cowork_internal", "read_file", "exec"],
+    )
+
+    assert not isinstance(created, str)
+    brief = created["brief"]
+    sub_agent = created["sub_agent"]
+    assert brief.allowed_tools == ["cowork_internal", "read_file"]
+    assert brief.input_references == []
+    assert brief.redacted_reference_count == 1
+    assert sub_agent.tools == ["cowork_internal", "read_file"]
+
+    denied = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Try a second concurrent delegation.",
+        tools=["cowork_internal"],
+        save=False,
+    )
+
+    assert isinstance(denied, str)
+    assert "delegation denied" in denied
+    assert any(
+        "spawned_agent_budget_exhausted" in item.denied_reasons for item in session.delegation_guardrails.values()
+    )
+
+
+def test_sub_agent_result_retires_agent_and_preserves_history(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Complete delegated work",
+        "Delegated result",
+        [{"id": "lead", "name": "Lead", "role": "Coordinator", "goal": "Coordinate"}],
+        [],
+        budgets={"max_spawned_agents": 1, "parallel_width": 1},
+    )
+    created = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Answer one bounded question.",
+        tools=["cowork_internal"],
+    )
+    assert not isinstance(created, str)
+    sub_agent = created["sub_agent"]
+
+    result = service.complete_sub_agent(
+        session,
+        sub_agent.id,
+        answer="The answer is available.",
+        evidence=[{"summary": "Checked the brief"}],
+        sources=["brief"],
+        uncertainty="Low",
+        artifacts=["artifact://answer"],
+    )
+
+    assert not isinstance(result, str)
+    delegated = session.delegated_tasks[sub_agent.delegated_task_id]
+    assert delegated.status == "completed"
+    assert delegated.result_id == result.id
+    assert session.agents[sub_agent.id].lifecycle_status == "retired"
+    assert session.agents[sub_agent.id].status == "retired"
+    assert sub_agent.id not in [agent.id for agent in service.select_active_agents(session, limit=10)]
+    assert result.answer == "The answer is available."
+    assert any(event.type == "delegation.result.returned" for event in session.events)
+    assert any(event.type == "agent.retired" for event in session.events)
+
+
 def test_default_team_fallback_and_ready_task_dependencies(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session(
