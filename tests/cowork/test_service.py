@@ -289,6 +289,67 @@ def test_loads_legacy_hybrid_store_as_adaptive_starter(temp_workspace):
     assert session.workflow_mode == "adaptive_starter"
 
 
+def test_legacy_session_loads_with_default_branch(temp_workspace):
+    store_dir = temp_workspace / "cowork"
+    store_dir.mkdir()
+    (store_dir / "store.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "sessions": [
+                    {
+                        "id": "cw_branchless",
+                        "title": "Branchless",
+                        "goal": "Migrate branchless payload",
+                        "workflow_mode": "hybrid",
+                        "agents": {},
+                        "tasks": {},
+                        "threads": {},
+                        "messages": {},
+                        "events": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    session = CoworkService(temp_workspace).get_session("cw_branchless")
+
+    assert session is not None
+    assert session.current_branch_id == "default"
+    assert session.branches["default"].architecture == "adaptive_starter"
+    assert session.branches["default"].status == "active"
+
+
+def test_derive_branch_preserves_source_stage_record_and_allows_selection(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Investigate architecture", "Architecture", [], [])
+    service.complete_task(session, next(iter(session.tasks)), "Useful result")
+
+    branch = service.derive_branch(
+        session,
+        target_architecture="swarm",
+        reason="Need horizontal exploration",
+        inherited_context_summary="Carry only the organized result.",
+    )
+
+    assert not isinstance(branch, str)
+    assert branch.source_branch_id == "default"
+    assert branch.architecture == "swarm"
+    assert session.current_branch_id == branch.id
+    assert session.branches["default"].status in {"active", "completed"}
+    assert session.stage_records[-1].target_branch_id == branch.id
+    assert session.stage_records[-1].inherited_context_summary == "Carry only the organized result."
+    assert all("private_summary" not in ref for ref in session.stage_records[-1].message_refs)
+
+    selected = service.select_branch(session, "default")
+
+    assert not isinstance(selected, str)
+    assert session.current_branch_id == "default"
+    assert session.workflow_mode == "adaptive_starter"
+
+
 def test_default_team_fallback_and_ready_task_dependencies(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session(

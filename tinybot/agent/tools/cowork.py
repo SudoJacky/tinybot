@@ -657,6 +657,11 @@ class CoworkTool(Tool):
         session = self._require_session(session_id)
         if isinstance(session, str):
             return session
+        branch_id = str(kwargs.get("branch_id") or "").strip()
+        if branch_id:
+            selected = self.service.select_branch(session, branch_id, save=False)
+            if isinstance(selected, str):
+                return selected
 
         if action == "status":
             return self.service.format_status(session, verbose=verbose)

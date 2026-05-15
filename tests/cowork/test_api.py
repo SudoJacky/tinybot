@@ -248,6 +248,43 @@ async def test_cowork_api_prefers_architecture_and_normalizes_legacy_alias(cowor
     assert payload["session"]["architecture"] == "adaptive_starter"
     assert payload["session"]["architecture_topology"]["architecture"] == "adaptive_starter"
     assert payload["session"]["organization_projection"]["display_name"] == "Adaptive Starter"
+    assert payload["session"]["current_branch_id"] == "default"
+    assert payload["session"]["branches"][0]["architecture"] == "adaptive_starter"
+
+
+@pytest.mark.asyncio
+async def test_cowork_branch_api_derives_lists_and_selects_branch(cowork_api_client):
+    service = cowork_api_client.cowork_service
+    session = service.create_session("Derive branch", "Derive branch", [], [])
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/branches/derive",
+        json={
+            "architecture": "swarm",
+            "reason": "Parallelize discovery",
+            "inherited_context_summary": "Organized starter findings only.",
+        },
+    )
+
+    assert response.status == 200
+    payload = await response.json()
+    branch_id = payload["branch"]["id"]
+    assert payload["branch"]["architecture"] == "swarm"
+    assert payload["branch"]["source_branch_id"] == "default"
+    assert payload["session"]["current_branch_id"] == branch_id
+    assert payload["session"]["architecture_topology"]["branch_id"] == branch_id
+    assert payload["session"]["stage_records"][-1]["target_branch_id"] == branch_id
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/branches")
+    assert response.status == 200
+    payload = await response.json()
+    assert {item["id"] for item in payload["branches"]} == {"default", branch_id}
+
+    response = await cowork_api_client.post(f"/api/cowork/sessions/{session.id}/branches/default/select")
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session"]["current_branch_id"] == "default"
+    assert payload["session"]["architecture"] == "adaptive_starter"
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,7 @@ SessionStatus = Literal["active", "paused", "completed", "failed"]
 ThreadStatus = Literal["open", "resolved"]
 MailboxStatus = Literal["queued", "delivered", "read", "replied", "expired"]
 SwarmPlanStatus = Literal["draft", "active", "reducing", "reviewing", "completed", "blocked", "failed", "cancelled"]
+BranchStatus = Literal["active", "paused", "completed", "failed"]
 SwarmWorkUnitStatus = Literal[
     "pending",
     "ready",
@@ -284,6 +285,44 @@ class CoworkEvaluationResult:
 
 
 @dataclass
+class CoworkStageRecord:
+    """Preserved source-branch context used to derive another branch."""
+
+    id: str
+    source_branch_id: str
+    target_branch_id: str
+    source_architecture: str
+    target_architecture: str
+    derivation_reason: str = ""
+    source_summary: str = ""
+    inherited_context_summary: str = ""
+    artifact_refs: list[str] = field(default_factory=list)
+    message_refs: list[dict[str, Any]] = field(default_factory=list)
+    decisions: list[dict[str, Any]] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkBranch:
+    """Session-local continuation for one architecture runtime."""
+
+    id: str
+    title: str
+    architecture: str
+    status: BranchStatus = "active"
+    topology_reference: dict[str, Any] = field(default_factory=dict)
+    source_branch_id: str | None = None
+    source_stage_record_id: str | None = None
+    derivation_event_id: str | None = None
+    derivation_reason: str = ""
+    inherited_context_summary: str = ""
+    runtime_state: dict[str, Any] = field(default_factory=dict)
+    completion_decision: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+
+
+@dataclass
 class CoworkSession:
     """A dynamic multi-agent collaboration session."""
 
@@ -292,6 +331,9 @@ class CoworkSession:
     goal: str
     status: SessionStatus = "active"
     workflow_mode: WorkflowMode = "adaptive_starter"
+    current_branch_id: str = "default"
+    branches: dict[str, CoworkBranch] = field(default_factory=dict)
+    stage_records: list[CoworkStageRecord] = field(default_factory=list)
     agents: dict[str, CoworkAgent] = field(default_factory=dict)
     tasks: dict[str, CoworkTask] = field(default_factory=dict)
     threads: dict[str, CoworkThread] = field(default_factory=dict)

@@ -42,12 +42,14 @@ from tinybot.cowork.swarm import (
 )
 from tinybot.cowork.types import (
     CoworkAgent,
+    CoworkBranch,
     CoworkEvaluationResult,
     CoworkEvent,
     CoworkMailboxRecord,
     CoworkMessage,
     CoworkRunMetrics,
     CoworkSession,
+    CoworkStageRecord,
     CoworkTask,
     CoworkThread,
     CoworkTraceSpan,
@@ -66,6 +68,7 @@ _CONVERGENCE_IDLE_ROUNDS = 2
 _DEFAULT_RUN_AGENT_CALLS = 30
 _SHARED_MEMORY_BUCKETS = ("findings", "claims", "risks", "open_questions", "decisions", "artifacts")
 _WORKFLOW_MODES = ACCEPTED_ARCHITECTURE_VALUES
+_DEFAULT_BRANCH_ID = "default"
 
 
 class CoworkService:
@@ -137,6 +140,7 @@ class CoworkService:
                     goal=raw["goal"],
                     status=raw.get("status", "active"),
                     workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", ADAPTIVE_STARTER)),
+                    current_branch_id=str(raw.get("current_branch_id") or _DEFAULT_BRANCH_ID),
                     current_focus_task=raw.get("current_focus_task", ""),
                     workspace_dir=raw.get("workspace_dir", ""),
                     artifacts=raw.get("artifacts", []) if isinstance(raw.get("artifacts", []), list) else [],
@@ -333,6 +337,9 @@ class CoworkService:
                     for item in raw.get("scheduler_decisions", [])
                     if isinstance(item, dict)
                 ]
+                session.branches = self._hydrate_branch_map(raw.get("branches", {}), session)
+                session.stage_records = self._hydrate_dataclass_list(raw.get("stage_records", []), CoworkStageRecord)
+                self.ensure_session_branches(session)
                 self.ensure_session_budget(session)
                 sessions[session.id] = session
             self._sessions = sessions
@@ -362,6 +369,7 @@ class CoworkService:
             goal=str(raw.get("goal") or ""),
             status=raw.get("status", "active"),
             workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", ADAPTIVE_STARTER)),
+            current_branch_id=str(raw.get("current_branch_id") or _DEFAULT_BRANCH_ID),
             current_focus_task=raw.get("current_focus_task", ""),
             workspace_dir=raw.get("workspace_dir", ""),
             artifacts=raw.get("artifacts", []) if isinstance(raw.get("artifacts", []), list) else [],
@@ -393,7 +401,22 @@ class CoworkService:
         session.trace_spans = self._hydrate_dataclass_list(raw.get("trace_spans", []), CoworkTraceSpan)
         session.run_metrics = self._hydrate_dataclass_list(raw.get("run_metrics", []), CoworkRunMetrics)
         session.scheduler_decisions = [dict(item) for item in raw.get("scheduler_decisions", []) if isinstance(item, dict)]
+        session.branches = self._hydrate_branch_map(raw.get("branches", {}), session)
+        session.stage_records = self._hydrate_dataclass_list(raw.get("stage_records", []), CoworkStageRecord)
+        self.ensure_session_branches(session)
         return session
+
+    def _hydrate_branch_map(self, raw: Any, session: CoworkSession) -> dict[str, CoworkBranch]:
+        items = raw.values() if isinstance(raw, dict) else raw if isinstance(raw, list) else []
+        result: dict[str, CoworkBranch] = {}
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            payload = dict(item)
+            payload["architecture"] = self.normalize_workflow_mode(payload.get("architecture", session.workflow_mode))
+            branch = self._hydrate_dataclass(payload, CoworkBranch)
+            result[branch.id] = branch
+        return result
 
     def _hydrate_dataclass_map(self, raw: Any, cls: type[Any]) -> dict[str, Any]:
         items = raw.values() if isinstance(raw, dict) else raw if isinstance(raw, list) else []
@@ -466,6 +489,9 @@ class CoworkService:
         if self._sessions is None:
             return
         self._ensure_dir()
+        for session in self._sessions.values():
+            self.ensure_session_branches(session)
+            self._capture_current_branch_state(session)
         data = {"version": 1, "sessions": [asdict(s) for s in self._sessions.values()]}
         fd, temp_path = tempfile.mkstemp(dir=self.cowork_dir, suffix=".json")
         try:
@@ -494,7 +520,205 @@ class CoworkService:
         return sorted(sessions, key=lambda item: item.updated_at, reverse=True)
 
     def get_session(self, session_id: str) -> CoworkSession | None:
-        return self._load().get(session_id)
+        session = self._load().get(session_id)
+        if session is not None:
+            self.ensure_session_branches(session)
+        return session
+
+    def ensure_session_branches(self, session: CoworkSession) -> None:
+        """Migrate branchless sessions to a default branch in memory."""
+        session.workflow_mode = self.normalize_workflow_mode(getattr(session, "workflow_mode", ADAPTIVE_STARTER))
+        branches = getattr(session, "branches", None)
+        if not isinstance(branches, dict):
+            session.branches = {}
+        if _DEFAULT_BRANCH_ID not in session.branches:
+            session.branches[_DEFAULT_BRANCH_ID] = CoworkBranch(
+                id=_DEFAULT_BRANCH_ID,
+                title="Default branch",
+                architecture=session.workflow_mode,
+                status=session.status,
+                topology_reference={
+                    "branch_id": _DEFAULT_BRANCH_ID,
+                    "architecture": session.workflow_mode,
+                },
+                runtime_state={
+                    "current_focus_task": getattr(session, "current_focus_task", ""),
+                    "rounds": getattr(session, "rounds", 0),
+                },
+                completion_decision=dict(getattr(session, "completion_decision", {}) or {}),
+                created_at=getattr(session, "created_at", now_iso()),
+                updated_at=getattr(session, "updated_at", now_iso()),
+            )
+        for branch in session.branches.values():
+            branch.architecture = self.normalize_workflow_mode(branch.architecture)
+            branch.topology_reference = branch.topology_reference or {
+                "branch_id": branch.id,
+                "architecture": branch.architecture,
+            }
+        if not getattr(session, "current_branch_id", "") or session.current_branch_id not in session.branches:
+            session.current_branch_id = _DEFAULT_BRANCH_ID
+
+    def current_branch(self, session: CoworkSession) -> CoworkBranch:
+        self.ensure_session_branches(session)
+        return session.branches[session.current_branch_id]
+
+    def list_branches(self, session: CoworkSession) -> list[CoworkBranch]:
+        self.ensure_session_branches(session)
+        return sorted(session.branches.values(), key=lambda item: item.created_at)
+
+    def _capture_current_branch_state(self, session: CoworkSession) -> None:
+        self.ensure_session_branches(session)
+        branch = session.branches[session.current_branch_id]
+        branch.architecture = self.normalize_workflow_mode(session.workflow_mode)
+        branch.status = session.status
+        branch.completion_decision = dict(getattr(session, "completion_decision", {}) or {})
+        branch.runtime_state = {
+            **(branch.runtime_state or {}),
+            "current_focus_task": getattr(session, "current_focus_task", ""),
+            "rounds": getattr(session, "rounds", 0),
+            "no_progress_rounds": getattr(session, "no_progress_rounds", 0),
+            "stop_reason": getattr(session, "stop_reason", ""),
+        }
+        branch.updated_at = now_iso()
+
+    def select_branch(self, session: CoworkSession, branch_id: str, *, save: bool = True) -> CoworkBranch | str:
+        self.ensure_session_branches(session)
+        if branch_id not in session.branches:
+            return f"Error: branch '{branch_id}' not found."
+        self._capture_current_branch_state(session)
+        branch = session.branches[branch_id]
+        session.current_branch_id = branch.id
+        session.workflow_mode = branch.architecture  # type: ignore[assignment]
+        session.status = branch.status
+        session.completion_decision = dict(branch.completion_decision or {})
+        session.current_focus_task = str((branch.runtime_state or {}).get("current_focus_task") or session.current_focus_task)
+        self.add_event(
+            session,
+            "branch.selected",
+            f"Selected cowork branch '{branch.id}'",
+            actor_id="user",
+            data={"branch_id": branch.id, "architecture": branch.architecture},
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return branch
+
+    def derive_branch(
+        self,
+        session: CoworkSession,
+        *,
+        source_branch_id: str | None = None,
+        target_architecture: str = ADAPTIVE_STARTER,
+        reason: str = "",
+        title: str = "",
+        inherited_context_summary: str = "",
+        save: bool = True,
+    ) -> CoworkBranch | str:
+        self.ensure_session_branches(session)
+        source_id = source_branch_id or session.current_branch_id
+        if source_id not in session.branches:
+            return f"Error: source branch '{source_id}' not found."
+        self._capture_current_branch_state(session)
+        architecture = self.normalize_workflow_mode(target_architecture)
+        branch_id = self._new_id("br")
+        source = session.branches[source_id]
+        summary = inherited_context_summary.strip() or self._stage_context_summary(session, source)
+        stage_id = self._new_id("stage")
+        event_id = self._new_id("evt")
+        stage = CoworkStageRecord(
+            id=stage_id,
+            source_branch_id=source_id,
+            target_branch_id=branch_id,
+            source_architecture=source.architecture,
+            target_architecture=architecture,
+            derivation_reason=reason.strip(),
+            source_summary=self._stage_source_summary(session, source),
+            inherited_context_summary=summary,
+            artifact_refs=list(getattr(session, "artifacts", [])[-20:]),
+            message_refs=self._stage_message_refs(session),
+            decisions=self._stage_decisions(session),
+        )
+        session.stage_records.append(stage)
+        branch = CoworkBranch(
+            id=branch_id,
+            title=title.strip() or f"{architecture.replace('_', ' ').title()} branch",
+            architecture=architecture,
+            status="active",
+            topology_reference={"branch_id": branch_id, "architecture": architecture},
+            source_branch_id=source_id,
+            source_stage_record_id=stage_id,
+            derivation_event_id=event_id,
+            derivation_reason=reason.strip(),
+            inherited_context_summary=summary,
+            runtime_state={"current_focus_task": summary or session.goal, "source_branch_status": source.status},
+            completion_decision={},
+        )
+        session.branches[branch_id] = branch
+        session.current_branch_id = branch_id
+        session.workflow_mode = architecture  # type: ignore[assignment]
+        session.status = "active"
+        session.current_focus_task = branch.runtime_state["current_focus_task"]
+        self.add_event(
+            session,
+            "branch.derived",
+            f"Derived branch '{branch.id}' from '{source_id}'",
+            actor_id="user",
+            data={
+                "branch_id": branch.id,
+                "source_branch_id": source_id,
+                "target_architecture": architecture,
+                "derivation_reason": reason.strip(),
+                "stage_record_id": stage_id,
+                "derivation_event_id": event_id,
+                "inherited_context_summary": summary,
+            },
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return branch
+
+    def _stage_context_summary(self, session: CoworkSession, source: CoworkBranch) -> str:
+        parts = [
+            getattr(session, "shared_summary", ""),
+            getattr(session, "final_draft", ""),
+            (source.runtime_state or {}).get("current_focus_task", ""),
+            getattr(session, "current_focus_task", ""),
+        ]
+        text = " ".join(str(part or "").strip() for part in parts if str(part or "").strip())
+        return text[:1200]
+
+    def _stage_source_summary(self, session: CoworkSession, source: CoworkBranch) -> str:
+        return (
+            f"{source.title} ({source.architecture}) is {source.status}. "
+            f"Goal: {session.goal}. Focus: {(source.runtime_state or {}).get('current_focus_task') or session.current_focus_task}"
+        )[:1200]
+
+    def _stage_message_refs(self, session: CoworkSession) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": message.id,
+                "thread_id": message.thread_id,
+                "sender_id": message.sender_id,
+                "recipient_ids": list(message.recipient_ids),
+                "summary": message.content[:240],
+                "created_at": message.created_at,
+            }
+            for message in list(session.messages.values())[-12:]
+        ]
+
+    def _stage_decisions(self, session: CoworkSession) -> list[dict[str, Any]]:
+        decisions = []
+        if isinstance(getattr(session, "completion_decision", {}), dict) and session.completion_decision:
+            decisions.append({"kind": "completion_decision", **session.completion_decision})
+        memory = getattr(session, "shared_memory", {}) or {}
+        for item in memory.get("decisions", [])[-8:] if isinstance(memory, dict) else []:
+            if isinstance(item, dict):
+                decisions.append(dict(item))
+        return decisions
 
     def add_listener(self, listener: Callable[[CoworkSession, CoworkEvent], None]) -> None:
         if listener not in self._listeners:
@@ -919,6 +1143,8 @@ class CoworkService:
                 save=False,
             )
         self.assess_session(session, save=False)
+        self.ensure_session_branches(session)
+        self._capture_current_branch_state(session)
         sessions[session.id] = session
         self._touch(session)
         self._save()
