@@ -1,6 +1,6 @@
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.cowork.service import CoworkService
-from tinybot.cowork.snapshot import build_cowork_graph, build_cowork_trace
+from tinybot.cowork.snapshot import build_cowork_agent_steps, build_cowork_graph, build_cowork_trace
 from tinybot.cowork.types import CoworkMailboxRecord
 
 
@@ -131,6 +131,61 @@ def test_stale_blocker_escalates_to_lead(temp_workspace):
     assert [item.id for item in escalated] == ["env_stale"]
     assert session.mailbox["env_stale"].escalated_at
     assert any(event.type == "mailbox.stale_blocker" for event in session.events)
+
+
+def test_legacy_trace_projects_to_bounded_agent_steps(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Project steps", "Steps", [], [])
+    agent_id = next(iter(session.agents))
+    service.add_trace_event(
+        session,
+        kind="tool",
+        name="Tool call",
+        actor_id=agent_id,
+        input_ref="secret " * 200,
+        summary="Collected a concise result",
+        data={"task_id": "1", "architecture": session.workflow_mode},
+        save=False,
+    )
+
+    steps = build_cowork_agent_steps(session)
+    tool_step = next(step for step in steps if step["source_span_id"])
+
+    assert tool_step["projected"] is True
+    assert tool_step["session_id"] == session.id
+    assert tool_step["branch_id"] == session.current_branch_id
+    assert tool_step["architecture"] == "adaptive_starter"
+    assert tool_step["agent_id"] == agent_id
+    assert tool_step["task_id"] == "1"
+    assert tool_step["summary"]["action_kind"] == "tool"
+    assert tool_step["summary"]["outcome_summary"] == "Collected a concise result"
+    assert len(tool_step["summary"]["input_summary"]) <= 220
+
+
+def test_trace_includes_native_agent_steps(temp_workspace):
+    from tinybot.cowork.types import CoworkAgentStep
+
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Native step", "Native", [], [])
+    agent_id = next(iter(session.agents))
+    session.agent_steps.append(
+        CoworkAgentStep(
+            id="step_1",
+            session_id=session.id,
+            branch_id=session.current_branch_id,
+            architecture=session.workflow_mode,
+            agent_id=agent_id,
+            action_kind="agent_run",
+            scheduler_reason="Ready task",
+            status="completed",
+            task_id="1",
+            output_summary="Finished the task",
+        )
+    )
+
+    trace = build_cowork_trace(session)
+
+    assert any(item["source"] == "agent_step" and item["id"] == "step_1" for item in trace)
 
 
 def test_parallel_mailbox_replies_track_all_required_agents(temp_workspace):

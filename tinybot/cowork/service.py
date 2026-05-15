@@ -42,18 +42,24 @@ from tinybot.cowork.swarm import (
 )
 from tinybot.cowork.types import (
     CoworkAgent,
+    CoworkAgentStep,
     CoworkBranch,
     CoworkBranchResult,
+    CoworkBrowserObservation,
     CoworkEvaluationResult,
     CoworkEvent,
+    CoworkFullObservationDetail,
     CoworkMailboxRecord,
     CoworkMessage,
     CoworkRunMetrics,
     CoworkSession,
     CoworkSessionFinalResult,
     CoworkStageRecord,
+    CoworkStepSummary,
+    CoworkSensitiveArtifact,
     CoworkTask,
     CoworkThread,
+    CoworkToolObservation,
     CoworkTraceSpan,
     now_iso,
 )
@@ -317,6 +323,15 @@ class CoworkService:
                     for item in raw.get("trace_spans", [])
                     if isinstance(item, dict) and item.get("id")
                 ]
+                session.agent_steps = self._hydrate_agent_steps(raw.get("agent_steps", []))
+                session.observation_details = self._hydrate_dataclass_map(
+                    raw.get("observation_details", {}),
+                    CoworkFullObservationDetail,
+                )
+                session.sensitive_artifacts = self._hydrate_dataclass_map(
+                    raw.get("sensitive_artifacts", {}),
+                    CoworkSensitiveArtifact,
+                )
                 session.run_metrics = [
                     CoworkRunMetrics(
                         run_id=item["run_id"],
@@ -409,6 +424,9 @@ class CoworkService:
         session.mailbox = self._hydrate_dataclass_map(raw.get("mailbox", {}), CoworkMailboxRecord)
         session.events = self._hydrate_dataclass_list(raw.get("events", []), CoworkEvent)
         session.trace_spans = self._hydrate_dataclass_list(raw.get("trace_spans", []), CoworkTraceSpan)
+        session.agent_steps = self._hydrate_agent_steps(raw.get("agent_steps", []))
+        session.observation_details = self._hydrate_dataclass_map(raw.get("observation_details", {}), CoworkFullObservationDetail)
+        session.sensitive_artifacts = self._hydrate_dataclass_map(raw.get("sensitive_artifacts", {}), CoworkSensitiveArtifact)
         session.run_metrics = self._hydrate_dataclass_list(raw.get("run_metrics", []), CoworkRunMetrics)
         session.scheduler_decisions = [dict(item) for item in raw.get("scheduler_decisions", []) if isinstance(item, dict)]
         session.branches = self._hydrate_branch_map(raw.get("branches", {}), session)
@@ -448,6 +466,26 @@ class CoworkService:
         if not isinstance(raw, dict) or not raw:
             return None
         return self._hydrate_dataclass(raw, cls)
+
+    def _hydrate_agent_steps(self, raw: Any) -> list[CoworkAgentStep]:
+        if not isinstance(raw, list):
+            return []
+        steps: list[CoworkAgentStep] = []
+        for item in raw:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            payload = dict(item)
+            payload["tool_observations"] = self._hydrate_dataclass_list(
+                payload.get("tool_observations", []),
+                CoworkToolObservation,
+            )
+            payload["browser_observations"] = self._hydrate_dataclass_list(
+                payload.get("browser_observations", []),
+                CoworkBrowserObservation,
+            )
+            payload["summary"] = self._hydrate_optional_dataclass(payload.get("summary"), CoworkStepSummary)
+            steps.append(self._hydrate_dataclass(payload, CoworkAgentStep))
+        return steps
 
     def _hydrate_dataclass(self, raw: dict[str, Any], cls: type[Any]) -> Any:
         kwargs: dict[str, Any] = {}

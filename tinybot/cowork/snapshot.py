@@ -6,11 +6,12 @@ import math
 import hashlib
 import mimetypes
 from collections import Counter, defaultdict
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from tinybot.cowork.swarm import build_swarm_scheduler_queues
-from tinybot.cowork.types import CoworkEvent, CoworkSession, now_iso
+from tinybot.cowork.types import CoworkAgentStep, CoworkEvent, CoworkSession, CoworkStepSummary, now_iso
 
 
 def _compact(value: Any, limit: int = 180) -> str:
@@ -544,6 +545,41 @@ def build_cowork_trace(session: CoworkSession, *, limit: int = 80) -> list[dict[
     """Return timeline trace cards derived from events, spans, and scheduler decisions."""
 
     trace: list[dict[str, Any]] = []
+    for step in getattr(session, "agent_steps", [])[-limit:]:
+        summary = step.summary or _step_summary_from_step(step)
+        trace.append(
+            {
+                "id": step.id,
+                "type": f"agent_step.{step.action_kind}",
+                "stage": "agent_step",
+                "action": summary.purpose or step.action_kind.replace("_", " ").title(),
+                "detail": summary.outcome_summary or step.output_summary or summary.input_summary,
+                "actor_id": step.agent_id,
+                "actor_name": session.agents.get(step.agent_id).name if step.agent_id in session.agents else step.agent_id,
+                "at": step.ended_at or step.started_at,
+                "status": step.status,
+                "node_id": f"agent:{step.agent_id}" if step.agent_id in session.agents else "session",
+                "next_node_id": f"task:{step.task_id}" if step.task_id in session.tasks else "",
+                "payload": {
+                    "branch_id": step.branch_id,
+                    "architecture": step.architecture,
+                    "task_id": step.task_id,
+                    "work_unit_id": step.work_unit_id,
+                    "scheduler_reason": step.scheduler_reason,
+                    "linked_message_ids": step.linked_message_ids,
+                    "linked_artifact_refs": step.linked_artifact_refs,
+                    "linked_task_ids": step.linked_task_ids,
+                    "linked_envelope_ids": step.linked_envelope_ids,
+                    "tool_observation_ids": [item.id for item in step.tool_observations],
+                    "browser_observation_ids": [item.id for item in step.browser_observations],
+                    "source_span_id": step.source_span_id,
+                    "source_event_id": step.source_event_id,
+                    "projected": step.projected,
+                    "error": step.error,
+                },
+                "source": "agent_step",
+            }
+        )
     for event in session.events[-limit:]:
         actor_id = event.actor_id or str(event.data.get("agent_id") or "")
         actor = session.agents.get(actor_id)
@@ -648,6 +684,149 @@ def build_cowork_trace(session: CoworkSession, *, limit: int = 80) -> list[dict[
             }
         )
     return sorted(trace, key=lambda item: str(item.get("at") or ""))[-limit:]
+
+
+def build_cowork_agent_steps(session: CoworkSession, *, limit: int = 120) -> list[dict[str, Any]]:
+    """Return native Agent Steps or a bounded legacy projection from existing observability data."""
+
+    native_steps = getattr(session, "agent_steps", []) or []
+    if native_steps:
+        return [_agent_step_payload(step) for step in native_steps[-limit:]]
+    return [_agent_step_payload(step) for step in _project_legacy_agent_steps(session, limit=limit)]
+
+
+def _agent_step_payload(step: CoworkAgentStep) -> dict[str, Any]:
+    payload = asdict(step)
+    summary = step.summary or _step_summary_from_step(step)
+    payload["summary"] = asdict(summary)
+    payload["tool_observations"] = [asdict(item) for item in step.tool_observations]
+    payload["browser_observations"] = [asdict(item) for item in step.browser_observations]
+    return payload
+
+
+def _step_summary_from_step(step: CoworkAgentStep) -> CoworkStepSummary:
+    outcome = step.output_summary or step.error or step.status.replace("_", " ")
+    return CoworkStepSummary(
+        id=f"summary:{step.id}",
+        step_id=step.id,
+        purpose=step.scheduler_reason or step.action_kind.replace("_", " ").title(),
+        action_kind=step.action_kind,
+        input_summary=_compact(step.input_summary, 220),
+        outcome_summary=_compact(outcome, 240),
+        next_effect=_compact(_step_next_effect(step), 180),
+        has_full_detail=bool(step.detail_ref),
+        detail_ref=step.detail_ref,
+        redacted=False,
+        created_at=step.ended_at or step.started_at,
+    )
+
+
+def _step_next_effect(step: CoworkAgentStep) -> str:
+    if step.linked_task_ids:
+        return f"Updated task(s): {', '.join(step.linked_task_ids[:4])}"
+    if step.linked_message_ids:
+        return f"Linked message(s): {', '.join(step.linked_message_ids[:4])}"
+    if step.linked_artifact_refs:
+        return f"Linked artifact(s): {', '.join(step.linked_artifact_refs[:4])}"
+    return ""
+
+
+def _project_legacy_agent_steps(session: CoworkSession, *, limit: int) -> list[CoworkAgentStep]:
+    steps: list[CoworkAgentStep] = []
+    branch_id = getattr(session, "current_branch_id", "default") or "default"
+    branches = getattr(session, "branches", {}) if isinstance(getattr(session, "branches", {}), dict) else {}
+    architecture = getattr(branches.get(branch_id), "architecture", getattr(session, "workflow_mode", "adaptive_starter"))
+
+    for span in getattr(session, "trace_spans", [])[-limit:]:
+        data = getattr(span, "data", {}) or {}
+        step = CoworkAgentStep(
+            id=f"legacy-step:span:{span.id}",
+            session_id=session.id,
+            branch_id=str(data.get("branch_id") or branch_id),
+            architecture=str(data.get("architecture") or data.get("workflow_mode") or architecture),
+            agent_id=span.actor_id,
+            action_kind=str(span.kind or "trace"),
+            scheduler_reason=str(data.get("scheduler_reason") or span.name or ""),
+            status=_step_status(span.status),
+            started_at=span.started_at,
+            ended_at=span.ended_at,
+            duration_ms=span.duration_ms,
+            task_id=str(data.get("task_id")) if data.get("task_id") else None,
+            work_unit_id=str(data.get("work_unit_id")) if data.get("work_unit_id") else None,
+            input_summary=_compact(span.input_ref, 240),
+            output_summary=_compact(span.summary or span.output_ref, 260),
+            error=span.error,
+            linked_task_ids=[str(data.get("task_id"))] if data.get("task_id") else [],
+            linked_artifact_refs=[str(item) for item in data.get("artifact_refs", []) if item]
+            if isinstance(data.get("artifact_refs"), list)
+            else [],
+            source_span_id=span.id,
+            projected=True,
+        )
+        step.summary = _step_summary_from_step(step)
+        steps.append(step)
+
+    for event in getattr(session, "events", [])[-limit:]:
+        data = getattr(event, "data", {}) or {}
+        task_id = data.get("task_id") or data.get("blocking_task_id")
+        step = CoworkAgentStep(
+            id=f"legacy-step:event:{event.id}",
+            session_id=session.id,
+            branch_id=str(data.get("branch_id") or branch_id),
+            architecture=str(data.get("architecture") or data.get("workflow_mode") or architecture),
+            agent_id=event.actor_id,
+            action_kind=str(event.type or "event"),
+            scheduler_reason=_event_action(event),
+            status=_step_status(str(data.get("status") or event.type.rsplit(".", 1)[-1])),
+            started_at=event.created_at,
+            ended_at=event.created_at,
+            task_id=str(task_id) if task_id else None,
+            input_summary="",
+            output_summary=_compact(event.message, 260),
+            linked_message_ids=[str(data.get("message_id"))] if data.get("message_id") else [],
+            linked_task_ids=[str(task_id)] if task_id else [],
+            linked_envelope_ids=[str(data.get("envelope_id"))] if data.get("envelope_id") else [],
+            source_event_id=event.id,
+            projected=True,
+        )
+        step.summary = _step_summary_from_step(step)
+        steps.append(step)
+
+    for decision in getattr(session, "scheduler_decisions", [])[-limit:]:
+        selected = decision.get("selected_agent_ids") or []
+        first_agent = str(selected[0]) if selected else None
+        step = CoworkAgentStep(
+            id=f"legacy-step:scheduler:{decision.get('id')}",
+            session_id=session.id,
+            branch_id=branch_id,
+            architecture=architecture,
+            agent_id=first_agent,
+            action_kind="scheduler_decision",
+            scheduler_reason=str(decision.get("reason") or "Scheduler selected agents"),
+            status="completed" if selected else "blocked",
+            started_at=str(decision.get("created_at") or now_iso()),
+            ended_at=str(decision.get("created_at") or now_iso()),
+            input_summary=_compact(decision.get("candidate_scores", []), 260),
+            output_summary=_compact(f"Selected: {', '.join(str(item) for item in selected)}", 180),
+            projected=True,
+        )
+        step.summary = _step_summary_from_step(step)
+        steps.append(step)
+
+    return sorted(steps, key=lambda item: str(item.ended_at or item.started_at))[-limit:]
+
+
+def _step_status(value: str) -> str:
+    status = str(value or "").lower()
+    if status in {"running", "in_progress", "pending"}:
+        return "running"
+    if status in {"failed", "error"}:
+        return "failed"
+    if status in {"blocked", "expired"}:
+        return "blocked"
+    if status in {"stopped", "cancelled", "canceled"}:
+        return "stopped"
+    return "completed"
 
 
 def build_cowork_task_dag(session: CoworkSession) -> dict[str, Any]:

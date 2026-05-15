@@ -110,6 +110,7 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert "completion_decision" in session
     assert "final_draft" in session
     assert "trace_spans" in session
+    assert "agent_steps" in session
     assert "task_dag" in session
     assert "artifact_index" in session
     assert "budget_state" in session
@@ -119,6 +120,7 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert any(node["kind"] == "task" for node in session["graph"]["nodes"])
     assert any(item["type"] == "session.created" for item in session["trace"])
     assert any(span["kind"] == "session" for span in session["trace_spans"])
+    assert any(step["projected"] for step in session["agent_steps"])
     assert any(node["id"] == "task:task_1" for node in session["task_dag"]["nodes"])
 
     response = await cowork_api_client.get("/api/cowork/sessions")
@@ -139,6 +141,7 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert response.status == 200
     trace_payload = await response.json()
     assert trace_payload["trace_spans"]
+    assert trace_payload["agent_steps"]
     assert trace_payload["trace"]
 
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/dag")

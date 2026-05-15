@@ -10,6 +10,7 @@ from aiohttp import web
 from tinybot.cowork.blueprint import budget_remaining, default_budget_usage, export_session_blueprint, normalize_budget_limits
 from tinybot.cowork.policies import default_policy_registry
 from tinybot.cowork.snapshot import (
+    build_cowork_agent_steps,
     build_cowork_artifact_index,
     build_cowork_graph,
     build_cowork_large_swarm_summary,
@@ -228,6 +229,15 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         }
         for span in getattr(session, "trace_spans", [])[-160:]
     ] if verbose else []
+    agent_steps = build_cowork_agent_steps(session) if verbose else []
+    observation_details = {
+        key: _observation_detail_snapshot(value, verbose=verbose)
+        for key, value in (getattr(session, "observation_details", {}) or {}).items()
+    } if verbose else {}
+    sensitive_artifacts = {
+        key: _sensitive_artifact_snapshot(value)
+        for key, value in (getattr(session, "sensitive_artifacts", {}) or {}).items()
+    } if verbose else {}
     run_metrics = [
         {
             "run_id": metric.run_id,
@@ -308,6 +318,9 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "mailbox": mailbox,
         "events": events,
         "trace_spans": trace_spans,
+        "agent_steps": agent_steps,
+        "observation_details": observation_details,
+        "sensitive_artifacts": sensitive_artifacts,
         "run_metrics": run_metrics,
         "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-40:] if verbose else [],
         "swarm_plan": getattr(session, "swarm_plan", {}),
@@ -323,6 +336,23 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         snapshot["task_dag"] = build_cowork_task_dag(session)
         snapshot["artifact_index"] = build_cowork_artifact_index(session)
     return snapshot
+
+
+def _observation_detail_snapshot(value: Any, *, verbose: bool) -> dict[str, Any]:
+    payload = _dataclass_snapshot(value)
+    if not payload:
+        return {}
+    if not verbose or payload.get("state") != "available" or payload.get("redacted"):
+        payload["content"] = ""
+    return payload
+
+
+def _sensitive_artifact_snapshot(value: Any) -> dict[str, Any]:
+    payload = _dataclass_snapshot(value)
+    if not payload:
+        return {}
+    payload["redacted"] = True
+    return payload
 
 
 def _cowork_service(app: web.Application):
@@ -576,6 +606,7 @@ async def handle_get_session_trace(request: web.Request) -> web.Response:
         {
             "trace": build_cowork_trace(session),
             "trace_spans": cowork_session_snapshot(session).get("trace_spans", []),
+            "agent_steps": build_cowork_agent_steps(session),
             "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-80:],
             "run_metrics": cowork_session_snapshot(session).get("run_metrics", []),
         }

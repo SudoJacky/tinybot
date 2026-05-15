@@ -14,6 +14,9 @@ ThreadStatus = Literal["open", "resolved"]
 MailboxStatus = Literal["queued", "delivered", "read", "replied", "expired"]
 SwarmPlanStatus = Literal["draft", "active", "reducing", "reviewing", "completed", "blocked", "failed", "cancelled"]
 BranchStatus = Literal["active", "paused", "completed", "failed"]
+AgentStepStatus = Literal["pending", "running", "completed", "failed", "blocked", "stopped"]
+ObservationStatus = Literal["pending", "running", "completed", "failed", "redacted", "unavailable"]
+ObservationDetailState = Literal["available", "redacted", "unavailable", "unauthorized"]
 SwarmWorkUnitStatus = Literal[
     "pending",
     "ready",
@@ -197,6 +200,129 @@ class CoworkTraceSpan:
 
 
 @dataclass
+class CoworkStepSummary:
+    """Compact default display payload for an observable Agent Step."""
+
+    id: str
+    step_id: str
+    purpose: str
+    action_kind: str
+    input_summary: str = ""
+    outcome_summary: str = ""
+    next_effect: str = ""
+    has_full_detail: bool = False
+    detail_ref: str = ""
+    redacted: bool = False
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkToolObservation:
+    """Summary of a tool call performed during an Agent Step."""
+
+    id: str
+    step_id: str
+    tool_name: str
+    calling_agent_id: str | None = None
+    purpose: str = ""
+    parameter_summary: dict[str, Any] = field(default_factory=dict)
+    result_summary: str = ""
+    status: ObservationStatus = "completed"
+    started_at: str = field(default_factory=now_iso)
+    ended_at: str | None = None
+    duration_ms: int | None = None
+    detail_ref: str = ""
+    redacted: bool = False
+
+
+@dataclass
+class CoworkBrowserObservation:
+    """Summary of a browser or web-resource access during an Agent Step."""
+
+    id: str
+    step_id: str
+    purpose: str
+    resource_ref: str = ""
+    title: str = ""
+    result_summary: str = ""
+    status: ObservationStatus = "completed"
+    accessed_at: str = field(default_factory=now_iso)
+    ended_at: str | None = None
+    duration_ms: int | None = None
+    artifact_refs: list[str] = field(default_factory=list)
+    detail_ref: str = ""
+    sensitive: bool = False
+    redacted: bool = False
+
+
+@dataclass
+class CoworkFullObservationDetail:
+    """Expandable full detail for a step, tool observation, or browser observation."""
+
+    id: str
+    subject_id: str
+    subject_type: str
+    state: ObservationDetailState = "available"
+    summary: str = ""
+    content: str = ""
+    content_type: str = "text/plain"
+    redacted: bool = False
+    sensitivity: str = ""
+    unavailable_reason: str = ""
+    permitted_agent_ids: list[str] = field(default_factory=list)
+    artifact_refs: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkSensitiveArtifact:
+    """Observation-linked artifact whose full content is not broadly readable by default."""
+
+    id: str
+    source_step_id: str
+    source_observation_id: str = ""
+    summary: str = ""
+    artifact_ref: str = ""
+    sensitivity: str = "sensitive"
+    permitted_agent_ids: list[str] = field(default_factory=list)
+    redacted: bool = True
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkAgentStep:
+    """Smallest observable unit of Cowork agent execution."""
+
+    id: str
+    session_id: str
+    branch_id: str
+    architecture: str
+    agent_id: str | None = None
+    action_kind: str = "agent"
+    scheduler_reason: str = ""
+    status: AgentStepStatus = "completed"
+    started_at: str = field(default_factory=now_iso)
+    ended_at: str | None = None
+    duration_ms: int | None = None
+    task_id: str | None = None
+    work_unit_id: str | None = None
+    input_summary: str = ""
+    output_summary: str = ""
+    error: str | None = None
+    linked_message_ids: list[str] = field(default_factory=list)
+    linked_artifact_refs: list[str] = field(default_factory=list)
+    linked_task_ids: list[str] = field(default_factory=list)
+    linked_envelope_ids: list[str] = field(default_factory=list)
+    tool_observations: list[CoworkToolObservation] = field(default_factory=list)
+    browser_observations: list[CoworkBrowserObservation] = field(default_factory=list)
+    summary: CoworkStepSummary | None = None
+    detail_ref: str = ""
+    source_span_id: str | None = None
+    source_event_id: str | None = None
+    projected: bool = False
+
+
+@dataclass
 class CoworkRunMetrics:
     """Compact metrics for a user-triggered Cowork run."""
 
@@ -376,6 +502,9 @@ class CoworkSession:
     mailbox: dict[str, CoworkMailboxRecord] = field(default_factory=dict)
     events: list[CoworkEvent] = field(default_factory=list)
     trace_spans: list[CoworkTraceSpan] = field(default_factory=list)
+    agent_steps: list[CoworkAgentStep] = field(default_factory=list)
+    observation_details: dict[str, CoworkFullObservationDetail] = field(default_factory=dict)
+    sensitive_artifacts: dict[str, CoworkSensitiveArtifact] = field(default_factory=dict)
     run_metrics: list[CoworkRunMetrics] = field(default_factory=list)
     scheduler_decisions: list[dict[str, Any]] = field(default_factory=list)
     budget_limits: dict[str, Any] = field(default_factory=dict)
