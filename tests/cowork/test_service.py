@@ -350,6 +350,64 @@ def test_derive_branch_preserves_source_stage_record_and_allows_selection(temp_w
     assert session.workflow_mode == "adaptive_starter"
 
 
+def test_branch_result_selection_is_explicit_and_not_replaced_by_newer_branch(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Answer with branches", "Branches", [], [])
+
+    service.complete_task(session, next(iter(session.tasks)), "Default branch answer")
+    default_result = session.branches["default"].branch_result
+
+    assert default_result is not None
+    assert session.session_final_result is None
+
+    selected = service.select_session_final_result(session, "default")
+
+    assert not isinstance(selected, str)
+    assert selected.selected_branch_id == "default"
+    assert selected.selected_result_id == default_result.id
+
+    branch = service.derive_branch(session, target_architecture="swarm", reason="Try another answer")
+
+    assert not isinstance(branch, str)
+    derived_task = service.add_task(
+        session,
+        title="Derived synthesis",
+        description="Produce a derived branch answer",
+        assigned_agent_id=service.lead_agent_id(session),
+    )
+    service.complete_task(session, derived_task.id, "Derived branch answer")
+
+    assert session.branches[branch.id].branch_result is not None
+    assert session.session_final_result is not None
+    assert session.session_final_result.selected_branch_id == "default"
+    assert session.session_final_result.selected_result_id == default_result.id
+
+
+def test_branch_merge_creates_candidate_final_result_from_multiple_branch_results(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Merge branches", "Merge", [], [])
+
+    service.complete_task(session, next(iter(session.tasks)), "Default result")
+    branch = service.derive_branch(session, target_architecture="agent_team", reason="Compare result")
+
+    assert not isinstance(branch, str)
+    derived_task = service.add_task(
+        session,
+        title="Derived result",
+        description="Produce another result",
+        assigned_agent_id=service.lead_agent_id(session),
+    )
+    service.complete_task(session, derived_task.id, "Derived result")
+
+    merged = service.merge_branch_results(session, ["default", branch.id], summary="Merged candidate")
+
+    assert not isinstance(merged, str)
+    assert merged.source == "branch_merge"
+    assert merged.source_branch_ids == ["default", branch.id]
+    assert merged.summary == "Merged candidate"
+    assert session.session_final_result == merged
+
+
 def test_default_team_fallback_and_ready_task_dependencies(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session(

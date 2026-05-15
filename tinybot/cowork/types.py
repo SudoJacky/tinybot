@@ -303,6 +303,39 @@ class CoworkStageRecord:
 
 
 @dataclass
+class CoworkBranchResult:
+    """Result produced by one Cowork Branch without finalizing the session."""
+
+    id: str
+    source_branch_id: str
+    source_architecture: str
+    summary: str
+    artifacts: list[str] = field(default_factory=list)
+    decision: dict[str, Any] = field(default_factory=dict)
+    confidence: float | None = None
+    result_type: str = "branch"
+    source_result_ids: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkSessionFinalResult:
+    """Explicitly selected or merged final result for a Cowork Session."""
+
+    id: str
+    source: str
+    summary: str
+    selected_branch_id: str | None = None
+    selected_result_id: str | None = None
+    source_branch_ids: list[str] = field(default_factory=list)
+    source_result_ids: list[str] = field(default_factory=list)
+    artifacts: list[str] = field(default_factory=list)
+    decision: dict[str, Any] = field(default_factory=dict)
+    confidence: float | None = None
+    created_at: str = field(default_factory=now_iso)
+
+
+@dataclass
 class CoworkBranch:
     """Session-local continuation for one architecture runtime."""
 
@@ -318,6 +351,7 @@ class CoworkBranch:
     inherited_context_summary: str = ""
     runtime_state: dict[str, Any] = field(default_factory=dict)
     completion_decision: dict[str, Any] = field(default_factory=dict)
+    branch_result: CoworkBranchResult | None = None
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
 
@@ -334,6 +368,7 @@ class CoworkSession:
     current_branch_id: str = "default"
     branches: dict[str, CoworkBranch] = field(default_factory=dict)
     stage_records: list[CoworkStageRecord] = field(default_factory=list)
+    session_final_result: CoworkSessionFinalResult | None = None
     agents: dict[str, CoworkAgent] = field(default_factory=dict)
     tasks: dict[str, CoworkTask] = field(default_factory=dict)
     threads: dict[str, CoworkThread] = field(default_factory=dict)

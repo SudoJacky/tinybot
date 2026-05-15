@@ -288,6 +288,46 @@ async def test_cowork_branch_api_derives_lists_and_selects_branch(cowork_api_cli
 
 
 @pytest.mark.asyncio
+async def test_cowork_api_exposes_and_controls_branch_results(cowork_api_client):
+    service = cowork_api_client.cowork_service
+    session = service.create_session("Branch results", "Branch results", [], [])
+
+    service.complete_task(session, next(iter(session.tasks)), "Default branch answer")
+    default_result = session.branches["default"].branch_result
+
+    assert default_result is not None
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/branches/default/result/select-final",
+        json={"result_id": default_result.id},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session_final_result"]["selected_branch_id"] == "default"
+    assert payload["session"]["session_final_result"]["selected_result_id"] == default_result.id
+
+    branch = service.derive_branch(session, target_architecture="swarm", reason="Alternative result")
+    assert not isinstance(branch, str)
+    derived_task = service.add_task(
+        session,
+        title="Derived synthesis",
+        description="Produce derived result",
+        assigned_agent_id=service.lead_agent_id(session),
+    )
+    service.complete_task(session, derived_task.id, "Derived branch answer")
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/branch-results/merge",
+        json={"branch_ids": ["default", branch.id], "summary": "Merged answer"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session_final_result"]["source"] == "branch_merge"
+    assert payload["session_final_result"]["source_branch_ids"] == ["default", branch.id]
+    assert len(payload["session"]["branch_results"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_cowork_swarm_steering_budget_and_work_unit_api(cowork_api_client):
     service = cowork_api_client.cowork_service
     session = service.create_session(

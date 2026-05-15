@@ -43,12 +43,14 @@ from tinybot.cowork.swarm import (
 from tinybot.cowork.types import (
     CoworkAgent,
     CoworkBranch,
+    CoworkBranchResult,
     CoworkEvaluationResult,
     CoworkEvent,
     CoworkMailboxRecord,
     CoworkMessage,
     CoworkRunMetrics,
     CoworkSession,
+    CoworkSessionFinalResult,
     CoworkStageRecord,
     CoworkTask,
     CoworkThread,
@@ -158,6 +160,10 @@ class CoworkService:
                     blueprint=raw.get("blueprint", {}) if isinstance(raw.get("blueprint", {}), dict) else {},
                     blueprint_diagnostics=raw.get("blueprint_diagnostics", []) if isinstance(raw.get("blueprint_diagnostics", []), list) else [],
                     runtime_state=raw.get("runtime_state", {}) if isinstance(raw.get("runtime_state", {}), dict) else {},
+                    session_final_result=self._hydrate_optional_dataclass(
+                        raw.get("session_final_result"),
+                        CoworkSessionFinalResult,
+                    ),
                     created_at=raw.get("created_at", now_iso()),
                     updated_at=raw.get("updated_at", now_iso()),
                     rounds=raw.get("rounds", 0),
@@ -387,6 +393,10 @@ class CoworkService:
             blueprint=raw.get("blueprint", {}) if isinstance(raw.get("blueprint", {}), dict) else {},
             blueprint_diagnostics=raw.get("blueprint_diagnostics", []) if isinstance(raw.get("blueprint_diagnostics", []), list) else [],
             runtime_state=raw.get("runtime_state", {}) if isinstance(raw.get("runtime_state", {}), dict) else {},
+            session_final_result=self._hydrate_optional_dataclass(
+                raw.get("session_final_result"),
+                CoworkSessionFinalResult,
+            ),
             created_at=raw.get("created_at", now_iso()),
             updated_at=raw.get("updated_at", now_iso()),
             rounds=int(raw.get("rounds", 0) or 0),
@@ -414,6 +424,7 @@ class CoworkService:
                 continue
             payload = dict(item)
             payload["architecture"] = self.normalize_workflow_mode(payload.get("architecture", session.workflow_mode))
+            payload["branch_result"] = self._hydrate_optional_dataclass(payload.get("branch_result"), CoworkBranchResult)
             branch = self._hydrate_dataclass(payload, CoworkBranch)
             result[branch.id] = branch
         return result
@@ -432,6 +443,11 @@ class CoworkService:
         if not isinstance(raw, list):
             return []
         return [self._hydrate_dataclass(item, cls) for item in raw if isinstance(item, dict)]
+
+    def _hydrate_optional_dataclass(self, raw: Any, cls: type[Any]) -> Any | None:
+        if not isinstance(raw, dict) or not raw:
+            return None
+        return self._hydrate_dataclass(raw, cls)
 
     def _hydrate_dataclass(self, raw: dict[str, Any], cls: type[Any]) -> Any:
         kwargs: dict[str, Any] = {}
@@ -566,6 +582,11 @@ class CoworkService:
         self.ensure_session_branches(session)
         return sorted(session.branches.values(), key=lambda item: item.created_at)
 
+    def branch_results(self, session: CoworkSession) -> list[CoworkBranchResult]:
+        self.ensure_session_branches(session)
+        results = [branch.branch_result for branch in session.branches.values() if branch.branch_result is not None]
+        return sorted(results, key=lambda item: item.created_at)
+
     def _capture_current_branch_state(self, session: CoworkSession) -> None:
         self.ensure_session_branches(session)
         branch = session.branches[session.current_branch_id]
@@ -579,7 +600,161 @@ class CoworkService:
             "no_progress_rounds": getattr(session, "no_progress_rounds", 0),
             "stop_reason": getattr(session, "stop_reason", ""),
         }
+        if branch.status == "completed" and branch.branch_result is None:
+            self._record_branch_result(session, branch, save=False)
         branch.updated_at = now_iso()
+
+    def _record_branch_result(
+        self,
+        session: CoworkSession,
+        branch: CoworkBranch,
+        *,
+        save: bool = True,
+    ) -> CoworkBranchResult:
+        if branch.branch_result is not None:
+            return branch.branch_result
+        completed = [task for task in session.tasks.values() if task.status == "completed"]
+        confidence_values = [task.confidence for task in completed if task.confidence is not None]
+        confidence = sum(confidence_values) / len(confidence_values) if confidence_values else None
+        summary = (getattr(session, "final_draft", "") or getattr(session, "shared_summary", "") or "").strip()
+        if not summary:
+            summary = self._build_final_draft(session).strip()
+        if not summary:
+            summary = f"Branch '{branch.title}' completed for goal: {session.goal}"
+        result = CoworkBranchResult(
+            id=self._new_id("brres"),
+            source_branch_id=branch.id,
+            source_architecture=branch.architecture,
+            summary=summary,
+            artifacts=list(getattr(session, "artifacts", [])[-20:]),
+            decision=dict(getattr(session, "completion_decision", {}) or branch.completion_decision or {}),
+            confidence=confidence,
+        )
+        branch.branch_result = result
+        branch.updated_at = now_iso()
+        self.add_event(
+            session,
+            "branch.result.created",
+            f"Branch '{branch.id}' produced a result",
+            actor_id="system",
+            data={
+                "branch_id": branch.id,
+                "branch_result_id": result.id,
+                "architecture": branch.architecture,
+            },
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return result
+
+    def select_session_final_result(
+        self,
+        session: CoworkSession,
+        branch_id: str,
+        result_id: str | None = None,
+        *,
+        save: bool = True,
+    ) -> CoworkSessionFinalResult | str:
+        self.ensure_session_branches(session)
+        branch = session.branches.get(branch_id)
+        if branch is None:
+            return f"Error: branch '{branch_id}' not found."
+        result = branch.branch_result
+        if result is None:
+            return f"Error: branch '{branch_id}' has no result to select."
+        if result_id and result.id != result_id:
+            return f"Error: branch result '{result_id}' not found on branch '{branch_id}'."
+        final = CoworkSessionFinalResult(
+            id=self._new_id("final"),
+            source="selected_branch_result",
+            selected_branch_id=branch.id,
+            selected_result_id=result.id,
+            source_branch_ids=[branch.id],
+            source_result_ids=[result.id],
+            summary=result.summary,
+            artifacts=list(result.artifacts),
+            decision=dict(result.decision),
+            confidence=result.confidence,
+        )
+        session.session_final_result = final
+        self.add_event(
+            session,
+            "session.final_result.selected",
+            f"Selected branch result '{result.id}' as the session final result",
+            actor_id="user",
+            data={
+                "selected_branch_id": branch.id,
+                "selected_result_id": result.id,
+                "session_final_result_id": final.id,
+            },
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return final
+
+    def merge_branch_results(
+        self,
+        session: CoworkSession,
+        branch_ids: list[str],
+        *,
+        summary: str = "",
+        save: bool = True,
+    ) -> CoworkSessionFinalResult | str:
+        self.ensure_session_branches(session)
+        selected_ids = [branch_id for branch_id in dict.fromkeys(branch_ids) if branch_id in session.branches]
+        if len(selected_ids) < 2:
+            return "Error: at least two existing branches are required to merge branch results."
+        results: list[CoworkBranchResult] = []
+        missing = []
+        for branch_id in selected_ids:
+            result = session.branches[branch_id].branch_result
+            if result is None:
+                missing.append(branch_id)
+            else:
+                results.append(result)
+        if missing:
+            return f"Error: branch result missing for: {', '.join(missing)}."
+        confidence_values = [item.confidence for item in results if item.confidence is not None]
+        confidence = sum(confidence_values) / len(confidence_values) if confidence_values else None
+        merged_summary = summary.strip() or "\n\n".join(
+            f"## {session.branches[item.source_branch_id].title}\n{item.summary}" for item in results
+        )
+        final = CoworkSessionFinalResult(
+            id=self._new_id("final"),
+            source="branch_merge",
+            source_branch_ids=selected_ids,
+            source_result_ids=[item.id for item in results],
+            summary=merged_summary,
+            artifacts=list(dict.fromkeys(artifact for item in results for artifact in item.artifacts)),
+            decision={
+                "operation": "branch_merge",
+                "source_branch_ids": selected_ids,
+                "source_result_ids": [item.id for item in results],
+                "created_at": now_iso(),
+            },
+            confidence=confidence,
+        )
+        session.session_final_result = final
+        self.add_event(
+            session,
+            "session.final_result.merged",
+            f"Merged {len(results)} branch results into a candidate session final result",
+            actor_id="user",
+            data={
+                "source_branch_ids": selected_ids,
+                "source_result_ids": [item.id for item in results],
+                "session_final_result_id": final.id,
+            },
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return final
 
     def select_branch(self, session: CoworkSession, branch_id: str, *, save: bool = True) -> CoworkBranch | str:
         self.ensure_session_branches(session)
@@ -4078,6 +4253,7 @@ class CoworkService:
                 "goal_review": goal_review,
                 "updated_at": now_iso(),
             }
+            self._capture_current_branch_state(session)
 
     @staticmethod
     def _task_dependencies_done(session: CoworkSession, task: CoworkTask) -> bool:

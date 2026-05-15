@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from aiohttp import web
@@ -57,11 +58,22 @@ def _branch_snapshot(branch: Any, *, current: bool = False) -> dict[str, Any]:
         "inherited_context_summary": getattr(branch, "inherited_context_summary", ""),
         "completion_decision": getattr(branch, "completion_decision", {}) or {},
         "runtime_state": getattr(branch, "runtime_state", {}) or {},
+        "branch_result": _dataclass_snapshot(getattr(branch, "branch_result", None)),
         "created_at": branch.created_at,
         "updated_at": branch.updated_at,
         "current": current,
         "derived": bool(getattr(branch, "source_branch_id", None)),
     }
+
+
+def _dataclass_snapshot(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if is_dataclass(value):
+        return asdict(value)
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
 
 
 def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, Any]:
@@ -249,6 +261,12 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
             _branch_snapshot(branch, current=branch.id == current_branch_id)
             for branch in branches.values()
         ],
+        "branch_results": [
+            _dataclass_snapshot(getattr(branch, "branch_result", None))
+            for branch in branches.values()
+            if getattr(branch, "branch_result", None) is not None
+        ],
+        "session_final_result": _dataclass_snapshot(getattr(session, "session_final_result", None)),
         "stage_records": [
             {
                 "id": record.id,
@@ -501,6 +519,50 @@ async def handle_derive_branch(request: web.Request) -> web.Response:
     if isinstance(branch, str):
         return web.json_response({"error": branch}, status=400)
     return web.json_response({"branch": _branch_snapshot(branch, current=True), "session": cowork_session_snapshot(session)})
+
+
+async def handle_select_final_result(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    branch_id = str(payload.get("branch_id") or request.match_info.get("branch_id") or "")
+    result = service.select_session_final_result(
+        session,
+        branch_id,
+        result_id=str(payload.get("result_id") or "") or None,
+    )
+    if isinstance(result, str):
+        return web.json_response({"error": result}, status=400)
+    return web.json_response({"session_final_result": _dataclass_snapshot(result), "session": cowork_session_snapshot(session)})
+
+
+async def handle_merge_branch_results(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    branch_ids = payload.get("branch_ids")
+    if not isinstance(branch_ids, list):
+        return web.json_response({"error": "branch_ids must be a list"}, status=400)
+    result = service.merge_branch_results(
+        session,
+        [str(branch_id) for branch_id in branch_ids],
+        summary=str(payload.get("summary") or ""),
+    )
+    if isinstance(result, str):
+        return web.json_response({"error": result}, status=400)
+    return web.json_response({"session_final_result": _dataclass_snapshot(result), "session": cowork_session_snapshot(session)})
 
 
 async def handle_get_session_trace(request: web.Request) -> web.Response:
@@ -798,8 +860,10 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_get("/api/cowork/sessions/{session_id}/graph", handle_get_session_graph)
     app.router.add_get("/api/cowork/sessions/{session_id}/branches", handle_list_branches)
     app.router.add_post("/api/cowork/sessions/{session_id}/branches/derive", handle_derive_branch)
+    app.router.add_post("/api/cowork/sessions/{session_id}/branch-results/merge", handle_merge_branch_results)
     app.router.add_post("/api/cowork/sessions/{session_id}/branches/{branch_id}/select", handle_select_branch)
     app.router.add_post("/api/cowork/sessions/{session_id}/branches/{branch_id}/derive", handle_derive_branch)
+    app.router.add_post("/api/cowork/sessions/{session_id}/branches/{branch_id}/result/select-final", handle_select_final_result)
     app.router.add_get("/api/cowork/sessions/{session_id}/trace", handle_get_session_trace)
     app.router.add_get("/api/cowork/sessions/{session_id}/blueprint", handle_export_session_blueprint)
     app.router.add_get("/api/cowork/sessions/{session_id}/dag", handle_get_session_dag)
