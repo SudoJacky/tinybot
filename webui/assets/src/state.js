@@ -67,6 +67,8 @@ export const state = {
   coworkTraceFilter: "all",
   coworkTraceMode: "key",
   coworkSecondaryTab: "trace",
+  coworkConsoleFilter: "",
+  coworkWorkUnitSearch: "",
   coworkGraphCollapsed: false,
   coworkTraceCollapsed: false,
   coworkPendingAction: "",

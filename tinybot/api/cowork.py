@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from aiohttp import web
 
 from tinybot.cowork.blueprint import budget_remaining, default_budget_usage, export_session_blueprint, normalize_budget_limits
+from tinybot.cowork.policies import default_policy_registry
 from tinybot.cowork.snapshot import (
+    build_cowork_agent_steps,
     build_cowork_artifact_index,
     build_cowork_graph,
+    build_cowork_large_swarm_summary,
     build_cowork_task_dag,
     build_cowork_trace,
 )
+from tinybot.cowork.swarm import build_swarm_scheduler_queues
 
 
 def _budget_snapshot(session: Any) -> dict[str, Any]:
@@ -40,8 +45,45 @@ def _blueprint_metadata(blueprint: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _branch_snapshot(branch: Any, *, current: bool = False) -> dict[str, Any]:
+    return {
+        "id": branch.id,
+        "title": branch.title,
+        "architecture": branch.architecture,
+        "status": branch.status,
+        "topology_reference": getattr(branch, "topology_reference", {}) or {},
+        "source_branch_id": getattr(branch, "source_branch_id", None),
+        "source_stage_record_id": getattr(branch, "source_stage_record_id", None),
+        "derivation_event_id": getattr(branch, "derivation_event_id", None),
+        "derivation_reason": getattr(branch, "derivation_reason", ""),
+        "inherited_context_summary": getattr(branch, "inherited_context_summary", ""),
+        "completion_decision": getattr(branch, "completion_decision", {}) or {},
+        "runtime_state": getattr(branch, "runtime_state", {}) or {},
+        "branch_result": _dataclass_snapshot(getattr(branch, "branch_result", None)),
+        "created_at": branch.created_at,
+        "updated_at": branch.updated_at,
+        "current": current,
+        "derived": bool(getattr(branch, "source_branch_id", None)),
+    }
+
+
+def _dataclass_snapshot(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if is_dataclass(value):
+        return asdict(value)
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
 def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, Any]:
     """Return a JSON-safe snapshot for a cowork session."""
+    branches = getattr(session, "branches", {}) if isinstance(getattr(session, "branches", {}), dict) else {}
+    current_branch_id = getattr(session, "current_branch_id", "default") or "default"
+    current_branch = branches.get(current_branch_id) if branches else None
+    active_architecture = getattr(current_branch, "architecture", getattr(session, "workflow_mode", "adaptive_starter"))
+    policy = default_policy_registry().resolve(active_architecture)
     agents = []
     for agent in session.agents.values():
         current_task_title = agent.current_task_title
@@ -61,12 +103,17 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
                 "current_task_id": agent.current_task_id,
                 "current_task_title": current_task_title,
                 "last_active_at": agent.last_active_at,
-            "rounds": agent.rounds,
-            "parent_agent_id": getattr(agent, "parent_agent_id", None),
-            "team_id": getattr(agent, "team_id", ""),
-            "lifecycle_status": getattr(agent, "lifecycle_status", "active"),
-            "source_blueprint_id": getattr(agent, "source_blueprint_id", ""),
-        }
+                "rounds": agent.rounds,
+                "parent_agent_id": getattr(agent, "parent_agent_id", None),
+                "team_id": getattr(agent, "team_id", ""),
+                "lifetime": getattr(agent, "lifetime", "persistent"),
+                "lifecycle_status": getattr(agent, "lifecycle_status", "active"),
+                "source_blueprint_id": getattr(agent, "source_blueprint_id", ""),
+                "delegated_task_id": getattr(agent, "delegated_task_id", ""),
+                "delegated_brief_id": getattr(agent, "delegated_brief_id", ""),
+                "isolated_context_id": getattr(agent, "isolated_context_id", ""),
+                "sub_agent_scope": getattr(agent, "sub_agent_scope", ""),
+            }
         )
     tasks = [
         {
@@ -186,6 +233,15 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         }
         for span in getattr(session, "trace_spans", [])[-160:]
     ] if verbose else []
+    agent_steps = build_cowork_agent_steps(session) if verbose else []
+    observation_details = {
+        key: _observation_detail_snapshot(value, verbose=verbose)
+        for key, value in (getattr(session, "observation_details", {}) or {}).items()
+    } if verbose else {}
+    sensitive_artifacts = {
+        key: _sensitive_artifact_snapshot(value)
+        for key, value in (getattr(session, "sensitive_artifacts", {}) or {}).items()
+    } if verbose else {}
     run_metrics = [
         {
             "run_id": metric.run_id,
@@ -211,7 +267,37 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "title": session.title,
         "goal": session.goal,
         "status": session.status,
-        "workflow_mode": getattr(session, "workflow_mode", "hybrid"),
+        "workflow_mode": getattr(session, "workflow_mode", "adaptive_starter"),
+        "architecture": active_architecture,
+        "current_branch_id": current_branch_id,
+        "current_branch": _branch_snapshot(current_branch, current=True) if current_branch is not None else {},
+        "branches": [
+            _branch_snapshot(branch, current=branch.id == current_branch_id)
+            for branch in branches.values()
+        ],
+        "branch_results": [
+            _dataclass_snapshot(getattr(branch, "branch_result", None))
+            for branch in branches.values()
+            if getattr(branch, "branch_result", None) is not None
+        ],
+        "session_final_result": _dataclass_snapshot(getattr(session, "session_final_result", None)),
+        "stage_records": [
+            {
+                "id": record.id,
+                "source_branch_id": record.source_branch_id,
+                "target_branch_id": record.target_branch_id,
+                "source_architecture": record.source_architecture,
+                "target_architecture": record.target_architecture,
+                "derivation_reason": record.derivation_reason,
+                "source_summary": record.source_summary,
+                "inherited_context_summary": record.inherited_context_summary,
+                "artifact_refs": record.artifact_refs,
+                "message_refs": record.message_refs if verbose else [],
+                "decisions": record.decisions if verbose else [],
+                "created_at": record.created_at,
+            }
+            for record in getattr(session, "stage_records", [])
+        ],
         "current_focus_task": getattr(session, "current_focus_task", ""),
         "workspace_dir": getattr(session, "workspace_dir", ""),
         "artifacts": getattr(session, "artifacts", []),
@@ -222,6 +308,15 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "budget": _budget_snapshot(session),
         "budget_state": _budget_snapshot(session),
         "stop_reason": getattr(session, "stop_reason", ""),
+        "control_scopes": {
+            "session": ["run", "pause", "resume", "delete", "emergency_stop"],
+            "branch": ["list", "select", "derive"],
+            "agent": ["send_message"],
+            "task": ["add", "assign", "retry", "review"],
+            "work_unit": ["retry", "skip", "cancel"],
+            "feedback": ["send_message"],
+            "emergency_stop": ["stop_future_scheduling"],
+        },
         "blueprint": getattr(session, "blueprint", {}) if verbose else {},
         "blueprint_metadata": _blueprint_metadata(getattr(session, "blueprint", {}) or {}),
         "blueprint_diagnostics": getattr(session, "blueprint_diagnostics", []),
@@ -236,16 +331,46 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "mailbox": mailbox,
         "events": events,
         "trace_spans": trace_spans,
+        "agent_steps": agent_steps,
+        "observation_details": observation_details,
+        "sensitive_artifacts": sensitive_artifacts,
+        "delegation_guardrails": [_dataclass_snapshot(item) for item in getattr(session, "delegation_guardrails", {}).values()],
+        "delegated_briefs": [_dataclass_snapshot(item) for item in getattr(session, "delegated_briefs", {}).values()],
+        "delegated_tasks": [_dataclass_snapshot(item) for item in getattr(session, "delegated_tasks", {}).values()],
+        "isolated_sub_agent_contexts": [_dataclass_snapshot(item) for item in getattr(session, "isolated_sub_agent_contexts", {}).values()],
+        "sub_agent_results": [_dataclass_snapshot(item) for item in getattr(session, "sub_agent_results", {}).values()],
         "run_metrics": run_metrics,
         "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-40:] if verbose else [],
         "swarm_plan": getattr(session, "swarm_plan", {}),
+        "evaluation_results": (getattr(session, "runtime_state", {}) or {}).get("swarm_evaluations", []),
+        "swarm_queues": build_swarm_scheduler_queues(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
+        "large_swarm_summary": build_cowork_large_swarm_summary(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
     }
     if verbose:
+        snapshot["architecture_topology"] = policy.topology(session, branch_id=current_branch_id).payload
+        snapshot["organization_projection"] = policy.build_projection(session, branch_id=current_branch_id).payload
         snapshot["graph"] = build_cowork_graph(session)
         snapshot["trace"] = build_cowork_trace(session)
         snapshot["task_dag"] = build_cowork_task_dag(session)
         snapshot["artifact_index"] = build_cowork_artifact_index(session)
     return snapshot
+
+
+def _observation_detail_snapshot(value: Any, *, verbose: bool) -> dict[str, Any]:
+    payload = _dataclass_snapshot(value)
+    if not payload:
+        return {}
+    if not verbose or payload.get("state") != "available" or payload.get("redacted"):
+        payload["content"] = ""
+    return payload
+
+
+def _sensitive_artifact_snapshot(value: Any) -> dict[str, Any]:
+    payload = _dataclass_snapshot(value)
+    if not payload:
+        return {}
+    payload["redacted"] = True
+    return payload
 
 
 def _cowork_service(app: web.Application):
@@ -347,7 +472,7 @@ async def handle_create_session(request: web.Request) -> web.Response:
     result = await tool.execute(
         action="start",
         goal=goal,
-        workflow_mode=str(payload.get("workflow_mode") or "hybrid"),
+        workflow_mode=str(payload.get("architecture") or payload.get("workflow_mode") or payload.get("mode") or "adaptive_starter"),
         auto_run=bool(payload.get("auto_run", False)),
         max_rounds=int(payload.get("max_rounds", 1) or 1),
         max_agents=int(payload.get("max_agents", 3) or 3),
@@ -379,7 +504,113 @@ async def handle_get_session_graph(request: web.Request) -> web.Response:
     session = service.get_session(request.match_info["session_id"])
     if session is None:
         return web.json_response({"error": "cowork session not found"}, status=404)
-    return web.json_response({"graph": build_cowork_graph(session), "trace": build_cowork_trace(session)})
+    branch_id = getattr(session, "current_branch_id", "default")
+    branch = getattr(session, "branches", {}).get(branch_id) if isinstance(getattr(session, "branches", {}), dict) else None
+    policy = default_policy_registry().resolve(getattr(branch, "architecture", getattr(session, "workflow_mode", "adaptive_starter")))
+    return web.json_response(
+        {
+            "graph": build_cowork_graph(session),
+            "trace": build_cowork_trace(session),
+            "architecture_topology": policy.topology(session, branch_id=branch_id).payload,
+            "organization_projection": policy.build_projection(session, branch_id=branch_id).payload,
+        }
+    )
+
+
+async def handle_list_branches(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    branches = service.list_branches(session)
+    return web.json_response(
+        {
+            "current_branch_id": session.current_branch_id,
+            "branches": [_branch_snapshot(branch, current=branch.id == session.current_branch_id) for branch in branches],
+        }
+    )
+
+
+async def handle_select_branch(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.select_branch(session, request.match_info["branch_id"])
+    if isinstance(result, str):
+        return web.json_response({"error": result}, status=404)
+    return web.json_response({"branch": _branch_snapshot(result, current=True), "session": cowork_session_snapshot(session)})
+
+
+async def handle_derive_branch(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    branch = service.derive_branch(
+        session,
+        source_branch_id=str(payload.get("source_branch_id") or request.match_info.get("branch_id") or ""),
+        target_architecture=str(payload.get("target_architecture") or payload.get("architecture") or "adaptive_starter"),
+        reason=str(payload.get("reason") or payload.get("derivation_reason") or ""),
+        title=str(payload.get("title") or ""),
+        inherited_context_summary=str(payload.get("inherited_context_summary") or ""),
+    )
+    if isinstance(branch, str):
+        return web.json_response({"error": branch}, status=400)
+    return web.json_response({"branch": _branch_snapshot(branch, current=True), "session": cowork_session_snapshot(session)})
+
+
+async def handle_select_final_result(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    branch_id = str(payload.get("branch_id") or request.match_info.get("branch_id") or "")
+    result = service.select_session_final_result(
+        session,
+        branch_id,
+        result_id=str(payload.get("result_id") or "") or None,
+    )
+    if isinstance(result, str):
+        return web.json_response({"error": result}, status=400)
+    return web.json_response({"session_final_result": _dataclass_snapshot(result), "session": cowork_session_snapshot(session)})
+
+
+async def handle_merge_branch_results(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    branch_ids = payload.get("branch_ids")
+    if not isinstance(branch_ids, list):
+        return web.json_response({"error": "branch_ids must be a list"}, status=400)
+    result = service.merge_branch_results(
+        session,
+        [str(branch_id) for branch_id in branch_ids],
+        summary=str(payload.get("summary") or ""),
+    )
+    if isinstance(result, str):
+        return web.json_response({"error": result}, status=400)
+    return web.json_response({"session_final_result": _dataclass_snapshot(result), "session": cowork_session_snapshot(session)})
 
 
 async def handle_get_session_trace(request: web.Request) -> web.Response:
@@ -393,10 +624,28 @@ async def handle_get_session_trace(request: web.Request) -> web.Response:
         {
             "trace": build_cowork_trace(session),
             "trace_spans": cowork_session_snapshot(session).get("trace_spans", []),
+            "agent_steps": build_cowork_agent_steps(session),
             "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-80:],
             "run_metrics": cowork_session_snapshot(session).get("run_metrics", []),
         }
     )
+
+
+async def handle_get_observation_detail(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    requester_agent_id = request.query.get("agent_id") or None
+    detail = service.get_observation_detail(
+        session,
+        request.match_info["detail_id"],
+        requester_agent_id=requester_agent_id,
+    )
+    status = 404 if detail.state == "unavailable" else 403 if detail.state == "unauthorized" else 200
+    return web.json_response({"detail": _observation_detail_snapshot(detail, verbose=True)}, status=status)
 
 
 async def handle_export_session_blueprint(request: web.Request) -> web.Response:
@@ -417,6 +666,27 @@ async def handle_get_session_dag(request: web.Request) -> web.Response:
     if session is None:
         return web.json_response({"error": "cowork session not found"}, status=404)
     return web.json_response({"task_dag": build_cowork_task_dag(session), "artifact_index": build_cowork_artifact_index(session)})
+
+
+async def handle_get_session_artifacts(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    artifacts = build_cowork_artifact_index(session)
+    return web.json_response({"artifact_index": artifacts, "large_swarm_summary": build_cowork_large_swarm_summary(session)})
+
+
+async def handle_get_session_queues(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    return web.json_response({"swarm_queues": build_swarm_scheduler_queues(session)})
 
 
 async def handle_delete_session(request: web.Request) -> web.Response:
@@ -460,6 +730,21 @@ async def handle_resume_session(request: web.Request) -> web.Response:
     return await _simple_tool_action(request, "resume")
 
 
+async def handle_emergency_stop_session(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    step = service.emergency_stop(session, reason=str(payload.get("reason") or ""))
+    return web.json_response({"agent_step": _dataclass_snapshot(step), "session": cowork_session_snapshot(session)})
+
+
 async def _simple_tool_action(request: web.Request, action: str) -> web.Response:
     tool = _cowork_tool(request.app)
     if tool is None:
@@ -473,7 +758,8 @@ async def _simple_tool_action(request: web.Request, action: str) -> web.Response
 
 async def handle_send_message(request: web.Request) -> web.Response:
     tool = _cowork_tool(request.app)
-    if tool is None:
+    service = _cowork_service(request.app)
+    if tool is None and service is None:
         return web.json_response({"error": "cowork is not available"}, status=503)
     payload = await _json_body(request)
     if isinstance(payload, web.Response):
@@ -482,6 +768,13 @@ async def handle_send_message(request: web.Request) -> web.Response:
     if not content:
         return web.json_response({"error": "content is required"}, status=400)
     session_id = request.match_info["session_id"]
+    session = service.get_session(session_id) if service else None
+    if session is not None and getattr(session, "workflow_mode", "") == "swarm" and not payload.get("recipient_ids"):
+        result = service.steer_swarm(session, content)
+        status = 400 if result.startswith("Error:") else 200
+        return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+    if tool is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
     result = await tool.execute(
         action="send_message",
         session_id=session_id,
@@ -491,7 +784,6 @@ async def handle_send_message(request: web.Request) -> web.Response:
         topic=str(payload.get("topic") or ""),
         event_type=str(payload.get("event_type") or ""),
     )
-    service = _cowork_service(request.app)
     session = service.get_session(session_id) if service else None
     return web.json_response({"result": result, "session": cowork_session_snapshot(session) if session else None})
 
@@ -568,6 +860,69 @@ async def handle_request_task_review(request: web.Request) -> web.Response:
     return web.json_response({"review_task_id": result.id, "session": cowork_session_snapshot(session)})
 
 
+async def handle_retry_work_unit(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.retry_work_unit(session, request.match_info["work_unit_id"], reason=str(payload.get("reason") or ""))
+    status = 400 if result.startswith("Error:") else 200
+    return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+
+
+async def handle_skip_work_unit(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.skip_work_unit(session, request.match_info["work_unit_id"], reason=str(payload.get("reason") or ""))
+    status = 400 if result.startswith("Error:") else 200
+    return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+
+
+async def handle_cancel_work_unit(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    result = service.cancel_work_unit(session, request.match_info["work_unit_id"], reason=str(payload.get("reason") or ""))
+    status = 400 if result.startswith("Error:") else 200
+    return web.json_response({"result": result, "session": cowork_session_snapshot(session)}, status=status)
+
+
+async def handle_update_session_budget(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    payload = await _json_body(request)
+    if isinstance(payload, web.Response):
+        return payload
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    budgets = payload.get("budgets", payload)
+    if not isinstance(budgets, dict):
+        return web.json_response({"error": "budgets must be an object"}, status=400)
+    budget_state = service.set_session_budgets(session, budgets)
+    return web.json_response({"budget": budget_state, "session": cowork_session_snapshot(session)})
+
+
 async def handle_summary(request: web.Request) -> web.Response:
     tool = _cowork_tool(request.app)
     if tool is None:
@@ -584,16 +939,30 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_post("/api/cowork/sessions", handle_create_session)
     app.router.add_get("/api/cowork/sessions/{session_id}", handle_get_session)
     app.router.add_get("/api/cowork/sessions/{session_id}/graph", handle_get_session_graph)
+    app.router.add_get("/api/cowork/sessions/{session_id}/branches", handle_list_branches)
+    app.router.add_post("/api/cowork/sessions/{session_id}/branches/derive", handle_derive_branch)
+    app.router.add_post("/api/cowork/sessions/{session_id}/branch-results/merge", handle_merge_branch_results)
+    app.router.add_post("/api/cowork/sessions/{session_id}/branches/{branch_id}/select", handle_select_branch)
+    app.router.add_post("/api/cowork/sessions/{session_id}/branches/{branch_id}/derive", handle_derive_branch)
+    app.router.add_post("/api/cowork/sessions/{session_id}/branches/{branch_id}/result/select-final", handle_select_final_result)
     app.router.add_get("/api/cowork/sessions/{session_id}/trace", handle_get_session_trace)
+    app.router.add_get("/api/cowork/sessions/{session_id}/observations/{detail_id}", handle_get_observation_detail)
     app.router.add_get("/api/cowork/sessions/{session_id}/blueprint", handle_export_session_blueprint)
     app.router.add_get("/api/cowork/sessions/{session_id}/dag", handle_get_session_dag)
+    app.router.add_get("/api/cowork/sessions/{session_id}/artifacts", handle_get_session_artifacts)
+    app.router.add_get("/api/cowork/sessions/{session_id}/queues", handle_get_session_queues)
     app.router.add_delete("/api/cowork/sessions/{session_id}", handle_delete_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/run", handle_run_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/pause", handle_pause_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/resume", handle_resume_session)
+    app.router.add_post("/api/cowork/sessions/{session_id}/emergency-stop", handle_emergency_stop_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/messages", handle_send_message)
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks", handle_add_task)
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/retry", handle_retry_task)
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/assign", handle_assign_task)
     app.router.add_post("/api/cowork/sessions/{session_id}/tasks/{task_id}/review", handle_request_task_review)
+    app.router.add_post("/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/retry", handle_retry_work_unit)
+    app.router.add_post("/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/skip", handle_skip_work_unit)
+    app.router.add_post("/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/cancel", handle_cancel_work_unit)
+    app.router.add_post("/api/cowork/sessions/{session_id}/budget", handle_update_session_budget)
     app.router.add_get("/api/cowork/sessions/{session_id}/summary", handle_summary)

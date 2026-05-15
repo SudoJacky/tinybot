@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import tempfile
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import MISSING, asdict, fields
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
+from tinybot.cowork.architecture import (
+    ACCEPTED_ARCHITECTURE_VALUES,
+    ADAPTIVE_STARTER,
+    architecture_label,
+    normalize_architecture_name,
+)
 from tinybot.cowork.blueprint import (
     budget_remaining,
     default_budget_usage,
@@ -24,41 +31,58 @@ from tinybot.cowork.blueprint import (
     session_inputs_from_blueprint,
     validate_blueprint,
 )
+from tinybot.cowork.event_log import CoworkEventLogStore
+from tinybot.cowork.policies import ArchitectureRuntimePolicy, default_policy_registry
+from tinybot.cowork.snapshot import build_cowork_artifact_index
+from tinybot.cowork.swarm import (
+    build_swarm_scheduler_queues,
+    normalize_swarm_plan,
+    update_work_unit_readiness,
+    work_unit_result_from_task,
+)
 from tinybot.cowork.types import (
     CoworkAgent,
+    CoworkAgentStep,
+    CoworkBranch,
+    CoworkBranchResult,
+    CoworkBrowserObservation,
+    CoworkEvaluationResult,
+    CoworkDelegatedBrief,
+    CoworkDelegatedTask,
+    CoworkDelegationGuardrail,
     CoworkEvent,
+    CoworkFullObservationDetail,
+    CoworkIsolatedSubAgentContext,
     CoworkMailboxRecord,
     CoworkMessage,
     CoworkRunMetrics,
     CoworkSession,
+    CoworkSessionFinalResult,
+    CoworkStageRecord,
+    CoworkStepSummary,
+    CoworkSensitiveArtifact,
+    CoworkSubAgentResult,
     CoworkTask,
     CoworkThread,
+    CoworkToolObservation,
     CoworkTraceSpan,
     now_iso,
 )
-from tinybot.cowork.trace import CoworkTraceRecorder
+from tinybot.cowork.trace import CoworkTraceRecorder, compact_text, duration_ms
 
 
 _MAX_PRIVATE_SUMMARY_CHARS = 6000
 _MAX_EVENT_COUNT = 500
 _MAX_TRACE_SPAN_COUNT = 1000
+_MAX_AGENT_STEP_COUNT = 1000
 _MAX_RUN_METRIC_COUNT = 80
 _MAX_SCHEDULER_DECISION_COUNT = 200
 _MAX_MAILBOX_RECORDS = 300
 _CONVERGENCE_IDLE_ROUNDS = 2
 _DEFAULT_RUN_AGENT_CALLS = 30
 _SHARED_MEMORY_BUCKETS = ("findings", "claims", "risks", "open_questions", "decisions", "artifacts")
-_WORKFLOW_MODES = {
-    "hybrid",
-    "supervisor",
-    "orchestrator",
-    "team",
-    "generator_verifier",
-    "message_bus",
-    "shared_state",
-    "peer_handoff",
-    "swarm",
-}
+_WORKFLOW_MODES = ACCEPTED_ARCHITECTURE_VALUES
+_DEFAULT_BRANCH_ID = "default"
 
 
 class CoworkService:
@@ -70,6 +94,8 @@ class CoworkService:
         self._sessions: dict[str, CoworkSession] | None = None
         self._listeners: list[Callable[[CoworkSession, CoworkEvent], None]] = []
         self.traces = CoworkTraceRecorder(self._new_id)
+        self.event_log = CoworkEventLogStore(self.cowork_dir)
+        self.policy_registry = default_policy_registry()
         self._mutation_lock = threading.RLock()
 
     @property
@@ -78,15 +104,19 @@ class CoworkService:
 
     @staticmethod
     def normalize_workflow_mode(value: Any) -> str:
-        mode = str(value or "hybrid").strip().lower().replace("-", "_")
-        return mode if mode in _WORKFLOW_MODES else "hybrid"
+        return normalize_architecture_name(value)
 
     @staticmethod
     def workflow_profile(value: Any) -> str:
         mode = CoworkService.normalize_workflow_mode(value)
         if mode in {"supervisor", "orchestrator"}:
             return "orchestrator"
-        return mode
+        if mode == "peer_handoff":
+            return "peer_handoff"
+        return default_policy_registry().resolve(mode).runtime_profile
+
+    def architecture_policy(self, value: Any) -> ArchitectureRuntimePolicy:
+        return self.policy_registry.resolve(self.normalize_workflow_mode(value))
 
     @staticmethod
     def _normalize_shared_memory(value: Any) -> dict[str, list[dict[str, Any]]]:
@@ -106,12 +136,13 @@ class CoworkService:
 
     def _ensure_dir(self) -> None:
         self.cowork_dir.mkdir(parents=True, exist_ok=True)
+        self.event_log.ensure_dirs()
 
     def _load(self) -> dict[str, CoworkSession]:
         if self._sessions is not None:
             return self._sessions
         if not self.store_path.exists():
-            self._sessions = {}
+            self._sessions = self._load_event_log_sessions()
             return self._sessions
         try:
             data = json.loads(self.store_path.read_text(encoding="utf-8"))
@@ -122,7 +153,8 @@ class CoworkService:
                     title=raw["title"],
                     goal=raw["goal"],
                     status=raw.get("status", "active"),
-                    workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", "hybrid")),
+                    workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", ADAPTIVE_STARTER)),
+                    current_branch_id=str(raw.get("current_branch_id") or _DEFAULT_BRANCH_ID),
                     current_focus_task=raw.get("current_focus_task", ""),
                     workspace_dir=raw.get("workspace_dir", ""),
                     artifacts=raw.get("artifacts", []) if isinstance(raw.get("artifacts", []), list) else [],
@@ -140,6 +172,10 @@ class CoworkService:
                     blueprint=raw.get("blueprint", {}) if isinstance(raw.get("blueprint", {}), dict) else {},
                     blueprint_diagnostics=raw.get("blueprint_diagnostics", []) if isinstance(raw.get("blueprint_diagnostics", []), list) else [],
                     runtime_state=raw.get("runtime_state", {}) if isinstance(raw.get("runtime_state", {}), dict) else {},
+                    session_final_result=self._hydrate_optional_dataclass(
+                        raw.get("session_final_result"),
+                        CoworkSessionFinalResult,
+                    ),
                     created_at=raw.get("created_at", now_iso()),
                     updated_at=raw.get("updated_at", now_iso()),
                     rounds=raw.get("rounds", 0),
@@ -165,10 +201,15 @@ class CoworkService:
                         rounds=item.get("rounds", 0),
                         parent_agent_id=item.get("parent_agent_id"),
                         team_id=item.get("team_id", ""),
+                        lifetime=item.get("lifetime", "persistent"),
                         lifecycle_status=item.get("lifecycle_status", "active"),
                         source_blueprint_id=item.get("source_blueprint_id", ""),
                         source_event_id=item.get("source_event_id", ""),
                         spawn_reason=item.get("spawn_reason", ""),
+                        delegated_task_id=item.get("delegated_task_id", ""),
+                        delegated_brief_id=item.get("delegated_brief_id", ""),
+                        isolated_context_id=item.get("isolated_context_id", ""),
+                        sub_agent_scope=item.get("sub_agent_scope", ""),
                     )
                     for item in raw.get("agents", {}).values()
                 }
@@ -292,6 +333,26 @@ class CoworkService:
                     for item in raw.get("trace_spans", [])
                     if isinstance(item, dict) and item.get("id")
                 ]
+                session.agent_steps = self._hydrate_agent_steps(raw.get("agent_steps", []))
+                session.observation_details = self._hydrate_dataclass_map(
+                    raw.get("observation_details", {}),
+                    CoworkFullObservationDetail,
+                )
+                session.sensitive_artifacts = self._hydrate_dataclass_map(
+                    raw.get("sensitive_artifacts", {}),
+                    CoworkSensitiveArtifact,
+                )
+                session.delegation_guardrails = self._hydrate_dataclass_map(
+                    raw.get("delegation_guardrails", {}),
+                    CoworkDelegationGuardrail,
+                )
+                session.delegated_briefs = self._hydrate_dataclass_map(raw.get("delegated_briefs", {}), CoworkDelegatedBrief)
+                session.delegated_tasks = self._hydrate_dataclass_map(raw.get("delegated_tasks", {}), CoworkDelegatedTask)
+                session.isolated_sub_agent_contexts = self._hydrate_dataclass_map(
+                    raw.get("isolated_sub_agent_contexts", {}),
+                    CoworkIsolatedSubAgentContext,
+                )
+                session.sub_agent_results = self._hydrate_dataclass_map(raw.get("sub_agent_results", {}), CoworkSubAgentResult)
                 session.run_metrics = [
                     CoworkRunMetrics(
                         run_id=item["run_id"],
@@ -318,27 +379,219 @@ class CoworkService:
                     for item in raw.get("scheduler_decisions", [])
                     if isinstance(item, dict)
                 ]
+                session.branches = self._hydrate_branch_map(raw.get("branches", {}), session)
+                session.stage_records = self._hydrate_dataclass_list(raw.get("stage_records", []), CoworkStageRecord)
+                self.ensure_session_branches(session)
                 self.ensure_session_budget(session)
                 sessions[session.id] = session
             self._sessions = sessions
+            self._save_event_log_layout([asdict(session) for session in sessions.values()])
         except Exception as exc:
             logger.warning("Failed to load cowork store: {}", exc)
             self._sessions = {}
         return self._sessions
 
+    def _load_event_log_sessions(self) -> dict[str, CoworkSession]:
+        sessions: dict[str, CoworkSession] = {}
+        for raw in self.event_log.read_snapshot_payloads():
+            try:
+                session = self._hydrate_session(raw)
+                self._replay_event_log(session)
+                self._recover_interrupted_runtime(session)
+                self.ensure_session_budget(session)
+                sessions[session.id] = session
+            except Exception as exc:
+                logger.warning("Failed to load cowork snapshot: {}", exc)
+        return sessions
+
+    def _hydrate_session(self, raw: dict[str, Any]) -> CoworkSession:
+        session = CoworkSession(
+            id=str(raw.get("id") or self._new_id("cw")),
+            title=str(raw.get("title") or "Cowork Session"),
+            goal=str(raw.get("goal") or ""),
+            status=raw.get("status", "active"),
+            workflow_mode=self.normalize_workflow_mode(raw.get("workflow_mode", ADAPTIVE_STARTER)),
+            current_branch_id=str(raw.get("current_branch_id") or _DEFAULT_BRANCH_ID),
+            current_focus_task=raw.get("current_focus_task", ""),
+            workspace_dir=raw.get("workspace_dir", ""),
+            artifacts=raw.get("artifacts", []) if isinstance(raw.get("artifacts", []), list) else [],
+            shared_memory=self._normalize_shared_memory(raw.get("shared_memory", {})),
+            shared_summary=raw.get("shared_summary", ""),
+            final_draft=raw.get("final_draft", ""),
+            completion_decision=raw.get("completion_decision", {}) if isinstance(raw.get("completion_decision", {}), dict) else {},
+            swarm_plan=raw.get("swarm_plan", {}) if isinstance(raw.get("swarm_plan", {}), dict) else {},
+            budget_limits=normalize_budget_limits(raw.get("budget_limits") or raw.get("budgets")),
+            budget_usage={
+                **default_budget_usage(),
+                **(raw.get("budget_usage", {}) if isinstance(raw.get("budget_usage", {}), dict) else {}),
+            },
+            stop_reason=str(raw.get("stop_reason") or ""),
+            blueprint=raw.get("blueprint", {}) if isinstance(raw.get("blueprint", {}), dict) else {},
+            blueprint_diagnostics=raw.get("blueprint_diagnostics", []) if isinstance(raw.get("blueprint_diagnostics", []), list) else [],
+            runtime_state=raw.get("runtime_state", {}) if isinstance(raw.get("runtime_state", {}), dict) else {},
+            session_final_result=self._hydrate_optional_dataclass(
+                raw.get("session_final_result"),
+                CoworkSessionFinalResult,
+            ),
+            created_at=raw.get("created_at", now_iso()),
+            updated_at=raw.get("updated_at", now_iso()),
+            rounds=int(raw.get("rounds", 0) or 0),
+            no_progress_rounds=int(raw.get("no_progress_rounds", 0) or 0),
+        )
+        session.agents = self._hydrate_dataclass_map(raw.get("agents", {}), CoworkAgent)
+        session.tasks = self._hydrate_dataclass_map(raw.get("tasks", {}), CoworkTask)
+        session.threads = self._hydrate_dataclass_map(raw.get("threads", {}), CoworkThread)
+        session.messages = self._hydrate_dataclass_map(raw.get("messages", {}), CoworkMessage)
+        session.mailbox = self._hydrate_dataclass_map(raw.get("mailbox", {}), CoworkMailboxRecord)
+        session.events = self._hydrate_dataclass_list(raw.get("events", []), CoworkEvent)
+        session.trace_spans = self._hydrate_dataclass_list(raw.get("trace_spans", []), CoworkTraceSpan)
+        session.agent_steps = self._hydrate_agent_steps(raw.get("agent_steps", []))
+        session.observation_details = self._hydrate_dataclass_map(raw.get("observation_details", {}), CoworkFullObservationDetail)
+        session.sensitive_artifacts = self._hydrate_dataclass_map(raw.get("sensitive_artifacts", {}), CoworkSensitiveArtifact)
+        session.delegation_guardrails = self._hydrate_dataclass_map(raw.get("delegation_guardrails", {}), CoworkDelegationGuardrail)
+        session.delegated_briefs = self._hydrate_dataclass_map(raw.get("delegated_briefs", {}), CoworkDelegatedBrief)
+        session.delegated_tasks = self._hydrate_dataclass_map(raw.get("delegated_tasks", {}), CoworkDelegatedTask)
+        session.isolated_sub_agent_contexts = self._hydrate_dataclass_map(raw.get("isolated_sub_agent_contexts", {}), CoworkIsolatedSubAgentContext)
+        session.sub_agent_results = self._hydrate_dataclass_map(raw.get("sub_agent_results", {}), CoworkSubAgentResult)
+        session.run_metrics = self._hydrate_dataclass_list(raw.get("run_metrics", []), CoworkRunMetrics)
+        session.scheduler_decisions = [dict(item) for item in raw.get("scheduler_decisions", []) if isinstance(item, dict)]
+        session.branches = self._hydrate_branch_map(raw.get("branches", {}), session)
+        session.stage_records = self._hydrate_dataclass_list(raw.get("stage_records", []), CoworkStageRecord)
+        self.ensure_session_branches(session)
+        return session
+
+    def _hydrate_branch_map(self, raw: Any, session: CoworkSession) -> dict[str, CoworkBranch]:
+        items = raw.values() if isinstance(raw, dict) else raw if isinstance(raw, list) else []
+        result: dict[str, CoworkBranch] = {}
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            payload = dict(item)
+            payload["architecture"] = self.normalize_workflow_mode(payload.get("architecture", session.workflow_mode))
+            payload["branch_result"] = self._hydrate_optional_dataclass(payload.get("branch_result"), CoworkBranchResult)
+            branch = self._hydrate_dataclass(payload, CoworkBranch)
+            result[branch.id] = branch
+        return result
+
+    def _hydrate_dataclass_map(self, raw: Any, cls: type[Any]) -> dict[str, Any]:
+        items = raw.values() if isinstance(raw, dict) else raw if isinstance(raw, list) else []
+        result: dict[str, Any] = {}
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            hydrated = self._hydrate_dataclass(item, cls)
+            result[getattr(hydrated, "id")] = hydrated
+        return result
+
+    def _hydrate_dataclass_list(self, raw: Any, cls: type[Any]) -> list[Any]:
+        if not isinstance(raw, list):
+            return []
+        return [self._hydrate_dataclass(item, cls) for item in raw if isinstance(item, dict)]
+
+    def _hydrate_optional_dataclass(self, raw: Any, cls: type[Any]) -> Any | None:
+        if not isinstance(raw, dict) or not raw:
+            return None
+        return self._hydrate_dataclass(raw, cls)
+
+    def _hydrate_agent_steps(self, raw: Any) -> list[CoworkAgentStep]:
+        if not isinstance(raw, list):
+            return []
+        steps: list[CoworkAgentStep] = []
+        for item in raw:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            payload = dict(item)
+            payload["tool_observations"] = self._hydrate_dataclass_list(
+                payload.get("tool_observations", []),
+                CoworkToolObservation,
+            )
+            payload["browser_observations"] = self._hydrate_dataclass_list(
+                payload.get("browser_observations", []),
+                CoworkBrowserObservation,
+            )
+            payload["summary"] = self._hydrate_optional_dataclass(payload.get("summary"), CoworkStepSummary)
+            steps.append(self._hydrate_dataclass(payload, CoworkAgentStep))
+        return steps
+
+    def _hydrate_dataclass(self, raw: dict[str, Any], cls: type[Any]) -> Any:
+        kwargs: dict[str, Any] = {}
+        for field_info in fields(cls):
+            if field_info.name in raw:
+                kwargs[field_info.name] = raw[field_info.name]
+            elif field_info.default is not MISSING:
+                kwargs[field_info.name] = field_info.default
+            elif field_info.default_factory is not MISSING:  # type: ignore[comparison-overlap]
+                kwargs[field_info.name] = field_info.default_factory()  # type: ignore[misc]
+        return cls(**kwargs)
+
+    def _replay_event_log(self, session: CoworkSession) -> None:
+        known_event_ids = {event.id for event in session.events}
+        known_span_ids = {span.id for span in session.trace_spans}
+        for record in self.event_log.read_events(session.id):
+            payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+            if record.get("category") == "event":
+                event_payload = payload.get("event") if isinstance(payload.get("event"), dict) else payload
+                event_id = str(event_payload.get("id") or record.get("id") or "")
+                if event_id and event_id not in known_event_ids:
+                    event_payload = {
+                        "id": event_id,
+                        "type": event_payload.get("type") or record.get("type") or "event",
+                        "message": event_payload.get("message") or "",
+                        "actor_id": event_payload.get("actor_id") or record.get("actor_id"),
+                        "data": event_payload.get("data", {}) if isinstance(event_payload.get("data", {}), dict) else {},
+                        "created_at": event_payload.get("created_at") or record.get("created_at") or now_iso(),
+                    }
+                    session.events.append(self._hydrate_dataclass(event_payload, CoworkEvent))
+                    known_event_ids.add(event_id)
+            elif record.get("category") == "trace":
+                span_payload = payload.get("span") if isinstance(payload.get("span"), dict) else payload
+                span_id = str(span_payload.get("id") or record.get("id") or "")
+                if span_id and span_id not in known_span_ids:
+                    span_payload = {"id": span_id, "session_id": session.id, **span_payload}
+                    session.trace_spans.append(self._hydrate_dataclass(span_payload, CoworkTraceSpan))
+                    known_span_ids.add(span_id)
+        session.events = session.events[-_MAX_EVENT_COUNT:]
+        session.trace_spans = session.trace_spans[-_MAX_TRACE_SPAN_COUNT:]
+
+    def _recover_interrupted_runtime(self, session: CoworkSession) -> None:
+        recovered = False
+        for span in session.trace_spans:
+            if span.status in {"pending", "running", "in_progress"} and not span.ended_at:
+                span.status = "failed"
+                span.ended_at = now_iso()
+                span.error = span.error or "Interrupted before the process stopped."
+                span.summary = span.summary or "Interrupted runtime span recovered on load."
+                recovered = True
+        if recovered:
+            session.runtime_state["interrupted_span_recovery_at"] = now_iso()
+
     def _save(self) -> None:
         if self._sessions is None:
             return
         self._ensure_dir()
+        for session in self._sessions.values():
+            self.ensure_session_branches(session)
+            self._capture_current_branch_state(session)
         data = {"version": 1, "sessions": [asdict(s) for s in self._sessions.values()]}
         fd, temp_path = tempfile.mkstemp(dir=self.cowork_dir, suffix=".json")
         try:
             with open(fd, "w", encoding="utf-8") as handle:
                 json.dump(data, handle, indent=2, ensure_ascii=False)
             Path(temp_path).replace(self.store_path)
+            self._save_event_log_layout(data["sessions"])
         except Exception:
             Path(temp_path).unlink(missing_ok=True)
             raise
+
+    def _save_event_log_layout(self, sessions: list[dict[str, Any]]) -> None:
+        for raw in sessions:
+            session_id = str(raw.get("id") or "")
+            if not session_id:
+                continue
+            self.event_log.write_snapshot(session_id, raw)
+            session = self._sessions.get(session_id) if self._sessions else None
+            if session is not None:
+                self.event_log.write_artifact_index(session_id, build_cowork_artifact_index(session))
 
     def list_sessions(self, include_completed: bool = False) -> list[CoworkSession]:
         sessions = list(self._load().values())
@@ -347,7 +600,364 @@ class CoworkService:
         return sorted(sessions, key=lambda item: item.updated_at, reverse=True)
 
     def get_session(self, session_id: str) -> CoworkSession | None:
-        return self._load().get(session_id)
+        session = self._load().get(session_id)
+        if session is not None:
+            self.ensure_session_branches(session)
+        return session
+
+    def ensure_session_branches(self, session: CoworkSession) -> None:
+        """Migrate branchless sessions to a default branch in memory."""
+        session.workflow_mode = self.normalize_workflow_mode(getattr(session, "workflow_mode", ADAPTIVE_STARTER))
+        branches = getattr(session, "branches", None)
+        if not isinstance(branches, dict):
+            session.branches = {}
+        if _DEFAULT_BRANCH_ID not in session.branches:
+            session.branches[_DEFAULT_BRANCH_ID] = CoworkBranch(
+                id=_DEFAULT_BRANCH_ID,
+                title="Default branch",
+                architecture=session.workflow_mode,
+                status=session.status,
+                topology_reference={
+                    "branch_id": _DEFAULT_BRANCH_ID,
+                    "architecture": session.workflow_mode,
+                },
+                runtime_state={
+                    "current_focus_task": getattr(session, "current_focus_task", ""),
+                    "rounds": getattr(session, "rounds", 0),
+                },
+                completion_decision=dict(getattr(session, "completion_decision", {}) or {}),
+                created_at=getattr(session, "created_at", now_iso()),
+                updated_at=getattr(session, "updated_at", now_iso()),
+            )
+        for branch in session.branches.values():
+            branch.architecture = self.normalize_workflow_mode(branch.architecture)
+            branch.topology_reference = branch.topology_reference or {
+                "branch_id": branch.id,
+                "architecture": branch.architecture,
+            }
+        if not getattr(session, "current_branch_id", "") or session.current_branch_id not in session.branches:
+            session.current_branch_id = _DEFAULT_BRANCH_ID
+
+    def current_branch(self, session: CoworkSession) -> CoworkBranch:
+        self.ensure_session_branches(session)
+        return session.branches[session.current_branch_id]
+
+    def list_branches(self, session: CoworkSession) -> list[CoworkBranch]:
+        self.ensure_session_branches(session)
+        return sorted(session.branches.values(), key=lambda item: item.created_at)
+
+    def branch_results(self, session: CoworkSession) -> list[CoworkBranchResult]:
+        self.ensure_session_branches(session)
+        results = [branch.branch_result for branch in session.branches.values() if branch.branch_result is not None]
+        return sorted(results, key=lambda item: item.created_at)
+
+    def _capture_current_branch_state(self, session: CoworkSession) -> None:
+        self.ensure_session_branches(session)
+        branch = session.branches[session.current_branch_id]
+        branch.architecture = self.normalize_workflow_mode(session.workflow_mode)
+        branch.status = session.status
+        branch.completion_decision = dict(getattr(session, "completion_decision", {}) or {})
+        branch.runtime_state = {
+            **(branch.runtime_state or {}),
+            "current_focus_task": getattr(session, "current_focus_task", ""),
+            "rounds": getattr(session, "rounds", 0),
+            "no_progress_rounds": getattr(session, "no_progress_rounds", 0),
+            "stop_reason": getattr(session, "stop_reason", ""),
+        }
+        if branch.status == "completed" and branch.branch_result is None:
+            self._record_branch_result(session, branch, save=False)
+        branch.updated_at = now_iso()
+
+    def _record_branch_result(
+        self,
+        session: CoworkSession,
+        branch: CoworkBranch,
+        *,
+        save: bool = True,
+    ) -> CoworkBranchResult:
+        if branch.branch_result is not None:
+            return branch.branch_result
+        completed = [task for task in session.tasks.values() if task.status == "completed"]
+        confidence_values = [task.confidence for task in completed if task.confidence is not None]
+        confidence = sum(confidence_values) / len(confidence_values) if confidence_values else None
+        summary = (getattr(session, "final_draft", "") or getattr(session, "shared_summary", "") or "").strip()
+        if not summary:
+            summary = self._build_final_draft(session).strip()
+        if not summary:
+            summary = f"Branch '{branch.title}' completed for goal: {session.goal}"
+        result = CoworkBranchResult(
+            id=self._new_id("brres"),
+            source_branch_id=branch.id,
+            source_architecture=branch.architecture,
+            summary=summary,
+            artifacts=list(getattr(session, "artifacts", [])[-20:]),
+            decision=dict(getattr(session, "completion_decision", {}) or branch.completion_decision or {}),
+            confidence=confidence,
+        )
+        branch.branch_result = result
+        branch.updated_at = now_iso()
+        self.add_event(
+            session,
+            "branch.result.created",
+            f"Branch '{branch.id}' produced a result",
+            actor_id="system",
+            data={
+                "branch_id": branch.id,
+                "branch_result_id": result.id,
+                "architecture": branch.architecture,
+            },
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return result
+
+    def select_session_final_result(
+        self,
+        session: CoworkSession,
+        branch_id: str,
+        result_id: str | None = None,
+        *,
+        save: bool = True,
+    ) -> CoworkSessionFinalResult | str:
+        self.ensure_session_branches(session)
+        branch = session.branches.get(branch_id)
+        if branch is None:
+            return f"Error: branch '{branch_id}' not found."
+        result = branch.branch_result
+        if result is None:
+            return f"Error: branch '{branch_id}' has no result to select."
+        if result_id and result.id != result_id:
+            return f"Error: branch result '{result_id}' not found on branch '{branch_id}'."
+        final = CoworkSessionFinalResult(
+            id=self._new_id("final"),
+            source="selected_branch_result",
+            selected_branch_id=branch.id,
+            selected_result_id=result.id,
+            source_branch_ids=[branch.id],
+            source_result_ids=[result.id],
+            summary=result.summary,
+            artifacts=list(result.artifacts),
+            decision=dict(result.decision),
+            confidence=result.confidence,
+        )
+        session.session_final_result = final
+        self.add_event(
+            session,
+            "session.final_result.selected",
+            f"Selected branch result '{result.id}' as the session final result",
+            actor_id="user",
+            data={
+                "selected_branch_id": branch.id,
+                "selected_result_id": result.id,
+                "session_final_result_id": final.id,
+            },
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return final
+
+    def merge_branch_results(
+        self,
+        session: CoworkSession,
+        branch_ids: list[str],
+        *,
+        summary: str = "",
+        save: bool = True,
+    ) -> CoworkSessionFinalResult | str:
+        self.ensure_session_branches(session)
+        selected_ids = [branch_id for branch_id in dict.fromkeys(branch_ids) if branch_id in session.branches]
+        if len(selected_ids) < 2:
+            return "Error: at least two existing branches are required to merge branch results."
+        results: list[CoworkBranchResult] = []
+        missing = []
+        for branch_id in selected_ids:
+            result = session.branches[branch_id].branch_result
+            if result is None:
+                missing.append(branch_id)
+            else:
+                results.append(result)
+        if missing:
+            return f"Error: branch result missing for: {', '.join(missing)}."
+        confidence_values = [item.confidence for item in results if item.confidence is not None]
+        confidence = sum(confidence_values) / len(confidence_values) if confidence_values else None
+        merged_summary = summary.strip() or "\n\n".join(
+            f"## {session.branches[item.source_branch_id].title}\n{item.summary}" for item in results
+        )
+        final = CoworkSessionFinalResult(
+            id=self._new_id("final"),
+            source="branch_merge",
+            source_branch_ids=selected_ids,
+            source_result_ids=[item.id for item in results],
+            summary=merged_summary,
+            artifacts=list(dict.fromkeys(artifact for item in results for artifact in item.artifacts)),
+            decision={
+                "operation": "branch_merge",
+                "source_branch_ids": selected_ids,
+                "source_result_ids": [item.id for item in results],
+                "created_at": now_iso(),
+            },
+            confidence=confidence,
+        )
+        session.session_final_result = final
+        self.add_event(
+            session,
+            "session.final_result.merged",
+            f"Merged {len(results)} branch results into a candidate session final result",
+            actor_id="user",
+            data={
+                "source_branch_ids": selected_ids,
+                "source_result_ids": [item.id for item in results],
+                "session_final_result_id": final.id,
+            },
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return final
+
+    def select_branch(self, session: CoworkSession, branch_id: str, *, save: bool = True) -> CoworkBranch | str:
+        self.ensure_session_branches(session)
+        if branch_id not in session.branches:
+            return f"Error: branch '{branch_id}' not found."
+        self._capture_current_branch_state(session)
+        branch = session.branches[branch_id]
+        session.current_branch_id = branch.id
+        session.workflow_mode = branch.architecture  # type: ignore[assignment]
+        session.status = branch.status
+        session.completion_decision = dict(branch.completion_decision or {})
+        session.current_focus_task = str((branch.runtime_state or {}).get("current_focus_task") or session.current_focus_task)
+        self.add_event(
+            session,
+            "branch.selected",
+            f"Selected cowork branch '{branch.id}'",
+            actor_id="user",
+            data={"branch_id": branch.id, "architecture": branch.architecture},
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return branch
+
+    def derive_branch(
+        self,
+        session: CoworkSession,
+        *,
+        source_branch_id: str | None = None,
+        target_architecture: str = ADAPTIVE_STARTER,
+        reason: str = "",
+        title: str = "",
+        inherited_context_summary: str = "",
+        save: bool = True,
+    ) -> CoworkBranch | str:
+        self.ensure_session_branches(session)
+        source_id = source_branch_id or session.current_branch_id
+        if source_id not in session.branches:
+            return f"Error: source branch '{source_id}' not found."
+        self._capture_current_branch_state(session)
+        architecture = self.normalize_workflow_mode(target_architecture)
+        branch_id = self._new_id("br")
+        source = session.branches[source_id]
+        summary = inherited_context_summary.strip() or self._stage_context_summary(session, source)
+        stage_id = self._new_id("stage")
+        event_id = self._new_id("evt")
+        stage = CoworkStageRecord(
+            id=stage_id,
+            source_branch_id=source_id,
+            target_branch_id=branch_id,
+            source_architecture=source.architecture,
+            target_architecture=architecture,
+            derivation_reason=reason.strip(),
+            source_summary=self._stage_source_summary(session, source),
+            inherited_context_summary=summary,
+            artifact_refs=list(getattr(session, "artifacts", [])[-20:]),
+            message_refs=self._stage_message_refs(session),
+            decisions=self._stage_decisions(session),
+        )
+        session.stage_records.append(stage)
+        branch = CoworkBranch(
+            id=branch_id,
+            title=title.strip() or f"{architecture.replace('_', ' ').title()} branch",
+            architecture=architecture,
+            status="active",
+            topology_reference={"branch_id": branch_id, "architecture": architecture},
+            source_branch_id=source_id,
+            source_stage_record_id=stage_id,
+            derivation_event_id=event_id,
+            derivation_reason=reason.strip(),
+            inherited_context_summary=summary,
+            runtime_state={"current_focus_task": summary or session.goal, "source_branch_status": source.status},
+            completion_decision={},
+        )
+        session.branches[branch_id] = branch
+        session.current_branch_id = branch_id
+        session.workflow_mode = architecture  # type: ignore[assignment]
+        session.status = "active"
+        session.current_focus_task = branch.runtime_state["current_focus_task"]
+        self.add_event(
+            session,
+            "branch.derived",
+            f"Derived branch '{branch.id}' from '{source_id}'",
+            actor_id="user",
+            data={
+                "branch_id": branch.id,
+                "source_branch_id": source_id,
+                "target_architecture": architecture,
+                "derivation_reason": reason.strip(),
+                "stage_record_id": stage_id,
+                "derivation_event_id": event_id,
+                "inherited_context_summary": summary,
+            },
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return branch
+
+    def _stage_context_summary(self, session: CoworkSession, source: CoworkBranch) -> str:
+        parts = [
+            getattr(session, "shared_summary", ""),
+            getattr(session, "final_draft", ""),
+            (source.runtime_state or {}).get("current_focus_task", ""),
+            getattr(session, "current_focus_task", ""),
+        ]
+        text = " ".join(str(part or "").strip() for part in parts if str(part or "").strip())
+        return text[:1200]
+
+    def _stage_source_summary(self, session: CoworkSession, source: CoworkBranch) -> str:
+        return (
+            f"{source.title} ({source.architecture}) is {source.status}. "
+            f"Goal: {session.goal}. Focus: {(source.runtime_state or {}).get('current_focus_task') or session.current_focus_task}"
+        )[:1200]
+
+    def _stage_message_refs(self, session: CoworkSession) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": message.id,
+                "thread_id": message.thread_id,
+                "sender_id": message.sender_id,
+                "recipient_ids": list(message.recipient_ids),
+                "summary": message.content[:240],
+                "created_at": message.created_at,
+            }
+            for message in list(session.messages.values())[-12:]
+        ]
+
+    def _stage_decisions(self, session: CoworkSession) -> list[dict[str, Any]]:
+        decisions = []
+        if isinstance(getattr(session, "completion_decision", {}), dict) and session.completion_decision:
+            decisions.append({"kind": "completion_decision", **session.completion_decision})
+        memory = getattr(session, "shared_memory", {}) or {}
+        for item in memory.get("decisions", [])[-8:] if isinstance(memory, dict) else []:
+            if isinstance(item, dict):
+                decisions.append(dict(item))
+        return decisions
 
     def add_listener(self, listener: Callable[[CoworkSession, CoworkEvent], None]) -> None:
         if listener not in self._listeners:
@@ -442,6 +1052,13 @@ class CoworkService:
             "stop_reason": stop_reason,
         }
 
+    def swarm_scheduler_queues(self, session: CoworkSession) -> dict[str, Any]:
+        policy = self.architecture_policy(session.workflow_mode)
+        scheduler_queues = getattr(policy, "scheduler_queues", None)
+        if callable(scheduler_queues):
+            return scheduler_queues(session)
+        return build_swarm_scheduler_queues(session)
+
     def set_session_budgets(self, session: CoworkSession, budgets: dict[str, Any], *, save: bool = True) -> dict[str, Any]:
         session.budget_limits = normalize_budget_limits({**(getattr(session, "budget_limits", {}) or {}), **(budgets or {})})
         self.ensure_session_budget(session)
@@ -469,6 +1086,7 @@ class CoworkService:
         tokens_prompt: int = 0,
         tokens_completion: int = 0,
         cost: float = 0.0,
+        wall_time_seconds: float = 0.0,
         save: bool = False,
     ) -> dict[str, Any]:
         self.ensure_session_budget(session)
@@ -481,10 +1099,54 @@ class CoworkService:
         usage["tokens_completion"] = int(usage.get("tokens_completion", 0) or 0) + max(0, int(tokens_completion or 0))
         usage["tokens_total"] = usage["tokens_prompt"] + usage["tokens_completion"]
         usage["cost"] = float(usage.get("cost", 0.0) or 0.0) + max(0.0, float(cost or 0.0))
+        usage["wall_time_seconds"] = float(usage.get("wall_time_seconds", 0.0) or 0.0) + max(0.0, float(wall_time_seconds or 0.0))
         if save:
             self._touch(session)
             self._save()
         return self.budget_state(session)
+
+    def steer_swarm(self, session: CoworkSession, instruction: str, *, save: bool = True) -> str:
+        text = instruction.strip()
+        if not text:
+            return "Error: instruction is required"
+        lead_id = self.lead_agent_id(session)
+        self.send_message(session, sender_id="user", recipient_ids=[lead_id], content=text, save=False)
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        if plan:
+            updates = plan.setdefault("user_steering", [])
+            if isinstance(updates, list):
+                updates.append({"instruction": text, "created_at": now_iso(), "actor_id": "user"})
+                if len(updates) > 40:
+                    plan["user_steering"] = updates[-40:]
+            plan["updated_at"] = now_iso()
+            if plan.get("status") == "blocked":
+                plan["status"] = "active"
+            session.swarm_plan = plan
+        self.add_event(
+            session,
+            "swarm.user_steered",
+            "User steering instruction routed to the swarm lead",
+            actor_id="user",
+            data={"lead_agent_id": lead_id, "instruction": text[:500]},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="User steering",
+            actor_id="user",
+            status="completed",
+            summary="User steering instruction routed to the swarm lead",
+            data={"lead_agent_id": lead_id, "instruction": text[:500]},
+            save=False,
+        )
+        if session.status == "completed":
+            session.status = "active"
+        self.assess_session(session, save=False)
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Steering instruction routed to {lead_id}."
 
     def budget_exhaustion_reason(
         self,
@@ -492,12 +1154,21 @@ class CoworkService:
         *,
         run_agent_calls: int = 0,
         run_agent_call_limit: int | None = None,
+        elapsed_wall_time_seconds: float | None = None,
     ) -> str:
         state = self.budget_state(session)
         limits = state["limits"]
         usage = state["usage"]
         if run_agent_call_limit is not None and run_agent_calls >= run_agent_call_limit:
             return "agent_call_budget_exhausted"
+        max_wall_time = limits.get("max_wall_time_seconds")
+        if max_wall_time is not None and elapsed_wall_time_seconds is not None and elapsed_wall_time_seconds >= float(max_wall_time):
+            return "wall_time_budget_exhausted"
+        if session.workflow_mode == "swarm" and limits.get("max_work_units") is not None:
+            plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+            units = plan.get("work_units") if isinstance(plan.get("work_units"), list) else []
+            if len(units) > int(limits["max_work_units"]):
+                return "work_unit_budget_exhausted"
         checks = (
             ("max_agent_calls_total", "agent_calls", "agent_call_budget_exhausted"),
             ("max_tool_calls", "tool_calls", "tool_call_budget_exhausted"),
@@ -550,6 +1221,52 @@ class CoworkService:
             self._touch(session)
             self._save()
 
+    def emergency_stop(
+        self,
+        session: CoworkSession,
+        *,
+        reason: str = "",
+        actor_id: str = "user",
+        save: bool = True,
+    ) -> CoworkAgentStep:
+        explanation = reason.strip() or "Emergency Stop requested by user."
+        session.status = "paused"
+        branch = session.branches.get(session.current_branch_id or _DEFAULT_BRANCH_ID)
+        if branch:
+            branch.status = "paused"
+            branch.updated_at = now_iso()
+        self.record_stop_reason(
+            session,
+            "emergency_stop",
+            explanation,
+            data={
+                "control_scope": "emergency_stop",
+                "actor_id": actor_id,
+                "branch_id": session.current_branch_id or _DEFAULT_BRANCH_ID,
+            },
+            save=False,
+        )
+        step = self.start_agent_step(
+            session,
+            agent_id="scheduler",
+            action_kind="emergency_stop",
+            scheduler_reason=explanation,
+            input_summary=reason,
+            save=False,
+        )
+        self.finish_agent_step(
+            session,
+            step,
+            status="stopped",
+            output_summary="Emergency Stop recorded; future scheduling is paused.",
+            detail_content=explanation,
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return step
+
     def create_session(
         self,
         goal: str,
@@ -557,7 +1274,7 @@ class CoworkService:
         agents: list[dict[str, Any]],
         tasks: list[dict[str, Any]],
         *,
-        workflow_mode: str = "hybrid",
+        workflow_mode: str = ADAPTIVE_STARTER,
         budgets: dict[str, Any] | None = None,
         blueprint: dict[str, Any] | None = None,
         blueprint_diagnostics: list[dict[str, Any]] | None = None,
@@ -565,6 +1282,7 @@ class CoworkService:
         sessions = self._load()
         session_id = self._new_id("cw")
         mode = self.normalize_workflow_mode(workflow_mode)
+        policy = self.architecture_policy(mode)
         session = CoworkSession(id=session_id, title=title.strip() or "Cowork Session", goal=goal, workflow_mode=mode)  # type: ignore[arg-type]
         session.shared_memory = self._normalize_shared_memory(session.shared_memory)
         session.budget_limits = normalize_budget_limits(budgets)
@@ -593,14 +1311,19 @@ class CoworkService:
                 or "Keep a concise private summary and refer to artifacts or thread summaries instead of full logs.",
                 parent_agent_id=raw.get("parent_agent_id"),
                 team_id=str(raw.get("team_id") or "").strip(),
+                lifetime=str(raw.get("lifetime") or "persistent").strip() or "persistent",
                 lifecycle_status=str(raw.get("lifecycle_status") or "active").strip() or "active",
                 source_blueprint_id=str(raw.get("source_blueprint_id") or raw.get("id") or agent_id).strip(),
                 source_event_id=str(raw.get("source_event_id") or "").strip(),
                 spawn_reason=str(raw.get("spawn_reason") or "").strip(),
+                delegated_task_id=str(raw.get("delegated_task_id") or "").strip(),
+                delegated_brief_id=str(raw.get("delegated_brief_id") or "").strip(),
+                isolated_context_id=str(raw.get("isolated_context_id") or "").strip(),
+                sub_agent_scope=str(raw.get("sub_agent_scope") or "").strip(),
             )
 
         if not session.agents:
-            for raw in self.default_team(goal):
+            for raw in self.default_team(goal, workflow_mode=mode):
                 session.agents[raw["id"]] = CoworkAgent(**raw)
 
         for raw in tasks:
@@ -644,6 +1367,18 @@ class CoworkService:
                 assigned_agent_id=first_agent,
             )
 
+        if session.workflow_mode == "swarm":
+            session.swarm_plan = normalize_swarm_plan(
+                (blueprint or {}).get("swarm_plan") if isinstance(blueprint, dict) else None,
+                goal=goal,
+                lead_agent_id=self.lead_agent_id(session),
+                agents=session.agents,
+                tasks=session.tasks,
+                budgets=session.budget_limits,
+                policy=(blueprint or {}).get("policy") if isinstance(blueprint, dict) else None,
+                source_blueprint_id=(blueprint or {}).get("id", "") if isinstance(blueprint, dict) else "",
+            )
+
         session.current_focus_task = self._derive_focus_task(session) or goal
 
         lead_id = self.lead_agent_id(session)
@@ -660,7 +1395,13 @@ class CoworkService:
             session,
             "session.created",
             f"Created cowork session '{session.title}'",
-            data={"goal": goal, "workflow_mode": session.workflow_mode, "focus_task": session.current_focus_task},
+            data={
+                "goal": goal,
+                "workflow_mode": session.workflow_mode,
+                "architecture": session.workflow_mode,
+                "architecture_policy": policy.__class__.__name__,
+                "focus_task": session.current_focus_task,
+            },
             save=False,
         )
         self.add_trace_event(
@@ -669,10 +1410,34 @@ class CoworkService:
             name="Session created",
             actor_id="user",
             summary=f"Created cowork session '{session.title}'",
-            data={"goal": goal, "workflow_mode": session.workflow_mode, "focus_task": session.current_focus_task},
+            data={
+                "goal": goal,
+                "workflow_mode": session.workflow_mode,
+                "architecture": session.workflow_mode,
+                "architecture_policy": policy.__class__.__name__,
+                "focus_task": session.current_focus_task,
+            },
             save=False,
         )
+        if session.swarm_plan:
+            self.add_trace_event(
+                session,
+                kind="swarm",
+                name="Swarm plan created",
+                actor_id=self.lead_agent_id(session),
+                status=session.swarm_plan.get("status", "active"),
+                summary=f"Created swarm plan with {len(session.swarm_plan.get('work_units', []))} work unit(s)",
+                data={
+                    "plan_id": session.swarm_plan.get("id"),
+                    "strategy": session.swarm_plan.get("strategy"),
+                    "work_unit_ids": [unit.get("id") for unit in session.swarm_plan.get("work_units", [])],
+                    "diagnostics": session.swarm_plan.get("diagnostics", []),
+                },
+                save=False,
+            )
         self.assess_session(session, save=False)
+        self.ensure_session_branches(session)
+        self._capture_current_branch_state(session)
         sessions[session.id] = session
         self._touch(session)
         self._save()
@@ -789,6 +1554,7 @@ class CoworkService:
             runtime_created=runtime_created,
         )
         session.tasks[task_id] = task
+        self._ensure_swarm_work_unit_for_task(session, task)
         if session.status == "completed":
             session.status = "active"
         session.current_focus_task = f"{task.title}: {task.description}"
@@ -828,6 +1594,43 @@ class CoworkService:
         if save:
             self._save()
         return task
+
+    def _ensure_swarm_work_unit_for_task(self, session: CoworkSession, task: CoworkTask) -> None:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        units = plan.get("work_units") if isinstance(plan.get("work_units"), list) else []
+        if not units or any(isinstance(unit, dict) and unit.get("source_task_id") == task.id for unit in units):
+            return
+        unit = {
+            "id": task.id,
+            "title": task.title,
+            "description": task.description,
+            "input": {"goal": session.goal, "source_task_id": task.id},
+            "expected_output_schema": {"answer": "string", "evidence": "array", "risks": "array", "artifacts": "array", "confidence": "number"},
+            "completion_criteria": ["Return a structured result for the task."],
+            "assigned_agent_id": task.assigned_agent_id,
+            "dependencies": list(task.dependencies),
+            "status": "pending" if task.dependencies else "ready",
+            "priority": task.priority,
+            "attempts": 0,
+            "max_attempts": int((plan.get("budgets") or {}).get("max_retry_attempts") or 2),
+            "tool_allowlist": list(session.agents.get(task.assigned_agent_id).tools or ["cowork_internal"]) if task.assigned_agent_id in session.agents else ["cowork_internal"],
+            "result": {},
+            "evidence": [],
+            "risks": [],
+            "open_questions": [],
+            "artifacts": [],
+            "confidence": None,
+            "error": None,
+            "source_task_id": task.id,
+            "source_blueprint_id": task.source_blueprint_id,
+            "source_event_id": task.source_event_id,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+        }
+        units.append(unit)
+        plan["work_units"] = units
+        plan["updated_at"] = now_iso()
+        session.swarm_plan = update_work_unit_readiness(plan, session.tasks)
 
     def assign_task(self, session: CoworkSession, task_id: str, agent_id: str, *, save: bool = True) -> str:
         agent_id = self._slug(agent_id)
@@ -869,6 +1672,197 @@ class CoworkService:
             self._save()
         return f"Task '{task.title}' assigned to {agent.name}."
 
+    def _authorized_delegation_references(
+        self,
+        session: CoworkSession,
+        parent_agent_id: str,
+        references: list[dict[str, Any]] | None,
+    ) -> tuple[list[dict[str, Any]], list[str], list[str], int]:
+        authorized: list[dict[str, Any]] = []
+        artifact_refs: list[str] = []
+        detail_refs: list[str] = []
+        redacted = 0
+        for raw in references or []:
+            item = dict(raw) if isinstance(raw, dict) else {"ref": str(raw)}
+            ref = str(item.get("ref") or item.get("id") or item.get("artifact_ref") or item.get("detail_ref") or "").strip()
+            ref_type = str(item.get("type") or item.get("kind") or "").strip()
+            if not ref:
+                redacted += 1
+                continue
+            sensitive_artifact = session.sensitive_artifacts.get(ref)
+            detail = session.observation_details.get(ref)
+            if sensitive_artifact and parent_agent_id not in sensitive_artifact.permitted_agent_ids:
+                redacted += 1
+                continue
+            if detail and detail.sensitivity and parent_agent_id not in detail.permitted_agent_ids:
+                redacted += 1
+                continue
+            safe_item = {
+                "ref": ref,
+                "type": ref_type or ("observation_detail" if detail else "artifact" if sensitive_artifact else "reference"),
+                "summary": compact_text(item.get("summary") or item.get("title") or ref, 240),
+            }
+            authorized.append(safe_item)
+            if safe_item["type"] in {"artifact", "sensitive_artifact"} or sensitive_artifact:
+                artifact_refs.append(ref)
+            if safe_item["type"] in {"observation_detail", "full_observation_detail"} or detail:
+                detail_refs.append(ref)
+        return authorized, list(dict.fromkeys(artifact_refs)), list(dict.fromkeys(detail_refs)), redacted
+
+    def _delegation_denials(
+        self,
+        session: CoworkSession,
+        *,
+        requested_tools: list[str],
+    ) -> list[str]:
+        state = self.budget_state(session)
+        limits = state["limits"]
+        usage = state["usage"]
+        denials: list[str] = []
+        max_spawned = limits.get("max_spawned_agents")
+        if max_spawned is not None and int(usage.get("spawned_agents", 0) or 0) >= int(max_spawned):
+            denials.append("spawned_agent_budget_exhausted")
+        max_concurrent = limits.get("max_concurrent_delegated_work")
+        active_delegated = [
+            item
+            for item in getattr(session, "delegated_tasks", {}).values()
+            if item.status in {"requested", "active"}
+        ]
+        if max_concurrent is not None and len(active_delegated) >= int(max_concurrent):
+            denials.append("concurrent_delegated_work_exhausted")
+        parallel_width = limits.get("parallel_width")
+        active_sub_agents = [
+            agent
+            for agent in session.agents.values()
+            if getattr(agent, "lifetime", "") == "temporary" and getattr(agent, "lifecycle_status", "active") != "retired"
+        ]
+        if parallel_width is not None and len(active_sub_agents) >= int(parallel_width):
+            denials.append("parallel_width_exhausted")
+        for limit_key, usage_key, reason in (
+            ("max_agent_calls_total", "agent_calls", "agent_call_budget_exhausted"),
+            ("max_tool_calls", "tool_calls", "tool_call_budget_exhausted"),
+            ("max_tokens", "tokens_total", "token_budget_exhausted"),
+            ("max_cost", "cost", "cost_budget_exhausted"),
+        ):
+            limit = limits.get(limit_key)
+            if limit is not None and usage.get(usage_key, 0) >= limit:
+                denials.append(reason)
+        allowed_tools = {"cowork_internal", "read_file", "list_dir", "write_file", "edit_file", "exec"}
+        disallowed = [item for item in requested_tools if item not in allowed_tools]
+        if disallowed:
+            denials.append(f"tool_not_supported:{','.join(disallowed)}")
+        return denials
+
+    def _delegation_allowed_tools(self, session: CoworkSession, requested_tools: list[str]) -> tuple[list[str], list[str]]:
+        policy = (getattr(session, "swarm_plan", {}) or {}).get("policy", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        policy_allowed = {str(item).strip() for item in policy.get("allowed_tools", []) if str(item).strip()} if isinstance(policy, dict) else set()
+        if not policy_allowed:
+            return requested_tools or ["cowork_internal"], []
+        kept = [item for item in requested_tools if item in policy_allowed]
+        removed = [item for item in requested_tools if item not in policy_allowed]
+        return kept or ["cowork_internal"], removed
+
+    def _open_delegated_task(
+        self,
+        session: CoworkSession,
+        *,
+        parent_agent_id: str,
+        task_goal: str,
+        constraints: list[str] | None = None,
+        input_references: list[dict[str, Any]] | None = None,
+        expected_output: str = "",
+        tools: list[str] | None = None,
+        stopping_criteria: list[str] | None = None,
+        work_unit_id: str = "",
+        save: bool = False,
+    ) -> tuple[CoworkDelegatedTask, CoworkDelegatedBrief, CoworkDelegationGuardrail, list[str]] | str:
+        self.ensure_session_branches(session)
+        self.ensure_session_budget(session)
+        if parent_agent_id not in session.agents:
+            return f"Error: parent agent '{parent_agent_id}' not found"
+        requested_tools = [str(item).strip() for item in (tools or ["cowork_internal"]) if str(item).strip()]
+        decision = self.architecture_policy(session.workflow_mode).handle_delegation(
+            session,
+            {
+                "parent_agent_id": parent_agent_id,
+                "task_goal": task_goal,
+                "tools": requested_tools,
+                "branch_id": session.current_branch_id,
+                "work_unit_id": work_unit_id,
+            },
+        )
+        allowed_by_policy = decision.status in {"allowed", "available"} and decision.payload.get("allowed", True)
+        allowed_tools, removed_by_policy = self._delegation_allowed_tools(session, requested_tools)
+        denials = [] if allowed_by_policy else [decision.reason or "delegation_denied_by_policy"]
+        denials.extend(self._delegation_denials(session, requested_tools=allowed_tools))
+        state = self.budget_state(session)
+        branch = self.current_branch(session)
+        guardrail = CoworkDelegationGuardrail(
+            id=self._new_id("guard"),
+            branch_id=branch.id,
+            architecture=branch.architecture,
+            parent_agent_id=parent_agent_id,
+            max_spawned_agents=state["limits"].get("max_spawned_agents"),
+            max_concurrent_delegated_work=state["limits"].get("max_concurrent_delegated_work"),
+            max_agent_calls_total=state["limits"].get("max_agent_calls_total"),
+            max_tool_calls=state["limits"].get("max_tool_calls"),
+            max_tokens=state["limits"].get("max_tokens"),
+            max_cost=state["limits"].get("max_cost"),
+            parallel_width=state["limits"].get("parallel_width"),
+            allowed_tools=list(allowed_tools),
+            denied_reasons=denials,
+        )
+        session.delegation_guardrails[guardrail.id] = guardrail
+        if denials:
+            if "spawned_agent_budget_exhausted" in denials:
+                self.record_stop_reason(
+                    session,
+                    "spawn_budget_exhausted",
+                    "Cowork agent spawn request was blocked by the spawned-agent budget",
+                    data={"parent_agent_id": parent_agent_id, "max_spawned_agents": state["limits"].get("max_spawned_agents")},
+                    save=False,
+                )
+            self.add_event(
+                session,
+                "delegation.denied",
+                "Sub-Agent delegation request was denied by guardrails",
+                actor_id=parent_agent_id,
+                data={"guardrail_id": guardrail.id, "denied_reasons": denials},
+                save=False,
+            )
+            if save:
+                self._touch(session)
+                self._save()
+            if denials == ["spawned_agent_budget_exhausted"]:
+                return "Error: spawned-agent budget exhausted"
+            return f"Error: delegation denied: {', '.join(denials)}"
+        safe_refs, artifact_refs, detail_refs, redacted_count = self._authorized_delegation_references(session, parent_agent_id, input_references)
+        brief = CoworkDelegatedBrief(
+            id=self._new_id("brief"),
+            parent_agent_id=parent_agent_id,
+            task_goal=compact_text(task_goal, 1200),
+            constraints=[compact_text(item, 240) for item in (constraints or []) if str(item).strip()],
+            input_references=safe_refs,
+            expected_output=compact_text(expected_output, 500),
+            allowed_tools=list(allowed_tools),
+            stopping_criteria=[compact_text(item, 240) for item in (stopping_criteria or []) if str(item).strip()],
+            authorized_artifact_refs=artifact_refs,
+            authorized_detail_refs=detail_refs,
+            redacted_reference_count=redacted_count,
+        )
+        delegated = CoworkDelegatedTask(
+            id=self._new_id("dtask"),
+            parent_agent_id=parent_agent_id,
+            brief_id=brief.id,
+            branch_id=branch.id,
+            architecture=branch.architecture,
+            status="requested",
+            guardrail_id=guardrail.id,
+        )
+        session.delegated_briefs[brief.id] = brief
+        session.delegated_tasks[delegated.id] = delegated
+        return delegated, brief, guardrail, removed_by_policy
+
     def spawn_agent(
         self,
         session: CoworkSession,
@@ -883,28 +1877,31 @@ class CoworkService:
         reason: str = "",
         source_event_id: str = "",
         team_id: str = "",
+        work_unit_id: str = "",
+        delegated_task_id: str = "",
+        delegated_brief_id: str = "",
         save: bool = True,
     ) -> CoworkAgent | str:
-        self.ensure_session_budget(session)
-        if parent_agent_id not in session.agents:
-            return f"Error: parent agent '{parent_agent_id}' not found"
-        state = self.budget_state(session)
-        max_spawned = state["limits"].get("max_spawned_agents")
-        spawned = int(state["usage"].get("spawned_agents", 0) or 0)
-        if max_spawned is not None and spawned >= int(max_spawned):
-            self.record_stop_reason(
+        requested_tools = [str(item).strip() for item in (tools or ["cowork_internal"]) if str(item).strip()]
+        removed_by_policy: list[str] = []
+        delegated = session.delegated_tasks.get(delegated_task_id) if delegated_task_id else None
+        brief = session.delegated_briefs.get(delegated_brief_id) if delegated_brief_id else None
+        if delegated is None or brief is None:
+            opened = self._open_delegated_task(
                 session,
-                "spawn_budget_exhausted",
-                "Cowork agent spawn request was blocked by the spawned-agent budget",
-                data={"parent_agent_id": parent_agent_id, "max_spawned_agents": max_spawned},
+                parent_agent_id=parent_agent_id,
+                task_goal=goal,
+                constraints=responsibilities,
+                expected_output="Compact delegated result with answer, evidence, uncertainty, artifacts, and blockers.",
+                tools=requested_tools,
+                stopping_criteria=["Return the compact result to the parent agent and stop."],
+                work_unit_id=work_unit_id,
                 save=save,
             )
-            return "Error: spawned-agent budget exhausted"
-        allowed_tools = {"cowork_internal", "read_file", "list_dir", "write_file", "edit_file", "exec"}
-        requested_tools = [str(item).strip() for item in (tools or ["cowork_internal"]) if str(item).strip()]
-        disallowed = [item for item in requested_tools if item not in allowed_tools]
-        if disallowed:
-            return f"Error: tools not allowed for spawned agents: {', '.join(disallowed)}"
+            if isinstance(opened, str):
+                return opened
+            delegated, brief, _guardrail, removed_by_policy = opened
+        requested_tools = list(brief.allowed_tools or requested_tools or ["cowork_internal"])
         base_id = self._slug(name or role or "specialist")
         agent_id = base_id
         counter = 2
@@ -921,11 +1918,30 @@ class CoworkService:
             subscriptions=subscriptions or [agent_id, self._slug(role)],
             parent_agent_id=parent_agent_id,
             team_id=team_id,
+            lifetime="temporary",
             lifecycle_status="active",
             source_event_id=source_event_id,
             spawn_reason=reason,
+            delegated_task_id=delegated.id,
+            delegated_brief_id=brief.id,
+            sub_agent_scope="parent",
         )
         session.agents[agent_id] = agent
+        isolated = CoworkIsolatedSubAgentContext(
+            id=self._new_id("ictx"),
+            delegated_task_id=delegated.id,
+            sub_agent_id=agent.id,
+            parent_agent_id=parent_agent_id,
+            brief_id=brief.id,
+            summary=brief.task_goal,
+            artifact_refs=list(brief.authorized_artifact_refs),
+            detail_refs=list(brief.authorized_detail_refs),
+        )
+        agent.isolated_context_id = isolated.id
+        session.isolated_sub_agent_contexts[isolated.id] = isolated
+        delegated.sub_agent_id = agent.id
+        delegated.status = "active"
+        delegated.updated_at = now_iso()
         self.record_budget_usage(session, spawned_agents=1, save=False)
         self.add_event(
             session,
@@ -938,6 +1954,13 @@ class CoworkService:
                 "source_event_id": source_event_id,
                 "reason": reason,
                 "team_id": team_id,
+                "work_unit_id": work_unit_id,
+                "lifetime": agent.lifetime,
+                "removed_tools_by_policy": removed_by_policy,
+                "delegated_task_id": delegated.id,
+                "delegated_brief_id": brief.id,
+                "isolated_context_id": isolated.id,
+                "sub_agent_scope": agent.sub_agent_scope,
             },
             save=False,
         )
@@ -947,13 +1970,96 @@ class CoworkService:
             name="Agent spawned",
             actor_id=parent_agent_id,
             summary=f"Spawned agent {agent.name}",
-            data={"agent_id": agent.id, "parent_agent_id": parent_agent_id, "reason": reason, "team_id": team_id},
+            data={
+                "agent_id": agent.id,
+                "parent_agent_id": parent_agent_id,
+                "reason": reason,
+                "team_id": team_id,
+                "work_unit_id": work_unit_id,
+                "lifetime": agent.lifetime,
+                "removed_tools_by_policy": removed_by_policy,
+                "delegated_task_id": delegated.id,
+                "delegated_brief_id": brief.id,
+                "isolated_context_id": isolated.id,
+            },
             save=False,
         )
         if save:
             self._touch(session)
             self._save()
         return agent
+
+    def request_agent_delegation(
+        self,
+        session: CoworkSession,
+        *,
+        parent_agent_id: str,
+        task_goal: str,
+        role: str = "Delegated specialist",
+        name: str = "",
+        constraints: list[str] | None = None,
+        input_references: list[dict[str, Any]] | None = None,
+        expected_output: str = "",
+        tools: list[str] | None = None,
+        stopping_criteria: list[str] | None = None,
+        work_unit_id: str = "",
+        save: bool = True,
+    ) -> dict[str, Any] | str:
+        opened = self._open_delegated_task(
+            session,
+            parent_agent_id=parent_agent_id,
+            task_goal=task_goal,
+            constraints=constraints,
+            input_references=input_references,
+            expected_output=expected_output,
+            tools=tools,
+            stopping_criteria=stopping_criteria,
+            work_unit_id=work_unit_id,
+            save=save,
+        )
+        if isinstance(opened, str):
+            return opened
+        delegated, brief, guardrail, removed_by_policy = opened
+        agent = self.spawn_agent(
+            session,
+            parent_agent_id=parent_agent_id,
+            role=role,
+            goal=brief.task_goal,
+            name=name,
+            responsibilities=constraints or [],
+            tools=brief.allowed_tools,
+            reason=task_goal,
+            work_unit_id=work_unit_id,
+            delegated_task_id=delegated.id,
+            delegated_brief_id=brief.id,
+            save=False,
+        )
+        if isinstance(agent, str):
+            delegated.status = "denied"
+            delegated.error = agent
+            delegated.updated_at = now_iso()
+            if save:
+                self._touch(session)
+                self._save()
+            return agent
+        self.add_event(
+            session,
+            "delegation.created",
+            f"Delegated task '{delegated.id}' assigned to Sub-Agent {agent.name}",
+            actor_id=parent_agent_id,
+            data={
+                "delegated_task_id": delegated.id,
+                "delegated_brief_id": brief.id,
+                "sub_agent_id": agent.id,
+                "guardrail_id": guardrail.id,
+                "removed_tools_by_policy": removed_by_policy,
+            },
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return {"delegated_task": delegated, "brief": brief, "sub_agent": agent, "guardrail": guardrail}
 
     def spawn_subteam(
         self,
@@ -984,6 +2090,7 @@ class CoworkService:
                     reason=reason,
                     source_event_id=source_event_id,
                     team_id=team_id,
+                    work_unit_id=str(raw_agent.get("work_unit_id") or raw_agent.get("source_work_unit_id") or ""),
                     save=False,
                 )
                 if isinstance(result, str):
@@ -1036,12 +2143,19 @@ class CoworkService:
         agent.status = "retired"  # type: ignore[assignment]
         agent.current_task_id = None
         agent.current_task_title = None
+        delegated_task_id = getattr(agent, "delegated_task_id", "")
+        delegated = session.delegated_tasks.get(delegated_task_id) if delegated_task_id else None
+        if delegated and delegated.status not in {"completed", "failed", "denied"}:
+            delegated.status = "retired"
+            delegated.retired_at = now_iso()
+            delegated.updated_at = delegated.retired_at
+            delegated.error = delegated.error or reason or "Sub-Agent retired before returning a result."
         self.add_event(
             session,
             "agent.retired",
             f"{agent.name} retired from scheduling",
             actor_id=agent.id,
-            data={"agent_id": agent.id, "reason": reason},
+            data={"agent_id": agent.id, "reason": reason, "delegated_task_id": delegated_task_id},
             save=False,
         )
         self.add_trace_event(
@@ -1058,6 +2172,76 @@ class CoworkService:
             self._touch(session)
             self._save()
         return f"Agent '{agent.name}' retired."
+
+    def complete_sub_agent(
+        self,
+        session: CoworkSession,
+        sub_agent_id: str,
+        *,
+        answer: str,
+        evidence: list[dict[str, Any]] | None = None,
+        sources: list[str] | None = None,
+        uncertainty: str = "",
+        artifacts: list[str] | None = None,
+        blockers: list[str] | None = None,
+        status: str = "completed",
+        save: bool = True,
+    ) -> CoworkSubAgentResult | str:
+        agent_id = self._slug(sub_agent_id)
+        agent = session.agents.get(agent_id)
+        if not agent:
+            return f"Error: sub-agent '{agent_id}' not found"
+        delegated_task_id = getattr(agent, "delegated_task_id", "")
+        delegated = session.delegated_tasks.get(delegated_task_id) if delegated_task_id else None
+        if delegated is None or delegated.sub_agent_id != agent.id:
+            return f"Error: agent '{agent_id}' is not attached to a delegated task"
+        result_status = "failed" if status == "failed" or blockers else "completed"
+        result = CoworkSubAgentResult(
+            id=self._new_id("sres"),
+            delegated_task_id=delegated.id,
+            sub_agent_id=agent.id,
+            parent_agent_id=delegated.parent_agent_id,
+            answer=compact_text(answer, 2000),
+            evidence=list(evidence or []),
+            sources=[compact_text(item, 300) for item in (sources or []) if str(item).strip()],
+            uncertainty=compact_text(uncertainty, 500),
+            artifacts=list(artifacts or []),
+            blockers=[compact_text(item, 300) for item in (blockers or []) if str(item).strip()],
+            status=result_status,
+        )
+        session.sub_agent_results[result.id] = result
+        delegated.result_id = result.id
+        delegated.status = result_status  # type: ignore[assignment]
+        delegated.updated_at = now_iso()
+        agent.private_summary = self._merge_private_summary(agent.private_summary, answer)
+        self.add_event(
+            session,
+            "delegation.result.returned",
+            f"Sub-Agent {agent.name} returned a delegated result",
+            actor_id=agent.id,
+            data={
+                "delegated_task_id": delegated.id,
+                "sub_agent_id": agent.id,
+                "parent_agent_id": delegated.parent_agent_id,
+                "result_id": result.id,
+                "status": result.status,
+                "blockers": result.blockers,
+            },
+            save=False,
+        )
+        self.retire_agent(
+            session,
+            agent.id,
+            reason="Delegated task completed." if result_status == "completed" else "Delegated task failed.",
+            save=False,
+        )
+        delegated.status = result_status  # retirement preserves final completion/failure status
+        delegated.retired_at = now_iso()
+        delegated.updated_at = delegated.retired_at
+        if save:
+            self._touch(session)
+            self._save()
+        return result
 
     def claim_task(self, session: CoworkSession, agent_id: str, task_id: str | None = None, *, save: bool = True) -> CoworkTask | str:
         with self._mutation_lock:
@@ -1164,6 +2348,9 @@ class CoworkService:
         if status == "completed":
             self._merge_task_artifacts(session, result_data)
             self.refresh_shared_memory(session, save=False)
+        self._sync_swarm_work_unit_from_task(session, task)
+        self.process_swarm_gate_result(session, task, save=False)
+        self.replan_swarm(session, source_kind="task", source_id=task.id, save=False)
         self._update_completion_state(session)
         self._touch(session)
         self._save()
@@ -1211,6 +2398,8 @@ class CoworkService:
         candidates: list[tuple[int, CoworkAgent]] = []
         if session.status != "active":
             return []
+        if session.workflow_mode == "swarm":
+            return self.select_swarm_active_agents(session, limit=limit)
         self.expire_mailbox_records(session, save=False)
         self.escalate_stale_blockers(session, save=False)
         profile = self.workflow_profile(session.workflow_mode)
@@ -1852,6 +3041,15 @@ class CoworkService:
             session.trace_spans.append(span)
         if len(session.trace_spans) > _MAX_TRACE_SPAN_COUNT:
             session.trace_spans = session.trace_spans[-_MAX_TRACE_SPAN_COUNT:]
+        self.event_log.append(
+            session.id,
+            "trace.span_recorded",
+            category="trace",
+            actor_id=span.actor_id,
+            event_id=span.id,
+            created_at=span.ended_at or span.started_at,
+            payload={"span": asdict(span)},
+        )
         if save:
             self._touch(session)
             self._save()
@@ -1905,6 +3103,384 @@ class CoworkService:
             self.traces.finish_span(span, status=status, output_ref=output_ref, summary=summary, data=data)
         self.add_trace_span(session, span, save=save)
         return span
+
+    def start_agent_step(
+        self,
+        session: CoworkSession,
+        *,
+        agent_id: str | None,
+        action_kind: str,
+        scheduler_reason: str = "",
+        task_id: str | None = None,
+        work_unit_id: str | None = None,
+        input_summary: str = "",
+        linked_message_ids: list[str] | None = None,
+        linked_envelope_ids: list[str] | None = None,
+        source_span_id: str | None = None,
+        save: bool = False,
+    ) -> CoworkAgentStep:
+        """Record the beginning of a native Agent Step."""
+
+        branch_id = session.current_branch_id or _DEFAULT_BRANCH_ID
+        branch = session.branches.get(branch_id)
+        architecture = getattr(branch, "architecture", session.workflow_mode) if branch else session.workflow_mode
+        step = CoworkAgentStep(
+            id=self._new_id("step"),
+            session_id=session.id,
+            branch_id=branch_id,
+            architecture=self.normalize_workflow_mode(architecture),
+            agent_id=agent_id,
+            action_kind=action_kind,
+            scheduler_reason=compact_text(scheduler_reason, 240),
+            status="running",
+            task_id=task_id,
+            work_unit_id=work_unit_id,
+            input_summary=compact_text(input_summary, 500),
+            linked_message_ids=list(linked_message_ids or []),
+            linked_envelope_ids=list(linked_envelope_ids or []),
+            source_span_id=source_span_id,
+        )
+        session.agent_steps.append(step)
+        if len(session.agent_steps) > _MAX_AGENT_STEP_COUNT:
+            session.agent_steps = session.agent_steps[-_MAX_AGENT_STEP_COUNT:]
+        self.event_log.append(
+            session.id,
+            "agent_step.started",
+            category="observation",
+            actor_id=agent_id,
+            event_id=step.id,
+            created_at=step.started_at,
+            payload={"agent_step": asdict(step)},
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return step
+
+    def finish_agent_step(
+        self,
+        session: CoworkSession,
+        step: CoworkAgentStep,
+        *,
+        status: str = "completed",
+        output_summary: str = "",
+        error: str | None = None,
+        linked_message_ids: list[str] | None = None,
+        linked_artifact_refs: list[str] | None = None,
+        linked_task_ids: list[str] | None = None,
+        detail_content: str = "",
+        detail_content_type: str = "text/plain",
+        redacted: bool = False,
+        save: bool = False,
+    ) -> CoworkAgentStep:
+        ended_at = now_iso()
+        step.status = self._agent_step_status(status, error=error)
+        step.ended_at = ended_at
+        step.duration_ms = duration_ms(step.started_at, ended_at)
+        step.output_summary = compact_text(output_summary or error or step.output_summary, 600)
+        step.error = compact_text(error, 500) if error else None
+        if linked_message_ids:
+            step.linked_message_ids = list(dict.fromkeys([*step.linked_message_ids, *linked_message_ids]))
+        if linked_artifact_refs:
+            step.linked_artifact_refs = list(dict.fromkeys([*step.linked_artifact_refs, *linked_artifact_refs]))
+        if linked_task_ids:
+            step.linked_task_ids = list(dict.fromkeys([*step.linked_task_ids, *linked_task_ids]))
+        if detail_content:
+            detail = self.record_full_observation_detail(
+                session,
+                subject_id=step.id,
+                subject_type="agent_step",
+                summary=step.output_summary,
+                content=detail_content,
+                content_type=detail_content_type,
+                redacted=redacted,
+                save=False,
+            )
+            step.detail_ref = detail.id
+        step.summary = CoworkStepSummary(
+            id=f"summary:{step.id}",
+            step_id=step.id,
+            purpose=step.scheduler_reason or step.action_kind.replace("_", " ").title(),
+            action_kind=step.action_kind,
+            input_summary=compact_text(step.input_summary, 220),
+            outcome_summary=compact_text(step.output_summary or step.error or step.status, 240),
+            next_effect=compact_text(self._agent_step_next_effect(step), 180),
+            has_full_detail=bool(step.detail_ref),
+            detail_ref=step.detail_ref,
+            redacted=redacted,
+            created_at=ended_at,
+        )
+        self.event_log.append(
+            session.id,
+            "agent_step.finished",
+            category="observation",
+            actor_id=step.agent_id,
+            event_id=step.id,
+            created_at=ended_at,
+            payload={"agent_step": asdict(step)},
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return step
+
+    def record_tool_observation(
+        self,
+        session: CoworkSession,
+        step: CoworkAgentStep,
+        *,
+        tool_name: str,
+        purpose: str = "",
+        parameters: dict[str, Any] | None = None,
+        result: Any = "",
+        status: str = "completed",
+        started_at: str | None = None,
+        ended_at: str | None = None,
+        detail_content: str = "",
+        redacted: bool = False,
+        save: bool = False,
+    ) -> CoworkToolObservation:
+        started = started_at or now_iso()
+        ended = ended_at or now_iso()
+        observation = CoworkToolObservation(
+            id=self._new_id("toolobs"),
+            step_id=step.id,
+            tool_name=tool_name,
+            calling_agent_id=step.agent_id,
+            purpose=compact_text(purpose or f"Call {tool_name}", 240),
+            parameter_summary=self._sanitize_observation_parameters(parameters or {}),
+            result_summary=compact_text(result, 400),
+            status=self._observation_status(status, result=result),
+            started_at=started,
+            ended_at=ended,
+            duration_ms=duration_ms(started, ended),
+            redacted=redacted,
+        )
+        if detail_content:
+            detail = self.record_full_observation_detail(
+                session,
+                subject_id=observation.id,
+                subject_type="tool_observation",
+                summary=observation.result_summary,
+                content=detail_content,
+                redacted=redacted,
+                save=False,
+            )
+            observation.detail_ref = detail.id
+        step.tool_observations.append(observation)
+        self.event_log.append(
+            session.id,
+            "tool_observation.recorded",
+            category="observation",
+            actor_id=step.agent_id,
+            event_id=observation.id,
+            created_at=ended,
+            payload={"tool_observation": asdict(observation)},
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return observation
+
+    def record_browser_observation(
+        self,
+        session: CoworkSession,
+        step: CoworkAgentStep,
+        *,
+        purpose: str,
+        resource_ref: str = "",
+        title: str = "",
+        result_summary: str = "",
+        status: str = "completed",
+        accessed_at: str | None = None,
+        ended_at: str | None = None,
+        artifact_refs: list[str] | None = None,
+        detail_content: str = "",
+        sensitive: bool = False,
+        redacted: bool = False,
+        save: bool = False,
+    ) -> CoworkBrowserObservation:
+        started = accessed_at or now_iso()
+        ended = ended_at or now_iso()
+        observation = CoworkBrowserObservation(
+            id=self._new_id("browserobs"),
+            step_id=step.id,
+            purpose=compact_text(purpose, 240),
+            resource_ref=compact_text(resource_ref, 500),
+            title=compact_text(title, 240),
+            result_summary=compact_text(result_summary, 400),
+            status=self._observation_status(status),
+            accessed_at=started,
+            ended_at=ended,
+            duration_ms=duration_ms(started, ended),
+            artifact_refs=list(artifact_refs or []),
+            sensitive=sensitive,
+            redacted=redacted or sensitive,
+        )
+        if detail_content:
+            detail = self.record_full_observation_detail(
+                session,
+                subject_id=observation.id,
+                subject_type="browser_observation",
+                summary=observation.result_summary,
+                content=detail_content,
+                redacted=redacted or sensitive,
+                sensitivity="sensitive" if sensitive else "",
+                artifact_refs=observation.artifact_refs,
+                save=False,
+            )
+            observation.detail_ref = detail.id
+        if sensitive:
+            artifact = CoworkSensitiveArtifact(
+                id=self._new_id("sartifact"),
+                source_step_id=step.id,
+                source_observation_id=observation.id,
+                summary=observation.result_summary,
+                artifact_ref=observation.detail_ref or (observation.artifact_refs[0] if observation.artifact_refs else ""),
+            )
+            session.sensitive_artifacts[artifact.id] = artifact
+        step.browser_observations.append(observation)
+        self.event_log.append(
+            session.id,
+            "browser_observation.recorded",
+            category="observation",
+            actor_id=step.agent_id,
+            event_id=observation.id,
+            created_at=ended,
+            payload={"browser_observation": asdict(observation)},
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return observation
+
+    def record_full_observation_detail(
+        self,
+        session: CoworkSession,
+        *,
+        subject_id: str,
+        subject_type: str,
+        summary: str = "",
+        content: str = "",
+        content_type: str = "text/plain",
+        state: str = "available",
+        redacted: bool = False,
+        sensitivity: str = "",
+        unavailable_reason: str = "",
+        permitted_agent_ids: list[str] | None = None,
+        artifact_refs: list[str] | None = None,
+        save: bool = False,
+    ) -> CoworkFullObservationDetail:
+        detail = CoworkFullObservationDetail(
+            id=self._new_id("obsdetail"),
+            subject_id=subject_id,
+            subject_type=subject_type,
+            state=state if state in {"available", "redacted", "unavailable", "unauthorized"} else "available",  # type: ignore[arg-type]
+            summary=compact_text(summary, 400),
+            content=content,
+            content_type=content_type,
+            redacted=redacted,
+            sensitivity=sensitivity,
+            unavailable_reason=compact_text(unavailable_reason, 240),
+            permitted_agent_ids=list(permitted_agent_ids or []),
+            artifact_refs=list(artifact_refs or []),
+        )
+        session.observation_details[detail.id] = detail
+        if save:
+            self._touch(session)
+            self._save()
+        return detail
+
+    def get_observation_detail(
+        self,
+        session: CoworkSession,
+        detail_id: str,
+        *,
+        requester_agent_id: str | None = None,
+    ) -> CoworkFullObservationDetail:
+        detail = session.observation_details.get(detail_id)
+        if detail is None:
+            return CoworkFullObservationDetail(
+                id=detail_id,
+                subject_id=detail_id,
+                subject_type="unknown",
+                state="unavailable",
+                summary="Observation detail is not available.",
+                unavailable_reason="Detail was not persisted or has expired.",
+            )
+        if detail.state != "available":
+            return detail
+        if detail.sensitivity and requester_agent_id is not None and requester_agent_id not in detail.permitted_agent_ids:
+            return CoworkFullObservationDetail(
+                id=detail.id,
+                subject_id=detail.subject_id,
+                subject_type=detail.subject_type,
+                state="unauthorized",
+                summary=detail.summary,
+                content="",
+                content_type=detail.content_type,
+                redacted=True,
+                sensitivity=detail.sensitivity,
+                unavailable_reason="Requester is not permitted to open this sensitive observation detail.",
+                artifact_refs=list(detail.artifact_refs),
+                created_at=detail.created_at,
+            )
+        return detail
+
+    @staticmethod
+    def _agent_step_status(status: str, *, error: str | None = None) -> str:
+        if error:
+            return "failed"
+        value = str(status or "completed").strip().lower()
+        if value in {"completed", "failed", "blocked", "stopped", "running", "pending"}:
+            return value
+        if value in {"idle", "done", "success"}:
+            return "completed"
+        if value in {"cancelled", "canceled", "interrupted"}:
+            return "stopped"
+        return "completed"
+
+    @staticmethod
+    def _observation_status(status: str, *, result: Any = "") -> str:
+        value = str(status or "completed").strip().lower()
+        result_text = str(result or "").lstrip()
+        if result_text.startswith("Error"):
+            return "failed"
+        if value == "ok":
+            return "completed"
+        if value == "error":
+            return "failed"
+        if value in {"pending", "running", "completed", "failed", "redacted", "unavailable"}:
+            return value
+        return "completed"
+
+    @staticmethod
+    def _sanitize_observation_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+        sensitive_terms = ("secret", "token", "password", "api_key", "apikey", "credential", "authorization")
+        sanitized: dict[str, Any] = {}
+        for key, value in (parameters or {}).items():
+            key_text = str(key)
+            if any(term in key_text.lower() for term in sensitive_terms):
+                sanitized[key_text] = "[redacted]"
+            elif isinstance(value, (str, int, float, bool)) or value is None:
+                sanitized[key_text] = compact_text(value, 160)
+            elif isinstance(value, list):
+                sanitized[key_text] = f"list[{len(value)}]"
+            elif isinstance(value, dict):
+                sanitized[key_text] = f"object[{len(value)}]"
+            else:
+                sanitized[key_text] = type(value).__name__
+        return sanitized
+
+    @staticmethod
+    def _agent_step_next_effect(step: CoworkAgentStep) -> str:
+        if step.linked_task_ids:
+            return f"Updated task(s): {', '.join(step.linked_task_ids[:4])}"
+        if step.linked_message_ids:
+            return f"Linked message(s): {', '.join(step.linked_message_ids[:4])}"
+        if step.linked_artifact_refs:
+            return f"Linked artifact(s): {', '.join(step.linked_artifact_refs[:4])}"
+        return ""
 
     def add_trace_event(
         self,
@@ -1998,6 +3574,15 @@ class CoworkService:
         session.scheduler_decisions.append(decision)
         if len(session.scheduler_decisions) > _MAX_SCHEDULER_DECISION_COUNT:
             session.scheduler_decisions = session.scheduler_decisions[-_MAX_SCHEDULER_DECISION_COUNT:]
+        self.event_log.append(
+            session.id,
+            "scheduler.decision",
+            category="scheduler",
+            actor_id="scheduler",
+            event_id=decision["id"],
+            created_at=decision["created_at"],
+            payload={"decision": decision},
+        )
         if save:
             self._touch(session)
             self._save()
@@ -2017,6 +3602,15 @@ class CoworkService:
         session.events.append(event)
         if len(session.events) > _MAX_EVENT_COUNT:
             session.events = session.events[-_MAX_EVENT_COUNT:]
+        self.event_log.append(
+            session.id,
+            event_type,
+            category="event",
+            actor_id=actor_id,
+            event_id=event.id,
+            created_at=event.created_at,
+            payload={"event": asdict(event)},
+        )
         self._notify_listeners(session, event)
         if save:
             self._touch(session)
@@ -2076,6 +3670,7 @@ class CoworkService:
         task.status = "pending"
         task.error = None
         task.updated_at = now_iso()
+        self._sync_swarm_work_unit_from_task(session, task)
         if session.status == "completed":
             session.status = "active"
         if task.assigned_agent_id in session.agents:
@@ -2105,6 +3700,1083 @@ class CoworkService:
         if save:
             self._save()
         return f"Task '{task.title}' queued for retry."
+
+    def _sync_swarm_work_unit_from_task(self, session: CoworkSession, task: CoworkTask) -> None:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        units = plan.get("work_units") if isinstance(plan.get("work_units"), list) else []
+        if not units:
+            return
+        status_map = {
+            "pending": "pending",
+            "in_progress": "in_progress",
+            "completed": "completed",
+            "failed": "failed",
+            "skipped": "skipped",
+        }
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            if unit.get("source_task_id") != task.id and unit.get("id") != task.id:
+                continue
+            unit["assigned_agent_id"] = task.assigned_agent_id
+            unit["status"] = status_map.get(task.status, unit.get("status", "pending"))
+            unit["updated_at"] = now_iso()
+            if task.status == "completed":
+                result = work_unit_result_from_task(task)
+                unit["result"] = {"answer": result["answer"], "findings": result["findings"]}
+                unit["evidence"] = result["evidence"]
+                unit["risks"] = result["risks"]
+                unit["open_questions"] = result["open_questions"]
+                unit["artifacts"] = result["artifacts"]
+                unit["confidence"] = result["confidence"]
+            elif task.status == "failed":
+                unit["error"] = task.error or task.result
+            elif task.status == "pending":
+                unit["error"] = None
+                unit["attempts"] = int(unit.get("attempts", 0) or 0) + 1
+        session.swarm_plan = update_work_unit_readiness(plan, session.tasks)
+
+    def ready_swarm_work_units(self, session: CoworkSession) -> list[dict[str, Any]]:
+        plan = update_work_unit_readiness(getattr(session, "swarm_plan", {}), session.tasks)
+        session.swarm_plan = plan
+        units = plan.get("work_units") if isinstance(plan.get("work_units"), list) else []
+        return [unit for unit in units if isinstance(unit, dict) and unit.get("status") == "ready"]
+
+    def select_swarm_active_agents(self, session: CoworkSession, limit: int = 3) -> list[CoworkAgent]:
+        """Select bounded swarm workers and mark their units in progress."""
+
+        if session.status != "active":
+            return []
+        self.expire_mailbox_records(session, save=False)
+        self.escalate_stale_blockers(session, save=False)
+        state = self.ensure_session_budget(session)
+        parallel_width = max(1, int(state["limits"].get("parallel_width") or 1))
+        active_agent_ids = {
+            agent.id
+            for agent in session.agents.values()
+            if agent.status == "working" and getattr(agent, "lifecycle_status", "active") != "retired"
+        }
+        slots = max(0, min(max(1, int(limit or 1)), parallel_width) - len(active_agent_ids))
+        if slots <= 0:
+            return []
+
+        if self.swarm_reducer_should_run(session):
+            reducer_task = self.ensure_swarm_reducer_task(session, save=False)
+            if reducer_task and reducer_task.assigned_agent_id in session.agents and reducer_task.status == "pending":
+                unit = self.swarm_work_unit_for_task(session, reducer_task.id)
+                if unit and unit.get("status") == "ready":
+                    self.start_work_unit(session, str(unit.get("id")), reducer_task.assigned_agent_id or self.lead_agent_id(session), save=False)
+                return [session.agents[reducer_task.assigned_agent_id or self.lead_agent_id(session)]]
+
+        selection = self.architecture_policy(session.workflow_mode).select_step(session)
+        queues = selection.payload.get("queues") if isinstance(selection.payload.get("queues"), dict) else self.swarm_scheduler_queues(session)
+        session.runtime_state["swarm_queues"] = queues
+        running_signatures = {
+            self._swarm_unit_signature(unit)
+            for unit in self._swarm_work_units(session)
+            if isinstance(unit, dict) and unit.get("status") == "in_progress"
+        }
+        selected: list[CoworkAgent] = []
+        selected_ids: set[str] = set()
+        selected_work_units = selection.payload.get("selected_work_units")
+        queued_unit_ids = [
+            str(item.get("id"))
+            for item in (selected_work_units if isinstance(selected_work_units, list) else [])
+            if isinstance(item, dict) and item.get("id")
+        ]
+        if not queued_unit_ids:
+            queued_unit_ids = [
+                str(item.get("id"))
+                for item in [*queues.get("queues", {}).get("ready", []), *queues.get("queues", {}).get("failed_retry", [])]
+                if item.get("id")
+            ]
+        units_by_id = {str(unit.get("id")): unit for unit in self._swarm_work_units(session) if isinstance(unit, dict)}
+        for unit_id in queued_unit_ids:
+            unit = units_by_id.get(unit_id)
+            if not unit:
+                continue
+            if len(selected) >= slots:
+                break
+            signature = self._swarm_unit_signature(unit)
+            if signature in running_signatures:
+                self.add_event(
+                    session,
+                    "swarm.duplicate_activation_skipped",
+                    f"Skipped duplicate work-unit activation for '{unit.get('title') or unit.get('id')}'",
+                    actor_id="scheduler",
+                    data={"work_unit_id": unit.get("id"), "signature": signature},
+                    save=False,
+                )
+                continue
+            source_task_id = str(unit.get("source_task_id") or "")
+            if source_task_id in session.tasks and session.tasks[source_task_id].status == "in_progress":
+                continue
+            agent_id = self._swarm_agent_for_unit(session, unit)
+            if not agent_id or agent_id in selected_ids:
+                continue
+            result = self.start_work_unit(session, str(unit.get("id")), agent_id, save=False)
+            if result.startswith("Error:"):
+                continue
+            selected.append(session.agents[agent_id])
+            selected_ids.add(agent_id)
+            running_signatures.add(signature)
+        return selected
+
+    def swarm_work_unit_for_task(self, session: CoworkSession, task_id: str) -> dict[str, Any] | None:
+        for unit in self._swarm_work_units(session):
+            if isinstance(unit, dict) and unit.get("source_task_id") == task_id:
+                return unit
+        return None
+
+    def swarm_reducer_should_run(self, session: CoworkSession) -> bool:
+        if session.workflow_mode != "swarm":
+            return False
+        reducer_should_run = getattr(self.architecture_policy(session.workflow_mode), "reducer_should_run", None)
+        if callable(reducer_should_run):
+            return bool(reducer_should_run(session))
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        if not plan or plan.get("status") in {"completed", "failed", "cancelled", "blocked"}:
+            return False
+        base_units = [
+            unit
+            for unit in self._swarm_work_units(session)
+            if isinstance(unit, dict) and unit.get("kind") not in {"reducer", "reviewer"} and unit.get("status") != "cancelled"
+        ]
+        if not base_units:
+            return False
+        unfinished = [unit for unit in base_units if unit.get("status") in {"pending", "ready", "in_progress", "needs_revision"}]
+        if unfinished:
+            return False
+        reducer_task = self._existing_swarm_gate_task(session, "reducer")
+        if reducer_task and reducer_task.status == "completed":
+            plan["status"] = "completed"
+            plan["updated_at"] = now_iso()
+            return False
+        return True
+
+    def ensure_swarm_reducer_task(self, session: CoworkSession, *, save: bool = True) -> CoworkTask | None:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        if session.workflow_mode != "swarm" or not plan:
+            return None
+        existing = self._existing_swarm_gate_task(session, "reducer")
+        if existing:
+            return existing
+        reducer_agent_id = str(plan.get("reducer_agent_id") or self.lead_agent_id(session))
+        if reducer_agent_id not in session.agents:
+            reducer_agent_id = self.lead_agent_id(session)
+        source_units = [
+            unit
+            for unit in self._swarm_work_units(session)
+            if isinstance(unit, dict) and unit.get("kind") not in {"reducer", "reviewer"} and unit.get("status") in {"completed", "failed", "skipped"}
+        ]
+        dependency_ids = [
+            str(unit.get("source_task_id"))
+            for unit in source_units
+            if str(unit.get("source_task_id") or "") in session.tasks and session.tasks[str(unit.get("source_task_id"))].status in {"completed", "skipped"}
+        ]
+        summaries = []
+        for unit in source_units[-12:]:
+            result = unit.get("result") if isinstance(unit.get("result"), dict) else {}
+            answer = str(result.get("answer") or unit.get("error") or unit.get("skip_reason") or "").strip()
+            summaries.append(f"- {unit.get('id')}: {unit.get('title')} [{unit.get('status')}]" + (f" - {answer[:240]}" if answer else ""))
+        task = self.add_task(
+            session,
+            title="Reduce swarm results",
+            description=(
+                "Synthesize the swarm work units into a structured final answer. Include findings, decisions, "
+                "risks, open questions, artifact summary, confidence, missing work, and source_work_unit_ids.\n\n"
+                + "\n".join(summaries)
+            ),
+            assigned_agent_id=reducer_agent_id,
+            dependencies=dependency_ids,
+            expected_output="Structured reducer synthesis with answer, findings, risks, open questions, artifact_summary, confidence, missing_work, and source_work_unit_ids.",
+            source_event_id=f"swarm_reducer:{plan.get('id', session.id)}",
+            runtime_created=True,
+            save=False,
+        )
+        unit = self.swarm_work_unit_for_task(session, task.id)
+        if unit:
+            unit["kind"] = "reducer"
+            unit["source_work_unit_ids"] = [unit.get("id") for unit in source_units]
+            unit["status"] = "pending" if task.dependencies else "ready"
+        session.swarm_plan = update_work_unit_readiness(session.swarm_plan, session.tasks)
+        session.swarm_plan["status"] = "reducing"
+        session.swarm_plan["updated_at"] = now_iso()
+        self.add_event(
+            session,
+            "swarm.reducer_scheduled",
+            "Swarm reducer scheduled after required work units finished",
+            actor_id="scheduler",
+            data={"task_id": task.id, "source_work_unit_ids": [unit.get("id") for unit in source_units]},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Reducer scheduled",
+            actor_id="scheduler",
+            status="pending",
+            summary="Swarm reducer scheduled after required work units finished",
+            data={"task_id": task.id, "source_work_unit_ids": [unit.get("id") for unit in source_units]},
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return task
+
+    def ensure_swarm_reviewer_task(self, session: CoworkSession, reducer_task: CoworkTask, *, save: bool = True) -> CoworkTask | None:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        if session.workflow_mode != "swarm" or not plan:
+            return None
+        review = plan.get("review") if isinstance(plan.get("review"), dict) else {}
+        if not review.get("required"):
+            return None
+        existing = self._existing_swarm_gate_task(session, "reviewer")
+        if existing:
+            return existing
+        reviewer_id = str(review.get("agent_id") or plan.get("reviewer_agent_id") or "")
+        if reviewer_id not in session.agents:
+            reviewer = next((agent for agent in session.agents.values() if self._is_reviewer_agent(agent)), None)
+            reviewer_id = reviewer.id if reviewer else self.lead_agent_id(session)
+        task = self.add_task(
+            session,
+            title="Review swarm synthesis",
+            description=(
+                "Review the reducer synthesis using this rubric: correctness, completeness, evidence coverage, "
+                "conflict detection, safety/tool risk, and whether the original goal is satisfied. "
+                "Return JSON with verdict pass, needs_revision, or blocked; issues; required_fixes; and confidence.\n\n"
+                f"Reducer task: {reducer_task.id}\nReducer output: {(reducer_task.result or '')[:1800]}"
+            ),
+            assigned_agent_id=reviewer_id,
+            dependencies=[reducer_task.id],
+            expected_output="Reviewer verdict JSON with verdict, issues, required_fixes, confidence.",
+            source_event_id=f"swarm_reviewer:{plan.get('id', session.id)}",
+            runtime_created=True,
+            save=False,
+        )
+        unit = self.swarm_work_unit_for_task(session, task.id)
+        if unit:
+            unit["kind"] = "reviewer"
+            unit["source_work_unit_ids"] = [unit.get("id") for unit in self._swarm_work_units(session) if unit.get("kind") == "reducer"]
+            unit["status"] = "pending" if task.dependencies else "ready"
+        session.swarm_plan = update_work_unit_readiness(session.swarm_plan, session.tasks)
+        session.swarm_plan["status"] = "reviewing"
+        session.swarm_plan["updated_at"] = now_iso()
+        self.add_event(
+            session,
+            "swarm.reviewer_scheduled",
+            "Swarm reviewer gate scheduled after reducer synthesis",
+            actor_id="scheduler",
+            data={"task_id": task.id, "reducer_task_id": reducer_task.id, "reviewer_agent_id": reviewer_id},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="review",
+            name="Reviewer scheduled",
+            actor_id="scheduler",
+            status="pending",
+            summary="Swarm reviewer gate scheduled after reducer synthesis",
+            data={"task_id": task.id, "reducer_task_id": reducer_task.id, "reviewer_agent_id": reviewer_id},
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return task
+
+    def process_swarm_gate_result(self, session: CoworkSession, task: CoworkTask, *, save: bool = True) -> None:
+        if session.workflow_mode != "swarm" or task.status != "completed":
+            return
+        source_event_id = str(getattr(task, "source_event_id", "") or "")
+        if source_event_id.startswith("swarm_reducer:"):
+            self._process_swarm_reducer_result(session, task)
+        elif source_event_id.startswith("swarm_reviewer:"):
+            self._process_swarm_reviewer_result(session, task)
+        if save:
+            self._touch(session)
+            self._save()
+
+    def _process_swarm_reducer_result(self, session: CoworkSession, task: CoworkTask) -> None:
+        data = task.result_data if isinstance(task.result_data, dict) else {}
+        answer = str(data.get("answer") or task.result or "").strip()
+        if answer:
+            session.final_draft = answer
+        unit = self.swarm_work_unit_for_task(session, task.id)
+        if unit:
+            unit["result"] = {
+                "answer": answer,
+                "findings": data.get("findings") if isinstance(data.get("findings"), list) else [],
+                "decisions": data.get("decisions") if isinstance(data.get("decisions"), list) else [],
+                "risks": data.get("risks") if isinstance(data.get("risks"), list) else [],
+                "open_questions": data.get("open_questions") if isinstance(data.get("open_questions"), list) else [],
+                "artifact_summary": data.get("artifact_summary") if isinstance(data.get("artifact_summary"), list) else data.get("artifact_summary", ""),
+                "missing_work": data.get("missing_work") if isinstance(data.get("missing_work"), list) else self._string_list_from_any(data.get("missing_work")),
+                "source_work_unit_ids": data.get("source_work_unit_ids") if isinstance(data.get("source_work_unit_ids"), list) else [],
+            }
+            unit["confidence"] = task.confidence
+        missing_work = self._string_list_from_any(data.get("missing_work"))
+        open_questions = self._string_list_from_any(data.get("open_questions"))
+        if missing_work or open_questions:
+            plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+            plan["status"] = "active"
+            plan["updated_at"] = now_iso()
+            session.swarm_plan = plan
+            self.add_event(
+                session,
+                "swarm.reducer_missing_work",
+                "Reducer reported missing work before completion",
+                actor_id=task.assigned_agent_id,
+                data={"task_id": task.id, "missing_work": missing_work, "open_questions": open_questions},
+                save=False,
+            )
+            return
+        reviewer = self.ensure_swarm_reviewer_task(session, task, save=False)
+        if reviewer is None:
+            plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+            if plan:
+                plan["status"] = "completed"
+                plan["updated_at"] = now_iso()
+                session.swarm_plan = plan
+        self.add_trace_event(
+            session,
+            kind="synthesis",
+            name="Reducer output accepted",
+            actor_id=task.assigned_agent_id,
+            status="completed",
+            output_ref=answer,
+            summary="Reducer synthesis stored as the session final draft",
+            data={"task_id": task.id, "confidence": task.confidence, "review_required": reviewer is not None},
+            save=False,
+        )
+
+    def _process_swarm_reviewer_result(self, session: CoworkSession, task: CoworkTask) -> None:
+        data = task.result_data if isinstance(task.result_data, dict) else {}
+        verdict = str(data.get("verdict") or "").strip().lower()
+        if verdict not in {"pass", "needs_revision", "blocked"}:
+            task.status = "failed"
+            task.error = "Reviewer verdict was missing or invalid."
+            self.add_trace_event(
+                session,
+                kind="review",
+                name="Reviewer verdict invalid",
+                actor_id=task.assigned_agent_id,
+                status="failed",
+                summary="Reviewer result could not be parsed into a valid verdict",
+                data={"task_id": task.id, "raw_result": task.result},
+                error=task.error,
+                save=False,
+            )
+            return
+        task.result_data["review_status"] = verdict
+        if verdict == "pass":
+            plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+            if plan:
+                plan["status"] = "completed"
+                plan["updated_at"] = now_iso()
+                session.swarm_plan = plan
+        elif verdict == "needs_revision":
+            fixes = self._string_list_from_any(data.get("required_fixes")) or self._string_list_from_any(data.get("issues"))
+            plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+            if plan:
+                plan["status"] = "active"
+                plan["updated_at"] = now_iso()
+                session.swarm_plan = plan
+            for index, fix in enumerate(fixes[:4], start=1):
+                self.add_swarm_work_unit(
+                    session,
+                    title=f"Revision {index}: {fix[:80]}",
+                    description=fix,
+                    assigned_agent_id=self.lead_agent_id(session),
+                    dependencies=[task.id],
+                    tool_allowlist=["cowork_internal"],
+                    kind="revision",
+                    source_work_unit_id=str(self.swarm_work_unit_for_task(session, task.id).get("id") if self.swarm_work_unit_for_task(session, task.id) else task.id),
+                    reason="reviewer_needs_revision",
+                    save=False,
+                )
+        else:
+            self.record_stop_reason(
+                session,
+                "review_blocked",
+                "Swarm reviewer blocked completion",
+                data={"task_id": task.id, "issues": data.get("issues", []), "required_fixes": data.get("required_fixes", [])},
+                save=False,
+            )
+            plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+            if plan:
+                plan["status"] = "blocked"
+                plan["updated_at"] = now_iso()
+                session.swarm_plan = plan
+        self.add_trace_event(
+            session,
+            kind="review",
+            name="Reviewer verdict accepted",
+            actor_id=task.assigned_agent_id,
+            status="blocked" if verdict == "blocked" else "completed",
+            summary=f"Reviewer verdict: {verdict}",
+            data={"task_id": task.id, "verdict": verdict, "issues": data.get("issues", []), "required_fixes": data.get("required_fixes", [])},
+            save=False,
+        )
+
+    def evaluate_swarm_completion(self, session: CoworkSession, *, save: bool = True) -> list[dict[str, Any]]:
+        if session.workflow_mode != "swarm":
+            return []
+        evaluations = [
+            self._evaluate_swarm_goal_coverage(session),
+            self._evaluate_swarm_evidence_coverage(session),
+            self._evaluate_swarm_conflicts(session),
+            self._evaluate_swarm_artifacts(session),
+            self._evaluate_swarm_safety(session),
+            self._evaluate_swarm_budget(session),
+        ]
+        payload = [asdict(item) for item in evaluations]
+        session.runtime_state["swarm_evaluations"] = payload
+        blocking = [item for item in payload if item.get("status") in {"block", "error"}]
+        self.add_trace_event(
+            session,
+            kind="evaluation",
+            name="Swarm evaluations updated",
+            status="blocked" if blocking else "completed",
+            actor_id="scheduler",
+            summary=f"Swarm evaluations produced {len(blocking)} blocker(s)",
+            data={"evaluations": payload},
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return payload
+
+    def _evaluate_swarm_goal_coverage(self, session: CoworkSession) -> CoworkEvaluationResult:
+        units = [unit for unit in self._swarm_work_units(session) if unit.get("kind") not in {"reducer", "reviewer"}]
+        incomplete = [unit for unit in units if unit.get("status") not in {"completed", "skipped"}]
+        reducer_done = any(
+            task.status == "completed" and str(getattr(task, "source_event_id", "")).startswith("swarm_reducer:")
+            for task in session.tasks.values()
+        )
+        if incomplete:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="goal_coverage",
+                status="block",
+                summary=f"{len(incomplete)} required work unit(s) are still unfinished.",
+                blocking_work_unit_ids=[str(unit.get("id")) for unit in incomplete],
+                recommended_actions=["finish_required_work_units"],
+            )
+        if not reducer_done:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="goal_coverage",
+                status="block",
+                summary="Reducer synthesis has not completed.",
+                recommended_actions=["run_reducer"],
+            )
+        return CoworkEvaluationResult(id=self._new_id("eval"), kind="goal_coverage", status="pass", score=1.0, summary="Required work units and reducer synthesis are complete.")
+
+    def _evaluate_swarm_evidence_coverage(self, session: CoworkSession) -> CoworkEvaluationResult:
+        reducer_task = self._existing_swarm_gate_task(session, "reducer")
+        data = reducer_task.result_data if reducer_task and isinstance(reducer_task.result_data, dict) else {}
+        source_ids = data.get("source_work_unit_ids") if isinstance(data.get("source_work_unit_ids"), list) else []
+        completed_ids = [unit.get("id") for unit in self._swarm_work_units(session) if unit.get("kind") not in {"reducer", "reviewer"} and unit.get("status") == "completed"]
+        if completed_ids and not source_ids:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="evidence_coverage",
+                status="warn",
+                score=0.4,
+                summary="Reducer output does not cite source work-unit ids.",
+                recommended_actions=["add_source_work_unit_ids"],
+            )
+        return CoworkEvaluationResult(id=self._new_id("eval"), kind="evidence_coverage", status="pass", score=1.0, summary="Reducer output cites source work units.")
+
+    def _evaluate_swarm_conflicts(self, session: CoworkSession) -> CoworkEvaluationResult:
+        conflicts = self.detect_disagreements(session)
+        if conflicts:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="conflict_detection",
+                status="block",
+                summary=f"{len(conflicts)} unresolved conflict signal(s) detected.",
+                issues=conflicts,
+                blocking_task_ids=[str(item.get("task_id")) for item in conflicts if item.get("task_id")],
+                recommended_actions=["resolve_conflicts"],
+            )
+        return CoworkEvaluationResult(id=self._new_id("eval"), kind="conflict_detection", status="pass", score=1.0, summary="No unresolved conflict signals detected.")
+
+    def _evaluate_swarm_artifacts(self, session: CoworkSession) -> CoworkEvaluationResult:
+        goal = session.goal.lower()
+        needs_artifact = any(marker in goal for marker in ("file", "artifact", "report", "code", "implement", "edit", "write", "文档", "文件", "代码"))
+        if needs_artifact and not getattr(session, "artifacts", []):
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="artifact_validation",
+                status="block",
+                summary="The goal appears to require an artifact, but no artifact is indexed.",
+                recommended_actions=["produce_or_link_required_artifacts"],
+            )
+        return CoworkEvaluationResult(id=self._new_id("eval"), kind="artifact_validation", status="pass", score=1.0, summary="No missing required artifacts detected.")
+
+    def _evaluate_swarm_safety(self, session: CoworkSession) -> CoworkEvaluationResult:
+        if getattr(session, "stop_reason", "") in {"autonomy_boundary", "review_blocked"}:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="safety_policy",
+                status="block",
+                summary=f"Completion is blocked by {session.stop_reason}.",
+                recommended_actions=["resolve_safety_or_review_blocker"],
+            )
+        return CoworkEvaluationResult(id=self._new_id("eval"), kind="safety_policy", status="pass", score=1.0, summary="No safety policy blocker is active.")
+
+    def _evaluate_swarm_budget(self, session: CoworkSession) -> CoworkEvaluationResult:
+        stop_reason = getattr(session, "stop_reason", "")
+        if "budget_exhausted" in stop_reason:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="budget_state",
+                status="block",
+                summary=f"Completion is blocked by budget state: {stop_reason}.",
+                recommended_actions=["increase_budget_or_skip_work"],
+            )
+        return CoworkEvaluationResult(id=self._new_id("eval"), kind="budget_state", status="pass", score=1.0, summary="No budget blocker is active.")
+
+    def replan_swarm(
+        self,
+        session: CoworkSession,
+        *,
+        source_kind: str = "scheduler",
+        source_id: str = "",
+        save: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Create bounded follow-up units from deterministic replanning signals."""
+
+        if session.workflow_mode != "swarm" or not isinstance(getattr(session, "swarm_plan", {}), dict) or not session.swarm_plan:
+            return []
+        plan = session.swarm_plan
+        if plan.get("status") in {"blocked", "failed", "cancelled", "completed"}:
+            return []
+        created: list[dict[str, Any]] = []
+        for unit in list(self._swarm_work_units(session)):
+            if not isinstance(unit, dict):
+                continue
+            if unit.get("kind") in {"follow_up", "revision"}:
+                continue
+            if source_id and source_kind == "task" and unit.get("source_task_id") != source_id:
+                continue
+            if unit.get("status") == "completed":
+                signals = self._swarm_follow_up_signals(unit)
+                for index, signal in enumerate(signals, start=1):
+                    result = self.add_swarm_work_unit(
+                        session,
+                        title=f"Follow up {unit.get('title') or unit.get('id')} #{index}",
+                        description=signal,
+                        assigned_agent_id=str(unit.get("assigned_agent_id") or self.lead_agent_id(session)),
+                        dependencies=[str(unit.get("source_task_id") or unit.get("id"))],
+                        tool_allowlist=list(unit.get("tool_allowlist") or ["cowork_internal"]),
+                        kind="follow_up",
+                        source_work_unit_id=str(unit.get("id") or ""),
+                        reason="missing_work" if signal in self._string_list_from_any((unit.get("result") or {}).get("missing_work")) else "open_question",
+                        save=False,
+                    )
+                    if result:
+                        created.append(result)
+            if unit.get("status") == "failed" and self._swarm_unit_needs_split(unit):
+                first = self.add_swarm_work_unit(
+                    session,
+                    title=f"Narrow scope for {unit.get('title') or unit.get('id')}",
+                    description=f"Reduce the scope and define a smaller completion path for failed work unit {unit.get('id')}: {unit.get('error') or unit.get('description')}",
+                    assigned_agent_id=str(unit.get("assigned_agent_id") or self.lead_agent_id(session)),
+                    dependencies=[],
+                    tool_allowlist=list(unit.get("tool_allowlist") or ["cowork_internal"]),
+                    kind="revision",
+                    source_work_unit_id=str(unit.get("id") or ""),
+                    reason="split_failed_or_broad_unit",
+                    save=False,
+                )
+                if first:
+                    created.append(first)
+                    second = self.add_swarm_work_unit(
+                        session,
+                        title=f"Complete reduced scope for {unit.get('title') or unit.get('id')}",
+                        description=f"Complete the narrowed version of failed work unit {unit.get('id')} using the scope defined by {first.get('id')}.",
+                        assigned_agent_id=str(unit.get("assigned_agent_id") or self.lead_agent_id(session)),
+                        dependencies=[str(first.get("source_task_id") or first.get("id"))],
+                        tool_allowlist=list(unit.get("tool_allowlist") or ["cowork_internal"]),
+                        kind="revision",
+                        source_work_unit_id=str(unit.get("id") or ""),
+                        reason="split_failed_or_broad_unit",
+                        save=False,
+                    )
+                    if second:
+                        created.append(second)
+        if created:
+            plan["updated_at"] = now_iso()
+            session.swarm_plan = update_work_unit_readiness(plan, session.tasks)
+            self.assess_session(session, save=False)
+            self._touch(session)
+            if save:
+                self._save()
+        return created
+
+    def add_swarm_work_unit(
+        self,
+        session: CoworkSession,
+        *,
+        title: str,
+        description: str,
+        assigned_agent_id: str,
+        dependencies: list[str] | None = None,
+        tool_allowlist: list[str] | None = None,
+        kind: str = "follow_up",
+        source_work_unit_id: str = "",
+        reason: str = "",
+        input_data: dict[str, Any] | None = None,
+        save: bool = True,
+    ) -> dict[str, Any] | None:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        if not plan:
+            return None
+        boundary = self._swarm_autonomy_boundary(session, tool_allowlist or ["cowork_internal"])
+        if boundary:
+            self._record_swarm_replan_boundary(session, boundary, source_work_unit_id=source_work_unit_id, reason=reason)
+            if save:
+                self._touch(session)
+                self._save()
+            return None
+        state = self.ensure_session_budget(session)
+        max_work_units = state["limits"].get("max_work_units")
+        units = self._swarm_work_units(session)
+        if max_work_units is not None and len(units) >= int(max_work_units):
+            self.record_stop_reason(
+                session,
+                "work_unit_budget_exhausted",
+                "Swarm replanning stopped because the work-unit budget is exhausted",
+                data={"max_work_units": max_work_units, "source_work_unit_id": source_work_unit_id, "reason": reason},
+                save=False,
+            )
+            return None
+        proposed = {
+            "title": title,
+            "description": description,
+            "input": input_data or {"source_work_unit_id": source_work_unit_id, "reason": reason},
+            "expected_output_schema": {"answer": "string", "evidence": "array", "risks": "array", "artifacts": "array", "confidence": "number"},
+        }
+        signature = self._swarm_unit_signature(proposed)
+        if any(self._swarm_unit_signature(unit) == signature for unit in units):
+            self.add_event(
+                session,
+                "swarm.replan_duplicate_rejected",
+                f"Rejected duplicate replanned work unit '{title}'",
+                actor_id="scheduler",
+                data={"source_work_unit_id": source_work_unit_id, "reason": reason, "signature": signature},
+                save=False,
+            )
+            return None
+        task = self.add_task(
+            session,
+            title=title,
+            description=description,
+            assigned_agent_id=assigned_agent_id if assigned_agent_id in session.agents else self.lead_agent_id(session),
+            dependencies=[dep for dep in (dependencies or []) if dep in session.tasks],
+            expected_output="Structured swarm follow-up result with answer, evidence, risks, artifacts, confidence, and open_questions.",
+            source_event_id=f"swarm_replan:{source_work_unit_id or reason or self._new_id('src')}",
+            runtime_created=True,
+            save=False,
+        )
+        unit = self.swarm_work_unit_for_task(session, task.id)
+        if not unit:
+            return None
+        unit["kind"] = kind
+        unit["source_work_unit_id"] = source_work_unit_id
+        unit["replan_reason"] = reason
+        unit["tool_allowlist"] = [tool for tool in dict.fromkeys(tool_allowlist or unit.get("tool_allowlist") or ["cowork_internal"])]
+        unit["input"] = proposed["input"]
+        unit["expected_output_schema"] = proposed["expected_output_schema"]
+        session.swarm_plan = update_work_unit_readiness(session.swarm_plan, session.tasks)
+        self.add_event(
+            session,
+            "swarm.work_unit_added",
+            f"Added replanned work unit '{title}'",
+            actor_id="scheduler",
+            data={"work_unit_id": unit.get("id"), "source_work_unit_id": source_work_unit_id, "reason": reason, "kind": kind},
+            save=False,
+        )
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Work unit replanned",
+            actor_id="scheduler",
+            status=unit.get("status", "pending"),
+            summary=f"Added replanned work unit '{title}'",
+            data={"work_unit_id": unit.get("id"), "source_work_unit_id": source_work_unit_id, "reason": reason, "kind": kind},
+            save=False,
+        )
+        if save:
+            self._touch(session)
+            self._save()
+        return unit
+
+    def start_work_unit(
+        self,
+        session: CoworkSession,
+        work_unit_id: str,
+        agent_id: str,
+        *,
+        run_id: str | None = None,
+        round_id: str | None = None,
+        save: bool = True,
+    ) -> str:
+        unit = self._find_swarm_work_unit(session, work_unit_id)
+        if unit is None:
+            return f"Error: work unit '{work_unit_id}' not found"
+        if unit.get("status") == "in_progress":
+            return f"Error: work unit '{work_unit_id}' is already in progress"
+        if unit.get("status") not in {"ready", "pending", "failed", "needs_revision"}:
+            return f"Error: work unit '{work_unit_id}' is {unit.get('status')}"
+        agent_id = self._slug(agent_id)
+        if agent_id not in session.agents:
+            return f"Error: agent '{agent_id}' not found"
+        dependencies = set(unit.get("dependencies") or [])
+        completed_units = {
+            item.get("id")
+            for item in (session.swarm_plan.get("work_units", []) if isinstance(session.swarm_plan, dict) else [])
+            if isinstance(item, dict) and item.get("status") in {"completed", "skipped"}
+        }
+        completed_tasks = {task_id for task_id, task in session.tasks.items() if task.status in {"completed", "skipped"}}
+        if not dependencies <= (completed_units | completed_tasks):
+            missing = sorted(dependencies - (completed_units | completed_tasks))
+            return f"Error: work unit '{work_unit_id}' is blocked by dependencies: {', '.join(missing)}"
+        unit["status"] = "in_progress"
+        unit["assigned_agent_id"] = agent_id
+        unit["updated_at"] = now_iso()
+        source_task_id = unit.get("source_task_id")
+        if source_task_id in session.tasks:
+            task = session.tasks[source_task_id]
+            task.status = "in_progress"
+            task.assigned_agent_id = agent_id
+            task.updated_at = unit["updated_at"]
+        agent = session.agents[agent_id]
+        agent.status = "working"
+        agent.current_task_id = source_task_id if source_task_id in session.tasks else agent.current_task_id
+        agent.current_task_title = unit.get("title") or agent.current_task_title
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Work unit started",
+            actor_id=agent_id,
+            run_id=run_id,
+            round_id=round_id,
+            status="in_progress",
+            summary=f"{agent.name} started work unit '{unit.get('title') or work_unit_id}'",
+            data={"work_unit_id": work_unit_id, "agent_id": agent_id, "source_task_id": source_task_id},
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Work unit '{unit.get('title') or work_unit_id}' started by {agent.name}."
+
+    def complete_work_unit(
+        self,
+        session: CoworkSession,
+        work_unit_id: str,
+        result: dict[str, Any] | str,
+        *,
+        confidence: float | None = None,
+        save: bool = True,
+    ) -> str:
+        unit = self._find_swarm_work_unit(session, work_unit_id)
+        if unit is None:
+            return f"Error: work unit '{work_unit_id}' not found"
+        payload = result if isinstance(result, dict) else {"answer": str(result)}
+        unit["status"] = "completed"
+        unit["result"] = payload
+        unit["evidence"] = payload.get("evidence", []) if isinstance(payload.get("evidence", []), list) else []
+        unit["risks"] = payload.get("risks", []) if isinstance(payload.get("risks", []), list) else []
+        unit["open_questions"] = payload.get("open_questions", []) if isinstance(payload.get("open_questions", []), list) else []
+        unit["artifacts"] = payload.get("artifacts", []) if isinstance(payload.get("artifacts", []), list) else []
+        unit["confidence"] = self._coerce_confidence(payload.get("confidence", confidence))
+        unit["error"] = None
+        unit["updated_at"] = now_iso()
+        source_task_id = unit.get("source_task_id")
+        if source_task_id in session.tasks:
+            self.complete_task(session, source_task_id, json.dumps(payload, ensure_ascii=False), status="completed")
+            return f"Work unit '{unit.get('title') or work_unit_id}' completed."
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Work unit completed",
+            actor_id=unit.get("assigned_agent_id"),
+            status="completed",
+            output_ref=payload.get("answer", ""),
+            summary=f"Work unit '{unit.get('title') or work_unit_id}' completed",
+            data={"work_unit_id": work_unit_id, "confidence": unit["confidence"]},
+            save=False,
+        )
+        session.swarm_plan = update_work_unit_readiness(session.swarm_plan, session.tasks)
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Work unit '{unit.get('title') or work_unit_id}' completed."
+
+    def fail_work_unit(self, session: CoworkSession, work_unit_id: str, error: str, *, save: bool = True) -> str:
+        unit = self._find_swarm_work_unit(session, work_unit_id)
+        if unit is None:
+            return f"Error: work unit '{work_unit_id}' not found"
+        unit["status"] = "failed"
+        unit["error"] = error
+        unit["updated_at"] = now_iso()
+        source_task_id = unit.get("source_task_id")
+        if source_task_id in session.tasks:
+            task = session.tasks[source_task_id]
+            task.status = "failed"
+            task.error = error
+            task.updated_at = unit["updated_at"]
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Work unit failed",
+            actor_id=unit.get("assigned_agent_id"),
+            status="failed",
+            summary=f"Work unit '{unit.get('title') or work_unit_id}' failed",
+            data={"work_unit_id": work_unit_id, "source_task_id": source_task_id},
+            error=error,
+            save=False,
+        )
+        self.replan_swarm(session, source_kind="work_unit", source_id=work_unit_id, save=False)
+        self.assess_session(session, save=False)
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Work unit '{unit.get('title') or work_unit_id}' failed."
+
+    def retry_work_unit(self, session: CoworkSession, work_unit_id: str, *, reason: str = "", save: bool = True) -> str:
+        unit = self._find_swarm_work_unit(session, work_unit_id)
+        if unit is None:
+            return f"Error: work unit '{work_unit_id}' not found"
+        attempts = int(unit.get("attempts", 0) or 0)
+        max_attempts = int(unit.get("max_attempts", 1) or 1)
+        if attempts >= max_attempts:
+            return f"Error: work unit '{work_unit_id}' reached max attempts"
+        unit["attempts"] = attempts + 1
+        unit["status"] = "pending"
+        unit["error"] = None
+        unit["priority"] = int(unit.get("priority", 0) or 0) + 10
+        unit["priority_boost_reason"] = reason or "user_retry"
+        unit["updated_at"] = now_iso()
+        source_task_id = unit.get("source_task_id")
+        if source_task_id in session.tasks:
+            task = session.tasks[source_task_id]
+            task.status = "pending"
+            task.error = None
+            task.updated_at = unit["updated_at"]
+        session.swarm_plan = update_work_unit_readiness(session.swarm_plan, session.tasks)
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Work unit retried",
+            actor_id="user",
+            status=unit["status"],
+            summary=f"Retry requested for work unit '{unit.get('title') or work_unit_id}'",
+            data={"work_unit_id": work_unit_id, "reason": reason, "attempts": unit["attempts"]},
+            save=False,
+        )
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Work unit '{unit.get('title') or work_unit_id}' queued for retry."
+
+    def skip_work_unit(self, session: CoworkSession, work_unit_id: str, *, reason: str = "", save: bool = True) -> str:
+        unit = self._find_swarm_work_unit(session, work_unit_id)
+        if unit is None:
+            return f"Error: work unit '{work_unit_id}' not found"
+        unit["status"] = "skipped"
+        unit["skip_reason"] = reason
+        unit["updated_at"] = now_iso()
+        source_task_id = unit.get("source_task_id")
+        if source_task_id in session.tasks:
+            task = session.tasks[source_task_id]
+            task.status = "skipped"
+            task.result = reason or "Skipped."
+            task.updated_at = unit["updated_at"]
+        session.swarm_plan = update_work_unit_readiness(session.swarm_plan, session.tasks)
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Work unit skipped",
+            actor_id="user",
+            status="skipped",
+            summary=f"Work unit '{unit.get('title') or work_unit_id}' skipped",
+            data={"work_unit_id": work_unit_id, "reason": reason, "source_task_id": source_task_id},
+            save=False,
+        )
+        self.assess_session(session, save=False)
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Work unit '{unit.get('title') or work_unit_id}' skipped."
+
+    def cancel_work_unit(self, session: CoworkSession, work_unit_id: str, *, reason: str = "", save: bool = True) -> str:
+        unit = self._find_swarm_work_unit(session, work_unit_id)
+        if unit is None:
+            return f"Error: work unit '{work_unit_id}' not found"
+        unit["status"] = "cancelled"
+        unit["cancel_reason"] = reason
+        unit["updated_at"] = now_iso()
+        source_task_id = unit.get("source_task_id")
+        if source_task_id in session.tasks:
+            task = session.tasks[source_task_id]
+            task.status = "skipped"
+            task.result = reason or "Cancelled."
+            task.updated_at = unit["updated_at"]
+        self.add_trace_event(
+            session,
+            kind="swarm",
+            name="Work unit cancelled",
+            actor_id="user",
+            status="cancelled",
+            summary=f"Work unit '{unit.get('title') or work_unit_id}' cancelled",
+            data={"work_unit_id": work_unit_id, "reason": reason},
+            save=False,
+        )
+        self.assess_session(session, save=False)
+        self._touch(session)
+        if save:
+            self._save()
+        return f"Work unit '{unit.get('title') or work_unit_id}' cancelled."
+
+    @staticmethod
+    def _find_swarm_work_unit(session: CoworkSession, work_unit_id: str) -> dict[str, Any] | None:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        units = plan.get("work_units") if isinstance(plan.get("work_units"), list) else []
+        for unit in units:
+            if isinstance(unit, dict) and unit.get("id") == work_unit_id:
+                return unit
+        return None
+
+    @staticmethod
+    def _swarm_work_units(session: CoworkSession) -> list[dict[str, Any]]:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        units = plan.get("work_units") if isinstance(plan.get("work_units"), list) else []
+        return [unit for unit in units if isinstance(unit, dict)]
+
+    @staticmethod
+    def _swarm_unit_signature(unit: dict[str, Any]) -> str:
+        input_data = unit.get("input") if isinstance(unit.get("input"), dict) else {}
+        schema = unit.get("expected_output_schema") if isinstance(unit.get("expected_output_schema"), dict) else {}
+        material = json.dumps(
+            {
+                "title": " ".join(str(unit.get("title") or "").lower().split()),
+                "description": " ".join(str(unit.get("description") or "").lower().split()),
+                "input": input_data,
+                "schema": schema,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        return hashlib.sha1(material.encode("utf-8")).hexdigest()
+
+    def _swarm_unit_priority(self, unit: dict[str, Any]) -> tuple[int, str]:
+        score = int(unit.get("priority", 0) or 0) * 10
+        if unit.get("error") or unit.get("status") == "needs_revision":
+            score += 40
+        title = f"{unit.get('title', '')} {unit.get('description', '')}".lower()
+        if any(marker in title for marker in ("unblock", "blocked", "fix", "review", "risk")):
+            score += 20
+        return (-score, str(unit.get("id") or ""))
+
+    def _swarm_agent_for_unit(self, session: CoworkSession, unit: dict[str, Any]) -> str:
+        owner = str(unit.get("assigned_agent_id") or "").strip()
+        if owner in session.agents and getattr(session.agents[owner], "lifecycle_status", "active") != "retired":
+            return owner
+        source_task_id = str(unit.get("source_task_id") or "")
+        task = session.tasks.get(source_task_id)
+        if task and task.assigned_agent_id in session.agents:
+            unit["assigned_agent_id"] = task.assigned_agent_id
+            return task.assigned_agent_id or ""
+        lead_id = self.lead_agent_id(session)
+        unit["assigned_agent_id"] = lead_id
+        if task:
+            task.assigned_agent_id = lead_id
+        return lead_id
+
+    def _existing_swarm_gate_task(self, session: CoworkSession, gate: str) -> CoworkTask | None:
+        prefix = f"swarm_{gate}:"
+        return next((task for task in session.tasks.values() if str(getattr(task, "source_event_id", "")).startswith(prefix)), None)
+
+    def _swarm_follow_up_signals(self, unit: dict[str, Any]) -> list[str]:
+        result = unit.get("result") if isinstance(unit.get("result"), dict) else {}
+        signals = []
+        signals.extend(self._string_list_from_any(result.get("missing_work")))
+        signals.extend(self._string_list_from_any(unit.get("open_questions")))
+        signals.extend(self._string_list_from_any(result.get("open_questions")))
+        seen: set[str] = set()
+        unique = []
+        for signal in signals:
+            text = " ".join(str(signal or "").split())
+            if text and text.lower() not in seen:
+                unique.append(text)
+                seen.add(text.lower())
+        return unique[:4]
+
+    @staticmethod
+    def _swarm_unit_needs_split(unit: dict[str, Any]) -> bool:
+        attempts = int(unit.get("attempts", 0) or 0)
+        max_attempts = int(unit.get("max_attempts", 1) or 1)
+        text = f"{unit.get('title', '')} {unit.get('description', '')} {unit.get('error', '')}".lower()
+        return attempts >= max_attempts or any(marker in text for marker in ("too broad", "broad scope", "scope too large", "split", "too large"))
+
+    @staticmethod
+    def _string_list_from_any(value: Any) -> list[str]:
+        if isinstance(value, str):
+            return [value] if value.strip() else []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item or "").strip()]
+        return []
+
+    @staticmethod
+    def _swarm_autonomy_boundary(session: CoworkSession, tool_allowlist: list[str]) -> dict[str, Any] | None:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        policy = plan.get("policy", {}) if isinstance(plan.get("policy", {}), dict) else {}
+        allowed_tools = {str(item).strip() for item in policy.get("allowed_tools", []) if str(item).strip()}
+        requested = [str(tool).strip() for tool in tool_allowlist if str(tool).strip()]
+        if allowed_tools:
+            disallowed = [tool for tool in requested if tool not in allowed_tools]
+            if disallowed:
+                return {"code": "disallowed_tool", "tools": disallowed}
+        checks = (
+            ("allow_file_writes", {"write_file", "edit_file"}, "file_write_requires_approval"),
+            ("allow_exec", {"exec"}, "exec_requires_approval"),
+            ("allow_web", {"web", "web_search", "browser"}, "network_requires_approval"),
+        )
+        for policy_key, tools, code in checks:
+            if policy.get(policy_key) is False and any(tool in tools for tool in requested):
+                return {"code": code, "tools": sorted(tools & set(requested))}
+        if any(marker in " ".join(requested).lower() for marker in ("credential", "secret")):
+            return {"code": "credentials_required", "tools": requested}
+        return None
+
+    def _record_swarm_replan_boundary(
+        self,
+        session: CoworkSession,
+        boundary: dict[str, Any],
+        *,
+        source_work_unit_id: str,
+        reason: str,
+    ) -> None:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        if plan:
+            plan["status"] = "blocked"
+            plan["updated_at"] = now_iso()
+            session.swarm_plan = plan
+        self.record_stop_reason(
+            session,
+            "autonomy_boundary",
+            "Swarm replanning stopped at an autonomy boundary",
+            data={"boundary": boundary, "source_work_unit_id": source_work_unit_id, "reason": reason},
+            save=False,
+        )
 
     def request_task_review(
         self,
@@ -2172,10 +4844,15 @@ class CoworkService:
         return review_task
 
     def format_status(self, session: CoworkSession, *, verbose: bool = False) -> str:
+        branch_id = getattr(session, "current_branch_id", "default") or "default"
+        branches = getattr(session, "branches", {}) if isinstance(getattr(session, "branches", {}), dict) else {}
+        branch = branches.get(branch_id)
+        architecture = getattr(branch, "architecture", getattr(session, "workflow_mode", "adaptive_starter"))
         lines = [
             f"## {session.title} ({session.id})",
             f"Status: {session.status}",
-            f"Mode: {session.workflow_mode}",
+            f"Architecture: {architecture} ({architecture_label(architecture)})",
+            f"Current branch: {branch_id} [{getattr(branch, 'status', '-') if branch else '-'}]",
             f"Goal: {session.goal}",
             f"Focus: {session.current_focus_task or '-'}",
             f"Rounds: {session.rounds}",
@@ -2205,6 +4882,13 @@ class CoworkService:
             lines.append("### Recent Events")
             for event in session.events[-10:]:
                 lines.append(f"- [{event.created_at}] {event.type}: {event.message}")
+        if verbose and branches:
+            lines.append("")
+            lines.append("### Branches")
+            for item in branches.values():
+                source = f", source={item.source_branch_id}" if item.source_branch_id else ""
+                result = ", result=yes" if item.branch_result else ""
+                lines.append(f"- {item.id}: {item.architecture} [{item.status}]{source}{result}")
         decision = session.completion_decision or self.assess_session(session, save=False)
         if verbose and decision:
             lines.append("")
@@ -2219,36 +4903,108 @@ class CoworkService:
         return "\n".join(lines)
 
     @staticmethod
-    def default_team(goal: str) -> list[dict[str, Any]]:
-        return [
-            {
-                "id": "coordinator",
-                "name": "Coordinator",
-                "role": "Team coordinator",
-                "goal": f"Keep the collaboration focused on: {goal}",
-                "responsibilities": ["Break down work", "Route questions", "Synthesize final progress"],
-                "tools": ["cowork_internal"],
-                "subscriptions": ["coordination", "handoff", "unblock", "decision", "summary"],
-            },
-            {
-                "id": "researcher",
-                "name": "Researcher",
-                "role": "Information gatherer",
-                "goal": f"Gather useful facts and constraints for: {goal}",
-                "responsibilities": ["Investigate relevant sources", "Summarize findings", "Flag uncertainty"],
-                "tools": ["read_file", "list_dir", "cowork_internal"],
-                "subscriptions": ["research", "produce", "finding", "source", "context"],
-            },
-            {
-                "id": "analyst",
-                "name": "Analyst",
-                "role": "Reasoning and verification partner",
-                "goal": f"Check assumptions and turn findings into decisions for: {goal}",
-                "responsibilities": ["Compare options", "Verify claims", "Identify risks"],
-                "tools": ["read_file", "list_dir", "cowork_internal"],
-                "subscriptions": ["analysis", "review", "verify", "risk", "decision"],
-            },
-        ]
+    def default_team(goal: str, *, workflow_mode: str = ADAPTIVE_STARTER) -> list[dict[str, Any]]:
+        mode = CoworkService.normalize_workflow_mode(workflow_mode)
+        lead = {
+            "id": "coordinator",
+            "name": "Coordinator",
+            "role": "Team coordinator",
+            "goal": f"Keep the collaboration focused on: {goal}",
+            "responsibilities": ["Break down work", "Route questions", "Synthesize final progress"],
+            "tools": ["cowork_internal"],
+            "subscriptions": ["coordination", "handoff", "unblock", "decision", "summary"],
+        }
+        researcher = {
+            "id": "researcher",
+            "name": "Researcher",
+            "role": "Information gatherer",
+            "goal": f"Gather useful facts and constraints for: {goal}",
+            "responsibilities": ["Investigate relevant sources", "Summarize findings", "Flag uncertainty"],
+            "tools": ["read_file", "list_dir", "cowork_internal"],
+            "subscriptions": ["research", "produce", "finding", "source", "context"],
+        }
+        analyst = {
+            "id": "analyst",
+            "name": "Analyst",
+            "role": "Reasoning and verification partner",
+            "goal": f"Check assumptions and turn findings into decisions for: {goal}",
+            "responsibilities": ["Compare options", "Verify claims", "Identify risks"],
+            "tools": ["read_file", "list_dir", "cowork_internal"],
+            "subscriptions": ["analysis", "review", "verify", "risk", "decision"],
+        }
+        if mode in {"orchestrator", "supervisor"}:
+            return [lead]
+        if mode == "generator_verifier":
+            return [
+                {
+                    "id": "producer",
+                    "name": "Producer",
+                    "role": "Primary answer producer",
+                    "goal": f"Produce a concrete answer or artifact for: {goal}",
+                    "responsibilities": ["Create the main output", "State assumptions", "Hand off for verification"],
+                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "subscriptions": ["produce", "draft", "artifact", "handoff"],
+                },
+                {
+                    "id": "verifier",
+                    "name": "Verifier",
+                    "role": "Quality verifier",
+                    "goal": f"Verify correctness, gaps, and risks for: {goal}",
+                    "responsibilities": ["Check the output", "Identify issues", "Recommend fixes or approval"],
+                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "subscriptions": ["verify", "review", "risk", "quality"],
+                },
+            ]
+        if mode == "message_bus":
+            return [
+                lead,
+                {
+                    "id": "router",
+                    "name": "Router",
+                    "role": "Message bus router",
+                    "goal": f"Route topic-specific requests for: {goal}",
+                    "responsibilities": ["Classify requests", "Maintain lineage", "Escalate blockers"],
+                    "tools": ["cowork_internal"],
+                    "subscriptions": ["routing", "event", "lineage", "unblock"],
+                },
+            ]
+        if mode == "shared_state":
+            return [
+                lead,
+                {
+                    "id": "memory_curator",
+                    "name": "Memory Curator",
+                    "role": "Shared-state curator",
+                    "goal": f"Keep durable findings, risks, decisions, and artifacts organized for: {goal}",
+                    "responsibilities": ["Extract shared memory", "Track open questions", "Keep decisions explicit"],
+                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "subscriptions": ["finding", "risk", "decision", "artifact", "memory"],
+                },
+            ]
+        if mode == "peer_handoff":
+            return [
+                {
+                    "id": "planner",
+                    "name": "Planner",
+                    "role": "First-step planner",
+                    "goal": f"Define the next concrete handoff step for: {goal}",
+                    "responsibilities": ["Frame the next step", "Hand off clearly", "Avoid parallel duplication"],
+                    "tools": ["cowork_internal"],
+                    "subscriptions": ["plan", "handoff", "next_step"],
+                },
+                {
+                    "id": "finisher",
+                    "name": "Finisher",
+                    "role": "Completion owner",
+                    "goal": f"Complete the final handoff and synthesize the answer for: {goal}",
+                    "responsibilities": ["Receive handoffs", "Complete the last step", "Summarize results"],
+                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "subscriptions": ["handoff", "complete", "summary"],
+                },
+            ]
+        if mode in {"team", "swarm"}:
+            return [lead, researcher]
+        return [lead, researcher, analyst]
 
     @staticmethod
     def lead_agent_id(session: CoworkSession) -> str:
@@ -2303,6 +5059,69 @@ class CoworkService:
         )
         if session.tasks and not unresolved_replies and all(task.status in {"completed", "skipped"} for task in session.tasks.values()):
             self.refresh_shared_memory(session, save=False)
+            if session.workflow_mode == "swarm" and self.swarm_reducer_should_run(session):
+                self.ensure_swarm_reducer_task(session, save=False)
+                session.status = "active"
+                session.current_focus_task = "Swarm reducer is ready to synthesize completed work units."
+                session.completion_decision = {
+                    "next_action": "reduce_swarm",
+                    "reason": "Required swarm work units are finished; reducer synthesis must run before completion.",
+                    "blocked": [],
+                    "ready_to_finish": False,
+                    "budget": self.budget_state(session),
+                    "swarm_plan": getattr(session, "swarm_plan", {}),
+                    "updated_at": now_iso(),
+                }
+                return
+            if session.workflow_mode == "swarm":
+                swarm_policy = self.architecture_policy(session.workflow_mode)
+                policy_decision = swarm_policy.evaluate_completion(session)
+                plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+                if policy_decision.status == "blocked" and policy_decision.payload.get("next_action") == "resolve_swarm_blocker":
+                    session.status = "active"
+                    session.completion_decision = {
+                        "next_action": "resolve_swarm_blocker",
+                        "reason": policy_decision.reason
+                        or "The swarm plan is blocked and needs user intervention or an allowed alternative.",
+                        "blocked": [
+                            {"id": "swarm_plan", "request_type": getattr(session, "stop_reason", "") or "blocked", "content": "Swarm plan is blocked."}
+                        ],
+                        "ready_to_finish": False,
+                        "swarm_plan": plan,
+                        "policy_completion": policy_decision.payload,
+                        "updated_at": now_iso(),
+                    }
+                    return
+                evaluations = self.evaluate_swarm_completion(session, save=False)
+                policy_decision = swarm_policy.evaluate_completion(session)
+                blocking_evaluations = [
+                    item
+                    for item in policy_decision.payload.get("evaluations", evaluations)
+                    if isinstance(item, dict) and item.get("status") in {"block", "error"}
+                ]
+                if policy_decision.status == "blocked" and policy_decision.payload.get("next_action") == "resolve_evaluation_blockers":
+                    session.status = "active"
+                    session.completion_decision = {
+                        "next_action": "resolve_evaluation_blockers",
+                        "reason": policy_decision.reason or f"{len(blocking_evaluations)} swarm evaluation(s) block completion.",
+                        "blocked": [
+                            {
+                                "id": item.get("id"),
+                                "request_type": item.get("kind"),
+                                "content": item.get("summary", ""),
+                            }
+                            for item in blocking_evaluations
+                        ],
+                        "ready_to_finish": False,
+                        "evaluations": evaluations,
+                        "policy_completion": policy_decision.payload,
+                        "updated_at": now_iso(),
+                    }
+                    return
+                if plan:
+                    plan["status"] = "completed"
+                    plan["updated_at"] = now_iso()
+                    session.swarm_plan = plan
             goal_review = self.review_goal_completion(session)
             if not goal_review.get("ready"):
                 session.current_focus_task = str(goal_review.get("reason") or session.current_focus_task or session.goal)
@@ -2327,6 +5146,7 @@ class CoworkService:
                 "goal_review": goal_review,
                 "updated_at": now_iso(),
             }
+            self._capture_current_branch_state(session)
 
     @staticmethod
     def _task_dependencies_done(session: CoworkSession, task: CoworkTask) -> bool:

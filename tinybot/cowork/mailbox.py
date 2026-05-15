@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from tinybot.cowork.policies import default_policy_registry
 from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkMailboxRecord, CoworkMessage, CoworkSession, now_iso
 
@@ -279,7 +280,17 @@ class CoworkMailbox:
         known = set(session.agents) | {"user"}
         explicit = [recipient for recipient in dict.fromkeys(envelope.recipient_ids) if recipient in known]
         lead_id = CoworkMailbox._lead_agent_id(session)
-        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", "hybrid"))
+        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", "adaptive_starter"))
+        if profile == "message_bus":
+            policy = default_policy_registry().resolve(getattr(session, "workflow_mode", "message_bus"))
+            decision = policy.route_envelope(session, envelope)
+            recipients = [
+                recipient
+                for recipient in dict.fromkeys(decision.payload.get("recipients", []))
+                if recipient in known and recipient != envelope.sender_id
+            ]
+            if recipients:
+                return recipients
         if profile == "message_bus" and envelope.sender_id != "user" and not explicit:
             routed = CoworkMailbox._subscribed_recipients(session, envelope)
             if routed:

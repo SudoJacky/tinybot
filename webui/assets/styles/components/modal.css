@@ -670,6 +670,131 @@
   line-height: 1.5;
 }
 
+.cowork-branch-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cowork-branch-chip {
+  display: inline-grid;
+  gap: 2px;
+  max-width: 210px;
+  padding: 6px 8px;
+  text-align: left;
+  color: var(--text);
+  background: var(--panel-strong);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.cowork-branch-chip strong,
+.cowork-branch-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cowork-branch-chip strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.cowork-branch-chip span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cowork-branch-chip:hover,
+.cowork-branch-chip.active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 56%, var(--panel-strong));
+}
+
+.cowork-branch-chip:disabled {
+  cursor: default;
+}
+
+.cowork-observation-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cowork-observation-list > strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.cowork-observation-item {
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-subtle) 70%, var(--panel-strong));
+}
+
+.cowork-observation-item summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.cowork-observation-item summary span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.cowork-observation-body {
+  display: grid;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.cowork-observation-body p,
+.cowork-observation-detail p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cowork-observation-detail {
+  display: grid;
+  gap: 6px;
+}
+
+.cowork-branch-result-card {
+  gap: 8px;
+}
+
+.cowork-branch-result-choice {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+
+.cowork-branch-result-choice input {
+  flex: 0 0 auto;
+}
+
+.cowork-branch-result-choice strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cowork-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -849,6 +974,12 @@
   line-height: 1.45;
 }
 
+.cowork-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .cowork-mailbox-card {
   min-height: 68px;
 }
@@ -956,13 +1087,72 @@
   font-size: 11px;
 }
 
-.cowork-chat-bubble p {
+.cowork-chat-body {
+  overflow-wrap: anywhere;
+}
+
+.cowork-chat-body.is-plain {
+  white-space: pre-wrap;
+}
+
+.cowork-chat-body > :first-child {
+  margin-top: 0;
+}
+
+.cowork-chat-body > :last-child {
+  margin-bottom: 0;
+}
+
+.cowork-chat-body p,
+.cowork-chat-body li {
   margin: 0;
   color: var(--text);
   font-size: 13px;
   line-height: 1.5;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.cowork-chat-body p,
+.cowork-chat-body ul,
+.cowork-chat-body ol,
+.cowork-chat-body blockquote,
+.cowork-chat-body pre {
+  margin: 0 0 9px;
+}
+
+.cowork-chat-body ul,
+.cowork-chat-body ol {
+  padding-left: 19px;
+}
+
+.cowork-chat-body h1,
+.cowork-chat-body h2,
+.cowork-chat-body h3,
+.cowork-chat-body h4 {
+  margin: 12px 0 7px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.cowork-chat-body code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  font-size: 12px;
+}
+
+.cowork-chat-body pre {
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.cowork-chat-body pre code {
+  padding: 0;
+  background: transparent;
 }
 
 .cowork-chat-event {

@@ -1788,6 +1788,12 @@ def _load_cowork_blueprint_file(path: str) -> dict[str, Any]:
 def cowork_start(
         goal: str = typer.Argument("", help="Goal for the cowork session"),
         blueprint_file: str | None = typer.Option(None, "--blueprint", "-b", help="Launch from a Cowork blueprint JSON file"),
+        architecture: str = typer.Option(
+            "adaptive_starter",
+            "--architecture",
+            "--mode",
+            help="Cowork architecture; --mode is a compatibility alias and legacy 'hybrid' is accepted",
+        ),
         auto_run: bool = typer.Option(False, "--run/--no-run", help="Run one or more rounds immediately"),
         max_rounds: int = typer.Option(1, "--rounds", "-r", min=1, max=20, help="Scheduling rounds to run"),
         max_agents: int = typer.Option(3, "--agents", "-a", min=1, max=50, help="Max agents per round"),
@@ -1808,6 +1814,7 @@ def cowork_start(
             max_agent_calls=max_agent_calls,
             run_until_idle=run_until_idle,
             blueprint=blueprint,
+            architecture=architecture,
         )
     )
     console.print(Markdown(result))
@@ -1884,9 +1891,15 @@ def cowork_list(
     table.add_column("ID", style="cyan")
     table.add_column("Title")
     table.add_column("Status")
+    table.add_column("Architecture")
+    table.add_column("Branch")
     table.add_column("Updated")
     for session in sessions:
-        table.add_row(session.id, session.title, session.status, session.updated_at)
+        branch_id = getattr(session, "current_branch_id", "default") or "default"
+        branch = (getattr(session, "branches", {}) or {}).get(branch_id)
+        architecture = getattr(branch, "architecture", getattr(session, "workflow_mode", "adaptive_starter"))
+        branch_label = f"{branch_id} [{getattr(branch, 'status', '-') if branch else '-'}]"
+        table.add_row(session.id, session.title, session.status, architecture, branch_label, session.updated_at)
     console.print(table)
 
 

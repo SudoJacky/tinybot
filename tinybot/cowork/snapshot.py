@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import math
 import hashlib
+import mimetypes
 from collections import Counter, defaultdict
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
-from tinybot.cowork.types import CoworkEvent, CoworkSession, now_iso
+from tinybot.cowork.swarm import build_swarm_scheduler_queues
+from tinybot.cowork.types import CoworkAgentStep, CoworkEvent, CoworkSession, CoworkStepSummary, now_iso
 
 
 def _compact(value: Any, limit: int = 180) -> str:
@@ -90,10 +94,11 @@ def build_cowork_graph(
             "detail": _compact(session.current_focus_task or session.goal, 220),
             "status": session.status,
             "tone": _status_tone(session.status),
-            "badge": getattr(session, "workflow_mode", "hybrid"),
+            "badge": getattr(session, "workflow_mode", "adaptive_starter"),
             "x": 600,
             "y": 310,
-            "workflow_mode": getattr(session, "workflow_mode", "hybrid"),
+            "workflow_mode": getattr(session, "workflow_mode", "adaptive_starter"),
+            "architecture": getattr(session, "workflow_mode", "adaptive_starter"),
             "source_blueprint_id": (getattr(session, "blueprint", {}) or {}).get("id", ""),
         },
         rank=0,
@@ -156,6 +161,7 @@ def build_cowork_graph(
                 "y": round(y, 2),
                 "parent_agent_id": getattr(agent, "parent_agent_id", None),
                 "team_id": getattr(agent, "team_id", ""),
+                "lifetime": getattr(agent, "lifetime", "persistent"),
                 "lifecycle_status": getattr(agent, "lifecycle_status", "active"),
                 "source_blueprint_id": getattr(agent, "source_blueprint_id", ""),
                 "source_event_id": getattr(agent, "source_event_id", ""),
@@ -539,6 +545,41 @@ def build_cowork_trace(session: CoworkSession, *, limit: int = 80) -> list[dict[
     """Return timeline trace cards derived from events, spans, and scheduler decisions."""
 
     trace: list[dict[str, Any]] = []
+    for step in getattr(session, "agent_steps", [])[-limit:]:
+        summary = step.summary or _step_summary_from_step(step)
+        trace.append(
+            {
+                "id": step.id,
+                "type": f"agent_step.{step.action_kind}",
+                "stage": "agent_step",
+                "action": summary.purpose or step.action_kind.replace("_", " ").title(),
+                "detail": summary.outcome_summary or step.output_summary or summary.input_summary,
+                "actor_id": step.agent_id,
+                "actor_name": session.agents.get(step.agent_id).name if step.agent_id in session.agents else step.agent_id,
+                "at": step.ended_at or step.started_at,
+                "status": step.status,
+                "node_id": f"agent:{step.agent_id}" if step.agent_id in session.agents else "session",
+                "next_node_id": f"task:{step.task_id}" if step.task_id in session.tasks else "",
+                "payload": {
+                    "branch_id": step.branch_id,
+                    "architecture": step.architecture,
+                    "task_id": step.task_id,
+                    "work_unit_id": step.work_unit_id,
+                    "scheduler_reason": step.scheduler_reason,
+                    "linked_message_ids": step.linked_message_ids,
+                    "linked_artifact_refs": step.linked_artifact_refs,
+                    "linked_task_ids": step.linked_task_ids,
+                    "linked_envelope_ids": step.linked_envelope_ids,
+                    "tool_observation_ids": [item.id for item in step.tool_observations],
+                    "browser_observation_ids": [item.id for item in step.browser_observations],
+                    "source_span_id": step.source_span_id,
+                    "source_event_id": step.source_event_id,
+                    "projected": step.projected,
+                    "error": step.error,
+                },
+                "source": "agent_step",
+            }
+        )
     for event in session.events[-limit:]:
         actor_id = event.actor_id or str(event.data.get("agent_id") or "")
         actor = session.agents.get(actor_id)
@@ -643,6 +684,149 @@ def build_cowork_trace(session: CoworkSession, *, limit: int = 80) -> list[dict[
             }
         )
     return sorted(trace, key=lambda item: str(item.get("at") or ""))[-limit:]
+
+
+def build_cowork_agent_steps(session: CoworkSession, *, limit: int = 120) -> list[dict[str, Any]]:
+    """Return native Agent Steps or a bounded legacy projection from existing observability data."""
+
+    native_steps = getattr(session, "agent_steps", []) or []
+    if native_steps:
+        return [_agent_step_payload(step) for step in native_steps[-limit:]]
+    return [_agent_step_payload(step) for step in _project_legacy_agent_steps(session, limit=limit)]
+
+
+def _agent_step_payload(step: CoworkAgentStep) -> dict[str, Any]:
+    payload = asdict(step)
+    summary = step.summary or _step_summary_from_step(step)
+    payload["summary"] = asdict(summary)
+    payload["tool_observations"] = [asdict(item) for item in step.tool_observations]
+    payload["browser_observations"] = [asdict(item) for item in step.browser_observations]
+    return payload
+
+
+def _step_summary_from_step(step: CoworkAgentStep) -> CoworkStepSummary:
+    outcome = step.output_summary or step.error or step.status.replace("_", " ")
+    return CoworkStepSummary(
+        id=f"summary:{step.id}",
+        step_id=step.id,
+        purpose=step.scheduler_reason or step.action_kind.replace("_", " ").title(),
+        action_kind=step.action_kind,
+        input_summary=_compact(step.input_summary, 220),
+        outcome_summary=_compact(outcome, 240),
+        next_effect=_compact(_step_next_effect(step), 180),
+        has_full_detail=bool(step.detail_ref),
+        detail_ref=step.detail_ref,
+        redacted=False,
+        created_at=step.ended_at or step.started_at,
+    )
+
+
+def _step_next_effect(step: CoworkAgentStep) -> str:
+    if step.linked_task_ids:
+        return f"Updated task(s): {', '.join(step.linked_task_ids[:4])}"
+    if step.linked_message_ids:
+        return f"Linked message(s): {', '.join(step.linked_message_ids[:4])}"
+    if step.linked_artifact_refs:
+        return f"Linked artifact(s): {', '.join(step.linked_artifact_refs[:4])}"
+    return ""
+
+
+def _project_legacy_agent_steps(session: CoworkSession, *, limit: int) -> list[CoworkAgentStep]:
+    steps: list[CoworkAgentStep] = []
+    branch_id = getattr(session, "current_branch_id", "default") or "default"
+    branches = getattr(session, "branches", {}) if isinstance(getattr(session, "branches", {}), dict) else {}
+    architecture = getattr(branches.get(branch_id), "architecture", getattr(session, "workflow_mode", "adaptive_starter"))
+
+    for span in getattr(session, "trace_spans", [])[-limit:]:
+        data = getattr(span, "data", {}) or {}
+        step = CoworkAgentStep(
+            id=f"legacy-step:span:{span.id}",
+            session_id=session.id,
+            branch_id=str(data.get("branch_id") or branch_id),
+            architecture=str(data.get("architecture") or data.get("workflow_mode") or architecture),
+            agent_id=span.actor_id,
+            action_kind=str(span.kind or "trace"),
+            scheduler_reason=str(data.get("scheduler_reason") or span.name or ""),
+            status=_step_status(span.status),
+            started_at=span.started_at,
+            ended_at=span.ended_at,
+            duration_ms=span.duration_ms,
+            task_id=str(data.get("task_id")) if data.get("task_id") else None,
+            work_unit_id=str(data.get("work_unit_id")) if data.get("work_unit_id") else None,
+            input_summary=_compact(span.input_ref, 240),
+            output_summary=_compact(span.summary or span.output_ref, 260),
+            error=span.error,
+            linked_task_ids=[str(data.get("task_id"))] if data.get("task_id") else [],
+            linked_artifact_refs=[str(item) for item in data.get("artifact_refs", []) if item]
+            if isinstance(data.get("artifact_refs"), list)
+            else [],
+            source_span_id=span.id,
+            projected=True,
+        )
+        step.summary = _step_summary_from_step(step)
+        steps.append(step)
+
+    for event in getattr(session, "events", [])[-limit:]:
+        data = getattr(event, "data", {}) or {}
+        task_id = data.get("task_id") or data.get("blocking_task_id")
+        step = CoworkAgentStep(
+            id=f"legacy-step:event:{event.id}",
+            session_id=session.id,
+            branch_id=str(data.get("branch_id") or branch_id),
+            architecture=str(data.get("architecture") or data.get("workflow_mode") or architecture),
+            agent_id=event.actor_id,
+            action_kind=str(event.type or "event"),
+            scheduler_reason=_event_action(event),
+            status=_step_status(str(data.get("status") or event.type.rsplit(".", 1)[-1])),
+            started_at=event.created_at,
+            ended_at=event.created_at,
+            task_id=str(task_id) if task_id else None,
+            input_summary="",
+            output_summary=_compact(event.message, 260),
+            linked_message_ids=[str(data.get("message_id"))] if data.get("message_id") else [],
+            linked_task_ids=[str(task_id)] if task_id else [],
+            linked_envelope_ids=[str(data.get("envelope_id"))] if data.get("envelope_id") else [],
+            source_event_id=event.id,
+            projected=True,
+        )
+        step.summary = _step_summary_from_step(step)
+        steps.append(step)
+
+    for decision in getattr(session, "scheduler_decisions", [])[-limit:]:
+        selected = decision.get("selected_agent_ids") or []
+        first_agent = str(selected[0]) if selected else None
+        step = CoworkAgentStep(
+            id=f"legacy-step:scheduler:{decision.get('id')}",
+            session_id=session.id,
+            branch_id=branch_id,
+            architecture=architecture,
+            agent_id=first_agent,
+            action_kind="scheduler_decision",
+            scheduler_reason=str(decision.get("reason") or "Scheduler selected agents"),
+            status="completed" if selected else "blocked",
+            started_at=str(decision.get("created_at") or now_iso()),
+            ended_at=str(decision.get("created_at") or now_iso()),
+            input_summary=_compact(decision.get("candidate_scores", []), 260),
+            output_summary=_compact(f"Selected: {', '.join(str(item) for item in selected)}", 180),
+            projected=True,
+        )
+        step.summary = _step_summary_from_step(step)
+        steps.append(step)
+
+    return sorted(steps, key=lambda item: str(item.ended_at or item.started_at))[-limit:]
+
+
+def _step_status(value: str) -> str:
+    status = str(value or "").lower()
+    if status in {"running", "in_progress", "pending"}:
+        return "running"
+    if status in {"failed", "error"}:
+        return "failed"
+    if status in {"blocked", "expired"}:
+        return "blocked"
+    if status in {"stopped", "cancelled", "canceled"}:
+        return "stopped"
+    return "completed"
 
 
 def build_cowork_task_dag(session: CoworkSession) -> dict[str, Any]:
@@ -755,47 +939,169 @@ def build_cowork_task_dag(session: CoworkSession) -> dict[str, Any]:
 
 
 def build_cowork_artifact_index(session: CoworkSession) -> list[dict[str, Any]]:
-    """Return artifacts linked back to their source tasks and agents."""
+    """Return artifacts linked back to their source tasks, work units, and agents."""
 
     artifacts: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
     for task in session.tasks.values():
         for value in _task_artifacts(task):
-            key = (task.id, value)
+            key = _artifact_key(value)
             if key in seen:
                 continue
             seen.add(key)
-            artifacts.append(
-                {
-                    "id": f"artifact_{len(artifacts) + 1}",
-                    "kind": _artifact_kind(value),
-                    "path_or_url": value,
-                    "source_agent_id": task.assigned_agent_id,
-                    "source_task_id": task.id,
-                    "source_task_title": task.title,
-                    "created_at": task.updated_at,
-                    "summary": _compact(value, 160),
-                    "confidence": task.confidence,
-                }
+            artifacts.append(_artifact_record(
+                session,
+                artifact_id=f"artifact_{len(artifacts) + 1}",
+                path_or_url=value,
+                source_agent_id=task.assigned_agent_id,
+                source_task_id=task.id,
+                source_task_title=task.title,
+                created_at=task.updated_at,
+                summary=_compact(value, 160),
+                confidence=task.confidence,
+            )
             )
     for value in getattr(session, "artifacts", []):
         text = str(value or "").strip()
-        if not text or any(item["path_or_url"] == text for item in artifacts):
+        key = _artifact_key(text)
+        if not text or key in seen:
             continue
-        artifacts.append(
-            {
-                "id": f"artifact_{len(artifacts) + 1}",
-                "kind": _artifact_kind(text),
-                "path_or_url": text,
-                "source_agent_id": None,
-                "source_task_id": None,
-                "source_task_title": "",
-                "created_at": session.updated_at,
-                "summary": _compact(text, 160),
-                "confidence": None,
-            }
+        seen.add(key)
+        artifacts.append(_artifact_record(
+            session,
+            artifact_id=f"artifact_{len(artifacts) + 1}",
+            path_or_url=text,
+            source_agent_id=None,
+            source_task_id=None,
+            source_task_title="",
+            created_at=session.updated_at,
+            summary=_compact(text, 160),
+            confidence=None,
         )
+        )
+    plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+    span_by_work_unit: dict[str, str] = {}
+    for span in getattr(session, "trace_spans", []):
+        data = getattr(span, "data", {}) or {}
+        work_unit_id = data.get("work_unit_id")
+        if work_unit_id:
+            span_by_work_unit[str(work_unit_id)] = span.id
+    for unit in plan.get("work_units", []) if isinstance(plan.get("work_units", []), list) else []:
+        if not isinstance(unit, dict):
+            continue
+        for artifact in unit.get("artifacts") or []:
+            value = artifact.get("path_or_url") or artifact.get("path") or artifact.get("url") if isinstance(artifact, dict) else artifact
+            text = str(value or "").strip()
+            if not text:
+                continue
+            key = _artifact_key(text)
+            if key in seen:
+                continue
+            seen.add(key)
+            artifacts.append(_artifact_record(
+                session,
+                artifact_id=f"artifact_{len(artifacts) + 1}",
+                path_or_url=text,
+                source_agent_id=unit.get("assigned_agent_id"),
+                source_task_id=unit.get("source_task_id"),
+                source_work_unit_id=unit.get("id"),
+                source_span_id=span_by_work_unit.get(str(unit.get("id") or "")),
+                source_task_title=unit.get("title", ""),
+                created_at=unit.get("updated_at") or session.updated_at,
+                summary=artifact.get("summary") if isinstance(artifact, dict) else _compact(text, 160),
+                confidence=unit.get("confidence"),
+                kind=(artifact.get("kind") if isinstance(artifact, dict) else "") or "",
+            )
+            )
     return artifacts
+
+
+def build_cowork_large_swarm_summary(session: CoworkSession) -> dict[str, Any]:
+    plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+    units = [unit for unit in plan.get("work_units", []) if isinstance(unit, dict)]
+    status_counts = Counter(str(unit.get("status") or "unknown") for unit in units)
+    workstreams: dict[str, dict[str, Any]] = {}
+    for unit in units:
+        key = str(unit.get("team_id") or unit.get("fanout_group_id") or unit.get("kind") or "default")
+        group = workstreams.setdefault(
+            key,
+            {"id": key, "title": key.replace("_", " "), "count": 0, "status_counts": Counter(), "sample_unit_ids": []},
+        )
+        group["count"] += 1
+        group["status_counts"][str(unit.get("status") or "unknown")] += 1
+        if len(group["sample_unit_ids"]) < 8:
+            group["sample_unit_ids"].append(unit.get("id"))
+    return {
+        "schema_version": "cowork.large_swarm.v1",
+        "enabled": len(units) >= 40,
+        "total_work_units": len(units),
+        "status_counts": dict(status_counts),
+        "workstreams": [
+            {**group, "status_counts": dict(group["status_counts"])}
+            for group in sorted(workstreams.values(), key=lambda item: item["count"], reverse=True)
+        ],
+        "render_limit": 60,
+        "generated_at": now_iso(),
+    }
+
+
+def _artifact_key(path_or_url: str) -> str:
+    return hashlib.sha1(str(path_or_url or "").strip().lower().encode("utf-8")).hexdigest()
+
+
+def _artifact_record(
+    session: CoworkSession,
+    *,
+    artifact_id: str,
+    path_or_url: str,
+    source_agent_id: str | None,
+    source_task_id: str | None,
+    source_task_title: str,
+    created_at: str,
+    summary: str,
+    confidence: float | None,
+    kind: str = "",
+    source_work_unit_id: str | None = None,
+    source_span_id: str | None = None,
+) -> dict[str, Any]:
+    status, file_hash, mime_type = _artifact_file_metadata(session, path_or_url)
+    return {
+        "id": artifact_id,
+        "kind": kind or _artifact_kind(path_or_url),
+        "path_or_url": path_or_url,
+        "source_agent_id": source_agent_id,
+        "source_task_id": source_task_id,
+        "source_work_unit_id": source_work_unit_id,
+        "source_span_id": source_span_id,
+        "source_task_title": source_task_title,
+        "created_at": created_at,
+        "summary": summary,
+        "hash": file_hash,
+        "mime_type": mime_type,
+        "confidence": confidence,
+        "status": status,
+        "missing": status == "missing",
+    }
+
+
+def _artifact_file_metadata(session: CoworkSession, path_or_url: str) -> tuple[str, str, str]:
+    value = str(path_or_url or "").strip()
+    if not value or value.startswith(("http://", "https://")):
+        return ("linked" if value else "unresolved", "", mimetypes.guess_type(value)[0] or "")
+    path = Path(value)
+    if not path.is_absolute() and getattr(session, "workspace_dir", ""):
+        path = Path(session.workspace_dir) / path
+    mime_type = mimetypes.guess_type(value)[0] or ""
+    if not path.exists() or not path.is_file():
+        return "missing", "", mime_type
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return "available", digest.hexdigest(), mime_type
+    except Exception:
+        return "unresolved", "", mime_type
 
 
 def _task_artifacts(task: Any) -> list[str]:

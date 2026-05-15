@@ -189,7 +189,23 @@ def test_create_session_accepts_new_cowork_modes_and_subscriptions(temp_workspac
 
     fallback = service.create_session("Unknown mode", "Unknown", [], [], workflow_mode="missing")
 
-    assert fallback.workflow_mode == "hybrid"
+    assert fallback.workflow_mode == "adaptive_starter"
+
+
+def test_canonical_architecture_names_and_legacy_alias_load(temp_workspace):
+    service = CoworkService(temp_workspace)
+    default_session = service.create_session("Clarify goal", "Default", [], [])
+    legacy_input = service.create_session("Legacy input", "Legacy", [], [], workflow_mode="hybrid")
+
+    assert default_session.workflow_mode == "adaptive_starter"
+    assert legacy_input.workflow_mode == "adaptive_starter"
+    assert service.workflow_profile("adaptive_starter") == "hybrid"
+    assert service.architecture_policy("hybrid").architecture == "adaptive_starter"
+    assert service.architecture_policy("swarm").architecture == "swarm"
+
+    reloaded = CoworkService(temp_workspace).get_session(legacy_input.id)
+    assert reloaded is not None
+    assert reloaded.workflow_mode == "adaptive_starter"
 
 
 def test_round_progress_tracks_convergence(temp_workspace):
@@ -240,6 +256,294 @@ def test_loads_minimal_legacy_store_payload(temp_workspace):
     assert session is not None
     assert session.agents["agent"].status == "idle"
     assert session.agents["agent"].current_task_title is None
+
+
+def test_loads_legacy_hybrid_store_as_adaptive_starter(temp_workspace):
+    store_dir = temp_workspace / "cowork"
+    store_dir.mkdir()
+    (store_dir / "store.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "sessions": [
+                    {
+                        "id": "cw_hybrid",
+                        "title": "Legacy Hybrid",
+                        "goal": "Keep old mode readable",
+                        "workflow_mode": "hybrid",
+                        "agents": {},
+                        "tasks": {},
+                        "threads": {},
+                        "messages": {},
+                        "events": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    session = CoworkService(temp_workspace).get_session("cw_hybrid")
+
+    assert session is not None
+    assert session.workflow_mode == "adaptive_starter"
+
+
+def test_legacy_session_loads_with_default_branch(temp_workspace):
+    store_dir = temp_workspace / "cowork"
+    store_dir.mkdir()
+    (store_dir / "store.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "sessions": [
+                    {
+                        "id": "cw_branchless",
+                        "title": "Branchless",
+                        "goal": "Migrate branchless payload",
+                        "workflow_mode": "hybrid",
+                        "agents": {},
+                        "tasks": {},
+                        "threads": {},
+                        "messages": {},
+                        "events": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    session = CoworkService(temp_workspace).get_session("cw_branchless")
+
+    assert session is not None
+    assert session.current_branch_id == "default"
+    assert session.branches["default"].architecture == "adaptive_starter"
+    assert session.branches["default"].status == "active"
+
+
+def test_derive_branch_preserves_source_stage_record_and_allows_selection(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Investigate architecture", "Architecture", [], [])
+    service.complete_task(session, next(iter(session.tasks)), "Useful result")
+
+    branch = service.derive_branch(
+        session,
+        target_architecture="swarm",
+        reason="Need horizontal exploration",
+        inherited_context_summary="Carry only the organized result.",
+    )
+
+    assert not isinstance(branch, str)
+    assert branch.source_branch_id == "default"
+    assert branch.architecture == "swarm"
+    assert session.current_branch_id == branch.id
+    assert session.branches["default"].status in {"active", "completed"}
+    assert session.stage_records[-1].target_branch_id == branch.id
+    assert session.stage_records[-1].inherited_context_summary == "Carry only the organized result."
+    assert all("private_summary" not in ref for ref in session.stage_records[-1].message_refs)
+
+    selected = service.select_branch(session, "default")
+
+    assert not isinstance(selected, str)
+    assert session.current_branch_id == "default"
+    assert session.workflow_mode == "adaptive_starter"
+
+
+def test_branch_result_selection_is_explicit_and_not_replaced_by_newer_branch(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Answer with branches", "Branches", [], [])
+
+    service.complete_task(session, next(iter(session.tasks)), "Default branch answer")
+    default_result = session.branches["default"].branch_result
+
+    assert default_result is not None
+    assert session.session_final_result is None
+
+    selected = service.select_session_final_result(session, "default")
+
+    assert not isinstance(selected, str)
+    assert selected.selected_branch_id == "default"
+    assert selected.selected_result_id == default_result.id
+
+    branch = service.derive_branch(session, target_architecture="swarm", reason="Try another answer")
+
+    assert not isinstance(branch, str)
+    derived_task = service.add_task(
+        session,
+        title="Derived synthesis",
+        description="Produce a derived branch answer",
+        assigned_agent_id=service.lead_agent_id(session),
+    )
+    service.complete_task(session, derived_task.id, "Derived branch answer")
+
+    assert session.branches[branch.id].branch_result is not None
+    assert session.session_final_result is not None
+    assert session.session_final_result.selected_branch_id == "default"
+    assert session.session_final_result.selected_result_id == default_result.id
+
+
+def test_branch_merge_creates_candidate_final_result_from_multiple_branch_results(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Merge branches", "Merge", [], [])
+
+    service.complete_task(session, next(iter(session.tasks)), "Default result")
+    branch = service.derive_branch(session, target_architecture="agent_team", reason="Compare result")
+
+    assert not isinstance(branch, str)
+    derived_task = service.add_task(
+        session,
+        title="Derived result",
+        description="Produce another result",
+        assigned_agent_id=service.lead_agent_id(session),
+    )
+    service.complete_task(session, derived_task.id, "Derived result")
+
+    merged = service.merge_branch_results(session, ["default", branch.id], summary="Merged candidate")
+
+    assert not isinstance(merged, str)
+    assert merged.source == "branch_merge"
+    assert merged.source_branch_ids == ["default", branch.id]
+    assert merged.summary == "Merged candidate"
+    assert session.session_final_result == merged
+
+
+def test_agent_delegation_creates_parent_scoped_sub_agent_with_brief(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Delegate bounded research",
+        "Delegation",
+        [{"id": "lead", "name": "Lead", "role": "Coordinator", "goal": "Coordinate"}],
+        [],
+        workflow_mode="agent_team",
+        budgets={"max_spawned_agents": 2, "parallel_width": 2},
+    )
+
+    created = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Inspect only the supplied artifact references.",
+        constraints=["Do not read parent private context."],
+        input_references=[{"type": "artifact", "ref": "artifact://summary", "summary": "Prepared summary"}],
+        expected_output="Answer with cited evidence.",
+        tools=["cowork_internal", "read_file"],
+        stopping_criteria=["Return result to parent."],
+    )
+
+    assert not isinstance(created, str)
+    sub_agent = created["sub_agent"]
+    brief = created["brief"]
+    delegated = created["delegated_task"]
+    assert sub_agent.parent_agent_id == "lead"
+    assert sub_agent.lifetime == "temporary"
+    assert sub_agent.sub_agent_scope == "parent"
+    assert sub_agent.delegated_task_id == delegated.id
+    assert sub_agent.delegated_brief_id == brief.id
+    assert brief.task_goal == "Inspect only the supplied artifact references."
+    assert brief.input_references == [{"ref": "artifact://summary", "type": "artifact", "summary": "Prepared summary"}]
+    assert "private_summary" not in brief.__dict__
+    assert delegated.status == "active"
+    assert delegated.scope == "parent"
+    assert session.isolated_sub_agent_contexts[sub_agent.isolated_context_id].brief_id == brief.id
+    assert (
+        service.architecture_policy(session.workflow_mode)
+        .topology(session)
+        .payload["metadata"]["delegated_tasks"][0]["id"]
+        == delegated.id
+    )
+
+
+def test_delegation_guardrails_filter_context_tools_and_budgets(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Guard delegation",
+        "Guardrails",
+        [{"id": "lead", "name": "Lead", "role": "Coordinator", "goal": "Coordinate"}],
+        [],
+        workflow_mode="swarm",
+        budgets={"max_spawned_agents": 1, "parallel_width": 1, "max_concurrent_delegated_work": 1},
+        blueprint={"policy": {"allowed_tools": ["cowork_internal", "read_file"], "allow_exec": False}},
+    )
+    detail = service.record_full_observation_detail(
+        session,
+        subject_id="tool_private",
+        subject_type="tool_observation",
+        summary="Private tool result",
+        content="secret",
+        sensitivity="private",
+        permitted_agent_ids=["other"],
+        save=False,
+    )
+
+    created = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Use permitted context only.",
+        input_references=[{"type": "observation_detail", "ref": detail.id}],
+        tools=["cowork_internal", "read_file", "exec"],
+    )
+
+    assert not isinstance(created, str)
+    brief = created["brief"]
+    sub_agent = created["sub_agent"]
+    assert brief.allowed_tools == ["cowork_internal", "read_file"]
+    assert brief.input_references == []
+    assert brief.redacted_reference_count == 1
+    assert sub_agent.tools == ["cowork_internal", "read_file"]
+
+    denied = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Try a second concurrent delegation.",
+        tools=["cowork_internal"],
+        save=False,
+    )
+
+    assert isinstance(denied, str)
+    assert "delegation denied" in denied
+    assert any(
+        "spawned_agent_budget_exhausted" in item.denied_reasons for item in session.delegation_guardrails.values()
+    )
+
+
+def test_sub_agent_result_retires_agent_and_preserves_history(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Complete delegated work",
+        "Delegated result",
+        [{"id": "lead", "name": "Lead", "role": "Coordinator", "goal": "Coordinate"}],
+        [],
+        budgets={"max_spawned_agents": 1, "parallel_width": 1},
+    )
+    created = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Answer one bounded question.",
+        tools=["cowork_internal"],
+    )
+    assert not isinstance(created, str)
+    sub_agent = created["sub_agent"]
+
+    result = service.complete_sub_agent(
+        session,
+        sub_agent.id,
+        answer="The answer is available.",
+        evidence=[{"summary": "Checked the brief"}],
+        sources=["brief"],
+        uncertainty="Low",
+        artifacts=["artifact://answer"],
+    )
+
+    assert not isinstance(result, str)
+    delegated = session.delegated_tasks[sub_agent.delegated_task_id]
+    assert delegated.status == "completed"
+    assert delegated.result_id == result.id
+    assert session.agents[sub_agent.id].lifecycle_status == "retired"
+    assert session.agents[sub_agent.id].status == "retired"
+    assert sub_agent.id not in [agent.id for agent in service.select_active_agents(session, limit=10)]
+    assert result.answer == "The answer is available."
+    assert any(event.type == "delegation.result.returned" for event in session.events)
+    assert any(event.type == "agent.retired" for event in session.events)
 
 
 def test_default_team_fallback_and_ready_task_dependencies(temp_workspace):

@@ -110,6 +110,7 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert "completion_decision" in session
     assert "final_draft" in session
     assert "trace_spans" in session
+    assert "agent_steps" in session
     assert "task_dag" in session
     assert "artifact_index" in session
     assert "budget_state" in session
@@ -119,6 +120,7 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert any(node["kind"] == "task" for node in session["graph"]["nodes"])
     assert any(item["type"] == "session.created" for item in session["trace"])
     assert any(span["kind"] == "session" for span in session["trace_spans"])
+    assert any(step["projected"] for step in session["agent_steps"])
     assert any(node["id"] == "task:task_1" for node in session["task_dag"]["nodes"])
 
     response = await cowork_api_client.get("/api/cowork/sessions")
@@ -139,7 +141,34 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert response.status == 200
     trace_payload = await response.json()
     assert trace_payload["trace_spans"]
+    assert trace_payload["agent_steps"]
     assert trace_payload["trace"]
+
+    service = cowork_api_client.cowork_service
+    session_obj = service.get_session(session_id)
+    step = service.start_agent_step(
+        session_obj,
+        agent_id="planner",
+        action_kind="agent_run",
+        scheduler_reason="API detail check",
+        input_summary="Check detail endpoint",
+    )
+    detail = service.record_full_observation_detail(
+        session_obj,
+        subject_id=step.id,
+        subject_type="agent_step",
+        summary="Detail summary",
+        content="Detail content",
+    )
+    service.finish_agent_step(session_obj, step, output_summary="Finished", save=True)
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/observations/{detail.id}")
+    assert response.status == 200
+    assert (await response.json())["detail"]["content"] == "Detail content"
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/observations/missing")
+    assert response.status == 404
+    assert (await response.json())["detail"]["state"] == "unavailable"
 
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/dag")
     assert response.status == 200
@@ -196,7 +225,20 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
 
     response = await cowork_api_client.post(f"/api/cowork/sessions/{session_id}/resume")
     assert response.status == 200
-    assert (await response.json())["session"]["status"] == "active"
+    payload = await response.json()
+    assert payload["session"]["status"] == "active"
+    assert "emergency_stop" in payload["session"]["control_scopes"]
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session_id}/emergency-stop",
+        json={"reason": "manual stop"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session"]["status"] == "paused"
+    assert payload["session"]["stop_reason"] == "emergency_stop"
+    assert payload["agent_step"]["action_kind"] == "emergency_stop"
+    assert payload["agent_step"]["status"] == "stopped"
 
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/summary")
     assert response.status == 200
@@ -233,6 +275,246 @@ async def test_cowork_blueprint_api_routes(cowork_api_client):
     payload = await response.json()
     assert payload["session"]["blueprint_metadata"]["lead_agent_id"] == "lead"
     assert payload["session"]["budget_state"]["limits"]["parallel_width"] == 2
+
+
+@pytest.mark.asyncio
+async def test_cowork_api_prefers_architecture_and_normalizes_legacy_alias(cowork_api_client):
+    response = await cowork_api_client.post(
+        "/api/cowork/sessions",
+        json={"goal": "Clarify launch plan", "architecture": "hybrid"},
+    )
+
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session"]["workflow_mode"] == "adaptive_starter"
+    assert payload["session"]["architecture"] == "adaptive_starter"
+    assert payload["session"]["architecture_topology"]["architecture"] == "adaptive_starter"
+    assert payload["session"]["organization_projection"]["display_name"] == "Adaptive Starter"
+    assert payload["session"]["current_branch_id"] == "default"
+    assert payload["session"]["branches"][0]["architecture"] == "adaptive_starter"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("architecture", "display_name", "section_ids"),
+    [
+        ("adaptive_starter", "Adaptive Starter", {"starter"}),
+        ("generator_verifier", "Generator-Verifier", {"rubric", "candidate_results", "verification_verdicts"}),
+        ("team", "Agent Team", {"coordinator", "worker_domains", "team_synthesis"}),
+        ("message_bus", "Message Bus", {"subscribers", "bus_envelopes"}),
+        ("shared_state", "Shared State", {"shared_knowledge_space", "competing_claims"}),
+        ("swarm", "Swarm", {"swarm_plan", "synthesis", "swarm_queues"}),
+    ],
+)
+async def test_cowork_api_session_detail_exposes_each_policy_projection(
+    cowork_api_client,
+    architecture,
+    display_name,
+    section_ids,
+):
+    service = cowork_api_client.cowork_service
+    session = service.create_session(
+        f"Exercise {architecture} policy",
+        f"{display_name} detail",
+        [
+            {"id": "lead", "name": "Lead", "role": "Coordinator", "goal": "Coordinate"},
+            {
+                "id": "worker",
+                "name": "Worker",
+                "role": "Worker",
+                "goal": "Work",
+                "responsibilities": ["Evidence"],
+                "subscriptions": ["incident"],
+            },
+            {"id": "verifier", "name": "Verifier", "role": "Verifier", "goal": "Verify"},
+        ],
+        [
+            {"id": "draft", "title": "Draft", "description": "Draft", "assigned_agent_id": "worker"},
+            {
+                "id": "verify",
+                "title": "Verify",
+                "description": "Verify",
+                "assigned_agent_id": "verifier",
+                "dependencies": ["draft"],
+            },
+        ],
+        workflow_mode=architecture,
+        blueprint={"rubric": ["correctness"], "max_iterations": 2},
+    )
+    if architecture == "message_bus":
+        CoworkMailbox(service).deliver(
+            session,
+            CoworkEnvelope(sender_id="user", visibility="group", topic="incident", content="Investigate"),
+        )
+    if architecture == "shared_state":
+        session.shared_memory["claims"].append({"text": "API projection is visible", "author": "worker"})
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}")
+
+    assert response.status == 200
+    payload = await response.json()
+    detail = payload["session"]
+    projection = detail["organization_projection"]
+    assert detail["architecture"] == architecture
+    assert detail["architecture_topology"]["architecture"] == architecture
+    assert projection["display_name"] == display_name
+    assert section_ids <= {section["id"] for section in projection["sections"]}
+
+
+@pytest.mark.asyncio
+async def test_cowork_branch_api_derives_lists_and_selects_branch(cowork_api_client):
+    service = cowork_api_client.cowork_service
+    session = service.create_session("Derive branch", "Derive branch", [], [])
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/branches/derive",
+        json={
+            "architecture": "swarm",
+            "reason": "Parallelize discovery",
+            "inherited_context_summary": "Organized starter findings only.",
+        },
+    )
+
+    assert response.status == 200
+    payload = await response.json()
+    branch_id = payload["branch"]["id"]
+    assert payload["branch"]["architecture"] == "swarm"
+    assert payload["branch"]["source_branch_id"] == "default"
+    assert payload["session"]["current_branch_id"] == branch_id
+    assert payload["session"]["architecture_topology"]["branch_id"] == branch_id
+    assert payload["session"]["stage_records"][-1]["target_branch_id"] == branch_id
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/branches")
+    assert response.status == 200
+    payload = await response.json()
+    assert {item["id"] for item in payload["branches"]} == {"default", branch_id}
+
+    response = await cowork_api_client.post(f"/api/cowork/sessions/{session.id}/branches/default/select")
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session"]["current_branch_id"] == "default"
+    assert payload["session"]["architecture"] == "adaptive_starter"
+
+
+@pytest.mark.asyncio
+async def test_cowork_api_exposes_and_controls_branch_results(cowork_api_client):
+    service = cowork_api_client.cowork_service
+    session = service.create_session("Branch results", "Branch results", [], [])
+
+    service.complete_task(session, next(iter(session.tasks)), "Default branch answer")
+    default_result = session.branches["default"].branch_result
+
+    assert default_result is not None
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/branches/default/result/select-final",
+        json={"result_id": default_result.id},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session_final_result"]["selected_branch_id"] == "default"
+    assert payload["session"]["session_final_result"]["selected_result_id"] == default_result.id
+
+    branch = service.derive_branch(session, target_architecture="swarm", reason="Alternative result")
+    assert not isinstance(branch, str)
+    derived_task = service.add_task(
+        session,
+        title="Derived synthesis",
+        description="Produce derived result",
+        assigned_agent_id=service.lead_agent_id(session),
+    )
+    service.complete_task(session, derived_task.id, "Derived branch answer")
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/branch-results/merge",
+        json={"branch_ids": ["default", branch.id], "summary": "Merged answer"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["session_final_result"]["source"] == "branch_merge"
+    assert payload["session_final_result"]["source_branch_ids"] == ["default", branch.id]
+    assert len(payload["session"]["branch_results"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_cowork_swarm_steering_budget_and_work_unit_api(cowork_api_client):
+    service = cowork_api_client.cowork_service
+    session = service.create_session(
+        "Steer swarm",
+        "Steer swarm",
+        [
+            {"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]},
+            {"id": "worker", "name": "Worker", "role": "Worker", "goal": "Work", "tools": ["cowork_internal"]},
+        ],
+        [{"id": "unit_a", "title": "Unit A", "description": "A", "assigned_agent_id": "worker"}],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 1},
+    )
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/messages",
+        json={"content": "Prioritize evidence before reducing."},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert (
+        payload["session"]["swarm_plan"]["user_steering"][-1]["instruction"] == "Prioritize evidence before reducing."
+    )
+    assert payload["session"]["messages"][-1]["recipient_ids"] == ["lead"]
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/budget",
+        json={"budgets": {"parallel_width": 2, "max_agent_calls": 4}},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["budget"]["limits"]["parallel_width"] == 2
+    assert payload["budget"]["limits"]["max_agent_calls_per_run"] == 4
+    assert "swarm_queues" in payload["session"]
+    assert payload["session"]["swarm_queues"]["counts"]["ready"] == 1
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/queues")
+    assert response.status == 200
+    assert (await response.json())["swarm_queues"]["schema_version"] == "cowork.swarm_queues.v1"
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/graph")
+    assert response.status == 200
+    payload = await response.json()
+    assert payload["architecture_topology"]["architecture"] == "swarm"
+    assert payload["organization_projection"]["sections"][0]["id"] == "swarm_plan"
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/artifacts")
+    assert response.status == 200
+    assert "artifact_index" in await response.json()
+
+    service.fail_work_unit(session, "unit_a", "boom")
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/work-units/unit_a/retry",
+        json={"reason": "try again"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    unit = next(item for item in payload["session"]["swarm_plan"]["work_units"] if item["id"] == "unit_a")
+    assert unit["status"] == "ready"
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/work-units/unit_a/skip",
+        json={"reason": "not needed"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    unit = next(item for item in payload["session"]["swarm_plan"]["work_units"] if item["id"] == "unit_a")
+    assert unit["status"] == "skipped"
+    assert unit["skip_reason"] == "not needed"
+
+    response = await cowork_api_client.post(
+        f"/api/cowork/sessions/{session.id}/work-units/unit_a/cancel",
+        json={"reason": "stop"},
+    )
+    assert response.status == 200
+    payload = await response.json()
+    unit = next(item for item in payload["session"]["swarm_plan"]["work_units"] if item["id"] == "unit_a")
+    assert unit["status"] == "cancelled"
 
 
 @pytest.mark.asyncio

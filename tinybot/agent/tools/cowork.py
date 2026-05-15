@@ -5,19 +5,22 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
+from tinybot.agent.hook import AgentHook, AgentHookContext
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.tools.base import Tool, tool_parameters
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, IntegerSchema, ObjectSchema, StringSchema, tool_parameters_schema
 from tinybot.agent.tools.shell import ExecTool
-from tinybot.cowork.service import CoworkService
+from tinybot.cowork.architecture import ADAPTIVE_STARTER
 from tinybot.cowork.blueprint import normalize_blueprint
+from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkAgent, CoworkSession, now_iso
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.config.schema import ExecToolConfig
@@ -28,6 +31,92 @@ _AGENT_PROGRESS_STATUSES = {"idle", "waiting", "blocked", "done", "failed", "nee
 _MAX_RUN_AGENT_CALLS = 30
 _MAX_AGENT_SELF_ACTIVATIONS = 3
 _ITERATION_LIMIT_NOTE = "Cowork round ended because the tool iteration limit was reached."
+
+
+class _CoworkObservationHook(AgentHook):
+    """Bridge runner tool hooks into Cowork Tool Observations."""
+
+    def __init__(self, service: CoworkService, session: CoworkSession, step: Any) -> None:
+        self.service = service
+        self.session = session
+        self.step = step
+        self._started: dict[str, list[str]] = {}
+        self._params: dict[str, list[dict[str, Any]]] = {}
+
+    async def on_tool_start(self, context: AgentHookContext, tool_name: str, args: dict[str, Any]) -> None:
+        key = self._key(context, tool_name)
+        self._started.setdefault(key, []).append(now_iso())
+        self._params.setdefault(key, []).append(dict(args or {}))
+
+    async def on_tool_end(self, context: AgentHookContext, tool_name: str, result: Any) -> None:
+        key = self._key(context, tool_name)
+        started_values = self._started.get(key) or []
+        started_at = started_values.pop(0) if started_values else None
+        params = (self._params.get(key) or [{}]).pop(0)
+        status = "failed" if str(result or "").lstrip().startswith("Error") else "completed"
+        observation = self.service.record_tool_observation(
+            self.session,
+            self.step,
+            tool_name=tool_name,
+            purpose=f"{self.step.agent_id or 'agent'} called {tool_name}",
+            parameters=params,
+            result=result,
+            status=status,
+            started_at=started_at,
+            ended_at=now_iso(),
+            detail_content=str(result or ""),
+            redacted=False,
+            save=False,
+        )
+        if self._looks_like_browser_tool(tool_name, params):
+            self.service.record_browser_observation(
+                self.session,
+                self.step,
+                purpose=observation.purpose,
+                resource_ref=str(params.get("url") or params.get("resource") or params.get("query") or ""),
+                result_summary=observation.result_summary,
+                status=status,
+                accessed_at=started_at,
+                ended_at=observation.ended_at,
+                artifact_refs=[observation.detail_ref] if observation.detail_ref else [],
+                detail_content=str(result or ""),
+                sensitive=self._looks_sensitive_resource(params),
+                save=False,
+            )
+
+    async def on_error(self, context: AgentHookContext, error: Exception) -> None:
+        tool_name = context.current_tool or "tool"
+        key = self._key(context, tool_name)
+        started_values = self._started.get(key) or []
+        started_at = started_values.pop(0) if started_values else None
+        params = (self._params.get(key) or [{}]).pop(0)
+        self.service.record_tool_observation(
+            self.session,
+            self.step,
+            tool_name=tool_name,
+            purpose=f"{self.step.agent_id or 'agent'} called {tool_name}",
+            parameters=params,
+            result=f"{type(error).__name__}: {error}",
+            status="failed",
+            started_at=started_at,
+            ended_at=now_iso(),
+            detail_content=f"{type(error).__name__}: {error}",
+            save=False,
+        )
+
+    @staticmethod
+    def _key(context: AgentHookContext, tool_name: str) -> str:
+        return f"{context.iteration}:{tool_name}"
+
+    @staticmethod
+    def _looks_like_browser_tool(tool_name: str, params: dict[str, Any]) -> bool:
+        lowered = tool_name.lower()
+        return any(part in lowered for part in ("browser", "browse", "web", "url")) or "url" in params
+
+    @staticmethod
+    def _looks_sensitive_resource(params: dict[str, Any]) -> bool:
+        resource = str(params.get("url") or params.get("resource") or "").lower()
+        return resource.startswith("file:") or "localhost" in resource or "127.0.0.1" in resource
 
 
 _TEAM_TOOL = [
@@ -88,13 +177,38 @@ class CoworkTeamPlanner:
         self.model = model
         self.workspace = workspace
 
-    async def plan(self, goal: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    async def plan(self, goal: str, workflow_mode: str = ADAPTIVE_STARTER) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+        mode = CoworkService.normalize_workflow_mode(workflow_mode)
+        mode_guidance = {
+            "orchestrator": (
+                "Prefer one lead/coordinator plus only the specialists that are clearly needed. "
+                "Simple goals may use a single coordinator."
+            ),
+            "supervisor": (
+                "Prefer one supervisor plus only the specialists that are clearly needed. "
+                "Simple goals may use a single supervisor."
+            ),
+            "team": "Create a small long-lived team with domain owners; avoid generic researcher/analyst roles unless they fit the goal.",
+            "generator_verifier": "Use producer and verifier roles. Add more agents only when separate domains are required.",
+            "message_bus": "Create topic-oriented subscribers/publishers whose subscriptions match the goal.",
+            "shared_state": "Create contributors who maintain distinct shared-state buckets such as findings, risks, decisions, or artifacts.",
+            "peer_handoff": "Create agents that own sequential handoff steps. Keep the chain short.",
+            "swarm": "Create a bounded swarm plan with focused specialists and clear merge/synthesis ownership.",
+            "adaptive_starter": "Choose the smallest useful team. For simple goals, one coordinator is enough; add specialists only for distinct workstreams.",
+        }.get(mode, "Choose the smallest useful team.")
         prompt = f"""Design a dynamic cowork team for this user goal.
 
 Goal:
 {goal}
 
-Create 3-6 agents. Do not hard-code software roles unless the goal is software work.
+Architecture:
+{mode}
+
+Mode guidance:
+{mode_guidance}
+
+Create 1-6 agents. Do not hard-code software roles unless the goal is software work.
+Use fewer agents when the goal is simple, conversational, or directly answerable.
 Each agent should have a distinct responsibility, private perspective, and clear reason to communicate with others.
 Add 2-5 short subscriptions per agent for message-bus routing, such as domain names, request types, or event topics.
 Include a reviewer/evaluator only when the goal has meaningful risk, verification needs, code changes, research claims, or decision tradeoffs.
@@ -123,7 +237,7 @@ Workspace: {self.workspace}
                 )
         except Exception as exc:
             logger.warning("Cowork team planning failed, using fallback team: {}", exc)
-        agents = CoworkService.default_team(goal)
+        agents = CoworkService.default_team(goal, workflow_mode=mode)
         agents = self._ensure_reviewer_if_needed(goal, agents)
         tasks = self._leader_initial_tasks(goal, agents, [])
         return "Cowork Session", agents, tasks
@@ -240,6 +354,7 @@ Workspace: {self.workspace}
         agents=ArraySchema(ObjectSchema(description="Subteam agent spec"), description="Subteam agent specs"),
         tasks=ArraySchema(ObjectSchema(description="Subteam task spec"), description="Subteam fanout tasks"),
         team_id=StringSchema("Subteam id"),
+        work_unit_id=StringSchema("Swarm work-unit id that caused a spawned agent"),
         required=["action"],
     )
 )
@@ -296,6 +411,7 @@ class CoworkInternalTool(Tool):
         agents: list[dict[str, Any]] | None = None,
         tasks: list[dict[str, Any]] | None = None,
         team_id: str = "",
+        work_unit_id: str = "",
         **kwargs: Any,
     ) -> str:
         session = self.service.get_session(self.session_id)
@@ -390,6 +506,7 @@ class CoworkInternalTool(Tool):
                 reason=content or kwargs.get("reason", ""),
                 source_event_id=caused_by_envelope_id or reply_to_envelope_id,
                 team_id=team_id,
+                work_unit_id=work_unit_id,
             )
             if isinstance(spawned, str):
                 return spawned
@@ -468,8 +585,8 @@ class CoworkInternalTool(Tool):
         ),
         goal=StringSchema("Goal for a new cowork session"),
         workflow_mode=StringSchema(
-            "Cowork workflow mode",
-            enum=["hybrid", "supervisor", "orchestrator", "team", "generator_verifier", "message_bus", "shared_state", "peer_handoff"],
+            "Cowork architecture. Legacy value 'hybrid' is accepted as adaptive_starter.",
+            enum=["adaptive_starter", "hybrid", "supervisor", "orchestrator", "team", "generator_verifier", "message_bus", "shared_state", "peer_handoff", "swarm"],
         ),
         session_id=StringSchema("Cowork session id"),
         recipient_ids=ArraySchema(StringSchema("Agent id"), description="Message recipients"),
@@ -488,7 +605,11 @@ class CoworkInternalTool(Tool):
         stop_on_blocker=BooleanSchema(description="Stop as soon as unresolved blockers are visible", default=False),
         auto_run=BooleanSchema(description="Run one cowork round immediately after start", default=False),
         verbose=BooleanSchema(description="Show detailed status", default=False),
-        extra_properties={"description": StringSchema("Task description"), "blueprint": ObjectSchema(description="Cowork blueprint payload")},
+        extra_properties={
+            "description": StringSchema("Task description"),
+            "blueprint": ObjectSchema(description="Cowork blueprint payload"),
+            "architecture": StringSchema("Cowork architecture"),
+        },
         required=["action"],
     )
 )
@@ -532,7 +653,7 @@ class CoworkTool(Tool):
         self,
         action: str,
         goal: str = "",
-        workflow_mode: str = "hybrid",
+        workflow_mode: str = ADAPTIVE_STARTER,
         session_id: str = "",
         recipient_ids: list[str] | None = None,
         content: str = "",
@@ -581,13 +702,14 @@ class CoworkTool(Tool):
                 return response
             if not goal.strip():
                 return "Error: goal is required for cowork start"
-            planned_title, agents, tasks = await self.planner.plan(goal)
-            tasks = CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
+            mode = CoworkService.normalize_workflow_mode(kwargs.get("architecture") or workflow_mode or ADAPTIVE_STARTER)
+            planned_title, agents, tasks = await self.planner.plan(goal, workflow_mode=mode)
+            tasks = tasks if mode == "swarm" and tasks else CoworkTeamPlanner._leader_initial_tasks(goal, agents, tasks)
             generated_blueprint = normalize_blueprint(
                 {
                     "goal": goal,
                     "title": planned_title,
-                    "workflow_mode": workflow_mode or "hybrid",
+                    "workflow_mode": mode,
                     "agents": agents,
                     "tasks": tasks,
                 }
@@ -597,7 +719,7 @@ class CoworkTool(Tool):
                 title=planned_title,
                 agents=agents,
                 tasks=tasks,
-                workflow_mode=workflow_mode or "hybrid",
+                workflow_mode=mode,
                 blueprint=generated_blueprint,
             )
             response = f"Cowork session started: {session.id}\n\n{self.service.format_status(session, verbose=True)}"
@@ -622,6 +744,11 @@ class CoworkTool(Tool):
         session = self._require_session(session_id)
         if isinstance(session, str):
             return session
+        branch_id = str(kwargs.get("branch_id") or "").strip()
+        if branch_id:
+            selected = self.service.select_branch(session, branch_id, save=False)
+            if isinstance(selected, str):
+                return selected
 
         if action == "status":
             return self.service.format_status(session, verbose=verbose)
@@ -636,6 +763,10 @@ class CoworkTool(Tool):
             if session.status == "completed":
                 return f"Session {session.id} is already completed."
             session.status = "paused"
+            branch = session.branches.get(session.current_branch_id)
+            if branch:
+                branch.status = "paused"
+                branch.updated_at = now_iso()
             self.service.add_event(session, "session.paused", "Cowork session paused")
             return f"Paused cowork session {session.id}."
 
@@ -643,6 +774,10 @@ class CoworkTool(Tool):
             if session.status == "completed":
                 return f"Session {session.id} is already completed."
             session.status = "active"
+            branch = session.branches.get(session.current_branch_id)
+            if branch and branch.status == "paused":
+                branch.status = "active"
+                branch.updated_at = now_iso()
             self.service.add_event(session, "session.resumed", "Cowork session resumed")
             return f"Resumed cowork session {session.id}."
 
@@ -729,6 +864,7 @@ class CoworkTool(Tool):
         agent_limit = min(max(1, int(max_agents or budget_parallel_width)), max(1, budget_parallel_width))
         run_agent_call_limit = int(max_agent_calls or limits.get("max_agent_calls_per_run") or _MAX_RUN_AGENT_CALLS)
         run_id = self.service._new_id("run")
+        run_started_at = time.monotonic()
         run_span = self.service.start_trace_span(
             session,
             kind="scheduler",
@@ -768,6 +904,7 @@ class CoworkTool(Tool):
                 session,
                 run_agent_calls=agent_calls,
                 run_agent_call_limit=run_agent_call_limit,
+                elapsed_wall_time_seconds=time.monotonic() - run_started_at,
             )
             if exhausted:
                 lines.append(f"Round {round_index + 1}: {exhausted.replace('_', ' ')}.")
@@ -948,6 +1085,7 @@ class CoworkTool(Tool):
                 )
         self.service.assess_session(session)
         run_status = "completed" if session.status == "completed" else "stopped"
+        self.service.record_budget_usage(session, wall_time_seconds=time.monotonic() - run_started_at, save=False)
         self.service.finish_run_metrics(session, run_id, status=run_status, rounds=completed_rounds, agent_calls=agent_calls)
         self.service.finish_trace_span(
             session,
@@ -1115,10 +1253,24 @@ class CoworkTool(Tool):
 
         previous_message_ids = set(session.messages)
         unread = self.service.mark_messages_read(session, agent.id)
-        task = self.service.next_task_for(session, agent.id)
+        task = None
+        if agent.current_task_id and agent.current_task_id in session.tasks:
+            current = session.tasks[agent.current_task_id]
+            if current.status in {"pending", "in_progress"} and current.assigned_agent_id in {None, "", agent.id}:
+                task = current
+        if task is None:
+            task = self.service.next_task_for(session, agent.id)
         if task:
-            task.status = "in_progress"
-            task.updated_at = now_iso()
+            if session.workflow_mode == "swarm":
+                unit = self.service.swarm_work_unit_for_task(session, task.id)
+                if unit and unit.get("status") != "in_progress":
+                    self.service.start_work_unit(session, str(unit.get("id")), agent.id, run_id=run_id, round_id=round_id, save=False)
+                elif task.status != "in_progress":
+                    task.status = "in_progress"
+                    task.updated_at = now_iso()
+            else:
+                task.status = "in_progress"
+                task.updated_at = now_iso()
             agent.current_task_id = task.id
             agent.current_task_title = task.title
             session.current_focus_task = f"{task.title}: {task.description}"
@@ -1144,6 +1296,23 @@ class CoworkTool(Tool):
                 "unread_message_ids": [message.id for message in unread],
             },
         )
+        work_unit_id = None
+        if task and session.workflow_mode == "swarm":
+            unit = self.service.swarm_work_unit_for_task(session, task.id)
+            if unit:
+                work_unit_id = str(unit.get("id") or "") or None
+        agent_step = self.service.start_agent_step(
+            session,
+            agent_id=agent.id,
+            action_kind="agent_run",
+            scheduler_reason=f"Scheduler selected {agent.id} for {task.title if task else 'inbox work'}",
+            task_id=getattr(task, "id", None),
+            work_unit_id=work_unit_id,
+            input_summary=task.description if task else "\n".join(message.content for message in unread[:4]),
+            linked_message_ids=[message.id for message in unread],
+            source_span_id=agent_span.id,
+            save=False,
+        )
 
         tools = self._build_agent_tools(session.id, agent)
         messages = [
@@ -1161,6 +1330,7 @@ class CoworkTool(Tool):
                     max_iterations_message="Cowork round ended because the tool iteration limit was reached.",
                     error_message=None,
                     fail_on_tool_error=False,
+                    hook=_CoworkObservationHook(self.service, session, agent_step),
                 )
             )
             content = result.final_content or result.error or "Cowork round completed without a final note."
@@ -1185,6 +1355,21 @@ class CoworkTool(Tool):
                 summary=f"{agent.name} finished with action {progress.get('action') or 'continue'}",
                 data={"progress": progress},
             )
+            linked_message_ids = [mid for mid in session.messages if mid not in previous_message_ids]
+            linked_task_ids = [str(item) for item in progress.get("completed_task_ids") or []]
+            if task and task.id not in linked_task_ids:
+                linked_task_ids.append(task.id)
+            self.service.finish_agent_step(
+                session,
+                agent_step,
+                status="completed" if progress.get("status") != "failed" else "failed",
+                output_summary=progress.get("public_note") or progress.get("private_note") or content,
+                linked_message_ids=linked_message_ids,
+                linked_artifact_refs=list(session.artifacts[-8:]),
+                linked_task_ids=linked_task_ids,
+                detail_content=content,
+                save=True,
+            )
         except Exception as exc:
             logger.exception("Cowork agent '{}' failed", agent.id)
             self.service.finish_trace_span(
@@ -1193,6 +1378,15 @@ class CoworkTool(Tool):
                 status="failed",
                 summary=f"{agent.name} failed",
                 error=str(exc),
+            )
+            self.service.finish_agent_step(
+                session,
+                agent_step,
+                status="failed",
+                output_summary=f"{agent.name} failed",
+                error=str(exc),
+                linked_task_ids=[task.id] if task else [],
+                save=False,
             )
             self.service.fail_agent_run(session, agent.id, str(exc))
 
@@ -1677,8 +1871,8 @@ Context policy:
 Shared cowork goal:
 {session.goal}
 
-Workflow mode:
-{getattr(session, "workflow_mode", "hybrid")}
+Architecture:
+{getattr(session, "workflow_mode", ADAPTIVE_STARTER)}
 
 Workflow guidance:
 {workflow_guidance}
@@ -1723,8 +1917,20 @@ Use cowork_internal spawn_agent or spawn_subteam only when the session budget al
             for record in pending_requests[:8]
         ]
         task_text = "No ready assigned task."
+        gate_text = ""
         if task:
             task_text = f"{task.id}: {task.title}\n{task.description}"
+            source_event_id = str(getattr(task, "source_event_id", "") or "")
+            if source_event_id.startswith("swarm_reducer:"):
+                gate_text = (
+                    "Swarm reducer gate: return a JSON object with answer, findings, decisions, risks, "
+                    "open_questions, artifact_summary, confidence, missing_work, and source_work_unit_ids."
+                )
+            elif source_event_id.startswith("swarm_reviewer:"):
+                gate_text = (
+                    "Swarm reviewer gate: return a JSON object with verdict pass, needs_revision, or blocked; "
+                    "issues; required_fixes; and confidence. Ambiguous verdicts block completion."
+                )
         threads = session.open_threads_for(agent.id)
         thread_lines = [f"- {thread.id}: {thread.topic} ({len(thread.message_ids)} messages)" for thread in threads[:8]]
         completed = [
@@ -1775,6 +1981,9 @@ Open discussions:
 Recent completed task results:
 {chr(10).join(completed) if completed else "(none)"}
 
+Swarm gate contract:
+{gate_text or "(none)"}
+
 Expected behavior:
 1. Make concrete progress on your current task or inbox.
 2. If the current task is directly answerable, produce the actual answer in public_note instead of asking another agent for permission.
@@ -1795,7 +2004,7 @@ Expected behavior:
 
     @staticmethod
     def _workflow_guidance(session: CoworkSession) -> str:
-        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", "hybrid"))
+        profile = CoworkService.workflow_profile(getattr(session, "workflow_mode", ADAPTIVE_STARTER))
         guidance = {
             "orchestrator": (
                 "A lead coordinates the plan, delegates bounded tasks, and synthesizes results. "
@@ -1820,6 +2029,10 @@ Expected behavior:
             "peer_handoff": (
                 "Move ownership one concrete step at a time. Use handoff/review only when a named specialist should "
                 "own the next step, and include the exact expected output."
+            ),
+            "swarm": (
+                "Use explicit work units, dependencies, expected outputs, and reducer/reviewer handoffs. Keep work "
+                "bounded, avoid duplicate fan-out, and report artifacts, risks, confidence, and open questions in structured task results."
             ),
             "hybrid": (
                 "Use the lightest mechanism that fits: direct work first, task handoff when ownership changes, "

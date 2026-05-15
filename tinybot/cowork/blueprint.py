@@ -10,18 +10,14 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from tinybot.cowork.architecture import (
+    ACCEPTED_ARCHITECTURE_VALUES,
+    ADAPTIVE_STARTER,
+    architecture_fallback_diagnostic,
+    normalize_architecture_name,
+)
 
-WORKFLOW_MODES = {
-    "hybrid",
-    "supervisor",
-    "orchestrator",
-    "team",
-    "generator_verifier",
-    "message_bus",
-    "shared_state",
-    "peer_handoff",
-    "swarm",
-}
+WORKFLOW_MODES = ACCEPTED_ARCHITECTURE_VALUES
 
 DEFAULT_ALLOWED_TOOLS = {
     "cowork_internal",
@@ -38,9 +34,12 @@ DEFAULT_BUDGET_LIMITS: dict[str, int | float | None] = {
     "max_agent_calls_per_run": 30,
     "max_agent_calls_total": None,
     "max_spawned_agents": 0,
+    "max_work_units": 30,
+    "max_retry_attempts": 2,
     "max_tool_calls": None,
     "max_tokens": None,
     "max_cost": None,
+    "max_wall_time_seconds": None,
 }
 
 BUDGET_HARD_CAPS: dict[str, int | float] = {
@@ -49,9 +48,12 @@ BUDGET_HARD_CAPS: dict[str, int | float] = {
     "max_agent_calls_per_run": 500,
     "max_agent_calls_total": 5000,
     "max_spawned_agents": 200,
+    "max_work_units": 1000,
+    "max_retry_attempts": 20,
     "max_tool_calls": 10000,
     "max_tokens": 20_000_000,
     "max_cost": 10_000.0,
+    "max_wall_time_seconds": 7 * 24 * 60 * 60,
 }
 
 
@@ -123,7 +125,7 @@ class CoworkBlueprint:
     schema_version: str = "cowork.blueprint.v1"
     goal: str = ""
     title: str = "Cowork Session"
-    workflow_mode: str = "hybrid"
+    workflow_mode: str = ADAPTIVE_STARTER
     lead_agent_id: str = ""
     agents: list[BlueprintAgent] = field(default_factory=list)
     tasks: list[BlueprintTask] = field(default_factory=list)
@@ -142,8 +144,7 @@ def slug(value: Any, *, fallback: str = "item") -> str:
 
 
 def normalize_workflow_mode(value: Any) -> str:
-    mode = str(value or "hybrid").strip().lower().replace("-", "_")
-    return mode if mode in WORKFLOW_MODES else "hybrid"
+    return normalize_architecture_name(value)
 
 
 def normalize_budget_limits(value: Any | None) -> dict[str, Any]:
@@ -156,6 +157,8 @@ def normalize_budget_limits(value: Any | None) -> dict[str, Any]:
         "agent_calls": "max_agent_calls_per_run",
         "max_agents": "parallel_width",
         "parallelism": "parallel_width",
+        "work_units": "max_work_units",
+        "retry_attempts": "max_retry_attempts",
     }
     for key, raw_value in raw.items():
         target = aliases.get(str(key), str(key))
@@ -178,6 +181,7 @@ def default_budget_usage() -> dict[str, Any]:
         "tokens_completion": 0,
         "tokens_total": 0,
         "cost": 0.0,
+        "wall_time_seconds": 0.0,
         "stop_reason": "",
     }
 
@@ -192,6 +196,7 @@ def budget_remaining(limits: dict[str, Any], usage: dict[str, Any]) -> dict[str,
         "max_tool_calls": "tool_calls",
         "max_tokens": "tokens_total",
         "max_cost": "cost",
+        "max_wall_time_seconds": "wall_time_seconds",
     }
     for limit_key, usage_key in mapping.items():
         limit = limits.get(limit_key)
@@ -203,7 +208,7 @@ def budget_remaining(limits: dict[str, Any], usage: dict[str, Any]) -> dict[str,
 def normalize_blueprint(raw: Any, *, default_goal: str = "") -> dict[str, Any]:
     data = copy.deepcopy(raw) if isinstance(raw, dict) else {}
     goal = str(data.get("goal") or default_goal or "").strip()
-    mode = normalize_workflow_mode(data.get("workflow_mode") or data.get("mode"))
+    mode = normalize_workflow_mode(data.get("architecture") or data.get("workflow_mode") or data.get("mode"))
     title = str(data.get("title") or _title_from_goal(goal) or "Cowork Session").strip()
     layout = data.get("layout") if isinstance(data.get("layout"), dict) else {}
 
@@ -240,6 +245,13 @@ def validate_blueprint(raw: Any, *, policy: dict[str, Any] | None = None, defaul
 
     _diagnose_duplicate_ids(raw_data.get("agents"), "agents", diagnostics)
     _diagnose_duplicate_ids(raw_data.get("tasks"), "tasks", diagnostics)
+    architecture_value = raw_data.get("architecture") or raw_data.get("workflow_mode") or raw_data.get("mode")
+    architecture_diagnostic = architecture_fallback_diagnostic(
+        architecture_value,
+        path="architecture" if isinstance(raw_data, dict) and "architecture" in raw_data else "workflow_mode",
+    )
+    if architecture_diagnostic:
+        diagnostics.append(BlueprintDiagnostic(**architecture_diagnostic))
 
     agent_ids = {agent["id"] for agent in normalized["agents"]}
     task_ids = {task["id"] for task in normalized["tasks"]}
@@ -368,7 +380,7 @@ def build_blueprint_graph(blueprint: dict[str, Any]) -> dict[str, Any]:
             "label": blueprint.get("title") or "Cowork Session",
             "detail": blueprint.get("goal", ""),
             "status": "preview",
-            "badge": blueprint.get("workflow_mode", "hybrid"),
+            "badge": blueprint.get("workflow_mode", ADAPTIVE_STARTER),
             "source_blueprint_id": blueprint.get("id", ""),
         }
     ]
@@ -475,7 +487,7 @@ def export_session_blueprint(session: Any) -> dict[str, Any]:
         "schema_version": "cowork.blueprint.v1",
         "goal": getattr(session, "goal", ""),
         "title": getattr(session, "title", "") or "Cowork Session",
-        "workflow_mode": getattr(session, "workflow_mode", "hybrid"),
+        "workflow_mode": normalize_workflow_mode(getattr(session, "workflow_mode", ADAPTIVE_STARTER)),
         "lead_agent_id": base.get("lead_agent_id") or _session_lead_agent_id(session),
         "agents": [],
         "tasks": [],
@@ -527,7 +539,7 @@ def session_inputs_from_blueprint(blueprint: dict[str, Any]) -> dict[str, Any]:
     return {
         "goal": blueprint.get("goal", ""),
         "title": blueprint.get("title", "") or "Cowork Session",
-        "workflow_mode": blueprint.get("workflow_mode", "hybrid"),
+        "workflow_mode": normalize_workflow_mode(blueprint.get("workflow_mode", ADAPTIVE_STARTER)),
         "agents": copy.deepcopy(blueprint.get("agents") or []),
         "tasks": copy.deepcopy(blueprint.get("tasks") or []),
         "budgets": copy.deepcopy(blueprint.get("budgets") or {}),
@@ -754,6 +766,8 @@ def _budget_diagnostics(raw: Any, normalized: dict[str, Any]) -> list[BlueprintD
         "agent_calls": "max_agent_calls_per_run",
         "max_agents": "parallel_width",
         "parallelism": "parallel_width",
+        "work_units": "max_work_units",
+        "retry_attempts": "max_retry_attempts",
     }
     for key, raw_value in raw_dict.items():
         target = aliases.get(str(key), str(key))
