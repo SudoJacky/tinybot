@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/docs-styles.css">
-  <script src="/assets/i18n.js"></script>
+  <script type="module" src="/assets/docs.js"></script>
 </head>
 <body>
   <div class="docs-shell">
@@ -24,7 +24,7 @@
       </a>
       <div class="docs-actions">
         <button id="language-toggle" class="button" type="button">EN</button>
-        <button id="theme-toggle" class="theme-toggle" type="button">
+        <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" aria-label="Toggle theme">
           <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
@@ -404,48 +404,5 @@
       <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#配置文件位置" class="toc-item toc-h2">配置文件位置</a><a href="#最小可用配置" class="toc-item toc-h2">最小可用配置</a><a href="#选择模型" class="toc-item toc-h2">选择模型</a><a href="#配置-api-密钥" class="toc-item toc-h2">配置 API 密钥</a><a href="#工作区和安全限制" class="toc-item toc-h2">工作区和安全限制</a><a href="#常用-agent-参数" class="toc-item toc-h2">常用 Agent 参数</a><a href="#工具配置" class="toc-item toc-h2">工具配置</a><a href="#网页界面配置" class="toc-item toc-h2">网页界面配置</a><a href="#知识库配置" class="toc-item toc-h2">知识库配置</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#配置改坏了怎么办" class="toc-item toc-h3">配置改坏了怎么办</a><a href="#设置了环境变量但-tinybot-没读到" class="toc-item toc-h3">设置了环境变量但 Tinybot 没读到</a><a href="#更换模型后报错" class="toc-item toc-h3">更换模型后报错</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
-
-    <script>
-    // Theme toggle
-    function initTheme() {
-      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
-      document.documentElement.setAttribute("data-theme", savedTheme);
-    }
-
-    function toggleTheme() {
-      const currentTheme = document.documentElement.getAttribute("data-theme");
-      const newTheme = currentTheme === "light" ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", newTheme);
-      localStorage.setItem("tinybot-theme", newTheme);
-    }
-
-    // Language toggle
-    function updateLanguageButton() {
-      const lang = getLanguage();
-      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
-    }
-
-    // Initialize
-    initTheme();
-    updateLanguageButton();
-
-    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
-    document.getElementById("language-toggle").addEventListener("click", () => {
-      const newLang = getLanguage() === "zh" ? "en" : "zh";
-      setLanguage(newLang);
-      updateLanguageButton();
-    });
-
-    // Smooth scroll for TOC links
-    document.querySelectorAll('.toc-item').forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const target = document.querySelector(link.getAttribute('href'));
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
-    });
-  </script>
 </body>
 </html>

@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/docs-styles.css">
-  <script src="/assets/i18n.js"></script>
+  <script type="module" src="/assets/docs.js"></script>
 </head>
 <body>
   <div class="docs-shell">
@@ -24,7 +24,7 @@
       </a>
       <div class="docs-actions">
         <button id="language-toggle" class="button" type="button">EN</button>
-        <button id="theme-toggle" class="theme-toggle" type="button">
+        <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" aria-label="Toggle theme">
           <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
@@ -93,6 +93,19 @@
           <div class="article-body">
             <h1>工具功能</h1>
 <p>AI Agent 和普通聊天机器人的主要区别，是 Agent 可以使用工具。Tinybot 的工具能让 AI 读取文件、搜索网络、执行命令、操作知识库和调用外部 MCP 服务。</p>
+<h2 id="cowork">Cowork</h2>
+<p><code>cowork</code> 工具用于启动和推进多 Agent 协作会话。它会根据目标动态生成一组角色，每个角色都有自己的上下文、收件箱、任务和讨论线程。适合调研、旅行规划、写作、分析、开发等需要多个视角持续推进的任务。</p>
+<p>Cowork 也可以作为独立功能使用，不必进入普通聊天：<code>uv run tinybot cowork start &quot;...&quot;</code>。</p>
+<p>Cowork supports multiple canonical architectures on one shared session, task, mailbox, and shared-memory model: <code>adaptive_starter</code>, <code>team</code>, <code>generator_verifier</code>, <code>message_bus</code>, <code>shared_state</code>, and <code>swarm</code>.</p>
+<p>常用动作：</p>
+<ul>
+<li><code>start</code>：创建 cowork session，可选 <code>auto_run=true</code> 立即运行一轮</li>
+<li><code>status</code>：查看 agent、任务、讨论线程和事件</li>
+<li><code>run</code>：继续运行若干调度轮</li>
+<li><code>send_message</code>：用户向某些 agent 补充约束或要求</li>
+<li><code>add_task</code>：给指定 agent 追加任务</li>
+<li><code>summary</code>：汇总当前成果</li>
+</ul>
 <h2 id="工具意味着什么">工具意味着什么</h2>
 <p>普通聊天机器人只能根据输入生成文字。Tinybot 可以在任务过程中做动作，例如：</p>
 <table>
@@ -260,51 +273,8 @@
       </main>
 
       <!-- Right Table of Contents -->
-      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#工具意味着什么" class="toc-item toc-h2">工具意味着什么</a><a href="#文件操作" class="toc-item toc-h2">文件操作</a><a href="#命令执行" class="toc-item toc-h2">命令执行</a><a href="#网络搜索" class="toc-item toc-h2">网络搜索</a><a href="#浏览器自动化" class="toc-item toc-h2">浏览器自动化</a><a href="#mcp-工具" class="toc-item toc-h2">MCP 工具</a><a href="#安全建议" class="toc-item toc-h2">安全建议</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#tinybot-说没有权限" class="toc-item toc-h3">Tinybot 说没有权限</a><a href="#命令执行超时" class="toc-item toc-h3">命令执行超时</a><a href="#搜索结果不准确" class="toc-item toc-h3">搜索结果不准确</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
+      <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#cowork" class="toc-item toc-h2">Cowork</a><a href="#工具意味着什么" class="toc-item toc-h2">工具意味着什么</a><a href="#文件操作" class="toc-item toc-h2">文件操作</a><a href="#命令执行" class="toc-item toc-h2">命令执行</a><a href="#网络搜索" class="toc-item toc-h2">网络搜索</a><a href="#浏览器自动化" class="toc-item toc-h2">浏览器自动化</a><a href="#mcp-工具" class="toc-item toc-h2">MCP 工具</a><a href="#安全建议" class="toc-item toc-h2">安全建议</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#tinybot-说没有权限" class="toc-item toc-h3">Tinybot 说没有权限</a><a href="#命令执行超时" class="toc-item toc-h3">命令执行超时</a><a href="#搜索结果不准确" class="toc-item toc-h3">搜索结果不准确</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
-
-    <script>
-    // Theme toggle
-    function initTheme() {
-      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
-      document.documentElement.setAttribute("data-theme", savedTheme);
-    }
-
-    function toggleTheme() {
-      const currentTheme = document.documentElement.getAttribute("data-theme");
-      const newTheme = currentTheme === "light" ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", newTheme);
-      localStorage.setItem("tinybot-theme", newTheme);
-    }
-
-    // Language toggle
-    function updateLanguageButton() {
-      const lang = getLanguage();
-      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
-    }
-
-    // Initialize
-    initTheme();
-    updateLanguageButton();
-
-    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
-    document.getElementById("language-toggle").addEventListener("click", () => {
-      const newLang = getLanguage() === "zh" ? "en" : "zh";
-      setLanguage(newLang);
-      updateLanguageButton();
-    });
-
-    // Smooth scroll for TOC links
-    document.querySelectorAll('.toc-item').forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const target = document.querySelector(link.getAttribute('href'));
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
-    });
-  </script>
 </body>
 </html>

@@ -515,19 +515,27 @@ class WebSocketChannel(BaseChannel):
         if not source_dir.is_dir() or not builder_path.is_file():
             return
 
-        markdown_files = sorted(source_dir.glob("*.md"))
-        if not markdown_files:
+        doc_source_ids = {
+            "quickstart",
+            "webui",
+            "tasks",
+            "knowledge",
+            "tools",
+            "skills",
+            "cli",
+            "providers",
+            "gateway",
+            "config",
+        }
+        markdown_files = sorted(source_dir / f"{doc_id}.md" for doc_id in doc_source_ids)
+        existing_markdown_files = [path for path in markdown_files if path.is_file()]
+        if not existing_markdown_files:
             return
 
         builder_mtime = builder_path.stat().st_mtime
         stale = False
-        for markdown_path in markdown_files:
-            if markdown_path.stem == "docs":
-                continue
-            if markdown_path.stem == "index":
-                target_path = docs_dir / "quickstart.html"
-            else:
-                target_path = docs_dir / f"{markdown_path.stem}.html"
+        for markdown_path in existing_markdown_files:
+            target_path = docs_dir / f"{markdown_path.stem}.html"
             if not target_path.is_file():
                 stale = True
                 break

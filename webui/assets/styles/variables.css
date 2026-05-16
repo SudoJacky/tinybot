@@ -4,7 +4,7 @@
   --bg-subtle: #f5f0e8;
   --bg-pattern: linear-gradient(180deg, #faf9f5 0%, #f5f0e8 100%);
   --panel: #faf9f5;
-  --panel-strong: #ffffff;
+  --panel-strong: #faf9f5;
   --panel-gradient: #faf9f5;
   --glass-highlight: transparent;
   --glass-sheen: linear-gradient(135deg, transparent, transparent);
@@ -55,6 +55,8 @@
   --font-display: "Cormorant Garamond", "Tiempos Headline", Garamond, "Times New Roman", serif;
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+  --bg-secondary: var(--surface-soft);
+  --text-primary: var(--text);
 }
 
 [data-theme="dark"] {

@@ -104,11 +104,16 @@ dark mode
 
 ## ✨ Core Highlights
 
+### Chatbot-agent
+
+<video src="./show/show_chatbot.mp4" controls width="100%"></video>
+
+
 ### Agent cowork!
 
 Cowork provides a shared multi-agent session model with architecture runtime policies, branch navigation, architecture-specific projections, observable Agent Steps, and explicit final-result selection.
 
-![cowork](./show/webui_cowork_agent_field_v2.PNG)
+![cowork](./show/webui_cowork_agent_field_v3.PNG)
 
 ### 🧠 Agentic DAG Task Scheduling
 

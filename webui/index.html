@@ -249,8 +249,8 @@
       <header class="modal-header cowork-page-header">
         <div class="cowork-title-block">
           <p class="eyebrow">Cowork</p>
-          <h2>Multi-agent workspace</h2>
-          <p>Coordinate goals, rounds, tasks, messages, and agent handoffs.</p>
+          <h2>Cowork Console</h2>
+          <p>Sessions, work units, trace, and outputs.</p>
         </div>
         <div class="cowork-header-actions">
           <button id="cowork-refresh-button" class="button" type="button">Refresh</button>
@@ -484,7 +484,7 @@
                   <button class="cowork-mode-tab" type="button" data-mode="shared_state" role="radio" aria-checked="false">Shared State</button>
                   <button class="cowork-mode-tab" type="button" data-mode="swarm" role="radio" aria-checked="false">Swarm</button>
                 </div>
-                <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" placeholder="Describe the shared goal..."></textarea>
+                <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" placeholder="Describe the shared goal..." aria-label="Cowork goal or message"></textarea>
                 <details class="cowork-blueprint-editor">
                   <summary>Blueprint</summary>
                   <textarea id="cowork-blueprint-input" class="config-input cowork-blueprint-input" rows="6" spellcheck="false" placeholder='{"goal":"...","agents":[],"tasks":[],"budgets":{"parallel_width":3}}'></textarea>
@@ -507,7 +507,7 @@
                 </label>
                 <div class="cowork-toolbar cowork-create-actions">
                   <span id="cowork-error" class="error-text" aria-live="polite"></span>
-                  <button id="cowork-start-button" class="button button-primary composer-send" type="button" aria-label="Start Cowork">
+                  <button id="cowork-start-button" class="button button-primary composer-send" type="button" aria-label="Start Cowork" title="Start Cowork">
                     <svg class="icon-send" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                       <path d="M22 2 11 13" />
                       <path d="m22 2-7 20-4-9-9-4Z" />

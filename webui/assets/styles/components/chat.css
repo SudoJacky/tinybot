@@ -141,7 +141,7 @@
 }
 
 [data-theme="dark"] .message-user {
-  border-color: rgba(59, 130, 246, 0.2);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
 
 .message-assistant {
@@ -434,19 +434,11 @@
   position: relative;
   display: grid;
   gap: 5px;
-  padding: 4px 0 8px 14px;
-  border-left: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
+  padding: 6px 0 8px;
 }
 
 .tool-activity-section::before {
-  content: "";
-  position: absolute;
-  left: -3px;
-  top: 11px;
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--text-subtle) 72%, transparent);
+  display: none;
 }
 
 .tool-activity-section-response {
@@ -1028,7 +1020,7 @@
   padding: 12px 16px;
   background: color-mix(in srgb, var(--bg-subtle) 72%, transparent);
   border-radius: var(--radius-md);
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border-subtle);
   color: var(--text-muted);
 }
 
