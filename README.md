@@ -106,8 +106,7 @@ dark mode
 
 ### Chatbot-agent
 
-<video src="./show/show_chatbot.mp4" controls width="100%"></video>
-
+[video](./show/show_chatbot.mp4)
 
 ### Agent cowork!
 
