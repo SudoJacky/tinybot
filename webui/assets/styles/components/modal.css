@@ -243,6 +243,96 @@
   justify-content: center;
 }
 
+.modal.sidebar-drawer-modal {
+  --sidebar-drawer-left: clamp(208px, 20vw, 292px);
+  --sidebar-drawer-gap: 24px;
+  --sidebar-drawer-width: calc(100vw - var(--sidebar-drawer-left) - var(--sidebar-drawer-gap));
+}
+
+.modal.sidebar-drawer-modal.active {
+  display: block;
+}
+
+.modal.sidebar-drawer-modal .modal-overlay {
+  opacity: 0;
+  background: rgba(20, 20, 19, 0.18);
+  backdrop-filter: blur(2px);
+  transition: opacity 340ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal.sidebar-drawer-modal.active:not(.closing):not(.opening) .modal-overlay {
+  opacity: 1;
+}
+
+.modal.sidebar-drawer-modal.opening .modal-overlay,
+.modal.sidebar-drawer-modal.closing .modal-overlay {
+  opacity: 0;
+}
+
+.modal.sidebar-drawer-modal .modal-content {
+  position: absolute;
+  top: 50%;
+  left: var(--sidebar-drawer-left);
+  width: min(76vw, var(--sidebar-drawer-width));
+  max-height: min(86vh, 760px);
+  opacity: 0;
+  animation: none;
+  transform: translate(calc(-100% - 28px), -50%) scale(0.98);
+  transform-origin: left center;
+  transition:
+    transform 460ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal.sidebar-drawer-modal.active:not(.closing):not(.opening) .modal-content {
+  opacity: 1;
+  transform: translate(0, -50%) scale(1);
+}
+
+.modal.sidebar-drawer-modal.opening .modal-content,
+.modal.sidebar-drawer-modal.closing .modal-content {
+  opacity: 0;
+  transform: translate(calc(-100% - 28px), -50%) scale(0.98);
+}
+
+#tools-modal.sidebar-drawer-modal .modal-content,
+#skills-modal.sidebar-drawer-modal .modal-content {
+  width: min(520px, var(--sidebar-drawer-width));
+}
+
+#knowledge-modal.sidebar-drawer-modal .modal-content {
+  width: min(1080px, var(--sidebar-drawer-width));
+}
+
+#workspace-modal.sidebar-drawer-modal .modal-content {
+  width: min(760px, var(--sidebar-drawer-width));
+}
+
+@media (max-width: 760px) {
+  .modal.sidebar-drawer-modal {
+    --sidebar-drawer-left: 12px;
+    --sidebar-drawer-gap: 24px;
+  }
+
+  .modal.sidebar-drawer-modal .modal-content {
+    top: 12px;
+    left: var(--sidebar-drawer-left);
+    width: var(--sidebar-drawer-width);
+    max-height: calc(100vh - 24px);
+    transform: translate(calc(-100% - 18px), 0) scale(0.98);
+    transform-origin: left top;
+  }
+
+  .modal.sidebar-drawer-modal.active:not(.closing):not(.opening) .modal-content {
+    transform: translate(0, 0) scale(1);
+  }
+
+  .modal.sidebar-drawer-modal.opening .modal-content,
+  .modal.sidebar-drawer-modal.closing .modal-content {
+    transform: translate(calc(-100% - 18px), 0) scale(0.98);
+  }
+}
+
 /* 详情弹窗层级 - 显示在列表弹窗之上 */
 #skill-modal.active,
 #tool-modal.active,

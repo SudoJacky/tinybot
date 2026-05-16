@@ -19,6 +19,7 @@ const COWORK_DEFAULT_RUN_ROUNDS = 20;
 const COWORK_DEFAULT_RUN_AGENTS = 3;
 const COWORK_DEFAULT_RUN_AGENT_CALLS = 30;
 const COWORK_NODE_CLICK_MOVE_THRESHOLD = 4;
+const SIDEBAR_DRAWER_CLOSE_MS = 480;
 const nativeFetch = window.fetch.bind(window);
 const BOOTSTRAP_PATH = "/webui/bootstrap";
 const DEFAULT_TOKEN_REFRESH_PATH = "/webui/refresh-token";
@@ -5452,6 +5453,33 @@ function closeToolModal() {
 }
 
 // 打开工具列表弹窗
+function openSidebarDrawer(modal, trigger) {
+  if (!modal) return;
+  window.clearTimeout(Number(modal.dataset.closeTimer || 0));
+  modal.dataset.closeTimer = "";
+  modal.classList.add("sidebar-drawer-modal");
+  modal.classList.remove("closing");
+  modal.classList.add("active", "opening");
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      modal.classList.remove("opening");
+    });
+  });
+  trigger?.setAttribute("aria-expanded", "true");
+}
+
+function closeSidebarDrawer(modal, trigger) {
+  if (!modal || !modal.classList.contains("active")) return;
+  window.clearTimeout(Number(modal.dataset.closeTimer || 0));
+  modal.classList.add("closing");
+  trigger?.setAttribute("aria-expanded", "false");
+  const finish = () => {
+    modal.classList.remove("active", "closing", "opening");
+    modal.dataset.closeTimer = "";
+  };
+  modal.dataset.closeTimer = String(window.setTimeout(finish, SIDEBAR_DRAWER_CLOSE_MS));
+}
+
 function openToolsModal() {
   renderToolsModalList();
 
@@ -5466,21 +5494,21 @@ function openToolsModal() {
     configHint.style.display = showHint ? "flex" : "none";
   }
 
-  elements.toolsModal.classList.add("active");
+  openSidebarDrawer(elements.toolsModal, elements.toolsToggle);
 }
 
 function closeToolsModal() {
-  elements.toolsModal.classList.remove("active");
+  closeSidebarDrawer(elements.toolsModal, elements.toolsToggle);
 }
 
 // 打开技能列表弹窗
 function openSkillsModal() {
   renderSkillsModalList();
-  elements.skillsModal.classList.add("active");
+  openSidebarDrawer(elements.skillsModal, elements.skillsToggle);
 }
 
 function closeSkillsModal() {
-  elements.skillsModal.classList.remove("active");
+  closeSidebarDrawer(elements.skillsModal, elements.skillsToggle);
 }
 
 async function toggleSkill(skillName, enable) {
@@ -7397,20 +7425,20 @@ function openKnowledgeModal() {
     configHint.style.display = knowledgeEnabled ? "none" : "flex";
   }
 
-  elements.knowledgeModal.classList.add("active");
+  openSidebarDrawer(elements.knowledgeModal, elements.knowledgeToggle);
   loadKnowledgeGraph();
 }
 
 function closeKnowledgeModal() {
-  elements.knowledgeModal.classList.remove("active");
+  closeSidebarDrawer(elements.knowledgeModal, elements.knowledgeToggle);
 }
 
 function openWorkspaceModal() {
-  elements.workspaceModal.classList.add("active");
+  openSidebarDrawer(elements.workspaceModal, elements.workspaceToggle);
 }
 
 function closeWorkspaceModal() {
-  elements.workspaceModal.classList.remove("active");
+  closeSidebarDrawer(elements.workspaceModal, elements.workspaceToggle);
 }
 
 function openDocModal() {
