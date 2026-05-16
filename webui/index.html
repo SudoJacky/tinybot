@@ -280,10 +280,33 @@
               <div class="cowork-toolbar cowork-session-actions">
                 <button id="cowork-pause-button" class="button" type="button">Emergency stop</button>
                 <button id="cowork-resume-button" class="button" type="button">Resume</button>
+                <button id="cowork-map-button" class="button" type="button" aria-pressed="false">Map</button>
                 <button id="cowork-summary-button" class="button" type="button">Summary</button>
                 <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
               </div>
             </header>
+            <section id="cowork-focus-strip" class="cowork-focus-strip" aria-label="Cowork session focus">
+              <article class="cowork-focus-card">
+                <span>Progress</span>
+                <strong id="cowork-focus-progress">-</strong>
+                <small id="cowork-focus-progress-detail">No active session</small>
+              </article>
+              <article class="cowork-focus-card">
+                <span>Running</span>
+                <strong id="cowork-focus-running">-</strong>
+                <small id="cowork-focus-running-detail">No active agents</small>
+              </article>
+              <article class="cowork-focus-card">
+                <span>Next</span>
+                <strong id="cowork-focus-next">-</strong>
+                <small id="cowork-focus-next-detail">Select or start a session</small>
+              </article>
+              <article class="cowork-focus-card">
+                <span>Output</span>
+                <strong id="cowork-focus-output">-</strong>
+                <small id="cowork-focus-output-detail">No final draft</small>
+              </article>
+            </section>
             <div class="cowork-primary-column">
               <section class="cowork-graph-panel" aria-label="Cowork team map">
                 <div class="cowork-graph-header">
@@ -324,14 +347,14 @@
                   <input id="cowork-console-filter" class="config-input cowork-filter-input" type="search" placeholder="Filter workstream, unit, agent, artifact, trace, status..." aria-label="Filter cowork console" />
                   <div id="cowork-run-metrics" class="cowork-metrics cowork-compact-metrics"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Swarm plan">
+                <section class="cowork-ops-panel cowork-swarm-summary-panel" aria-label="Swarm plan">
                   <div class="cowork-panel-heading">
                     <h4>Swarm plan</h4>
                     <span id="cowork-swarm-plan-summary" class="cowork-panel-note">No plan</span>
                   </div>
                   <div id="cowork-swarm-plan-panel" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Architecture projection">
+                <section class="cowork-ops-panel cowork-advanced-panel" aria-label="Architecture projection" data-cowork-panel="trace">
                   <div class="cowork-panel-heading">
                     <h4>Architecture projection</h4>
                     <span id="cowork-architecture-projection-summary" class="cowork-panel-note">No projection</span>

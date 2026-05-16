@@ -3378,6 +3378,65 @@ function appendCoworkMetric(container, value, label) {
   container.append(metric);
 }
 
+function setCoworkFocusText(element, value) {
+  if (element) element.textContent = value;
+}
+
+function renderCoworkFocusStrip(session) {
+  if (!elements.coworkFocusStrip) return;
+  const hasSession = Boolean(session);
+  elements.coworkFocusStrip.hidden = !hasSession;
+  if (!hasSession) {
+    setCoworkFocusText(elements.coworkFocusProgress, "-");
+    setCoworkFocusText(elements.coworkFocusProgressDetail, "No active session");
+    setCoworkFocusText(elements.coworkFocusRunning, "-");
+    setCoworkFocusText(elements.coworkFocusRunningDetail, "No active agents");
+    setCoworkFocusText(elements.coworkFocusNext, "-");
+    setCoworkFocusText(elements.coworkFocusNextDetail, "Select or start a session");
+    setCoworkFocusText(elements.coworkFocusOutput, "-");
+    setCoworkFocusText(elements.coworkFocusOutputDetail, "No final draft");
+    return;
+  }
+  const tasks = Array.isArray(session.tasks) ? session.tasks : [];
+  const units = Array.isArray(session.swarm_plan?.work_units) ? session.swarm_plan.work_units : [];
+  const workItems = units.length ? units : tasks;
+  const completeStatuses = new Set(["completed", "skipped"]);
+  const runningStatuses = new Set(["running", "in_progress", "active"]);
+  const blockedStatuses = new Set(["failed", "blocked", "needs_revision"]);
+  const completed = workItems.filter((item) => completeStatuses.has(String(item.status || ""))).length;
+  const running = workItems.filter((item) => runningStatuses.has(String(item.status || ""))).length;
+  const blocked = workItems.filter((item) => blockedStatuses.has(String(item.status || ""))).length;
+  const total = workItems.length || tasks.length;
+  const agents = Array.isArray(session.agents) ? session.agents : [];
+  const activeAgents = agents.filter((agent) => runningStatuses.has(String(agent.status || "")));
+  const decision = session.completion_decision || {};
+  const nextAction = String(decision.next_action || session.stop_reason || session.status || "observe").replaceAll("_", " ");
+  const finalDraft = String(session.final_draft || "").trim();
+  const artifactCount = Array.isArray(session.artifacts) ? session.artifacts.length : 0;
+  const queues = session.swarm_queues?.counts || {};
+
+  setCoworkFocusText(elements.coworkFocusProgress, total ? `${completed}/${total}` : "0/0");
+  setCoworkFocusText(
+    elements.coworkFocusProgressDetail,
+    [
+      units.length ? "work units" : "tasks",
+      blocked ? `${blocked} blocked` : "",
+      queues.ready ? `${queues.ready} ready` : "",
+    ].filter(Boolean).join(" - ") || "No queued work",
+  );
+  setCoworkFocusText(elements.coworkFocusRunning, activeAgents.length ? String(activeAgents.length) : String(running || 0));
+  setCoworkFocusText(
+    elements.coworkFocusRunningDetail,
+    activeAgents.length
+      ? activeAgents.map((agent) => agent.name || agent.id).slice(0, 3).join(", ")
+      : (running ? `${running} work item(s)` : "No active agents"),
+  );
+  setCoworkFocusText(elements.coworkFocusNext, compactText(nextAction, 26));
+  setCoworkFocusText(elements.coworkFocusNextDetail, compactText(decision.reason || session.current_focus_task || session.goal || "", 92));
+  setCoworkFocusText(elements.coworkFocusOutput, finalDraft ? "Ready" : (artifactCount ? `${artifactCount} artifact(s)` : "Pending"));
+  setCoworkFocusText(elements.coworkFocusOutputDetail, finalDraft ? compactText(finalDraft, 92) : (artifactCount ? "Artifacts available" : "No final draft yet"));
+}
+
 function renderCoworkRunMetrics(session) {
   if (!elements.coworkRunMetrics) return;
   elements.coworkRunMetrics.textContent = "";
@@ -3944,6 +4003,12 @@ function renderCoworkSecondaryPanels() {
     elements.coworkGraphCollapseButton.textContent = state.coworkGraphCollapsed ? ">" : "<";
     elements.coworkGraphCollapseButton.setAttribute("aria-label", state.coworkGraphCollapsed ? "Expand workflow graph" : "Collapse workflow graph");
   }
+  if (elements.coworkMapButton) {
+    const expanded = !state.coworkGraphCollapsed;
+    elements.coworkMapButton.classList.toggle("active", expanded);
+    elements.coworkMapButton.setAttribute("aria-pressed", expanded ? "true" : "false");
+    elements.coworkMapButton.textContent = expanded ? "Hide map" : "Map";
+  }
   if (elements.coworkTraceCollapseButton) {
     elements.coworkTraceCollapseButton.textContent = state.coworkTraceCollapsed ? "<" : ">";
     elements.coworkTraceCollapseButton.setAttribute("aria-label", state.coworkTraceCollapsed ? "Expand trace" : "Collapse trace");
@@ -4040,6 +4105,7 @@ function renderCoworkDetail() {
     elements.coworkActiveGoal.textContent = hasSession ? session.goal : "";
     elements.coworkActiveGoal.hidden = !hasSession || !session.goal;
   }
+  renderCoworkFocusStrip(session);
   renderCoworkBranches(session);
   if (elements.coworkComposerKicker) {
     elements.coworkComposerKicker.textContent = hasSession ? "Message" : "New mission";
@@ -9711,6 +9777,10 @@ function bindEvents() {
     renderCoworkSecondaryPanels();
   });
   elements.coworkGraphCollapseButton?.addEventListener("click", () => {
+    state.coworkGraphCollapsed = !state.coworkGraphCollapsed;
+    renderCoworkSecondaryPanels();
+  });
+  elements.coworkMapButton?.addEventListener("click", () => {
     state.coworkGraphCollapsed = !state.coworkGraphCollapsed;
     renderCoworkSecondaryPanels();
   });
