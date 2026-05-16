@@ -17,7 +17,7 @@ from tinybot.cowork.snapshot import (
     build_cowork_task_dag,
     build_cowork_trace,
 )
-from tinybot.cowork.swarm import build_swarm_scheduler_queues
+from tinybot.cowork.swarm import build_swarm_parallel_metrics, build_swarm_scheduler_queues
 
 
 def _budget_snapshot(session: Any) -> dict[str, Any]:
@@ -257,11 +257,16 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
             "tokens_completion": metric.tokens_completion,
             "tokens_total": metric.tokens_total,
             "stop_reason": getattr(metric, "stop_reason", ""),
+            "swarm_metrics": getattr(metric, "swarm_metrics", {}),
             "started_at": metric.started_at,
             "ended_at": metric.ended_at,
         }
         for metric in getattr(session, "run_metrics", [])[-20:]
     ]
+    orchestration_assessment = {}
+    swarm_plan = getattr(session, "swarm_plan", {})
+    if isinstance(swarm_plan, dict):
+        orchestration_assessment = swarm_plan.get("orchestration", {}) if isinstance(swarm_plan.get("orchestration", {}), dict) else {}
     snapshot = {
         "id": session.id,
         "title": session.title,
@@ -341,9 +346,11 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "sub_agent_results": [_dataclass_snapshot(item) for item in getattr(session, "sub_agent_results", {}).values()],
         "run_metrics": run_metrics,
         "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-40:] if verbose else [],
-        "swarm_plan": getattr(session, "swarm_plan", {}),
+        "swarm_plan": swarm_plan,
+        "orchestration_assessment": orchestration_assessment,
         "evaluation_results": (getattr(session, "runtime_state", {}) or {}).get("swarm_evaluations", []),
         "swarm_queues": build_swarm_scheduler_queues(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
+        "swarm_metrics": build_swarm_parallel_metrics(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
         "large_swarm_summary": build_cowork_large_swarm_summary(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
     }
     if verbose:

@@ -437,6 +437,7 @@ class CoworkRunMetrics:
     tokens_completion: int = 0
     tokens_total: int = 0
     stop_reason: str = ""
+    swarm_metrics: dict[str, Any] = field(default_factory=dict)
     started_at: str = field(default_factory=now_iso)
     ended_at: str | None = None
 
@@ -490,6 +491,26 @@ class CoworkSwarmPlan:
     diagnostics: list[dict[str, Any]] = field(default_factory=list)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class CoworkSwarmOrchestrationAssessment:
+    """Deterministic assessment that decides how aggressively a swarm should fan out."""
+
+    id: str
+    goal: str
+    recommended_mode: Literal["single", "team", "small_swarm", "large_swarm", "blocked"] = "team"
+    fanout_score: float = 0.0
+    fanout_rationale: list[str] = field(default_factory=list)
+    workstream_hints: list[dict[str, Any]] = field(default_factory=list)
+    spawn_strategy: Literal["reuse_existing", "spawn_per_workstream", "spawn_per_unit", "no_spawn"] = "reuse_existing"
+    parallel_width_recommendation: int = 1
+    risk_level: Literal["low", "medium", "high"] = "low"
+    requires_review: bool = False
+    requires_user_input: bool = False
+    budget_recommendation: dict[str, Any] = field(default_factory=dict)
+    signals: dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=now_iso)
 
 
 @dataclass

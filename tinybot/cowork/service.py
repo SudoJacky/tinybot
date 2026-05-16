@@ -35,6 +35,7 @@ from tinybot.cowork.event_log import CoworkEventLogStore
 from tinybot.cowork.policies import ArchitectureRuntimePolicy, default_policy_registry
 from tinybot.cowork.snapshot import build_cowork_artifact_index
 from tinybot.cowork.swarm import (
+    build_swarm_parallel_metrics,
     build_swarm_scheduler_queues,
     normalize_swarm_plan,
     update_work_unit_readiness,
@@ -368,6 +369,7 @@ class CoworkService:
                         tokens_completion=int(item.get("tokens_completion", 0) or 0),
                         tokens_total=int(item.get("tokens_total", 0) or 0),
                         stop_reason=item.get("stop_reason", ""),
+                        swarm_metrics=item.get("swarm_metrics", {}) if isinstance(item.get("swarm_metrics", {}), dict) else {},
                         started_at=item.get("started_at", now_iso()),
                         ended_at=item.get("ended_at"),
                     )
@@ -1432,6 +1434,7 @@ class CoworkService:
                     "strategy": session.swarm_plan.get("strategy"),
                     "work_unit_ids": [unit.get("id") for unit in session.swarm_plan.get("work_units", [])],
                     "diagnostics": session.swarm_plan.get("diagnostics", []),
+                    "orchestration": session.swarm_plan.get("orchestration", {}),
                 },
                 save=False,
             )
@@ -1925,6 +1928,10 @@ class CoworkService:
             delegated_task_id=delegated.id,
             delegated_brief_id=brief.id,
             sub_agent_scope="parent",
+            context_policy=(
+                "Use only the delegated brief, authorized artifact/detail references, current work-unit context, "
+                "and selected source summaries. Do not import the parent agent's private history."
+            ),
         )
         session.agents[agent_id] = agent
         isolated = CoworkIsolatedSubAgentContext(
@@ -1961,6 +1968,9 @@ class CoworkService:
                 "delegated_brief_id": brief.id,
                 "isolated_context_id": isolated.id,
                 "sub_agent_scope": agent.sub_agent_scope,
+                "authorized_artifact_ref_count": len(brief.authorized_artifact_refs),
+                "authorized_detail_ref_count": len(brief.authorized_detail_refs),
+                "redacted_reference_count": brief.redacted_reference_count,
             },
             save=False,
         )
@@ -1981,6 +1991,9 @@ class CoworkService:
                 "delegated_task_id": delegated.id,
                 "delegated_brief_id": brief.id,
                 "isolated_context_id": isolated.id,
+                "authorized_artifact_ref_count": len(brief.authorized_artifact_refs),
+                "authorized_detail_ref_count": len(brief.authorized_detail_refs),
+                "redacted_reference_count": brief.redacted_reference_count,
             },
             save=False,
         )
@@ -2060,6 +2073,97 @@ class CoworkService:
             self._touch(session)
             self._save()
         return {"delegated_task": delegated, "brief": brief, "sub_agent": agent, "guardrail": guardrail}
+
+    def work_unit_context_for_agent(
+        self,
+        session: CoworkSession,
+        agent_id: str,
+        *,
+        task_id: str | None = None,
+        work_unit_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the bounded context a worker should receive for swarm work."""
+
+        agent = session.agents.get(self._slug(agent_id))
+        task = session.tasks.get(task_id or "") if task_id else None
+        unit = self._find_swarm_work_unit(session, work_unit_id or "") if work_unit_id else None
+        if unit is None and task is not None:
+            unit = self.swarm_work_unit_for_task(session, task.id)
+        brief = session.delegated_briefs.get(getattr(agent, "delegated_brief_id", "")) if agent is not None else None
+        isolated = session.isolated_sub_agent_contexts.get(getattr(agent, "isolated_context_id", "")) if agent is not None else None
+        source_summaries = self._source_summaries_for_work_unit(session, unit)
+        payload = {
+            "schema_version": "cowork.work_unit_context.v1",
+            "agent_id": agent.id if agent else self._slug(agent_id),
+            "task_id": task.id if task else None,
+            "work_unit": self._compact_work_unit_context(unit),
+            "delegated_brief": asdict(brief) if brief is not None else {},
+            "isolated_context": {
+                "id": isolated.id,
+                "summary": isolated.summary,
+                "artifact_refs": list(isolated.artifact_refs),
+                "detail_refs": list(isolated.detail_refs),
+            }
+            if isolated is not None
+            else {},
+            "authorized_refs": {
+                "artifact_refs": list(getattr(brief, "authorized_artifact_refs", []) if brief else []),
+                "detail_refs": list(getattr(brief, "authorized_detail_refs", []) if brief else []),
+                "redacted_reference_count": int(getattr(brief, "redacted_reference_count", 0) if brief else 0),
+            },
+            "source_summaries": source_summaries,
+            "private_history_included": False,
+        }
+        return payload
+
+    @staticmethod
+    def _compact_work_unit_context(unit: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(unit, dict):
+            return {}
+        return {
+            "id": unit.get("id"),
+            "title": unit.get("title"),
+            "description": compact_text(unit.get("description", ""), 1200),
+            "input": unit.get("input") if isinstance(unit.get("input"), dict) else {},
+            "expected_output_schema": unit.get("expected_output_schema") if isinstance(unit.get("expected_output_schema"), dict) else {},
+            "completion_criteria": list(unit.get("completion_criteria") or []),
+            "tool_allowlist": list(unit.get("tool_allowlist") or []),
+            "dependencies": list(unit.get("dependencies") or []),
+            "status": unit.get("status"),
+            "source_task_id": unit.get("source_task_id"),
+        }
+
+    def _source_summaries_for_work_unit(self, session: CoworkSession, unit: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if not isinstance(unit, dict):
+            return []
+        summaries: list[dict[str, Any]] = []
+        dependencies = [str(dep) for dep in unit.get("dependencies") or [] if str(dep).strip()]
+        for dep in dependencies:
+            task = session.tasks.get(dep)
+            if task is not None and task.status == "completed":
+                summaries.append(
+                    {
+                        "kind": "task",
+                        "id": task.id,
+                        "title": task.title,
+                        "summary": compact_text(task.result_data.get("answer") or task.result or "", 500),
+                        "confidence": task.confidence,
+                    }
+                )
+                continue
+            dep_unit = self._find_swarm_work_unit(session, dep)
+            if dep_unit and dep_unit.get("status") == "completed":
+                result = dep_unit.get("result") if isinstance(dep_unit.get("result"), dict) else {}
+                summaries.append(
+                    {
+                        "kind": "work_unit",
+                        "id": dep_unit.get("id"),
+                        "title": dep_unit.get("title"),
+                        "summary": compact_text(result.get("answer") or "", 500),
+                        "confidence": dep_unit.get("confidence"),
+                    }
+                )
+        return summaries[:8]
 
     def spawn_subteam(
         self,
@@ -3545,6 +3649,9 @@ class CoworkService:
         metric.tasks_completed = sum(1 for task in session.tasks.values() if task.status == "completed")
         metric.artifacts_created = len(session.artifacts)
         metric.stop_reason = getattr(session, "stop_reason", "") or session.budget_usage.get("stop_reason", "")
+        metric.swarm_metrics = build_swarm_parallel_metrics(session) if getattr(session, "workflow_mode", "") == "swarm" else {}
+        if metric.swarm_metrics:
+            session.runtime_state["swarm_metrics"] = metric.swarm_metrics
         metric.ended_at = now_iso()
         return metric
 
@@ -3560,6 +3667,9 @@ class CoworkService:
         budget_remaining: dict[str, Any] | None = None,
         save: bool = False,
     ) -> dict[str, Any]:
+        swarm_metrics = build_swarm_parallel_metrics(session) if getattr(session, "workflow_mode", "") == "swarm" else {}
+        if swarm_metrics:
+            session.runtime_state["swarm_metrics"] = swarm_metrics
         decision = {
             "id": self._new_id("dec"),
             "run_id": run_id,
@@ -3569,6 +3679,7 @@ class CoworkService:
             "reason": reason,
             "blocked": list((session.completion_decision or {}).get("blocked", [])),
             "budget_remaining": budget_remaining or {},
+            "swarm_metrics": swarm_metrics,
             "created_at": now_iso(),
         }
         session.scheduler_decisions.append(decision)
@@ -3771,6 +3882,7 @@ class CoworkService:
         selection = self.architecture_policy(session.workflow_mode).select_step(session)
         queues = selection.payload.get("queues") if isinstance(selection.payload.get("queues"), dict) else self.swarm_scheduler_queues(session)
         session.runtime_state["swarm_queues"] = queues
+        session.runtime_state["swarm_metrics"] = queues.get("metrics") if isinstance(queues.get("metrics"), dict) else build_swarm_parallel_metrics(session)
         running_signatures = {
             self._swarm_unit_signature(unit)
             for unit in self._swarm_work_units(session)

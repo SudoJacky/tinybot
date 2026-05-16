@@ -244,6 +244,23 @@ Every session exposes:
 
 Plain-goal sessions use conservative defaults compatible with the old behavior. Blueprint sessions can lower or raise caps within policy. The scheduler records machine-readable stop reasons such as `idle`, `completed`, `paused`, `blocker`, `convergence`, `max_rounds`, `ready_to_finish`, `agent_call_budget_exhausted`, and other budget exhaustion reasons.
 
+## Swarm Orchestration and Metrics
+
+Swarm sessions include an `orchestration` assessment inside `swarm_plan` and expose the same payload as `orchestration_assessment` in API snapshots. It records the recommended mode (`single`, `team`, `small_swarm`, `large_swarm`, or `blocked`), fanout score, workstream hints, spawn strategy, recommended parallel width, risk level, review need, user-input need, and budget recommendation. The lead uses this assessment to decide whether to keep work local, reuse the existing team, or request bounded temporary specialists.
+
+Swarm snapshots also expose `swarm_metrics` so users can tell whether parallelism is useful rather than just noisy:
+
+- `critical_path_depth`: longest dependency path through work units plus reducer/reviewer gates.
+- `critical_rounds`: current round count or estimated critical-path rounds.
+- `fanout_width_observed`: largest observed width from running or started work units.
+- `parallel_efficiency`: completed required work units divided by critical path depth.
+- `fanout_utilization`: observed fanout width divided by configured parallel width.
+- `duplicate_rejection_count`: scheduler duplicate activations skipped.
+- `blocked_slot_count`: parallel slots effectively blocked by failed, blocked, revision-needed, or dependency-blocked units.
+- `reducer_coverage`: fraction of completed required work units cited by reducer output.
+
+Low fanout utilization or parallel efficiency usually means the goal should stay smaller, dependencies are too serial, or the reducer/reviewer gates need clearer source coverage before adding more agents.
+
 ## Graph and Trace Contract
 
 Verbose session snapshots and `/api/cowork/sessions/{id}/graph` return a `cowork.graph.v2` projection with:
