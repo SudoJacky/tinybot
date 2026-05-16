@@ -113,6 +113,8 @@ dark mode
 
 Cowork provides a shared multi-agent session model with architecture runtime policies, branch navigation, architecture-specific projections, observable Agent Steps, and explicit final-result selection.
 
+![cowork](./show/webui_cowork_agent_field_content_v3.PNG)
+
 ![cowork](./show/webui_cowork_agent_field_v3.PNG)
 
 ### 🧠 Agentic DAG Task Scheduling
