@@ -1909,6 +1909,16 @@ function coworkTraceItems(session) {
     .slice(-100);
 }
 
+function coworkConversationStatusKey(trace) {
+  if (coworkTraceStage(trace) !== "task") return "";
+  const payload = trace?.payload || trace?.data || {};
+  const taskId = String(payload.task_id || payload.blocking_task_id || "").trim();
+  if (!taskId) return "";
+  const action = coworkTraceAction(trace).toLowerCase().replace(/\s+/g, " ").trim();
+  const status = coworkStatusTone(trace?.status || trace?.type);
+  return `task:${taskId}:${action}:${status}`;
+}
+
 function coworkTraceViewModel(session) {
   const filter = state.coworkTraceFilter || "all";
   const mode = state.coworkTraceMode || "key";
@@ -2112,6 +2122,11 @@ function coworkConversationViewModel(session) {
   });
   const statusEvents = coworkTraceItems(safe)
     .filter((trace) => ["scheduler", "workflow", "task"].includes(coworkTraceStage(trace)))
+    .filter((trace, index, traces) => {
+      const key = coworkConversationStatusKey(trace);
+      if (!key) return true;
+      return traces.findIndex((candidate) => coworkConversationStatusKey(candidate) === key) === index;
+    })
     .slice(-18)
     .map((trace, index) => ({
       id: trace.id || `status:${index}`,
