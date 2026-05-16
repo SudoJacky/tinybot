@@ -754,6 +754,7 @@ def _normalize_work_units(
                 "expected_output_schema": _schema_from_expected(task.expected_output),
                 "source_task_id": task.id,
                 "source_blueprint_id": task.source_blueprint_id,
+                "fanout_group_id": task.fanout_group_id,
             }
             for task in tasks.values()
         ]
@@ -790,6 +791,9 @@ def _normalize_work_units(
                 completion_criteria=[str(value).strip() for value in item.get("completion_criteria", []) if str(value).strip()] if isinstance(item.get("completion_criteria"), list) else ["Return a structured result for the unit."],
                 assigned_agent_id=owner,
                 dependencies=dependencies,
+                workstream_id=str(item.get("workstream_id") or item.get("workstream") or "").strip(),
+                fanout_group_id=str(item.get("fanout_group_id") or "").strip(),
+                team_id=str(item.get("team_id") or "").strip(),
                 status=_work_unit_status(item.get("status"), dependencies),
                 priority=int(item.get("priority", 0) or 0),
                 attempts=int(item.get("attempts", 0) or 0),
@@ -831,6 +835,9 @@ def _normalize_reducer(raw: Any, reducer_agent_id: str) -> dict[str, Any]:
             "open_questions": "array",
             "confidence": "number",
             "source_work_unit_ids": "array",
+            "source_artifact_refs": "array",
+            "coverage_by_workstream": "object",
+            "confidence_by_section": "object",
         },
         "merge_policy": str(data.get("merge_policy") or "include_failed_and_skipped_summaries"),
     }
@@ -842,7 +849,17 @@ def _normalize_review(raw: Any, reviewer_agent_id: str | None) -> dict[str, Any]
         "required": bool(data.get("required") or reviewer_agent_id),
         "agent_id": reviewer_agent_id,
         "rubric": data.get("rubric") if isinstance(data.get("rubric"), list) else ["correctness", "completeness", "evidence", "safety"],
-        "verdict_schema": data.get("verdict_schema") if isinstance(data.get("verdict_schema"), dict) else {"verdict": "pass|needs_revision|blocked", "issues": "array", "confidence": "number"},
+        "verdict_schema": data.get("verdict_schema")
+        if isinstance(data.get("verdict_schema"), dict)
+        else {
+            "verdict": "pass|needs_revision|blocked",
+            "issues": "array",
+            "coverage_issues": "array",
+            "uncited_claims": "array",
+            "artifact_issues": "array",
+            "required_follow_up_units": "array",
+            "confidence": "number",
+        },
         "revision_policy": str(data.get("revision_policy") or "create_revision_work_units"),
     }
 

@@ -1942,12 +1942,15 @@ Use cowork_internal spawn_agent or spawn_subteam only when the orchestration ass
             if source_event_id.startswith("swarm_reducer:"):
                 gate_text = (
                     "Swarm reducer gate: return a JSON object with answer, findings, decisions, risks, "
-                    "open_questions, artifact_summary, confidence, missing_work, and source_work_unit_ids."
+                    "open_questions, artifact_summary, confidence, missing_work, source_work_unit_ids, "
+                    "source_artifact_refs, coverage_by_workstream, and confidence_by_section. Cite source "
+                    "work-unit ids and artifact refs for important sections."
                 )
             elif source_event_id.startswith("swarm_reviewer:"):
                 gate_text = (
                     "Swarm reviewer gate: return a JSON object with verdict pass, needs_revision, or blocked; "
-                    "issues; required_fixes; and confidence. Ambiguous verdicts block completion."
+                    "issues; coverage_issues; uncited_claims; artifact_issues; required_fixes; "
+                    "required_follow_up_units; and confidence. Ambiguous verdicts block completion."
                 )
         threads = session.open_threads_for(agent.id)
         thread_lines = [f"- {thread.id}: {thread.topic} ({len(thread.message_ids)} messages)" for thread in threads[:8]]

@@ -3996,12 +3996,14 @@ class CoworkService:
             title="Reduce swarm results",
             description=(
                 "Synthesize the swarm work units into a structured final answer. Include findings, decisions, "
-                "risks, open questions, artifact summary, confidence, missing work, and source_work_unit_ids.\n\n"
+                "risks, open questions, artifact summary, confidence, missing work, source_work_unit_ids, "
+                "source_artifact_refs, coverage_by_workstream, and confidence_by_section. Important sections and "
+                "claims must cite the source work-unit ids and artifact refs they rely on.\n\n"
                 + "\n".join(summaries)
             ),
             assigned_agent_id=reducer_agent_id,
             dependencies=dependency_ids,
-            expected_output="Structured reducer synthesis with answer, findings, risks, open questions, artifact_summary, confidence, missing_work, and source_work_unit_ids.",
+            expected_output="Structured reducer synthesis with answer, findings, risks, open questions, artifact_summary, confidence, missing_work, source_work_unit_ids, source_artifact_refs, coverage_by_workstream, and confidence_by_section.",
             source_event_id=f"swarm_reducer:{plan.get('id', session.id)}",
             runtime_created=True,
             save=False,
@@ -4057,12 +4059,13 @@ class CoworkService:
             description=(
                 "Review the reducer synthesis using this rubric: correctness, completeness, evidence coverage, "
                 "conflict detection, safety/tool risk, and whether the original goal is satisfied. "
-                "Return JSON with verdict pass, needs_revision, or blocked; issues; required_fixes; and confidence.\n\n"
+                "Return JSON with verdict pass, needs_revision, or blocked; issues; coverage_issues; "
+                "uncited_claims; artifact_issues; required_fixes; required_follow_up_units; and confidence.\n\n"
                 f"Reducer task: {reducer_task.id}\nReducer output: {(reducer_task.result or '')[:1800]}"
             ),
             assigned_agent_id=reviewer_id,
             dependencies=[reducer_task.id],
-            expected_output="Reviewer verdict JSON with verdict, issues, required_fixes, confidence.",
+            expected_output="Reviewer verdict JSON with verdict, issues, coverage_issues, uncited_claims, artifact_issues, required_fixes, required_follow_up_units, confidence.",
             source_event_id=f"swarm_reviewer:{plan.get('id', session.id)}",
             runtime_created=True,
             save=False,
@@ -4115,6 +4118,12 @@ class CoworkService:
         answer = str(data.get("answer") or task.result or "").strip()
         if answer:
             session.final_draft = answer
+        source_work_unit_ids = self._string_list_from_any(data.get("source_work_unit_ids"))
+        source_artifact_refs = self._string_list_from_any(data.get("source_artifact_refs") or data.get("artifact_refs"))
+        coverage_by_workstream = self._reducer_coverage_by_workstream(session, source_work_unit_ids)
+        if isinstance(data.get("coverage_by_workstream"), dict):
+            coverage_by_workstream.update(data["coverage_by_workstream"])
+        confidence_by_section = data.get("confidence_by_section") if isinstance(data.get("confidence_by_section"), dict) else {}
         unit = self.swarm_work_unit_for_task(session, task.id)
         if unit:
             unit["result"] = {
@@ -4125,9 +4134,19 @@ class CoworkService:
                 "open_questions": data.get("open_questions") if isinstance(data.get("open_questions"), list) else [],
                 "artifact_summary": data.get("artifact_summary") if isinstance(data.get("artifact_summary"), list) else data.get("artifact_summary", ""),
                 "missing_work": data.get("missing_work") if isinstance(data.get("missing_work"), list) else self._string_list_from_any(data.get("missing_work")),
-                "source_work_unit_ids": data.get("source_work_unit_ids") if isinstance(data.get("source_work_unit_ids"), list) else [],
+                "source_work_unit_ids": source_work_unit_ids,
+                "source_artifact_refs": source_artifact_refs,
+                "coverage_by_workstream": coverage_by_workstream,
+                "confidence_by_section": confidence_by_section,
             }
+            unit["source_artifact_refs"] = source_artifact_refs
+            unit["coverage_by_workstream"] = coverage_by_workstream
+            unit["confidence_by_section"] = confidence_by_section
             unit["confidence"] = task.confidence
+        task.result_data["source_work_unit_ids"] = source_work_unit_ids
+        task.result_data["source_artifact_refs"] = source_artifact_refs
+        task.result_data["coverage_by_workstream"] = coverage_by_workstream
+        task.result_data["confidence_by_section"] = confidence_by_section
         missing_work = self._string_list_from_any(data.get("missing_work"))
         open_questions = self._string_list_from_any(data.get("open_questions"))
         if missing_work or open_questions:
@@ -4159,7 +4178,15 @@ class CoworkService:
             status="completed",
             output_ref=answer,
             summary="Reducer synthesis stored as the session final draft",
-            data={"task_id": task.id, "confidence": task.confidence, "review_required": reviewer is not None},
+            data={
+                "task_id": task.id,
+                "confidence": task.confidence,
+                "review_required": reviewer is not None,
+                "source_work_unit_ids": source_work_unit_ids,
+                "source_artifact_refs": source_artifact_refs,
+                "coverage_by_workstream": coverage_by_workstream,
+                "confidence_by_section": confidence_by_section,
+            },
             save=False,
         )
 
@@ -4182,6 +4209,11 @@ class CoworkService:
             )
             return
         task.result_data["review_status"] = verdict
+        task.result_data["coverage_issues"] = self._issue_list_from_any(data.get("coverage_issues"))
+        task.result_data["uncited_claims"] = self._issue_list_from_any(data.get("uncited_claims"))
+        task.result_data["artifact_issues"] = self._issue_list_from_any(data.get("artifact_issues"))
+        follow_up_units = self._review_follow_up_units(data.get("required_follow_up_units"))
+        task.result_data["required_follow_up_units"] = follow_up_units
         if verdict == "pass":
             plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
             if plan:
@@ -4190,12 +4222,37 @@ class CoworkService:
                 session.swarm_plan = plan
         elif verdict == "needs_revision":
             fixes = self._string_list_from_any(data.get("required_fixes")) or self._string_list_from_any(data.get("issues"))
+            fixes.extend(item["description"] for item in follow_up_units if item.get("description"))
             plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
             if plan:
                 plan["status"] = "active"
                 plan["updated_at"] = now_iso()
                 session.swarm_plan = plan
-            for index, fix in enumerate(fixes[:4], start=1):
+            created_signatures: set[str] = set()
+            for index, item in enumerate(follow_up_units[:4], start=1):
+                signature = str(item.get("description") or item.get("title") or "").strip().lower()
+                if signature:
+                    created_signatures.add(signature)
+                source_links = item.get("source_work_unit_ids") if isinstance(item.get("source_work_unit_ids"), list) else []
+                self.add_swarm_work_unit(
+                    session,
+                    title=str(item.get("title") or f"Revision {index}: {item.get('description', '')[:80]}"),
+                    description=str(item.get("description") or item.get("title") or "Address reviewer follow-up."),
+                    assigned_agent_id=self.lead_agent_id(session),
+                    dependencies=[task.id],
+                    tool_allowlist=["cowork_internal"],
+                    kind="revision",
+                    source_work_unit_id=str(source_links[0] if source_links else self.swarm_work_unit_for_task(session, task.id).get("id") if self.swarm_work_unit_for_task(session, task.id) else task.id),
+                    reason="reviewer_required_follow_up",
+                    input_data={
+                        "reviewer_task_id": task.id,
+                        "source_work_unit_ids": source_links,
+                        "source_artifact_refs": item.get("source_artifact_refs") if isinstance(item.get("source_artifact_refs"), list) else [],
+                    },
+                    save=False,
+                )
+            remaining_fixes = [fix for fix in fixes if str(fix).strip().lower() not in created_signatures]
+            for index, fix in enumerate(remaining_fixes[: max(0, 4 - len(follow_up_units[:4]))], start=1):
                 self.add_swarm_work_unit(
                     session,
                     title=f"Revision {index}: {fix[:80]}",
@@ -4228,7 +4285,16 @@ class CoworkService:
             actor_id=task.assigned_agent_id,
             status="blocked" if verdict == "blocked" else "completed",
             summary=f"Reviewer verdict: {verdict}",
-            data={"task_id": task.id, "verdict": verdict, "issues": data.get("issues", []), "required_fixes": data.get("required_fixes", [])},
+            data={
+                "task_id": task.id,
+                "verdict": verdict,
+                "issues": data.get("issues", []),
+                "coverage_issues": task.result_data["coverage_issues"],
+                "uncited_claims": task.result_data["uncited_claims"],
+                "artifact_issues": task.result_data["artifact_issues"],
+                "required_fixes": data.get("required_fixes", []),
+                "required_follow_up_units": follow_up_units,
+            },
             save=False,
         )
 
@@ -4238,6 +4304,8 @@ class CoworkService:
         evaluations = [
             self._evaluate_swarm_goal_coverage(session),
             self._evaluate_swarm_evidence_coverage(session),
+            self._evaluate_swarm_uncited_claims(session),
+            self._evaluate_swarm_workstream_coverage(session),
             self._evaluate_swarm_conflicts(session),
             self._evaluate_swarm_artifacts(session),
             self._evaluate_swarm_safety(session),
@@ -4303,6 +4371,54 @@ class CoworkService:
             )
         return CoworkEvaluationResult(id=self._new_id("eval"), kind="evidence_coverage", status="pass", score=1.0, summary="Reducer output cites source work units.")
 
+    def _evaluate_swarm_uncited_claims(self, session: CoworkSession) -> CoworkEvaluationResult:
+        issues = self._uncited_reducer_claims(session)
+        reviewer_task = self._existing_swarm_gate_task(session, "reviewer")
+        if reviewer_task and isinstance(reviewer_task.result_data, dict):
+            issues.extend(self._issue_list_from_any(reviewer_task.result_data.get("uncited_claims")))
+        if issues:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="uncited_claims",
+                status="warn",
+                score=0.5,
+                summary=f"{len(issues)} reducer claim(s) need clearer source citations.",
+                issues=issues,
+                recommended_actions=["add_source_work_unit_ids", "add_source_artifact_refs"],
+            )
+        return CoworkEvaluationResult(id=self._new_id("eval"), kind="uncited_claims", status="pass", score=1.0, summary="Important reducer claims include source citations.")
+
+    def _evaluate_swarm_workstream_coverage(self, session: CoworkSession) -> CoworkEvaluationResult:
+        units = [unit for unit in self._swarm_work_units(session) if unit.get("kind") not in {"reducer", "reviewer"} and unit.get("status") == "completed"]
+        workstreams = {self._swarm_workstream_id(unit) for unit in units}
+        if not workstreams:
+            return CoworkEvaluationResult(id=self._new_id("eval"), kind="workstream_coverage", status="pass", score=1.0, summary="No completed workstreams require reducer coverage yet.")
+        reducer_task = self._existing_swarm_gate_task(session, "reducer")
+        data = reducer_task.result_data if reducer_task and isinstance(reducer_task.result_data, dict) else {}
+        coverage = data.get("coverage_by_workstream") if isinstance(data.get("coverage_by_workstream"), dict) else {}
+        cited_ids = set(self._string_list_from_any(data.get("source_work_unit_ids")))
+        cited_streams = set()
+        for unit in units:
+            stream_id = self._swarm_workstream_id(unit)
+            try:
+                stream_coverage = float(coverage.get(stream_id, 0) or 0)
+            except Exception:
+                stream_coverage = 0
+            if str(unit.get("id") or "") in cited_ids or stream_coverage > 0:
+                cited_streams.add(stream_id)
+        missing = sorted(stream for stream in workstreams if stream not in cited_streams)
+        if missing:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="workstream_coverage",
+                status="warn",
+                score=round(len(cited_streams) / max(1, len(workstreams)), 3),
+                summary=f"Reducer output does not cover {len(missing)} completed workstream(s).",
+                issues=[{"code": "missing_workstream_coverage", "workstream": item} for item in missing],
+                recommended_actions=["add_coverage_by_workstream", "cite_missing_workstreams"],
+            )
+        return CoworkEvaluationResult(id=self._new_id("eval"), kind="workstream_coverage", status="pass", score=1.0, summary="Reducer coverage spans completed workstreams.")
+
     def _evaluate_swarm_conflicts(self, session: CoworkSession) -> CoworkEvaluationResult:
         conflicts = self.detect_disagreements(session)
         if conflicts:
@@ -4327,6 +4443,23 @@ class CoworkService:
                 status="block",
                 summary="The goal appears to require an artifact, but no artifact is indexed.",
                 recommended_actions=["produce_or_link_required_artifacts"],
+            )
+        reducer_task = self._existing_swarm_gate_task(session, "reducer")
+        data = reducer_task.result_data if reducer_task and isinstance(reducer_task.result_data, dict) else {}
+        reducer_refs = set(self._string_list_from_any(data.get("source_artifact_refs") or data.get("artifact_refs")))
+        required_refs = self._swarm_required_artifact_refs(session)
+        missing_refs = [item for item in required_refs if item not in reducer_refs]
+        reviewer_task = self._existing_swarm_gate_task(session, "reviewer")
+        reviewer_issues = self._issue_list_from_any(reviewer_task.result_data.get("artifact_issues")) if reviewer_task and isinstance(reviewer_task.result_data, dict) else []
+        if missing_refs or reviewer_issues:
+            return CoworkEvaluationResult(
+                id=self._new_id("eval"),
+                kind="artifact_validation",
+                status="warn",
+                score=0.6 if reducer_refs else 0.4,
+                summary=f"{len(missing_refs) + len(reviewer_issues)} artifact citation issue(s) need review.",
+                issues=[{"code": "missing_required_artifact_ref", "artifact_ref": item} for item in missing_refs] + reviewer_issues,
+                recommended_actions=["add_source_artifact_refs", "resolve_artifact_issues"],
             )
         return CoworkEvaluationResult(id=self._new_id("eval"), kind="artifact_validation", status="pass", score=1.0, summary="No missing required artifacts detected.")
 
@@ -4846,6 +4979,108 @@ class CoworkService:
         if isinstance(value, list):
             return [str(item).strip() for item in value if str(item or "").strip()]
         return []
+
+    @staticmethod
+    def _issue_list_from_any(value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, str) and value.strip():
+            return [{"code": "review_issue", "summary": value.strip()}]
+        if not isinstance(value, list):
+            return []
+        issues: list[dict[str, Any]] = []
+        for item in value:
+            if isinstance(item, dict):
+                issue = {str(key): item[key] for key in item}
+                issue.setdefault("code", "review_issue")
+                issues.append(issue)
+            elif str(item or "").strip():
+                issues.append({"code": "review_issue", "summary": str(item).strip()})
+        return issues
+
+    @staticmethod
+    def _review_follow_up_units(value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, str) and value.strip():
+            return [{"title": "Reviewer follow-up", "description": value.strip(), "source_work_unit_ids": [], "source_artifact_refs": []}]
+        if not isinstance(value, list):
+            return []
+        units: list[dict[str, Any]] = []
+        for item in value:
+            if isinstance(item, dict):
+                description = str(item.get("description") or item.get("task") or item.get("fix") or item.get("title") or "").strip()
+                if not description:
+                    continue
+                source_ids = item.get("source_work_unit_ids") or item.get("affected_source_unit_ids") or item.get("source_units") or []
+                artifact_refs = item.get("source_artifact_refs") or item.get("artifact_refs") or []
+                units.append(
+                    {
+                        "title": str(item.get("title") or description[:80]).strip(),
+                        "description": description,
+                        "source_work_unit_ids": [str(value).strip() for value in source_ids if str(value or "").strip()] if isinstance(source_ids, list) else [],
+                        "source_artifact_refs": [str(value).strip() for value in artifact_refs if str(value or "").strip()] if isinstance(artifact_refs, list) else [],
+                    }
+                )
+            elif str(item or "").strip():
+                units.append({"title": "Reviewer follow-up", "description": str(item).strip(), "source_work_unit_ids": [], "source_artifact_refs": []})
+        return units
+
+    @classmethod
+    def _reducer_coverage_by_workstream(cls, session: CoworkSession, source_work_unit_ids: list[str]) -> dict[str, float]:
+        cited = {str(item) for item in source_work_unit_ids}
+        totals: dict[str, int] = {}
+        covered: dict[str, int] = {}
+        for unit in cls._swarm_work_units(session):
+            if unit.get("kind") in {"reducer", "reviewer"} or unit.get("status") != "completed":
+                continue
+            key = cls._swarm_workstream_id(unit)
+            totals[key] = totals.get(key, 0) + 1
+            if str(unit.get("id") or "") in cited:
+                covered[key] = covered.get(key, 0) + 1
+        return {key: round(covered.get(key, 0) / max(1, total), 3) for key, total in totals.items()}
+
+    def _uncited_reducer_claims(self, session: CoworkSession) -> list[dict[str, Any]]:
+        reducer_task = self._existing_swarm_gate_task(session, "reducer")
+        data = reducer_task.result_data if reducer_task and isinstance(reducer_task.result_data, dict) else {}
+        if not data:
+            return []
+        issues: list[dict[str, Any]] = []
+        top_level_sources = set(self._string_list_from_any(data.get("source_work_unit_ids")))
+        top_level_artifacts = set(self._string_list_from_any(data.get("source_artifact_refs") or data.get("artifact_refs")))
+        for field in ("findings", "decisions", "risks"):
+            values = data.get(field)
+            if not isinstance(values, list):
+                continue
+            for index, item in enumerate(values):
+                if isinstance(item, dict):
+                    source_ids = self._string_list_from_any(item.get("source_work_unit_ids"))
+                    artifact_refs = self._string_list_from_any(item.get("source_artifact_refs") or item.get("artifact_refs"))
+                    text = str(item.get("summary") or item.get("text") or item.get("claim") or item.get("answer") or "").strip()
+                    if text and not source_ids and not artifact_refs and not top_level_sources and not top_level_artifacts:
+                        issues.append({"code": "uncited_claim", "field": field, "index": index, "summary": text[:240]})
+                elif str(item or "").strip() and not top_level_sources and not top_level_artifacts:
+                    issues.append({"code": "uncited_claim", "field": field, "index": index, "summary": str(item).strip()[:240]})
+        return issues
+
+    @classmethod
+    def _swarm_required_artifact_refs(cls, session: CoworkSession) -> list[str]:
+        refs: list[str] = []
+        for unit in cls._swarm_work_units(session):
+            if unit.get("kind") in {"reducer", "reviewer"} or unit.get("status") != "completed":
+                continue
+            for artifact in unit.get("artifacts") or []:
+                if isinstance(artifact, dict):
+                    value = str(artifact.get("path_or_url") or artifact.get("path") or artifact.get("url") or "").strip()
+                else:
+                    value = str(artifact or "").strip()
+                if value and value not in refs:
+                    refs.append(value)
+        return refs
+
+    @staticmethod
+    def _swarm_workstream_id(unit: dict[str, Any]) -> str:
+        for key in ("workstream_id", "workstream", "fanout_group_id", "team_id", "source_kind", "kind"):
+            value = str(unit.get(key) or "").strip()
+            if value:
+                return value
+        return "default"
 
     @staticmethod
     def _swarm_autonomy_boundary(session: CoworkSession, tool_allowlist: list[str]) -> dict[str, Any] | None:

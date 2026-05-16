@@ -54,7 +54,7 @@ class LLMResponse:
     finish_reason: str = "stop"
     usage: dict[str, int] = field(default_factory=dict)
     retry_after: float | None = None  # Provider supplied retry wait in seconds.
-    reasoning_content: str | None = None  # Kimi, DeepSeek-R1, MiMo etc.
+    reasoning_content: str | None = None  # reasoning-capable providers may return this.
     thinking_blocks: list[dict] | None = None  # Anthropic extended thinking
 
     @property

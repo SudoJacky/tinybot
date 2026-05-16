@@ -1169,6 +1169,9 @@ def _swarm_gate(kind: str, units: list[dict[str, Any]], config: Any) -> dict[str
         "agent_id": unit.get("assigned_agent_id") or data.get("agent_id") or "",
         "work_unit_id": unit.get("id", ""),
         "source_work_unit_ids": unit.get("source_work_unit_ids", []),
+        "source_artifact_refs": unit.get("source_artifact_refs", []),
+        "coverage_by_workstream": unit.get("coverage_by_workstream", {}),
+        "confidence_by_section": unit.get("confidence_by_section", {}),
     }
 
 

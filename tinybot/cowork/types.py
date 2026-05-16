@@ -454,6 +454,9 @@ class CoworkWorkUnit:
     completion_criteria: list[str] = field(default_factory=list)
     assigned_agent_id: str | None = None
     dependencies: list[str] = field(default_factory=list)
+    workstream_id: str = ""
+    fanout_group_id: str = ""
+    team_id: str = ""
     status: SwarmWorkUnitStatus = "pending"
     priority: int = 0
     attempts: int = 0

@@ -261,6 +261,77 @@ Swarm snapshots also expose `swarm_metrics` so users can tell whether parallelis
 
 Low fanout utilization or parallel efficiency usually means the goal should stay smaller, dependencies are too serial, or the reducer/reviewer gates need clearer source coverage before adding more agents.
 
+### Source-Linked Swarm Organization
+
+Cowork's swarm mode follows a local, auditable agent-organization pattern: a lead assesses the task shape, fans out only when workstreams are meaningfully separable, gives each worker a narrow brief, and requires reducer/reviewer gates to preserve source links. It is not a free-form pool of unlimited agents. The policy and budget caps still control parallel width, spawned agents, tool use, work-unit count, and user-approval boundaries.
+
+Use swarm mode when the goal has independent products, files, research targets, expert perspectives, or review dimensions. Prefer `team` or `adaptive_starter` for simple summarization, vague goals, or work where fanout would mostly duplicate effort.
+
+Large swarms expose `swarm_organization` with grouped workstreams, status counts, gates, metrics, and blockers. The WebUI defaults to grouped workstream cards when a session has many units, while search/filter can drill into a workstream, work-unit id, agent, artifact, trace status, blocker, or source field.
+
+Reducer output should include:
+
+```json
+{
+  "answer": "Final synthesis",
+  "findings": [
+    {
+      "summary": "Important sourced finding",
+      "source_work_unit_ids": ["market_review"],
+      "source_artifact_refs": ["market.md"]
+    }
+  ],
+  "source_work_unit_ids": ["market_review", "risk_review"],
+  "source_artifact_refs": ["market.md", "risk.md"],
+  "coverage_by_workstream": {"market": 1.0, "risk": 1.0},
+  "confidence_by_section": {"market": 0.82, "risk": 0.76},
+  "confidence": 0.8
+}
+```
+
+Reviewer output may report `coverage_issues`, `uncited_claims`, `artifact_issues`, and `required_follow_up_units`. Required follow-up units become bounded revision work units linked back to the reviewer result and the affected source work units/artifacts.
+
+### CLI and API Examples
+
+Start a small swarm from the CLI:
+
+```bash
+uv run tinybot cowork start --architecture swarm "Compare market, security, customer, finance, and engineering risks"
+```
+
+Inspect organization metrics through the API:
+
+```bash
+curl http://127.0.0.1:8000/api/cowork/sessions/{session_id}/organization
+```
+
+Steer a swarm, retry a failed work unit, skip a blocked unit, and request review:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/cowork/sessions/{session_id}/messages \
+  -H "content-type: application/json" \
+  -d "{\"content\":\"Prioritize security and finance streams; keep parallel width at 4.\"}"
+
+curl -X POST http://127.0.0.1:8000/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/retry \
+  -H "content-type: application/json" \
+  -d "{\"reason\":\"retry after source update\"}"
+
+curl -X POST http://127.0.0.1:8000/api/cowork/sessions/{session_id}/work-units/{work_unit_id}/skip \
+  -H "content-type: application/json" \
+  -d "{\"reason\":\"out of scope for this run\"}"
+
+curl -X POST http://127.0.0.1:8000/api/cowork/sessions/{session_id}/tasks/{task_id}/review \
+  -H "content-type: application/json" \
+  -d "{\"reviewer_agent_id\":\"reviewer\"}"
+```
+
+Safe usage guidelines:
+
+- Keep `parallel_width` and `max_work_units` close to the amount of genuinely independent work.
+- Require review for code, file writes, command execution, web access, credentials, final artifact delivery, or low-confidence synthesis.
+- Treat `parallel_efficiency`, `fanout_utilization`, and `reducer_coverage` as signals for whether the next run should broaden, narrow, or add reducer citations.
+- Prefer source-linked reducer outputs over prose-only summaries. Missing `source_work_unit_ids`, missing workstream coverage, uncited claims, and missing artifact refs surface as evaluation warnings or blockers according to policy.
+
 ## Graph and Trace Contract
 
 Verbose session snapshots and `/api/cowork/sessions/{id}/graph` return a `cowork.graph.v2` projection with:
