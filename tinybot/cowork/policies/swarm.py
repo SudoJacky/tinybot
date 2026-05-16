@@ -71,11 +71,6 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
         completion = self.evaluate_completion(session)
         payload["sections"] = [
             {
-                "id": "swarm_organization",
-                "title": "Swarm Organization",
-                "items": [build_cowork_swarm_organization(session)],
-            },
-            {
                 "id": "swarm_plan",
                 "title": "Swarm Plan",
                 "items": [
@@ -92,6 +87,11 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
                     for unit in plan.get("work_units", [])
                     if isinstance(unit, dict)
                 ],
+            },
+            {
+                "id": "swarm_organization",
+                "title": "Swarm Organization",
+                "items": [build_cowork_swarm_organization(session)],
             },
             {
                 "id": "synthesis",

@@ -739,6 +739,8 @@ def _project_legacy_agent_steps(session: CoworkSession, *, limit: int) -> list[C
 
     for span in getattr(session, "trace_spans", [])[-limit:]:
         data = getattr(span, "data", {}) or {}
+        if getattr(span, "kind", "") == "session":
+            continue
         step = CoworkAgentStep(
             id=f"legacy-step:span:{span.id}",
             session_id=session.id,

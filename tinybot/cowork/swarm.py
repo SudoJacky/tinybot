@@ -383,13 +383,23 @@ def build_swarm_parallel_metrics(session: Any) -> dict[str, Any]:
         if unit.get("status") in {"failed", "blocked", "needs_revision"}
         or _metric_blocked_by(unit, units, getattr(session, "tasks", {}) or {})
     ]
+    runnable_units = [
+        unit
+        for unit in required_units
+        if unit.get("status") in {"ready", "pending"}
+        and not _metric_blocked_by(unit, units, getattr(session, "tasks", {}) or {})
+    ]
     depth = _critical_path_depth(units)
     reducer_units = [unit for unit in units if unit.get("kind") == "reducer"]
     reviewer_units = [unit for unit in units if unit.get("kind") == "reviewer"]
     gate_depth = (1 if reducer_units else 0) + (1 if reviewer_units else 0)
     critical_path_depth = depth + gate_depth
     rounds = max(1, int(getattr(session, "rounds", 0) or 0) or critical_path_depth or 1)
-    observed_width = max(len(running_units), _observed_width_from_trace(getattr(session, "trace_spans", []) or []))
+    observed_width = max(
+        len(running_units),
+        _observed_width_from_trace(getattr(session, "trace_spans", []) or []),
+        min(parallel_width, len(runnable_units)) if len(runnable_units) > 1 else 0,
+    )
     duplicate_rejections = sum(1 for event in getattr(session, "events", []) if getattr(event, "type", "") == "swarm.duplicate_activation_skipped")
     blocked_slot_count = max(0, min(parallel_width, len(blocked_units)) - len(running_units))
     reducer_coverage = _reducer_coverage(session, completed_units)
