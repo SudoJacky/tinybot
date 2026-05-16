@@ -340,19 +340,19 @@
 
 /* Progress bar colors based on usage ratio */
 .usage-bar-safe {
-  background: linear-gradient(90deg, var(--success), #22c55e);
+  background: var(--success);
 }
 
 .usage-bar-caution {
-  background: linear-gradient(90deg, #84cc16, #a3e635);
+  background: color-mix(in srgb, var(--success) 62%, var(--warning));
 }
 
 .usage-bar-warning {
-  background: linear-gradient(90deg, var(--warning), #fbbf24);
+  background: var(--warning);
 }
 
 .usage-bar-danger {
-  background: linear-gradient(90deg, var(--danger), #f87171);
+  background: var(--danger);
 }
 
 .usage-bar-text {

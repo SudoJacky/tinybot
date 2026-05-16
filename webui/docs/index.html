@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/docs-styles.css">
-  <script src="/assets/i18n.js"></script>
+  <script type="module" src="/assets/docs.js"></script>
   <style>
     /* Landing page specific styles */
     .docs-landing {
@@ -25,16 +25,17 @@
     .landing-hero {
       text-align: center;
       padding: 48px 32px;
-      background: var(--panel-gradient);
+      background: var(--surface-soft);
       border: 1px solid var(--border);
-      border-radius: var(--radius-xl);
-      box-shadow: var(--shadow-lg);
+      border-radius: var(--radius-lg);
+      box-shadow: none;
     }
 
     .landing-hero h2 {
+      font-family: var(--font-display);
       font-size: 32px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
+      font-weight: 500;
+      letter-spacing: 0;
       margin-bottom: 12px;
     }
 
@@ -66,14 +67,15 @@
     }
 
     .landing-btn-primary {
-      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-      color: white;
-      box-shadow: var(--shadow-md);
+      background: var(--accent);
+      color: var(--on-primary);
+      box-shadow: none;
     }
 
     .landing-btn-primary:hover {
-      box-shadow: var(--shadow-lg), 0 0 20px var(--accent-glow);
-      transform: translateY(-2px);
+      background: var(--accent-hover);
+      box-shadow: none;
+      transform: none;
     }
 
     .landing-btn-secondary {
@@ -103,19 +105,19 @@
       display: flex;
       flex-direction: column;
       padding: 24px;
-      background: var(--panel-gradient);
+      background: var(--surface-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-sm);
+      box-shadow: none;
       transition: all var(--transition-base);
       text-decoration: none;
       color: var(--text);
     }
 
     .doc-card:hover {
-      box-shadow: var(--shadow-md);
+      box-shadow: none;
       border-color: var(--accent);
-      transform: translateY(-3px);
+      transform: none;
     }
 
     .doc-card-icon {
@@ -136,8 +138,9 @@
     }
 
     .doc-card-title {
+      font-family: var(--font-display);
       font-size: 18px;
-      font-weight: 600;
+      font-weight: 500;
       margin-bottom: 8px;
     }
 
@@ -164,23 +167,25 @@
 
     /* Quick start section */
     .quickstart-section {
-      background: var(--panel-gradient);
+      background: var(--surface-card);
       border: 1px solid var(--border);
-      border-radius: var(--radius-xl);
-      box-shadow: var(--shadow-md);
+      border-radius: var(--radius-lg);
+      box-shadow: none;
       padding: 32px;
     }
 
     .quickstart-section h3 {
+      font-family: var(--font-display);
       font-size: 20px;
-      font-weight: 600;
+      font-weight: 500;
       margin-bottom: 16px;
     }
 
     .quickstart-code {
-      background: var(--bg-subtle);
-      border: 1px solid var(--border);
+      background: var(--surface-dark);
+      border: 1px solid color-mix(in srgb, var(--on-dark-soft) 20%, transparent);
       border-radius: var(--radius-md);
+      color: var(--on-dark);
       padding: 20px;
       font-family: var(--font-mono);
       font-size: 14px;
@@ -258,7 +263,7 @@
       </a>
       <div class="docs-actions">
         <button id="language-toggle" class="button" type="button">EN</button>
-        <button id="theme-toggle" class="theme-toggle" type="button">
+        <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" aria-label="Toggle theme">
           <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
@@ -280,7 +285,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5.5-2 5.5s3.5-.5 5.5-2c.5-.5 1-1.5 1-2.5c0-1-.5-2-1-3c-1.5-2-4-3-4-3s-.5 2 0 3"/></svg>
             <span data-i18n="docs.quickStart">快速开始</span>
           </a>
-          <a href="https://github.com/SudoJacky/tinybot" target="_blank" class="landing-btn landing-btn-secondary">
+          <a href="https://github.com/SudoJacky/tinybot" target="_blank" rel="noopener noreferrer" class="landing-btn landing-btn-secondary" aria-label="Open Tinybot on GitHub">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
             <span>GitHub</span>
           </a>
@@ -464,38 +469,5 @@ uv run tinybot gateway</code>
       </section>
     </main>
   </div>
-
-  <script>
-    // Theme toggle functionality
-    function initTheme() {
-      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
-      document.documentElement.setAttribute("data-theme", savedTheme);
-    }
-
-    function toggleTheme() {
-      const currentTheme = document.documentElement.getAttribute("data-theme");
-      const newTheme = currentTheme === "light" ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", newTheme);
-      localStorage.setItem("tinybot-theme", newTheme);
-    }
-
-    // Language toggle functionality
-    function updateLanguageButton() {
-      const lang = getLanguage();
-      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
-    }
-
-    // Initialize
-    initTheme();
-    updateLanguageButton();
-
-    // Bind events
-    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
-    document.getElementById("language-toggle").addEventListener("click", () => {
-      const newLang = getLanguage() === "zh" ? "en" : "zh";
-      setLanguage(newLang);
-      updateLanguageButton();
-    });
-  </script>
 </body>
 </html>

@@ -317,7 +317,7 @@ select:focus-visible {
 
 .message-text blockquote {
   background: var(--surface-soft);
-  border-left-color: var(--accent);
+  border: 1px solid var(--border-subtle);
   color: var(--text-muted);
 }
 
@@ -519,4 +519,342 @@ select:focus-visible {
   .chat-panel {
     border-radius: 0;
   }
+}
+
+/* ========== DESIGN.md unified block treatment ========== */
+.sessions-panel,
+.sidebar-feature-panel,
+.status-panel,
+.composer-status-panel,
+.modal-body,
+.config-modal-body,
+.knowledge-panel,
+.tools-panel,
+.skills-panel,
+.workspace-panel,
+.cowork-panel {
+  color: var(--text);
+}
+
+.panel-header,
+.sessions-header,
+.section-header,
+.cowork-pane-header,
+.cowork-detail-header,
+.cowork-graph-header,
+.config-group-title,
+.modal-header,
+.modal-footer {
+  border-color: var(--border);
+  background: var(--surface-soft);
+}
+
+.session-item,
+.compact-item,
+.compact-panel .section-header,
+.status-item,
+.system-status,
+.approval-panel,
+.session-file-chip,
+.global-knowledge-toast,
+.config-group,
+.config-field,
+.config-empty-search,
+.inspector-empty,
+.inspector-heading,
+.inspector-section,
+.graph-evidence-card,
+.knowledge-doc-item,
+.knowledge-chunk-item,
+.knowledge-source-item,
+.knowledge-result-item,
+.modal-content,
+.settings-modal-content,
+.help-dialog,
+.help-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  box-shadow: none;
+}
+
+.composer-status-panel,
+.composer-status-panel .system-status,
+.composer-status-panel .status-item,
+.composer-status-panel .usage-display,
+.composer-status-panel .usage-bar-wrapper {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.composer-status-panel .status-item {
+  padding: 0;
+}
+
+.composer-status-panel #status-channel::before,
+.composer-status-panel #status-channel.status-ok::before,
+.composer-status-panel #status-channel.status-warn::before {
+  box-shadow: none;
+}
+
+.compact-panel,
+.tools-panel,
+.knowledge-panel,
+.skills-panel,
+.workspace-panel,
+.cowork-panel {
+  border: 0;
+  background: transparent;
+}
+
+.session-item.active,
+.session-item:hover,
+.compact-item:hover,
+.compact-panel .section-header:hover,
+.compact-panel .section-header:focus-visible,
+.config-nav-chip.active,
+.config-nav-chip:hover,
+.knowledge-doc-item:hover,
+.knowledge-chunk-item:hover,
+.knowledge-source-item:hover,
+.knowledge-result-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--surface-card) 78%, var(--accent-soft));
+  color: var(--text);
+  box-shadow: none;
+}
+
+.config-toolbar,
+.config-group-content,
+.config-modal-body,
+.knowledge-modal-body,
+.help-dialog,
+.help-card {
+  background: var(--surface-soft);
+}
+
+.config-group,
+.config-empty-search,
+.config-input,
+.config-select,
+.config-search,
+.config-secondary-button,
+.mode-switch,
+.mode-switch-option.active {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.config-field {
+  border-color: transparent;
+  background: transparent;
+}
+
+.config-field.dirty,
+.config-group-title.dirty {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 56%, var(--surface-card));
+}
+
+.config-help,
+.config-slider-label-left,
+.config-slider-label-right,
+.config-sensitive-toggle:hover {
+  background: var(--surface-card);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.message,
+.message-system,
+.message-collapse-group,
+.message-reasoning,
+.typing-indicator,
+.empty-state,
+.browser-snapshot,
+.tool-activity,
+.task-progress-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: none;
+}
+
+.message-assistant {
+  border-color: transparent;
+  background: transparent;
+}
+
+.message-user {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.tool-activity-body,
+.tool-activity-section,
+.message-text blockquote {
+  border-left: 0;
+}
+
+.tool-activity-section {
+  padding-left: 0;
+}
+
+.message-text blockquote {
+  background: var(--surface-soft);
+  border: 1px solid var(--border-subtle);
+}
+
+.knowledge-graph-workspace {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  overflow: hidden;
+}
+
+.knowledge-graph-inspector {
+  border-left: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.graph-canvas,
+.knowledge-graph,
+.knowledge-graph-canvas {
+  border-color: color-mix(in srgb, var(--on-dark-soft) 18%, transparent);
+  background: var(--surface-dark);
+}
+
+.graph-controls,
+.graph-hint {
+  border-color: color-mix(in srgb, var(--on-dark-soft) 22%, transparent);
+  background: var(--surface-dark-elevated);
+  color: var(--on-dark);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.graph-control-button {
+  border-color: color-mix(in srgb, var(--on-dark-soft) 24%, transparent);
+  background: var(--surface-dark-soft);
+  color: var(--on-dark);
+}
+
+.graph-control-button:hover {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--on-dark-soft));
+  background: color-mix(in srgb, var(--surface-dark-elevated) 78%, var(--accent));
+  color: var(--on-dark);
+}
+
+.cowork-page {
+  --cowork-surface: var(--bg);
+  --cowork-surface-2: var(--surface-card);
+  --cowork-line: var(--border);
+  --cowork-grid-line: color-mix(in srgb, var(--border) 38%, transparent);
+  --cowork-cyan: var(--accent-teal);
+  --cowork-green: var(--success);
+  --cowork-amber: var(--accent-amber);
+  --cowork-red: var(--danger);
+}
+
+[data-theme="dark"] .cowork-page {
+  --cowork-surface: var(--surface-dark);
+  --cowork-surface-2: var(--surface-dark-elevated);
+  --cowork-line: var(--border);
+  --cowork-grid-line: color-mix(in srgb, var(--border) 34%, transparent);
+}
+
+.cowork-page-active #cowork-modal {
+  background: var(--bg);
+}
+
+.cowork-page-active .cowork-modal-content,
+.cowork-modal-content,
+.cowork-modal-body,
+.cowork-page-header,
+.cowork-create,
+.cowork-session-pane,
+.cowork-detail-pane,
+.cowork-grid > section,
+.cowork-focus-card,
+.cowork-graph-panel,
+.cowork-card,
+.cowork-observable-card,
+.cowork-session-card,
+.cowork-work-unit-card,
+.cowork-evaluation-card,
+.cowork-selected-inspector,
+.cowork-insight-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.cowork-modal-body,
+.cowork-detail-pane,
+.cowork-session-pane {
+  background: var(--surface-soft);
+}
+
+.cowork-page-header,
+.cowork-detail-header {
+  background: var(--bg);
+}
+
+.cowork-goal-text {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-soft) 42%, var(--surface-card));
+}
+
+.cowork-trace-card,
+.cowork-artifact-card {
+  border-width: 1px !important;
+}
+
+.cowork-trace-card {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--border)) !important;
+  background: color-mix(in srgb, var(--accent-soft) 34%, var(--surface-card)) !important;
+}
+
+.cowork-artifact-card {
+  border-color: color-mix(in srgb, var(--success) 24%, var(--border)) !important;
+  background: color-mix(in srgb, var(--success-soft) 32%, var(--surface-card)) !important;
+}
+
+.cowork-graph-stage,
+.cowork-browser-preview,
+.cowork-code-block,
+.cowork-json-panel,
+.cowork-terminal,
+.browser-frame-wrap {
+  border-color: color-mix(in srgb, var(--on-dark-soft) 18%, transparent);
+  background: var(--surface-dark);
+  color: var(--on-dark);
+}
+
+.cowork-focus-card strong,
+.cowork-card strong,
+.inspector-metric strong,
+.config-slider-value {
+  color: var(--accent);
+}
+
+.sidebar-nav-label,
+.eyebrow,
+.cowork-session-meta,
+.cowork-goal-text,
+.cowork-focus-card span,
+.cowork-focus-card small,
+.config-label,
+.config-dirty-summary,
+.graph-community-panel-title,
+.inspector-section-title {
+  color: var(--text-muted);
 }

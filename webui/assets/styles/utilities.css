@@ -391,8 +391,10 @@ html.theme-switching .theme-toggle svg {
 
 .cowork-goal-text {
   max-width: 960px;
-  padding-left: 13px;
-  border-left: 3px solid color-mix(in srgb, var(--accent) 44%, var(--cowork-line));
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--cowork-line));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
   color: var(--cowork-muted);
 }
 
@@ -3642,7 +3644,7 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border-subtle));
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--panel-strong) 86%, transparent);
-  box-shadow: 0 12px 30px color-mix(in srgb, #0f172a 14%, transparent);
+  box-shadow: none;
   backdrop-filter: blur(10px);
 }
 
@@ -3812,11 +3814,13 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
 }
 
 .cowork-trace-card {
-  border-left: 3px solid color-mix(in srgb, var(--accent) 64%, var(--border-subtle));
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-soft) 34%, var(--panel-strong));
 }
 
 .cowork-artifact-card {
-  border-left: 3px solid color-mix(in srgb, var(--success) 64%, var(--border-subtle));
+  border-color: color-mix(in srgb, var(--success) 26%, var(--border-subtle));
+  background: color-mix(in srgb, var(--success-soft) 34%, var(--panel-strong));
 }
 
 .cowork-filter-select {
@@ -4149,13 +4153,13 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
 
 .cowork-secondary-tab.active,
 .cowork-trace-mode-button.active {
-  background: #0f172a;
-  color: #fff;
+  background: var(--surface-dark);
+  color: var(--on-dark);
 }
 
 [data-theme="dark"] .cowork-secondary-tab.active,
 [data-theme="dark"] .cowork-trace-mode-button.active {
-  background: color-mix(in srgb, var(--accent) 72%, #111827);
+  background: color-mix(in srgb, var(--surface-dark-elevated) 70%, var(--accent));
 }
 
 .cowork-page-active .cowork-observability-grid > .cowork-ops-panel {
@@ -4326,8 +4330,8 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
   padding: 10px 12px;
   overflow: auto;
   border-radius: 8px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--surface-dark);
+  color: var(--on-dark);
   font: 11px/1.5 var(--font-mono);
   white-space: pre-wrap;
 }
@@ -5564,8 +5568,6 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
   min-height: 0 !important;
   padding: 9px 10px !important;
   border: 1px solid color-mix(in srgb, var(--cowork-line) 92%, var(--bg)) !important;
-  border-left-width: 1px !important;
-  border-left-color: color-mix(in srgb, var(--cowork-line) 92%, var(--bg)) !important;
   border-radius: 7px !important;
   background: color-mix(in srgb, var(--panel-strong) 98%, var(--bg)) !important;
   box-shadow: none !important;

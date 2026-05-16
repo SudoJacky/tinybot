@@ -128,7 +128,7 @@
 .knowledge-health-bar {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--accent), #22c55e);
+  background: var(--accent);
   transition: width var(--transition-slow);
 }
 
@@ -421,8 +421,8 @@
   min-height: 420px;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, #64748b 28%, transparent);
-  background: #090b10;
+  border: 1px solid color-mix(in srgb, var(--on-dark-soft) 22%, transparent);
+  background: var(--surface-dark);
 }
 
 .graph-controls {
@@ -454,9 +454,9 @@
 }
 
 .graph-control-button:hover {
-  background: rgba(37, 99, 235, 0.32);
-  border-color: rgba(96, 165, 250, 0.68);
-  color: #dbeafe;
+  background: color-mix(in srgb, var(--surface-dark-elevated) 78%, var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--on-dark-soft));
+  color: var(--on-dark);
 }
 
 .graph-control-button:focus-visible {
@@ -491,7 +491,7 @@
 }
 
 .knowledge-graph-canvas:focus-visible {
-  outline: 2px solid #60a5fa;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 

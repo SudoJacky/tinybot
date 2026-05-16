@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/docs-styles.css">
-  <script src="/assets/i18n.js"></script>
+  <script type="module" src="/assets/docs.js"></script>
 </head>
 <body>
   <div class="docs-shell">
@@ -24,7 +24,7 @@
       </a>
       <div class="docs-actions">
         <button id="language-toggle" class="button" type="button">EN</button>
-        <button id="theme-toggle" class="theme-toggle" type="button">
+        <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" aria-label="Toggle theme">
           <svg class="sun-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           <svg class="moon-icon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </button>
@@ -234,48 +234,5 @@
       <nav class="docs-toc"><h4 data-i18n="docs.onThisPage">本页内容</h4><a href="#知识库和普通聊天有什么区别" class="toc-item toc-h2">知识库和普通聊天有什么区别</a><a href="#启用知识库" class="toc-item toc-h2">启用知识库</a><a href="#添加资料" class="toc-item toc-h2">添加资料</a><a href="#怎么提问" class="toc-item toc-h2">怎么提问</a><a href="#检索设置怎么选" class="toc-item toc-h2">检索设置怎么选</a><a href="#资料整理建议" class="toc-item toc-h2">资料整理建议</a><a href="#知识库不是万能的" class="toc-item toc-h2">知识库不是万能的</a><a href="#常见问题" class="toc-item toc-h2">常见问题</a><a href="#ai-没用到我的文档" class="toc-item toc-h3">AI 没用到我的文档</a><a href="#搜索结果不准确" class="toc-item toc-h3">搜索结果不准确</a><a href="#什么时候不用知识库" class="toc-item toc-h3">什么时候不用知识库</a><a href="#下一步" class="toc-item toc-h2">下一步</a></nav>
     </div>
   </div>
-
-    <script>
-    // Theme toggle
-    function initTheme() {
-      const savedTheme = localStorage.getItem("tinybot-theme") || "light";
-      document.documentElement.setAttribute("data-theme", savedTheme);
-    }
-
-    function toggleTheme() {
-      const currentTheme = document.documentElement.getAttribute("data-theme");
-      const newTheme = currentTheme === "light" ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", newTheme);
-      localStorage.setItem("tinybot-theme", newTheme);
-    }
-
-    // Language toggle
-    function updateLanguageButton() {
-      const lang = getLanguage();
-      document.getElementById("language-toggle").textContent = lang === "zh" ? "EN" : "中文";
-    }
-
-    // Initialize
-    initTheme();
-    updateLanguageButton();
-
-    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
-    document.getElementById("language-toggle").addEventListener("click", () => {
-      const newLang = getLanguage() === "zh" ? "en" : "zh";
-      setLanguage(newLang);
-      updateLanguageButton();
-    });
-
-    // Smooth scroll for TOC links
-    document.querySelectorAll('.toc-item').forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const target = document.querySelector(link.getAttribute('href'));
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
-    });
-  </script>
 </body>
 </html>
