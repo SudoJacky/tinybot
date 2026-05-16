@@ -637,12 +637,19 @@
 }
 
 .cowork-detail-pane {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-areas:
+    "header header"
+    "focus focus"
+    "main rail"
+    "composer composer";
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  align-content: start;
   gap: 14px;
 }
 
 .cowork-detail-header {
+  grid-area: header;
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(0, max-content);
   align-items: start;
@@ -715,6 +722,394 @@
 
 .cowork-branch-chip:disabled {
   cursor: default;
+}
+
+.cowork-focus-strip {
+  grid-area: focus;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cowork-focus-card {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  min-height: 78px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-subtle) 64%, var(--panel-strong));
+}
+
+.cowork-focus-card span,
+.cowork-panel-note {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cowork-focus-card strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cowork-focus-card small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cowork-primary-column {
+  grid-area: main;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cowork-graph-panel,
+.cowork-conversation-panel,
+.cowork-ops-panel,
+.cowork-inspector-panel {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--panel-strong);
+}
+
+.cowork-graph-panel,
+.cowork-conversation-panel,
+.cowork-ops-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.cowork-graph-header,
+.cowork-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cowork-graph-header h4,
+.cowork-panel-heading h4,
+.cowork-conversation-panel h4,
+.cowork-inspector-panel h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.cowork-graph-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cowork-graph-controls,
+.cowork-trace-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.cowork-graph-stage {
+  position: relative;
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(color-mix(in srgb, var(--accent-soft) 18%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent-soft) 18%, transparent) 1px, transparent 1px),
+    color-mix(in srgb, var(--bg-subtle) 72%, var(--panel-strong));
+  background-size: 24px 24px;
+}
+
+.cowork-graph-stage:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.cowork-graph-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+}
+
+.cowork-graph-inspector {
+  min-height: 32px;
+  overflow: hidden;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cowork-conversation-panel {
+  min-height: 280px;
+}
+
+.cowork-observability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cowork-secondary-tabs {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.cowork-secondary-tab,
+.cowork-trace-mode-button,
+.cowork-mode-tab {
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.cowork-secondary-tab:hover,
+.cowork-trace-mode-button:hover,
+.cowork-mode-tab:hover {
+  color: var(--text);
+  background: var(--panel-strong);
+}
+
+.cowork-secondary-tab:focus-visible,
+.cowork-trace-mode-button:focus-visible,
+.cowork-mode-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.cowork-secondary-tab.active,
+.cowork-trace-mode-button.active,
+.cowork-mode-tab.active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--panel-strong));
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.cowork-page[data-cowork-secondary-tab="trace"] [data-cowork-panel]:not([data-cowork-panel="trace"]),
+.cowork-page[data-cowork-secondary-tab="tasks"] [data-cowork-panel]:not([data-cowork-panel="tasks"]),
+.cowork-page[data-cowork-secondary-tab="mailbox"] [data-cowork-panel]:not([data-cowork-panel="mailbox"]),
+.cowork-page[data-cowork-secondary-tab="outputs"] [data-cowork-panel]:not([data-cowork-panel="outputs"]) {
+  display: none;
+}
+
+.cowork-run-panel,
+.cowork-swarm-summary-panel,
+.cowork-trace-panel,
+.cowork-ops-panel:has(.cowork-final-draft:not([hidden])) {
+  grid-column: 1 / -1;
+}
+
+.cowork-filter-input {
+  min-height: 38px;
+}
+
+.cowork-filter-select {
+  min-height: 34px;
+  padding: 6px 28px 6px 10px;
+  font-size: 12px;
+}
+
+.cowork-trace-mode-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.cowork-projection-list {
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.cowork-action-rail {
+  grid-area: rail;
+  align-self: start;
+  min-width: 0;
+  position: sticky;
+  top: 16px;
+}
+
+.cowork-inspector-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.cowork-selected-inspector {
+  display: grid;
+  gap: 8px;
+  min-height: 130px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cowork-selected-inspector h5 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cowork-selected-inspector p {
+  margin: 0;
+}
+
+.cowork-selected-inspector pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  font-size: 11px;
+}
+
+.cowork-inspector-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.45fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.cowork-inspector-row span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cowork-inspector-row strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cowork-task-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.cowork-task-controls .config-input,
+.cowork-task-controls .config-select {
+  min-width: 0;
+  min-height: 38px;
+}
+
+.cowork-task-controls .config-input {
+  grid-column: 1 / -1;
+}
+
+.cowork-create.cowork-composer {
+  grid-area: composer;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 10px;
+}
+
+.cowork-composer .cowork-create-input {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: end;
+}
+
+.cowork-composer .cowork-mode-tabs,
+.cowork-composer .cowork-blueprint-editor,
+.cowork-composer .cowork-mode-label,
+.cowork-composer .cowork-create-actions,
+.cowork-composer .error-text {
+  grid-column: 1 / -1;
+}
+
+.cowork-composer .cowork-goal-input {
+  min-height: 44px;
+  max-height: 180px;
+  resize: vertical;
+}
+
+.cowork-composer .cowork-create-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cowork-composer .composer-send {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+}
+
+.cowork-mode-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 3px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.cowork-mode-tab {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  white-space: nowrap;
 }
 
 .cowork-observation-list {

@@ -5799,3 +5799,69 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
 .cowork-page-active .cowork-trace-rail-button {
   display: none !important;
 }
+
+/* Cowork console polish: keep the map and operational details visible together on desktop. */
+.cowork-page-active #cowork-modal:not(.cowork-graph-collapsed) .cowork-primary-column {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.42fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+
+.cowork-page-active #cowork-modal:not(.cowork-graph-collapsed) .cowork-graph-panel {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  min-height: 0 !important;
+}
+
+.cowork-page-active #cowork-modal:not(.cowork-graph-collapsed) .cowork-conversation-panel {
+  display: none !important;
+}
+
+.cowork-page-active #cowork-modal:not(.cowork-graph-collapsed) .cowork-observability-grid {
+  display: flex !important;
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+}
+
+.cowork-page-active .cowork-graph-stage,
+.cowork-page-active .cowork-graph-svg {
+  min-height: 0 !important;
+}
+
+.cowork-page-active .cowork-focus-card {
+  min-height: 74px !important;
+}
+
+.cowork-page-active .cowork-composer .cowork-goal-input {
+  min-height: 44px !important;
+}
+
+@media (max-width: 1180px) {
+  .cowork-page-active #cowork-modal:not(.cowork-graph-collapsed) .cowork-primary-column {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: minmax(360px, 54vh) auto !important;
+  }
+
+  .cowork-page-active #cowork-modal:not(.cowork-graph-collapsed) .cowork-observability-grid {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .cowork-page-active #cowork-modal:not(.cowork-graph-collapsed) .cowork-primary-column {
+    grid-template-rows: minmax(280px, 44vh) auto !important;
+  }
+
+  .cowork-page-active .cowork-secondary-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .cowork-page-active .cowork-secondary-tabs::before {
+    display: none !important;
+  }
+
+  .cowork-page-active .cowork-secondary-tab.active {
+    background: color-mix(in srgb, var(--accent-soft) 76%, var(--panel-strong)) !important;
+    color: var(--text) !important;
+  }
+}

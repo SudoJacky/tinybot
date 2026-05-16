@@ -64,6 +64,29 @@
     grid-template-columns: 1fr;
   }
 
+  .cowork-detail-pane {
+    grid-template-areas:
+      "header"
+      "focus"
+      "main"
+      "rail"
+      "composer";
+    grid-template-columns: 1fr;
+  }
+
+  .cowork-action-rail {
+    position: static;
+  }
+
+  .cowork-observability-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cowork-secondary-tabs,
+  .cowork-ops-panel {
+    grid-column: auto;
+  }
+
   .cowork-grid {
     grid-template-rows: none;
   }
@@ -84,6 +107,10 @@
 
   .cowork-session-pane {
     max-height: 260px;
+  }
+
+  .cowork-focus-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -234,6 +261,25 @@
   .cowork-create {
     grid-template-columns: 1fr;
     gap: 12px;
+  }
+
+  .cowork-focus-strip,
+  .cowork-task-controls,
+  .cowork-composer .cowork-create-input {
+    grid-template-columns: 1fr;
+  }
+
+  .cowork-secondary-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cowork-graph-stage,
+  .cowork-graph-svg {
+    min-height: 280px;
+  }
+
+  .cowork-projection-list {
+    max-height: 260px;
   }
 
   .cowork-create-actions {
