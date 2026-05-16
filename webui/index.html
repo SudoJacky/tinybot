@@ -280,7 +280,7 @@
               <div class="cowork-toolbar cowork-session-actions">
                 <button id="cowork-pause-button" class="button" type="button">Emergency stop</button>
                 <button id="cowork-resume-button" class="button" type="button">Resume</button>
-                <button id="cowork-map-button" class="button" type="button" aria-pressed="false">Map</button>
+                <button id="cowork-map-button" class="button active" type="button" aria-pressed="true">Hide map</button>
                 <button id="cowork-summary-button" class="button" type="button">Summary</button>
                 <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
               </div>
@@ -315,7 +315,6 @@
                     <p id="cowork-graph-caption">Focused agents and the live communication between them.</p>
                   </div>
                   <div class="cowork-graph-controls" aria-label="Team map controls">
-                    <button id="cowork-graph-collapse-button" class="button button-icon cowork-panel-collapse-button" type="button" aria-label="Collapse workflow graph" title="Collapse workflow graph">&lt;</button>
                     <button id="cowork-graph-zoom-out" class="button button-icon" type="button" aria-label="Zoom out" title="Zoom out">-</button>
                     <button id="cowork-graph-reset" class="button" type="button">Fit</button>
                     <button id="cowork-graph-zoom-in" class="button button-icon" type="button" aria-label="Zoom in" title="Zoom in">+</button>
@@ -420,7 +419,6 @@
                         <option value="review">Review</option>
                         <option value="error">Error</option>
                       </select>
-                      <button id="cowork-trace-collapse-button" class="button button-icon cowork-panel-collapse-button" type="button" aria-label="Collapse trace" title="Collapse trace">&gt;</button>
                     </div>
                   </div>
                   <div id="cowork-trace-list" class="cowork-list cowork-projection-list"></div>

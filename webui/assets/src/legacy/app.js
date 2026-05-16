@@ -2258,108 +2258,10 @@ function coworkMailboxRoute(record, fallbackRecipient = "team") {
   return `${record?.sender_id || "sender"} -> ${(record?.recipient_ids || []).join(", ") || fallbackRecipient}`;
 }
 
-function coworkFieldFlowItem({ label, title, body = "", meta = "", status = "active" }) {
-  const item = document.createElement("article");
-  item.className = "cowork-field-flow-item";
-  item.innerHTML = `
-    <span></span>
-    <div>
-      <strong></strong>
-      <p></p>
-      <small></small>
-    </div>
-  `;
-  item.querySelector("span").className = coworkStatusClass(status);
-  item.querySelector("span").textContent = label;
-  item.querySelector("strong").textContent = title;
-  item.querySelector("p").textContent = body;
-  item.querySelector("small").textContent = meta;
-  return item;
-}
-
-function renderCoworkFieldOverlay(session) {
+function renderCoworkFieldOverlay() {
   if (!elements.coworkFieldOverlay) return;
-  const overlay = elements.coworkFieldOverlay;
-  overlay.textContent = "";
-  if (!session) {
-    overlay.append(coworkEmpty("Agent field is waiting for a session."));
-    return;
-  }
-  const agents = session.agents || [];
-  const tasks = session.tasks || [];
-  const spans = session.trace_spans || [];
-  const mailbox = session.mailbox || [];
-  const latestRun = [...(session.run_metrics || [])].pop();
-  const latestDecision = [...(session.scheduler_decisions || [])].pop();
-  const completed = tasks.filter((task) => task.status === "completed").length;
-  const blocked = tasks.filter((task) => ["failed", "blocked"].includes(String(task.status || ""))).length;
-
-  const status = document.createElement("section");
-  status.className = "cowork-field-overlay-status";
-  const chips = [
-    [`${agents.length}`, "agents"],
-    [`${completed}/${tasks.length}`, "tasks"],
-    [`${spans.length}`, "spans"],
-    [latestRun?.status || session.status || "idle", "run"],
-    [blocked ? `${blocked} blocked` : "clear", "blocks"],
-  ];
-  for (const [value, label] of chips) {
-    const chip = document.createElement("div");
-    chip.className = "cowork-field-status-chip";
-    chip.innerHTML = "<strong></strong><span></span>";
-    chip.querySelector("strong").textContent = value;
-    chip.querySelector("span").textContent = label;
-    status.append(chip);
-  }
-
-  const flows = document.createElement("section");
-  flows.className = "cowork-field-flow";
-  const flowHeader = document.createElement("div");
-  flowHeader.className = "cowork-field-flow-header";
-  flowHeader.innerHTML = "<strong>Live flow</strong><span></span>";
-  flowHeader.querySelector("span").textContent = latestDecision
-    ? compactText(latestDecision.reason || "scheduler decided next work", 80)
-    : "messages, instructions, and status updates";
-  flows.append(flowHeader);
-
-  const messageItems = mailbox
-    .filter((record) => record.sender_id || (record.recipient_ids || []).length)
-    .slice(-4)
-    .map((record) => ({
-      at: record.updated_at || record.created_at || "",
-      node: coworkFieldFlowItem({
-        label: "msg",
-        title: coworkMailboxRoute(record),
-        body: compactText(record.content || "", 96),
-        meta: [record.kind || "mailbox", record.requires_reply ? "reply required" : record.status || "", record.updated_at || record.created_at || ""].filter(Boolean).join(" - "),
-        status: record.requires_reply ? "pending" : record.status || "delivered",
-      }),
-    }));
-  const instructionItems = spans
-    .filter((span) => ["scheduler", "task", "review", "agent", "session"].includes(span.kind))
-    .slice(-5)
-    .map((span) => ({
-      at: span.started_at || span.ended_at || "",
-      node: coworkFieldFlowItem({
-        label: span.kind === "scheduler" ? "cmd" : span.kind,
-        title: span.name || span.kind,
-        body: compactText(span.summary || span.error || "", 96),
-        meta: [span.actor_id ? `actor ${span.actor_id}` : "", span.round_id ? `round ${span.round_id}` : "", span.status || ""].filter(Boolean).join(" - "),
-        status: span.status || "active",
-      }),
-    }));
-  const flowItems = [...messageItems, ...instructionItems]
-    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
-    .slice(0, 7);
-  if (!flowItems.length) {
-    flows.append(coworkEmpty("No live flow yet."));
-  } else {
-    for (const item of flowItems) {
-      flows.append(item.node);
-    }
-  }
-
-  overlay.append(status, flows);
+  elements.coworkFieldOverlay.textContent = "";
+  elements.coworkFieldOverlay.hidden = true;
 }
 
 function coworkApplyGraphNodePositions(sessionId, nodes) {
@@ -3997,11 +3899,7 @@ function renderCoworkSecondaryPanels() {
   if (root) {
     root.dataset.coworkSecondaryTab = activeTab;
     root.classList.toggle("cowork-graph-collapsed", Boolean(state.coworkGraphCollapsed));
-    root.classList.toggle("cowork-trace-collapsed", Boolean(state.coworkTraceCollapsed));
-  }
-  if (elements.coworkGraphCollapseButton) {
-    elements.coworkGraphCollapseButton.textContent = state.coworkGraphCollapsed ? ">" : "<";
-    elements.coworkGraphCollapseButton.setAttribute("aria-label", state.coworkGraphCollapsed ? "Expand workflow graph" : "Collapse workflow graph");
+    root.classList.remove("cowork-trace-collapsed");
   }
   if (elements.coworkMapButton) {
     const expanded = !state.coworkGraphCollapsed;
@@ -4009,16 +3907,15 @@ function renderCoworkSecondaryPanels() {
     elements.coworkMapButton.setAttribute("aria-pressed", expanded ? "true" : "false");
     elements.coworkMapButton.textContent = expanded ? "Hide map" : "Map";
   }
-  if (elements.coworkTraceCollapseButton) {
-    elements.coworkTraceCollapseButton.textContent = state.coworkTraceCollapsed ? "<" : ">";
-    elements.coworkTraceCollapseButton.setAttribute("aria-label", state.coworkTraceCollapsed ? "Expand trace" : "Collapse trace");
-  }
-  if (elements.coworkGraphRailButton) {
-    elements.coworkGraphRailButton.hidden = !state.coworkGraphCollapsed;
-  }
-  if (elements.coworkTraceRailButton) {
-    elements.coworkTraceRailButton.hidden = !state.coworkTraceCollapsed;
-  }
+}
+
+function setCoworkGraphCollapsed(collapsed) {
+  state.coworkGraphCollapsed = Boolean(collapsed);
+  renderCoworkSecondaryPanels();
+}
+
+function isCoworkGraphCurrentlyCollapsed() {
+  return Boolean(elements.coworkModal?.classList.contains("cowork-graph-collapsed"));
 }
 
 function inspectorRow(label, value) {
@@ -4092,7 +3989,7 @@ function renderCoworkDetail() {
   const hasSession = Boolean(session);
   if (elements.coworkActiveStatus) {
     elements.coworkActiveStatus.textContent = hasSession
-      ? `${session.status} - ${coworkArchitectureLabel(session.architecture || session.workflow_mode)} - ${session.rounds || 0} rounds`
+      ? `${coworkArchitectureLabel(session.architecture || session.workflow_mode)} - ${session.rounds || 0} rounds`
       : "No session";
   }
   if (elements.coworkConsoleFilter && elements.coworkConsoleFilter.value !== (state.coworkConsoleFilter || "")) {
@@ -9776,25 +9673,8 @@ function bindEvents() {
     state.coworkSecondaryTab = button.dataset.tab || "trace";
     renderCoworkSecondaryPanels();
   });
-  elements.coworkGraphCollapseButton?.addEventListener("click", () => {
-    state.coworkGraphCollapsed = !state.coworkGraphCollapsed;
-    renderCoworkSecondaryPanels();
-  });
   elements.coworkMapButton?.addEventListener("click", () => {
-    state.coworkGraphCollapsed = !state.coworkGraphCollapsed;
-    renderCoworkSecondaryPanels();
-  });
-  elements.coworkGraphRailButton?.addEventListener("click", () => {
-    state.coworkGraphCollapsed = false;
-    renderCoworkSecondaryPanels();
-  });
-  elements.coworkTraceCollapseButton?.addEventListener("click", () => {
-    state.coworkTraceCollapsed = !state.coworkTraceCollapsed;
-    renderCoworkSecondaryPanels();
-  });
-  elements.coworkTraceRailButton?.addEventListener("click", () => {
-    state.coworkTraceCollapsed = false;
-    renderCoworkSecondaryPanels();
+    setCoworkGraphCollapsed(!isCoworkGraphCurrentlyCollapsed());
   });
   elements.coworkPauseButton?.addEventListener("click", () => {
     setCoworkSessionStatus("pause").catch((error) => setCoworkError(error.message || String(error)));

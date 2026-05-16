@@ -4718,7 +4718,7 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
   transform: translateX(300%) !important;
 }
 
-.cowork-page-active .cowork-trace-mode-tabs[data-active="all"]::before {
+.cowork-page-active .cowork-trace-mode-tabs[data-active="detail"]::before {
   transform: translateX(100%) !important;
 }
 
@@ -5658,4 +5658,142 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
 
 .cowork-page-active .cowork-observability-grid > .cowork-ops-panel[data-cowork-panel] {
   order: 1 !important;
+}
+
+/* Trace panel: keep controls stable and let dense All mode scroll instead of compressing. */
+.cowork-page-active .cowork-trace-panel {
+  min-height: 260px !important;
+  max-height: min(46vh, 430px) !important;
+  gap: 8px !important;
+}
+
+.cowork-page-active .cowork-trace-panel .cowork-panel-heading {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.cowork-page-active .cowork-trace-toolbar {
+  display: grid !important;
+  grid-template-columns: max-content minmax(76px, 1fr) 28px !important;
+  align-items: center !important;
+  justify-content: stretch !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.cowork-page-active .cowork-trace-mode-tabs {
+  width: 76px !important;
+  min-width: 76px !important;
+}
+
+.cowork-page-active .cowork-trace-mode-tabs::before {
+  transition:
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 160ms ease,
+    box-shadow 160ms ease !important;
+  will-change: transform !important;
+}
+
+.cowork-page-active .cowork-trace-mode-button {
+  transition:
+    color 160ms ease,
+    transform 160ms ease,
+    opacity 160ms ease !important;
+}
+
+.cowork-page-active .cowork-trace-mode-button:hover {
+  opacity: 0.84 !important;
+}
+
+.cowork-page-active .cowork-trace-mode-button.active {
+  transform: translateY(-1px) scale(1.02) !important;
+}
+
+.cowork-page-active .cowork-trace-panel .cowork-filter-select {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.cowork-page-active .cowork-trace-panel #cowork-trace-collapse-button {
+  width: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+}
+
+.cowork-page-active #cowork-trace-list {
+  flex: 1 1 auto !important;
+  min-height: 170px !important;
+  max-height: none !important;
+  padding-right: 3px !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+.cowork-page-active #cowork-trace-list .cowork-card,
+.cowork-page-active #cowork-trace-list .cowork-trace-step-body,
+.cowork-page-active #cowork-trace-list .cowork-trace-detail-card {
+  overflow: visible !important;
+}
+
+.cowork-page-active #cowork-trace-list .cowork-card-row,
+.cowork-page-active #cowork-trace-list .cowork-trace-step-top {
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  min-width: 0 !important;
+}
+
+.cowork-page-active #cowork-trace-list .cowork-card p,
+.cowork-page-active #cowork-trace-list .cowork-card small,
+.cowork-page-active #cowork-trace-list .cowork-trace-step-body p,
+.cowork-page-active #cowork-trace-list .cowork-trace-step-body small {
+  overflow-wrap: anywhere !important;
+}
+
+@media (max-width: 1180px) {
+  .cowork-page-active .cowork-trace-panel .cowork-panel-heading {
+    grid-template-columns: 1fr !important;
+    align-items: start !important;
+  }
+
+  .cowork-page-active .cowork-trace-toolbar {
+    grid-template-columns: max-content minmax(92px, 1fr) 28px !important;
+    width: 100% !important;
+  }
+}
+
+/* Cowork page uses the session header as the primary header; remove the outer marketing-style bar. */
+.cowork-page-active .cowork-page-header {
+  display: none !important;
+}
+
+.cowork-page-active .cowork-modal-content {
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+
+.cowork-page-active .cowork-modal-body {
+  grid-row: 1 !important;
+}
+
+/* The right detail panes already expose selected trace/task content; keep advanced task actions out of the default flow. */
+.cowork-page-active .cowork-action-rail {
+  display: none !important;
+}
+
+.cowork-page-active .cowork-detail-pane {
+  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+}
+
+.cowork-page-active .cowork-create.cowork-composer {
+  grid-row: 4 !important;
+}
+
+/* Collapse affordances were removed; hide stale controls if cached markup is present. */
+.cowork-page-active #cowork-graph-collapse-button,
+.cowork-page-active #cowork-trace-collapse-button,
+.cowork-page-active .cowork-graph-rail-button,
+.cowork-page-active .cowork-trace-rail-button {
+  display: none !important;
 }
