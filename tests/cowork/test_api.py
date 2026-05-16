@@ -481,11 +481,20 @@ async def test_cowork_swarm_steering_budget_and_work_unit_api(cowork_api_client)
     assert response.status == 200
     payload = await response.json()
     assert payload["architecture_topology"]["architecture"] == "swarm"
-    assert payload["organization_projection"]["sections"][0]["id"] == "swarm_plan"
+    assert {section["id"] for section in payload["organization_projection"]["sections"]} >= {
+        "swarm_organization",
+        "swarm_plan",
+    }
 
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/artifacts")
     assert response.status == 200
-    assert "artifact_index" in await response.json()
+    artifacts_payload = await response.json()
+    assert "artifact_index" in artifacts_payload
+    assert artifacts_payload["swarm_organization"]["schema_version"] == "cowork.swarm_organization.v1"
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session.id}/organization")
+    assert response.status == 200
+    assert (await response.json())["swarm_organization"]["plan_id"] == session.swarm_plan["id"]
 
     service.fail_work_unit(session, "unit_a", "boom")
     response = await cowork_api_client.post(

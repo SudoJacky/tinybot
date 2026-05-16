@@ -1790,6 +1790,7 @@ function coworkSafeSession(session) {
     blueprint: session.blueprint || null,
     swarm_plan: session.swarm_plan || {},
     swarm_queues: session.swarm_queues || {},
+    swarm_organization: session.swarm_organization || {},
     large_swarm_summary: session.large_swarm_summary || {},
   };
 }
@@ -3318,6 +3319,9 @@ function coworkFindSelected(session) {
   if (type === "work_unit") {
     return { type, item: (session.swarm_plan?.work_units || []).find((unit) => unit.id === id) || null };
   }
+  if (type === "workstream") {
+    return { type, item: (session.swarm_organization?.workstreams || []).find((stream) => stream.id === id) || null };
+  }
   if (type === "mailbox") {
     return { type, item: (session.mailbox || []).find((record) => record.id === id) || null };
   }
@@ -3436,6 +3440,8 @@ function renderCoworkSwarmPlan(session) {
   }
   const budget = session?.budget_state || session?.budget || {};
   const queues = session?.swarm_queues || {};
+  const organization = session?.swarm_organization || {};
+  const metrics = organization.metrics || session?.swarm_metrics || {};
   const largeSummary = session?.large_swarm_summary || {};
   const limits = budget.limits || {};
   const usage = budget.usage || {};
@@ -3457,12 +3463,12 @@ function renderCoworkSwarmPlan(session) {
     limits.parallel_width !== undefined ? `width ${limits.parallel_width}` : "",
     limits.max_work_units !== undefined ? `units ${units.length}/${limits.max_work_units}` : `${units.length} units`,
     queues.counts ? `ready ${queues.counts.ready || 0} / running ${queues.counts.running || 0}` : "",
-    largeSummary.enabled ? `${largeSummary.workstreams?.length || 0} groups` : "",
+    organization.grouped_counts ? `${organization.grouped_counts.workstreams || 0} streams` : "",
     usage.agent_calls !== undefined ? `calls ${usage.agent_calls}` : "",
     session?.stop_reason || "",
   ].filter(Boolean).join(" - ");
   panel.append(card);
-  if (queues.counts || largeSummary.enabled) {
+  if (queues.counts || organization.gates || largeSummary.enabled) {
     const queueCard = document.createElement("article");
     queueCard.className = "cowork-card cowork-observable-card";
     queueCard.innerHTML = `
@@ -3473,7 +3479,7 @@ function renderCoworkSwarmPlan(session) {
       <p></p>
       <small></small>
     `;
-    queueCard.querySelector("strong").textContent = largeSummary.enabled ? "Large swarm summary" : "Scheduler queues";
+    queueCard.querySelector("strong").textContent = organization.schema_version ? "Swarm organization" : "Scheduler queues";
     queueCard.querySelector("span").className = coworkStatusClass(queues.available_slots ? "ready" : "pending");
     queueCard.querySelector("span").textContent = `${queues.available_slots ?? 0} slots`;
     const counts = queues.counts || {};
@@ -3483,11 +3489,21 @@ function renderCoworkSwarmPlan(session) {
       `retry ${counts.failed_retry || 0}`,
       `done ${counts.completed || 0}`,
     ].join(" - ");
-    queueCard.querySelector("small").textContent = largeSummary.enabled
-      ? (largeSummary.workstreams || []).slice(0, 4).map((group) => `${group.title} ${group.count}`).join(" - ")
+    const gates = organization.gates || {};
+    queueCard.querySelector("small").textContent = organization.schema_version
+      ? [
+        `reducer ${gates.reducer?.status || "not_ready"}`,
+        `reviewer ${gates.reviewer?.status || "not_ready"}`,
+        `eff ${metrics.parallel_efficiency ?? "-"}`,
+        `coverage ${metrics.reducer_coverage ?? "-"}`,
+      ].join(" - ")
       : "Dependency-aware queues survive refresh and replay.";
     panel.append(queueCard);
   }
+}
+
+function coworkWorkUnitWorkstream(unit) {
+  return unit.workstream_id || unit.workstream || unit.fanout_group_id || unit.team_id || unit.source_kind || unit.kind || unit.source_task_id || "default";
 }
 
 function renderCoworkWorkUnits(session) {
@@ -3495,7 +3511,8 @@ function renderCoworkWorkUnits(session) {
   const list = elements.coworkWorkUnitList;
   list.textContent = "";
   const units = session?.swarm_plan?.work_units || [];
-  const largeSummary = session?.large_swarm_summary || {};
+  const organization = session?.swarm_organization || {};
+  const workstreams = Array.isArray(organization.workstreams) ? organization.workstreams : [];
   const counts = units.reduce((acc, unit) => {
     const status = unit.status || "unknown";
     acc[status] = (acc[status] || 0) + 1;
@@ -3510,11 +3527,12 @@ function renderCoworkWorkUnits(session) {
     list.append(coworkEmpty("No swarm work units yet."));
     return;
   }
-  if (largeSummary.enabled && Array.isArray(largeSummary.workstreams) && !state.coworkWorkUnitSearch) {
-    const groups = largeSummary.workstreams.slice(0, 12);
+  const consoleQuery = String(state.coworkConsoleFilter || "").trim();
+  const shouldCluster = !consoleQuery && organization.schema_version && (organization.enabled || units.length >= 20);
+  if (shouldCluster && workstreams.length) {
+    const groups = workstreams.filter((group) => coworkMatchesConsoleFilter(group, ["agent_ids", "unit_counts", "blockers", "sample_unit_ids", "risk"])).slice(0, 24);
     for (const group of groups) {
-      const item = document.createElement("article");
-      item.className = "cowork-card cowork-observable-card";
+      const item = coworkInteractiveCard("workstream", group.id, "cowork-card cowork-observable-card cowork-workstream-card");
       item.innerHTML = `
         <div class="cowork-card-row">
           <strong></strong>
@@ -3524,18 +3542,23 @@ function renderCoworkWorkUnits(session) {
         <small></small>
       `;
       item.querySelector("strong").textContent = group.title || group.id || "workstream";
-      item.querySelector("span").className = coworkStatusClass("active");
-      item.querySelector("span").textContent = `${group.count || 0} units`;
-      item.querySelector("p").textContent = Object.entries(group.status_counts || {}).map(([status, count]) => `${status} ${count}`).join(" - ");
-      item.querySelector("small").textContent = (group.sample_unit_ids || []).filter(Boolean).join(", ");
+      item.querySelector("span").className = coworkStatusClass(group.status || "active");
+      item.querySelector("span").textContent = `${Object.values(group.unit_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)} units`;
+      item.querySelector("p").textContent = Object.entries(group.unit_counts || {}).map(([status, count]) => `${status} ${count}`).join(" - ");
+      item.querySelector("small").textContent = [
+        group.agent_ids?.length ? `agents ${group.agent_ids.join(", ")}` : "",
+        group.coverage !== undefined ? `coverage ${Math.round(Number(group.coverage || 0) * 100)}%` : "",
+        group.risk ? `risk ${group.risk}` : "",
+        group.blockers?.length ? `${group.blockers.length} blockers` : "",
+      ].filter(Boolean).join(" - ");
       list.append(item);
     }
     return;
   }
-  const search = String(state.coworkWorkUnitSearch || "").trim().toLowerCase();
-  const visibleUnits = search
-    ? units.filter((unit) => `${unit.id || ""} ${unit.title || ""} ${unit.status || ""} ${unit.assigned_agent_id || ""}`.toLowerCase().includes(search))
-    : units.filter((unit) => coworkMatchesConsoleFilter(unit, ["assigned_agent_id", "result", "error", "dependencies"]));
+  const visibleUnits = units.filter((unit) => coworkMatchesConsoleFilter(
+    { ...unit, workstream: coworkWorkUnitWorkstream(unit) },
+    ["assigned_agent_id", "result", "error", "dependencies", "evidence", "artifacts", "source_work_unit_ids", "workstream"],
+  ));
   for (const unit of visibleUnits.slice(0, 60)) {
     const item = coworkInteractiveCard("work_unit", unit.id, "cowork-card cowork-observable-card");
     item.innerHTML = `
@@ -3553,6 +3576,7 @@ function renderCoworkWorkUnits(session) {
     item.querySelector("p").textContent = compactText(unit.result?.answer || unit.error || unit.description || "", 180);
     item.querySelector("small").textContent = [
       unit.assigned_agent_id ? `Agent ${unit.assigned_agent_id}` : "",
+      `Stream ${coworkWorkUnitWorkstream(unit)}`,
       unit.dependencies?.length ? `Deps ${unit.dependencies.join(", ")}` : "",
       unit.confidence !== null && unit.confidence !== undefined ? `Confidence ${Math.round(Number(unit.confidence) * 100)}%` : "",
       unit.replan_reason || "",

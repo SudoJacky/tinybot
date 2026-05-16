@@ -2,6 +2,7 @@ import pytest
 
 from tinybot.agent.tools.cowork import CoworkTool
 from tinybot.api.cowork import cowork_session_snapshot
+from tinybot.cowork.snapshot import build_cowork_swarm_organization
 from tinybot.cowork.service import CoworkService
 from tinybot.cowork.swarm import (
     assess_swarm_orchestration,
@@ -249,6 +250,64 @@ def test_swarm_parallel_metrics_compute_dependency_depth_and_coverage(temp_works
     assert metrics["reducer_coverage"] == 1.0
     assert metrics["parallel_efficiency"] > 0
     assert snapshot["swarm_metrics"]["reducer_coverage"] == 1.0
+
+
+def test_swarm_organization_projection_groups_workstreams_and_gates(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Research multiple product risks",
+        "Organization",
+        [
+            {"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]},
+            {"id": "market", "name": "Market", "role": "Market", "goal": "Market", "tools": ["cowork_internal"]},
+            {
+                "id": "security",
+                "name": "Security",
+                "role": "Security",
+                "goal": "Security",
+                "tools": ["cowork_internal"],
+            },
+        ],
+        [
+            {
+                "id": "market_a",
+                "title": "Market A",
+                "description": "Market A",
+                "assigned_agent_id": "market",
+                "fanout_group_id": "market",
+            },
+            {
+                "id": "market_b",
+                "title": "Market B",
+                "description": "Market B",
+                "assigned_agent_id": "market",
+                "fanout_group_id": "market",
+            },
+            {
+                "id": "security_a",
+                "title": "Security A",
+                "description": "Security A",
+                "assigned_agent_id": "security",
+                "fanout_group_id": "security",
+            },
+        ],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 2},
+    )
+    service.complete_task(session, "market_a", '{"answer":"done","confidence":0.8}')
+
+    organization = build_cowork_swarm_organization(session)
+    snapshot = cowork_session_snapshot(session)
+
+    assert organization["schema_version"] == "cowork.swarm_organization.v1"
+    assert organization["plan_id"] == session.swarm_plan["id"]
+    assert organization["grouped_counts"]["workstreams"] == 2
+    assert organization["gates"]["reducer"]["required"] is True
+    assert organization["metrics"]["schema_version"] == "cowork.swarm_metrics.v1"
+    assert snapshot["swarm_organization"]["workstreams"]
+    market = next(item for item in organization["workstreams"] if item["id"] == "market")
+    assert market["unit_counts"]["completed"] == 1
+    assert market["agent_ids"] == ["market"]
 
 
 def test_swarm_metrics_expose_duplicate_and_blocked_slots_in_queues(temp_workspace):
