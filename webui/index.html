@@ -280,10 +280,33 @@
               <div class="cowork-toolbar cowork-session-actions">
                 <button id="cowork-pause-button" class="button" type="button">Emergency stop</button>
                 <button id="cowork-resume-button" class="button" type="button">Resume</button>
+                <button id="cowork-map-button" class="button active" type="button" aria-pressed="true">Hide map</button>
                 <button id="cowork-summary-button" class="button" type="button">Summary</button>
                 <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
               </div>
             </header>
+            <section id="cowork-focus-strip" class="cowork-focus-strip" aria-label="Cowork session focus">
+              <article class="cowork-focus-card">
+                <span>Progress</span>
+                <strong id="cowork-focus-progress">-</strong>
+                <small id="cowork-focus-progress-detail">No active session</small>
+              </article>
+              <article class="cowork-focus-card">
+                <span>Running</span>
+                <strong id="cowork-focus-running">-</strong>
+                <small id="cowork-focus-running-detail">No active agents</small>
+              </article>
+              <article class="cowork-focus-card">
+                <span>Next</span>
+                <strong id="cowork-focus-next">-</strong>
+                <small id="cowork-focus-next-detail">Select or start a session</small>
+              </article>
+              <article class="cowork-focus-card">
+                <span>Output</span>
+                <strong id="cowork-focus-output">-</strong>
+                <small id="cowork-focus-output-detail">No final draft</small>
+              </article>
+            </section>
             <div class="cowork-primary-column">
               <section class="cowork-graph-panel" aria-label="Cowork team map">
                 <div class="cowork-graph-header">
@@ -292,7 +315,6 @@
                     <p id="cowork-graph-caption">Focused agents and the live communication between them.</p>
                   </div>
                   <div class="cowork-graph-controls" aria-label="Team map controls">
-                    <button id="cowork-graph-collapse-button" class="button button-icon cowork-panel-collapse-button" type="button" aria-label="Collapse workflow graph" title="Collapse workflow graph">&lt;</button>
                     <button id="cowork-graph-zoom-out" class="button button-icon" type="button" aria-label="Zoom out" title="Zoom out">-</button>
                     <button id="cowork-graph-reset" class="button" type="button">Fit</button>
                     <button id="cowork-graph-zoom-in" class="button button-icon" type="button" aria-label="Zoom in" title="Zoom in">+</button>
@@ -321,17 +343,17 @@
                     <h4>Run metrics</h4>
                     <span id="cowork-scheduler-summary" class="cowork-panel-note">No decisions</span>
                   </div>
-                  <input id="cowork-console-filter" class="config-input cowork-filter-input" type="search" placeholder="Filter task, agent, artifact, trace..." aria-label="Filter cowork console" />
+                  <input id="cowork-console-filter" class="config-input cowork-filter-input" type="search" placeholder="Filter workstream, unit, agent, artifact, trace, status..." aria-label="Filter cowork console" />
                   <div id="cowork-run-metrics" class="cowork-metrics cowork-compact-metrics"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Swarm plan">
+                <section class="cowork-ops-panel cowork-swarm-summary-panel" aria-label="Swarm plan">
                   <div class="cowork-panel-heading">
                     <h4>Swarm plan</h4>
                     <span id="cowork-swarm-plan-summary" class="cowork-panel-note">No plan</span>
                   </div>
                   <div id="cowork-swarm-plan-panel" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Architecture projection">
+                <section class="cowork-ops-panel cowork-advanced-panel" aria-label="Architecture projection" data-cowork-panel="trace">
                   <div class="cowork-panel-heading">
                     <h4>Architecture projection</h4>
                     <span id="cowork-architecture-projection-summary" class="cowork-panel-note">No projection</span>
@@ -397,7 +419,6 @@
                         <option value="review">Review</option>
                         <option value="error">Error</option>
                       </select>
-                      <button id="cowork-trace-collapse-button" class="button button-icon cowork-panel-collapse-button" type="button" aria-label="Collapse trace" title="Collapse trace">&gt;</button>
                     </div>
                   </div>
                   <div id="cowork-trace-list" class="cowork-list cowork-projection-list"></div>

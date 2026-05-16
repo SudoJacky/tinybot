@@ -1,9 +1,24 @@
 import pytest
 
 from tinybot.agent.tools.cowork import CoworkTool
+from tinybot.api.cowork import cowork_session_snapshot
+from tinybot.cowork.snapshot import build_cowork_swarm_organization
 from tinybot.cowork.service import CoworkService
-from tinybot.cowork.swarm import build_swarm_scheduler_queues, normalize_swarm_plan, validate_swarm_plan
+from tinybot.cowork.swarm import (
+    assess_swarm_orchestration,
+    build_swarm_parallel_metrics,
+    build_swarm_scheduler_queues,
+    normalize_swarm_plan,
+    validate_swarm_plan,
+)
 from tinybot.providers.base import LLMResponse, ToolCallRequest
+from tests.cowork.fixtures import (
+    create_budget_exhaustion_fixture,
+    create_code_review_swarm_fixture,
+    create_expert_panel_fixture,
+    create_large_swarm_fixture,
+    create_research_matrix_fixture,
+)
 
 
 class PlanningProvider:
@@ -86,6 +101,367 @@ def test_swarm_session_creates_active_plan_with_work_units(temp_workspace):
     assert session.swarm_plan["work_units"][0]["status"] == "ready"
     assert session.swarm_plan["work_units"][1]["status"] == "pending"
     assert any(span.kind == "swarm" and span.name == "Swarm plan created" for span in session.trace_spans)
+
+
+def test_swarm_orchestration_assessment_keeps_simple_goal_small(temp_workspace):
+    service = CoworkService(temp_workspace)
+
+    session = service.create_session(
+        "Summarize this one short note",
+        "Simple swarm",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Answer", "tools": ["cowork_internal"]}],
+        [{"id": "answer", "title": "Answer", "description": "Answer directly", "assigned_agent_id": "lead"}],
+        workflow_mode="swarm",
+    )
+
+    assessment = session.swarm_plan["orchestration"]
+    assert assessment["recommended_mode"] in {"single", "team"}
+    assert assessment["spawn_strategy"] == "no_spawn"
+    assert assessment["fanout_score"] < 0.5
+    assert "limited separability" in " ".join(assessment["fanout_rationale"])
+
+
+def test_swarm_orchestration_assessment_detects_separable_work(temp_workspace):
+    service = CoworkService(temp_workspace)
+
+    session = service.create_session(
+        "Run an expert panel review comparing market, security, customer, GTM, finance, and engineering risks",
+        "Expert panel",
+        [
+            {"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]},
+            {"id": "market", "name": "Market", "role": "Market expert", "goal": "Market", "tools": ["cowork_internal"]},
+            {
+                "id": "security",
+                "name": "Security",
+                "role": "Security expert",
+                "goal": "Security",
+                "tools": ["cowork_internal"],
+            },
+            {"id": "gtm", "name": "GTM", "role": "GTM expert", "goal": "GTM", "tools": ["cowork_internal"]},
+        ],
+        [
+            {
+                "id": "market",
+                "title": "Market review",
+                "description": "Market",
+                "assigned_agent_id": "market",
+                "fanout_group_id": "market",
+            },
+            {
+                "id": "security",
+                "title": "Security review",
+                "description": "Security",
+                "assigned_agent_id": "security",
+                "fanout_group_id": "security",
+            },
+            {
+                "id": "gtm",
+                "title": "GTM review",
+                "description": "GTM",
+                "assigned_agent_id": "gtm",
+                "fanout_group_id": "gtm",
+            },
+            {
+                "id": "finance",
+                "title": "Finance review",
+                "description": "Finance",
+                "assigned_agent_id": "market",
+                "fanout_group_id": "finance",
+            },
+            {
+                "id": "customer",
+                "title": "Customer review",
+                "description": "Customer",
+                "assigned_agent_id": "gtm",
+                "fanout_group_id": "customer",
+            },
+            {
+                "id": "engineering",
+                "title": "Engineering review",
+                "description": "Engineering",
+                "assigned_agent_id": "security",
+                "fanout_group_id": "engineering",
+            },
+        ],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 4, "max_spawned_agents": 3},
+    )
+
+    assessment = session.swarm_plan["orchestration"]
+    assert assessment["recommended_mode"] in {"small_swarm", "large_swarm"}
+    assert assessment["fanout_score"] >= 0.5
+    assert assessment["parallel_width_recommendation"] > 1
+    assert assessment["spawn_strategy"] == "spawn_per_workstream"
+    assert len(assessment["workstream_hints"]) >= 4
+
+
+def test_swarm_orchestration_assessment_marks_risky_goal_for_review_and_user_input(temp_workspace):
+    assessment = assess_swarm_orchestration(
+        goal="Implement code changes, write files, and run command validation",
+        agents={},
+        tasks={},
+        work_units=[
+            {
+                "id": "code",
+                "title": "Code",
+                "description": "Edit files",
+                "tool_allowlist": ["cowork_internal", "edit_file", "exec"],
+                "dependencies": [],
+            }
+        ],
+        budgets={"parallel_width": 2},
+        policy={"allowed_tools": ["cowork_internal"], "allow_file_writes": False, "allow_exec": False},
+    )
+
+    assert assessment["risk_level"] in {"medium", "high"}
+    assert assessment["requires_review"] is True
+    assert assessment["requires_user_input"] is True
+
+
+def test_swarm_orchestration_assessment_is_exposed_in_snapshot(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Compare options", "Compare", [], [], workflow_mode="swarm")
+
+    snapshot = cowork_session_snapshot(session)
+
+    assert snapshot["orchestration_assessment"] == session.swarm_plan["orchestration"]
+    assert snapshot["swarm_plan"]["orchestration"]["id"].startswith("orch_")
+
+
+def test_swarm_parallel_metrics_compute_dependency_depth_and_coverage(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Measure useful fanout",
+        "Metrics",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [
+            {"id": "unit_a", "title": "A", "description": "A", "assigned_agent_id": "lead"},
+            {"id": "unit_b", "title": "B", "description": "B", "assigned_agent_id": "lead", "dependencies": ["unit_a"]},
+        ],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 3},
+    )
+    service.complete_task(session, "unit_a", '{"answer":"a","confidence":0.8}')
+    service.complete_task(session, "unit_b", '{"answer":"b","confidence":0.8}')
+    reducer_task = next(task for task in session.tasks.values() if task.title == "Reduce swarm results")
+    service.complete_task(
+        session,
+        reducer_task.id,
+        '{"answer":"final","confidence":0.9,"source_work_unit_ids":["unit_a","unit_b"]}',
+    )
+
+    metrics = build_swarm_parallel_metrics(session)
+    snapshot = cowork_session_snapshot(session)
+
+    assert metrics["critical_path_depth"] >= 3
+    assert metrics["reducer_coverage"] == 1.0
+    assert metrics["parallel_efficiency"] > 0
+    assert snapshot["swarm_metrics"]["reducer_coverage"] == 1.0
+
+
+def test_swarm_organization_projection_groups_workstreams_and_gates(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Research multiple product risks",
+        "Organization",
+        [
+            {"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]},
+            {"id": "market", "name": "Market", "role": "Market", "goal": "Market", "tools": ["cowork_internal"]},
+            {
+                "id": "security",
+                "name": "Security",
+                "role": "Security",
+                "goal": "Security",
+                "tools": ["cowork_internal"],
+            },
+        ],
+        [
+            {
+                "id": "market_a",
+                "title": "Market A",
+                "description": "Market A",
+                "assigned_agent_id": "market",
+                "fanout_group_id": "market",
+            },
+            {
+                "id": "market_b",
+                "title": "Market B",
+                "description": "Market B",
+                "assigned_agent_id": "market",
+                "fanout_group_id": "market",
+            },
+            {
+                "id": "security_a",
+                "title": "Security A",
+                "description": "Security A",
+                "assigned_agent_id": "security",
+                "fanout_group_id": "security",
+            },
+        ],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 2},
+    )
+    service.complete_task(session, "market_a", '{"answer":"done","confidence":0.8}')
+
+    organization = build_cowork_swarm_organization(session)
+    snapshot = cowork_session_snapshot(session)
+
+    assert organization["schema_version"] == "cowork.swarm_organization.v1"
+    assert organization["plan_id"] == session.swarm_plan["id"]
+    assert organization["grouped_counts"]["workstreams"] == 2
+    assert organization["gates"]["reducer"]["required"] is True
+    assert organization["metrics"]["schema_version"] == "cowork.swarm_metrics.v1"
+    assert snapshot["swarm_organization"]["workstreams"]
+    market = next(item for item in organization["workstreams"] if item["id"] == "market")
+    assert market["unit_counts"]["completed"] == 1
+    assert market["agent_ids"] == ["market"]
+
+
+def test_swarm_metrics_expose_duplicate_and_blocked_slots_in_queues(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Blocked metrics",
+        "Blocked metrics",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [
+            {"id": "unit_a", "title": "A", "description": "A", "assigned_agent_id": "lead"},
+            {
+                "id": "unit_b",
+                "title": "B",
+                "description": "B",
+                "assigned_agent_id": "lead",
+                "dependencies": ["missing"],
+            },
+        ],
+        workflow_mode="swarm",
+        budgets={"parallel_width": 2},
+    )
+    service.add_event(
+        session,
+        "swarm.duplicate_activation_skipped",
+        "duplicate",
+        actor_id="scheduler",
+        data={"work_unit_id": "unit_a"},
+    )
+
+    queues = build_swarm_scheduler_queues(session)
+    metrics = queues["metrics"]
+
+    assert metrics["duplicate_rejection_count"] == 1
+    assert metrics["blocked_slot_count"] >= 1
+    assert queues["queues"]["blocked"][0]["id"] == "unit_b"
+
+
+def test_scheduler_decision_and_run_metrics_include_swarm_metrics(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Decision metrics", "Decision", [], [], workflow_mode="swarm")
+
+    decision = service.record_scheduler_decision(
+        session,
+        run_id="run_metrics",
+        round_id="round_1",
+        selected_agent_ids=[next(iter(session.agents))],
+        candidate_scores=[],
+        reason="test",
+    )
+    service.start_run_metrics(session, "run_metrics")
+    metric = service.finish_run_metrics(session, "run_metrics", rounds=1, agent_calls=1)
+
+    assert decision["swarm_metrics"]["schema_version"] == "cowork.swarm_metrics.v1"
+    assert metric is not None
+    assert metric.swarm_metrics["schema_version"] == "cowork.swarm_metrics.v1"
+
+
+def test_agent_prompt_includes_swarm_orchestration_assessment(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Compare product strategy options",
+        "Prompt",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [{"id": "option_a", "title": "Option A", "description": "Analyze option A", "assigned_agent_id": "lead"}],
+        workflow_mode="swarm",
+    )
+    agent = session.agents["lead"]
+
+    system_prompt = CoworkTool._build_agent_system_prompt(session, agent)
+    work_prompt = CoworkTool._build_agent_work_prompt(session, agent, [], session.tasks["option_a"])
+
+    assert "Swarm orchestration assessment:" in system_prompt
+    assert "fanout_score=" in system_prompt
+    assert "spawn_strategy=" in work_prompt
+
+
+def test_work_unit_context_is_bounded_and_uses_authorized_refs(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Delegate bounded research",
+        "Context",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [
+            {"id": "collect", "title": "Collect", "description": "Collect source", "assigned_agent_id": "lead"},
+            {
+                "id": "analyze",
+                "title": "Analyze",
+                "description": "Analyze source",
+                "assigned_agent_id": "lead",
+                "dependencies": ["collect"],
+            },
+        ],
+        workflow_mode="swarm",
+        budgets={"max_spawned_agents": 2},
+    )
+    service.complete_task(session, "collect", '{"answer":"source summary","confidence":0.8}')
+    delegated = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Analyze source in isolation",
+        role="Bounded analyst",
+        name="Bounded Analyst",
+        input_references=[{"ref": "artifact_1", "type": "artifact", "summary": "Allowed artifact"}, {}],
+        tools=["cowork_internal"],
+        work_unit_id="analyze",
+    )
+
+    assert not isinstance(delegated, str)
+    sub_agent = delegated["sub_agent"]
+    context = service.work_unit_context_for_agent(session, sub_agent.id, task_id="analyze", work_unit_id="analyze")
+
+    assert context["schema_version"] == "cowork.work_unit_context.v1"
+    assert context["private_history_included"] is False
+    assert context["work_unit"]["id"] == "analyze"
+    assert context["delegated_brief"]["task_goal"] == "Analyze source in isolation"
+    assert context["authorized_refs"]["artifact_refs"] == ["artifact_1"]
+    assert context["authorized_refs"]["redacted_reference_count"] == 1
+    assert context["source_summaries"][0]["summary"] == "source summary"
+    assert "parent agent's private history" in sub_agent.context_policy
+
+
+def test_spawn_trace_surfaces_context_reference_counts(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Trace context refs",
+        "Trace refs",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [],
+        workflow_mode="swarm",
+        budgets={"max_spawned_agents": 1},
+    )
+
+    delegated = service.request_agent_delegation(
+        session,
+        parent_agent_id="lead",
+        task_goal="Trace refs",
+        input_references=[{"ref": "artifact_1", "type": "artifact"}, {}],
+        tools=["cowork_internal"],
+    )
+
+    assert not isinstance(delegated, str)
+    spawn_event = next(event for event in session.events if event.type == "agent.spawned")
+    spawn_span = next(span for span in session.trace_spans if span.name == "Agent spawned")
+    assert spawn_event.data["authorized_artifact_ref_count"] == 1
+    assert spawn_event.data["redacted_reference_count"] == 1
+    assert spawn_span.data["authorized_artifact_ref_count"] == 1
+    assert spawn_span.data["redacted_reference_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -596,6 +972,168 @@ def test_swarm_evaluation_blocks_missing_artifact(temp_workspace):
     )
     assert artifact_eval["status"] == "block"
     assert session.completion_decision["next_action"] == "resolve_evaluation_blockers"
+
+
+def test_swarm_reducer_stores_source_links_and_workstream_confidence(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Synthesize source-linked reports",
+        "Source links",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [
+            {
+                "id": "market_a",
+                "title": "Market",
+                "description": "Market",
+                "assigned_agent_id": "lead",
+                "fanout_group_id": "market",
+            },
+            {
+                "id": "risk_a",
+                "title": "Risk",
+                "description": "Risk",
+                "assigned_agent_id": "lead",
+                "fanout_group_id": "risk",
+            },
+        ],
+        workflow_mode="swarm",
+    )
+    service.complete_task(session, "market_a", '{"answer":"m","artifacts":["market.md"],"confidence":0.8}')
+    service.complete_task(session, "risk_a", '{"answer":"r","artifacts":["risk.md"],"confidence":0.8}')
+    reducer_task = next(task for task in session.tasks.values() if task.title == "Reduce swarm results")
+
+    service.complete_task(
+        session,
+        reducer_task.id,
+        '{"answer":"final","findings":[{"summary":"Market works","source_work_unit_ids":["market_a"]}],'
+        '"confidence":0.9,"source_work_unit_ids":["market_a","risk_a"],'
+        '"source_artifact_refs":["market.md","risk.md"],"confidence_by_section":{"market":0.8,"risk":0.7}}',
+    )
+
+    reducer_unit = service.swarm_work_unit_for_task(session, reducer_task.id)
+    assert reducer_task.result_data["source_artifact_refs"] == ["market.md", "risk.md"]
+    assert reducer_task.result_data["coverage_by_workstream"] == {"market": 1.0, "risk": 1.0}
+    assert reducer_unit["source_artifact_refs"] == ["market.md", "risk.md"]
+    assert reducer_unit["confidence_by_section"]["market"] == 0.8
+
+
+def test_swarm_reviewer_required_follow_up_units_keep_source_links(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Needs sourced follow-up",
+        "Reviewer follow-up",
+        [
+            {"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]},
+            {"id": "reviewer", "name": "Reviewer", "role": "Reviewer", "goal": "Review", "tools": ["cowork_internal"]},
+        ],
+        [{"id": "map_a", "title": "Map A", "description": "A", "assigned_agent_id": "lead"}],
+        workflow_mode="swarm",
+        budgets={"max_work_units": 8},
+    )
+    session.swarm_plan["reviewer_agent_id"] = "reviewer"
+    session.swarm_plan["review"] = {"required": True, "agent_id": "reviewer"}
+    service.complete_task(session, "map_a", '{"answer":"a","confidence":0.8}')
+    reducer_task = next(task for task in session.tasks.values() if task.title == "Reduce swarm results")
+    service.complete_task(
+        session, reducer_task.id, '{"answer":"draft","confidence":0.9,"source_work_unit_ids":["map_a"]}'
+    )
+    reviewer_task = next(task for task in session.tasks.values() if task.title == "Review swarm synthesis")
+
+    service.complete_task(
+        session,
+        reviewer_task.id,
+        '{"verdict":"needs_revision","coverage_issues":[{"workstream":"default"}],'
+        '"uncited_claims":[{"summary":"claim"}],"artifact_issues":["missing report"],'
+        '"required_follow_up_units":[{"title":"Verify claim","description":"Verify the uncited claim",'
+        '"source_work_unit_ids":["map_a"],"source_artifact_refs":["report.md"]}],"confidence":0.6}',
+    )
+
+    revisions = [
+        unit for unit in session.swarm_plan["work_units"] if unit.get("replan_reason") == "reviewer_required_follow_up"
+    ]
+    assert reviewer_task.result_data["coverage_issues"][0]["workstream"] == "default"
+    assert reviewer_task.result_data["uncited_claims"][0]["summary"] == "claim"
+    assert len(revisions) == 1
+    assert revisions[0]["source_work_unit_id"] == "map_a"
+    assert revisions[0]["input"]["source_artifact_refs"] == ["report.md"]
+
+
+def test_swarm_evaluators_warn_on_uncited_claims_missing_streams_and_artifacts(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Review source artifacts",
+        "Evaluator warnings",
+        [{"id": "lead", "name": "Lead", "role": "Lead", "goal": "Lead", "tools": ["cowork_internal"]}],
+        [
+            {
+                "id": "market_a",
+                "title": "Market",
+                "description": "Market",
+                "assigned_agent_id": "lead",
+                "fanout_group_id": "market",
+            },
+            {
+                "id": "risk_a",
+                "title": "Risk",
+                "description": "Risk",
+                "assigned_agent_id": "lead",
+                "fanout_group_id": "risk",
+            },
+        ],
+        workflow_mode="swarm",
+    )
+    service.complete_task(session, "market_a", '{"answer":"m","artifacts":["market.md"],"confidence":0.8}')
+    service.complete_task(session, "risk_a", '{"answer":"r","artifacts":["risk.md"],"confidence":0.8}')
+    reducer_task = next(task for task in session.tasks.values() if task.title == "Reduce swarm results")
+    service.complete_task(
+        session,
+        reducer_task.id,
+        '{"answer":"final","findings":["Important claim"],"confidence":0.9}',
+    )
+
+    evaluations = {item["kind"]: item for item in session.runtime_state["swarm_evaluations"]}
+    assert evaluations["uncited_claims"]["status"] == "warn"
+    assert evaluations["workstream_coverage"]["status"] == "warn"
+    assert evaluations["artifact_validation"]["status"] == "warn"
+    assert {item["workstream"] for item in evaluations["workstream_coverage"]["issues"]} == {"market", "risk"}
+
+
+def test_source_linked_swarm_scenario_fixtures(temp_workspace):
+    service = CoworkService(temp_workspace)
+
+    expert = create_expert_panel_fixture(service)
+    research = create_research_matrix_fixture(service)
+    code_review = create_code_review_swarm_fixture(service)
+    budget = create_budget_exhaustion_fixture(service)
+    large = create_large_swarm_fixture(service)
+
+    assert (
+        len([unit for unit in expert.swarm_plan["work_units"] if unit.get("kind") not in {"reducer", "reviewer"}]) >= 6
+    )
+    assert expert.swarm_plan["orchestration"]["recommended_mode"] in {"small_swarm", "large_swarm"}
+    assert (
+        len([unit for unit in research.swarm_plan["work_units"] if unit.get("kind") not in {"reducer", "reviewer"}])
+        == 24
+    )
+    assert build_swarm_parallel_metrics(research)["fanout_utilization"] > 0
+    assert {unit["fanout_group_id"] for unit in code_review.swarm_plan["work_units"]} >= {"backend", "frontend"}
+    assert budget.stop_reason == "work_unit_budget_exhausted"
+    assert large.swarm_plan["orchestration"]["recommended_mode"] == "large_swarm"
+
+
+def test_large_swarm_fixture_projection_supports_clustered_ui_behavior(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = create_large_swarm_fixture(service, count=120)
+
+    organization = build_cowork_swarm_organization(session)
+    snapshot = cowork_session_snapshot(session)
+
+    assert organization["enabled"] is True
+    assert organization["total_work_units"] == 120
+    assert organization["grouped_counts"]["workstreams"] == 8
+    assert len(organization["workstreams"]) == 8
+    assert snapshot["large_swarm_summary"]["enabled"] is True
+    assert snapshot["large_swarm_summary"]["render_limit"] == 60
 
 
 def test_phase3_event_log_snapshot_and_replay_load(temp_workspace):

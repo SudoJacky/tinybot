@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from tinybot.cowork.swarm import build_swarm_scheduler_queues
+from tinybot.cowork.swarm import build_swarm_parallel_metrics, build_swarm_scheduler_queues
 from tinybot.cowork.types import CoworkAgentStep, CoworkEvent, CoworkSession, CoworkStepSummary, now_iso
 
 
@@ -1043,6 +1043,186 @@ def build_cowork_large_swarm_summary(session: CoworkSession) -> dict[str, Any]:
         "render_limit": 60,
         "generated_at": now_iso(),
     }
+
+
+def build_cowork_swarm_organization(session: CoworkSession) -> dict[str, Any]:
+    """Return the grouped swarm organization projection for snapshots and UI."""
+
+    plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+    units = [unit for unit in plan.get("work_units", []) if isinstance(unit, dict)]
+    main_units = [unit for unit in units if unit.get("kind") not in {"reducer", "reviewer"}]
+    metrics = build_swarm_parallel_metrics(session) if getattr(session, "workflow_mode", "") == "swarm" else {}
+    workstreams = _swarm_workstream_groups(main_units, metrics)
+    return {
+        "schema_version": "cowork.swarm_organization.v1",
+        "generated_at": now_iso(),
+        "plan_id": plan.get("id", ""),
+        "plan_status": plan.get("status", ""),
+        "enabled": bool(units) and (len(units) >= 20 or len(workstreams) > 1),
+        "total_work_units": len(units),
+        "workstreams": workstreams,
+        "grouped_counts": {
+            "workstreams": len(workstreams),
+            "work_units": len(main_units),
+            "gates": sum(1 for unit in units if unit.get("kind") in {"reducer", "reviewer"}),
+            "agents": len({str(unit.get("assigned_agent_id")) for unit in units if unit.get("assigned_agent_id")}),
+        },
+        "gates": _swarm_gate_summary(plan, units, session),
+        "metrics": metrics,
+        "blockers": _swarm_blocker_summaries(units, session),
+    }
+
+
+def _swarm_workstream_groups(units: list[dict[str, Any]], metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    critical_depth = int(metrics.get("critical_path_depth", 0) or 0)
+    for unit in units:
+        group_id = _swarm_workstream_id(unit)
+        group = groups.setdefault(
+            group_id,
+            {
+                "id": group_id,
+                "title": _swarm_workstream_title(group_id, unit),
+                "status": "pending",
+                "unit_counts": Counter(),
+                "agent_ids": set(),
+                "critical": False,
+                "coverage": 0.0,
+                "risk": "low",
+                "blockers": [],
+                "sample_unit_ids": [],
+            },
+        )
+        status = str(unit.get("status") or "unknown")
+        group["unit_counts"][status] += 1
+        if unit.get("assigned_agent_id"):
+            group["agent_ids"].add(str(unit.get("assigned_agent_id")))
+        if len(group["sample_unit_ids"]) < 8:
+            group["sample_unit_ids"].append(unit.get("id"))
+        blockers = _work_unit_blockers(unit)
+        if blockers:
+            group["blockers"].append({"work_unit_id": unit.get("id", ""), "blocked_by": blockers, "status": status})
+        if status in {"failed", "blocked", "needs_revision"}:
+            group["critical"] = True
+
+    for group in groups.values():
+        counts = group["unit_counts"]
+        total = sum(counts.values())
+        completed = counts.get("completed", 0) + counts.get("skipped", 0)
+        blocked = counts.get("failed", 0) + counts.get("blocked", 0) + counts.get("needs_revision", 0)
+        running = counts.get("in_progress", 0)
+        if blocked:
+            status = "blocked"
+            risk = "high"
+        elif running:
+            status = "active"
+            risk = "medium" if group["blockers"] else "low"
+        elif total and completed == total:
+            status = "completed"
+            risk = "low"
+        else:
+            status = "pending"
+            risk = "medium" if group["blockers"] else "low"
+        group["status"] = status
+        group["risk"] = risk
+        group["coverage"] = round(completed / max(1, total), 3)
+        group["critical"] = bool(group["critical"] or (critical_depth > 0 and blocked))
+        group["unit_counts"] = dict(sorted(counts.items()))
+        group["agent_ids"] = sorted(group["agent_ids"])
+
+    return sorted(groups.values(), key=lambda item: (-sum(item["unit_counts"].values()), item["id"]))
+
+
+def _swarm_gate_summary(plan: dict[str, Any], units: list[dict[str, Any]], session: CoworkSession) -> dict[str, Any]:
+    reducer_units = [unit for unit in units if unit.get("kind") == "reducer"]
+    reviewer_units = [unit for unit in units if unit.get("kind") == "reviewer"]
+    evaluations = [
+        item
+        for item in ((getattr(session, "runtime_state", {}) or {}).get("swarm_evaluations", []))
+        if isinstance(item, dict)
+    ]
+    blocking_evaluations = [item for item in evaluations if item.get("status") in {"block", "error"}]
+    completion = getattr(session, "completion_decision", {}) if isinstance(getattr(session, "completion_decision", {}), dict) else {}
+    return {
+        "reducer": _swarm_gate("reducer", reducer_units, plan.get("reducer", {})),
+        "reviewer": _swarm_gate("reviewer", reviewer_units, plan.get("review", {})),
+        "evaluations": {
+            "status": "blocked" if blocking_evaluations else "pass" if evaluations else "not_ready",
+            "total": len(evaluations),
+            "blocking": len(blocking_evaluations),
+            "blocking_ids": [item.get("id", "") for item in blocking_evaluations],
+        },
+        "final_deliverable": {
+            "status": "ready" if completion.get("ready_to_finish") else "not_ready",
+            "next_action": completion.get("next_action", ""),
+            "reason": completion.get("reason", ""),
+        },
+    }
+
+
+def _swarm_gate(kind: str, units: list[dict[str, Any]], config: Any) -> dict[str, Any]:
+    unit = units[-1] if units else {}
+    data = config if isinstance(config, dict) else {}
+    return {
+        "status": unit.get("status") or ("pending" if data.get("required") else "not_ready"),
+        "required": bool(data.get("required") or kind == "reducer"),
+        "agent_id": unit.get("assigned_agent_id") or data.get("agent_id") or "",
+        "work_unit_id": unit.get("id", ""),
+        "source_work_unit_ids": unit.get("source_work_unit_ids", []),
+        "source_artifact_refs": unit.get("source_artifact_refs", []),
+        "coverage_by_workstream": unit.get("coverage_by_workstream", {}),
+        "confidence_by_section": unit.get("confidence_by_section", {}),
+    }
+
+
+def _swarm_blocker_summaries(units: list[dict[str, Any]], session: CoworkSession) -> list[dict[str, Any]]:
+    completed = {
+        str(unit.get("id"))
+        for unit in units
+        if unit.get("status") in {"completed", "skipped", "cancelled"} and unit.get("id")
+    }
+    completed.update(
+        task_id
+        for task_id, task in (getattr(session, "tasks", {}) or {}).items()
+        if getattr(task, "status", "") in {"completed", "skipped"}
+    )
+    blockers: list[dict[str, Any]] = []
+    for unit in units:
+        blocked_by = [dep for dep in _work_unit_blockers(unit) if dep not in completed]
+        status = str(unit.get("status") or "")
+        if not blocked_by and status not in {"failed", "blocked", "needs_revision"}:
+            continue
+        blockers.append(
+            {
+                "work_unit_id": unit.get("id", ""),
+                "title": unit.get("title", ""),
+                "workstream_id": _swarm_workstream_id(unit),
+                "status": status,
+                "blocked_by": blocked_by,
+                "error": unit.get("error", ""),
+            }
+        )
+    return blockers[:40]
+
+
+def _swarm_workstream_id(unit: dict[str, Any]) -> str:
+    for key in ("workstream_id", "workstream", "fanout_group_id", "team_id", "source_kind", "kind"):
+        value = str(unit.get(key) or "").strip()
+        if value:
+            return value
+    source_task_id = str(unit.get("source_task_id") or "").strip()
+    return source_task_id or "default"
+
+
+def _swarm_workstream_title(group_id: str, unit: dict[str, Any]) -> str:
+    title = str(unit.get("workstream_title") or unit.get("fanout_group_title") or "").strip()
+    return title or group_id.replace("_", " ").replace("-", " ").title()
+
+
+def _work_unit_blockers(unit: dict[str, Any]) -> list[str]:
+    blockers = unit.get("blocked_by") if isinstance(unit.get("blocked_by"), list) else []
+    dependencies = unit.get("dependencies") if isinstance(unit.get("dependencies"), list) else []
+    return [str(item) for item in [*blockers, *dependencies] if str(item or "").strip()]
 
 
 def _artifact_key(path_or_url: str) -> str:

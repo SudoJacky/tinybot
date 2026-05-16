@@ -10,6 +10,7 @@ from tinybot.cowork.policies.base import (
     StepSelectionResult,
     TopologyResult,
 )
+from tinybot.cowork.snapshot import build_cowork_swarm_organization
 from tinybot.cowork.swarm import build_swarm_scheduler_queues
 
 
@@ -69,6 +70,11 @@ class SwarmPolicy(ArchitectureRuntimePolicy):
         queues = self.scheduler_queues(session) if plan else {}
         completion = self.evaluate_completion(session)
         payload["sections"] = [
+            {
+                "id": "swarm_organization",
+                "title": "Swarm Organization",
+                "items": [build_cowork_swarm_organization(session)],
+            },
             {
                 "id": "swarm_plan",
                 "title": "Swarm Plan",

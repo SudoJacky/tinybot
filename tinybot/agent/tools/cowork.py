@@ -949,6 +949,7 @@ class CoworkTool(Tool):
             names = ", ".join(agent.id for agent in active)
             lines.append(f"Round {round_index + 1}: running {names}")
             candidate_scores = self.service.agent_readiness_scores(session)
+            swarm_metrics = (getattr(session, "runtime_state", {}) or {}).get("swarm_metrics", {}) if session.workflow_mode == "swarm" else {}
             self.service.record_scheduler_decision(
                 session,
                 run_id=run_id,
@@ -973,7 +974,7 @@ class CoworkTool(Tool):
                 actor_id="scheduler",
                 input_ref=names,
                 summary=f"Running {names}",
-                data={"agent_ids": [agent.id for agent in active], "profile": profile, "candidate_scores": candidate_scores},
+                data={"agent_ids": [agent.id for agent in active], "profile": profile, "candidate_scores": candidate_scores, "swarm_metrics": swarm_metrics},
             )
             self.service.add_event(
                 session,
@@ -1315,9 +1316,15 @@ class CoworkTool(Tool):
         )
 
         tools = self._build_agent_tools(session.id, agent)
+        work_context = self.service.work_unit_context_for_agent(
+            session,
+            agent.id,
+            task_id=getattr(task, "id", None),
+            work_unit_id=work_unit_id,
+        ) if session.workflow_mode == "swarm" else {}
         messages = [
             {"role": "system", "content": self._build_agent_system_prompt(session, agent)},
-            {"role": "user", "content": self._build_agent_work_prompt(session, agent, unread, task)},
+            {"role": "user", "content": self._build_agent_work_prompt(session, agent, unread, task, work_context=work_context)},
         ]
         try:
             result = await self.runner.run(
@@ -1854,6 +1861,7 @@ class CoworkTool(Tool):
         responsibilities = "\n".join(f"- {item}" for item in agent.responsibilities) or "- Contribute to the shared goal."
         agents = "\n".join(f"- {a.id}: {a.name} / {a.role}" for a in session.agents.values())
         workflow_guidance = CoworkTool._workflow_guidance(session)
+        orchestration = CoworkTool._format_orchestration_assessment(session)
         return f"""You are {agent.name}, a stateful cowork agent.
 
 Role: {agent.role}
@@ -1877,6 +1885,9 @@ Architecture:
 Workflow guidance:
 {workflow_guidance}
 
+Swarm orchestration assessment:
+{orchestration}
+
 Other agents:
 {agents}
 
@@ -1894,11 +1905,18 @@ requests: optional list of mailbox messages, each with recipient_ids, content, v
 completed_task_ids: optional list of task ids you completed
 completed_task_results: optional list of structured task results with task_id, answer, findings, risks, open_questions, artifacts, confidence from 0 to 1
 new_task_suggestions: optional list of task objects with title, description, assigned_agent_id, dependencies
-Use cowork_internal spawn_agent or spawn_subteam only when the session budget allows it and a bounded specialist or fanout group is necessary; include role, goal, responsibilities, tools, subscriptions, and reason.
+Use cowork_internal spawn_agent or spawn_subteam only when the orchestration assessment recommends useful fanout, the session budget allows it, and a bounded specialist or fanout group is necessary; include role, goal, responsibilities, tools, subscriptions, work_unit_id when available, and reason.
 """
 
     @staticmethod
-    def _build_agent_work_prompt(session: CoworkSession, agent: CoworkAgent, unread: list[Any], task: Any) -> str:
+    def _build_agent_work_prompt(
+        session: CoworkSession,
+        agent: CoworkAgent,
+        unread: list[Any],
+        task: Any,
+        *,
+        work_context: dict[str, Any] | None = None,
+    ) -> str:
         inbox_lines = []
         for message in unread:
             thread = session.threads.get(message.thread_id)
@@ -1924,12 +1942,15 @@ Use cowork_internal spawn_agent or spawn_subteam only when the session budget al
             if source_event_id.startswith("swarm_reducer:"):
                 gate_text = (
                     "Swarm reducer gate: return a JSON object with answer, findings, decisions, risks, "
-                    "open_questions, artifact_summary, confidence, missing_work, and source_work_unit_ids."
+                    "open_questions, artifact_summary, confidence, missing_work, source_work_unit_ids, "
+                    "source_artifact_refs, coverage_by_workstream, and confidence_by_section. Cite source "
+                    "work-unit ids and artifact refs for important sections."
                 )
             elif source_event_id.startswith("swarm_reviewer:"):
                 gate_text = (
                     "Swarm reviewer gate: return a JSON object with verdict pass, needs_revision, or blocked; "
-                    "issues; required_fixes; and confidence. Ambiguous verdicts block completion."
+                    "issues; coverage_issues; uncited_claims; artifact_issues; required_fixes; "
+                    "required_follow_up_units; and confidence. Ambiguous verdicts block completion."
                 )
         threads = session.open_threads_for(agent.id)
         thread_lines = [f"- {thread.id}: {thread.topic} ({len(thread.message_ids)} messages)" for thread in threads[:8]]
@@ -1946,6 +1967,8 @@ Use cowork_internal spawn_agent or spawn_subteam only when the session budget al
             entries = memory_counts.get(bucket, []) if isinstance(memory_counts.get(bucket, []), list) else []
             if entries:
                 memory_lines.append(f"- {bucket}: {len(entries)}")
+        orchestration = CoworkTool._format_orchestration_assessment(session)
+        context_text = CoworkTool._format_work_unit_context(work_context or {})
         return f"""Run one cowork round.
 
 Private context summary:
@@ -1959,6 +1982,12 @@ Structured shared memory:
 
 Current scheduler focus:
 {getattr(session, "current_focus_task", "") or session.goal}
+
+Swarm orchestration assessment:
+{orchestration}
+
+Bounded work-unit context:
+{context_text}
 
 Shared workspace directory:
 {workspace_dir}
@@ -1998,9 +2027,88 @@ Expected behavior:
 11. If you are the lead and teammate replies are in your inbox, synthesize those replies into a user-facing public_note instead of asking for more work.
 12. In message_bus mode, include topic/event_type/lineage_id when publishing event-like requests.
 13. In shared_state mode, put durable findings, risks, open questions, decisions, and artifacts in completed_task_results.
-14. Request dynamic agents or subteams only for bounded specialist work that cannot be handled by the current team.
+14. Request dynamic agents or subteams only when the orchestration assessment and budget support useful fanout; otherwise keep the work local or use the existing team.
 15. End with the structured JSON progress object described in your system instructions.
 """
+
+    @staticmethod
+    def _format_work_unit_context(context: dict[str, Any]) -> str:
+        if not context:
+            return "(none)"
+        unit = context.get("work_unit") if isinstance(context.get("work_unit"), dict) else {}
+        brief = context.get("delegated_brief") if isinstance(context.get("delegated_brief"), dict) else {}
+        refs = context.get("authorized_refs") if isinstance(context.get("authorized_refs"), dict) else {}
+        sources = context.get("source_summaries") if isinstance(context.get("source_summaries"), list) else []
+        parts = [
+            f"schema={context.get('schema_version', '-')}",
+            f"private_history_included={bool(context.get('private_history_included'))}",
+        ]
+        if unit:
+            parts.append(
+                "work_unit="
+                + json.dumps(
+                    {
+                        "id": unit.get("id"),
+                        "title": unit.get("title"),
+                        "expected_output_schema": unit.get("expected_output_schema", {}),
+                        "completion_criteria": unit.get("completion_criteria", []),
+                        "tool_allowlist": unit.get("tool_allowlist", []),
+                        "dependencies": unit.get("dependencies", []),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        if brief:
+            parts.append(
+                "delegated_brief="
+                + json.dumps(
+                    {
+                        "id": brief.get("id"),
+                        "task_goal": brief.get("task_goal"),
+                        "constraints": brief.get("constraints", []),
+                        "expected_output": brief.get("expected_output", ""),
+                        "allowed_tools": brief.get("allowed_tools", []),
+                        "stopping_criteria": brief.get("stopping_criteria", []),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        parts.append(
+            "authorized_refs="
+            + json.dumps(
+                {
+                    "artifact_refs": refs.get("artifact_refs", []),
+                    "detail_refs": refs.get("detail_refs", []),
+                    "redacted_reference_count": refs.get("redacted_reference_count", 0),
+                },
+                ensure_ascii=False,
+            )
+        )
+        if sources:
+            parts.append("source_summaries=" + json.dumps(sources[:5], ensure_ascii=False))
+        return "\n".join(parts)
+
+    @staticmethod
+    def _format_orchestration_assessment(session: CoworkSession) -> str:
+        plan = getattr(session, "swarm_plan", {}) if isinstance(getattr(session, "swarm_plan", {}), dict) else {}
+        assessment = plan.get("orchestration", {}) if isinstance(plan.get("orchestration", {}), dict) else {}
+        if not assessment:
+            return "(none)"
+        hints = assessment.get("workstream_hints") if isinstance(assessment.get("workstream_hints"), list) else []
+        hint_text = ", ".join(str(item.get("title") or item.get("id")) for item in hints[:6] if isinstance(item, dict))
+        rationale = assessment.get("fanout_rationale") if isinstance(assessment.get("fanout_rationale"), list) else []
+        rationale_text = "; ".join(str(item) for item in rationale[:3])
+        return (
+            f"mode={assessment.get('recommended_mode', 'team')}; "
+            f"fanout_score={assessment.get('fanout_score', 0)}; "
+            f"spawn_strategy={assessment.get('spawn_strategy', 'reuse_existing')}; "
+            f"parallel_width={assessment.get('parallel_width_recommendation', 1)}; "
+            f"risk={assessment.get('risk_level', 'low')}; "
+            f"requires_review={bool(assessment.get('requires_review'))}; "
+            f"requires_user_input={bool(assessment.get('requires_user_input'))}; "
+            f"workstreams={hint_text or '-'}; "
+            f"rationale={rationale_text or '-'}"
+        )
 
     @staticmethod
     def _workflow_guidance(session: CoworkSession) -> str:

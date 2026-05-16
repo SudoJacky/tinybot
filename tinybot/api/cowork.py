@@ -14,10 +14,11 @@ from tinybot.cowork.snapshot import (
     build_cowork_artifact_index,
     build_cowork_graph,
     build_cowork_large_swarm_summary,
+    build_cowork_swarm_organization,
     build_cowork_task_dag,
     build_cowork_trace,
 )
-from tinybot.cowork.swarm import build_swarm_scheduler_queues
+from tinybot.cowork.swarm import build_swarm_parallel_metrics, build_swarm_scheduler_queues
 
 
 def _budget_snapshot(session: Any) -> dict[str, Any]:
@@ -257,11 +258,16 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
             "tokens_completion": metric.tokens_completion,
             "tokens_total": metric.tokens_total,
             "stop_reason": getattr(metric, "stop_reason", ""),
+            "swarm_metrics": getattr(metric, "swarm_metrics", {}),
             "started_at": metric.started_at,
             "ended_at": metric.ended_at,
         }
         for metric in getattr(session, "run_metrics", [])[-20:]
     ]
+    orchestration_assessment = {}
+    swarm_plan = getattr(session, "swarm_plan", {})
+    if isinstance(swarm_plan, dict):
+        orchestration_assessment = swarm_plan.get("orchestration", {}) if isinstance(swarm_plan.get("orchestration", {}), dict) else {}
     snapshot = {
         "id": session.id,
         "title": session.title,
@@ -341,9 +347,12 @@ def cowork_session_snapshot(session: Any, *, verbose: bool = True) -> dict[str, 
         "sub_agent_results": [_dataclass_snapshot(item) for item in getattr(session, "sub_agent_results", {}).values()],
         "run_metrics": run_metrics,
         "scheduler_decisions": getattr(session, "scheduler_decisions", [])[-40:] if verbose else [],
-        "swarm_plan": getattr(session, "swarm_plan", {}),
+        "swarm_plan": swarm_plan,
+        "orchestration_assessment": orchestration_assessment,
         "evaluation_results": (getattr(session, "runtime_state", {}) or {}).get("swarm_evaluations", []),
         "swarm_queues": build_swarm_scheduler_queues(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
+        "swarm_metrics": build_swarm_parallel_metrics(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
+        "swarm_organization": build_cowork_swarm_organization(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
         "large_swarm_summary": build_cowork_large_swarm_summary(session) if getattr(session, "workflow_mode", "") == "swarm" else {},
     }
     if verbose:
@@ -676,7 +685,23 @@ async def handle_get_session_artifacts(request: web.Request) -> web.Response:
     if session is None:
         return web.json_response({"error": "cowork session not found"}, status=404)
     artifacts = build_cowork_artifact_index(session)
-    return web.json_response({"artifact_index": artifacts, "large_swarm_summary": build_cowork_large_swarm_summary(session)})
+    return web.json_response(
+        {
+            "artifact_index": artifacts,
+            "large_swarm_summary": build_cowork_large_swarm_summary(session),
+            "swarm_organization": build_cowork_swarm_organization(session),
+        }
+    )
+
+
+async def handle_get_session_organization(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    return web.json_response({"swarm_organization": build_cowork_swarm_organization(session)})
 
 
 async def handle_get_session_queues(request: web.Request) -> web.Response:
@@ -950,6 +975,7 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_get("/api/cowork/sessions/{session_id}/blueprint", handle_export_session_blueprint)
     app.router.add_get("/api/cowork/sessions/{session_id}/dag", handle_get_session_dag)
     app.router.add_get("/api/cowork/sessions/{session_id}/artifacts", handle_get_session_artifacts)
+    app.router.add_get("/api/cowork/sessions/{session_id}/organization", handle_get_session_organization)
     app.router.add_get("/api/cowork/sessions/{session_id}/queues", handle_get_session_queues)
     app.router.add_delete("/api/cowork/sessions/{session_id}", handle_delete_session)
     app.router.add_post("/api/cowork/sessions/{session_id}/run", handle_run_session)
