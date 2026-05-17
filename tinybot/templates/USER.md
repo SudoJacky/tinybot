@@ -1,6 +1,6 @@
 # User Profile
 
-Information about the user to help personalize interactions.
+Information about the user to help personalize interactions. Durable user memory is stored as Memory Notes and rendered here as a Memory View.
 
 ## Basic Information
 
@@ -44,6 +44,15 @@ Information about the user to help personalize interactions.
 
 (Any specific instructions for how the assistant should behave)
 
+<!-- tinybot-memory-notes:start -->
+## User Memory Notes
+
+This managed section is rendered from `memory/notes.jsonl`.
+Edit durable memory through Memory Note operations instead of changing this section directly.
+
+(No active Memory Notes.)
+<!-- tinybot-memory-notes:end -->
+
 ---
 
-*Edit this file to customize tinybot's behavior for your needs.*
+*Edit unmanaged sections for manual profile details. The managed Memory Notes section is refreshed by tinybot.*

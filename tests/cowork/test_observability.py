@@ -162,6 +162,31 @@ def test_legacy_trace_projects_to_bounded_agent_steps(temp_workspace):
     assert len(tool_step["summary"]["input_summary"]) <= 220
 
 
+def test_legacy_trace_compacts_agent_step_summaries_within_limit(temp_workspace):
+    from tinybot.cowork.trace import compact_text
+
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Compact steps", "Steps", [], [])
+    agent_id = next(iter(session.agents))
+    service.add_trace_event(
+        session,
+        kind="tool",
+        name="Tool call",
+        actor_id=agent_id,
+        input_ref="secret " * 200,
+        summary="result " * 200,
+        data={"task_id": "1", "architecture": session.workflow_mode},
+        save=False,
+    )
+
+    steps = build_cowork_agent_steps(session)
+    tool_step = next(step for step in steps if step["source_span_id"])
+
+    assert len(tool_step["summary"]["input_summary"]) <= 220
+    assert len(tool_step["summary"]["outcome_summary"]) <= 240
+    assert len(compact_text("secret " * 200, 220)) <= 220
+
+
 def test_trace_includes_native_agent_steps(temp_workspace):
     from tinybot.cowork.types import CoworkAgentStep
 

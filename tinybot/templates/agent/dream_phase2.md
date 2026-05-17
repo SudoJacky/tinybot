@@ -1,13 +1,7 @@
-Update memory files based on the analysis below.
+Memory Views are rendered from canonical Memory Notes.
 
-## Quality standards
-- Every line must carry standalone value — no filler
-- Concise bullet points under clear headers
-- Remove outdated or contradicted information
+Do not rewrite `MEMORY.md`, `USER.md`, or `SOUL.md` directly for durable memory.
+When Dream has extracted durable facts, save, supersede, or reject Memory Notes first,
+then refresh managed Memory View sections from `memory/notes.jsonl`.
 
-## Editing
-- File contents provided below — edit directly, no read_file needed
-- Batch changes to the same file into one edit_file call
-- Surgical edits only — never rewrite entire files
-- Do NOT overwrite correct entries — only add, update, or remove
-- If nothing to update, stop without calling tools
+If no durable Memory Note operation is needed, stop without editing files.

@@ -8,7 +8,9 @@ import json
 import re
 import weakref
 
+from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from collections.abc import Callable
@@ -22,13 +24,370 @@ from tinybot.utils.fs import ensure_dir
 from tinybot.utils.helper import strip_think
 from tinybot.utils.legacy_migrate import migrate_legacy_history
 
-from tinybot.agent.runner import AgentRunSpec, AgentRunner
-from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.utils.gitstore import GitStore
 
 if TYPE_CHECKING:
     from tinybot.providers.base import LLMProvider
     from tinybot.session.manager import Session, SessionManager
+
+
+# ---------------------------------------------------------------------------
+# Memory Notes - canonical structured Agent Memory records
+# ---------------------------------------------------------------------------
+
+class MemoryNoteType(StrEnum):
+    PREFERENCE = "preference"
+    INSTRUCTION = "instruction"
+    PROJECT = "project"
+    DECISION = "decision"
+    FIX = "fix"
+    FOLLOWUP = "followup"
+
+
+class MemoryNoteStatus(StrEnum):
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    REJECTED = "rejected"
+
+
+class MemoryCaptureOrigin(StrEnum):
+    DREAM = "dream"
+    EXPLICIT = "explicit"
+    MIGRATION = "migration"
+
+
+def _utc_timestamp() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _normalize_note_text(text: str) -> str:
+    return " ".join(text.strip().casefold().split())
+
+
+def _memory_recall_terms(text: str) -> set[str]:
+    normalized = _normalize_note_text(text)
+    return {
+        term
+        for term in re.findall(r"[\w-]+", normalized, flags=re.UNICODE)
+        if len(term) >= 3
+    }
+
+
+def _memory_note_search_text(note: MemoryNote) -> str:
+    source_parts: list[str] = []
+    for source in note.sources:
+        source_parts.extend(
+            str(part)
+            for part in (
+                source.capture_origin.value,
+                source.session_key,
+                source.source_file,
+                source.history_start_cursor,
+                source.history_end_cursor,
+                source.message_start,
+                source.message_end,
+            )
+            if part is not None
+        )
+    return " ".join(
+        [
+            note.id,
+            note.type.value,
+            note.status.value,
+            note.content,
+            " ".join(note.tags),
+            " ".join(source_parts),
+        ]
+    )
+
+
+def _memory_note_lexical_score(query: str, note: MemoryNote) -> float:
+    if not query.strip():
+        return 0.0
+    query_terms = _memory_recall_terms(query)
+    haystack = _memory_note_search_text(note)
+    haystack_terms = _memory_recall_terms(haystack)
+    normalized_query = _normalize_note_text(query)
+    normalized_haystack = _normalize_note_text(haystack)
+    overlap = len(query_terms & haystack_terms)
+    score = float(overlap)
+    if normalized_query and normalized_query in normalized_haystack:
+        score += 2.5
+    return score
+
+
+def _coerce_enum(enum_type: type[StrEnum], value: Any, default: StrEnum) -> StrEnum:
+    try:
+        return enum_type(str(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _strict_note_type(value: MemoryNoteType | str) -> MemoryNoteType:
+    try:
+        return MemoryNoteType(str(value))
+    except (TypeError, ValueError) as exc:
+        allowed = ", ".join(item.value for item in MemoryNoteType)
+        raise ValueError(f"Invalid Memory Note type: {value!r}. Allowed: {allowed}") from exc
+
+
+def _strict_note_status(value: MemoryNoteStatus | str) -> MemoryNoteStatus:
+    try:
+        return MemoryNoteStatus(str(value))
+    except (TypeError, ValueError) as exc:
+        allowed = ", ".join(item.value for item in MemoryNoteStatus)
+        raise ValueError(f"Invalid Memory Note status: {value!r}. Allowed: {allowed}") from exc
+
+
+def _strict_score(name: str, value: float) -> float:
+    try:
+        score = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number between 0 and 1") from exc
+    if score < 0 or score > 1:
+        raise ValueError(f"{name} must be between 0 and 1")
+    return score
+
+
+def _clean_note_tags(tags: list[str] | tuple[str, ...] | str | None) -> list[str]:
+    if tags is None:
+        return []
+    if isinstance(tags, str):
+        raw_tags = tags.split(",")
+    else:
+        raw_tags = tags
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for tag in raw_tags:
+        text = str(tag).strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(text)
+    return cleaned
+
+
+@dataclass(slots=True)
+class MemorySource:
+    capture_origin: MemoryCaptureOrigin
+    captured_at: str = field(default_factory=_utc_timestamp)
+    session_key: str | None = None
+    message_start: int | None = None
+    message_end: int | None = None
+    history_start_cursor: int | None = None
+    history_end_cursor: int | None = None
+    source_file: str | None = None
+
+    @classmethod
+    def dream(
+        cls,
+        *,
+        history_start_cursor: int | None = None,
+        history_end_cursor: int | None = None,
+    ) -> MemorySource:
+        return cls(
+            capture_origin=MemoryCaptureOrigin.DREAM,
+            history_start_cursor=history_start_cursor,
+            history_end_cursor=history_end_cursor,
+        )
+
+    @classmethod
+    def explicit(
+        cls,
+        *,
+        session_key: str | None = None,
+        message_start: int | None = None,
+        message_end: int | None = None,
+    ) -> MemorySource:
+        return cls(
+            capture_origin=MemoryCaptureOrigin.EXPLICIT,
+            session_key=session_key,
+            message_start=message_start,
+            message_end=message_end,
+        )
+
+    @classmethod
+    def migration(cls, source_file: str) -> MemorySource:
+        return cls(
+            capture_origin=MemoryCaptureOrigin.MIGRATION,
+            source_file=source_file,
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> MemorySource:
+        raw = data or {}
+        return cls(
+            capture_origin=_coerce_enum(
+                MemoryCaptureOrigin,
+                raw.get("capture_origin") or raw.get("origin"),
+                MemoryCaptureOrigin.EXPLICIT,
+            ),
+            captured_at=str(raw.get("captured_at") or raw.get("created_at") or _utc_timestamp()),
+            session_key=str(raw["session_key"]) if raw.get("session_key") else None,
+            message_start=_coerce_int(raw.get("message_start")),
+            message_end=_coerce_int(raw.get("message_end")),
+            history_start_cursor=_coerce_int(raw.get("history_start_cursor")),
+            history_end_cursor=_coerce_int(raw.get("history_end_cursor")),
+            source_file=str(raw["source_file"]) if raw.get("source_file") else None,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "capture_origin": self.capture_origin.value,
+            "captured_at": self.captured_at,
+        }
+        for key in (
+            "session_key",
+            "message_start",
+            "message_end",
+            "history_start_cursor",
+            "history_end_cursor",
+            "source_file",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                data[key] = value
+        return data
+
+    def identity(self) -> tuple[Any, ...]:
+        return (
+            self.capture_origin.value,
+            self.session_key,
+            self.message_start,
+            self.message_end,
+            self.history_start_cursor,
+            self.history_end_cursor,
+            self.source_file,
+        )
+
+
+@dataclass(slots=True)
+class MemoryNote:
+    content: str
+    type: MemoryNoteType
+    sources: list[MemorySource]
+    id: str = ""
+    status: MemoryNoteStatus = MemoryNoteStatus.ACTIVE
+    priority: float = 0.5
+    confidence: float = 0.5
+    created_at: str = field(default_factory=_utc_timestamp)
+    updated_at: str = field(default_factory=_utc_timestamp)
+    supersedes: list[str] = field(default_factory=list)
+    superseded_by: str | None = None
+    tags: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.content = self.content.strip()
+        self.sources = [source for source in self.sources if isinstance(source, MemorySource)]
+        if not self.id:
+            self.id = generate_memory_note_id(self.type, self.content, self.sources)
+
+    @classmethod
+    def create(
+        cls,
+        content: str,
+        note_type: MemoryNoteType | str,
+        sources: list[MemorySource] | None = None,
+        *,
+        priority: float = 0.5,
+        confidence: float = 0.5,
+        tags: list[str] | None = None,
+    ) -> MemoryNote:
+        return cls(
+            content=content,
+            type=_coerce_enum(MemoryNoteType, note_type, MemoryNoteType.PROJECT),
+            sources=sources or [],
+            priority=priority,
+            confidence=confidence,
+            tags=list(tags or []),
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MemoryNote:
+        note_type = _coerce_enum(MemoryNoteType, data.get("type"), MemoryNoteType.PROJECT)
+        content = str(data.get("content") or "")
+        raw_sources = data.get("sources")
+        if isinstance(raw_sources, list):
+            sources = [MemorySource.from_dict(item) for item in raw_sources if isinstance(item, dict)]
+        else:
+            sources = []
+        return cls(
+            id=str(data.get("id") or generate_memory_note_id(note_type, content, sources)),
+            type=note_type,
+            status=_coerce_enum(MemoryNoteStatus, data.get("status"), MemoryNoteStatus.ACTIVE),
+            content=content,
+            priority=_coerce_float(data.get("priority"), 0.5),
+            confidence=_coerce_float(data.get("confidence"), 0.5),
+            sources=sources,
+            created_at=str(data.get("created_at") or _utc_timestamp()),
+            updated_at=str(data.get("updated_at") or data.get("created_at") or _utc_timestamp()),
+            supersedes=[str(item) for item in data.get("supersedes") or []],
+            superseded_by=str(data["superseded_by"]) if data.get("superseded_by") else None,
+            tags=[str(item) for item in data.get("tags") or []],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "id": self.id,
+            "type": self.type.value,
+            "status": self.status.value,
+            "content": self.content,
+            "priority": self.priority,
+            "confidence": self.confidence,
+            "sources": [source.to_dict() for source in self.sources],
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+        if self.supersedes:
+            data["supersedes"] = list(self.supersedes)
+        if self.superseded_by:
+            data["superseded_by"] = self.superseded_by
+        if self.tags:
+            data["tags"] = list(self.tags)
+        return data
+
+    def equivalent_key(self) -> tuple[Any, ...]:
+        return memory_note_equivalent_key(self.type, self.content, self.sources)
+
+
+def memory_note_equivalent_key(
+    note_type: MemoryNoteType | str,
+    content: str,
+    sources: list[MemorySource] | None = None,
+) -> tuple[Any, ...]:
+    coerced_type = _coerce_enum(MemoryNoteType, note_type, MemoryNoteType.PROJECT)
+    source_keys = sorted((source.identity() for source in (sources or [])), key=repr)
+    return (coerced_type.value, _normalize_note_text(content), tuple(source_keys))
+
+
+def generate_memory_note_id(
+    note_type: MemoryNoteType | str,
+    content: str,
+    sources: list[MemorySource] | None = None,
+) -> str:
+    payload = json.dumps(
+        memory_note_equivalent_key(note_type, content, sources),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return "note_" + hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -39,12 +398,29 @@ class MemoryStore:
     """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
 
     _DEFAULT_MAX_HISTORY = 1000
+    _MEMORY_NOTE_VECTOR_COLLECTION = "agent_memory_notes"
+    _VIEW_MARKER_BEGIN = "<!-- tinybot-memory-notes:start -->"
+    _VIEW_MARKER_END = "<!-- tinybot-memory-notes:end -->"
+    _VIEW_TITLES = {
+        "memory/MEMORY.md": "Project Memory Notes",
+        "USER.md": "User Memory Notes",
+        "SOUL.md": "Assistant Memory Notes",
+    }
+    _TYPE_VIEW_DEFAULTS = {
+        MemoryNoteType.PREFERENCE: "USER.md",
+        MemoryNoteType.INSTRUCTION: "SOUL.md",
+        MemoryNoteType.PROJECT: "memory/MEMORY.md",
+        MemoryNoteType.DECISION: "memory/MEMORY.md",
+        MemoryNoteType.FIX: "memory/MEMORY.md",
+        MemoryNoteType.FOLLOWUP: "memory/MEMORY.md",
+    }
 
     def __init__(self, workspace: Path, max_history_entries: int = _DEFAULT_MAX_HISTORY):
         self.workspace = workspace
         self.max_history_entries = max_history_entries
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
+        self.notes_file = self.memory_dir / "notes.jsonl"
         self.history_file = self.memory_dir / "history.jsonl"
         self.legacy_history_file = self.memory_dir / "HISTORY.md"
         self.soul_file = workspace / "SOUL.md"
@@ -52,7 +428,7 @@ class MemoryStore:
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
         self._git = GitStore(workspace, tracked_files=[
-            "SOUL.md", "USER.md", "memory/MEMORY.md",
+            "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/notes.jsonl",
         ])
         # One-time migration from legacy HISTORY.md format
         migrate_legacy_history(self.memory_dir)
@@ -69,6 +445,492 @@ class MemoryStore:
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return ""
+
+    # -- notes.jsonl (canonical Memory Notes) -------------------------------
+
+    def read_notes(self) -> list[MemoryNote]:
+        """Read all Memory Notes, skipping malformed JSONL rows."""
+        notes: list[MemoryNote] = []
+        try:
+            with open(self.notes_file, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        raw = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(raw, dict):
+                        notes.append(MemoryNote.from_dict(raw))
+        except FileNotFoundError:
+            pass
+        return notes
+
+    def write_notes(self, notes: list[MemoryNote]) -> None:
+        with open(self.notes_file, "w", encoding="utf-8") as f:
+            for note in notes:
+                f.write(json.dumps(note.to_dict(), ensure_ascii=False) + "\n")
+
+    def find_duplicate_note(self, candidate: MemoryNote) -> MemoryNote | None:
+        candidate_key = candidate.equivalent_key()
+        for note in self.read_notes():
+            if note.equivalent_key() == candidate_key:
+                return note
+        return None
+
+    def upsert_note(self, note: MemoryNote) -> MemoryNote:
+        """Insert or replace a Memory Note by id or equivalent content/source."""
+        notes = self.read_notes()
+        replacement = note
+        replacement.updated_at = _utc_timestamp()
+        for idx, existing in enumerate(notes):
+            if existing.id == note.id or existing.equivalent_key() == note.equivalent_key():
+                if existing.id != note.id:
+                    replacement.id = existing.id
+                    replacement.created_at = existing.created_at
+                notes[idx] = replacement
+                self.write_notes(notes)
+                return replacement
+        notes.append(replacement)
+        self.write_notes(notes)
+        return replacement
+
+    def get_note(self, note_id: str) -> MemoryNote | None:
+        for note in self.read_notes():
+            if note.id == note_id:
+                return note
+        return None
+
+    def save_memory_note(
+        self,
+        *,
+        content: str,
+        note_type: MemoryNoteType | str,
+        source: MemorySource | None = None,
+        priority: float = 0.5,
+        confidence: float = 0.5,
+        tags: list[str] | tuple[str, ...] | str | None = None,
+    ) -> MemoryNote:
+        """Save explicit durable Agent Memory after validating user-facing inputs."""
+        if not content or not content.strip():
+            raise ValueError("Memory Note content is required")
+        note = MemoryNote.create(
+            content.strip(),
+            _strict_note_type(note_type),
+            [source or MemorySource.explicit()],
+            priority=_strict_score("priority", priority),
+            confidence=_strict_score("confidence", confidence),
+            tags=_clean_note_tags(tags),
+        )
+        return self.upsert_note(note)
+
+    def search_memory_notes(
+        self,
+        *,
+        query: str = "",
+        note_type: MemoryNoteType | str | None = None,
+        status: MemoryNoteStatus | str | None = None,
+        limit: int = 20,
+        vector_store: VectorStore | None = None,
+    ) -> list[MemoryNote]:
+        """Search canonical Memory Notes by vector ids with lexical JSONL fallback."""
+        if limit <= 0:
+            return []
+        type_filter = _strict_note_type(note_type) if note_type else None
+        status_filter = _strict_note_status(status) if status else None
+        normalized_query = _normalize_note_text(query)
+
+        def matches_filters(note: MemoryNote) -> bool:
+            if type_filter and note.type != type_filter:
+                return False
+            if status_filter and note.status != status_filter:
+                return False
+            return True
+
+        notes = self.read_notes()
+        note_by_id = {note.id: note for note in notes}
+        results: list[MemoryNote] = []
+        seen: set[str] = set()
+
+        if normalized_query and vector_store is not None:
+            for note_id in self._search_memory_note_vector_index(query, vector_store, limit=limit * 2):
+                note = note_by_id.get(note_id)
+                if (
+                    note is None
+                    or note.id in seen
+                    or note.status != MemoryNoteStatus.ACTIVE
+                    or not matches_filters(note)
+                ):
+                    continue
+                results.append(note)
+                seen.add(note.id)
+                if len(results) >= limit:
+                    return results
+
+        lexical_matches: list[tuple[tuple[float, float, float, str, str], MemoryNote]] = []
+        for note in notes:
+            if note.id in seen or not matches_filters(note):
+                continue
+            score = _memory_note_lexical_score(query, note) if normalized_query else 0.0
+            if normalized_query and score <= 0:
+                continue
+            lexical_matches.append((
+                (
+                    score,
+                    note.priority,
+                    note.confidence,
+                    note.type.value,
+                    note.content.casefold(),
+                ),
+                note,
+            ))
+
+        if normalized_query:
+            lexical_matches.sort(key=lambda item: item[0], reverse=True)
+
+        for _, note in lexical_matches:
+            results.append(note)
+            if len(results) >= limit:
+                break
+        return results
+
+    def rebuild_memory_note_index(self, vector_store: VectorStore | None = None) -> dict[str, Any]:
+        """Recreate the optional vector index from canonical ``notes.jsonl``."""
+        active_notes = [
+            note
+            for note in self.read_notes()
+            if note.status == MemoryNoteStatus.ACTIVE and note.content
+        ]
+        if vector_store is None:
+            return {
+                "available": False,
+                "active_notes": len(active_notes),
+                "indexed": 0,
+                "deleted": 0,
+            }
+
+        try:
+            collection = vector_store._get_or_create_collection(self._MEMORY_NOTE_VECTOR_COLLECTION)
+        except Exception:
+            logger.warning("MemoryStore: memory note vector index unavailable")
+            return {
+                "available": False,
+                "active_notes": len(active_notes),
+                "indexed": 0,
+                "deleted": 0,
+            }
+
+        deleted = self._clear_memory_note_vector_collection(collection)
+        if active_notes:
+            try:
+                collection.upsert(
+                    ids=[note.id for note in active_notes],
+                    documents=[self._memory_note_index_document(note) for note in active_notes],
+                    metadatas=[self._memory_note_index_metadata(note) for note in active_notes],
+                )
+            except Exception:
+                logger.warning("MemoryStore: memory note vector upsert failed")
+                return {
+                    "available": False,
+                    "active_notes": len(active_notes),
+                    "indexed": 0,
+                    "deleted": deleted,
+                }
+
+        return {
+            "available": True,
+            "active_notes": len(active_notes),
+            "indexed": len(active_notes),
+            "deleted": deleted,
+        }
+
+    def _search_memory_note_vector_index(
+        self,
+        query: str,
+        vector_store: VectorStore,
+        *,
+        limit: int,
+    ) -> list[str]:
+        try:
+            collection = vector_store._get_collection(self._MEMORY_NOTE_VECTOR_COLLECTION)
+            if collection is None or collection.count() == 0:
+                return []
+            results = collection.query(
+                query_texts=[query],
+                n_results=min(max(limit, 1), collection.count()),
+                where={"kind": "memory_note"},
+                include=["metadatas", "distances"],
+            )
+        except Exception:
+            logger.debug("MemoryStore: memory note vector search failed")
+            return []
+        return [
+            str(note_id)
+            for note_id in results.get("ids", [[]])[0]
+            if note_id
+        ]
+
+    @staticmethod
+    def _memory_note_index_document(note: MemoryNote) -> str:
+        parts = [
+            note.content,
+            f"Type: {note.type.value}",
+            f"Tags: {', '.join(note.tags)}" if note.tags else "",
+        ]
+        return " | ".join(part for part in parts if part)
+
+    @staticmethod
+    def _memory_note_index_metadata(note: MemoryNote) -> dict[str, Any]:
+        return {
+            "kind": "memory_note",
+            "note_id": note.id,
+            "note_type": note.type.value,
+            "status": note.status.value,
+            "priority": note.priority,
+            "confidence": note.confidence,
+            "updated_at": note.updated_at,
+            "tags": json.dumps(note.tags, ensure_ascii=False),
+        }
+
+    @staticmethod
+    def _clear_memory_note_vector_collection(collection: Any) -> int:
+        try:
+            existing = collection.get()
+            ids = [str(note_id) for note_id in existing.get("ids", []) if note_id]
+            if ids:
+                collection.delete(ids=ids)
+            return len(ids)
+        except Exception:
+            logger.debug("MemoryStore: could not clear memory note vector collection")
+            return 0
+
+    def trace_memory_note(self, note_id: str) -> MemoryNote:
+        note = self.get_note(note_id)
+        if note is None:
+            raise KeyError(f"Memory Note not found: {note_id}")
+        return note
+
+    def reject_memory_note(self, note_id: str) -> MemoryNote:
+        return self.reject_note(note_id)
+
+    def supersede_memory_note(
+        self,
+        note_id: str,
+        *,
+        replacement_content: str,
+        note_type: MemoryNoteType | str | None = None,
+        source: MemorySource | None = None,
+        priority: float | None = None,
+        confidence: float | None = None,
+        tags: list[str] | tuple[str, ...] | str | None = None,
+    ) -> MemoryNote:
+        old_note = self.trace_memory_note(note_id)
+        if not replacement_content or not replacement_content.strip():
+            raise ValueError("Replacement Memory Note content is required")
+        replacement = MemoryNote.create(
+            replacement_content.strip(),
+            _strict_note_type(note_type) if note_type else old_note.type,
+            [source or MemorySource.explicit()],
+            priority=_strict_score("priority", old_note.priority if priority is None else priority),
+            confidence=_strict_score("confidence", old_note.confidence if confidence is None else confidence),
+            tags=_clean_note_tags(old_note.tags if tags is None else tags),
+        )
+        return self.supersede_note(note_id, replacement)
+
+    def set_note_status(self, note_id: str, status: MemoryNoteStatus | str) -> MemoryNote:
+        notes = self.read_notes()
+        new_status = _coerce_enum(MemoryNoteStatus, status, MemoryNoteStatus.ACTIVE)
+        for note in notes:
+            if note.id == note_id:
+                note.status = new_status
+                note.updated_at = _utc_timestamp()
+                self.write_notes(notes)
+                return note
+        raise KeyError(f"Memory Note not found: {note_id}")
+
+    def reject_note(self, note_id: str) -> MemoryNote:
+        return self.set_note_status(note_id, MemoryNoteStatus.REJECTED)
+
+    def supersede_note(self, note_id: str, replacement: MemoryNote) -> MemoryNote:
+        """Mark an existing note superseded and link it to a replacement note."""
+        notes = self.read_notes()
+        old_note: MemoryNote | None = None
+        for note in notes:
+            if note.id == note_id:
+                old_note = note
+                break
+        if old_note is None:
+            raise KeyError(f"Memory Note not found: {note_id}")
+
+        replacement.status = MemoryNoteStatus.ACTIVE
+        if note_id not in replacement.supersedes:
+            replacement.supersedes.append(note_id)
+        replacement = self.upsert_note(replacement)
+
+        notes = self.read_notes()
+        for note in notes:
+            if note.id == note_id:
+                note.status = MemoryNoteStatus.SUPERSEDED
+                note.superseded_by = replacement.id
+                note.updated_at = _utc_timestamp()
+                self.write_notes(notes)
+                return replacement
+        raise KeyError(f"Memory Note not found after replacement insert: {note_id}")
+
+    def migrate_legacy_memory_notes(self) -> list[MemoryNote]:
+        """Create conservative Memory Notes from existing Markdown memory views.
+
+        The original Markdown files are read-only inputs here. Re-running this
+        method is idempotent because note ids include normalized content and
+        source identity.
+        """
+        migrated: list[MemoryNote] = []
+        for source_file, path, note_type in (
+            ("memory/MEMORY.md", self.memory_file, MemoryNoteType.PROJECT),
+            ("USER.md", self.user_file, MemoryNoteType.PREFERENCE),
+            ("SOUL.md", self.soul_file, MemoryNoteType.INSTRUCTION),
+        ):
+            content = self.read_file(path)
+            if not content.strip():
+                continue
+            source = MemorySource.migration(source_file)
+            for item in self._parse_legacy_memory_markdown(content):
+                note = MemoryNote.create(
+                    item,
+                    note_type,
+                    [source],
+                    priority=0.4,
+                    confidence=0.45,
+                    tags=["legacy-migration"],
+                )
+                migrated.append(self.upsert_note(note))
+        return migrated
+
+    def refresh_memory_views(self) -> dict[str, str]:
+        """Render active Memory Notes into managed Markdown view sections."""
+        notes = self.read_notes()
+        rendered = {
+            "memory/MEMORY.md": self.render_memory_view("memory/MEMORY.md", notes),
+            "USER.md": self.render_memory_view("USER.md", notes),
+            "SOUL.md": self.render_memory_view("SOUL.md", notes),
+        }
+        self.write_memory(self._replace_managed_memory_view(self.read_memory(), rendered["memory/MEMORY.md"]))
+        self.write_user(self._replace_managed_memory_view(self.read_user(), rendered["USER.md"]))
+        self.write_soul(self._replace_managed_memory_view(self.read_soul(), rendered["SOUL.md"]))
+        return rendered
+
+    def render_memory_view(self, view_file: str, notes: list[MemoryNote] | None = None) -> str:
+        """Render one managed Memory View section from active Memory Notes."""
+        active_notes = [
+            note
+            for note in (notes if notes is not None else self.read_notes())
+            if note.status == MemoryNoteStatus.ACTIVE
+            and note.content
+            and self._note_view_file(note) == view_file
+        ]
+        active_notes.sort(
+            key=lambda note: (
+                note.type.value,
+                -note.priority,
+                -note.confidence,
+                note.content.casefold(),
+            )
+        )
+
+        title = self._VIEW_TITLES.get(view_file, "Memory Notes")
+        lines = [
+            self._VIEW_MARKER_BEGIN,
+            f"## {title}",
+            "",
+            "This managed section is rendered from `memory/notes.jsonl`.",
+            "Edit durable memory through Memory Note operations instead of changing this section directly.",
+            "",
+        ]
+        if not active_notes:
+            lines.append("(No active Memory Notes.)")
+        else:
+            current_type: MemoryNoteType | None = None
+            for note in active_notes:
+                if note.type != current_type:
+                    current_type = note.type
+                    lines.extend(("", f"### {note.type.value.title()}"))
+                metadata = [
+                    f"id: {note.id}",
+                    f"priority: {note.priority:g}",
+                    f"confidence: {note.confidence:g}",
+                ]
+                if note.tags:
+                    metadata.append("tags: " + ", ".join(sorted(note.tags)))
+                lines.append(f"- {note.content} ({'; '.join(metadata)})")
+        lines.append(self._VIEW_MARKER_END)
+        return "\n".join(lines).rstrip() + "\n"
+
+    @classmethod
+    def _replace_managed_memory_view(cls, existing: str, rendered_section: str) -> str:
+        existing = existing.rstrip()
+        begin = existing.find(cls._VIEW_MARKER_BEGIN)
+        end = existing.find(cls._VIEW_MARKER_END)
+        if begin != -1 and end != -1 and begin < end:
+            suffix_start = end + len(cls._VIEW_MARKER_END)
+            prefix = existing[:begin].rstrip()
+            suffix = existing[suffix_start:].strip()
+            parts = [part for part in (prefix, rendered_section.rstrip(), suffix) if part]
+            return "\n\n".join(parts).rstrip() + "\n"
+        if not existing:
+            return rendered_section
+        return existing + "\n\n" + rendered_section
+
+    def _note_view_file(self, note: MemoryNote) -> str:
+        for source in note.sources:
+            if source.source_file in self._VIEW_TITLES:
+                return source.source_file
+        return self._TYPE_VIEW_DEFAULTS.get(note.type, "memory/MEMORY.md")
+
+    @staticmethod
+    def _parse_legacy_memory_markdown(content: str) -> list[str]:
+        items: list[str] = []
+        in_fence = False
+        paragraph: list[str] = []
+
+        def flush_paragraph() -> None:
+            if paragraph:
+                text = " ".join(paragraph).strip()
+                if text:
+                    items.append(text)
+                paragraph.clear()
+
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if line.startswith("```"):
+                in_fence = not in_fence
+                flush_paragraph()
+                continue
+            if in_fence:
+                continue
+            if not line:
+                flush_paragraph()
+                continue
+            if line.startswith("#"):
+                flush_paragraph()
+                continue
+            bullet = re.match(r"^(?:[-*+]|\d+[.)])\s+(?P<text>.+)$", line)
+            if bullet:
+                flush_paragraph()
+                items.append(bullet.group("text").strip())
+                continue
+            paragraph.append(line)
+
+        flush_paragraph()
+        seen: set[str] = set()
+        unique: list[str] = []
+        for item in items:
+            normalized = _normalize_note_text(item)
+            if len(normalized) < 3 or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique.append(item)
+        return unique
 
     # -- MEMORY.md (long-term facts) -----------------------------------------
 
@@ -99,6 +961,98 @@ class MemoryStore:
     def get_memory_context(self) -> str:
         long_term = self.read_memory()
         return f"## Long-term Memory\n{long_term}" if long_term else ""
+
+    def select_memory_recall(
+        self,
+        query: str,
+        *,
+        max_notes: int = 6,
+        max_chars: int = 1_600,
+        high_priority_threshold: float = 0.75,
+    ) -> list[MemoryNote]:
+        """Select active Memory Notes for bounded prompt recall.
+
+        Recall is intentionally lexical and file-backed here. JSONL remains the
+        canonical memory source; optional vector indexes can build on this later.
+        """
+        if max_notes <= 0 or max_chars <= 0:
+            return []
+
+        query_terms = _memory_recall_terms(query)
+        candidates: list[tuple[tuple[float, float, float, str, str], MemoryNote]] = []
+        for note in self.read_notes():
+            if note.status != MemoryNoteStatus.ACTIVE or not note.content:
+                continue
+            note_terms = _memory_recall_terms(
+                " ".join([note.content, note.type.value, " ".join(note.tags)])
+            )
+            overlap = len(query_terms & note_terms)
+            relevance = overlap / max(len(query_terms), 1) if query_terms else 0.0
+            if overlap == 0 and note.priority < high_priority_threshold:
+                continue
+            score = (
+                relevance,
+                note.priority,
+                note.confidence,
+                note.type.value,
+                note.content.casefold(),
+            )
+            candidates.append((score, note))
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        selected: list[MemoryNote] = []
+        used_chars = 0
+        for _, note in candidates:
+            line = self._format_memory_recall_note(note)
+            line_cost = len(line) + 1
+            if selected and used_chars + line_cost > max_chars:
+                continue
+            if not selected and line_cost > max_chars:
+                continue
+            selected.append(note)
+            used_chars += line_cost
+            if len(selected) >= max_notes:
+                break
+        return selected
+
+    def format_memory_recall_context(
+        self,
+        query: str,
+        *,
+        max_notes: int = 6,
+        max_chars: int = 1_600,
+    ) -> str:
+        notes = self.select_memory_recall(
+            query,
+            max_notes=max_notes,
+            max_chars=max_chars,
+        )
+        if not notes:
+            return ""
+
+        lines = [
+            "---",
+            "[MEMORY RECALL]",
+            "",
+            "Active Memory Notes selected for this request. Keep this separate from Experience and Knowledge Base context.",
+            "",
+        ]
+        for note in notes:
+            lines.append(self._format_memory_recall_note(note))
+        lines.append("---")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_memory_recall_note(note: MemoryNote) -> str:
+        metadata = [
+            f"id: {note.id}",
+            f"type: {note.type.value}",
+            f"priority: {note.priority:g}",
+            f"confidence: {note.confidence:g}",
+        ]
+        if note.tags:
+            metadata.append("tags: " + ", ".join(sorted(note.tags)))
+        return f"- {note.content} ({'; '.join(metadata)})"
 
     # -- history.jsonl — append-only, JSONL format ---------------------------
 
@@ -504,13 +1458,20 @@ class Consolidator:
 
 
 class Dream:
-    """Two-phase memory processor: analyze history.jsonl, then edit files via AgentRunner.
+    """Memory processor: analyze history.jsonl, write Memory Notes, refresh views.
 
-    Phase 1 produces an analysis summary (plain LLM call).
-    Phase 2 delegates to AgentRunner with read_file / edit_file tools so the
-    LLM can make targeted, incremental edits instead of replacing entire files.
-    Phase 3 processes experiences: merges similar ones and updates strategies in MEMORY.md.
+    Phase 1 produces structured note operations from conversation history.
+    Phase 2 applies those operations to canonical Memory Notes, then refreshes
+    managed Markdown Memory Views.
+    Phase 3 processes Experiences separately as execution guidance.
     """
+
+    _NOTE_TARGETS = {
+        "MEMORY": ("memory/MEMORY.md", MemoryNoteType.PROJECT),
+        "USER": ("USER.md", MemoryNoteType.PREFERENCE),
+        "SOUL": ("SOUL.md", MemoryNoteType.INSTRUCTION),
+    }
+    _NOTE_LINE_RE = re.compile(r"^\[(?P<header>[^\]]+)\]\s*(?P<content>.*)$")
 
     def __init__(
         self,
@@ -529,20 +1490,6 @@ class Dream:
         self.max_iterations = max_iterations
         self.max_tool_result_chars = max_tool_result_chars
         self.experience_store = experience_store
-        self._runner = AgentRunner(provider)
-        self._tools = self._build_tools()
-
-    # -- tool registry -------------------------------------------------------
-
-    def _build_tools(self) -> ToolRegistry:
-        """Build a minimal tool registry for the Dream agent."""
-        from tinybot.agent.tools.filesystem import EditFileTool, ReadFileTool
-
-        tools = ToolRegistry()
-        workspace = self.store.workspace
-        tools.register(ReadFileTool(workspace=workspace, allowed_dir=workspace))
-        tools.register(EditFileTool(workspace=workspace, allowed_dir=workspace))
-        return tools
 
     # -- main entry ----------------------------------------------------------
 
@@ -568,7 +1515,9 @@ class Dream:
         current_memory = self.store.read_memory() or "(empty)"
         current_soul = self.store.read_soul() or "(empty)"
         current_user = self.store.read_user() or "(empty)"
+        current_notes = self._format_current_notes() or "(no Memory Notes)"
         file_context = (
+            f"## Current Memory Notes\n{current_notes}\n\n"
             f"## Current MEMORY.md\n{current_memory}\n\n"
             f"## Current SOUL.md\n{current_soul}\n\n"
             f"## Current USER.md\n{current_user}"
@@ -598,58 +1547,31 @@ class Dream:
             logger.exception("Dream Phase 1 failed")
             return False
 
-        # Phase 2: Delegate to AgentRunner with read_file / edit_file
-        phase2_prompt = f"## Analysis Result\n{analysis}\n\n{file_context}"
-
-        tools = self._tools
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": render_template("agent/dream_phase2.md", strip=True),
-            },
-            {"role": "user", "content": phase2_prompt},
-        ]
-
-        try:
-            result = await self._runner.run(AgentRunSpec(
-                initial_messages=messages,
-                tools=tools,
-                model=self.model,
-                max_iterations=self.max_iterations,
-                max_tool_result_chars=self.max_tool_result_chars,
-                fail_on_tool_error=True,
-            ))
-            logger.debug(
-                "Dream Phase 2 complete: stop_reason={}, tool_events={}",
-                result.stop_reason, len(result.tool_events),
-            )
-        except Exception:
-            logger.exception("Dream Phase 2 failed")
-            result = None
-
-        # Build changelog from tool events
-        changelog: list[str] = []
-        if result and result.tool_events:
-            for event in result.tool_events:
-                if event["status"] == "ok":
-                    changelog.append(f"{event['name']}: {event['detail']}")
+        # Phase 2: apply structured Memory Note operations before refreshing views.
+        source = MemorySource.dream(
+            history_start_cursor=batch[0]["cursor"],
+            history_end_cursor=batch[-1]["cursor"],
+        )
+        changelog = self._apply_memory_note_analysis(analysis, source)
+        if changelog:
+            self.store.refresh_memory_views()
+            changelog.append("refresh_memory_views")
+            logger.info("Dream Phase 2: applied {} Memory Note change(s)", len(changelog) - 1)
+        else:
+            logger.debug("Dream Phase 2: no durable Memory Notes created")
 
         # Advance cursor — always, to avoid re-processing Phase 1
         new_cursor = batch[-1]["cursor"]
         self.store.set_last_dream_cursor(new_cursor)
         self.store.compact_history()
 
-        if result and result.stop_reason == "completed":
+        if changelog:
             logger.info(
                 "Dream done: {} change(s), cursor advanced to {}",
                 len(changelog), new_cursor,
             )
         else:
-            reason = result.stop_reason if result else "exception"
-            logger.warning(
-                "Dream incomplete ({}): cursor advanced to {}",
-                reason, new_cursor,
-            )
+            logger.info("Dream done: no durable memory, cursor advanced to {}", new_cursor)
 
         # Git auto-commit (only when there are actual changes)
         if changelog and self.store.git.is_initialized():
@@ -664,8 +1586,191 @@ class Dream:
 
         return True
 
+    def _format_current_notes(self) -> str:
+        lines: list[str] = []
+        for note in sorted(
+            self.store.read_notes(),
+            key=lambda item: (item.status.value, item.type.value, item.content.casefold()),
+        ):
+            lines.append(
+                f"- id={note.id} status={note.status.value} type={note.type.value} "
+                f"priority={note.priority:g} confidence={note.confidence:g}: {note.content}"
+            )
+        return "\n".join(lines)
+
+    def _apply_memory_note_analysis(
+        self,
+        analysis: str,
+        source: MemorySource,
+    ) -> list[str]:
+        changes: list[str] = []
+        for operation in self._parse_memory_note_operations(analysis, source):
+            action = operation["action"]
+            note_id = operation.get("note_id") or ""
+            content = operation.get("content") or ""
+            if action == "skip":
+                continue
+            if action == "reject":
+                if note_id:
+                    self.store.reject_note(note_id)
+                    changes.append(f"reject_note:{note_id}")
+                continue
+            if not content:
+                continue
+            note = MemoryNote.create(
+                content,
+                operation["type"],
+                [source],
+                priority=operation["priority"],
+                confidence=operation["confidence"],
+                tags=operation["tags"],
+            )
+            source_file = operation.get("source_file")
+            if source_file:
+                note.sources[0].source_file = source_file
+            if action == "supersede" and note_id:
+                replacement = self.store.supersede_note(note_id, note)
+                changes.append(f"supersede_note:{note_id}->{replacement.id}")
+                continue
+            existing = self._find_active_note_by_type_and_content(note.type, note.content)
+            if existing is not None:
+                existing.sources = self._merge_note_sources(existing.sources, note.sources)
+                existing.priority = max(existing.priority, note.priority)
+                existing.confidence = max(existing.confidence, note.confidence)
+                existing.tags = sorted(set(existing.tags + note.tags))
+                stored = self.store.upsert_note(existing)
+                changes.append(f"merge_note:{stored.id}")
+            else:
+                stored = self.store.upsert_note(note)
+                changes.append(f"save_note:{stored.id}")
+        return changes
+
+    def _parse_memory_note_operations(
+        self,
+        analysis: str,
+        source: MemorySource,
+    ) -> list[dict[str, Any]]:
+        operations: list[dict[str, Any]] = []
+        for raw_line in analysis.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            parsed = self._parse_memory_note_operation(line, source)
+            if parsed is not None:
+                operations.append(parsed)
+        return operations
+
+    def _parse_memory_note_operation(
+        self,
+        line: str,
+        source: MemorySource,
+    ) -> dict[str, Any] | None:
+        del source
+        match = self._NOTE_LINE_RE.match(line)
+        if not match:
+            return None
+        header = match.group("header").strip()
+        content = match.group("content").strip()
+        if header.upper().startswith("SKIP"):
+            return {"action": "skip"}
+
+        parts = [part.strip() for part in header.split(":") if part.strip()]
+        if not parts:
+            return None
+        action = parts[0].casefold()
+        if action in {"memory", "user", "soul"}:
+            target = parts[0].upper()
+            source_file, note_type = self._NOTE_TARGETS[target]
+            return self._build_note_operation("save", content, note_type, source_file)
+        if action in {"save", "note"}:
+            target = parts[1].upper() if len(parts) >= 2 else "MEMORY"
+            source_file, note_type = self._resolve_note_target(target)
+            return self._build_note_operation("save", content, note_type, source_file)
+        if action == "supersede":
+            note_id = parts[1] if len(parts) >= 2 else ""
+            target = parts[2].upper() if len(parts) >= 3 else "MEMORY"
+            source_file, note_type = self._resolve_note_target(target)
+            return self._build_note_operation(
+                "supersede", content, note_type, source_file, note_id=note_id
+            )
+        if action == "reject":
+            note_id = parts[1] if len(parts) >= 2 else ""
+            return {
+                "action": "reject",
+                "note_id": note_id,
+                "content": content,
+                "type": MemoryNoteType.PROJECT,
+                "source_file": None,
+                "priority": 0.5,
+                "confidence": 0.5,
+                "tags": ["dream"],
+            }
+        return None
+
+    def _build_note_operation(
+        self,
+        action: str,
+        content: str,
+        note_type: MemoryNoteType,
+        source_file: str,
+        *,
+        note_id: str = "",
+    ) -> dict[str, Any]:
+        tags = ["dream"]
+        if source_file == "memory/MEMORY.md":
+            tags.append("project-memory")
+        elif source_file == "USER.md":
+            tags.append("user-memory")
+        elif source_file == "SOUL.md":
+            tags.append("assistant-memory")
+        return {
+            "action": action,
+            "note_id": note_id,
+            "content": content,
+            "type": note_type,
+            "source_file": source_file,
+            "priority": 0.6,
+            "confidence": 0.65,
+            "tags": tags,
+        }
+
+    def _resolve_note_target(self, target: str) -> tuple[str, MemoryNoteType]:
+        if target in self._NOTE_TARGETS:
+            return self._NOTE_TARGETS[target]
+        return "memory/MEMORY.md", _coerce_enum(MemoryNoteType, target.casefold(), MemoryNoteType.PROJECT)
+
+    def _find_active_note_by_type_and_content(
+        self,
+        note_type: MemoryNoteType,
+        content: str,
+    ) -> MemoryNote | None:
+        normalized = _normalize_note_text(content)
+        for note in self.store.read_notes():
+            if (
+                note.status == MemoryNoteStatus.ACTIVE
+                and note.type == note_type
+                and _normalize_note_text(note.content) == normalized
+            ):
+                return note
+        return None
+
+    @staticmethod
+    def _merge_note_sources(
+        existing: list[MemorySource],
+        new_sources: list[MemorySource],
+    ) -> list[MemorySource]:
+        merged: list[MemorySource] = []
+        seen: set[tuple[Any, ...]] = set()
+        for source in existing + new_sources:
+            identity = source.identity()
+            if identity in seen:
+                continue
+            seen.add(identity)
+            merged.append(source)
+        return merged
+
     async def _process_experiences(self) -> None:
-        """Phase 3: Merge, decay, prune experiences, and update MEMORY.md."""
+        """Phase 3: keep Experience processing separate from Memory Notes."""
         if self.experience_store is None:
             return
 
