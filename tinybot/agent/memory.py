@@ -73,6 +73,49 @@ def _memory_recall_terms(text: str) -> set[str]:
     }
 
 
+def _memory_note_search_text(note: MemoryNote) -> str:
+    source_parts: list[str] = []
+    for source in note.sources:
+        source_parts.extend(
+            str(part)
+            for part in (
+                source.capture_origin.value,
+                source.session_key,
+                source.source_file,
+                source.history_start_cursor,
+                source.history_end_cursor,
+                source.message_start,
+                source.message_end,
+            )
+            if part is not None
+        )
+    return " ".join(
+        [
+            note.id,
+            note.type.value,
+            note.status.value,
+            note.content,
+            " ".join(note.tags),
+            " ".join(source_parts),
+        ]
+    )
+
+
+def _memory_note_lexical_score(query: str, note: MemoryNote) -> float:
+    if not query.strip():
+        return 0.0
+    query_terms = _memory_recall_terms(query)
+    haystack = _memory_note_search_text(note)
+    haystack_terms = _memory_recall_terms(haystack)
+    normalized_query = _normalize_note_text(query)
+    normalized_haystack = _normalize_note_text(haystack)
+    overlap = len(query_terms & haystack_terms)
+    score = float(overlap)
+    if normalized_query and normalized_query in normalized_haystack:
+        score += 2.5
+    return score
+
+
 def _coerce_enum(enum_type: type[StrEnum], value: Any, default: StrEnum) -> StrEnum:
     try:
         return enum_type(str(value))
@@ -355,6 +398,7 @@ class MemoryStore:
     """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
 
     _DEFAULT_MAX_HISTORY = 1000
+    _MEMORY_NOTE_VECTOR_COLLECTION = "agent_memory_notes"
     _VIEW_MARKER_BEGIN = "<!-- tinybot-memory-notes:start -->"
     _VIEW_MARKER_END = "<!-- tinybot-memory-notes:end -->"
     _VIEW_TITLES = {
@@ -488,45 +532,178 @@ class MemoryStore:
         note_type: MemoryNoteType | str | None = None,
         status: MemoryNoteStatus | str | None = None,
         limit: int = 20,
+        vector_store: VectorStore | None = None,
     ) -> list[MemoryNote]:
-        """Search canonical Memory Notes by lexical query and optional filters."""
+        """Search canonical Memory Notes by vector ids with lexical JSONL fallback."""
         if limit <= 0:
             return []
         type_filter = _strict_note_type(note_type) if note_type else None
         status_filter = _strict_note_status(status) if status else None
-        query_terms = _memory_recall_terms(query)
         normalized_query = _normalize_note_text(query)
 
-        matches: list[MemoryNote] = []
-        for note in self.read_notes():
+        def matches_filters(note: MemoryNote) -> bool:
             if type_filter and note.type != type_filter:
-                continue
+                return False
             if status_filter and note.status != status_filter:
-                continue
-            if query_terms or normalized_query:
-                haystack = " ".join(
-                    [
-                        note.id,
-                        note.type.value,
-                        note.status.value,
-                        note.content,
-                        " ".join(note.tags),
-                        " ".join(source.capture_origin.value for source in note.sources),
-                        " ".join(source.session_key or "" for source in note.sources),
-                        " ".join(source.source_file or "" for source in note.sources),
-                    ]
-                )
-                haystack_terms = _memory_recall_terms(haystack)
-                normalized_haystack = _normalize_note_text(haystack)
-                if query_terms and not (query_terms & haystack_terms):
-                    if normalized_query not in normalized_haystack:
-                        continue
-                elif normalized_query and normalized_query not in normalized_haystack and not query_terms:
+                return False
+            return True
+
+        notes = self.read_notes()
+        note_by_id = {note.id: note for note in notes}
+        results: list[MemoryNote] = []
+        seen: set[str] = set()
+
+        if normalized_query and vector_store is not None:
+            for note_id in self._search_memory_note_vector_index(query, vector_store, limit=limit * 2):
+                note = note_by_id.get(note_id)
+                if (
+                    note is None
+                    or note.id in seen
+                    or note.status != MemoryNoteStatus.ACTIVE
+                    or not matches_filters(note)
+                ):
                     continue
-            matches.append(note)
-            if len(matches) >= limit:
+                results.append(note)
+                seen.add(note.id)
+                if len(results) >= limit:
+                    return results
+
+        lexical_matches: list[tuple[tuple[float, float, float, str, str], MemoryNote]] = []
+        for note in notes:
+            if note.id in seen or not matches_filters(note):
+                continue
+            score = _memory_note_lexical_score(query, note) if normalized_query else 0.0
+            if normalized_query and score <= 0:
+                continue
+            lexical_matches.append((
+                (
+                    score,
+                    note.priority,
+                    note.confidence,
+                    note.type.value,
+                    note.content.casefold(),
+                ),
+                note,
+            ))
+
+        if normalized_query:
+            lexical_matches.sort(key=lambda item: item[0], reverse=True)
+
+        for _, note in lexical_matches:
+            results.append(note)
+            if len(results) >= limit:
                 break
-        return matches
+        return results
+
+    def rebuild_memory_note_index(self, vector_store: VectorStore | None = None) -> dict[str, Any]:
+        """Recreate the optional vector index from canonical ``notes.jsonl``."""
+        active_notes = [
+            note
+            for note in self.read_notes()
+            if note.status == MemoryNoteStatus.ACTIVE and note.content
+        ]
+        if vector_store is None:
+            return {
+                "available": False,
+                "active_notes": len(active_notes),
+                "indexed": 0,
+                "deleted": 0,
+            }
+
+        try:
+            collection = vector_store._get_or_create_collection(self._MEMORY_NOTE_VECTOR_COLLECTION)
+        except Exception:
+            logger.warning("MemoryStore: memory note vector index unavailable")
+            return {
+                "available": False,
+                "active_notes": len(active_notes),
+                "indexed": 0,
+                "deleted": 0,
+            }
+
+        deleted = self._clear_memory_note_vector_collection(collection)
+        if active_notes:
+            try:
+                collection.upsert(
+                    ids=[note.id for note in active_notes],
+                    documents=[self._memory_note_index_document(note) for note in active_notes],
+                    metadatas=[self._memory_note_index_metadata(note) for note in active_notes],
+                )
+            except Exception:
+                logger.warning("MemoryStore: memory note vector upsert failed")
+                return {
+                    "available": False,
+                    "active_notes": len(active_notes),
+                    "indexed": 0,
+                    "deleted": deleted,
+                }
+
+        return {
+            "available": True,
+            "active_notes": len(active_notes),
+            "indexed": len(active_notes),
+            "deleted": deleted,
+        }
+
+    def _search_memory_note_vector_index(
+        self,
+        query: str,
+        vector_store: VectorStore,
+        *,
+        limit: int,
+    ) -> list[str]:
+        try:
+            collection = vector_store._get_collection(self._MEMORY_NOTE_VECTOR_COLLECTION)
+            if collection is None or collection.count() == 0:
+                return []
+            results = collection.query(
+                query_texts=[query],
+                n_results=min(max(limit, 1), collection.count()),
+                where={"kind": "memory_note"},
+                include=["metadatas", "distances"],
+            )
+        except Exception:
+            logger.debug("MemoryStore: memory note vector search failed")
+            return []
+        return [
+            str(note_id)
+            for note_id in results.get("ids", [[]])[0]
+            if note_id
+        ]
+
+    @staticmethod
+    def _memory_note_index_document(note: MemoryNote) -> str:
+        parts = [
+            note.content,
+            f"Type: {note.type.value}",
+            f"Tags: {', '.join(note.tags)}" if note.tags else "",
+        ]
+        return " | ".join(part for part in parts if part)
+
+    @staticmethod
+    def _memory_note_index_metadata(note: MemoryNote) -> dict[str, Any]:
+        return {
+            "kind": "memory_note",
+            "note_id": note.id,
+            "note_type": note.type.value,
+            "status": note.status.value,
+            "priority": note.priority,
+            "confidence": note.confidence,
+            "updated_at": note.updated_at,
+            "tags": json.dumps(note.tags, ensure_ascii=False),
+        }
+
+    @staticmethod
+    def _clear_memory_note_vector_collection(collection: Any) -> int:
+        try:
+            existing = collection.get()
+            ids = [str(note_id) for note_id in existing.get("ids", []) if note_id]
+            if ids:
+                collection.delete(ids=ids)
+            return len(ids)
+        except Exception:
+            logger.debug("MemoryStore: could not clear memory note vector collection")
+            return 0
 
     def trace_memory_note(self, note_id: str) -> MemoryNote:
         note = self.get_note(note_id)

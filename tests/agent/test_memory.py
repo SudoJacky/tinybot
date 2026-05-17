@@ -16,6 +16,44 @@ from tinybot.agent.memory import (
 )
 
 
+class _FakeMemoryNoteCollection:
+    def __init__(self):
+        self.items = {}
+        self.query_ids = []
+
+    def count(self):
+        return len(self.items)
+
+    def get(self):
+        return {"ids": list(self.items)}
+
+    def delete(self, ids):
+        for item_id in ids:
+            self.items.pop(item_id, None)
+
+    def upsert(self, ids, documents, metadatas):
+        for item_id, document, metadata in zip(ids, documents, metadatas, strict=False):
+            self.items[item_id] = {"document": document, "metadata": metadata}
+
+    def query(self, query_texts, n_results, where=None, include=None):
+        del query_texts, where, include
+        ids = self.query_ids or list(self.items)
+        return {"ids": [ids[:n_results]], "distances": [[0.1 for _ in ids[:n_results]]]}
+
+
+class _FakeMemoryNoteVectorStore:
+    def __init__(self):
+        self.collection = _FakeMemoryNoteCollection()
+
+    def _get_or_create_collection(self, collection_name):
+        assert collection_name == "agent_memory_notes"
+        return self.collection
+
+    def _get_collection(self, collection_name):
+        assert collection_name == "agent_memory_notes"
+        return self.collection
+
+
 def test_memory_note_serializes_and_round_trips(tmp_path):
     store = MemoryStore(tmp_path)
     source = MemorySource(
@@ -328,6 +366,94 @@ def test_explicit_memory_note_operations_validate_inputs(tmp_path):
         store.search_memory_notes(status="archived")
     with pytest.raises(KeyError, match="Memory Note not found"):
         store.trace_memory_note("note_missing")
+
+
+def test_memory_note_lexical_search_fallback_ranks_notes_jsonl(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:test")
+    low_priority = store.upsert_note(
+        MemoryNote.create(
+            "Use Python for one-off repository scripts.",
+            MemoryNoteType.INSTRUCTION,
+            [source],
+            priority=0.4,
+        )
+    )
+    high_priority = store.upsert_note(
+        MemoryNote.create(
+            "Use uv run pytest for Python validation.",
+            MemoryNoteType.INSTRUCTION,
+            [source],
+            priority=0.9,
+            tags=["python", "validation"],
+        )
+    )
+    store.upsert_note(
+        MemoryNote.create(
+            "Keep maintainer documentation logic-only.",
+            MemoryNoteType.PROJECT,
+            [source],
+            priority=0.95,
+        )
+    )
+
+    matches = store.search_memory_notes(query="python validation", status="active")
+
+    assert [note.id for note in matches] == [high_priority.id, low_priority.id]
+
+
+def test_memory_note_vector_search_uses_jsonl_as_canonical_source(tmp_path):
+    store = MemoryStore(tmp_path)
+    vector_store = _FakeMemoryNoteVectorStore()
+    source = MemorySource.explicit(session_key="cli:test")
+    active = store.upsert_note(MemoryNote.create("Use uv run pytest for Python validation.", "instruction", [source]))
+    rejected = store.upsert_note(
+        MemoryNote.create("Use pytest directly for Python validation.", "instruction", [source])
+    )
+    store.reject_memory_note(rejected.id)
+    vector_store.collection.items = {
+        "note_missing": {"document": "stale vector", "metadata": {"kind": "memory_note"}},
+        rejected.id: {"document": rejected.content, "metadata": {"kind": "memory_note"}},
+        active.id: {"document": active.content, "metadata": {"kind": "memory_note"}},
+    }
+    vector_store.collection.query_ids = ["note_missing", rejected.id, active.id]
+
+    matches = store.search_memory_notes(
+        query="python validation",
+        status="active",
+        vector_store=vector_store,
+    )
+
+    assert matches == [active]
+
+
+def test_memory_note_index_rebuild_recreates_active_notes_from_jsonl(tmp_path):
+    store = MemoryStore(tmp_path)
+    vector_store = _FakeMemoryNoteVectorStore()
+    source = MemorySource.explicit(session_key="cli:test")
+    active = store.upsert_note(MemoryNote.create("Active indexed note.", "project", [source]))
+    rejected = store.upsert_note(MemoryNote.create("Rejected unindexed note.", "project", [source]))
+    store.reject_memory_note(rejected.id)
+    vector_store.collection.items = {
+        "note_stale": {"document": "old note", "metadata": {"kind": "memory_note"}},
+    }
+
+    stats = store.rebuild_memory_note_index(vector_store)
+
+    assert stats == {"available": True, "active_notes": 1, "indexed": 1, "deleted": 1}
+    assert set(vector_store.collection.items) == {active.id}
+    assert vector_store.collection.items[active.id]["document"] == "Active indexed note. | Type: project"
+    assert vector_store.collection.items[active.id]["metadata"]["kind"] == "memory_note"
+
+
+def test_memory_note_index_rebuild_is_noop_without_vector_store(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:test")
+    store.upsert_note(MemoryNote.create("Active JSONL-only note.", "project", [source]))
+
+    stats = store.rebuild_memory_note_index(None)
+
+    assert stats == {"available": False, "active_notes": 1, "indexed": 0, "deleted": 0}
 
 
 def test_memory_view_refresh_replaces_only_existing_managed_section(tmp_path):

@@ -510,11 +510,15 @@ class AgentLoop:
         # Add experience tools for Agent to query/save experiences
         session_key = f"{channel}:{chat_id}" if channel and chat_id else ""
         memory_store = self.context.memory
-        registry.register(SearchMemoryNotesTool(memory_store=memory_store))
+        registry.register(SearchMemoryNotesTool(memory_store=memory_store, vector_store=self._vector_store))
         registry.register(TraceMemoryNoteTool(memory_store=memory_store))
-        registry.register(RejectMemoryNoteTool(memory_store=memory_store))
-        registry.register(SaveMemoryNoteTool(memory_store=memory_store, session_key=session_key))
-        registry.register(SupersedeMemoryNoteTool(memory_store=memory_store, session_key=session_key))
+        registry.register(RejectMemoryNoteTool(memory_store=memory_store, vector_store=self._vector_store))
+        registry.register(SaveMemoryNoteTool(memory_store=memory_store, session_key=session_key, vector_store=self._vector_store))
+        registry.register(SupersedeMemoryNoteTool(
+            memory_store=memory_store,
+            session_key=session_key,
+            vector_store=self._vector_store,
+        ))
 
         if self.experience_store:
             # Query tool - always available

@@ -10,6 +10,7 @@ from tinybot.agent.tools.schema import IntegerSchema, NumberSchema, StringSchema
 
 if TYPE_CHECKING:
     from tinybot.agent.memory import MemoryStore
+    from tinybot.agent.vector_store import VectorStore
 
 
 _NOTE_TYPES = ["preference", "instruction", "project", "decision", "fix", "followup"]
@@ -71,9 +72,15 @@ def _explicit_source(session_key: str, message_start: int | None, message_end: i
 class SaveMemoryNoteTool(Tool):
     """Save a durable Agent Memory Note explicitly."""
 
-    def __init__(self, memory_store: MemoryStore, session_key: str = ""):
+    def __init__(
+        self,
+        memory_store: MemoryStore,
+        session_key: str = "",
+        vector_store: VectorStore | None = None,
+    ):
         self._store = memory_store
         self._session_key = session_key
+        self._vector_store = vector_store
 
     @property
     def name(self) -> str:
@@ -106,6 +113,7 @@ class SaveMemoryNoteTool(Tool):
                 tags=tags,
             )
             self._store.refresh_memory_views()
+            self._store.rebuild_memory_note_index(self._vector_store)
             return f"Memory Note saved: {note.id} ({note.type.value}, {note.status.value})"
         except ValueError as exc:
             return f"Error: {exc}"
@@ -122,8 +130,9 @@ class SaveMemoryNoteTool(Tool):
 class SearchMemoryNotesTool(Tool):
     """Search canonical Agent Memory Notes."""
 
-    def __init__(self, memory_store: MemoryStore):
+    def __init__(self, memory_store: MemoryStore, vector_store: VectorStore | None = None):
         self._store = memory_store
+        self._vector_store = vector_store
 
     @property
     def name(self) -> str:
@@ -150,6 +159,7 @@ class SearchMemoryNotesTool(Tool):
                 note_type=note_type or None,
                 status=status or None,
                 limit=limit,
+                vector_store=self._vector_store,
             )
         except ValueError as exc:
             return f"Error: {exc}"
@@ -219,8 +229,9 @@ class TraceMemoryNoteTool(Tool):
 class RejectMemoryNoteTool(Tool):
     """Reject an outdated or incorrect Memory Note."""
 
-    def __init__(self, memory_store: MemoryStore):
+    def __init__(self, memory_store: MemoryStore, vector_store: VectorStore | None = None):
         self._store = memory_store
+        self._vector_store = vector_store
 
     @property
     def name(self) -> str:
@@ -234,6 +245,7 @@ class RejectMemoryNoteTool(Tool):
         try:
             note = self._store.reject_memory_note(note_id)
             self._store.refresh_memory_views()
+            self._store.rebuild_memory_note_index(self._vector_store)
         except KeyError:
             return f"Error: Memory Note '{note_id}' not found"
         suffix = f" Reason: {reason.strip()}" if reason.strip() else ""
@@ -256,9 +268,15 @@ class RejectMemoryNoteTool(Tool):
 class SupersedeMemoryNoteTool(Tool):
     """Supersede one Memory Note with a replacement note."""
 
-    def __init__(self, memory_store: MemoryStore, session_key: str = ""):
+    def __init__(
+        self,
+        memory_store: MemoryStore,
+        session_key: str = "",
+        vector_store: VectorStore | None = None,
+    ):
         self._store = memory_store
         self._session_key = session_key
+        self._vector_store = vector_store
 
     @property
     def name(self) -> str:
@@ -290,6 +308,7 @@ class SupersedeMemoryNoteTool(Tool):
                 tags=tags if tags else None,
             )
             self._store.refresh_memory_views()
+            self._store.rebuild_memory_note_index(self._vector_store)
         except KeyError:
             return f"Error: Memory Note '{note_id}' not found"
         except ValueError as exc:

@@ -36,6 +36,8 @@ The agent runtime should treat retrieved knowledge as contextual evidence, not a
 
 Automatic retrieval should be budget-aware. Large documents and broad queries need compact summaries or top-k limits to avoid crowding out the conversation context.
 
+Knowledge is not Agent Memory. Document facts, uploaded-file context, and retrieval graph evidence remain in the Knowledge stores unless an explicit Memory Note capture path saves a durable agent-side note. This boundary keeps citations and document provenance separate from preferences, project decisions, fixes, and followups stored in `memory/notes.jsonl`.
+
 ## API Contract
 
 `tinybot/api/knowledge.py` owns:
