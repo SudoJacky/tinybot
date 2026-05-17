@@ -24,8 +24,6 @@ from tinybot.utils.fs import ensure_dir
 from tinybot.utils.helper import strip_think
 from tinybot.utils.legacy_migrate import migrate_legacy_history
 
-from tinybot.agent.runner import AgentRunSpec, AgentRunner
-from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.utils.gitstore import GitStore
 
 if TYPE_CHECKING:
@@ -1032,13 +1030,20 @@ class Consolidator:
 
 
 class Dream:
-    """Two-phase memory processor: analyze history.jsonl, then edit files via AgentRunner.
+    """Memory processor: analyze history.jsonl, write Memory Notes, refresh views.
 
-    Phase 1 produces an analysis summary (plain LLM call).
-    Phase 2 delegates to AgentRunner with read_file / edit_file tools so the
-    LLM can make targeted, incremental edits instead of replacing entire files.
-    Phase 3 processes experiences: merges similar ones and updates strategies in MEMORY.md.
+    Phase 1 produces structured note operations from conversation history.
+    Phase 2 applies those operations to canonical Memory Notes, then refreshes
+    managed Markdown Memory Views.
+    Phase 3 processes Experiences separately as execution guidance.
     """
+
+    _NOTE_TARGETS = {
+        "MEMORY": ("memory/MEMORY.md", MemoryNoteType.PROJECT),
+        "USER": ("USER.md", MemoryNoteType.PREFERENCE),
+        "SOUL": ("SOUL.md", MemoryNoteType.INSTRUCTION),
+    }
+    _NOTE_LINE_RE = re.compile(r"^\[(?P<header>[^\]]+)\]\s*(?P<content>.*)$")
 
     def __init__(
         self,
@@ -1057,20 +1062,6 @@ class Dream:
         self.max_iterations = max_iterations
         self.max_tool_result_chars = max_tool_result_chars
         self.experience_store = experience_store
-        self._runner = AgentRunner(provider)
-        self._tools = self._build_tools()
-
-    # -- tool registry -------------------------------------------------------
-
-    def _build_tools(self) -> ToolRegistry:
-        """Build a minimal tool registry for the Dream agent."""
-        from tinybot.agent.tools.filesystem import EditFileTool, ReadFileTool
-
-        tools = ToolRegistry()
-        workspace = self.store.workspace
-        tools.register(ReadFileTool(workspace=workspace, allowed_dir=workspace))
-        tools.register(EditFileTool(workspace=workspace, allowed_dir=workspace))
-        return tools
 
     # -- main entry ----------------------------------------------------------
 
@@ -1096,7 +1087,9 @@ class Dream:
         current_memory = self.store.read_memory() or "(empty)"
         current_soul = self.store.read_soul() or "(empty)"
         current_user = self.store.read_user() or "(empty)"
+        current_notes = self._format_current_notes() or "(no Memory Notes)"
         file_context = (
+            f"## Current Memory Notes\n{current_notes}\n\n"
             f"## Current MEMORY.md\n{current_memory}\n\n"
             f"## Current SOUL.md\n{current_soul}\n\n"
             f"## Current USER.md\n{current_user}"
@@ -1126,58 +1119,31 @@ class Dream:
             logger.exception("Dream Phase 1 failed")
             return False
 
-        # Phase 2: Delegate to AgentRunner with read_file / edit_file
-        phase2_prompt = f"## Analysis Result\n{analysis}\n\n{file_context}"
-
-        tools = self._tools
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": render_template("agent/dream_phase2.md", strip=True),
-            },
-            {"role": "user", "content": phase2_prompt},
-        ]
-
-        try:
-            result = await self._runner.run(AgentRunSpec(
-                initial_messages=messages,
-                tools=tools,
-                model=self.model,
-                max_iterations=self.max_iterations,
-                max_tool_result_chars=self.max_tool_result_chars,
-                fail_on_tool_error=True,
-            ))
-            logger.debug(
-                "Dream Phase 2 complete: stop_reason={}, tool_events={}",
-                result.stop_reason, len(result.tool_events),
-            )
-        except Exception:
-            logger.exception("Dream Phase 2 failed")
-            result = None
-
-        # Build changelog from tool events
-        changelog: list[str] = []
-        if result and result.tool_events:
-            for event in result.tool_events:
-                if event["status"] == "ok":
-                    changelog.append(f"{event['name']}: {event['detail']}")
+        # Phase 2: apply structured Memory Note operations before refreshing views.
+        source = MemorySource.dream(
+            history_start_cursor=batch[0]["cursor"],
+            history_end_cursor=batch[-1]["cursor"],
+        )
+        changelog = self._apply_memory_note_analysis(analysis, source)
+        if changelog:
+            self.store.refresh_memory_views()
+            changelog.append("refresh_memory_views")
+            logger.info("Dream Phase 2: applied {} Memory Note change(s)", len(changelog) - 1)
+        else:
+            logger.debug("Dream Phase 2: no durable Memory Notes created")
 
         # Advance cursor — always, to avoid re-processing Phase 1
         new_cursor = batch[-1]["cursor"]
         self.store.set_last_dream_cursor(new_cursor)
         self.store.compact_history()
 
-        if result and result.stop_reason == "completed":
+        if changelog:
             logger.info(
                 "Dream done: {} change(s), cursor advanced to {}",
                 len(changelog), new_cursor,
             )
         else:
-            reason = result.stop_reason if result else "exception"
-            logger.warning(
-                "Dream incomplete ({}): cursor advanced to {}",
-                reason, new_cursor,
-            )
+            logger.info("Dream done: no durable memory, cursor advanced to {}", new_cursor)
 
         # Git auto-commit (only when there are actual changes)
         if changelog and self.store.git.is_initialized():
@@ -1192,8 +1158,191 @@ class Dream:
 
         return True
 
+    def _format_current_notes(self) -> str:
+        lines: list[str] = []
+        for note in sorted(
+            self.store.read_notes(),
+            key=lambda item: (item.status.value, item.type.value, item.content.casefold()),
+        ):
+            lines.append(
+                f"- id={note.id} status={note.status.value} type={note.type.value} "
+                f"priority={note.priority:g} confidence={note.confidence:g}: {note.content}"
+            )
+        return "\n".join(lines)
+
+    def _apply_memory_note_analysis(
+        self,
+        analysis: str,
+        source: MemorySource,
+    ) -> list[str]:
+        changes: list[str] = []
+        for operation in self._parse_memory_note_operations(analysis, source):
+            action = operation["action"]
+            note_id = operation.get("note_id") or ""
+            content = operation.get("content") or ""
+            if action == "skip":
+                continue
+            if action == "reject":
+                if note_id:
+                    self.store.reject_note(note_id)
+                    changes.append(f"reject_note:{note_id}")
+                continue
+            if not content:
+                continue
+            note = MemoryNote.create(
+                content,
+                operation["type"],
+                [source],
+                priority=operation["priority"],
+                confidence=operation["confidence"],
+                tags=operation["tags"],
+            )
+            source_file = operation.get("source_file")
+            if source_file:
+                note.sources[0].source_file = source_file
+            if action == "supersede" and note_id:
+                replacement = self.store.supersede_note(note_id, note)
+                changes.append(f"supersede_note:{note_id}->{replacement.id}")
+                continue
+            existing = self._find_active_note_by_type_and_content(note.type, note.content)
+            if existing is not None:
+                existing.sources = self._merge_note_sources(existing.sources, note.sources)
+                existing.priority = max(existing.priority, note.priority)
+                existing.confidence = max(existing.confidence, note.confidence)
+                existing.tags = sorted(set(existing.tags + note.tags))
+                stored = self.store.upsert_note(existing)
+                changes.append(f"merge_note:{stored.id}")
+            else:
+                stored = self.store.upsert_note(note)
+                changes.append(f"save_note:{stored.id}")
+        return changes
+
+    def _parse_memory_note_operations(
+        self,
+        analysis: str,
+        source: MemorySource,
+    ) -> list[dict[str, Any]]:
+        operations: list[dict[str, Any]] = []
+        for raw_line in analysis.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            parsed = self._parse_memory_note_operation(line, source)
+            if parsed is not None:
+                operations.append(parsed)
+        return operations
+
+    def _parse_memory_note_operation(
+        self,
+        line: str,
+        source: MemorySource,
+    ) -> dict[str, Any] | None:
+        del source
+        match = self._NOTE_LINE_RE.match(line)
+        if not match:
+            return None
+        header = match.group("header").strip()
+        content = match.group("content").strip()
+        if header.upper().startswith("SKIP"):
+            return {"action": "skip"}
+
+        parts = [part.strip() for part in header.split(":") if part.strip()]
+        if not parts:
+            return None
+        action = parts[0].casefold()
+        if action in {"memory", "user", "soul"}:
+            target = parts[0].upper()
+            source_file, note_type = self._NOTE_TARGETS[target]
+            return self._build_note_operation("save", content, note_type, source_file)
+        if action in {"save", "note"}:
+            target = parts[1].upper() if len(parts) >= 2 else "MEMORY"
+            source_file, note_type = self._resolve_note_target(target)
+            return self._build_note_operation("save", content, note_type, source_file)
+        if action == "supersede":
+            note_id = parts[1] if len(parts) >= 2 else ""
+            target = parts[2].upper() if len(parts) >= 3 else "MEMORY"
+            source_file, note_type = self._resolve_note_target(target)
+            return self._build_note_operation(
+                "supersede", content, note_type, source_file, note_id=note_id
+            )
+        if action == "reject":
+            note_id = parts[1] if len(parts) >= 2 else ""
+            return {
+                "action": "reject",
+                "note_id": note_id,
+                "content": content,
+                "type": MemoryNoteType.PROJECT,
+                "source_file": None,
+                "priority": 0.5,
+                "confidence": 0.5,
+                "tags": ["dream"],
+            }
+        return None
+
+    def _build_note_operation(
+        self,
+        action: str,
+        content: str,
+        note_type: MemoryNoteType,
+        source_file: str,
+        *,
+        note_id: str = "",
+    ) -> dict[str, Any]:
+        tags = ["dream"]
+        if source_file == "memory/MEMORY.md":
+            tags.append("project-memory")
+        elif source_file == "USER.md":
+            tags.append("user-memory")
+        elif source_file == "SOUL.md":
+            tags.append("assistant-memory")
+        return {
+            "action": action,
+            "note_id": note_id,
+            "content": content,
+            "type": note_type,
+            "source_file": source_file,
+            "priority": 0.6,
+            "confidence": 0.65,
+            "tags": tags,
+        }
+
+    def _resolve_note_target(self, target: str) -> tuple[str, MemoryNoteType]:
+        if target in self._NOTE_TARGETS:
+            return self._NOTE_TARGETS[target]
+        return "memory/MEMORY.md", _coerce_enum(MemoryNoteType, target.casefold(), MemoryNoteType.PROJECT)
+
+    def _find_active_note_by_type_and_content(
+        self,
+        note_type: MemoryNoteType,
+        content: str,
+    ) -> MemoryNote | None:
+        normalized = _normalize_note_text(content)
+        for note in self.store.read_notes():
+            if (
+                note.status == MemoryNoteStatus.ACTIVE
+                and note.type == note_type
+                and _normalize_note_text(note.content) == normalized
+            ):
+                return note
+        return None
+
+    @staticmethod
+    def _merge_note_sources(
+        existing: list[MemorySource],
+        new_sources: list[MemorySource],
+    ) -> list[MemorySource]:
+        merged: list[MemorySource] = []
+        seen: set[tuple[Any, ...]] = set()
+        for source in existing + new_sources:
+            identity = source.identity()
+            if identity in seen:
+                continue
+            seen.add(identity)
+            merged.append(source)
+        return merged
+
     async def _process_experiences(self) -> None:
-        """Phase 3: Merge, decay, prune experiences, and update MEMORY.md."""
+        """Phase 3: keep Experience processing separate from Memory Notes."""
         if self.experience_store is None:
             return
 

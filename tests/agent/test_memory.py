@@ -1,8 +1,11 @@
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from tinybot.agent.memory import (
+    Dream,
     MemoryCaptureOrigin,
     MemoryNote,
     MemoryNoteStatus,
@@ -237,3 +240,97 @@ def test_memory_view_refresh_replaces_only_existing_managed_section(tmp_path):
     assert "Render this active note." in memory_content
     assert "old managed content" not in memory_content
     assert memory_content.count("<!-- tinybot-memory-notes:start -->") == 1
+
+
+@pytest.mark.asyncio
+async def test_dream_creates_notes_refreshes_views_and_advances_cursor(tmp_path):
+    store = MemoryStore(tmp_path)
+    first_cursor = store.append_history("User confirmed the project uses uv for Python commands.")
+    second_cursor = store.append_history("User prefers concise progress updates.")
+    provider = MagicMock()
+    provider.chat_with_retry = AsyncMock(
+        return_value=SimpleNamespace(
+            content=(
+                "[SAVE:MEMORY] Project uses uv for Python commands.\n[SAVE:USER] User prefers concise progress updates."
+            )
+        )
+    )
+    dream = Dream(store=store, provider=provider, model="test-model")
+
+    assert await dream.run() is True
+
+    notes = store.read_notes()
+    assert len(notes) == 2
+    assert {note.type for note in notes} == {MemoryNoteType.PROJECT, MemoryNoteType.PREFERENCE}
+    assert all(note.sources[0].capture_origin == MemoryCaptureOrigin.DREAM for note in notes)
+    assert all(note.sources[0].history_start_cursor == first_cursor for note in notes)
+    assert all(note.sources[0].history_end_cursor == second_cursor for note in notes)
+    assert "Project uses uv for Python commands." in store.read_memory()
+    assert "User prefers concise progress updates." in store.read_user()
+    assert store.get_last_dream_cursor() == second_cursor
+
+
+@pytest.mark.asyncio
+async def test_dream_supersedes_corrected_note(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:test")
+    old_note = store.upsert_note(
+        MemoryNote.create("Use pytest directly for validation.", MemoryNoteType.INSTRUCTION, [source])
+    )
+    cursor = store.append_history("Correction: use uv run pytest for validation.")
+    provider = MagicMock()
+    provider.chat_with_retry = AsyncMock(
+        return_value=SimpleNamespace(content=f"[SUPERSEDE:{old_note.id}:SOUL] Use uv run pytest for validation.")
+    )
+    dream = Dream(store=store, provider=provider, model="test-model")
+
+    assert await dream.run() is True
+
+    notes = {note.id: note for note in store.read_notes()}
+    replacement_id = notes[old_note.id].superseded_by
+    assert notes[old_note.id].status == MemoryNoteStatus.SUPERSEDED
+    assert replacement_id is not None
+    assert notes[replacement_id].status == MemoryNoteStatus.ACTIVE
+    assert old_note.id in notes[replacement_id].supersedes
+    assert "Use uv run pytest for validation." in store.read_soul()
+    assert "Use pytest directly for validation." not in store.render_memory_view("SOUL.md")
+    assert store.get_last_dream_cursor() == cursor
+
+
+@pytest.mark.asyncio
+async def test_dream_skip_advances_cursor_without_creating_notes(tmp_path):
+    store = MemoryStore(tmp_path)
+    cursor = store.append_history("Short exchange with no durable memory.")
+    provider = MagicMock()
+    provider.chat_with_retry = AsyncMock(return_value=SimpleNamespace(content="[SKIP] no new information"))
+    dream = Dream(store=store, provider=provider, model="test-model")
+
+    assert await dream.run() is True
+
+    assert store.read_notes() == []
+    assert store.get_last_dream_cursor() == cursor
+
+
+@pytest.mark.asyncio
+async def test_dream_keeps_experience_processing_separate_from_memory_notes(tmp_path):
+    store = MemoryStore(tmp_path)
+    store.append_history("A tool execution tactic was observed.")
+    provider = MagicMock()
+    provider.chat_with_retry = AsyncMock(return_value=SimpleNamespace(content="[SKIP] no new information"))
+    experience_store = MagicMock()
+    experience_store.merge_similar.return_value = 0
+    experience_store.decay_confidence.return_value = 0
+    experience_store.prune_stale.return_value = 0
+    experience_store.read_experiences.return_value = []
+    dream = Dream(
+        store=store,
+        provider=provider,
+        model="test-model",
+        experience_store=experience_store,
+    )
+
+    assert await dream.run() is True
+
+    assert store.read_notes() == []
+    experience_store.merge_similar.assert_called_once()
+    experience_store.compact.assert_called_once()
