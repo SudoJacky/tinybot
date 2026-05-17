@@ -8,7 +8,9 @@ import json
 import re
 import weakref
 
+from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from collections.abc import Callable
@@ -32,6 +34,266 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Memory Notes - canonical structured Agent Memory records
+# ---------------------------------------------------------------------------
+
+class MemoryNoteType(StrEnum):
+    PREFERENCE = "preference"
+    INSTRUCTION = "instruction"
+    PROJECT = "project"
+    DECISION = "decision"
+    FIX = "fix"
+    FOLLOWUP = "followup"
+
+
+class MemoryNoteStatus(StrEnum):
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    REJECTED = "rejected"
+
+
+class MemoryCaptureOrigin(StrEnum):
+    DREAM = "dream"
+    EXPLICIT = "explicit"
+    MIGRATION = "migration"
+
+
+def _utc_timestamp() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _normalize_note_text(text: str) -> str:
+    return " ".join(text.strip().casefold().split())
+
+
+def _coerce_enum(enum_type: type[StrEnum], value: Any, default: StrEnum) -> StrEnum:
+    try:
+        return enum_type(str(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+@dataclass(slots=True)
+class MemorySource:
+    capture_origin: MemoryCaptureOrigin
+    captured_at: str = field(default_factory=_utc_timestamp)
+    session_key: str | None = None
+    message_start: int | None = None
+    message_end: int | None = None
+    history_start_cursor: int | None = None
+    history_end_cursor: int | None = None
+    source_file: str | None = None
+
+    @classmethod
+    def dream(
+        cls,
+        *,
+        history_start_cursor: int | None = None,
+        history_end_cursor: int | None = None,
+    ) -> MemorySource:
+        return cls(
+            capture_origin=MemoryCaptureOrigin.DREAM,
+            history_start_cursor=history_start_cursor,
+            history_end_cursor=history_end_cursor,
+        )
+
+    @classmethod
+    def explicit(
+        cls,
+        *,
+        session_key: str | None = None,
+        message_start: int | None = None,
+        message_end: int | None = None,
+    ) -> MemorySource:
+        return cls(
+            capture_origin=MemoryCaptureOrigin.EXPLICIT,
+            session_key=session_key,
+            message_start=message_start,
+            message_end=message_end,
+        )
+
+    @classmethod
+    def migration(cls, source_file: str) -> MemorySource:
+        return cls(
+            capture_origin=MemoryCaptureOrigin.MIGRATION,
+            source_file=source_file,
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> MemorySource:
+        raw = data or {}
+        return cls(
+            capture_origin=_coerce_enum(
+                MemoryCaptureOrigin,
+                raw.get("capture_origin") or raw.get("origin"),
+                MemoryCaptureOrigin.EXPLICIT,
+            ),
+            captured_at=str(raw.get("captured_at") or raw.get("created_at") or _utc_timestamp()),
+            session_key=str(raw["session_key"]) if raw.get("session_key") else None,
+            message_start=_coerce_int(raw.get("message_start")),
+            message_end=_coerce_int(raw.get("message_end")),
+            history_start_cursor=_coerce_int(raw.get("history_start_cursor")),
+            history_end_cursor=_coerce_int(raw.get("history_end_cursor")),
+            source_file=str(raw["source_file"]) if raw.get("source_file") else None,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "capture_origin": self.capture_origin.value,
+            "captured_at": self.captured_at,
+        }
+        for key in (
+            "session_key",
+            "message_start",
+            "message_end",
+            "history_start_cursor",
+            "history_end_cursor",
+            "source_file",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                data[key] = value
+        return data
+
+    def identity(self) -> tuple[Any, ...]:
+        return (
+            self.capture_origin.value,
+            self.session_key,
+            self.message_start,
+            self.message_end,
+            self.history_start_cursor,
+            self.history_end_cursor,
+            self.source_file,
+        )
+
+
+@dataclass(slots=True)
+class MemoryNote:
+    content: str
+    type: MemoryNoteType
+    sources: list[MemorySource]
+    id: str = ""
+    status: MemoryNoteStatus = MemoryNoteStatus.ACTIVE
+    priority: float = 0.5
+    confidence: float = 0.5
+    created_at: str = field(default_factory=_utc_timestamp)
+    updated_at: str = field(default_factory=_utc_timestamp)
+    supersedes: list[str] = field(default_factory=list)
+    superseded_by: str | None = None
+    tags: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.content = self.content.strip()
+        self.sources = [source for source in self.sources if isinstance(source, MemorySource)]
+        if not self.id:
+            self.id = generate_memory_note_id(self.type, self.content, self.sources)
+
+    @classmethod
+    def create(
+        cls,
+        content: str,
+        note_type: MemoryNoteType | str,
+        sources: list[MemorySource] | None = None,
+        *,
+        priority: float = 0.5,
+        confidence: float = 0.5,
+        tags: list[str] | None = None,
+    ) -> MemoryNote:
+        return cls(
+            content=content,
+            type=_coerce_enum(MemoryNoteType, note_type, MemoryNoteType.PROJECT),
+            sources=sources or [],
+            priority=priority,
+            confidence=confidence,
+            tags=list(tags or []),
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MemoryNote:
+        note_type = _coerce_enum(MemoryNoteType, data.get("type"), MemoryNoteType.PROJECT)
+        content = str(data.get("content") or "")
+        raw_sources = data.get("sources")
+        if isinstance(raw_sources, list):
+            sources = [MemorySource.from_dict(item) for item in raw_sources if isinstance(item, dict)]
+        else:
+            sources = []
+        return cls(
+            id=str(data.get("id") or generate_memory_note_id(note_type, content, sources)),
+            type=note_type,
+            status=_coerce_enum(MemoryNoteStatus, data.get("status"), MemoryNoteStatus.ACTIVE),
+            content=content,
+            priority=_coerce_float(data.get("priority"), 0.5),
+            confidence=_coerce_float(data.get("confidence"), 0.5),
+            sources=sources,
+            created_at=str(data.get("created_at") or _utc_timestamp()),
+            updated_at=str(data.get("updated_at") or data.get("created_at") or _utc_timestamp()),
+            supersedes=[str(item) for item in data.get("supersedes") or []],
+            superseded_by=str(data["superseded_by"]) if data.get("superseded_by") else None,
+            tags=[str(item) for item in data.get("tags") or []],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "id": self.id,
+            "type": self.type.value,
+            "status": self.status.value,
+            "content": self.content,
+            "priority": self.priority,
+            "confidence": self.confidence,
+            "sources": [source.to_dict() for source in self.sources],
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+        if self.supersedes:
+            data["supersedes"] = list(self.supersedes)
+        if self.superseded_by:
+            data["superseded_by"] = self.superseded_by
+        if self.tags:
+            data["tags"] = list(self.tags)
+        return data
+
+    def equivalent_key(self) -> tuple[Any, ...]:
+        return memory_note_equivalent_key(self.type, self.content, self.sources)
+
+
+def memory_note_equivalent_key(
+    note_type: MemoryNoteType | str,
+    content: str,
+    sources: list[MemorySource] | None = None,
+) -> tuple[Any, ...]:
+    coerced_type = _coerce_enum(MemoryNoteType, note_type, MemoryNoteType.PROJECT)
+    source_keys = sorted((source.identity() for source in (sources or [])), key=repr)
+    return (coerced_type.value, _normalize_note_text(content), tuple(source_keys))
+
+
+def generate_memory_note_id(
+    note_type: MemoryNoteType | str,
+    content: str,
+    sources: list[MemorySource] | None = None,
+) -> str:
+    payload = json.dumps(
+        memory_note_equivalent_key(note_type, content, sources),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return "note_" + hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
 # MemoryStore — pure file I/O layer
 # ---------------------------------------------------------------------------
 
@@ -45,6 +307,7 @@ class MemoryStore:
         self.max_history_entries = max_history_entries
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
+        self.notes_file = self.memory_dir / "notes.jsonl"
         self.history_file = self.memory_dir / "history.jsonl"
         self.legacy_history_file = self.memory_dir / "HISTORY.md"
         self.soul_file = workspace / "SOUL.md"
@@ -52,7 +315,7 @@ class MemoryStore:
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
         self._git = GitStore(workspace, tracked_files=[
-            "SOUL.md", "USER.md", "memory/MEMORY.md",
+            "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/notes.jsonl",
         ])
         # One-time migration from legacy HISTORY.md format
         migrate_legacy_history(self.memory_dir)
@@ -69,6 +332,176 @@ class MemoryStore:
             return path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return ""
+
+    # -- notes.jsonl (canonical Memory Notes) -------------------------------
+
+    def read_notes(self) -> list[MemoryNote]:
+        """Read all Memory Notes, skipping malformed JSONL rows."""
+        notes: list[MemoryNote] = []
+        try:
+            with open(self.notes_file, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        raw = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(raw, dict):
+                        notes.append(MemoryNote.from_dict(raw))
+        except FileNotFoundError:
+            pass
+        return notes
+
+    def write_notes(self, notes: list[MemoryNote]) -> None:
+        with open(self.notes_file, "w", encoding="utf-8") as f:
+            for note in notes:
+                f.write(json.dumps(note.to_dict(), ensure_ascii=False) + "\n")
+
+    def find_duplicate_note(self, candidate: MemoryNote) -> MemoryNote | None:
+        candidate_key = candidate.equivalent_key()
+        for note in self.read_notes():
+            if note.equivalent_key() == candidate_key:
+                return note
+        return None
+
+    def upsert_note(self, note: MemoryNote) -> MemoryNote:
+        """Insert or replace a Memory Note by id or equivalent content/source."""
+        notes = self.read_notes()
+        replacement = note
+        replacement.updated_at = _utc_timestamp()
+        for idx, existing in enumerate(notes):
+            if existing.id == note.id or existing.equivalent_key() == note.equivalent_key():
+                if existing.id != note.id:
+                    replacement.id = existing.id
+                    replacement.created_at = existing.created_at
+                notes[idx] = replacement
+                self.write_notes(notes)
+                return replacement
+        notes.append(replacement)
+        self.write_notes(notes)
+        return replacement
+
+    def get_note(self, note_id: str) -> MemoryNote | None:
+        for note in self.read_notes():
+            if note.id == note_id:
+                return note
+        return None
+
+    def set_note_status(self, note_id: str, status: MemoryNoteStatus | str) -> MemoryNote:
+        notes = self.read_notes()
+        new_status = _coerce_enum(MemoryNoteStatus, status, MemoryNoteStatus.ACTIVE)
+        for note in notes:
+            if note.id == note_id:
+                note.status = new_status
+                note.updated_at = _utc_timestamp()
+                self.write_notes(notes)
+                return note
+        raise KeyError(f"Memory Note not found: {note_id}")
+
+    def reject_note(self, note_id: str) -> MemoryNote:
+        return self.set_note_status(note_id, MemoryNoteStatus.REJECTED)
+
+    def supersede_note(self, note_id: str, replacement: MemoryNote) -> MemoryNote:
+        """Mark an existing note superseded and link it to a replacement note."""
+        notes = self.read_notes()
+        old_note: MemoryNote | None = None
+        for note in notes:
+            if note.id == note_id:
+                old_note = note
+                break
+        if old_note is None:
+            raise KeyError(f"Memory Note not found: {note_id}")
+
+        replacement.status = MemoryNoteStatus.ACTIVE
+        if note_id not in replacement.supersedes:
+            replacement.supersedes.append(note_id)
+        replacement = self.upsert_note(replacement)
+
+        notes = self.read_notes()
+        for note in notes:
+            if note.id == note_id:
+                note.status = MemoryNoteStatus.SUPERSEDED
+                note.superseded_by = replacement.id
+                note.updated_at = _utc_timestamp()
+                self.write_notes(notes)
+                return replacement
+        raise KeyError(f"Memory Note not found after replacement insert: {note_id}")
+
+    def migrate_legacy_memory_notes(self) -> list[MemoryNote]:
+        """Create conservative Memory Notes from existing Markdown memory views.
+
+        The original Markdown files are read-only inputs here. Re-running this
+        method is idempotent because note ids include normalized content and
+        source identity.
+        """
+        migrated: list[MemoryNote] = []
+        for source_file, path, note_type in (
+            ("memory/MEMORY.md", self.memory_file, MemoryNoteType.PROJECT),
+            ("USER.md", self.user_file, MemoryNoteType.PREFERENCE),
+            ("SOUL.md", self.soul_file, MemoryNoteType.INSTRUCTION),
+        ):
+            content = self.read_file(path)
+            if not content.strip():
+                continue
+            source = MemorySource.migration(source_file)
+            for item in self._parse_legacy_memory_markdown(content):
+                note = MemoryNote.create(
+                    item,
+                    note_type,
+                    [source],
+                    priority=0.4,
+                    confidence=0.45,
+                    tags=["legacy-migration"],
+                )
+                migrated.append(self.upsert_note(note))
+        return migrated
+
+    @staticmethod
+    def _parse_legacy_memory_markdown(content: str) -> list[str]:
+        items: list[str] = []
+        in_fence = False
+        paragraph: list[str] = []
+
+        def flush_paragraph() -> None:
+            if paragraph:
+                text = " ".join(paragraph).strip()
+                if text:
+                    items.append(text)
+                paragraph.clear()
+
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if line.startswith("```"):
+                in_fence = not in_fence
+                flush_paragraph()
+                continue
+            if in_fence:
+                continue
+            if not line:
+                flush_paragraph()
+                continue
+            if line.startswith("#"):
+                flush_paragraph()
+                continue
+            bullet = re.match(r"^(?:[-*+]|\d+[.)])\s+(?P<text>.+)$", line)
+            if bullet:
+                flush_paragraph()
+                items.append(bullet.group("text").strip())
+                continue
+            paragraph.append(line)
+
+        flush_paragraph()
+        seen: set[str] = set()
+        unique: list[str] = []
+        for item in items:
+            normalized = _normalize_note_text(item)
+            if len(normalized) < 3 or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique.append(item)
+        return unique
 
     # -- MEMORY.md (long-term facts) -----------------------------------------
 
