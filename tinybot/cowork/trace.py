@@ -12,7 +12,9 @@ def compact_text(value: Any, limit: int = 240) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= limit:
         return text
-    return text[: max(0, limit - 1)].rstrip() + "..."
+    if limit <= 3:
+        return text[:limit]
+    return text[: max(0, limit - 3)].rstrip() + "..."
 
 
 def duration_ms(started_at: str, ended_at: str) -> int | None:

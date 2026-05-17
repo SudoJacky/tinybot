@@ -18,7 +18,9 @@ def _compact(value: Any, limit: int = 180) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= limit:
         return text
-    return text[: max(0, limit - 1)].rstrip() + "..."
+    if limit <= 3:
+        return text[:limit]
+    return text[: max(0, limit - 3)].rstrip() + "..."
 
 
 def _status_tone(status: str) -> str:
@@ -485,7 +487,7 @@ def _session_artifacts(session: CoworkSession) -> list[dict[str, Any]]:
             seen.add(key)
             artifacts.append(
                 {
-                    "id": f"artifact:{hashlib.sha1(f'{task.id}:{value}'.encode('utf-8')).hexdigest()[:12]}",
+                    "id": f"artifact:{hashlib.sha1(f'{task.id}:{value}'.encode()).hexdigest()[:12]}",
                     "value": value,
                     "kind": _artifact_kind(value),
                     "source_task_id": task.id,
@@ -889,7 +891,7 @@ def build_cowork_task_dag(session: CoworkSession) -> dict[str, Any]:
                 )
             _add_edge(edges, agent_node_id, f"task:{task.id}", "owns")
         for artifact in _task_artifacts(task):
-            artifact_id = f"artifact:{hashlib.sha1(f'{task.id}:{artifact}'.encode('utf-8')).hexdigest()[:12]}"
+            artifact_id = f"artifact:{hashlib.sha1(f'{task.id}:{artifact}'.encode()).hexdigest()[:12]}"
             nodes.append(
                 {
                     "id": artifact_id,
