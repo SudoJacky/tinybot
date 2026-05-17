@@ -241,6 +241,10 @@ class ContextBuilder:
                         }
                     )
 
+        memory_recall_context = self._build_memory_recall_context(current_message)
+        if memory_recall_context:
+            messages.append({"role": "system", "content": memory_recall_context})
+
         if self.experience_store is not None:
             experience_context = self._build_experience_context(current_message)
             if experience_context:
@@ -265,6 +269,21 @@ class ContextBuilder:
             return messages
         messages.append({"role": current_role, "content": merged})
         return messages
+
+    def _build_memory_recall_context(
+        self,
+        current_message: str,
+        max_notes: int = 6,
+        max_chars: int = 1_600,
+    ) -> str | None:
+        if self._is_simple_conversation(current_message):
+            return None
+        context = self.memory.format_memory_recall_context(
+            current_message,
+            max_notes=max_notes,
+            max_chars=max_chars,
+        )
+        return context or None
 
     def _build_experience_context(
         self,
@@ -400,57 +419,6 @@ class ContextBuilder:
             persistent_results=persistent_results,
             session_results=session_results,
         )
-
-        lines = ["---\n[RELEVANT KNOWLEDGE]\n\n"]
-        for idx, result in enumerate(results, 1):
-            doc_name = result.get("doc_name", "Unknown")
-            content = result.get("content", "")
-            summary = result.get("summary", "")
-            file_path = result.get("file_path", "")
-            category = result.get("category", "")
-            section_path = result.get("section_path", "")
-            line_start = result.get("line_start", 0)
-            line_end = result.get("line_end", 0)
-            page = result.get("page")
-            matched_claims = result.get("matched_claims", [])
-            matched_relations = result.get("matched_relations", [])
-            matched_entities = result.get("matched_entities", [])
-            matched_child_snippets = result.get("matched_child_snippets", [])
-
-            # Build metadata line
-            meta_parts = [f"文档: {doc_name}"]
-            if file_path:
-                meta_parts.append(f"路径: {file_path}")
-            if category:
-                meta_parts.append(f"分类: {category}")
-            if section_path:
-                meta_parts.append(f"Section: {section_path}")
-            # Line info (more useful than char position)
-            if line_start and line_end:
-                meta_parts.append(f"行: {line_start}-{line_end}")
-            if page is not None:
-                meta_parts.append(f"页码: {page}")
-            meta_str = " | ".join(meta_parts)
-            semantic_parts = []
-            if matched_entities:
-                semantic_parts.append("Entities: " + ", ".join(matched_entities[:5]))
-            if matched_relations:
-                semantic_parts.append("Relations: " + "; ".join(matched_relations[:3]))
-            if matched_claims:
-                semantic_parts.append("Claims: " + " | ".join(matched_claims[:3]))
-            if matched_child_snippets:
-                semantic_parts.append("Matched snippets: " + " | ".join(matched_child_snippets[:2]))
-            semantic_text = "\n".join(semantic_parts)
-            semantic_block = f"\n{semantic_text}" if semantic_text else ""
-
-            # Include summary if available
-            if summary:
-                lines.append(f"[{idx}] {meta_str}{semantic_block}\n摘要: {summary}\n内容: {content}\n\n")
-            else:
-                lines.append(f"[{idx}] {meta_str}{semantic_block}\n{content}\n\n")
-
-        lines.append("注意: 如果引用了上述知识内容，请在对应的回答中附上知识的来源（文档名称，第几页，第几行，文档路径在哪）。\n---")
-        return "".join(lines)
 
     @classmethod
     def _format_retrieved_knowledge_context(

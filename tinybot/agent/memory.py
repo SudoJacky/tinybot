@@ -64,6 +64,15 @@ def _normalize_note_text(text: str) -> str:
     return " ".join(text.strip().casefold().split())
 
 
+def _memory_recall_terms(text: str) -> set[str]:
+    normalized = _normalize_note_text(text)
+    return {
+        term
+        for term in re.findall(r"[\w-]+", normalized, flags=re.UNICODE)
+        if len(term) >= 3
+    }
+
+
 def _coerce_enum(enum_type: type[StrEnum], value: Any, default: StrEnum) -> StrEnum:
     try:
         return enum_type(str(value))
@@ -625,6 +634,98 @@ class MemoryStore:
     def get_memory_context(self) -> str:
         long_term = self.read_memory()
         return f"## Long-term Memory\n{long_term}" if long_term else ""
+
+    def select_memory_recall(
+        self,
+        query: str,
+        *,
+        max_notes: int = 6,
+        max_chars: int = 1_600,
+        high_priority_threshold: float = 0.75,
+    ) -> list[MemoryNote]:
+        """Select active Memory Notes for bounded prompt recall.
+
+        Recall is intentionally lexical and file-backed here. JSONL remains the
+        canonical memory source; optional vector indexes can build on this later.
+        """
+        if max_notes <= 0 or max_chars <= 0:
+            return []
+
+        query_terms = _memory_recall_terms(query)
+        candidates: list[tuple[tuple[float, float, float, str, str], MemoryNote]] = []
+        for note in self.read_notes():
+            if note.status != MemoryNoteStatus.ACTIVE or not note.content:
+                continue
+            note_terms = _memory_recall_terms(
+                " ".join([note.content, note.type.value, " ".join(note.tags)])
+            )
+            overlap = len(query_terms & note_terms)
+            relevance = overlap / max(len(query_terms), 1) if query_terms else 0.0
+            if overlap == 0 and note.priority < high_priority_threshold:
+                continue
+            score = (
+                relevance,
+                note.priority,
+                note.confidence,
+                note.type.value,
+                note.content.casefold(),
+            )
+            candidates.append((score, note))
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        selected: list[MemoryNote] = []
+        used_chars = 0
+        for _, note in candidates:
+            line = self._format_memory_recall_note(note)
+            line_cost = len(line) + 1
+            if selected and used_chars + line_cost > max_chars:
+                continue
+            if not selected and line_cost > max_chars:
+                continue
+            selected.append(note)
+            used_chars += line_cost
+            if len(selected) >= max_notes:
+                break
+        return selected
+
+    def format_memory_recall_context(
+        self,
+        query: str,
+        *,
+        max_notes: int = 6,
+        max_chars: int = 1_600,
+    ) -> str:
+        notes = self.select_memory_recall(
+            query,
+            max_notes=max_notes,
+            max_chars=max_chars,
+        )
+        if not notes:
+            return ""
+
+        lines = [
+            "---",
+            "[MEMORY RECALL]",
+            "",
+            "Active Memory Notes selected for this request. Keep this separate from Experience and Knowledge Base context.",
+            "",
+        ]
+        for note in notes:
+            lines.append(self._format_memory_recall_note(note))
+        lines.append("---")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_memory_recall_note(note: MemoryNote) -> str:
+        metadata = [
+            f"id: {note.id}",
+            f"type: {note.type.value}",
+            f"priority: {note.priority:g}",
+            f"confidence: {note.confidence:g}",
+        ]
+        if note.tags:
+            metadata.append("tags: " + ", ".join(sorted(note.tags)))
+        return f"- {note.content} ({'; '.join(metadata)})"
 
     # -- history.jsonl — append-only, JSONL format ---------------------------
 

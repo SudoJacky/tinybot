@@ -219,6 +219,69 @@ def test_memory_views_exclude_rejected_and_superseded_notes(tmp_path):
     assert superseded.content not in rendered
 
 
+def test_memory_recall_orders_by_relevance_priority_and_budget(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:default")
+    first = store.upsert_note(
+        MemoryNote.create(
+            "Use uv run pytest for Python validation.",
+            MemoryNoteType.INSTRUCTION,
+            [source],
+            priority=0.7,
+            confidence=0.8,
+            tags=["python", "tests"],
+        )
+    )
+    second = store.upsert_note(
+        MemoryNote.create(
+            "Prefer concise implementation progress updates.",
+            MemoryNoteType.PREFERENCE,
+            [source],
+            priority=0.95,
+            confidence=0.7,
+            tags=["communication"],
+        )
+    )
+    store.upsert_note(
+        MemoryNote.create(
+            "Unrelated but important repository decision.",
+            MemoryNoteType.DECISION,
+            [source],
+            priority=0.9,
+            confidence=0.7,
+        )
+    )
+
+    selected = store.select_memory_recall(
+        "Please add Python tests and validation.",
+        max_notes=2,
+        max_chars=1_000,
+    )
+
+    assert [note.id for note in selected] == [first.id, second.id]
+
+
+def test_memory_recall_excludes_inactive_notes_by_default(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:default")
+    active = store.upsert_note(MemoryNote.create("Active Python testing note.", "instruction", [source]))
+    rejected = store.upsert_note(MemoryNote.create("Rejected Python testing note.", "instruction", [source]))
+    superseded = store.upsert_note(MemoryNote.create("Superseded Python testing note.", "instruction", [source]))
+    store.reject_note(rejected.id)
+    store.supersede_note(
+        superseded.id,
+        MemoryNote.create("Replacement Python testing note.", "instruction", [source]),
+    )
+
+    context = store.format_memory_recall_context("Python testing validation")
+
+    assert active.content in context
+    assert "Replacement Python testing note." in context
+    assert rejected.content not in context
+    assert superseded.content not in context
+    assert "[MEMORY RECALL]" in context
+
+
 def test_memory_view_refresh_replaces_only_existing_managed_section(tmp_path):
     store = MemoryStore(tmp_path)
     source = MemorySource.explicit(session_key="cli:default")
