@@ -301,6 +301,21 @@ class MemoryStore:
     """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
 
     _DEFAULT_MAX_HISTORY = 1000
+    _VIEW_MARKER_BEGIN = "<!-- tinybot-memory-notes:start -->"
+    _VIEW_MARKER_END = "<!-- tinybot-memory-notes:end -->"
+    _VIEW_TITLES = {
+        "memory/MEMORY.md": "Project Memory Notes",
+        "USER.md": "User Memory Notes",
+        "SOUL.md": "Assistant Memory Notes",
+    }
+    _TYPE_VIEW_DEFAULTS = {
+        MemoryNoteType.PREFERENCE: "USER.md",
+        MemoryNoteType.INSTRUCTION: "SOUL.md",
+        MemoryNoteType.PROJECT: "memory/MEMORY.md",
+        MemoryNoteType.DECISION: "memory/MEMORY.md",
+        MemoryNoteType.FIX: "memory/MEMORY.md",
+        MemoryNoteType.FOLLOWUP: "memory/MEMORY.md",
+    }
 
     def __init__(self, workspace: Path, max_history_entries: int = _DEFAULT_MAX_HISTORY):
         self.workspace = workspace
@@ -457,6 +472,86 @@ class MemoryStore:
                 )
                 migrated.append(self.upsert_note(note))
         return migrated
+
+    def refresh_memory_views(self) -> dict[str, str]:
+        """Render active Memory Notes into managed Markdown view sections."""
+        notes = self.read_notes()
+        rendered = {
+            "memory/MEMORY.md": self.render_memory_view("memory/MEMORY.md", notes),
+            "USER.md": self.render_memory_view("USER.md", notes),
+            "SOUL.md": self.render_memory_view("SOUL.md", notes),
+        }
+        self.write_memory(self._replace_managed_memory_view(self.read_memory(), rendered["memory/MEMORY.md"]))
+        self.write_user(self._replace_managed_memory_view(self.read_user(), rendered["USER.md"]))
+        self.write_soul(self._replace_managed_memory_view(self.read_soul(), rendered["SOUL.md"]))
+        return rendered
+
+    def render_memory_view(self, view_file: str, notes: list[MemoryNote] | None = None) -> str:
+        """Render one managed Memory View section from active Memory Notes."""
+        active_notes = [
+            note
+            for note in (notes if notes is not None else self.read_notes())
+            if note.status == MemoryNoteStatus.ACTIVE
+            and note.content
+            and self._note_view_file(note) == view_file
+        ]
+        active_notes.sort(
+            key=lambda note: (
+                note.type.value,
+                -note.priority,
+                -note.confidence,
+                note.content.casefold(),
+            )
+        )
+
+        title = self._VIEW_TITLES.get(view_file, "Memory Notes")
+        lines = [
+            self._VIEW_MARKER_BEGIN,
+            f"## {title}",
+            "",
+            "This managed section is rendered from `memory/notes.jsonl`.",
+            "Edit durable memory through Memory Note operations instead of changing this section directly.",
+            "",
+        ]
+        if not active_notes:
+            lines.append("(No active Memory Notes.)")
+        else:
+            current_type: MemoryNoteType | None = None
+            for note in active_notes:
+                if note.type != current_type:
+                    current_type = note.type
+                    lines.extend(("", f"### {note.type.value.title()}"))
+                metadata = [
+                    f"id: {note.id}",
+                    f"priority: {note.priority:g}",
+                    f"confidence: {note.confidence:g}",
+                ]
+                if note.tags:
+                    metadata.append("tags: " + ", ".join(sorted(note.tags)))
+                lines.append(f"- {note.content} ({'; '.join(metadata)})")
+        lines.append(self._VIEW_MARKER_END)
+        return "\n".join(lines).rstrip() + "\n"
+
+    @classmethod
+    def _replace_managed_memory_view(cls, existing: str, rendered_section: str) -> str:
+        existing = existing.rstrip()
+        begin = existing.find(cls._VIEW_MARKER_BEGIN)
+        end = existing.find(cls._VIEW_MARKER_END)
+        if begin != -1 and end != -1 and begin < end:
+            suffix_start = end + len(cls._VIEW_MARKER_END)
+            prefix = existing[:begin].rstrip()
+            suffix = existing[suffix_start:].strip()
+            parts = [part for part in (prefix, rendered_section.rstrip(), suffix) if part]
+            return "\n\n".join(parts).rstrip() + "\n"
+        if not existing:
+            return rendered_section
+        return existing + "\n\n" + rendered_section
+
+    def _note_view_file(self, note: MemoryNote) -> str:
+        for source in note.sources:
+            if source.source_file in self._VIEW_TITLES:
+                return source.source_file
+        return self._TYPE_VIEW_DEFAULTS.get(note.type, "memory/MEMORY.md")
 
     @staticmethod
     def _parse_legacy_memory_markdown(content: str) -> list[str]:

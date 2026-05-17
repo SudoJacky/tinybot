@@ -164,3 +164,76 @@ def test_legacy_migration_is_idempotent_and_legacy_context_still_loads(tmp_path)
     assert [note.id for note in first] == [note.id for note in second]
     assert len(store.read_notes()) == 1
     assert "Keep legacy context usable." in store.get_memory_context()
+
+
+def test_memory_view_rendering_writes_active_notes_to_managed_sections(tmp_path):
+    store = MemoryStore(tmp_path)
+    store.memory_file.write_text("# Existing Memory\n\nKeep this paragraph.", encoding="utf-8")
+    source = MemorySource.explicit(session_key="cli:default")
+    project_note = store.upsert_note(
+        MemoryNote.create(
+            "Use the Memory Notes store as canonical agent memory.",
+            MemoryNoteType.PROJECT,
+            [source],
+            priority=0.8,
+            confidence=0.9,
+            tags=["agent-memory"],
+        )
+    )
+    store.upsert_note(MemoryNote.create("User prefers concise summaries.", MemoryNoteType.PREFERENCE, [source]))
+    store.upsert_note(MemoryNote.create("Speak directly and avoid vague claims.", MemoryNoteType.INSTRUCTION, [source]))
+
+    rendered = store.refresh_memory_views()
+
+    memory_content = store.read_memory()
+    user_content = store.read_user()
+    soul_content = store.read_soul()
+    assert "# Existing Memory" in memory_content
+    assert "Keep this paragraph." in memory_content
+    assert "Use the Memory Notes store as canonical agent memory." in memory_content
+    assert project_note.id in rendered["memory/MEMORY.md"]
+    assert "User prefers concise summaries." in user_content
+    assert "Speak directly and avoid vague claims." in soul_content
+
+
+def test_memory_views_exclude_rejected_and_superseded_notes(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:default")
+    active = store.upsert_note(MemoryNote.create("Keep active project note.", MemoryNoteType.PROJECT, [source]))
+    rejected = store.upsert_note(MemoryNote.create("Do not show rejected note.", MemoryNoteType.PROJECT, [source]))
+    superseded = store.upsert_note(MemoryNote.create("Do not show superseded note.", MemoryNoteType.PROJECT, [source]))
+    store.reject_note(rejected.id)
+    store.supersede_note(
+        superseded.id,
+        MemoryNote.create("Show replacement note.", MemoryNoteType.PROJECT, [source]),
+    )
+
+    rendered = store.refresh_memory_views()["memory/MEMORY.md"]
+
+    assert active.content in rendered
+    assert "Show replacement note." in rendered
+    assert rejected.content not in rendered
+    assert superseded.content not in rendered
+
+
+def test_memory_view_refresh_replaces_only_existing_managed_section(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:default")
+    store.memory_file.write_text(
+        "# Existing Memory\n\n"
+        "<!-- tinybot-memory-notes:start -->\n"
+        "old managed content\n"
+        "<!-- tinybot-memory-notes:end -->\n\n"
+        "Unmanaged footer.",
+        encoding="utf-8",
+    )
+    store.upsert_note(MemoryNote.create("Render this active note.", "decision", [source]))
+
+    store.refresh_memory_views()
+    memory_content = store.read_memory()
+
+    assert "# Existing Memory" in memory_content
+    assert "Unmanaged footer." in memory_content
+    assert "Render this active note." in memory_content
+    assert "old managed content" not in memory_content
+    assert memory_content.count("<!-- tinybot-memory-notes:start -->") == 1
