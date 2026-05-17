@@ -94,6 +94,53 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
+def _strict_note_type(value: MemoryNoteType | str) -> MemoryNoteType:
+    try:
+        return MemoryNoteType(str(value))
+    except (TypeError, ValueError) as exc:
+        allowed = ", ".join(item.value for item in MemoryNoteType)
+        raise ValueError(f"Invalid Memory Note type: {value!r}. Allowed: {allowed}") from exc
+
+
+def _strict_note_status(value: MemoryNoteStatus | str) -> MemoryNoteStatus:
+    try:
+        return MemoryNoteStatus(str(value))
+    except (TypeError, ValueError) as exc:
+        allowed = ", ".join(item.value for item in MemoryNoteStatus)
+        raise ValueError(f"Invalid Memory Note status: {value!r}. Allowed: {allowed}") from exc
+
+
+def _strict_score(name: str, value: float) -> float:
+    try:
+        score = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number between 0 and 1") from exc
+    if score < 0 or score > 1:
+        raise ValueError(f"{name} must be between 0 and 1")
+    return score
+
+
+def _clean_note_tags(tags: list[str] | tuple[str, ...] | str | None) -> list[str]:
+    if tags is None:
+        return []
+    if isinstance(tags, str):
+        raw_tags = tags.split(",")
+    else:
+        raw_tags = tags
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for tag in raw_tags:
+        text = str(tag).strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(text)
+    return cleaned
+
+
 @dataclass(slots=True)
 class MemorySource:
     capture_origin: MemoryCaptureOrigin
@@ -410,6 +457,109 @@ class MemoryStore:
             if note.id == note_id:
                 return note
         return None
+
+    def save_memory_note(
+        self,
+        *,
+        content: str,
+        note_type: MemoryNoteType | str,
+        source: MemorySource | None = None,
+        priority: float = 0.5,
+        confidence: float = 0.5,
+        tags: list[str] | tuple[str, ...] | str | None = None,
+    ) -> MemoryNote:
+        """Save explicit durable Agent Memory after validating user-facing inputs."""
+        if not content or not content.strip():
+            raise ValueError("Memory Note content is required")
+        note = MemoryNote.create(
+            content.strip(),
+            _strict_note_type(note_type),
+            [source or MemorySource.explicit()],
+            priority=_strict_score("priority", priority),
+            confidence=_strict_score("confidence", confidence),
+            tags=_clean_note_tags(tags),
+        )
+        return self.upsert_note(note)
+
+    def search_memory_notes(
+        self,
+        *,
+        query: str = "",
+        note_type: MemoryNoteType | str | None = None,
+        status: MemoryNoteStatus | str | None = None,
+        limit: int = 20,
+    ) -> list[MemoryNote]:
+        """Search canonical Memory Notes by lexical query and optional filters."""
+        if limit <= 0:
+            return []
+        type_filter = _strict_note_type(note_type) if note_type else None
+        status_filter = _strict_note_status(status) if status else None
+        query_terms = _memory_recall_terms(query)
+        normalized_query = _normalize_note_text(query)
+
+        matches: list[MemoryNote] = []
+        for note in self.read_notes():
+            if type_filter and note.type != type_filter:
+                continue
+            if status_filter and note.status != status_filter:
+                continue
+            if query_terms or normalized_query:
+                haystack = " ".join(
+                    [
+                        note.id,
+                        note.type.value,
+                        note.status.value,
+                        note.content,
+                        " ".join(note.tags),
+                        " ".join(source.capture_origin.value for source in note.sources),
+                        " ".join(source.session_key or "" for source in note.sources),
+                        " ".join(source.source_file or "" for source in note.sources),
+                    ]
+                )
+                haystack_terms = _memory_recall_terms(haystack)
+                normalized_haystack = _normalize_note_text(haystack)
+                if query_terms and not (query_terms & haystack_terms):
+                    if normalized_query not in normalized_haystack:
+                        continue
+                elif normalized_query and normalized_query not in normalized_haystack and not query_terms:
+                    continue
+            matches.append(note)
+            if len(matches) >= limit:
+                break
+        return matches
+
+    def trace_memory_note(self, note_id: str) -> MemoryNote:
+        note = self.get_note(note_id)
+        if note is None:
+            raise KeyError(f"Memory Note not found: {note_id}")
+        return note
+
+    def reject_memory_note(self, note_id: str) -> MemoryNote:
+        return self.reject_note(note_id)
+
+    def supersede_memory_note(
+        self,
+        note_id: str,
+        *,
+        replacement_content: str,
+        note_type: MemoryNoteType | str | None = None,
+        source: MemorySource | None = None,
+        priority: float | None = None,
+        confidence: float | None = None,
+        tags: list[str] | tuple[str, ...] | str | None = None,
+    ) -> MemoryNote:
+        old_note = self.trace_memory_note(note_id)
+        if not replacement_content or not replacement_content.strip():
+            raise ValueError("Replacement Memory Note content is required")
+        replacement = MemoryNote.create(
+            replacement_content.strip(),
+            _strict_note_type(note_type) if note_type else old_note.type,
+            [source or MemorySource.explicit()],
+            priority=_strict_score("priority", old_note.priority if priority is None else priority),
+            confidence=_strict_score("confidence", old_note.confidence if confidence is None else confidence),
+            tags=_clean_note_tags(old_note.tags if tags is None else tags),
+        )
+        return self.supersede_note(note_id, replacement)
 
     def set_note_status(self, note_id: str, status: MemoryNoteStatus | str) -> MemoryNote:
         notes = self.read_notes()

@@ -282,6 +282,54 @@ def test_memory_recall_excludes_inactive_notes_by_default(tmp_path):
     assert "[MEMORY RECALL]" in context
 
 
+def test_explicit_memory_note_save_search_trace_reject_and_supersede(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:default", message_start=1, message_end=2)
+
+    saved = store.save_memory_note(
+        content="Use uv for Python validation commands.",
+        note_type="instruction",
+        source=source,
+        priority=0.9,
+        confidence=0.8,
+        tags="python, validation, python",
+    )
+    matches = store.search_memory_notes(query="validation", note_type="instruction", status="active")
+    traced = store.trace_memory_note(saved.id)
+    rejected = store.reject_memory_note(saved.id)
+    replacement = store.supersede_memory_note(
+        saved.id,
+        replacement_content="Use uv run pytest for Python test validation.",
+        source=source,
+    )
+    notes = {note.id: note for note in store.read_notes()}
+
+    assert matches == [saved]
+    assert traced.sources[0].capture_origin == MemoryCaptureOrigin.EXPLICIT
+    assert traced.sources[0].session_key == "cli:default"
+    assert traced.tags == ["python", "validation"]
+    assert rejected.status == MemoryNoteStatus.REJECTED
+    assert notes[saved.id].status == MemoryNoteStatus.SUPERSEDED
+    assert notes[saved.id].superseded_by == replacement.id
+    assert saved.id in notes[replacement.id].supersedes
+    assert replacement.content == "Use uv run pytest for Python test validation."
+
+
+def test_explicit_memory_note_operations_validate_inputs(tmp_path):
+    store = MemoryStore(tmp_path)
+
+    with pytest.raises(ValueError, match="content is required"):
+        store.save_memory_note(content="", note_type="instruction")
+    with pytest.raises(ValueError, match="Invalid Memory Note type"):
+        store.save_memory_note(content="Durable note.", note_type="workflow")
+    with pytest.raises(ValueError, match="priority must be between 0 and 1"):
+        store.save_memory_note(content="Durable note.", note_type="instruction", priority=2)
+    with pytest.raises(ValueError, match="Invalid Memory Note status"):
+        store.search_memory_notes(status="archived")
+    with pytest.raises(KeyError, match="Memory Note not found"):
+        store.trace_memory_note("note_missing")
+
+
 def test_memory_view_refresh_replaces_only_existing_managed_section(tmp_path):
     store = MemoryStore(tmp_path)
     source = MemorySource.explicit(session_key="cli:default")
