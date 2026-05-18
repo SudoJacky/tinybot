@@ -53,6 +53,10 @@ export const state = {
   lastUsage: null,  // 最后一次的usage数据
   browserFrame: null,
   browserPanelCollapsed: false,
+  inspectionOpen: false,
+  selectedChainItemKey: "",
+  selectedChainItem: null,
+  expandedRunChains: new Set(),
   sidebarCollapsed: localStorage.getItem("tinybot-sidebar-collapsed") === "true",
   uiMode: localStorage.getItem("tinybot-ui-mode") || "basic",
   modelDiscoveryTimer: null,

@@ -1,7 +1,7 @@
 /* ========== 主布局 ========== */
 .shell {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr) 0;
   gap: 0;
   height: calc(100vh - 34px);
   margin: 16px 20px 18px;
@@ -15,8 +15,16 @@
   transition: grid-template-columns 220ms ease;
 }
 
+.shell.inspection-mode {
+  grid-template-columns: 248px minmax(440px, 0.72fr) minmax(360px, 0.9fr);
+}
+
 .shell.sidebar-collapsed {
-  grid-template-columns: 68px minmax(0, 1fr);
+  grid-template-columns: 68px minmax(0, 1fr) 0;
+}
+
+.shell.sidebar-collapsed.inspection-mode {
+  grid-template-columns: 68px minmax(440px, 0.72fr) minmax(360px, 0.9fr);
 }
 
 /* ========== 通用面板样式 ========== */
@@ -99,6 +107,29 @@
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.inspector-panel {
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  background: color-mix(in srgb, var(--panel-strong) 72%, var(--bg-subtle));
+  box-shadow: -18px 0 36px rgba(46, 72, 100, 0.10);
+  opacity: 0;
+  transform: translateX(28px);
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 220ms ease;
+  overflow: hidden;
+}
+
+.shell.inspection-mode .inspector-panel {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
 .chat-panel::after {
