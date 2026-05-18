@@ -242,6 +242,25 @@
       </form>
     </section>
 
+    <aside id="inspector-panel" class="inspector-panel" aria-label="Inspector Panel" aria-hidden="true">
+      <header class="inspector-header">
+        <div>
+          <p class="eyebrow">Inspector</p>
+          <h2 id="inspector-title">Select a chain item</h2>
+          <p id="inspector-subtitle" class="inspector-subtitle">Tool, file, and artifact details appear here.</p>
+        </div>
+        <button id="inspector-close" class="button button-icon inspector-close" type="button" aria-label="Close inspector" title="Close inspector">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </header>
+      <section id="inspector-body" class="inspector-body">
+        <div class="inspector-empty">Select an inspectable Run Chain item.</div>
+      </section>
+    </aside>
+
     <!-- 右侧：精简面板 -->
   <section id="cowork-modal" class="cowork-page" aria-label="Cowork workspace">
     <div class="modal-overlay" id="cowork-modal-overlay"></div>

@@ -719,6 +719,11 @@ function isToolProcessMessage(message) {
   return message?.role === "tool" || message?.role === "progress" || hasToolCalls(message);
 }
 
+function isRunChainSourceMessage(message) {
+  const hasUserFacingContent = Boolean((message?.content || "").trim()) && !hasToolCalls(message);
+  return isToolProcessMessage(message) || (!hasUserFacingContent && Boolean(message?.reasoning_content && message.reasoning_content.trim()));
+}
+
 function isFinalAssistantContent(message) {
   return (
     message?.role === "assistant" &&
@@ -907,18 +912,28 @@ function createMessageDisplayItems(messages) {
 
     if (finalIndex > index && shouldAutoCollapseTurn(messages, index, finalIndex)) {
       const turnMessages = messages.slice(index, finalIndex);
-      const taskMessages = turnMessages.filter((item) => item._task_event);
-      const collapsedMessages = turnMessages.filter((item) => !item._task_event);
-      if (collapsedMessages.length) {
-        items.push({
-          type: "collapse",
-          messages: collapsedMessages,
-        });
-      }
-      for (const taskMessage of taskMessages) {
+      const runChainMessages = [];
+      for (const turnMessage of turnMessages) {
+        if (turnMessage._task_event) {
+          items.push({
+            type: "message",
+            message: turnMessage,
+          });
+          continue;
+        }
+        if (isRunChainSourceMessage(turnMessage)) {
+          runChainMessages.push(turnMessage);
+          continue;
+        }
         items.push({
           type: "message",
-          message: taskMessage,
+          message: turnMessage,
+        });
+      }
+      if (runChainMessages.length) {
+        items.push({
+          type: "run-chain",
+          messages: runChainMessages,
         });
       }
       items.push({
@@ -927,6 +942,31 @@ function createMessageDisplayItems(messages) {
       });
       index = finalIndex;
       continue;
+    }
+
+    if (isRunChainSourceMessage(message)) {
+      const runChainMessages = [];
+      let chainIndex = index;
+      while (chainIndex < messages.length) {
+        const chainMessage = messages[chainIndex];
+        if (chainMessage?._task_event || chainMessage?._pairedToolResponseConsumed || !isRunChainSourceMessage(chainMessage)) {
+          break;
+        }
+        runChainMessages.push(chainMessage);
+        if (hasToolCalls(chainMessage)) {
+          chainIndex = relatedToolMessagesEndIndex(messages, chainIndex) + 1;
+        } else {
+          chainIndex += 1;
+        }
+      }
+      if (runChainMessages.length) {
+        items.push({
+          type: "run-chain",
+          messages: runChainMessages,
+        });
+        index = chainIndex - 1;
+        continue;
+      }
     }
 
     items.push({
@@ -992,6 +1032,270 @@ function createCollapsedMessagesNode(collapsedMessages) {
     wrapper.classList.toggle("expanded", !expanded);
     body.hidden = expanded;
     label.textContent = `${labelText} · ${expanded ? t("message.collapsedHint") : t("message.collapseAgain")}`;
+  });
+
+  wrapper.append(button, body);
+  return wrapper;
+}
+
+function runChainStatusClass(items) {
+  if (items.some((item) => item.status === "failed")) return "failed";
+  if (items.some((item) => item.status === "running")) return "running";
+  return "completed";
+}
+
+function runChainStatusLabel(status) {
+  const labels = {
+    running: "Running",
+    completed: "Completed",
+    failed: "Needs attention",
+  };
+  return labels[status] || "Running";
+}
+
+function inferRunChainItemStatus(message, responseText = "") {
+  const raw = String(message?._approval_status || message?.status || "").toLowerCase();
+  if (raw.includes("fail") || raw.includes("error") || raw.includes("denied")) return "failed";
+  if (message?.role === "tool" || message?._tool_result || message?._pairedToolResponse || responseText) return "completed";
+  if (message?.role === "progress" || hasToolCalls(message)) return "running";
+  return "completed";
+}
+
+function toolKindLabel(name = "") {
+  const value = String(name || "").toLowerCase();
+  if (value.includes("read")) return "Read";
+  if (value.includes("write") || value.includes("create")) return "File";
+  if (value.includes("exec") || value.includes("shell") || value.includes("terminal")) return "Command";
+  if (value.includes("browser") || value.includes("web")) return "Browser";
+  if (value.includes("task") || value.includes("agent") || value.includes("spawn")) return "Agent";
+  return "Tool";
+}
+
+function createRunChainItems(messages) {
+  const items = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (!message || message._pairedToolResponseConsumed) continue;
+
+    if (message.reasoning_content && message.reasoning_content.trim()) {
+      items.push({
+        key: `${message.message_id || `reasoning-${index}`}:planning`,
+        kind: "planning",
+        title: "Planning",
+        preview: "Planning summary available",
+        status: "completed",
+        inspectable: false,
+        detailTitle: "Planning",
+        detailSubtitle: "Planning summary",
+        detailSections: [{ label: "Summary", text: "Tinybot planned the next actions for this request." }],
+      });
+    }
+
+    if (hasToolCalls(message)) {
+      const relatedMessages = message._relatedToolMessages || [];
+      const relatedGroups = relatedToolMessageGroups(message.tool_calls, relatedMessages);
+      message.tool_calls.forEach((toolCall, toolIndex) => {
+        const name = getToolCallName(toolCall) || "tool";
+        const argsText = formatToolArguments(toolCall.function?.arguments ?? toolCall.arguments ?? "");
+        const responseText = (relatedGroups[toolIndex] || []).map((item) => item.content || "").filter(Boolean).join("\n\n");
+        items.push({
+          key: `${message.message_id || `tool-call-${index}`}:${getToolCallId(toolCall) || toolIndex}`,
+          kind: "tool",
+          title: `${toolKindLabel(name)} | ${name}`,
+          preview: responseText ? compactText(responseText, 120) : summarizeToolArguments(argsText),
+          status: inferRunChainItemStatus(message, responseText),
+          inspectable: true,
+          detailTitle: name,
+          detailSubtitle: responseText ? "Tool call and response" : "Tool call",
+          detailSections: [
+            { label: "Arguments", text: argsText || t("message.toolNoArgs") },
+            ...(responseText ? [{ label: "Response", text: responseText }] : []),
+          ],
+        });
+      });
+      index = relatedToolMessagesEndIndex(messages, index);
+      continue;
+    }
+
+    if (message.role === "tool" || message.role === "progress") {
+      const name = getToolName(message) || "tool";
+      const isResult = message._tool_result || message.role === "tool";
+      const argsText = isResult ? "" : message.content || "";
+      const responseText = isResult ? message.content || "" : message._pairedToolResponse?.content || "";
+      items.push({
+        key: `${message.message_id || `tool-message-${index}`}:${message._tool_result ? "result" : "detail"}`,
+        kind: "tool",
+        title: `${toolKindLabel(name)} | ${name}`,
+        preview: compactText(responseText || argsText || "Tool activity", 120),
+        status: inferRunChainItemStatus(message, responseText),
+        inspectable: true,
+        detailTitle: name,
+        detailSubtitle: responseText ? "Tool detail and response" : "Tool detail",
+        detailSections: [
+          ...(argsText ? [{ label: "Detail", text: argsText }] : []),
+          ...(responseText ? [{ label: "Response", text: responseText }] : []),
+        ],
+      });
+    }
+  }
+  return items;
+}
+
+function runChainSummaryText(items) {
+  const toolCount = items.filter((item) => item.kind === "tool").length;
+  const planningCount = items.filter((item) => item.kind === "planning").length;
+  const status = runChainStatusClass(items);
+  const parts = [runChainStatusLabel(status), `${items.length} item${items.length === 1 ? "" : "s"}`];
+  if (toolCount) parts.push(`${toolCount} tool${toolCount === 1 ? "" : "s"}`);
+  if (planningCount) parts.push("planning");
+  return parts.join(" | ");
+}
+
+function runChainKey(messages) {
+  const parts = messages
+    .map((message, index) => message?.message_id || message?.tool_call_id || message?._tool_name || message?.timestamp || `item-${index}`)
+    .filter(Boolean);
+  return `${state.activeSessionKey || "session"}:${parts.join("|")}`;
+}
+
+function renderInspectorSection(section) {
+  const block = document.createElement("section");
+  block.className = "inspector-section";
+  const label = document.createElement("h3");
+  label.textContent = section.label;
+  const pre = document.createElement("pre");
+  pre.textContent = section.text || "";
+  block.append(label, pre);
+  return block;
+}
+
+function renderRunChainInspector(item) {
+  if (!elements.inspectorPanel || !elements.inspectorBody) return;
+  elements.inspectorTitle.textContent = item?.detailTitle || item?.title || "Run Chain item";
+  elements.inspectorSubtitle.textContent = item?.detailSubtitle || item?.preview || "";
+  elements.inspectorBody.textContent = "";
+  const sections = item?.detailSections || [];
+  if (!sections.length) {
+    const empty = document.createElement("div");
+    empty.className = "inspector-empty";
+    empty.textContent = "No saved detail is available for this item.";
+    elements.inspectorBody.append(empty);
+    return;
+  }
+  sections.forEach((section) => elements.inspectorBody.append(renderInspectorSection(section)));
+}
+
+function openInspectionMode(item) {
+  if (!item?.inspectable) return;
+  state.inspectionOpen = true;
+  state.selectedChainItemKey = item.key;
+  state.selectedChainItem = item;
+  elements.shell?.classList.add("inspection-mode");
+  elements.inspectorPanel?.setAttribute("aria-hidden", "false");
+  renderRunChainInspector(item);
+  renderMessages(false);
+}
+
+function closeInspectionMode() {
+  state.inspectionOpen = false;
+  state.selectedChainItemKey = "";
+  state.selectedChainItem = null;
+  elements.shell?.classList.remove("inspection-mode");
+  elements.inspectorPanel?.setAttribute("aria-hidden", "true");
+  elements.messageList?.querySelectorAll(".run-chain-item.selected").forEach((node) => {
+    node.classList.remove("selected");
+  });
+}
+
+function createRunChainItemNode(item) {
+  const row = document.createElement(item.inspectable ? "button" : "div");
+  row.className = `run-chain-item run-chain-item-${item.kind} run-chain-item-${item.status}`;
+  row.dataset.chainItemKey = item.key;
+  if (state.selectedChainItemKey && state.selectedChainItemKey === item.key) {
+    row.classList.add("selected");
+  }
+  if (item.inspectable) {
+    row.type = "button";
+    row.setAttribute("aria-label", `Inspect ${item.title}`);
+    row.addEventListener("click", () => openInspectionMode(item));
+  }
+
+  const dot = document.createElement("span");
+  dot.className = "run-chain-dot";
+  dot.setAttribute("aria-hidden", "true");
+
+  const text = document.createElement("span");
+  text.className = "run-chain-item-text";
+
+  const title = document.createElement("span");
+  title.className = "run-chain-item-title";
+  title.textContent = item.title;
+
+  const preview = document.createElement("span");
+  preview.className = "run-chain-item-preview";
+  preview.textContent = item.preview || "";
+
+  text.append(title, preview);
+
+  const action = document.createElement("span");
+  action.className = "run-chain-item-action";
+  action.textContent = item.inspectable ? "Inspect" : "Summary";
+
+  row.append(dot, text, action);
+  return row;
+}
+
+function createRunChainNode(runChainMessages) {
+  const items = createRunChainItems(runChainMessages);
+  if (!items.length) {
+    const fallback = document.createElement("div");
+    fallback.hidden = true;
+    return fallback;
+  }
+  const key = runChainKey(runChainMessages);
+  const expanded = state.expandedRunChains?.has(key) === true;
+  const wrapper = document.createElement("article");
+  wrapper.className = `run-chain run-chain-${runChainStatusClass(items)}`;
+  wrapper.classList.toggle("expanded", expanded);
+  wrapper.dataset.runChainKey = key;
+
+  const button = document.createElement("button");
+  button.className = "run-chain-summary";
+  button.type = "button";
+  button.setAttribute("aria-expanded", expanded ? "true" : "false");
+
+  const icon = document.createElement("span");
+  icon.className = "run-chain-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = ">";
+
+  const title = document.createElement("span");
+  title.className = "run-chain-title";
+  title.textContent = "Run Chain";
+
+  const label = document.createElement("span");
+  label.className = "run-chain-label";
+  label.textContent = `${runChainSummaryText(items)} | ${expanded ? "Hide details" : "Show details"}`;
+
+  button.append(icon, title, label);
+
+  const body = document.createElement("div");
+  body.className = "run-chain-body";
+  body.hidden = !expanded;
+  items.forEach((item) => body.append(createRunChainItemNode(item)));
+
+  button.addEventListener("click", () => {
+    const isExpanded = button.getAttribute("aria-expanded") === "true";
+    const nextExpanded = !isExpanded;
+    button.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+    wrapper.classList.toggle("expanded", nextExpanded);
+    body.hidden = !nextExpanded;
+    if (nextExpanded) {
+      state.expandedRunChains.add(key);
+    } else {
+      state.expandedRunChains.delete(key);
+    }
+    label.textContent = `${runChainSummaryText(items)} | ${nextExpanded ? "Hide details" : "Show details"}`;
   });
 
   wrapper.append(button, body);
@@ -1176,9 +1480,11 @@ function renderMessages(forceScroll = true) {
   prepareMessageRelationships(messages);
   const displayItems = createMessageDisplayItems(messages);
   for (const item of displayItems) {
-    const node = item.type === "collapse"
-      ? createCollapsedMessagesNode(item.messages)
-      : createMessageNode(item.message);
+    const node = item.type === "run-chain"
+      ? createRunChainNode(item.messages)
+      : item.type === "collapse"
+        ? createCollapsedMessagesNode(item.messages)
+        : createMessageNode(item.message);
     elements.messageList.append(node);
   }
 
@@ -5270,6 +5576,7 @@ async function clearSession(sessionKey) {
   state.messages.set(sessionKey, []);
   state.sessionFiles.set(sessionKey, []);
   state.pendingApprovals = [];
+  closeInspectionMode();
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
@@ -9512,6 +9819,7 @@ async function createNewChat() {
 }
 
 async function attachSession(chatId) {
+  closeInspectionMode();
   sendSocketMessage({ type: "attach", chat_id: chatId });
 }
 
@@ -9876,6 +10184,7 @@ function bindEvents() {
       setSidebarCollapsed(!state.sidebarCollapsed);
     });
   }
+  elements.inspectorClose?.addEventListener("click", closeInspectionMode);
 
   elements.settingsButton.addEventListener("click", openModal);
   elements.modalOverlay.addEventListener("click", closeModal);

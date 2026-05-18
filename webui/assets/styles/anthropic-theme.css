@@ -257,6 +257,7 @@ select:focus-visible {
 
 .message-system,
 .message-collapse-group,
+.run-chain,
 .task-progress-card,
 .message-reasoning,
 .typing-indicator,
@@ -671,6 +672,7 @@ select:focus-visible {
 .message,
 .message-system,
 .message-collapse-group,
+.run-chain,
 .message-reasoning,
 .typing-indicator,
 .empty-state,
@@ -684,8 +686,28 @@ select:focus-visible {
 }
 
 .message-assistant {
+  position: relative;
+  z-index: 1;
   border-color: transparent;
   background: transparent;
+}
+
+.run-chain {
+  position: relative;
+  z-index: 4;
+}
+
+.run-chain-summary,
+.run-chain-title,
+.run-chain-label {
+  opacity: 1;
+  visibility: visible;
+  color: var(--text);
+  -webkit-text-fill-color: currentColor;
+}
+
+.run-chain-label {
+  color: var(--text-muted);
 }
 
 .message-user {

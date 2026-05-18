@@ -1,10 +1,14 @@
 /* ========== 响应式布局 ========== */
 @media (max-width: 1200px) {
   .shell {
-    grid-template-columns: 248px minmax(0, 1fr);
+    grid-template-columns: 248px minmax(0, 1fr) 0;
     gap: 0;
     margin: 16px;
     padding: 0;
+  }
+
+  .shell.inspection-mode {
+    grid-template-columns: 248px minmax(380px, 0.72fr) minmax(340px, 0.9fr);
   }
 }
 
@@ -20,6 +24,11 @@
   }
 
   .shell.sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .shell.inspection-mode,
+  .shell.sidebar-collapsed.inspection-mode {
     grid-template-columns: 1fr;
   }
 
@@ -42,6 +51,21 @@
     min-height: 520px;
     height: auto;
     margin-top: 0;
+  }
+
+  .inspector-panel {
+    position: fixed;
+    inset: auto 16px 16px;
+    z-index: 40;
+    width: auto;
+    max-height: min(70vh, 720px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    transform: translateY(28px);
+  }
+
+  .shell.inspection-mode .inspector-panel {
+    transform: translateY(0);
   }
 
   .sessions-panel {
@@ -195,12 +219,17 @@
   .message-assistant,
   .message-tool,
   .message-progress,
-  .message-collapse-group {
+  .message-collapse-group,
+  .run-chain {
     max-width: 100%;
     width: 100%;
   }
 
   .message-collapse-summary {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .run-chain-summary {
     grid-template-columns: 18px minmax(0, 1fr);
   }
 
