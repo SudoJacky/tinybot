@@ -9,7 +9,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from tinybot.bus.queue import MessageBus
 from tinybot.bus.events import OutboundMessage
-from tinybot.channels.websocket import WebSocketChannel
+from tinybot.channels.websocket import WebSocketChannel, _serialize_message
 from tinybot.config.schema import Config, MCPServerConfig
 from tinybot.cowork.service import CoworkService
 from tinybot.security.approval import ApprovalAction, ApprovalManager
@@ -93,6 +93,26 @@ async def test_session_rest_endpoints(web_channel, web_client):
     response = await web_client.delete("/api/sessions/websocket:chat-1", headers=headers)
     assert response.status == 200
     assert session_manager.get("websocket:chat-1") is None
+
+
+def test_serialize_message_preserves_memory_references():
+    payload = _serialize_message(
+        {
+            "role": "assistant",
+            "content": "Done",
+            "_memory_references": [
+                {
+                    "note_id": "note_1",
+                    "content": "Use uv.",
+                    "file": "memory/notes.jsonl",
+                    "line": 1,
+                }
+            ],
+        }
+    )
+
+    assert payload["_memory_references"][0]["note_id"] == "note_1"
+    assert payload["_memory_references"][0]["line"] == 1
 
 
 @pytest.mark.asyncio

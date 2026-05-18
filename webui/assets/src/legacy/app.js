@@ -1473,6 +1473,63 @@ function updateMessageContent(contentEl, message) {
 
     contentEl.append(textEl);
   }
+
+  if (message.role === "assistant" && Array.isArray(message._memory_references) && message._memory_references.length) {
+    contentEl.append(createMemoryReferencesNode(message._memory_references));
+  }
+}
+
+function createMemoryReferencesNode(references) {
+  const details = document.createElement("details");
+  details.className = "memory-references";
+
+  const summary = document.createElement("summary");
+  summary.className = "memory-references-summary";
+
+  const count = references.length;
+  const title = document.createElement("span");
+  title.className = "memory-references-title";
+  title.textContent = `${count} 个相关记忆`;
+
+  const hint = document.createElement("span");
+  hint.className = "memory-references-hint";
+  hint.textContent = "查看来源";
+
+  summary.append(title, hint);
+  details.append(summary);
+
+  const list = document.createElement("div");
+  list.className = "memory-references-list";
+
+  references.forEach((reference) => {
+    const item = document.createElement("article");
+    item.className = "memory-reference-item";
+
+    const content = document.createElement("div");
+    content.className = "memory-reference-content";
+    content.textContent = reference.content || "";
+
+    const meta = document.createElement("div");
+    meta.className = "memory-reference-meta";
+    const file = reference.file || "memory/notes.jsonl";
+    const line = reference.line ? `:${reference.line}` : "";
+    const view = reference.view_file
+      ? ` · ${reference.view_file}${reference.view_line ? `:${reference.view_line}` : ""}`
+      : "";
+    const labelParts = [
+      reference.scope,
+      reference.type,
+      reference.note_id,
+      `${file}${line}${view}`,
+    ].filter(Boolean);
+    meta.textContent = labelParts.join(" · ");
+
+    item.append(content, meta);
+    list.append(item);
+  });
+
+  details.append(list);
+  return details;
 }
 
 function updateStreamMessageDOM(messageId) {
@@ -9302,6 +9359,8 @@ async function connectWebSocket() {
             role: "assistant",
             content: payload.text || "",
             timestamp: new Date().toISOString(),
+            message_id: payload.message_id || "",
+            _memory_references: payload._memory_references || [],
           });
         }
         loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
@@ -9323,6 +9382,9 @@ async function connectWebSocket() {
           const streamState = state.streamBuffers.get(payload.message_id);
           if (streamState?.entry) {
             streamState.entry._stream_resuming = payload.resuming === true;
+            if (Array.isArray(payload._memory_references)) {
+              streamState.entry._memory_references = payload._memory_references;
+            }
           }
           state.streamBuffers.delete(payload.message_id);
           if (payload.resuming !== true && streamState?.sessionKey === state.activeSessionKey) {

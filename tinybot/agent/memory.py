@@ -1469,6 +1469,75 @@ class MemoryStore:
         lines.append("---")
         return "\n".join(lines)
 
+    def format_memory_recall_notes_context(self, notes: list[MemoryNote]) -> str:
+        if not notes:
+            return ""
+        lines = [
+            "---",
+            "[MEMORY RECALL]",
+            "",
+            "Active Memory Notes selected for this request. Keep this separate from Experience and Knowledge Base context.",
+            "",
+        ]
+        for note in notes:
+            lines.append(self._format_memory_recall_note(note))
+        lines.append("---")
+        return "\n".join(lines)
+
+    def memory_reference_metadata(self, notes: list[MemoryNote]) -> list[dict[str, Any]]:
+        references: list[dict[str, Any]] = []
+        for note in notes:
+            note_file, note_line = self._locate_note_jsonl_line(note.id)
+            view_file = self._note_view_file(note)
+            view_line = self._locate_text_line(self.workspace / view_file, note.id)
+            evidence_ids = [
+                evidence_id
+                for source in note.sources
+                for evidence_id in source.evidence_ids
+            ]
+            references.append({
+                "note_id": note.id,
+                "scope": note.scope.value,
+                "type": note.type.value,
+                "status": note.status.value,
+                "content": note.content,
+                "priority": note.priority,
+                "confidence": note.confidence,
+                "tags": list(note.tags),
+                "metadata": _clean_metadata(note.metadata),
+                "evidence_ids": sorted(set(evidence_ids)),
+                "file": note_file,
+                "line": note_line,
+                "view_file": view_file,
+                "view_line": view_line,
+            })
+        return references
+
+    def _locate_note_jsonl_line(self, note_id: str) -> tuple[str, int | None]:
+        try:
+            with open(self.notes_file, encoding="utf-8") as f:
+                for line_no, line in enumerate(f, start=1):
+                    try:
+                        raw = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(raw, dict) and raw.get("id") == note_id:
+                        return "memory/notes.jsonl", line_no
+        except FileNotFoundError:
+            pass
+        return "memory/notes.jsonl", None
+
+    @staticmethod
+    def _locate_text_line(path: Path, needle: str) -> int | None:
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line_no, line in enumerate(f, start=1):
+                    if needle and needle in line:
+                        return line_no
+        except FileNotFoundError:
+            return None
+        return None
+
     @staticmethod
     def _format_memory_recall_note(note: MemoryNote) -> str:
         metadata = [

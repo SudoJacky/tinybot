@@ -35,6 +35,10 @@ def test_context_builder_injects_memory_recall_as_distinct_section(tmp_path):
     assert "Use uv run pytest for Python validation." in recall_messages[0]["content"]
     assert "[RELEVANT WORKFLOWS]" not in recall_messages[0]["content"]
     assert "[RELEVANT KNOWLEDGE]" not in recall_messages[0]["content"]
+    assert builder.last_memory_references
+    assert builder.last_memory_references[0]["content"] == "Use uv run pytest for Python validation."
+    assert builder.last_memory_references[0]["file"] == "memory/notes.jsonl"
+    assert builder.last_memory_references[0]["line"] == 1
 
 
 def test_context_builder_keeps_memory_experience_and_knowledge_paths_separate(tmp_path):

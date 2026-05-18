@@ -851,6 +851,72 @@
   white-space: normal;
 }
 
+.memory-references {
+  margin-top: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-subtle) 62%, transparent);
+  overflow: hidden;
+}
+
+.memory-references summary {
+  list-style: none;
+}
+
+.memory-references summary::-webkit-details-marker {
+  display: none;
+}
+
+.memory-references-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 7px 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.memory-references-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.memory-references-hint {
+  color: var(--text-subtle);
+  font-size: 11px;
+}
+
+.memory-references-list {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.memory-reference-item {
+  padding: 8px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background: var(--panel);
+}
+
+.memory-reference-content {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.memory-reference-meta {
+  margin-top: 5px;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 /* Markdown样式 */
 .message-text p {
   margin: 0 0 12px;

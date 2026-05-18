@@ -52,6 +52,7 @@ class ContextBuilder:
         self.experience_store = experience_store
         self.knowledge_store = knowledge_store
         self.session_knowledge_store = session_knowledge_store
+        self.last_memory_references: list[dict[str, Any]] = []
 
     @property
     def enabled_skills(self) -> list[str] | None:
@@ -186,6 +187,7 @@ class ContextBuilder:
         user_profile: dict[str, Any] | None = None,
         use_persistent_knowledge: bool | None = None,
     ) -> list[dict[str, Any]]:
+        self.last_memory_references = []
         runtime_ctx = self._build_runtime_context(
             channel, chat_id, self.timezone, self.task_manager, user_profile
         )
@@ -278,11 +280,13 @@ class ContextBuilder:
     ) -> str | None:
         if self._is_simple_conversation(current_message):
             return None
-        context = self.memory.format_memory_recall_context(
+        notes = self.memory.select_memory_recall(
             current_message,
             max_notes=max_notes,
             max_chars=max_chars,
         )
+        self.last_memory_references = self.memory.memory_reference_metadata(notes)
+        context = self.memory.format_memory_recall_notes_context(notes)
         return context or None
 
     def _build_experience_context(

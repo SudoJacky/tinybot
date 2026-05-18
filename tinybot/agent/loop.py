@@ -1092,6 +1092,25 @@ class AgentLoop:
             logger.exception("Conversation Evidence capture failed for {}", session.key)
             return []
 
+    @staticmethod
+    def _current_memory_references_from_context(context: ContextBuilder) -> list[dict[str, Any]]:
+        references = getattr(context, "last_memory_references", []) or []
+        return [dict(item) for item in references if isinstance(item, dict)]
+
+    def _attach_memory_references_to_latest_assistant(
+        self,
+        session: Session,
+        turn_start_index: int,
+        references: list[dict[str, Any]],
+    ) -> None:
+        if not references:
+            return
+        for idx in range(len(session.messages) - 1, max(turn_start_index, 0) - 1, -1):
+            message = session.messages[idx]
+            if message.get("role") == "assistant":
+                message["_memory_references"] = references
+                return
+
     def _memory_extraction_config(self) -> tuple[int, int]:
         dream_cfg = None
         if self._config_ref is not None:
@@ -1290,6 +1309,7 @@ class AgentLoop:
             key = f"{channel}:{chat_id}"
 
             session = self.sessions.get_or_create(key)
+            turn_start_index = len(session.messages)
             if msg.sender_id == "approval":
                 return await self._process_approval_resolution(
                     msg=msg,
@@ -1329,6 +1349,9 @@ class AgentLoop:
                 current_role="user",  # Use "user" role to avoid merging with previous assistant message
                 user_profile=session.user_profile,
             )
+            memory_references = self._current_memory_references_from_context(self.context)
+            if memory_references:
+                msg.metadata["_memory_references"] = memory_references
             final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
@@ -1357,6 +1380,7 @@ class AgentLoop:
             skip_count = len(session.messages)
             self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
             self.session_handler.clear_checkpoint(session)
+            self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
             self._schedule_background(self._update_user_profile(
@@ -1364,8 +1388,12 @@ class AgentLoop:
             ))
             if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
                 return None
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=final_content or "Background task completed.",
+                metadata={"_memory_references": memory_references} if memory_references else {},
+            )
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
@@ -1396,6 +1424,9 @@ class AgentLoop:
             user_profile=session.user_profile,
             use_persistent_knowledge=msg.metadata.get("_use_persistent_rag"),
         )
+        memory_references = self._current_memory_references_from_context(self.context)
+        if memory_references:
+            msg.metadata["_memory_references"] = memory_references
 
         # Save user message to session before running agent loop
         # This ensures user input is persisted even if checkpoint saves assistant/tool messages
@@ -1477,6 +1508,7 @@ class AgentLoop:
         skip_count = len(session.messages)
         self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
         self.session_handler.clear_checkpoint(session)
+        self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
         self.sessions.save(session)
         evidence = self._capture_conversation_evidence(session, turn_start_index)
         self._schedule_memory_extraction_triggers(session, evidence)
@@ -1492,6 +1524,8 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
 
         meta = dict(msg.metadata or {})
+        if memory_references:
+            meta["_memory_references"] = memory_references
         if on_stream is not None:
             meta["_streamed"] = True
         return OutboundMessage(
@@ -1708,6 +1742,9 @@ class AgentLoop:
             user_profile=session.user_profile,
             use_persistent_knowledge=checkpoint.get("_use_persistent_knowledge"),
         )
+        memory_references = self._current_memory_references_from_context(self.context)
+        if memory_references:
+            msg.metadata["_memory_references"] = memory_references
         final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
             messages,
             session=session,
@@ -1735,11 +1772,17 @@ class AgentLoop:
         skip_count = len(session.messages)
         self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
         self.session_handler.clear_checkpoint(session)
+        self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
         self.sessions.save(session)
         evidence = self._capture_conversation_evidence(session, turn_start_index)
         self._schedule_memory_extraction_triggers(session, evidence)
         self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
-        return OutboundMessage(channel=channel, chat_id=chat_id, content=final_content)
+        return OutboundMessage(
+            channel=channel,
+            chat_id=chat_id,
+            content=final_content,
+            metadata={"_memory_references": memory_references} if memory_references else {},
+        )
 
     async def process_direct(
         self,
