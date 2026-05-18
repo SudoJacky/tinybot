@@ -54,6 +54,8 @@ class DreamConfig(Base):
     )  # Optional Dream-specific model override
     max_batch_size: int = Field(default=20, ge=1)  # Max history entries per run
     max_iterations: int = Field(default=10, ge=1)  # Max tool calls per Phase 2
+    extraction_every_n_turns: int = Field(default=6, ge=1)
+    extraction_idle_seconds: int = Field(default=300, ge=1)
 
     def build_schedule(self, timezone: str) -> CronSchedule:
         """Build the runtime schedule, preferring the legacy cron override if present."""

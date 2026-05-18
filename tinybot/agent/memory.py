@@ -50,6 +50,13 @@ class MemoryNoteStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class MemoryNoteScope(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    PROJECT = "project"
+    SESSION = "session"
+
+
 class MemoryCaptureOrigin(StrEnum):
     DREAM = "dream"
     EXPLICIT = "explicit"
@@ -86,16 +93,19 @@ def _memory_note_search_text(note: MemoryNote) -> str:
                 source.history_end_cursor,
                 source.message_start,
                 source.message_end,
+                " ".join(source.evidence_ids),
             )
             if part is not None
         )
     return " ".join(
         [
             note.id,
+            note.scope.value,
             note.type.value,
             note.status.value,
             note.content,
             " ".join(note.tags),
+            json.dumps(note.metadata, ensure_ascii=False, sort_keys=True),
             " ".join(source_parts),
         ]
     )
@@ -145,6 +155,14 @@ def _strict_note_type(value: MemoryNoteType | str) -> MemoryNoteType:
         raise ValueError(f"Invalid Memory Note type: {value!r}. Allowed: {allowed}") from exc
 
 
+def _strict_note_scope(value: MemoryNoteScope | str) -> MemoryNoteScope:
+    try:
+        return MemoryNoteScope(str(value))
+    except (TypeError, ValueError) as exc:
+        allowed = ", ".join(item.value for item in MemoryNoteScope)
+        raise ValueError(f"Invalid Memory Note scope: {value!r}. Allowed: {allowed}") from exc
+
+
 def _strict_note_status(value: MemoryNoteStatus | str) -> MemoryNoteStatus:
     try:
         return MemoryNoteStatus(str(value))
@@ -184,6 +202,67 @@ def _clean_note_tags(tags: list[str] | tuple[str, ...] | str | None) -> list[str
     return cleaned
 
 
+def _clean_evidence_ids(evidence_ids: list[str] | tuple[str, ...] | str | None) -> list[str]:
+    if evidence_ids is None:
+        return []
+    raw_ids = [evidence_ids] if isinstance(evidence_ids, str) else list(evidence_ids)
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for evidence_id in raw_ids:
+        text = str(evidence_id).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        cleaned.append(text)
+    return cleaned
+
+
+def _clean_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    cleaned: dict[str, Any] = {}
+    for key, value in metadata.items():
+        text_key = str(key).strip()
+        if not text_key:
+            continue
+        try:
+            json.dumps(value, ensure_ascii=False)
+        except TypeError:
+            cleaned[text_key] = str(value)
+        else:
+            cleaned[text_key] = value
+    return cleaned
+
+
+def _default_scope_for_type(note_type: MemoryNoteType | str) -> MemoryNoteScope:
+    coerced_type = _coerce_enum(MemoryNoteType, note_type, MemoryNoteType.PROJECT)
+    if coerced_type == MemoryNoteType.PREFERENCE:
+        return MemoryNoteScope.USER
+    if coerced_type == MemoryNoteType.INSTRUCTION:
+        return MemoryNoteScope.ASSISTANT
+    return MemoryNoteScope.PROJECT
+
+
+def _merge_metadata(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if key not in merged or merged[key] in (None, "", [], {}):
+            merged[key] = value
+        elif merged[key] == value:
+            continue
+        elif isinstance(merged[key], list):
+            values = list(merged[key])
+            if value not in values:
+                values.append(value)
+            merged[key] = values
+        else:
+            values = [merged[key]]
+            if value not in values:
+                values.append(value)
+            merged[key] = values
+    return merged
+
+
 @dataclass(slots=True)
 class MemorySource:
     capture_origin: MemoryCaptureOrigin
@@ -194,6 +273,7 @@ class MemorySource:
     history_start_cursor: int | None = None
     history_end_cursor: int | None = None
     source_file: str | None = None
+    evidence_ids: list[str] = field(default_factory=list)
 
     @classmethod
     def dream(
@@ -201,11 +281,13 @@ class MemorySource:
         *,
         history_start_cursor: int | None = None,
         history_end_cursor: int | None = None,
+        evidence_ids: list[str] | None = None,
     ) -> MemorySource:
         return cls(
             capture_origin=MemoryCaptureOrigin.DREAM,
             history_start_cursor=history_start_cursor,
             history_end_cursor=history_end_cursor,
+            evidence_ids=_clean_evidence_ids(evidence_ids),
         )
 
     @classmethod
@@ -215,12 +297,14 @@ class MemorySource:
         session_key: str | None = None,
         message_start: int | None = None,
         message_end: int | None = None,
+        evidence_ids: list[str] | None = None,
     ) -> MemorySource:
         return cls(
             capture_origin=MemoryCaptureOrigin.EXPLICIT,
             session_key=session_key,
             message_start=message_start,
             message_end=message_end,
+            evidence_ids=_clean_evidence_ids(evidence_ids),
         )
 
     @classmethod
@@ -246,6 +330,7 @@ class MemorySource:
             history_start_cursor=_coerce_int(raw.get("history_start_cursor")),
             history_end_cursor=_coerce_int(raw.get("history_end_cursor")),
             source_file=str(raw["source_file"]) if raw.get("source_file") else None,
+            evidence_ids=_clean_evidence_ids(raw.get("evidence_ids")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -264,6 +349,8 @@ class MemorySource:
             value = getattr(self, key)
             if value is not None:
                 data[key] = value
+        if self.evidence_ids:
+            data["evidence_ids"] = list(self.evidence_ids)
         return data
 
     def identity(self) -> tuple[Any, ...]:
@@ -284,6 +371,7 @@ class MemoryNote:
     type: MemoryNoteType
     sources: list[MemorySource]
     id: str = ""
+    scope: MemoryNoteScope = MemoryNoteScope.PROJECT
     status: MemoryNoteStatus = MemoryNoteStatus.ACTIVE
     priority: float = 0.5
     confidence: float = 0.5
@@ -292,12 +380,15 @@ class MemoryNote:
     supersedes: list[str] = field(default_factory=list)
     superseded_by: str | None = None
     tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.content = self.content.strip()
+        self.scope = _coerce_enum(MemoryNoteScope, self.scope, _default_scope_for_type(self.type))
         self.sources = [source for source in self.sources if isinstance(source, MemorySource)]
+        self.metadata = _clean_metadata(self.metadata)
         if not self.id:
-            self.id = generate_memory_note_id(self.type, self.content, self.sources)
+            self.id = generate_memory_note_id(self.type, self.content, self.sources, scope=self.scope)
 
     @classmethod
     def create(
@@ -309,14 +400,19 @@ class MemoryNote:
         priority: float = 0.5,
         confidence: float = 0.5,
         tags: list[str] | None = None,
+        scope: MemoryNoteScope | str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> MemoryNote:
+        coerced_type = _coerce_enum(MemoryNoteType, note_type, MemoryNoteType.PROJECT)
         return cls(
             content=content,
-            type=_coerce_enum(MemoryNoteType, note_type, MemoryNoteType.PROJECT),
+            type=coerced_type,
+            scope=_coerce_enum(MemoryNoteScope, scope, _default_scope_for_type(coerced_type)) if scope else _default_scope_for_type(coerced_type),
             sources=sources or [],
             priority=priority,
             confidence=confidence,
             tags=list(tags or []),
+            metadata=_clean_metadata(metadata),
         )
 
     @classmethod
@@ -329,8 +425,14 @@ class MemoryNote:
         else:
             sources = []
         return cls(
-            id=str(data.get("id") or generate_memory_note_id(note_type, content, sources)),
+            id=str(data.get("id") or generate_memory_note_id(
+                note_type,
+                content,
+                sources,
+                scope=_coerce_enum(MemoryNoteScope, data.get("scope"), _default_scope_for_type(note_type)),
+            )),
             type=note_type,
+            scope=_coerce_enum(MemoryNoteScope, data.get("scope"), _default_scope_for_type(note_type)),
             status=_coerce_enum(MemoryNoteStatus, data.get("status"), MemoryNoteStatus.ACTIVE),
             content=content,
             priority=_coerce_float(data.get("priority"), 0.5),
@@ -341,11 +443,13 @@ class MemoryNote:
             supersedes=[str(item) for item in data.get("supersedes") or []],
             superseded_by=str(data["superseded_by"]) if data.get("superseded_by") else None,
             tags=[str(item) for item in data.get("tags") or []],
+            metadata=_clean_metadata(data.get("metadata")),
         )
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
             "id": self.id,
+            "scope": self.scope.value,
             "type": self.type.value,
             "status": self.status.value,
             "content": self.content,
@@ -361,33 +465,226 @@ class MemoryNote:
             data["superseded_by"] = self.superseded_by
         if self.tags:
             data["tags"] = list(self.tags)
+        if self.metadata:
+            data["metadata"] = _clean_metadata(self.metadata)
         return data
 
     def equivalent_key(self) -> tuple[Any, ...]:
-        return memory_note_equivalent_key(self.type, self.content, self.sources)
+        return memory_note_equivalent_key(self.type, self.content, self.sources, scope=self.scope)
 
 
 def memory_note_equivalent_key(
     note_type: MemoryNoteType | str,
     content: str,
     sources: list[MemorySource] | None = None,
+    *,
+    scope: MemoryNoteScope | str | None = None,
 ) -> tuple[Any, ...]:
     coerced_type = _coerce_enum(MemoryNoteType, note_type, MemoryNoteType.PROJECT)
+    coerced_scope = _coerce_enum(MemoryNoteScope, scope, _default_scope_for_type(coerced_type)) if scope else _default_scope_for_type(coerced_type)
     source_keys = sorted((source.identity() for source in (sources or [])), key=repr)
-    return (coerced_type.value, _normalize_note_text(content), tuple(source_keys))
+    return (coerced_scope.value, coerced_type.value, _normalize_note_text(content), tuple(source_keys))
 
 
 def generate_memory_note_id(
     note_type: MemoryNoteType | str,
     content: str,
     sources: list[MemorySource] | None = None,
+    *,
+    scope: MemoryNoteScope | str | None = None,
 ) -> str:
     payload = json.dumps(
-        memory_note_equivalent_key(note_type, content, sources),
+        memory_note_equivalent_key(note_type, content, sources, scope=scope),
         ensure_ascii=False,
         sort_keys=True,
     )
     return "note_" + hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+
+
+@dataclass(slots=True)
+class ConversationEvidence:
+    id: str
+    turn_id: str
+    session_key: str
+    role: str
+    content: str
+    timestamp: str = field(default_factory=_utc_timestamp)
+    message_index: int | None = None
+    cursor: int | None = None
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        session_key: str,
+        turn_id: str,
+        role: str,
+        content: str,
+        message_index: int | None = None,
+        timestamp: str | None = None,
+    ) -> ConversationEvidence:
+        cleaned_content = content.strip()
+        return cls(
+            id=generate_conversation_evidence_id(
+                session_key=session_key,
+                turn_id=turn_id,
+                role=role,
+                content=cleaned_content,
+                message_index=message_index,
+            ),
+            turn_id=turn_id,
+            session_key=session_key,
+            role=role,
+            content=cleaned_content,
+            message_index=message_index,
+            timestamp=timestamp or _utc_timestamp(),
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ConversationEvidence:
+        role = str(data.get("role") or "")
+        content = str(data.get("content") or "")
+        session_key = str(data.get("session_key") or "")
+        turn_id = str(data.get("turn_id") or "")
+        message_index = _coerce_int(data.get("message_index"))
+        evidence_id = str(data.get("id") or generate_conversation_evidence_id(
+            session_key=session_key,
+            turn_id=turn_id,
+            role=role,
+            content=content,
+            message_index=message_index,
+        ))
+        return cls(
+            id=evidence_id,
+            turn_id=turn_id,
+            session_key=session_key,
+            role=role,
+            content=content,
+            timestamp=str(data.get("timestamp") or _utc_timestamp()),
+            message_index=message_index,
+            cursor=_coerce_int(data.get("cursor")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "id": self.id,
+            "turn_id": self.turn_id,
+            "session_key": self.session_key,
+            "role": self.role,
+            "content": self.content,
+            "timestamp": self.timestamp,
+        }
+        if self.message_index is not None:
+            data["message_index"] = self.message_index
+        if self.cursor is not None:
+            data["cursor"] = self.cursor
+        return data
+
+
+def generate_conversation_turn_id(
+    session_key: str,
+    messages: list[dict[str, Any]],
+) -> str:
+    payload = []
+    for idx, message in enumerate(messages):
+        role = str(message.get("role") or "")
+        if role not in {"user", "assistant"}:
+            continue
+        content = _conversation_evidence_text(message)
+        if content:
+            payload.append([message.get("_evidence_message_index", idx), role, content])
+    raw = json.dumps([session_key, payload], ensure_ascii=False, sort_keys=True)
+    return "turn_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def generate_conversation_evidence_id(
+    *,
+    session_key: str,
+    turn_id: str,
+    role: str,
+    content: str,
+    message_index: int | None = None,
+) -> str:
+    payload = json.dumps(
+        {
+            "session_key": session_key,
+            "turn_id": turn_id,
+            "role": role,
+            "content": content,
+            "message_index": message_index,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return "ev_" + hashlib.sha1(payload.encode("utf-8")).hexdigest()[:20]
+
+
+def _conversation_evidence_text(message: dict[str, Any]) -> str:
+    role = str(message.get("role") or "")
+    if role not in {"user", "assistant"}:
+        return ""
+    if role == "assistant" and message.get("tool_calls"):
+        return ""
+    content = message.get("content")
+    if isinstance(content, str):
+        return strip_think(content).strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text" and isinstance(block.get("text"), str):
+                text = strip_think(block["text"]).strip()
+                if text:
+                    parts.append(text)
+                continue
+            if block.get("type") == "image_url":
+                parts.append("[media omitted]")
+        return "\n".join(parts).strip()
+    return ""
+
+
+def capture_conversation_evidence(
+    store: MemoryStore,
+    *,
+    session_key: str,
+    messages: list[dict[str, Any]],
+    start_index: int = 0,
+) -> list[ConversationEvidence]:
+    """Persist clean user/assistant text evidence from already-saved turn messages."""
+    evidence_messages: list[tuple[int, dict[str, Any], str]] = []
+    for offset, message in enumerate(messages):
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "")
+        if role not in {"user", "assistant"}:
+            continue
+        content = _conversation_evidence_text(message)
+        if not content:
+            continue
+        evidence_messages.append((start_index + offset, message, content))
+    if not evidence_messages:
+        return []
+
+    turn_id = generate_conversation_turn_id(
+        session_key,
+        [
+            {**message, "_evidence_message_index": message_index}
+            for message_index, message, _ in evidence_messages
+        ],
+    )
+    records = [
+        ConversationEvidence.create(
+            session_key=session_key,
+            turn_id=turn_id,
+            role=str(message.get("role") or ""),
+            content=content,
+            message_index=message_index,
+            timestamp=str(message.get("timestamp") or _utc_timestamp()),
+        )
+        for message_index, message, content in evidence_messages
+    ]
+    return store.append_conversation_evidence(records)
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +711,12 @@ class MemoryStore:
         MemoryNoteType.FIX: "memory/MEMORY.md",
         MemoryNoteType.FOLLOWUP: "memory/MEMORY.md",
     }
+    _SCOPE_VIEW_DEFAULTS = {
+        MemoryNoteScope.USER: "USER.md",
+        MemoryNoteScope.ASSISTANT: "SOUL.md",
+        MemoryNoteScope.PROJECT: "memory/MEMORY.md",
+        MemoryNoteScope.SESSION: "memory/MEMORY.md",
+    }
 
     def __init__(self, workspace: Path, max_history_entries: int = _DEFAULT_MAX_HISTORY):
         self.workspace = workspace
@@ -422,13 +725,17 @@ class MemoryStore:
         self.memory_file = self.memory_dir / "MEMORY.md"
         self.notes_file = self.memory_dir / "notes.jsonl"
         self.history_file = self.memory_dir / "history.jsonl"
+        self.conversations_dir = ensure_dir(self.memory_dir / "conversations")
         self.legacy_history_file = self.memory_dir / "HISTORY.md"
         self.soul_file = workspace / "SOUL.md"
         self.user_file = workspace / "USER.md"
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
+        self._evidence_sequence_file = self.memory_dir / ".evidence_sequence"
+        self._evidence_cursor_file = self.memory_dir / ".evidence_cursor"
         self._git = GitStore(workspace, tracked_files=[
             "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/notes.jsonl",
+            "memory/.evidence_cursor",
         ])
         # One-time migration from legacy HISTORY.md format
         migrate_legacy_history(self.memory_dir)
@@ -472,6 +779,97 @@ class MemoryStore:
             for note in notes:
                 f.write(json.dumps(note.to_dict(), ensure_ascii=False) + "\n")
 
+    # -- conversations/*.jsonl (Conversation Evidence) ----------------------
+
+    def append_conversation_evidence(
+        self,
+        records: list[ConversationEvidence],
+    ) -> list[ConversationEvidence]:
+        """Append Conversation Evidence records and return records actually written."""
+        if not records:
+            return []
+        existing_ids = self._read_conversation_evidence_ids()
+        written: list[ConversationEvidence] = []
+        for record in records:
+            if record.id in existing_ids or not record.content.strip():
+                continue
+            record.cursor = self._next_evidence_cursor()
+            path = self._conversation_evidence_path(record.timestamp)
+            ensure_dir(path.parent)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+            self._evidence_sequence_file.write_text(str(record.cursor), encoding="utf-8")
+            existing_ids.add(record.id)
+            written.append(record)
+        return written
+
+    def read_pending_conversation_evidence(
+        self,
+        *,
+        since_cursor: int | None = None,
+        limit: int | None = None,
+        session_key: str | None = None,
+    ) -> list[ConversationEvidence]:
+        cursor = self.get_last_evidence_cursor() if since_cursor is None else since_cursor
+        records = [
+            record for record in self.read_conversation_evidence()
+            if (record.cursor or 0) > cursor
+            and (session_key is None or record.session_key == session_key)
+        ]
+        records.sort(key=lambda item: (item.cursor or 0, item.timestamp, item.id))
+        if limit is not None:
+            return records[: max(limit, 0)]
+        return records
+
+    def read_conversation_evidence(self) -> list[ConversationEvidence]:
+        records: list[ConversationEvidence] = []
+        for path in sorted(self.conversations_dir.glob("*.jsonl")):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            raw = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(raw, dict):
+                            records.append(ConversationEvidence.from_dict(raw))
+            except FileNotFoundError:
+                continue
+        records.sort(key=lambda item: (item.cursor or 0, item.timestamp, item.id))
+        return records
+
+    def get_last_evidence_cursor(self) -> int:
+        if self._evidence_cursor_file.exists():
+            try:
+                return int(self._evidence_cursor_file.read_text(encoding="utf-8").strip())
+            except (ValueError, OSError):
+                pass
+        return 0
+
+    def set_last_evidence_cursor(self, cursor: int) -> None:
+        self._evidence_cursor_file.write_text(str(cursor), encoding="utf-8")
+
+    def _conversation_evidence_path(self, timestamp: str | None = None) -> Path:
+        date_part = (timestamp or _utc_timestamp())[:10]
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_part):
+            date_part = datetime.utcnow().strftime("%Y-%m-%d")
+        return self.conversations_dir / f"{date_part}.jsonl"
+
+    def _next_evidence_cursor(self) -> int:
+        if self._evidence_sequence_file.exists():
+            try:
+                return int(self._evidence_sequence_file.read_text(encoding="utf-8").strip()) + 1
+            except (ValueError, OSError):
+                pass
+        last = max((record.cursor or 0 for record in self.read_conversation_evidence()), default=0)
+        return last + 1
+
+    def _read_conversation_evidence_ids(self) -> set[str]:
+        return {record.id for record in self.read_conversation_evidence()}
+
     def find_duplicate_note(self, candidate: MemoryNote) -> MemoryNote | None:
         candidate_key = candidate.equivalent_key()
         for note in self.read_notes():
@@ -507,10 +905,12 @@ class MemoryStore:
         *,
         content: str,
         note_type: MemoryNoteType | str,
+        scope: MemoryNoteScope | str | None = None,
         source: MemorySource | None = None,
         priority: float = 0.5,
         confidence: float = 0.5,
         tags: list[str] | tuple[str, ...] | str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> MemoryNote:
         """Save explicit durable Agent Memory after validating user-facing inputs."""
         if not content or not content.strip():
@@ -522,6 +922,8 @@ class MemoryStore:
             priority=_strict_score("priority", priority),
             confidence=_strict_score("confidence", confidence),
             tags=_clean_note_tags(tags),
+            scope=_strict_note_scope(scope) if scope else None,
+            metadata=_clean_metadata(metadata),
         )
         return self.upsert_note(note)
 
@@ -530,6 +932,7 @@ class MemoryStore:
         *,
         query: str = "",
         note_type: MemoryNoteType | str | None = None,
+        scope: MemoryNoteScope | str | None = None,
         status: MemoryNoteStatus | str | None = None,
         limit: int = 20,
         vector_store: VectorStore | None = None,
@@ -538,11 +941,14 @@ class MemoryStore:
         if limit <= 0:
             return []
         type_filter = _strict_note_type(note_type) if note_type else None
+        scope_filter = _strict_note_scope(scope) if scope else None
         status_filter = _strict_note_status(status) if status else None
         normalized_query = _normalize_note_text(query)
 
         def matches_filters(note: MemoryNote) -> bool:
             if type_filter and note.type != type_filter:
+                return False
+            if scope_filter and note.scope != scope_filter:
                 return False
             if status_filter and note.status != status_filter:
                 return False
@@ -675,8 +1081,10 @@ class MemoryStore:
     def _memory_note_index_document(note: MemoryNote) -> str:
         parts = [
             note.content,
+            f"Scope: {note.scope.value}",
             f"Type: {note.type.value}",
             f"Tags: {', '.join(note.tags)}" if note.tags else "",
+            f"Metadata: {json.dumps(note.metadata, ensure_ascii=False, sort_keys=True)}" if note.metadata else "",
         ]
         return " | ".join(part for part in parts if part)
 
@@ -685,12 +1093,14 @@ class MemoryStore:
         return {
             "kind": "memory_note",
             "note_id": note.id,
+            "scope": note.scope.value,
             "note_type": note.type.value,
             "status": note.status.value,
             "priority": note.priority,
             "confidence": note.confidence,
             "updated_at": note.updated_at,
             "tags": json.dumps(note.tags, ensure_ascii=False),
+            "metadata": json.dumps(note.metadata, ensure_ascii=False, sort_keys=True),
         }
 
     @staticmethod
@@ -720,10 +1130,12 @@ class MemoryStore:
         *,
         replacement_content: str,
         note_type: MemoryNoteType | str | None = None,
+        scope: MemoryNoteScope | str | None = None,
         source: MemorySource | None = None,
         priority: float | None = None,
         confidence: float | None = None,
         tags: list[str] | tuple[str, ...] | str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> MemoryNote:
         old_note = self.trace_memory_note(note_id)
         if not replacement_content or not replacement_content.strip():
@@ -735,6 +1147,8 @@ class MemoryStore:
             priority=_strict_score("priority", old_note.priority if priority is None else priority),
             confidence=_strict_score("confidence", old_note.confidence if confidence is None else confidence),
             tags=_clean_note_tags(old_note.tags if tags is None else tags),
+            scope=_strict_note_scope(scope) if scope else old_note.scope,
+            metadata=_clean_metadata(old_note.metadata if metadata is None else metadata),
         )
         return self.supersede_note(note_id, replacement)
 
@@ -831,6 +1245,7 @@ class MemoryStore:
         ]
         active_notes.sort(
             key=lambda note: (
+                note.scope.value,
                 note.type.value,
                 -note.priority,
                 -note.confidence,
@@ -857,11 +1272,21 @@ class MemoryStore:
                     lines.extend(("", f"### {note.type.value.title()}"))
                 metadata = [
                     f"id: {note.id}",
+                    f"scope: {note.scope.value}",
                     f"priority: {note.priority:g}",
                     f"confidence: {note.confidence:g}",
                 ]
                 if note.tags:
                     metadata.append("tags: " + ", ".join(sorted(note.tags)))
+                evidence_ids = [
+                    evidence_id
+                    for source in note.sources
+                    for evidence_id in source.evidence_ids
+                ]
+                if evidence_ids:
+                    metadata.append("evidence: " + ", ".join(sorted(set(evidence_ids))))
+                if note.metadata:
+                    metadata.append("metadata: " + json.dumps(note.metadata, ensure_ascii=False, sort_keys=True))
                 lines.append(f"- {note.content} ({'; '.join(metadata)})")
         lines.append(self._VIEW_MARKER_END)
         return "\n".join(lines).rstrip() + "\n"
@@ -882,6 +1307,8 @@ class MemoryStore:
         return existing + "\n\n" + rendered_section
 
     def _note_view_file(self, note: MemoryNote) -> str:
+        if note.scope in self._SCOPE_VIEW_DEFAULTS:
+            return self._SCOPE_VIEW_DEFAULTS[note.scope]
         for source in note.sources:
             if source.source_file in self._VIEW_TITLES:
                 return source.source_file
@@ -1046,12 +1473,15 @@ class MemoryStore:
     def _format_memory_recall_note(note: MemoryNote) -> str:
         metadata = [
             f"id: {note.id}",
+            f"scope: {note.scope.value}",
             f"type: {note.type.value}",
             f"priority: {note.priority:g}",
             f"confidence: {note.confidence:g}",
         ]
         if note.tags:
             metadata.append("tags: " + ", ".join(sorted(note.tags)))
+        if note.metadata:
+            metadata.append("metadata: " + json.dumps(note.metadata, ensure_ascii=False, sort_keys=True))
         return f"- {note.content} ({'; '.join(metadata)})"
 
     # -- history.jsonl — append-only, JSONL format ---------------------------
@@ -1473,6 +1903,9 @@ class Dream:
     }
     _NOTE_LINE_RE = re.compile(r"^\[(?P<header>[^\]]+)\]\s*(?P<content>.*)$")
 
+    class MemoryOperationParseError(ValueError):
+        pass
+
     def __init__(
         self,
         store: MemoryStore,
@@ -1494,6 +1927,85 @@ class Dream:
     # -- main entry ----------------------------------------------------------
 
     async def run(self) -> bool:
+        """Process pending evidence first, then legacy history entries."""
+        evidence_cursor = self.store.get_last_evidence_cursor()
+        evidence = self.store.read_pending_conversation_evidence(
+            since_cursor=evidence_cursor,
+            limit=self.max_batch_size,
+        )
+        if evidence:
+            return await self._run_evidence_batch(evidence, evidence_cursor)
+        return await self._run_legacy_history_batch()
+
+    async def _run_evidence_batch(
+        self,
+        batch: list[ConversationEvidence],
+        last_cursor: int,
+    ) -> bool:
+        logger.info(
+            "Dream: processing {} evidence records (cursor {}->{})",
+            len(batch), last_cursor, batch[-1].cursor,
+        )
+
+        phase1_prompt = (
+            f"## Conversation Evidence\n{self._format_evidence_prompt(batch)}\n\n"
+            f"{self._format_memory_file_context()}"
+        )
+
+        try:
+            phase1_response = await self.provider.chat_with_retry(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": render_template("agent/dream_phase1.md", strip=True),
+                    },
+                    {"role": "user", "content": phase1_prompt},
+                ],
+                tools=None,
+                tool_choice=None,
+            )
+            analysis = phase1_response.content or ""
+            logger.debug("Dream Evidence Phase 1 complete ({} chars)", len(analysis))
+        except Exception:
+            logger.exception("Dream Evidence Phase 1 failed")
+            return False
+
+        source = MemorySource.dream(
+            evidence_ids=[record.id for record in batch],
+        )
+        try:
+            changelog = self._apply_memory_note_analysis(
+                analysis,
+                source,
+                require_json=True,
+            )
+        except self.MemoryOperationParseError:
+            logger.warning("Dream Evidence Phase 2: JSON operation parse failed; evidence cursor unchanged")
+            return False
+
+        if changelog:
+            self.store.refresh_memory_views()
+            changelog.append("refresh_memory_views")
+            logger.info("Dream Evidence Phase 2: applied {} Memory Note change(s)", len(changelog) - 1)
+        else:
+            logger.debug("Dream Evidence Phase 2: no durable Memory Notes created")
+
+        new_cursor = batch[-1].cursor or last_cursor
+        self.store.set_last_evidence_cursor(new_cursor)
+        logger.info("Dream evidence done: cursor advanced to {}", new_cursor)
+
+        if changelog and self.store.git.is_initialized():
+            sha = self.store.git.auto_commit(f"dream: evidence cursor {new_cursor}, {len(changelog)} change(s)")
+            if sha:
+                logger.info("Dream commit: {}", sha)
+
+        if self.experience_store is not None:
+            await self._process_experiences()
+
+        return True
+
+    async def _run_legacy_history_batch(self) -> bool:
         """Process unprocessed history entries. Returns True if work was done."""
         last_cursor = self.store.get_last_dream_cursor()
         entries = self.store.read_unprocessed_history(since_cursor=last_cursor)
@@ -1511,21 +2023,9 @@ class Dream:
             f"[{e['timestamp']}] {e['content']}" for e in batch
         )
 
-        # Current file contents
-        current_memory = self.store.read_memory() or "(empty)"
-        current_soul = self.store.read_soul() or "(empty)"
-        current_user = self.store.read_user() or "(empty)"
-        current_notes = self._format_current_notes() or "(no Memory Notes)"
-        file_context = (
-            f"## Current Memory Notes\n{current_notes}\n\n"
-            f"## Current MEMORY.md\n{current_memory}\n\n"
-            f"## Current SOUL.md\n{current_soul}\n\n"
-            f"## Current USER.md\n{current_user}"
-        )
-
         # Phase 1: Analyze
         phase1_prompt = (
-            f"## Conversation History\n{history_text}\n\n{file_context}"
+            f"## Conversation History\n{history_text}\n\n{self._format_memory_file_context()}"
         )
 
         try:
@@ -1586,6 +2086,32 @@ class Dream:
 
         return True
 
+    def _format_memory_file_context(self) -> str:
+        current_memory = self.store.read_memory() or "(empty)"
+        current_soul = self.store.read_soul() or "(empty)"
+        current_user = self.store.read_user() or "(empty)"
+        current_notes = self._format_current_notes() or "(no Memory Notes)"
+        return (
+            f"## Current Memory Notes\n{current_notes}\n\n"
+            f"## Current MEMORY.md\n{current_memory}\n\n"
+            f"## Current SOUL.md\n{current_soul}\n\n"
+            f"## Current USER.md\n{current_user}"
+        )
+
+    @staticmethod
+    def _format_evidence_prompt(records: list[ConversationEvidence]) -> str:
+        lines: list[str] = []
+        current_turn = ""
+        for record in records:
+            if record.turn_id != current_turn:
+                current_turn = record.turn_id
+                lines.append(f"\n### Turn {record.turn_id} session={record.session_key}")
+            lines.append(
+                f"[{record.id}] cursor={record.cursor} index={record.message_index} "
+                f"{record.role.upper()}: {record.content}"
+            )
+        return "\n".join(lines).strip()
+
     def _format_current_notes(self) -> str:
         lines: list[str] = []
         for note in sorted(
@@ -1593,7 +2119,7 @@ class Dream:
             key=lambda item: (item.status.value, item.type.value, item.content.casefold()),
         ):
             lines.append(
-                f"- id={note.id} status={note.status.value} type={note.type.value} "
+                f"- id={note.id} status={note.status.value} scope={note.scope.value} type={note.type.value} "
                 f"priority={note.priority:g} confidence={note.confidence:g}: {note.content}"
             )
         return "\n".join(lines)
@@ -1602,11 +2128,13 @@ class Dream:
         self,
         analysis: str,
         source: MemorySource,
+        *,
+        require_json: bool = False,
     ) -> list[str]:
         changes: list[str] = []
-        for operation in self._parse_memory_note_operations(analysis, source):
+        for operation in self._parse_memory_note_operations(analysis, source, require_json=require_json):
             action = operation["action"]
-            note_id = operation.get("note_id") or ""
+            note_id = operation.get("note_id") or operation.get("target_note_id") or ""
             content = operation.get("content") or ""
             if action == "skip":
                 continue
@@ -1620,10 +2148,12 @@ class Dream:
             note = MemoryNote.create(
                 content,
                 operation["type"],
-                [source],
+                [self._source_for_operation(source, operation)],
                 priority=operation["priority"],
                 confidence=operation["confidence"],
                 tags=operation["tags"],
+                scope=operation.get("scope"),
+                metadata=operation.get("metadata"),
             )
             source_file = operation.get("source_file")
             if source_file:
@@ -1632,12 +2162,13 @@ class Dream:
                 replacement = self.store.supersede_note(note_id, note)
                 changes.append(f"supersede_note:{note_id}->{replacement.id}")
                 continue
-            existing = self._find_active_note_by_type_and_content(note.type, note.content)
+            existing = self._find_active_note_by_scope_type_and_content(note.scope, note.type, note.content)
             if existing is not None:
                 existing.sources = self._merge_note_sources(existing.sources, note.sources)
                 existing.priority = max(existing.priority, note.priority)
                 existing.confidence = max(existing.confidence, note.confidence)
                 existing.tags = sorted(set(existing.tags + note.tags))
+                existing.metadata = _merge_metadata(existing.metadata, note.metadata)
                 stored = self.store.upsert_note(existing)
                 changes.append(f"merge_note:{stored.id}")
             else:
@@ -1649,7 +2180,15 @@ class Dream:
         self,
         analysis: str,
         source: MemorySource,
+        *,
+        require_json: bool = False,
     ) -> list[dict[str, Any]]:
+        json_operations = self._parse_json_memory_note_operations(analysis, source)
+        if json_operations is not None:
+            return json_operations
+        if require_json:
+            raise self.MemoryOperationParseError("Expected JSON Memory Operations")
+
         operations: list[dict[str, Any]] = []
         for raw_line in analysis.splitlines():
             line = raw_line.strip()
@@ -1659,6 +2198,63 @@ class Dream:
             if parsed is not None:
                 operations.append(parsed)
         return operations
+
+    def _parse_json_memory_note_operations(
+        self,
+        analysis: str,
+        source: MemorySource,
+    ) -> list[dict[str, Any]] | None:
+        raw = analysis.strip()
+        if raw.startswith("```"):
+            match = re.search(r"```(?:json)?\s*(?P<body>.*?)```", raw, flags=re.DOTALL | re.IGNORECASE)
+            if match:
+                raw = match.group("body").strip()
+        if not raw or raw[0] not in "[{":
+            return None
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict):
+            parsed = parsed.get("operations", [parsed])
+        if not isinstance(parsed, list):
+            return None
+        operations: list[dict[str, Any]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            operation = self._normalize_json_memory_operation(item, source)
+            if operation is not None:
+                operations.append(operation)
+        return operations
+
+    def _normalize_json_memory_operation(
+        self,
+        raw: dict[str, Any],
+        source: MemorySource,
+    ) -> dict[str, Any] | None:
+        del source
+        action = str(raw.get("action") or "save").strip().casefold()
+        if action not in {"save", "supersede", "reject", "skip"}:
+            return None
+        note_id = str(raw.get("target_note_id") or raw.get("note_id") or "").strip()
+        content = str(raw.get("content") or "").strip()
+        note_type = _coerce_enum(MemoryNoteType, raw.get("type"), MemoryNoteType.PROJECT)
+        scope = _coerce_enum(MemoryNoteScope, raw.get("scope"), _default_scope_for_type(note_type))
+        evidence_ids = _clean_evidence_ids(raw.get("evidence_ids"))
+        return {
+            "action": action,
+            "note_id": note_id,
+            "content": content,
+            "type": note_type,
+            "scope": scope,
+            "source_file": None,
+            "priority": _strict_score("priority", _coerce_float(raw.get("priority"), 0.6)),
+            "confidence": _strict_score("confidence", _coerce_float(raw.get("confidence"), 0.65)),
+            "tags": _clean_note_tags(raw.get("tags") or ["dream"]),
+            "metadata": _clean_metadata(raw.get("metadata")),
+            "evidence_ids": evidence_ids,
+        }
 
     def _parse_memory_note_operation(
         self,
@@ -1700,10 +2296,13 @@ class Dream:
                 "note_id": note_id,
                 "content": content,
                 "type": MemoryNoteType.PROJECT,
+                "scope": MemoryNoteScope.PROJECT,
                 "source_file": None,
                 "priority": 0.5,
                 "confidence": 0.5,
                 "tags": ["dream"],
+                "metadata": {},
+                "evidence_ids": [],
             }
         return None
 
@@ -1719,19 +2318,27 @@ class Dream:
         tags = ["dream"]
         if source_file == "memory/MEMORY.md":
             tags.append("project-memory")
+            scope = MemoryNoteScope.PROJECT
         elif source_file == "USER.md":
             tags.append("user-memory")
+            scope = MemoryNoteScope.USER
         elif source_file == "SOUL.md":
             tags.append("assistant-memory")
+            scope = MemoryNoteScope.ASSISTANT
+        else:
+            scope = _default_scope_for_type(note_type)
         return {
             "action": action,
             "note_id": note_id,
             "content": content,
             "type": note_type,
+            "scope": scope,
             "source_file": source_file,
             "priority": 0.6,
             "confidence": 0.65,
             "tags": tags,
+            "metadata": {},
+            "evidence_ids": [],
         }
 
     def _resolve_note_target(self, target: str) -> tuple[str, MemoryNoteType]:
@@ -1739,8 +2346,24 @@ class Dream:
             return self._NOTE_TARGETS[target]
         return "memory/MEMORY.md", _coerce_enum(MemoryNoteType, target.casefold(), MemoryNoteType.PROJECT)
 
-    def _find_active_note_by_type_and_content(
+    @staticmethod
+    def _source_for_operation(source: MemorySource, operation: dict[str, Any]) -> MemorySource:
+        evidence_ids = _clean_evidence_ids(operation.get("evidence_ids")) or list(source.evidence_ids)
+        return MemorySource(
+            capture_origin=source.capture_origin,
+            captured_at=source.captured_at,
+            session_key=source.session_key,
+            message_start=source.message_start,
+            message_end=source.message_end,
+            history_start_cursor=source.history_start_cursor,
+            history_end_cursor=source.history_end_cursor,
+            source_file=source.source_file,
+            evidence_ids=evidence_ids,
+        )
+
+    def _find_active_note_by_scope_type_and_content(
         self,
+        scope: MemoryNoteScope,
         note_type: MemoryNoteType,
         content: str,
     ) -> MemoryNote | None:
@@ -1748,6 +2371,7 @@ class Dream:
         for note in self.store.read_notes():
             if (
                 note.status == MemoryNoteStatus.ACTIVE
+                and note.scope == scope
                 and note.type == note_type
                 and _normalize_note_text(note.content) == normalized
             ):
@@ -1760,12 +2384,14 @@ class Dream:
         new_sources: list[MemorySource],
     ) -> list[MemorySource]:
         merged: list[MemorySource] = []
-        seen: set[tuple[Any, ...]] = set()
+        by_identity: dict[tuple[Any, ...], MemorySource] = {}
         for source in existing + new_sources:
             identity = source.identity()
-            if identity in seen:
+            if identity in by_identity:
+                current = by_identity[identity]
+                current.evidence_ids = _clean_evidence_ids(current.evidence_ids + source.evidence_ids)
                 continue
-            seen.add(identity)
+            by_identity[identity] = source
             merged.append(source)
         return merged
 

@@ -5,13 +5,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tinybot.agent.memory import (
+    ConversationEvidence,
     Dream,
     MemoryCaptureOrigin,
     MemoryNote,
+    MemoryNoteScope,
     MemoryNoteStatus,
     MemoryNoteType,
     MemorySource,
     MemoryStore,
+    capture_conversation_evidence,
     generate_memory_note_id,
 )
 
@@ -163,6 +166,90 @@ def test_memory_source_helpers_capture_trace_fields():
     assert explicit.message_end == 2
     assert migrated.capture_origin == MemoryCaptureOrigin.MIGRATION
     assert migrated.source_file == "memory/MEMORY.md"
+
+
+def test_conversation_evidence_append_read_cursor_and_capture(tmp_path):
+    store = MemoryStore(tmp_path)
+    messages = [
+        {"role": "system", "content": "runtime prompt"},
+        {"role": "user", "content": "Remember that I prefer concise updates.", "timestamp": "2026-05-18T10:00:00"},
+        {"role": "assistant", "tool_calls": [{"id": "call_1"}], "content": ""},
+        {"role": "tool", "content": "tool result"},
+        {"role": "assistant", "content": "Noted. I will keep updates concise.", "timestamp": "2026-05-18T10:00:02"},
+    ]
+
+    written = capture_conversation_evidence(
+        store,
+        session_key="cli:test",
+        messages=messages,
+        start_index=3,
+    )
+
+    assert [record.role for record in written] == ["user", "assistant"]
+    assert all(record.cursor for record in written)
+    assert written[0].message_index == 4
+    assert written[1].message_index == 7
+    assert len(store.read_pending_conversation_evidence()) == 2
+
+    store.set_last_evidence_cursor(written[0].cursor or 0)
+    pending = store.read_pending_conversation_evidence()
+    assert [record.id for record in pending] == [written[1].id]
+
+    duplicate = capture_conversation_evidence(
+        store,
+        session_key="cli:test",
+        messages=messages,
+        start_index=3,
+    )
+    assert duplicate == []
+
+
+def test_memory_source_and_note_preserve_evidence_scope_and_metadata(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.dream(evidence_ids=["ev_1", "ev_2"])
+    note = store.upsert_note(
+        MemoryNote.create(
+            "User prefers concise updates.",
+            "preference",
+            [source],
+            scope="user",
+            metadata={"reason": "explicit preference"},
+            tags=["dream"],
+        )
+    )
+
+    loaded = store.read_notes()[0]
+    assert loaded.scope == MemoryNoteScope.USER
+    assert loaded.metadata == {"reason": "explicit preference"}
+    assert loaded.sources[0].evidence_ids == ["ev_1", "ev_2"]
+    assert loaded.sources[0].identity() == MemorySource.dream(evidence_ids=["ev_other"]).identity()
+    assert note.id == generate_memory_note_id("preference", "User prefers concise updates.", [source], scope="user")
+
+
+def test_legacy_note_loading_infers_scope(tmp_path):
+    store = MemoryStore(tmp_path)
+    store.notes_file.write_text(
+        json.dumps(
+            {
+                "id": "note_legacy",
+                "type": "instruction",
+                "status": "active",
+                "content": "Be direct.",
+                "priority": 0.5,
+                "confidence": 0.5,
+                "sources": [],
+                "created_at": "2026-05-18T00:00:00Z",
+                "updated_at": "2026-05-18T00:00:00Z",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = store.read_notes()[0]
+    assert loaded.scope == MemoryNoteScope.ASSISTANT
+    assert loaded.metadata == {}
 
 
 def test_legacy_migration_creates_conservative_notes_and_preserves_files(tmp_path):
@@ -505,6 +592,159 @@ async def test_dream_creates_notes_refreshes_views_and_advances_cursor(tmp_path)
     assert "Project uses uv for Python commands." in store.read_memory()
     assert "User prefers concise progress updates." in store.read_user()
     assert store.get_last_dream_cursor() == second_cursor
+
+
+@pytest.mark.asyncio
+async def test_dream_processes_pending_evidence_before_legacy_history(tmp_path):
+    store = MemoryStore(tmp_path)
+    store.append_history("Legacy history should wait.")
+    evidence = store.append_conversation_evidence(
+        [
+            ConversationEvidence.create(
+                session_key="cli:test",
+                turn_id="turn_1",
+                role="user",
+                content="I prefer concise progress updates.",
+                message_index=0,
+                timestamp="2026-05-18T10:00:00Z",
+            )
+        ]
+    )
+    provider = MagicMock()
+    provider.chat_with_retry = AsyncMock(
+        return_value=SimpleNamespace(
+            content=json.dumps(
+                [
+                    {
+                        "action": "save",
+                        "scope": "user",
+                        "type": "preference",
+                        "content": "User prefers concise progress updates.",
+                        "priority": 0.8,
+                        "confidence": 0.9,
+                        "evidence_ids": [evidence[0].id],
+                        "metadata": {"source": "conversation-evidence"},
+                        "tags": ["dream"],
+                    }
+                ]
+            )
+        )
+    )
+    dream = Dream(store=store, provider=provider, model="test-model")
+
+    assert await dream.run() is True
+
+    note = store.read_notes()[0]
+    assert note.scope == MemoryNoteScope.USER
+    assert note.sources[0].evidence_ids == [evidence[0].id]
+    assert note.metadata == {"source": "conversation-evidence"}
+    assert store.get_last_evidence_cursor() == evidence[0].cursor
+    assert store.get_last_dream_cursor() == 0
+
+
+@pytest.mark.asyncio
+async def test_dream_evidence_json_parse_failure_preserves_cursor_and_notes(tmp_path):
+    store = MemoryStore(tmp_path)
+    evidence = store.append_conversation_evidence(
+        [
+            ConversationEvidence.create(
+                session_key="cli:test",
+                turn_id="turn_1",
+                role="user",
+                content="I prefer concise progress updates.",
+                message_index=0,
+            )
+        ]
+    )
+    provider = MagicMock()
+    provider.chat_with_retry = AsyncMock(return_value=SimpleNamespace(content="{not valid json"))
+    dream = Dream(store=store, provider=provider, model="test-model")
+
+    assert await dream.run() is False
+
+    assert store.read_notes() == []
+    assert store.get_last_evidence_cursor() == 0
+    assert store.read_pending_conversation_evidence()[0].id == evidence[0].id
+
+
+@pytest.mark.asyncio
+async def test_dream_json_supersede_reject_skip_and_duplicate_merge(tmp_path):
+    store = MemoryStore(tmp_path)
+    source = MemorySource.explicit(session_key="cli:test")
+    old = store.upsert_note(MemoryNote.create("Use pytest directly.", "instruction", [source], scope="assistant"))
+    rejected = store.upsert_note(MemoryNote.create("Obsolete project note.", "project", [source], scope="project"))
+    evidence = store.append_conversation_evidence(
+        [
+            ConversationEvidence.create(
+                session_key="cli:test", turn_id="turn_1", role="user", content="Use uv run pytest.", message_index=0
+            ),
+            ConversationEvidence.create(
+                session_key="cli:test",
+                turn_id="turn_1",
+                role="assistant",
+                content="I will use uv run pytest.",
+                message_index=1,
+            ),
+        ]
+    )
+    provider = MagicMock()
+    provider.chat_with_retry = AsyncMock(
+        return_value=SimpleNamespace(
+            content=json.dumps(
+                [
+                    {
+                        "action": "save",
+                        "scope": "project",
+                        "type": "project",
+                        "content": "Project uses uv for Python validation.",
+                        "priority": 0.7,
+                        "confidence": 0.8,
+                        "evidence_ids": [evidence[0].id],
+                        "metadata": {"first": True},
+                        "tags": ["dream"],
+                    },
+                    {
+                        "action": "save",
+                        "scope": "project",
+                        "type": "project",
+                        "content": "Project uses uv for Python validation.",
+                        "priority": 0.9,
+                        "confidence": 0.85,
+                        "evidence_ids": [evidence[1].id],
+                        "metadata": {"second": True},
+                        "tags": ["validated"],
+                    },
+                    {
+                        "action": "supersede",
+                        "target_note_id": old.id,
+                        "scope": "assistant",
+                        "type": "instruction",
+                        "content": "Use uv run pytest for validation.",
+                        "priority": 0.8,
+                        "confidence": 0.9,
+                        "evidence_ids": [evidence[0].id],
+                        "metadata": {},
+                        "tags": ["dream"],
+                    },
+                    {"action": "reject", "target_note_id": rejected.id},
+                    {"action": "skip"},
+                ]
+            )
+        )
+    )
+    dream = Dream(store=store, provider=provider, model="test-model")
+
+    assert await dream.run() is True
+
+    notes = {note.id: note for note in store.read_notes()}
+    merged = [note for note in notes.values() if note.content == "Project uses uv for Python validation."][0]
+    assert merged.priority == pytest.approx(0.9)
+    assert merged.confidence == pytest.approx(0.85)
+    assert merged.sources[0].evidence_ids == [evidence[0].id, evidence[1].id]
+    assert merged.metadata == {"first": True, "second": True}
+    assert sorted(merged.tags) == ["dream", "validated"]
+    assert notes[old.id].status == MemoryNoteStatus.SUPERSEDED
+    assert notes[rejected.id].status == MemoryNoteStatus.REJECTED
 
 
 @pytest.mark.asyncio

@@ -51,7 +51,13 @@ Agent Memory is owned by `tinybot/agent/memory.py`. Durable memory is stored as 
 
 Memory Notes carry type, status, priority, confidence, source trace-back, timestamps, and lifecycle links. Only active notes participate in default recall and managed Memory View rendering. Rejected and superseded notes remain in JSONL for debugging and traceability.
 
-Dream is the background capture path for durable conversation facts. Explicit memory tools are the foreground path for user or agent corrections. Both paths write Memory Notes before refreshing Memory Views, so direct edits inside managed Markdown sections should be treated as temporary and overwritten by the next refresh.
+Conversation Evidence is the message-level source layer for Dream. Completed turns append clean user and assistant text to `memory/conversations/*.jsonl` after Session History has been saved; system prompts, runtime context, recalled memories, knowledge injections, tool material, empty assistant messages, and inline media payloads are excluded or sanitized. `memory/.evidence_cursor` tracks extraction progress. If no pending Conversation Evidence exists, Dream keeps the legacy `memory/history.jsonl` and `.dream_cursor` summary-history fallback.
+
+Dream is the background capture path for durable conversation facts. It reads pending Conversation Evidence first and asks for JSON Memory Operations: `save`, `supersede`, `reject`, or `skip`. Explicit memory tools are the foreground path for user or agent corrections. Both paths write Memory Notes before refreshing Memory Views, so direct edits inside managed Markdown sections should be treated as temporary and overwritten by the next refresh.
+
+Memory Notes carry a `scope` (`user`, `assistant`, `project`, or `session`) separate from their type, plus optional structured metadata. Evidence citations live on `MemorySource.evidence_ids`; trace output and managed views show those citations when present. `session.user_profile` remains a runtime cache for prompt hydration. Durable user facts, preferences, identity, and habits belong in user-scoped Memory Notes.
+
+Memory Extraction triggers are independent from token-budget consolidation. The loop captures evidence synchronously, then schedules extraction after warmup turns, every configured number of later turns, and idle flushes while preventing overlapping extraction for the same session. Token-budget consolidation still only runs from context pressure.
 
 Memory Recall is a distinct context section selected from active Memory Notes. It stays separate from Experience, which records reusable execution guidance, and from Knowledge, which provides document evidence. Optional vector indexing may accelerate Memory Note search, but JSONL remains the canonical source and indexes must be rebuildable from it.
 

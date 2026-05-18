@@ -12,7 +12,8 @@ always: true
 - `memory/MEMORY.md` is the project Memory View rendered from active project, decision, fix, and followup notes.
 - `USER.md` is the user Memory View rendered from active preference notes.
 - `SOUL.md` is the assistant Memory View rendered from active instruction notes.
-- `memory/history.jsonl` is append-only conversation history used by Dream. It is not loaded directly as durable Memory Notes unless Dream or an explicit operation captures a note.
+- `memory/conversations/*.jsonl` stores clean Conversation Evidence for completed user/assistant messages. Dream processes it before legacy summary history.
+- `memory/.evidence_cursor` tracks processed Conversation Evidence. `memory/history.jsonl` and `.dream_cursor` remain the legacy fallback path.
 
 ## Explicit Operations
 
@@ -35,3 +36,4 @@ Use Memory Note operations for durable agent-side memory:
 - Do not edit managed sections in `SOUL.md`, `USER.md`, or `memory/MEMORY.md` directly. They are Memory Views refreshed from active Memory Notes.
 - If a Memory View looks wrong, use reject or supersede operations on the underlying note instead of editing rendered Markdown.
 - Users can view Dream activity with the `/dream-log` command.
+- `session.user_profile` is only a runtime cache. Durable user facts belong in user-scoped Memory Notes.

@@ -48,7 +48,13 @@ from tinybot.agent.experience_analyzer import ErrorAnalyzer
 from tinybot.agent.experience_summarizer import ExperienceSummarizer
 from tinybot.agent.hook import AgentHook
 from tinybot.agent.knowledge import KnowledgeStore
-from tinybot.agent.memory import Consolidator, Dream, EntityExtractor
+from tinybot.agent.memory import (
+    Consolidator,
+    ConversationEvidence,
+    Dream,
+    EntityExtractor,
+    capture_conversation_evidence,
+)
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.session_knowledge import SessionKnowledgeStore
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
@@ -348,6 +354,9 @@ class AgentLoop:
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._background_tasks: list[asyncio.Task] = []
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._memory_extraction_locks: dict[str, asyncio.Lock] = {}
+        self._memory_extraction_run_lock = asyncio.Lock()
+        self._memory_extraction_idle_tasks: dict[str, asyncio.Task] = {}
         # tinybot_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("tinybot_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
@@ -1060,6 +1069,108 @@ class AgentLoop:
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
+    def _last_user_message_index(self, session: Session) -> int:
+        for idx in range(len(session.messages) - 1, -1, -1):
+            if session.messages[idx].get("role") == "user":
+                return idx
+        return len(session.messages)
+
+    def _capture_conversation_evidence(
+        self,
+        session: Session,
+        turn_start_index: int,
+    ) -> list[ConversationEvidence]:
+        try:
+            turn_messages = session.messages[turn_start_index:]
+            return capture_conversation_evidence(
+                self.context.memory,
+                session_key=session.key,
+                messages=turn_messages,
+                start_index=turn_start_index,
+            )
+        except Exception:
+            logger.exception("Conversation Evidence capture failed for {}", session.key)
+            return []
+
+    def _memory_extraction_config(self) -> tuple[int, int]:
+        dream_cfg = None
+        if self._config_ref is not None:
+            dream_cfg = getattr(getattr(self._config_ref.agents, "defaults", None), "dream", None)
+        every_n = int(getattr(dream_cfg, "extraction_every_n_turns", 6) or 6)
+        idle_seconds = int(getattr(dream_cfg, "extraction_idle_seconds", 300) or 300)
+        return max(every_n, 1), max(idle_seconds, 1)
+
+    def _schedule_memory_extraction_triggers(
+        self,
+        session: Session,
+        evidence: list[ConversationEvidence],
+    ) -> None:
+        if not evidence or not any(record.role == "user" for record in evidence):
+            return
+        every_n, idle_seconds = self._memory_extraction_config()
+        state = session.metadata.setdefault("memory_extraction", {})
+        if not isinstance(state, dict):
+            state = {}
+            session.metadata["memory_extraction"] = state
+
+        completed_turns = int(state.get("completed_user_turns") or 0) + 1
+        state["completed_user_turns"] = completed_turns
+        should_run_now = completed_turns in {1, 2, 4}
+        if completed_turns > 4 and (completed_turns - 4) % every_n == 0:
+            should_run_now = True
+        self.sessions.save(session)
+
+        if should_run_now:
+            self._schedule_background(self._run_memory_extraction_once(session.key))
+
+        old_idle = self._memory_extraction_idle_tasks.pop(session.key, None)
+        if old_idle and not old_idle.done():
+            old_idle.cancel()
+        idle_task = asyncio.create_task(self._run_memory_extraction_after_idle(session.key, idle_seconds))
+        self._memory_extraction_idle_tasks[session.key] = idle_task
+        self._background_tasks.append(idle_task)
+        def _forget_idle_task(task: asyncio.Task, key: str = session.key) -> None:
+            if self._memory_extraction_idle_tasks.get(key) is task:
+                self._memory_extraction_idle_tasks.pop(key, None)
+            if task in self._background_tasks:
+                self._background_tasks.remove(task)
+
+        idle_task.add_done_callback(_forget_idle_task)
+
+    async def _run_memory_extraction_after_idle(self, session_key: str, idle_seconds: int) -> None:
+        try:
+            await asyncio.sleep(idle_seconds)
+        except asyncio.CancelledError:
+            return
+        pending = self.context.memory.read_pending_conversation_evidence(session_key=session_key)
+        if pending:
+            await self._run_memory_extraction_once(session_key)
+
+    async def _run_memory_extraction_once(self, session_key: str) -> None:
+        lock = self._memory_extraction_locks.setdefault(session_key, asyncio.Lock())
+        session = self.sessions.get(session_key)
+        if lock.locked():
+            if session is not None:
+                state = session.metadata.setdefault("memory_extraction", {})
+                if isinstance(state, dict):
+                    state["pending"] = True
+                    self.sessions.save(session)
+            return
+        async with lock:
+            async with self._memory_extraction_run_lock:
+                try:
+                    await self.dream.run()
+                except Exception:
+                    logger.exception("Memory Extraction failed for {}", session_key)
+                    return
+            session = self.sessions.get(session_key)
+            if session is not None:
+                state = session.metadata.setdefault("memory_extraction", {})
+                if isinstance(state, dict):
+                    state["pending"] = False
+                    state["last_extracted_at"] = datetime.now().isoformat()
+                    self.sessions.save(session)
+
     def schedule_approval_retry(
         self,
         *,
@@ -1261,6 +1372,7 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
+        turn_start_index = len(session.messages)
 
         # Slash commands
         raw = msg.content.strip()
@@ -1366,6 +1478,8 @@ class AgentLoop:
         self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
         self.session_handler.clear_checkpoint(session)
         self.sessions.save(session)
+        evidence = self._capture_conversation_evidence(session, turn_start_index)
+        self._schedule_memory_extraction_triggers(session, evidence)
         self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
         self._schedule_background(self._update_user_profile(
             session, msg.content, final_content or "",
@@ -1496,6 +1610,7 @@ class AgentLoop:
 
         request = ApprovalRequest.from_dict(raw_request)
         approved = bool(resolution.get("approved"))
+        turn_start_index = self._last_user_message_index(session)
         checkpoint = session.metadata.get(self.session_handler.RUNTIME_CHECKPOINT_KEY)
         if not isinstance(checkpoint, dict):
             return OutboundMessage(
@@ -1621,6 +1736,8 @@ class AgentLoop:
         self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
         self.session_handler.clear_checkpoint(session)
         self.sessions.save(session)
+        evidence = self._capture_conversation_evidence(session, turn_start_index)
+        self._schedule_memory_extraction_triggers(session, evidence)
         self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
         return OutboundMessage(channel=channel, chat_id=chat_id, content=final_content)
 
