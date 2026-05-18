@@ -41,6 +41,35 @@ def test_context_builder_injects_memory_recall_as_distinct_section(tmp_path):
     assert builder.last_memory_references[0]["line"] == 1
 
 
+def test_context_builder_shows_memory_references_for_short_preference_questions(tmp_path):
+    builder = ContextBuilder(tmp_path)
+    source = MemorySource.explicit(session_key="websocket:test")
+    builder.memory.upsert_note(
+        MemoryNote.create(
+            "The user likes eating strawberries (草莓).",
+            "preference",
+            [source],
+            scope="user",
+            priority=0.5,
+            confidence=0.8,
+        )
+    )
+
+    messages = builder.build_messages(
+        history=[],
+        current_message="我喜欢吃什么",
+        channel="websocket",
+        chat_id="test",
+    )
+
+    recall_messages = [
+        message for message in messages if message["role"] == "system" and "[MEMORY RECALL]" in message["content"]
+    ]
+    assert len(recall_messages) == 1
+    assert "strawberries" in recall_messages[0]["content"]
+    assert builder.last_memory_references[0]["content"] == "The user likes eating strawberries (草莓)."
+
+
 def test_context_builder_keeps_memory_experience_and_knowledge_paths_separate(tmp_path):
     experience_store = MagicMock()
     experience = SimpleNamespace(

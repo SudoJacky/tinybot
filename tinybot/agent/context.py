@@ -278,16 +278,54 @@ class ContextBuilder:
         max_notes: int = 6,
         max_chars: int = 1_600,
     ) -> str | None:
-        if self._is_simple_conversation(current_message):
+        memory_lookup = self._is_memory_lookup_question(current_message)
+        if self._is_simple_conversation(current_message) and not memory_lookup:
             return None
-        notes = self.memory.select_memory_recall(
-            current_message,
-            max_notes=max_notes,
-            max_chars=max_chars,
-        )
+        if memory_lookup:
+            notes = self._select_memory_lookup_notes(current_message, max_notes=max_notes)
+        else:
+            notes = self.memory.select_memory_recall(
+                current_message,
+                max_notes=max_notes,
+                max_chars=max_chars,
+            )
         self.last_memory_references = self.memory.memory_reference_metadata(notes)
         context = self.memory.format_memory_recall_notes_context(notes)
         return context or None
+
+    def _select_memory_lookup_notes(self, current_message: str, *, max_notes: int) -> list[Any]:
+        text = current_message.casefold()
+        notes = [
+            note for note in self.memory.read_notes()
+            if note.status.value == "active" and note.content
+        ]
+        if not notes:
+            return []
+
+        wants_user_memory = any(marker in text for marker in (
+            "我", "我的", "用户", "user", "my ", "remember about me",
+        ))
+        wants_food = any(marker in text for marker in (
+            "吃", "食物", "喜欢吃", "food", "eat", "eating", "like to eat",
+        ))
+
+        candidates = []
+        for note in notes:
+            score = 0
+            note_text = " ".join([note.content, note.type.value, note.scope.value, " ".join(note.tags)]).casefold()
+            if wants_user_memory and (note.scope.value == "user" or note.type.value == "preference"):
+                score += 4
+            if wants_food and any(marker in note_text for marker in ("吃", "食物", "food", "eat", "eating", "strawber", "草莓")):
+                score += 4
+            if any(marker in text for marker in ("喜欢", "prefer", "preference", "like")) and note.type.value == "preference":
+                score += 2
+            if note.scope.value == "user":
+                score += 1
+            if score > 0:
+                candidates.append(((score, note.priority, note.confidence, note.content.casefold()), note))
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return [note for _, note in candidates[:max_notes]]
 
     def _build_experience_context(
         self,
@@ -536,6 +574,29 @@ class ContextBuilder:
                 return True
 
         return False
+
+    @staticmethod
+    def _is_memory_lookup_question(text: str) -> bool:
+        text = text.strip().casefold()
+        if not text:
+            return False
+        markers = [
+            "我喜欢",
+            "我的偏好",
+            "我爱",
+            "我常",
+            "你记得",
+            "还记得",
+            "记得我",
+            "关于我",
+            "what do i like",
+            "what's my",
+            "what is my",
+            "do you remember",
+            "remember about me",
+            "my preference",
+        ]
+        return any(marker in text for marker in markers)
 
     @staticmethod
     def _build_search_query(
