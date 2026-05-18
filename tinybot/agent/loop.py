@@ -1097,6 +1097,11 @@ class AgentLoop:
         references = getattr(context, "last_memory_references", []) or []
         return [dict(item) for item in references if isinstance(item, dict)]
 
+    @staticmethod
+    def _current_recent_context_references_from_context(context: ContextBuilder) -> list[dict[str, Any]]:
+        references = getattr(context, "last_recent_context_references", []) or []
+        return [dict(item) for item in references if isinstance(item, dict)]
+
     def _attach_memory_references_to_latest_assistant(
         self,
         session: Session,
@@ -1109,6 +1114,20 @@ class AgentLoop:
             message = session.messages[idx]
             if message.get("role") == "assistant":
                 message["_memory_references"] = references
+                return
+
+    def _attach_recent_context_references_to_latest_assistant(
+        self,
+        session: Session,
+        turn_start_index: int,
+        references: list[dict[str, Any]],
+    ) -> None:
+        if not references:
+            return
+        for idx in range(len(session.messages) - 1, max(turn_start_index, 0) - 1, -1):
+            message = session.messages[idx]
+            if message.get("role") == "assistant":
+                message["_recent_context_references"] = references
                 return
 
     def _memory_extraction_config(self) -> tuple[int, int]:
@@ -1350,8 +1369,11 @@ class AgentLoop:
                 user_profile=session.user_profile,
             )
             memory_references = self._current_memory_references_from_context(self.context)
+            recent_context_references = self._current_recent_context_references_from_context(self.context)
             if memory_references:
                 msg.metadata["_memory_references"] = memory_references
+            if recent_context_references:
+                msg.metadata["_recent_context_references"] = recent_context_references
             final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
@@ -1381,6 +1403,7 @@ class AgentLoop:
             self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
             self.session_handler.clear_checkpoint(session)
             self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
+            self._attach_recent_context_references_to_latest_assistant(session, turn_start_index, recent_context_references)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
             self._schedule_background(self._update_user_profile(
@@ -1392,7 +1415,10 @@ class AgentLoop:
                 channel=channel,
                 chat_id=chat_id,
                 content=final_content or "Background task completed.",
-                metadata={"_memory_references": memory_references} if memory_references else {},
+                metadata={
+                    **({"_memory_references": memory_references} if memory_references else {}),
+                    **({"_recent_context_references": recent_context_references} if recent_context_references else {}),
+                },
             )
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
@@ -1425,8 +1451,11 @@ class AgentLoop:
             use_persistent_knowledge=msg.metadata.get("_use_persistent_rag"),
         )
         memory_references = self._current_memory_references_from_context(self.context)
+        recent_context_references = self._current_recent_context_references_from_context(self.context)
         if memory_references:
             msg.metadata["_memory_references"] = memory_references
+        if recent_context_references:
+            msg.metadata["_recent_context_references"] = recent_context_references
 
         # Save user message to session before running agent loop
         # This ensures user input is persisted even if checkpoint saves assistant/tool messages
@@ -1509,6 +1538,7 @@ class AgentLoop:
         self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
         self.session_handler.clear_checkpoint(session)
         self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
+        self._attach_recent_context_references_to_latest_assistant(session, turn_start_index, recent_context_references)
         self.sessions.save(session)
         evidence = self._capture_conversation_evidence(session, turn_start_index)
         self._schedule_memory_extraction_triggers(session, evidence)
@@ -1526,6 +1556,8 @@ class AgentLoop:
         meta = dict(msg.metadata or {})
         if memory_references:
             meta["_memory_references"] = memory_references
+        if recent_context_references:
+            meta["_recent_context_references"] = recent_context_references
         if on_stream is not None:
             meta["_streamed"] = True
         return OutboundMessage(
@@ -1743,8 +1775,11 @@ class AgentLoop:
             use_persistent_knowledge=checkpoint.get("_use_persistent_knowledge"),
         )
         memory_references = self._current_memory_references_from_context(self.context)
+        recent_context_references = self._current_recent_context_references_from_context(self.context)
         if memory_references:
             msg.metadata["_memory_references"] = memory_references
+        if recent_context_references:
+            msg.metadata["_recent_context_references"] = recent_context_references
         final_content, _, all_msgs, stop_reason = await self._run_agent_loop(
             messages,
             session=session,
@@ -1773,6 +1808,7 @@ class AgentLoop:
         self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
         self.session_handler.clear_checkpoint(session)
         self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
+        self._attach_recent_context_references_to_latest_assistant(session, turn_start_index, recent_context_references)
         self.sessions.save(session)
         evidence = self._capture_conversation_evidence(session, turn_start_index)
         self._schedule_memory_extraction_triggers(session, evidence)
@@ -1781,7 +1817,10 @@ class AgentLoop:
             channel=channel,
             chat_id=chat_id,
             content=final_content,
-            metadata={"_memory_references": memory_references} if memory_references else {},
+            metadata={
+                **({"_memory_references": memory_references} if memory_references else {}),
+                **({"_recent_context_references": recent_context_references} if recent_context_references else {}),
+            },
         )
 
     async def process_direct(

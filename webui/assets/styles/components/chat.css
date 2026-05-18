@@ -917,6 +917,10 @@
   overflow-wrap: anywhere;
 }
 
+.recent-context-references {
+  background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
+}
+
 /* Markdown样式 */
 .message-text p {
   margin: 0 0 12px;

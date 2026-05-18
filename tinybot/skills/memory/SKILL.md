@@ -29,6 +29,7 @@ Use Memory Note operations for durable agent-side memory:
 
 - Memory Notes are separate from Experience records. Experience captures reusable execution tactics and recovery guidance.
 - Memory Notes are separate from Knowledge Base snippets and uploaded session documents. Knowledge is evidence, not durable agent memory.
+- Recent Context is separate from Durable Memory Notes. It reads bounded Conversation Evidence for short-term follow-up continuity, exposes recent conversation references, and does not write `USER.md` or other Memory Views.
 - Optional vector indexes may accelerate Memory Note search, but `memory/notes.jsonl` remains canonical and indexes must be rebuildable from it.
 
 ## Important

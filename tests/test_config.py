@@ -16,6 +16,9 @@ class TestAgentDefaults:
         assert defaults.max_tokens == 8192
         assert defaults.temperature == 0.1
         assert defaults.timezone == "UTC"
+        assert defaults.recent_context.enabled is True
+        assert defaults.recent_context.recency_days == 7
+        assert defaults.recent_context.max_records == 3
 
     def test_custom_values(self):
         defaults = AgentDefaults(

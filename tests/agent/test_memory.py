@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -665,6 +666,62 @@ async def test_dream_evidence_json_parse_failure_preserves_cursor_and_notes(tmp_
     assert store.read_notes() == []
     assert store.get_last_evidence_cursor() == 0
     assert store.read_pending_conversation_evidence()[0].id == evidence[0].id
+
+
+def test_read_recent_conversation_evidence_filters_bounds_and_source_location(tmp_path):
+    store = MemoryStore(tmp_path)
+    fresh_user, stale_user, same_session, assistant = store.append_conversation_evidence(
+        [
+            ConversationEvidence.create(
+                session_key="cli:older",
+                turn_id="turn_1",
+                role="user",
+                content="I have a flight to Tokyo tomorrow.",
+                message_index=0,
+                timestamp="2026-05-18T10:00:00Z",
+            ),
+            ConversationEvidence.create(
+                session_key="cli:older",
+                turn_id="turn_2",
+                role="user",
+                content="This old trip is no longer relevant.",
+                message_index=1,
+                timestamp="2026-05-01T10:00:00Z",
+            ),
+            ConversationEvidence.create(
+                session_key="cli:current",
+                turn_id="turn_3",
+                role="user",
+                content="Current session text should be excluded.",
+                message_index=2,
+                timestamp="2026-05-18T11:00:00Z",
+            ),
+            ConversationEvidence.create(
+                session_key="cli:older",
+                turn_id="turn_4",
+                role="assistant",
+                content="Assistant detail.",
+                message_index=3,
+                timestamp="2026-05-18T11:30:00Z",
+            ),
+        ]
+    )
+
+    results = store.read_recent_conversation_evidence(
+        max_age_days=7,
+        max_records=10,
+        roles={"user"},
+        exclude_session_key="cli:current",
+        now=datetime(2026, 5, 18, 12, 0, 0),
+    )
+
+    assert [record.id for record, _ in results] == [fresh_user.id]
+    assert stale_user.id not in [record.id for record, _ in results]
+    assert same_session.id not in [record.id for record, _ in results]
+    assert assistant.id not in [record.id for record, _ in results]
+    _, source = results[0]
+    assert source.file == "memory/conversations/2026-05-18.jsonl"
+    assert source.line == 1
 
 
 @pytest.mark.asyncio

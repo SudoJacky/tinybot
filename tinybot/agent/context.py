@@ -3,10 +3,12 @@ from __future__ import annotations
 import base64
 import mimetypes
 import platform
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from tinybot.agent.memory import MemoryStore
+from tinybot.agent.memory import MemoryStore, RecentContextCandidate, _parse_utc_timestamp
 from tinybot.agent.skills import SkillsLoader
 from tinybot.utils.helper import build_assistant_message, current_time_str
 from tinybot.utils.media import detect_image_mime
@@ -53,6 +55,7 @@ class ContextBuilder:
         self.knowledge_store = knowledge_store
         self.session_knowledge_store = session_knowledge_store
         self.last_memory_references: list[dict[str, Any]] = []
+        self.last_recent_context_references: list[dict[str, Any]] = []
 
     @property
     def enabled_skills(self) -> list[str] | None:
@@ -188,6 +191,7 @@ class ContextBuilder:
         use_persistent_knowledge: bool | None = None,
     ) -> list[dict[str, Any]]:
         self.last_memory_references = []
+        self.last_recent_context_references = []
         runtime_ctx = self._build_runtime_context(
             channel, chat_id, self.timezone, self.task_manager, user_profile
         )
@@ -200,8 +204,9 @@ class ContextBuilder:
 
         messages = [{"role": "system", "content": self.build_system_prompt(skill_names)}]
 
-        if self.vector_store is not None and channel and chat_id:
-            session_key = f"{channel}:{chat_id}"
+        session_key = f"{channel}:{chat_id}" if channel and chat_id else None
+
+        if self.vector_store is not None and session_key:
             search_query = self._build_search_query(history, current_message)
             retrieval_limits = self._plan_vector_retrieval(history, current_message)
 
@@ -247,13 +252,16 @@ class ContextBuilder:
         if memory_recall_context:
             messages.append({"role": "system", "content": memory_recall_context})
 
+        recent_context = self._build_recent_context(current_message, session_key=session_key)
+        if recent_context:
+            messages.append({"role": "system", "content": recent_context})
+
         if self.experience_store is not None:
             experience_context = self._build_experience_context(current_message)
             if experience_context:
                 messages.append({"role": "system", "content": experience_context})
 
         # RAG: Auto-retrieve relevant knowledge from persistent and session uploads.
-        session_key = f"{channel}:{chat_id}" if channel and chat_id else None
         if self.knowledge_store is not None or self.session_knowledge_store is not None:
             knowledge_context = self._build_knowledge_context(
                 current_message,
@@ -271,6 +279,253 @@ class ContextBuilder:
             return messages
         messages.append({"role": current_role, "content": merged})
         return messages
+
+    def _recent_context_settings(self) -> dict[str, Any]:
+        cfg = None
+        if self.config and hasattr(self.config, "agents"):
+            cfg = getattr(getattr(self.config.agents, "defaults", None), "recent_context", None)
+        return {
+            "enabled": bool(getattr(cfg, "enabled", True)),
+            "recency_days": int(getattr(cfg, "recency_days", 7) or 7),
+            "max_records": int(getattr(cfg, "max_records", 3) or 3),
+            "scan_limit": int(getattr(cfg, "scan_limit", 200) or 200),
+        }
+
+    def _build_recent_context(
+        self,
+        current_message: str,
+        *,
+        session_key: str | None = None,
+    ) -> str | None:
+        settings = self._recent_context_settings()
+        if not settings["enabled"] or not self._should_retrieve_recent_context(current_message):
+            return None
+
+        try:
+            raw_records = self.memory.read_recent_conversation_evidence(
+                max_age_days=settings["recency_days"],
+                max_records=settings["scan_limit"],
+                roles={"user", "assistant"},
+                exclude_session_key=session_key,
+            )
+            candidates = [
+                RecentContextCandidate.from_evidence(record, source_location=source)
+                for record, source in raw_records
+            ]
+            ranked = self._rank_recent_context_candidates(
+                current_message,
+                candidates,
+                max_records=settings["max_records"],
+            )
+        except Exception:
+            self.last_recent_context_references = []
+            return None
+
+        if not ranked:
+            self.last_recent_context_references = []
+            return None
+
+        self.last_recent_context_references = [
+            candidate.reference_metadata() for candidate in ranked
+        ]
+        return self._format_recent_context(ranked)
+
+    @classmethod
+    def _rank_recent_context_candidates(
+        cls,
+        current_message: str,
+        candidates: list[RecentContextCandidate],
+        *,
+        max_records: int = 3,
+    ) -> list[RecentContextCandidate]:
+        query_terms = cls._recent_context_terms(current_message)
+        planning_prompt = cls._is_recent_context_planning_prompt(current_message)
+        ranked: list[RecentContextCandidate] = []
+
+        for candidate in candidates:
+            candidate_terms = cls._recent_context_terms(candidate.excerpt)
+            overlap = len(query_terms & candidate_terms)
+            recency_score = cls._recent_context_recency_score(candidate.timestamp)
+            role_score = 1.0 if candidate.role == "user" else 0.25
+            plan_score = 0.0
+            if planning_prompt and cls._has_recent_context_future_marker(candidate.excerpt):
+                plan_score = 3.0
+            score = (overlap * 2.0) + recency_score + role_score + plan_score
+            candidate.score = score
+            candidate.score_inputs = {
+                "overlap": overlap,
+                "recency": round(recency_score, 3),
+                "role": candidate.role,
+                "future_plan_marker": plan_score > 0,
+            }
+            if score >= 2.0:
+                ranked.append(candidate)
+
+        ranked.sort(
+            key=lambda item: (
+                item.score,
+                1 if item.role == "user" else 0,
+                item.cursor or 0,
+                item.timestamp,
+            ),
+            reverse=True,
+        )
+        return ranked[: max(max_records, 0)]
+
+    @staticmethod
+    def _format_recent_context(candidates: list[RecentContextCandidate]) -> str:
+        lines = [
+            "---",
+            "[RECENT CONTEXT]",
+            "Recent conversation evidence from prior sessions. This is short-term context, not Durable Memory.",
+            "",
+        ]
+        for idx, candidate in enumerate(candidates, 1):
+            source = ""
+            if candidate.source_location is not None:
+                source = candidate.source_location.file
+                if candidate.source_location.line is not None:
+                    source += f":{candidate.source_location.line}"
+            meta_parts = [
+                f"evidence_id={candidate.evidence_id}",
+                f"timestamp={candidate.timestamp}",
+                f"session={candidate.session_key}",
+                f"role={candidate.role}",
+                f"turn_id={candidate.turn_id}",
+            ]
+            if candidate.cursor is not None:
+                meta_parts.append(f"cursor={candidate.cursor}")
+            if source:
+                meta_parts.append(f"source={source}")
+            lines.append(f"[{idx}] " + " | ".join(meta_parts))
+            lines.append(f"Excerpt: {candidate.excerpt}")
+            lines.append("")
+        lines.append("---")
+        return "\n".join(lines)
+
+    @classmethod
+    def _should_retrieve_recent_context(cls, text: str) -> bool:
+        normalized = " ".join(text.strip().casefold().split())
+        if not normalized or cls._is_simple_conversation(normalized):
+            return False
+        if cls._is_recent_context_planning_prompt(normalized):
+            return True
+        explicit_markers = (
+            "recent",
+            "recently",
+            "earlier",
+            "previous",
+            "last time",
+            "we talked",
+            "you said",
+            "i mentioned",
+            "that trip",
+            "that plan",
+            "that meeting",
+            "this weekend",
+            "tomorrow",
+            "next week",
+            "the thing",
+        )
+        if any(marker in normalized for marker in explicit_markers):
+            return True
+        pronouns = set(re.findall(r"[a-z0-9][a-z0-9_-]*", normalized))
+        if pronouns & {"that", "those", "it"}:
+            return True
+        ambiguous_questions = (
+            "what should i do",
+            "what do i need",
+            "do i need anything",
+            "what should i bring",
+            "what should i prepare",
+            "how should i arrange",
+        )
+        return any(marker in normalized for marker in ambiguous_questions)
+
+    @staticmethod
+    def _is_recent_context_planning_prompt(text: str) -> bool:
+        normalized = text.strip().casefold()
+        markers = (
+            "prepare",
+            "bring",
+            "pack",
+            "packing",
+            "schedule",
+            "arrange",
+            "reservation",
+            "book",
+            "booking",
+            "trip",
+            "travel",
+            "flight",
+            "hotel",
+            "meeting",
+            "appointment",
+            "plan",
+            "weekend",
+        )
+        return any(marker in normalized for marker in markers)
+
+    @staticmethod
+    def _has_recent_context_future_marker(text: str) -> bool:
+        normalized = text.strip().casefold()
+        markers = (
+            "tomorrow",
+            "tonight",
+            "this weekend",
+            "next week",
+            "next month",
+            "flight",
+            "train",
+            "hotel",
+            "meeting",
+            "appointment",
+            "trip",
+            "travel",
+            "conference",
+            "deadline",
+            "reservation",
+            "plan to",
+            "going to",
+            "will ",
+        )
+        return any(marker in normalized for marker in markers)
+
+    @staticmethod
+    def _recent_context_terms(text: str) -> set[str]:
+        stopwords = {
+            "about",
+            "after",
+            "again",
+            "anything",
+            "before",
+            "could",
+            "should",
+            "that",
+            "this",
+            "what",
+            "when",
+            "where",
+            "which",
+            "with",
+            "would",
+            "you",
+            "your",
+        }
+        return {
+            term
+            for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", text.casefold())
+            if term not in stopwords
+        }
+
+    @staticmethod
+    def _recent_context_recency_score(timestamp: str) -> float:
+        parsed = _parse_utc_timestamp(timestamp)
+        if parsed is None:
+            return 0.0
+        age_seconds = max((datetime.utcnow() - parsed).total_seconds(), 0.0)
+        age_days = age_seconds / 86400
+        return max(0.0, 3.0 - min(age_days, 7.0) * (3.0 / 7.0))
 
     def _build_memory_recall_context(
         self,

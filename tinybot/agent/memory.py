@@ -9,7 +9,7 @@ import re
 import weakref
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -65,6 +65,23 @@ class MemoryCaptureOrigin(StrEnum):
 
 def _utc_timestamp() -> str:
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _parse_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def _normalize_note_text(text: str) -> str:
@@ -581,6 +598,72 @@ class ConversationEvidence:
         return data
 
 
+@dataclass(slots=True)
+class ConversationEvidenceSourceLocation:
+    file: str
+    line: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"file": self.file}
+        if self.line is not None:
+            data["line"] = self.line
+        return data
+
+
+@dataclass(slots=True)
+class RecentContextCandidate:
+    evidence_id: str
+    excerpt: str
+    timestamp: str
+    session_key: str
+    role: str
+    turn_id: str
+    cursor: int | None = None
+    source_location: ConversationEvidenceSourceLocation | None = None
+    score: float = 0.0
+    score_inputs: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_evidence(
+        cls,
+        evidence: ConversationEvidence,
+        *,
+        source_location: ConversationEvidenceSourceLocation | None = None,
+        max_excerpt_chars: int = 500,
+    ) -> RecentContextCandidate:
+        excerpt = " ".join(evidence.content.split())
+        if len(excerpt) > max_excerpt_chars:
+            excerpt = excerpt[: max_excerpt_chars - 1].rstrip() + "..."
+        return cls(
+            evidence_id=evidence.id,
+            excerpt=excerpt,
+            timestamp=evidence.timestamp,
+            session_key=evidence.session_key,
+            role=evidence.role,
+            turn_id=evidence.turn_id,
+            cursor=evidence.cursor,
+            source_location=source_location,
+        )
+
+    def reference_metadata(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "evidence_id": self.evidence_id,
+            "content": self.excerpt,
+            "excerpt": self.excerpt,
+            "timestamp": self.timestamp,
+            "session_key": self.session_key,
+            "role": self.role,
+            "turn_id": self.turn_id,
+        }
+        if self.cursor is not None:
+            data["cursor"] = self.cursor
+        if self.source_location is not None:
+            data.update(self.source_location.to_dict())
+        if self.score_inputs:
+            data["score_inputs"] = dict(self.score_inputs)
+        return data
+
+
 def generate_conversation_turn_id(
     session_key: str,
     messages: list[dict[str, Any]],
@@ -841,6 +924,70 @@ class MemoryStore:
         records.sort(key=lambda item: (item.cursor or 0, item.timestamp, item.id))
         return records
 
+    def read_recent_conversation_evidence(
+        self,
+        *,
+        max_age_days: int = 7,
+        max_records: int = 200,
+        min_cursor: int | None = None,
+        max_cursor: int | None = None,
+        roles: set[str] | list[str] | tuple[str, ...] | None = None,
+        exclude_session_key: str | None = None,
+        now: datetime | None = None,
+    ) -> list[tuple[ConversationEvidence, ConversationEvidenceSourceLocation]]:
+        """Read bounded recent Conversation Evidence with source file locations."""
+        max_age_days = max(int(max_age_days or 0), 0)
+        max_records = max(int(max_records or 0), 0)
+        role_set = {str(role) for role in roles} if roles else None
+        cutoff = (now or datetime.utcnow()) - timedelta(days=max_age_days)
+        records: list[tuple[ConversationEvidence, ConversationEvidenceSourceLocation]] = []
+
+        for path in sorted(self.conversations_dir.glob("*.jsonl")):
+            rel_path = self._workspace_relative_path(path)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    for line_number, line in enumerate(f, 1):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            raw = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(raw, dict):
+                            continue
+                        record = ConversationEvidence.from_dict(raw)
+                        if role_set is not None and record.role not in role_set:
+                            continue
+                        if exclude_session_key and record.session_key == exclude_session_key:
+                            continue
+                        cursor = record.cursor or 0
+                        if min_cursor is not None and cursor <= min_cursor:
+                            continue
+                        if max_cursor is not None and cursor > max_cursor:
+                            continue
+                        timestamp = _parse_utc_timestamp(record.timestamp)
+                        if timestamp is None or timestamp < cutoff:
+                            continue
+                        records.append((
+                            record,
+                            ConversationEvidenceSourceLocation(rel_path, line_number),
+                        ))
+            except FileNotFoundError:
+                continue
+
+        records.sort(
+            key=lambda item: (
+                item[0].cursor or 0,
+                item[0].timestamp,
+                item[0].id,
+            ),
+            reverse=True,
+        )
+        if max_records:
+            return records[:max_records]
+        return []
+
     def get_last_evidence_cursor(self) -> int:
         if self._evidence_cursor_file.exists():
             try:
@@ -857,6 +1004,12 @@ class MemoryStore:
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_part):
             date_part = datetime.utcnow().strftime("%Y-%m-%d")
         return self.conversations_dir / f"{date_part}.jsonl"
+
+    def _workspace_relative_path(self, path: Path) -> str:
+        try:
+            return path.relative_to(self.workspace).as_posix()
+        except ValueError:
+            return path.as_posix()
 
     def _next_evidence_cursor(self) -> int:
         if self._evidence_sequence_file.exists():

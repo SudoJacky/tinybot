@@ -115,6 +115,26 @@ def test_serialize_message_preserves_memory_references():
     assert payload["_memory_references"][0]["line"] == 1
 
 
+def test_serialize_message_preserves_recent_context_references():
+    payload = _serialize_message(
+        {
+            "role": "assistant",
+            "content": "Done",
+            "_recent_context_references": [
+                {
+                    "evidence_id": "ev_1",
+                    "excerpt": "Tokyo flight tomorrow.",
+                    "file": "memory/conversations/2026-05-18.jsonl",
+                    "line": 1,
+                }
+            ],
+        }
+    )
+
+    assert payload["_recent_context_references"][0]["evidence_id"] == "ev_1"
+    assert payload["_recent_context_references"][0]["line"] == 1
+
+
 @pytest.mark.asyncio
 async def test_cowork_rest_endpoints(web_channel, web_client, web_workspace):
     channel, _, _ = web_channel
@@ -440,11 +460,20 @@ async def test_websocket_chat_flow(web_channel, web_client):
             "is_reasoning": False,
         }
 
-        await channel.send_delta(chat_id, "", {"_stream_id": "stream-1", "_stream_end": True})
+        await channel.send_delta(
+            chat_id,
+            "",
+            {
+                "_stream_id": "stream-1",
+                "_stream_end": True,
+                "_recent_context_references": [{"evidence_id": "ev_1"}],
+            },
+        )
         end = await ws.receive_json()
         assert end["event"] == "stream_end"
         assert end["chat_id"] == chat_id
         assert end["message_id"] == "stream-1"
+        assert end["_recent_context_references"] == [{"evidence_id": "ev_1"}]
     finally:
         await ws.close()
 

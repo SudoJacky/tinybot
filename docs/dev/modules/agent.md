@@ -61,6 +61,10 @@ Memory Extraction triggers are independent from token-budget consolidation. The 
 
 Memory Recall is a distinct context section selected from active Memory Notes. It stays separate from Experience, which records reusable execution guidance, and from Knowledge, which provides document evidence. Optional vector indexing may accelerate Memory Note search, but JSONL remains the canonical source and indexes must be rebuildable from it.
 
+Recent Context Retrieval is the short-term layer between Session History and Durable Memory Notes. Session History is the current chat's persisted turn list; Recent Conversation Evidence is raw, bounded `memory/conversations/*.jsonl` material that can be read for ambiguous follow-up prompts; Durable Memory Notes are curated facts in `memory/notes.jsonl` and rendered Memory Views. Recent Context Retrieval is read-only: it must not write `USER.md`, `SOUL.md`, `memory/MEMORY.md`, or Memory Notes.
+
+When Recent Context is used, `ContextBuilder` injects a separate `[RECENT CONTEXT]` system block and records `_recent_context_references`. These references are distinct from `_memory_references` and should be labeled as "recent context" or "recent conversation references" in user-facing clients, not as memory references.
+
 ## Extension Points
 
 - Add a new tool under `tinybot/agent/tools/` and register it through the existing registry path.

@@ -58,6 +58,7 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
         "_task_progress",
         "_task_plan_id",
         "_memory_references",
+        "_recent_context_references",
     ):
         if key in message:
             payload[key] = message[key]
@@ -341,6 +342,8 @@ class WebSocketChannel(BaseChannel):
             payload["_task_plan_id"] = meta.get("_task_plan_id")
         if meta.get("_memory_references"):
             payload["_memory_references"] = meta.get("_memory_references")
+        if meta.get("_recent_context_references"):
+            payload["_recent_context_references"] = meta.get("_recent_context_references")
         await self._broadcast(msg.chat_id, payload)
 
     async def send_delta(self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None) -> None:
@@ -355,6 +358,8 @@ class WebSocketChannel(BaseChannel):
             }
             if metadata.get("_memory_references"):
                 payload["_memory_references"] = metadata.get("_memory_references")
+            if metadata.get("_recent_context_references"):
+                payload["_recent_context_references"] = metadata.get("_recent_context_references")
             await self._broadcast(chat_id, payload)
             return
 

@@ -20,6 +20,12 @@ For focused Cowork work, prepare and ask the user to run:
 uv run pytest tests/cowork
 ```
 
+For Recent Context Retrieval work, prepare and ask the user to run:
+
+```bash
+uv run pytest tests/agent/test_memory.py tests/agent/test_context.py tests/agent/test_loop.py tests/channels/test_websocket.py
+```
+
 For frontend-only syntax checks:
 
 ```bash

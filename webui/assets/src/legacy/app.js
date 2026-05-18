@@ -1477,6 +1477,9 @@ function updateMessageContent(contentEl, message) {
   if (message.role === "assistant" && Array.isArray(message._memory_references) && message._memory_references.length) {
     contentEl.append(createMemoryReferencesNode(message._memory_references));
   }
+  if (message.role === "assistant" && Array.isArray(message._recent_context_references) && message._recent_context_references.length) {
+    contentEl.append(createRecentContextReferencesNode(message._recent_context_references));
+  }
 }
 
 function createMemoryReferencesNode(references) {
@@ -1521,6 +1524,58 @@ function createMemoryReferencesNode(references) {
       reference.type,
       reference.note_id,
       `${file}${line}${view}`,
+    ].filter(Boolean);
+    meta.textContent = labelParts.join(" · ");
+
+    item.append(content, meta);
+    list.append(item);
+  });
+
+  details.append(list);
+  return details;
+}
+
+function createRecentContextReferencesNode(references) {
+  const details = document.createElement("details");
+  details.className = "memory-references recent-context-references";
+
+  const summary = document.createElement("summary");
+  summary.className = "memory-references-summary";
+
+  const count = references.length;
+  const title = document.createElement("span");
+  title.className = "memory-references-title";
+  title.textContent = `${count} recent conversation reference${count === 1 ? "" : "s"}`;
+
+  const hint = document.createElement("span");
+  hint.className = "memory-references-hint";
+  hint.textContent = "View sources";
+
+  summary.append(title, hint);
+  details.append(summary);
+
+  const list = document.createElement("div");
+  list.className = "memory-references-list";
+
+  references.forEach((reference) => {
+    const item = document.createElement("article");
+    item.className = "memory-reference-item";
+
+    const content = document.createElement("div");
+    content.className = "memory-reference-content";
+    content.textContent = reference.excerpt || reference.content || "";
+
+    const meta = document.createElement("div");
+    meta.className = "memory-reference-meta";
+    const file = reference.file || "";
+    const line = reference.line ? `:${reference.line}` : "";
+    const labelParts = [
+      reference.timestamp,
+      reference.session_key,
+      reference.role,
+      reference.turn_id,
+      reference.evidence_id,
+      file ? `${file}${line}` : "",
     ].filter(Boolean);
     meta.textContent = labelParts.join(" · ");
 
@@ -9361,6 +9416,7 @@ async function connectWebSocket() {
             timestamp: new Date().toISOString(),
             message_id: payload.message_id || "",
             _memory_references: payload._memory_references || [],
+            _recent_context_references: payload._recent_context_references || [],
           });
         }
         loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
@@ -9384,6 +9440,9 @@ async function connectWebSocket() {
             streamState.entry._stream_resuming = payload.resuming === true;
             if (Array.isArray(payload._memory_references)) {
               streamState.entry._memory_references = payload._memory_references;
+            }
+            if (Array.isArray(payload._recent_context_references)) {
+              streamState.entry._recent_context_references = payload._recent_context_references;
             }
           }
           state.streamBuffers.delete(payload.message_id);

@@ -88,6 +88,15 @@ class EmbeddingConfig(Base):
     api_version: str | None = None  # Azure API version (e.g. "2024-02-01")
 
 
+class RecentContextConfig(Base):
+    """Short-term read-only retrieval over Conversation Evidence."""
+
+    enabled: bool = True
+    recency_days: int = Field(default=7, ge=1)
+    max_records: int = Field(default=3, ge=1, le=10)
+    scan_limit: int = Field(default=200, ge=1)
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -109,6 +118,7 @@ class AgentDefaults(Base):
     enable_vector_store: bool = False  # Feature flag: ChromaDB embedding storage for session summaries
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)  # Embedding model configuration
     dream: DreamConfig = Field(default_factory=DreamConfig)
+    recent_context: RecentContextConfig = Field(default_factory=RecentContextConfig)
 
     @field_validator("model")
     @classmethod
