@@ -54,6 +54,8 @@ class DreamConfig(Base):
     )  # Optional Dream-specific model override
     max_batch_size: int = Field(default=20, ge=1)  # Max history entries per run
     max_iterations: int = Field(default=10, ge=1)  # Max tool calls per Phase 2
+    extraction_every_n_turns: int = Field(default=6, ge=1)
+    extraction_idle_seconds: int = Field(default=300, ge=1)
 
     def build_schedule(self, timezone: str) -> CronSchedule:
         """Build the runtime schedule, preferring the legacy cron override if present."""
@@ -86,6 +88,15 @@ class EmbeddingConfig(Base):
     api_version: str | None = None  # Azure API version (e.g. "2024-02-01")
 
 
+class RecentContextConfig(Base):
+    """Short-term read-only retrieval over Conversation Evidence."""
+
+    enabled: bool = True
+    recency_days: int = Field(default=7, ge=1)
+    max_records: int = Field(default=3, ge=1, le=10)
+    scan_limit: int = Field(default=200, ge=1)
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -107,6 +118,7 @@ class AgentDefaults(Base):
     enable_vector_store: bool = False  # Feature flag: ChromaDB embedding storage for session summaries
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)  # Embedding model configuration
     dream: DreamConfig = Field(default_factory=DreamConfig)
+    recent_context: RecentContextConfig = Field(default_factory=RecentContextConfig)
 
     @field_validator("model")
     @classmethod

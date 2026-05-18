@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from tinybot.agent.context import ContextBuilder
-from tinybot.agent.memory import MemoryNote, MemorySource
+from tinybot.agent.memory import ConversationEvidence, MemoryNote, MemorySource, RecentContextCandidate
 
 
 def test_context_builder_injects_memory_recall_as_distinct_section(tmp_path):
@@ -35,6 +35,39 @@ def test_context_builder_injects_memory_recall_as_distinct_section(tmp_path):
     assert "Use uv run pytest for Python validation." in recall_messages[0]["content"]
     assert "[RELEVANT WORKFLOWS]" not in recall_messages[0]["content"]
     assert "[RELEVANT KNOWLEDGE]" not in recall_messages[0]["content"]
+    assert builder.last_memory_references
+    assert builder.last_memory_references[0]["content"] == "Use uv run pytest for Python validation."
+    assert builder.last_memory_references[0]["file"] == "memory/notes.jsonl"
+    assert builder.last_memory_references[0]["line"] == 1
+
+
+def test_context_builder_shows_memory_references_for_short_preference_questions(tmp_path):
+    builder = ContextBuilder(tmp_path)
+    source = MemorySource.explicit(session_key="websocket:test")
+    builder.memory.upsert_note(
+        MemoryNote.create(
+            "The user likes eating strawberries (草莓).",
+            "preference",
+            [source],
+            scope="user",
+            priority=0.5,
+            confidence=0.8,
+        )
+    )
+
+    messages = builder.build_messages(
+        history=[],
+        current_message="我喜欢吃什么",
+        channel="websocket",
+        chat_id="test",
+    )
+
+    recall_messages = [
+        message for message in messages if message["role"] == "system" and "[MEMORY RECALL]" in message["content"]
+    ]
+    assert len(recall_messages) == 1
+    assert "strawberries" in recall_messages[0]["content"]
+    assert builder.last_memory_references[0]["content"] == "The user likes eating strawberries (草莓)."
 
 
 def test_context_builder_keeps_memory_experience_and_knowledge_paths_separate(tmp_path):
@@ -99,3 +132,90 @@ def test_context_builder_keeps_memory_experience_and_knowledge_paths_separate(tm
     assert "[RELEVANT KNOWLEDGE]" not in memory_section
     assert "[MEMORY RECALL]" not in experience_section
     assert "[MEMORY RECALL]" not in knowledge_section
+
+
+def test_context_builder_injects_recent_context_for_preparation_prompt(tmp_path):
+    builder = ContextBuilder(tmp_path)
+    evidence = builder.memory.append_conversation_evidence(
+        [
+            ConversationEvidence.create(
+                session_key="websocket:old",
+                turn_id="turn_trip",
+                role="user",
+                content="I have a flight to Tokyo tomorrow and need to pack light.",
+                timestamp="2999-05-18T10:00:00Z",
+            )
+        ]
+    )[0]
+
+    messages = builder.build_messages(
+        history=[],
+        current_message="What should I prepare?",
+        channel="websocket",
+        chat_id="new",
+    )
+
+    recent_messages = [
+        message for message in messages if message["role"] == "system" and "[RECENT CONTEXT]" in message["content"]
+    ]
+    assert len(recent_messages) == 1
+    assert "Recent conversation evidence" in recent_messages[0]["content"]
+    assert "Tokyo tomorrow" in recent_messages[0]["content"]
+    assert builder.last_recent_context_references[0]["evidence_id"] == evidence.id
+    assert builder.last_recent_context_references[0]["file"] == "memory/conversations/2999-05-18.jsonl"
+    assert builder.last_memory_references == []
+
+
+def test_context_builder_skips_recent_context_for_simple_greeting(tmp_path):
+    builder = ContextBuilder(tmp_path)
+    builder.memory.append_conversation_evidence(
+        [
+            ConversationEvidence.create(
+                session_key="websocket:old",
+                turn_id="turn_trip",
+                role="user",
+                content="I have a flight to Tokyo tomorrow.",
+                timestamp="2999-05-18T10:00:00Z",
+            )
+        ]
+    )
+
+    messages = builder.build_messages(
+        history=[],
+        current_message="hi",
+        channel="websocket",
+        chat_id="new",
+    )
+
+    assert not any(message["role"] == "system" and "[RECENT CONTEXT]" in message["content"] for message in messages)
+    assert builder.last_recent_context_references == []
+
+
+def test_recent_context_ranking_prefers_recent_user_future_plan():
+    older_assistant = RecentContextCandidate(
+        evidence_id="ev_old",
+        excerpt="You may want to bring a charger.",
+        timestamp="2026-05-11T10:00:00Z",
+        session_key="websocket:old",
+        role="assistant",
+        turn_id="turn_old",
+        cursor=1,
+    )
+    recent_user = RecentContextCandidate(
+        evidence_id="ev_recent",
+        excerpt="I have a flight to Tokyo tomorrow and a hotel reservation.",
+        timestamp="2999-05-18T10:00:00Z",
+        session_key="websocket:recent",
+        role="user",
+        turn_id="turn_recent",
+        cursor=2,
+    )
+
+    ranked = ContextBuilder._rank_recent_context_candidates(
+        "What should I prepare for the trip?",
+        [older_assistant, recent_user],
+        max_records=2,
+    )
+
+    assert ranked[0].evidence_id == "ev_recent"
+    assert ranked[0].score_inputs["future_plan_marker"] is True

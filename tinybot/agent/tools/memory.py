@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 _NOTE_TYPES = ["preference", "instruction", "project", "decision", "fix", "followup"]
 _NOTE_STATUSES = ["active", "superseded", "rejected"]
+_NOTE_SCOPES = ["user", "assistant", "project", "session"]
 
 
 def _format_source(source: MemorySource) -> str:
@@ -27,6 +28,8 @@ def _format_source(source: MemorySource) -> str:
         fields.append(f"history={source.history_start_cursor}-{source.history_end_cursor}")
     if source.message_start is not None or source.message_end is not None:
         fields.append(f"messages={source.message_start}-{source.message_end}")
+    if source.evidence_ids:
+        fields.append(f"evidence={','.join(source.evidence_ids)}")
     return " ".join(fields)
 
 
@@ -41,9 +44,10 @@ def _source_summary(note: MemoryNote) -> str:
 
 def _format_note_summary(note: MemoryNote) -> str:
     tags = f" tags={','.join(note.tags)}" if note.tags else ""
+    metadata = f" metadata={note.metadata}" if note.metadata else ""
     return (
-        f"- [{note.id}] {note.type.value}/{note.status.value} "
-        f"priority={note.priority:g} confidence={note.confidence:g}{tags}\n"
+        f"- [{note.id}] {note.scope.value}/{note.type.value}/{note.status.value} "
+        f"priority={note.priority:g} confidence={note.confidence:g}{tags}{metadata}\n"
         f"  {note.content}\n"
         f"  sources: {_source_summary(note)}"
     )
@@ -61,9 +65,11 @@ def _explicit_source(session_key: str, message_start: int | None, message_end: i
     tool_parameters_schema(
         content=StringSchema("Durable Memory Note content to save.", min_length=1),
         note_type=StringSchema("Memory Note type.", enum=_NOTE_TYPES),
+        scope=StringSchema("Optional Memory Note scope.", enum=_NOTE_SCOPES),
         priority=NumberSchema(0.5, description="Importance from 0 to 1.", minimum=0, maximum=1),
         confidence=NumberSchema(0.5, description="Confidence from 0 to 1.", minimum=0, maximum=1),
         tags=StringSchema("Optional comma-separated tags."),
+        metadata=StringSchema("Optional JSON object metadata."),
         message_start=IntegerSchema(0, description="Optional source message start index.", minimum=0),
         message_end=IntegerSchema(0, description="Optional source message end index.", minimum=0),
         required=["content", "note_type"],
@@ -97,20 +103,31 @@ class SaveMemoryNoteTool(Tool):
         self,
         content: str,
         note_type: str,
+        scope: str = "",
         priority: float = 0.5,
         confidence: float = 0.5,
         tags: str = "",
+        metadata: str = "",
         message_start: int | None = None,
         message_end: int | None = None,
     ) -> str:
         try:
+            parsed_metadata = {}
+            if metadata.strip():
+                import json
+                parsed = json.loads(metadata)
+                if not isinstance(parsed, dict):
+                    return "Error: metadata must be a JSON object"
+                parsed_metadata = parsed
             note = self._store.save_memory_note(
                 content=content,
                 note_type=note_type,
+                scope=scope or None,
                 source=_explicit_source(self._session_key, message_start, message_end),
                 priority=priority,
                 confidence=confidence,
                 tags=tags,
+                metadata=parsed_metadata,
             )
             self._store.refresh_memory_views()
             self._store.rebuild_memory_note_index(self._vector_store)
@@ -123,6 +140,7 @@ class SaveMemoryNoteTool(Tool):
     tool_parameters_schema(
         query=StringSchema("Optional lexical query over content, id, tags, type, status, and source summary."),
         note_type=StringSchema("Optional Memory Note type filter.", enum=_NOTE_TYPES),
+        scope=StringSchema("Optional Memory Note scope filter.", enum=_NOTE_SCOPES),
         status=StringSchema("Optional Memory Note status filter.", enum=_NOTE_STATUSES),
         limit=IntegerSchema(10, description="Maximum notes to return.", minimum=1, maximum=50),
     )
@@ -150,6 +168,7 @@ class SearchMemoryNotesTool(Tool):
         self,
         query: str = "",
         note_type: str = "",
+        scope: str = "",
         status: str = "",
         limit: int = 10,
     ) -> str:
@@ -157,6 +176,7 @@ class SearchMemoryNotesTool(Tool):
             notes = self._store.search_memory_notes(
                 query=query or "",
                 note_type=note_type or None,
+                scope=scope or None,
                 status=status or None,
                 limit=limit,
                 vector_store=self._vector_store,
@@ -201,6 +221,7 @@ class TraceMemoryNoteTool(Tool):
             f"## Memory Note {note.id}",
             "",
             f"Type: {note.type.value}",
+            f"Scope: {note.scope.value}",
             f"Status: {note.status.value}",
             f"Priority: {note.priority:g}",
             f"Confidence: {note.confidence:g}",
@@ -209,6 +230,8 @@ class TraceMemoryNoteTool(Tool):
         ]
         if note.tags:
             lines.append("Tags: " + ", ".join(note.tags))
+        if note.metadata:
+            lines.append("Metadata: " + str(note.metadata))
         if note.supersedes:
             lines.append("Supersedes: " + ", ".join(note.supersedes))
         if note.superseded_by:
@@ -257,9 +280,11 @@ class RejectMemoryNoteTool(Tool):
         note_id=StringSchema("Existing Memory Note id to supersede.", min_length=1),
         replacement_content=StringSchema("Replacement durable Memory Note content.", min_length=1),
         note_type=StringSchema("Optional replacement Memory Note type. Defaults to the old note type.", enum=_NOTE_TYPES),
+        scope=StringSchema("Optional replacement Memory Note scope. Defaults to the old note scope.", enum=_NOTE_SCOPES),
         priority=NumberSchema(0.5, description="Optional replacement priority from 0 to 1.", minimum=0, maximum=1),
         confidence=NumberSchema(0.5, description="Optional replacement confidence from 0 to 1.", minimum=0, maximum=1),
         tags=StringSchema("Optional comma-separated replacement tags. Defaults to the old note tags."),
+        metadata=StringSchema("Optional replacement JSON object metadata."),
         message_start=IntegerSchema(0, description="Optional source message start index.", minimum=0),
         message_end=IntegerSchema(0, description="Optional source message end index.", minimum=0),
         required=["note_id", "replacement_content"],
@@ -291,21 +316,32 @@ class SupersedeMemoryNoteTool(Tool):
         note_id: str,
         replacement_content: str,
         note_type: str = "",
+        scope: str = "",
         priority: float | None = None,
         confidence: float | None = None,
         tags: str = "",
+        metadata: str = "",
         message_start: int | None = None,
         message_end: int | None = None,
     ) -> str:
         try:
+            parsed_metadata = None
+            if metadata.strip():
+                import json
+                parsed = json.loads(metadata)
+                if not isinstance(parsed, dict):
+                    return "Error: metadata must be a JSON object"
+                parsed_metadata = parsed
             note = self._store.supersede_memory_note(
                 note_id,
                 replacement_content=replacement_content,
                 note_type=note_type or None,
+                scope=scope or None,
                 source=_explicit_source(self._session_key, message_start, message_end),
                 priority=priority,
                 confidence=confidence,
                 tags=tags if tags else None,
+                metadata=parsed_metadata,
             )
             self._store.refresh_memory_views()
             self._store.rebuild_memory_note_index(self._vector_store)

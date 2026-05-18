@@ -1,8 +1,15 @@
 """Tests for AgentLoop core logic."""
 
-import pytest
+import asyncio
 
+import pytest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+from tinybot.agent.loop import AgentLoop
 from tinybot.agent.stream_handler import StreamHandler
+from tinybot.agent.memory import MemoryStore
+from tinybot.session.manager import Session
 
 
 class TestLoopHookMergeStreamBuffer:
@@ -66,3 +73,63 @@ class TestAgentLoopPlaceholder:
         """Placeholder async test."""
         # Verify async test support works
         assert True
+
+
+@pytest.mark.asyncio
+async def test_memory_extraction_triggers_warmup_and_prevent_overlap(tmp_path):
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.context = SimpleNamespace(memory=MemoryStore(tmp_path))
+    loop.sessions = MagicMock()
+    loop._config_ref = SimpleNamespace(
+        agents=SimpleNamespace(
+            defaults=SimpleNamespace(dream=SimpleNamespace(extraction_every_n_turns=3, extraction_idle_seconds=60))
+        )
+    )
+    loop._memory_extraction_locks = {}
+    loop._memory_extraction_run_lock = asyncio.Lock()
+    loop._memory_extraction_idle_tasks = {}
+    loop._background_tasks = []
+    loop.dream = SimpleNamespace(run=AsyncMock(return_value=True))
+
+    scheduled = []
+
+    def fake_schedule(coro):
+        scheduled.append(coro)
+        coro.close()
+
+    loop._schedule_background = fake_schedule
+    session = Session(key="cli:test")
+    evidence = [SimpleNamespace(role="user")]
+
+    loop._schedule_memory_extraction_triggers(session, evidence)
+    loop._schedule_memory_extraction_triggers(session, evidence)
+    loop._schedule_memory_extraction_triggers(session, evidence)
+
+    assert session.metadata["memory_extraction"]["completed_user_turns"] == 3
+    assert len(scheduled) == 2
+
+    lock = asyncio.Lock()
+    await lock.acquire()
+    loop._memory_extraction_locks[session.key] = lock
+    loop.sessions.get.return_value = session
+    await loop._run_memory_extraction_once(session.key)
+
+    assert session.metadata["memory_extraction"]["pending"] is True
+    loop.dream.run.assert_not_awaited()
+
+    for task in list(loop._background_tasks):
+        task.cancel()
+    await asyncio.gather(*loop._background_tasks, return_exceptions=True)
+
+
+def test_recent_context_references_attach_to_latest_assistant():
+    loop = AgentLoop.__new__(AgentLoop)
+    session = Session(key="websocket:test")
+    session.add_message("user", "What should I prepare?")
+    session.add_message("assistant", "Pack light.")
+    references = [{"evidence_id": "ev_1", "excerpt": "Tokyo flight tomorrow."}]
+
+    loop._attach_recent_context_references_to_latest_assistant(session, 0, references)
+
+    assert session.messages[-1]["_recent_context_references"] == references
+    assert "_memory_references" not in session.messages[-1]
