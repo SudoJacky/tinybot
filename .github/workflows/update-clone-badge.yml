@@ -1,5 +1,9 @@
 name: Update Clone Stats Badge
 
+permissions:
+  contents: write  # Allows the bot to push code to the repo
+  pull-requests: write # (Optional) If the bot needs to manage PRs
+
 on:
   schedule:
     - cron: '0 0 * * *'
