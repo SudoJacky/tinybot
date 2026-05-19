@@ -1,50 +1,90 @@
-name: Update Clone Stats Badge
-
-permissions:
-  contents: write  # Allows the bot to push code to the repo
-  pull-requests: write # (Optional) If the bot needs to manage PRs
+name: GitHub Clone Count Update Everyday
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 */24 * * *"
   workflow_dispatch:
 
 jobs:
-  update-clone-badge:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v2
+      
+      - name: gh login
+        run: echo "${{ secrets.PAT_TOKEN }}" | gh auth login --with-token
 
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
-      - name: Get clone stats and update cumulative count
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: parse latest clone count
         run: |
-          DATA=$(curl -s -H "Accept: application/vnd.github+json" \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            https://api.github.com/repos/${GITHUB_REPOSITORY}/traffic/clones)
-          
-          TODAY_CLONES=$(echo $DATA | jq '.count')
+          curl --user "${{ github.actor }}:${{ secrets.SECRET_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/traffic/clones \
+            > clone.json
 
-          if [ -f stats.json ]; then
-            PREV_TOTAL=$(jq '.total | tonumber' stats.json)
+      - name: create gist and download previous count
+        id: set_id
+        run: |
+          if gh secret list | grep -q "GIST_ID"
+          then
+              echo "GIST_ID found"
+              echo "GIST=${{ secrets.GIST_ID }}" >> $GITHUB_OUTPUT
+              curl https://gist.githubusercontent.com/${{ github.actor }}/${{ secrets.GIST_ID }}/raw/clone.json > clone_before.json
+              if cat clone_before.json | grep '404: Not Found'; then
+                echo "GIST_ID not valid anymore. Creating another gist..."
+                gist_id=$(gh gist create clone.json | awk -F / '{print $NF}')
+                echo $gist_id | gh secret set GIST_ID
+                echo "GIST=$gist_id" >> $GITHUB_OUTPUT
+                cp clone.json clone_before.json
+                git rm --ignore-unmatch  CLONE.md
+              fi
           else
-            PREV_TOTAL=0
+              echo "GIST_ID not found. Creating a gist..."
+              gist_id=$(gh gist create clone.json | awk -F / '{print $NF}')
+              echo $gist_id | gh secret set GIST_ID
+              echo "GIST=$gist_id" >> $GITHUB_OUTPUT
+              cp clone.json clone_before.json
           fi
 
-          CUMULATIVE=$((PREV_TOTAL + TODAY_CLONES))
-
-          echo "{\"schemaVersion\":1,\"label\":\"Clones\",\"message\":\"Today: $TODAY_CLONES | Total: $CUMULATIVE\",\"color\":\"blue\",\"total\":$CUMULATIVE}" > stats.json
-
-      - name: Commit updated badge
+      - name: update clone.json
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add stats.json
-          git commit -m "Update clone stats badge" || echo "No changes"
-          git push https://$PAT_TOKEN@github.com/${GITHUB_REPOSITORY}.git HEAD:master
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          curl https://raw.githubusercontent.com/MShawon/github-clone-count-badge/master/main.py > main.py
+          python3 main.py
+
+      - name: Update gist with latest count
+        run: |
+          content=$(sed -e 's/\\/\\\\/g' -e 's/\t/\\t/g' -e 's/\"/\\"/g' -e 's/\r//g' "clone.json" | sed -E ':a;N;$!ba;s/\r{0,1}\n/\\n/g')
+          echo '{"description": "${{ github.repository }} clone statistics", "files": {"clone.json": {"content": "'"$content"'"}}}' > post_clone.json
+          curl -s -X PATCH \
+            --user "${{ github.actor }}:${{ secrets.SECRET_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d @post_clone.json https://api.github.com/gists/${{ steps.set_id.outputs.GIST }} > /dev/null 2>&1
+
+          if [ ! -f CLONE.md ]; then
+            shields="https://img.shields.io/badge/dynamic/json?color=success&label=Clone&query=count&url="
+            url="https://gist.githubusercontent.com/${{ github.actor }}/${{ steps.set_id.outputs.GIST }}/raw/clone.json"
+            repo="https://github.com/MShawon/github-clone-count-badge"
+            echo ''> CLONE.md
+            echo '
+            **Markdown**
+
+            ```markdown' >> CLONE.md
+            echo "[![GitHub Clones]($shields$url&logo=github)]($repo)" >> CLONE.md
+            echo '
+            ```
+
+            **HTML**
+            ```html' >> CLONE.md
+            echo "<a href='$repo'><img alt='GitHub Clones' src='$shields$url&logo=github'></a>" >> CLONE.md
+            echo '```' >> CLONE.md
+            
+            git add CLONE.md
+            git config --global user.name "GitHub Action"
+            git config --global user.email "action@github.com"
+            git commit -m "create clone count badge"
+          fi
+
+      - name: Push
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
