@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v2
       
       - name: gh login
-        run: echo "${{ secrets.PAT_TOKEN }}" | gh auth login --with-token
+        run: echo "${{ secrets.SECRET_TOKEN }}" | gh auth login --with-token
 
       - name: parse latest clone count
         run: |
@@ -63,7 +63,7 @@ jobs:
           if [ ! -f CLONE.md ]; then
             shields="https://img.shields.io/badge/dynamic/json?color=success&label=Clone&query=count&url="
             url="https://gist.githubusercontent.com/${{ github.actor }}/${{ steps.set_id.outputs.GIST }}/raw/clone.json"
-            repo="https://github.com/SudoJacky/tinybot"
+            repo="https://github.com/MShawon/github-clone-count-badge"
             echo ''> CLONE.md
             echo '
             **Markdown**
@@ -87,4 +87,4 @@ jobs:
       - name: Push
         uses: ad-m/github-push-action@master
         with:
-          github_token: ${{ secrets.PAT_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
