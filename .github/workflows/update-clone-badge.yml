@@ -1,0 +1,44 @@
+name: Update Clone Stats Badge
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-clone-badge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Get clone stats and update cumulative count
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DATA=$(curl -s -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/${GITHUB_REPOSITORY}/traffic/clones)
+          
+          TODAY_CLONES=$(echo $DATA | jq '.count')
+
+          if [ -f stats.json ]; then
+            PREV_TOTAL=$(jq '.total | tonumber' stats.json)
+          else
+            PREV_TOTAL=0
+          fi
+
+          CUMULATIVE=$((PREV_TOTAL + TODAY_CLONES))
+
+          echo "{\"schemaVersion\":1,\"label\":\"Clones\",\"message\":\"Today: $TODAY_CLONES | Total: $CUMULATIVE\",\"color\":\"blue\",\"total\":$CUMULATIVE}" > stats.json
+
+      - name: Commit updated badge
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add stats.json
+          git commit -m "Update clone stats badge" || echo "No changes"
+          git push
