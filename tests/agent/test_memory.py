@@ -530,7 +530,9 @@ def test_memory_note_index_rebuild_recreates_active_notes_from_jsonl(tmp_path):
 
     assert stats == {"available": True, "active_notes": 1, "indexed": 1, "deleted": 1}
     assert set(vector_store.collection.items) == {active.id}
-    assert vector_store.collection.items[active.id]["document"] == "Active indexed note. | Type: project"
+    assert (
+        vector_store.collection.items[active.id]["document"] == "Active indexed note. | Scope: project | Type: project"
+    )
     assert vector_store.collection.items[active.id]["metadata"]["kind"] == "memory_note"
 
 
