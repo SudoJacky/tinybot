@@ -1,8 +1,10 @@
 /* ========== 中间聊天面板 ========== */
 .chat-panel {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 /* 顶部栏 */
@@ -112,8 +114,9 @@
 
 /* ========== 消息列表 ========== */
 .message-list {
-  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 22px;
   display: flex;
   flex-direction: column;
@@ -348,6 +351,12 @@
   opacity: 1;
   visibility: visible;
   -webkit-text-fill-color: currentColor;
+  list-style: none;
+  user-select: none;
+}
+
+.run-chain-summary::-webkit-details-marker {
+  display: none;
 }
 
 .run-chain-summary:hover {
@@ -415,8 +424,9 @@
 .run-chain-body {
   display: grid;
   gap: 4px;
-  max-height: min(48vh, 520px);
+  max-height: min(68vh, 720px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 2px 10px 12px 32px;
 }
 
@@ -1494,6 +1504,8 @@ button.run-chain-item:hover,
 
 /* ========== 输入框 ========== */
 .composer {
+  flex: 0 0 auto;
+  max-height: min(30vh, 220px);
   padding: 14px 22px 18px;
   border-top: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--panel-strong) 62%, transparent);
@@ -1615,6 +1627,7 @@ button.run-chain-item:hover,
 }
 
 .composer-input {
+  box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -1626,7 +1639,7 @@ button.run-chain-item:hover,
   border-radius: var(--radius-md);
   padding: 14px 18px;
   min-height: 52px;
-  max-height: 200px;
+  max-height: min(18vh, 132px);
   font: inherit;
   font-size: 14px;
   color: var(--text);

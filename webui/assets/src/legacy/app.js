@@ -358,8 +358,11 @@ window.fetch = async function fetchWithAuthRecovery(input, init = {}) {
 };
 
 function resizeComposer() {
-  elements.composerInput.style.height = "auto";
-  elements.composerInput.style.height = `${Math.min(elements.composerInput.scrollHeight, 220)}px`;
+  const maxHeight = Math.max(88, Math.min(132, Math.floor(window.innerHeight * 0.18)));
+  elements.composerInput.style.height = "0px";
+  const nextHeight = Math.max(48, Math.min(elements.composerInput.scrollHeight, maxHeight));
+  elements.composerInput.style.height = `${nextHeight}px`;
+  elements.composerInput.style.overflowY = elements.composerInput.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
 function scrollMessagesToBottom(force = false) {
@@ -1207,6 +1210,56 @@ function closeInspectionMode() {
   });
 }
 
+function revealRunChainBody(wrapper, body) {
+  window.requestAnimationFrame(() => {
+    if (!elements.messageList || !wrapper || !body || body.hidden) return;
+
+    const scrollerRect = elements.messageList.getBoundingClientRect();
+    const bodyRect = body.getBoundingClientRect();
+    const margin = 18;
+    const overBottom = bodyRect.bottom - scrollerRect.bottom + margin;
+    const overTop = scrollerRect.top - bodyRect.top + margin;
+
+    if (bodyRect.height > scrollerRect.height * 0.68) {
+      wrapper.scrollIntoView({ block: "start", behavior: "smooth" });
+      return;
+    }
+
+    if (overBottom > 0) {
+      elements.messageList.scrollBy({ top: overBottom, behavior: "smooth" });
+    } else if (overTop > 0) {
+      elements.messageList.scrollBy({ top: -overTop, behavior: "smooth" });
+    }
+  });
+}
+
+function toggleRunChain(wrapper, nextExpanded = null) {
+  if (!wrapper) return;
+  const body = wrapper.querySelector(".run-chain-body");
+  const label = wrapper.querySelector(".run-chain-label");
+  if (!body || !label) return;
+
+  const isExpanded = wrapper.open === true;
+  const expanded = nextExpanded === null ? !isExpanded : Boolean(nextExpanded);
+  wrapper.open = expanded;
+  wrapper.classList.toggle("expanded", expanded);
+
+  const key = wrapper.dataset.runChainKey || "";
+  if (key) {
+    if (expanded) {
+      state.expandedRunChains.add(key);
+    } else {
+      state.expandedRunChains.delete(key);
+    }
+  }
+
+  const summary = wrapper.dataset.runChainSummary || "Running";
+  label.textContent = `${summary} | ${expanded ? "Hide details" : "Show details"}`;
+  if (expanded) {
+    revealRunChainBody(wrapper, body);
+  }
+}
+
 function createRunChainItemNode(item) {
   const row = document.createElement(item.inspectable ? "button" : "div");
   row.className = `run-chain-item run-chain-item-${item.kind} run-chain-item-${item.status}`;
@@ -1254,15 +1307,16 @@ function createRunChainNode(runChainMessages) {
   }
   const key = runChainKey(runChainMessages);
   const expanded = state.expandedRunChains?.has(key) === true;
-  const wrapper = document.createElement("article");
+  const summaryText = runChainSummaryText(items);
+  const wrapper = document.createElement("details");
   wrapper.className = `run-chain run-chain-${runChainStatusClass(items)}`;
   wrapper.classList.toggle("expanded", expanded);
+  wrapper.open = expanded;
   wrapper.dataset.runChainKey = key;
+  wrapper.dataset.runChainSummary = summaryText;
 
-  const button = document.createElement("button");
-  button.className = "run-chain-summary";
-  button.type = "button";
-  button.setAttribute("aria-expanded", expanded ? "true" : "false");
+  const summary = document.createElement("summary");
+  summary.className = "run-chain-summary";
 
   const icon = document.createElement("span");
   icon.className = "run-chain-icon";
@@ -1275,30 +1329,16 @@ function createRunChainNode(runChainMessages) {
 
   const label = document.createElement("span");
   label.className = "run-chain-label";
-  label.textContent = `${runChainSummaryText(items)} | ${expanded ? "Hide details" : "Show details"}`;
+  label.textContent = `${summaryText} | ${expanded ? "Hide details" : "Show details"}`;
 
-  button.append(icon, title, label);
+  summary.append(icon, title, label);
 
   const body = document.createElement("div");
   body.className = "run-chain-body";
-  body.hidden = !expanded;
   items.forEach((item) => body.append(createRunChainItemNode(item)));
 
-  button.addEventListener("click", () => {
-    const isExpanded = button.getAttribute("aria-expanded") === "true";
-    const nextExpanded = !isExpanded;
-    button.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
-    wrapper.classList.toggle("expanded", nextExpanded);
-    body.hidden = !nextExpanded;
-    if (nextExpanded) {
-      state.expandedRunChains.add(key);
-    } else {
-      state.expandedRunChains.delete(key);
-    }
-    label.textContent = `${runChainSummaryText(items)} | ${nextExpanded ? "Hide details" : "Show details"}`;
-  });
-
-  wrapper.append(button, body);
+  wrapper.addEventListener("toggle", () => toggleRunChain(wrapper, wrapper.open));
+  wrapper.append(summary, body);
   return wrapper;
 }
 
@@ -9871,6 +9911,14 @@ async function submitMessage() {
 function bindEvents() {
   document.querySelectorAll("[data-ui-mode]").forEach((button) => {
     button.addEventListener("click", () => applyUiMode(button.dataset.uiMode));
+  });
+
+  elements.messageList?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const summary = target?.closest(".run-chain-summary");
+    if (!summary || !elements.messageList.contains(summary)) return;
+    event.preventDefault();
+    toggleRunChain(summary.closest(".run-chain"));
   });
 
   elements.composerInput.addEventListener("input", resizeComposer);

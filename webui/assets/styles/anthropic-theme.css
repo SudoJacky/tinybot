@@ -337,6 +337,7 @@ select:focus-visible {
 
 .composer-input {
   min-height: 48px;
+  max-height: min(18vh, 132px);
   border-color: var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
