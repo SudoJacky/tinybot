@@ -1214,11 +1214,155 @@ function renderRunChainInspector(item) {
   sections.forEach((section) => elements.inspectorBody.append(renderInspectorSection(section)));
 }
 
+function memoryReferenceFile(reference) {
+  return reference?.view_file || reference?.file || "memory/MEMORY.md";
+}
+
+function memoryReferenceLine(reference) {
+  return reference?.view_line || reference?.line || reference?.cursor || null;
+}
+
+function memoryReferenceKey(reference) {
+  const file = memoryReferenceFile(reference);
+  const line = memoryReferenceLine(reference) || "";
+  const id = reference?.note_id || reference?.evidence_id || reference?.content || "";
+  return `${file}:${line}:${id}`;
+}
+
+function memoryReferenceLocationLabel(reference) {
+  const line = memoryReferenceLine(reference);
+  if (line) {
+    return formatMessage("memory.lineLabel", { line });
+  }
+  return t("memory.positionUnknown");
+}
+
+function resolveMemoryHighlightLine(lines, targetLine, reference) {
+  const needles = [reference?.note_id, reference?.content]
+    .filter((value) => typeof value === "string" && value.trim());
+  for (const needle of needles) {
+    const index = lines.findIndex((line) => line.includes(needle));
+    if (index >= 0) {
+      return index + 1;
+    }
+  }
+  return Number(targetLine) || 0;
+}
+
+function renderMemorySourcePreview(content, targetLine, reference) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "memory-source-preview";
+
+  const lines = String(content || "").split(/\r?\n/);
+  const highlightLine = resolveMemoryHighlightLine(lines, targetLine, reference);
+  if (highlightLine) {
+    wrapper.dataset.highlightLine = String(highlightLine);
+  }
+
+  lines.forEach((line, index) => {
+    const lineNumber = index + 1;
+    const row = document.createElement("div");
+    row.className = "memory-source-line";
+    row.dataset.line = String(lineNumber);
+    if (lineNumber === highlightLine) {
+      row.classList.add("highlighted");
+    }
+
+    const gutter = document.createElement("span");
+    gutter.className = "memory-source-line-number";
+    gutter.textContent = String(lineNumber);
+
+    const code = document.createElement("code");
+    code.textContent = line || " ";
+
+    row.append(gutter, code);
+    wrapper.append(row);
+  });
+
+  window.requestAnimationFrame(() => {
+    wrapper.querySelector(".memory-source-line.highlighted")?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  });
+
+  return wrapper;
+}
+
+async function renderMemoryReferenceInspector(reference) {
+  if (!elements.inspectorPanel || !elements.inspectorBody) return;
+
+  const file = memoryReferenceFile(reference);
+  const line = memoryReferenceLine(reference);
+  elements.inspectorTitle.textContent = file.split("/").pop() || file;
+  elements.inspectorSubtitle.textContent = line
+    ? formatMessage("memory.sourceSubtitle", { file, line })
+    : file;
+  elements.inspectorBody.textContent = "";
+
+  const summary = document.createElement("section");
+  summary.className = "inspector-section memory-inspector-summary";
+  const summaryHeading = document.createElement("h3");
+  summaryHeading.textContent = t("memory.selectedReference");
+  const summaryText = document.createElement("pre");
+  summaryText.textContent = reference?.content || "";
+  summary.append(summaryHeading, summaryText);
+  elements.inspectorBody.append(summary);
+
+  const sourceSection = document.createElement("section");
+  sourceSection.className = "inspector-section memory-source-section";
+  const sourceHeading = document.createElement("h3");
+  sourceHeading.textContent = t("memory.sourceFile");
+  const loading = document.createElement("div");
+  loading.className = "inspector-empty memory-source-loading";
+  loading.textContent = t("memory.loadingSource");
+  sourceSection.append(sourceHeading, loading);
+  elements.inspectorBody.append(sourceSection);
+
+  try {
+    const response = await fetch(`${state.workspaceFilesPath}/${encodeURIComponent(file)}`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`load memory source failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    const preview = renderMemorySourcePreview(payload.content || "", line, reference);
+    const resolvedLine = Number(preview.dataset.highlightLine || line);
+    if (resolvedLine) {
+      elements.inspectorSubtitle.textContent = formatMessage("memory.sourceSubtitle", {
+        file,
+        line: resolvedLine,
+      });
+    }
+    loading.replaceWith(preview);
+  } catch (error) {
+    console.warn("Unable to load memory source", error);
+    loading.textContent = t("memory.sourceUnavailable");
+  }
+}
+
+function openMemoryReferenceInspector(reference) {
+  if (!reference) return;
+  state.inspectionOpen = true;
+  state.selectedChainItemKey = "";
+  state.selectedChainItem = null;
+  state.selectedMemoryReferenceKey = memoryReferenceKey(reference);
+  state.selectedMemoryReference = reference;
+  elements.shell?.classList.add("inspection-mode");
+  elements.inspectorPanel?.setAttribute("aria-hidden", "false");
+  renderMemoryReferenceInspector(reference);
+  renderMessages(false);
+}
+
 function openInspectionMode(item) {
   if (!item?.inspectable) return;
   state.inspectionOpen = true;
   state.selectedChainItemKey = item.key;
   state.selectedChainItem = item;
+  state.selectedMemoryReferenceKey = "";
+  state.selectedMemoryReference = null;
   elements.shell?.classList.add("inspection-mode");
   elements.inspectorPanel?.setAttribute("aria-hidden", "false");
   renderRunChainInspector(item);
@@ -1229,9 +1373,14 @@ function closeInspectionMode() {
   state.inspectionOpen = false;
   state.selectedChainItemKey = "";
   state.selectedChainItem = null;
+  state.selectedMemoryReferenceKey = "";
+  state.selectedMemoryReference = null;
   elements.shell?.classList.remove("inspection-mode");
   elements.inspectorPanel?.setAttribute("aria-hidden", "true");
   elements.messageList?.querySelectorAll(".run-chain-item.selected").forEach((node) => {
+    node.classList.remove("selected");
+  });
+  elements.messageList?.querySelectorAll(".memory-reference-item.selected").forEach((node) => {
     node.classList.remove("selected");
   });
 }
@@ -1879,6 +2028,7 @@ function updateMessageContent(contentEl, message) {
 function createMemoryReferencesNode(references) {
   const details = document.createElement("details");
   details.className = "memory-references";
+  details.open = references.some((reference) => memoryReferenceKey(reference) === state.selectedMemoryReferenceKey);
 
   const summary = document.createElement("summary");
   summary.className = "memory-references-summary";
@@ -1886,11 +2036,11 @@ function createMemoryReferencesNode(references) {
   const count = references.length;
   const title = document.createElement("span");
   title.className = "memory-references-title";
-  title.textContent = `${count} 个相关记忆`;
+  title.textContent = formatMessage("memory.referencesCount", { count });
 
   const hint = document.createElement("span");
   hint.className = "memory-references-hint";
-  hint.textContent = t("knowledge.viewSources");
+  hint.textContent = t("memory.openSourceHint");
 
   summary.append(title, hint);
   details.append(summary);
@@ -1901,6 +2051,28 @@ function createMemoryReferencesNode(references) {
   references.forEach((reference) => {
     const item = document.createElement("article");
     item.className = "memory-reference-item";
+    item.tabIndex = 0;
+    item.setAttribute("role", "button");
+    item.setAttribute("aria-label", formatMessage("memory.inspectReference", {
+      file: memoryReferenceFile(reference),
+      location: memoryReferenceLocationLabel(reference),
+    }));
+    if (memoryReferenceKey(reference) === state.selectedMemoryReferenceKey) {
+      item.classList.add("selected");
+    }
+
+    const header = document.createElement("div");
+    header.className = "memory-reference-header";
+
+    const file = document.createElement("span");
+    file.className = "memory-reference-file";
+    file.textContent = memoryReferenceFile(reference);
+
+    const location = document.createElement("span");
+    location.className = "memory-reference-location";
+    location.textContent = memoryReferenceLocationLabel(reference);
+
+    header.append(file, location);
 
     const content = document.createElement("div");
     content.className = "memory-reference-content";
@@ -1908,20 +2080,23 @@ function createMemoryReferencesNode(references) {
 
     const meta = document.createElement("div");
     meta.className = "memory-reference-meta";
-    const file = reference.file || "memory/notes.jsonl";
-    const line = reference.line ? `:${reference.line}` : "";
-    const view = reference.view_file
-      ? ` · ${reference.view_file}${reference.view_line ? `:${reference.view_line}` : ""}`
-      : "";
     const labelParts = [
       reference.scope,
       reference.type,
       reference.note_id,
-      `${file}${line}${view}`,
     ].filter(Boolean);
-    meta.textContent = labelParts.join(" · ");
+    meta.textContent = labelParts.join(" | ");
 
-    item.append(content, meta);
+    item.append(header, content);
+    if (labelParts.length) {
+      item.append(meta);
+    }
+    item.addEventListener("click", () => openMemoryReferenceInspector(reference));
+    item.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openMemoryReferenceInspector(reference);
+    });
     list.append(item);
   });
 
@@ -9977,6 +10152,7 @@ function bindEvents() {
     if (!target) return;
     if (elements.inspectorPanel?.contains(target)) return;
     if (target.closest(".run-chain-item")) return;
+    if (target.closest(".memory-references")) return;
     closeInspectionMode();
   }, true);
 
