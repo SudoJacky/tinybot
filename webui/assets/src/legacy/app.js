@@ -902,6 +902,29 @@ function relatedToolMessageGroups(toolCalls, relatedMessages) {
 
 function createMessageDisplayItems(messages) {
   const items = [];
+  let assistantMetaShownInTurn = false;
+
+  const pushMessageItem = (message) => {
+    const item = {
+      type: "message",
+      message,
+    };
+    if (message?.role === "user") {
+      assistantMetaShownInTurn = false;
+    }
+    if (message?.role === "assistant" && Boolean((message.content || "").trim())) {
+      item.hideMeta = assistantMetaShownInTurn;
+      assistantMetaShownInTurn = true;
+    }
+    items.push(item);
+  };
+  const pushRunChainItem = (runChainMessages) => {
+    items.push({
+      type: "run-chain",
+      messages: [...runChainMessages],
+    });
+    assistantMetaShownInTurn = true;
+  };
 
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
@@ -920,10 +943,7 @@ function createMessageDisplayItems(messages) {
         if (!runChainMessages.length) {
           return;
         }
-        items.push({
-          type: "run-chain",
-          messages: [...runChainMessages],
-        });
+        pushRunChainItem(runChainMessages);
         runChainMessages.length = 0;
       };
       for (const turnMessage of turnMessages) {
@@ -932,10 +952,7 @@ function createMessageDisplayItems(messages) {
         }
         if (turnMessage._task_event) {
           flushRunChain();
-          items.push({
-            type: "message",
-            message: turnMessage,
-          });
+          pushMessageItem(turnMessage);
           continue;
         }
         if (isRunChainSourceMessage(turnMessage)) {
@@ -943,16 +960,10 @@ function createMessageDisplayItems(messages) {
           continue;
         }
         flushRunChain();
-        items.push({
-          type: "message",
-          message: turnMessage,
-        });
+        pushMessageItem(turnMessage);
       }
       flushRunChain();
-      items.push({
-        type: "message",
-        message: messages[finalIndex],
-      });
+      pushMessageItem(messages[finalIndex]);
       index = finalIndex;
       continue;
     }
@@ -973,19 +984,13 @@ function createMessageDisplayItems(messages) {
         }
       }
       if (runChainMessages.length) {
-        items.push({
-          type: "run-chain",
-          messages: runChainMessages,
-        });
+        pushRunChainItem(runChainMessages);
         index = chainIndex - 1;
         continue;
       }
     }
 
-    items.push({
-      type: "message",
-      message,
-    });
+    pushMessageItem(message);
 
     if (hasToolCalls(message)) {
       index = relatedToolMessagesEndIndex(messages, index);
@@ -1535,7 +1540,7 @@ function renderMessages(forceScroll = true) {
       ? createRunChainNode(item.messages)
       : item.type === "collapse"
         ? createCollapsedMessagesNode(item.messages)
-        : createMessageNode(item.message);
+        : createMessageNode(item.message, { hideMeta: item.hideMeta });
     elements.messageList.append(node);
   }
 
@@ -1549,9 +1554,13 @@ function renderMessages(forceScroll = true) {
   }
 }
 
-function createMessageNode(message) {
+function createMessageNode(message, options = {}) {
   const node = elements.messageTemplate.content.firstElementChild.cloneNode(true);
   node.classList.add(`message-${roleLabel(message.role)}`);
+  const hideMeta = options.hideMeta || message.role === "user";
+  if (options.hideMeta) {
+    node.classList.add("message-continuation");
+  }
   node.dataset.messageId = message.message_id || "";
 
   // Handle role display for tool messages
@@ -1565,37 +1574,55 @@ function createMessageNode(message) {
       roleDisplay = `tool: ${message._tool_name}`;
     }
   }
-  node.querySelector(".message-role").textContent = roleDisplay;
-  node.querySelector(".message-time").textContent = formatTime(message.timestamp);
+  const metaEl = node.querySelector(".message-meta");
+  if (hideMeta) {
+    metaEl?.remove();
+  } else {
+    if (message.role === "assistant") {
+      node.querySelector(".message-role")?.remove();
+    } else {
+      node.querySelector(".message-role").textContent = roleDisplay;
+    }
+    node.querySelector(".message-time").textContent = formatTime(message.timestamp);
+  }
 
   const contentEl = node.querySelector(".message-content");
   updateMessageContent(contentEl, message);
 
-  // 添加消息复制按钮（仅对user和assistant消息）
-  if (message.role === "user" || message.role === "assistant") {
-    const metaEl = node.querySelector(".message-meta");
+  // Add a copy button only when the metadata row is visible.
+  if (!hideMeta && (message.role === "user" || message.role === "assistant")) {
     if (metaEl) {
       const copyBtn = document.createElement("button");
       copyBtn.className = "message-copy-btn";
-      copyBtn.textContent = t("ui.copy");
       copyBtn.title = t("ui.copyContent");
+      copyBtn.setAttribute("aria-label", t("ui.copyContent"));
+      copyBtn.dataset.tooltip = t("ui.copy");
+      copyBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <rect x="8" y="8" width="10" height="10" rx="2"></rect>
+          <path d="M6 14H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
+        </svg>
+      `;
       copyBtn.addEventListener("click", async () => {
         try {
           const textToCopy = message.content || "";
           await navigator.clipboard.writeText(textToCopy);
-          copyBtn.textContent = t("ui.copied");
+          copyBtn.dataset.tooltip = t("ui.copied");
           setTimeout(() => {
-            copyBtn.textContent = t("ui.copy");
+            copyBtn.dataset.tooltip = t("ui.copy");
           }, 1500);
         } catch {
-          copyBtn.textContent = t("ui.copyFailed");
+          copyBtn.dataset.tooltip = t("ui.copyFailed");
           setTimeout(() => {
-            copyBtn.textContent = t("ui.copy");
+            copyBtn.dataset.tooltip = t("ui.copy");
           }, 1500);
         }
       });
       metaEl.appendChild(copyBtn);
     }
+  }
+  if (!hideMeta && message.role === "assistant" && metaEl) {
+    node.appendChild(metaEl);
   }
 
   return node;
@@ -9931,6 +9958,15 @@ function bindEvents() {
     event.preventDefault();
     toggleRunChain(summary.closest(".run-chain"));
   });
+
+  document.addEventListener("click", (event) => {
+    if (!state.inspectionOpen) return;
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    if (!target) return;
+    if (elements.inspectorPanel?.contains(target)) return;
+    if (target.closest(".run-chain-item")) return;
+    closeInspectionMode();
+  }, true);
 
   elements.composerInput.addEventListener("input", resizeComposer);
   elements.composerInput.addEventListener("keydown", async (event) => {
