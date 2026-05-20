@@ -313,6 +313,7 @@
   position: relative;
   z-index: 5;
   display: block;
+  flex: 0 0 auto;
   align-self: flex-start;
   width: min(92%, 860px);
   max-width: min(92%, 860px);
@@ -1100,6 +1101,18 @@ button.run-chain-item:hover,
   margin-left: auto;
 }
 
+.message-assistant .message-meta {
+  display: inline-flex;
+  width: fit-content;
+  justify-content: flex-start;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.message-assistant .message-time {
+  margin: 0;
+}
+
 .message-role {
   font-weight: 500;
   text-transform: uppercase;
@@ -1108,18 +1121,56 @@ button.run-chain-item:hover,
 
 /* Message copy button */
 .message-copy-btn {
-  padding: 2px 8px;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xs);
-  font-size: 10px;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: color-mix(in srgb, var(--bg-subtle) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+  border-radius: 7px;
   color: var(--text-subtle);
   cursor: pointer;
   opacity: 0;
   transition: all var(--transition-fast);
+  position: relative;
+}
+
+.message-copy-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.message-copy-btn::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%) translateY(2px);
+  padding: 4px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background: var(--panel-strong);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
 .message:hover .message-copy-btn {
+  opacity: 1;
+}
+
+.message-assistant .message-copy-btn {
   opacity: 1;
 }
 
@@ -1127,6 +1178,12 @@ button.run-chain-item:hover,
   background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.message-copy-btn:hover::before,
+.message-copy-btn:focus-visible::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .message-copy-btn:active {
