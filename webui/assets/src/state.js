@@ -56,6 +56,8 @@ export const state = {
   inspectionOpen: false,
   selectedChainItemKey: "",
   selectedChainItem: null,
+  selectedMemoryReferenceKey: "",
+  selectedMemoryReference: null,
   expandedRunChains: new Set(),
   sidebarCollapsed: localStorage.getItem("tinybot-sidebar-collapsed") === "true",
   uiMode: localStorage.getItem("tinybot-ui-mode") || "basic",
