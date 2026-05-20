@@ -4,7 +4,9 @@
   flex-direction: column;
   padding: 16px 14px;
   gap: 12px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   transition: background-color var(--transition-theme),
               border-color var(--transition-theme),
               box-shadow var(--transition-theme);

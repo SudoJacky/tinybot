@@ -461,20 +461,41 @@
 }
 
 .cowork-page-active {
-  overflow: auto;
+  overflow: hidden;
 }
 
 .cowork-page-active .shell {
+  display: grid;
+}
+
+.shell:has(> #cowork-modal.active) {
+  grid-template-columns: 248px minmax(0, 1fr) 0;
+}
+
+.shell.sidebar-collapsed:has(> #cowork-modal.active) {
+  grid-template-columns: 68px minmax(0, 1fr) 0;
+}
+
+.shell:has(> #cowork-modal.active) .chat-panel,
+.shell:has(> #cowork-modal.active) .inspector-panel {
   display: none;
 }
 
+.shell:has(> #cowork-modal.active) #cowork-modal,
 .cowork-page-active #cowork-modal {
-  position: static;
-  inset: 0;
-  min-height: 100vh;
+  grid-column: 2 / 3;
+  grid-row: 1;
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: color-mix(in srgb, var(--bg) 86%, var(--accent-soft));
 }
 
+.shell:has(> #cowork-modal.active) #cowork-modal .modal-overlay,
 .cowork-page-active #cowork-modal .modal-overlay {
   display: none;
 }
@@ -486,8 +507,9 @@
 .cowork-page-content {
   display: flex;
   flex-direction: column;
-  width: 100vw;
-  min-height: 100vh;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
   background: var(--panel-strong);
 }
@@ -497,18 +519,22 @@
   max-height: 90vh;
 }
 
+.shell:has(> #cowork-modal.active) .cowork-modal-content,
 .cowork-page-active .cowork-modal-content {
-  width: 100vw;
-  min-height: 100vh;
+  width: 100%;
+  min-height: 0;
+  height: 100%;
   max-height: none;
   border: 0;
   border-radius: 0;
 }
 
+.shell:has(> #cowork-modal.active) .cowork-modal-body,
 .cowork-page-active .cowork-modal-body {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: none;
-  overflow: visible;
+  overflow: auto;
 }
 
 .cowork-modal-body {
