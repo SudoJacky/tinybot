@@ -916,8 +916,22 @@ function createMessageDisplayItems(messages) {
     if (finalIndex > index && shouldAutoCollapseTurn(messages, index, finalIndex)) {
       const turnMessages = messages.slice(index, finalIndex);
       const runChainMessages = [];
+      const flushRunChain = () => {
+        if (!runChainMessages.length) {
+          return;
+        }
+        items.push({
+          type: "run-chain",
+          messages: [...runChainMessages],
+        });
+        runChainMessages.length = 0;
+      };
       for (const turnMessage of turnMessages) {
+        if (turnMessage?._pairedToolResponseConsumed) {
+          continue;
+        }
         if (turnMessage._task_event) {
+          flushRunChain();
           items.push({
             type: "message",
             message: turnMessage,
@@ -928,17 +942,13 @@ function createMessageDisplayItems(messages) {
           runChainMessages.push(turnMessage);
           continue;
         }
+        flushRunChain();
         items.push({
           type: "message",
           message: turnMessage,
         });
       }
-      if (runChainMessages.length) {
-        items.push({
-          type: "run-chain",
-          messages: runChainMessages,
-        });
-      }
+      flushRunChain();
       items.push({
         type: "message",
         message: messages[finalIndex],
@@ -1081,16 +1091,17 @@ function createRunChainItems(messages) {
     if (!message || message._pairedToolResponseConsumed) continue;
 
     if (message.reasoning_content && message.reasoning_content.trim()) {
+      const reasoningText = message.reasoning_content.trim();
       items.push({
         key: `${message.message_id || `reasoning-${index}`}:planning`,
         kind: "planning",
         title: "Planning",
-        preview: "Planning summary available",
+        preview: compactText(reasoningText, 120),
         status: "completed",
-        inspectable: false,
+        inspectable: true,
         detailTitle: "Planning",
-        detailSubtitle: "Planning summary",
-        detailSections: [{ label: "Summary", text: "Tinybot planned the next actions for this request." }],
+        detailSubtitle: "Thinking trace",
+        detailSections: [{ label: "Thinking", text: reasoningText }],
       });
     }
 

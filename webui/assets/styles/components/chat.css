@@ -313,6 +313,7 @@
   position: relative;
   z-index: 5;
   display: block;
+  flex: 0 0 auto;
   align-self: flex-start;
   width: min(92%, 860px);
   max-width: min(92%, 860px);
