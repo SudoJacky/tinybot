@@ -52,6 +52,14 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function formatMessage(key, values = {}) {
+  let text = t(key);
+  for (const [name, value] of Object.entries(values)) {
+    text = text.replaceAll(`{${name}}`, String(value));
+  }
+  return text;
+}
+
 function renderMarkdown(target, content) {
   target.textContent = "";
   if (!content || !content.trim()) {
@@ -201,8 +209,9 @@ function setBrowserPanelCollapsed(collapsed) {
   }
   elements.browserPanel.classList.toggle("collapsed", collapsed);
   if (elements.browserPanelToggle) {
-    elements.browserPanelToggle.setAttribute("aria-label", collapsed ? "Expand browser view" : "Collapse browser view");
-    elements.browserPanelToggle.title = collapsed ? "Expand browser view" : "Collapse browser view";
+    const label = collapsed ? t("browser.expandView") : t("browser.collapseView");
+    elements.browserPanelToggle.setAttribute("aria-label", label);
+    elements.browserPanelToggle.title = label;
   }
 }
 
@@ -485,19 +494,19 @@ function renderApprovalPanel() {
     const onceButton = document.createElement("button");
     onceButton.type = "button";
     onceButton.className = "button button-primary approval-action";
-    onceButton.textContent = "批准一次";
+    onceButton.textContent = t("approval.approveOnce");
     onceButton.addEventListener("click", () => handleApprovalAction(approval.id, "approve", "once"));
 
     const sessionButton = document.createElement("button");
     sessionButton.type = "button";
     sessionButton.className = "button approval-action";
-    sessionButton.textContent = "本会话允许";
+    sessionButton.textContent = t("approval.allowSession");
     sessionButton.addEventListener("click", () => handleApprovalAction(approval.id, "approve", "session"));
 
     const denyButton = document.createElement("button");
     denyButton.type = "button";
     denyButton.className = "button button-ghost approval-action approval-deny";
-    denyButton.textContent = "拒绝";
+    denyButton.textContent = t("approval.deny");
     denyButton.addEventListener("click", () => handleApprovalAction(approval.id, "deny"));
 
     actions.append(onceButton, sessionButton, denyButton);
@@ -512,8 +521,9 @@ function setSidebarCollapsed(collapsed) {
   elements.shell?.classList.toggle("sidebar-collapsed", collapsed);
   elements.sidebar?.classList.toggle("collapsed", collapsed);
   if (elements.sidebarCollapseButton) {
-    elements.sidebarCollapseButton.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
-    elements.sidebarCollapseButton.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    const label = collapsed ? t("a11y.expandSidebar") : t("a11y.collapseSidebar");
+    elements.sidebarCollapseButton.setAttribute("aria-label", label);
+    elements.sidebarCollapseButton.title = label;
     elements.sidebarCollapseButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
   }
 }
@@ -1064,11 +1074,11 @@ function runChainStatusClass(items) {
 
 function runChainStatusLabel(status) {
   const labels = {
-    running: "Running",
-    completed: "Completed",
-    failed: "Needs attention",
+    running: t("status.running"),
+    completed: t("status.completed"),
+    failed: t("runChain.needsAttention"),
   };
-  return labels[status] || "Running";
+  return labels[status] || t("status.running");
 }
 
 function inferRunChainItemStatus(message, responseText = "") {
@@ -1081,12 +1091,12 @@ function inferRunChainItemStatus(message, responseText = "") {
 
 function toolKindLabel(name = "") {
   const value = String(name || "").toLowerCase();
-  if (value.includes("read")) return "Read";
-  if (value.includes("write") || value.includes("create")) return "File";
-  if (value.includes("exec") || value.includes("shell") || value.includes("terminal")) return "Command";
-  if (value.includes("browser") || value.includes("web")) return "Browser";
-  if (value.includes("task") || value.includes("agent") || value.includes("spawn")) return "Agent";
-  return "Tool";
+  if (value.includes("read")) return t("runChain.kind.read");
+  if (value.includes("write") || value.includes("create")) return t("runChain.kind.file");
+  if (value.includes("exec") || value.includes("shell") || value.includes("terminal")) return t("runChain.kind.command");
+  if (value.includes("browser") || value.includes("web")) return t("runChain.kind.browser");
+  if (value.includes("task") || value.includes("agent") || value.includes("spawn")) return t("runChain.kind.agent");
+  return t("runChain.kind.tool");
 }
 
 function createRunChainItems(messages) {
@@ -1100,13 +1110,13 @@ function createRunChainItems(messages) {
       items.push({
         key: `${message.message_id || `reasoning-${index}`}:planning`,
         kind: "planning",
-        title: "Planning",
+        title: t("runChain.planning"),
         preview: compactText(reasoningText, 120),
         status: "completed",
         inspectable: true,
-        detailTitle: "Planning",
-        detailSubtitle: "Thinking trace",
-        detailSections: [{ label: "Thinking", text: reasoningText }],
+        detailTitle: t("runChain.planning"),
+        detailSubtitle: t("runChain.thinkingTrace"),
+        detailSections: [{ label: t("message.thinking"), text: reasoningText }],
       });
     }
 
@@ -1125,10 +1135,10 @@ function createRunChainItems(messages) {
           status: inferRunChainItemStatus(message, responseText),
           inspectable: true,
           detailTitle: name,
-          detailSubtitle: responseText ? "Tool call and response" : "Tool call",
+          detailSubtitle: responseText ? t("runChain.toolCallAndResponse") : t("message.toolCall"),
           detailSections: [
-            { label: "Arguments", text: argsText || t("message.toolNoArgs") },
-            ...(responseText ? [{ label: "Response", text: responseText }] : []),
+            { label: t("message.toolArgs"), text: argsText || t("message.toolNoArgs") },
+            ...(responseText ? [{ label: t("message.toolResponse"), text: responseText }] : []),
           ],
         });
       });
@@ -1145,14 +1155,14 @@ function createRunChainItems(messages) {
         key: `${message.message_id || `tool-message-${index}`}:${message._tool_result ? "result" : "detail"}`,
         kind: "tool",
         title: `${toolKindLabel(name)} | ${name}`,
-        preview: compactText(responseText || argsText || "Tool activity", 120),
+        preview: compactText(responseText || argsText || t("runChain.toolActivity"), 120),
         status: inferRunChainItemStatus(message, responseText),
         inspectable: true,
         detailTitle: name,
-        detailSubtitle: responseText ? "Tool detail and response" : "Tool detail",
+        detailSubtitle: responseText ? t("runChain.toolDetailAndResponse") : t("runChain.toolDetail"),
         detailSections: [
-          ...(argsText ? [{ label: "Detail", text: argsText }] : []),
-          ...(responseText ? [{ label: "Response", text: responseText }] : []),
+          ...(argsText ? [{ label: t("runChain.detail"), text: argsText }] : []),
+          ...(responseText ? [{ label: t("message.toolResponse"), text: responseText }] : []),
         ],
       });
     }
@@ -1164,9 +1174,9 @@ function runChainSummaryText(items) {
   const toolCount = items.filter((item) => item.kind === "tool").length;
   const planningCount = items.filter((item) => item.kind === "planning").length;
   const status = runChainStatusClass(items);
-  const parts = [runChainStatusLabel(status), `${items.length} item${items.length === 1 ? "" : "s"}`];
-  if (toolCount) parts.push(`${toolCount} tool${toolCount === 1 ? "" : "s"}`);
-  if (planningCount) parts.push("planning");
+  const parts = [runChainStatusLabel(status), formatMessage("runChain.itemsCount", { count: items.length })];
+  if (toolCount) parts.push(formatMessage("runChain.toolsCount", { count: toolCount }));
+  if (planningCount) parts.push(t("runChain.planningLower"));
   return parts.join(" | ");
 }
 
@@ -1190,14 +1200,14 @@ function renderInspectorSection(section) {
 
 function renderRunChainInspector(item) {
   if (!elements.inspectorPanel || !elements.inspectorBody) return;
-  elements.inspectorTitle.textContent = item?.detailTitle || item?.title || "Run Chain item";
+  elements.inspectorTitle.textContent = item?.detailTitle || item?.title || t("runChain.item");
   elements.inspectorSubtitle.textContent = item?.detailSubtitle || item?.preview || "";
   elements.inspectorBody.textContent = "";
   const sections = item?.detailSections || [];
   if (!sections.length) {
     const empty = document.createElement("div");
     empty.className = "inspector-empty";
-    empty.textContent = "No saved detail is available for this item.";
+    empty.textContent = t("inspector.noSavedDetail");
     elements.inspectorBody.append(empty);
     return;
   }
@@ -1269,8 +1279,8 @@ function toggleRunChain(wrapper, nextExpanded = null) {
     }
   }
 
-  const summary = wrapper.dataset.runChainSummary || "Running";
-  label.textContent = `${summary} | ${expanded ? "Hide details" : "Show details"}`;
+  const summary = wrapper.dataset.runChainSummary || t("status.running");
+  label.textContent = `${summary} | ${expanded ? t("runChain.hideDetails") : t("runChain.showDetails")}`;
   if (expanded) {
     revealRunChainBody(wrapper, body);
   }
@@ -1285,7 +1295,7 @@ function createRunChainItemNode(item) {
   }
   if (item.inspectable) {
     row.type = "button";
-    row.setAttribute("aria-label", `Inspect ${item.title}`);
+    row.setAttribute("aria-label", formatMessage("inspector.inspectItem", { title: item.title }));
     row.addEventListener("click", () => openInspectionMode(item));
   }
 
@@ -1308,7 +1318,7 @@ function createRunChainItemNode(item) {
 
   const action = document.createElement("span");
   action.className = "run-chain-item-action";
-  action.textContent = item.inspectable ? "Inspect" : "Summary";
+  action.textContent = item.inspectable ? t("inspector.inspect") : t("cowork.summary");
 
   row.append(dot, text, action);
   return row;
@@ -1341,11 +1351,11 @@ function createRunChainNode(runChainMessages) {
 
   const title = document.createElement("span");
   title.className = "run-chain-title";
-  title.textContent = "Run Chain";
+  title.textContent = t("runChain.title");
 
   const label = document.createElement("span");
   label.className = "run-chain-label";
-  label.textContent = `${summaryText} | ${expanded ? "Hide details" : "Show details"}`;
+  label.textContent = `${summaryText} | ${expanded ? t("runChain.hideDetails") : t("runChain.showDetails")}`;
 
   summary.append(icon, title, label);
 
@@ -1429,8 +1439,8 @@ function createToolActivityNode({ name, argsText = "", responseText = "", kind =
   if (approvalStatus === "approved") {
     const approvalBadge = document.createElement("span");
     approvalBadge.className = "tool-activity-badge tool-activity-approval-badge";
-    approvalBadge.textContent = "已批准";
-    approvalBadge.title = "用户已批准执行此工具";
+    approvalBadge.textContent = t("approval.approved");
+    approvalBadge.title = t("approval.approvedToolTitle");
     badges.append(approvalBadge);
   }
 
@@ -1880,7 +1890,7 @@ function createMemoryReferencesNode(references) {
 
   const hint = document.createElement("span");
   hint.className = "memory-references-hint";
-  hint.textContent = "查看来源";
+  hint.textContent = t("knowledge.viewSources");
 
   summary.append(title, hint);
   details.append(summary);
@@ -1933,7 +1943,7 @@ function createRecentContextReferencesNode(references) {
 
   const hint = document.createElement("span");
   hint.className = "memory-references-hint";
-  hint.textContent = "View sources";
+  hint.textContent = t("knowledge.viewSources");
 
   summary.append(title, hint);
   details.append(summary);
@@ -2360,15 +2370,17 @@ function coworkTraceActor(trace) {
     return {
       key: `${stage}:${actorName}`,
       label: actorName,
-      subtitle: stage === "agent" ? "Agent Trace Card" : `${stage.replaceAll("_", " ")} Trace Card`,
+      subtitle: stage === "agent"
+        ? t("cowork.agentTraceCard")
+        : formatMessage("cowork.genericTraceCard", { stage: stage.replaceAll("_", " ") }),
       kind: stage,
     };
   }
-  if (stage === "scheduler") return { key: "scheduler", label: "Scheduler", subtitle: "Scheduler Trace Card", kind: "scheduler" };
-  if (stage === "workflow") return { key: "workflow", label: "Workflow", subtitle: "Workflow Trace Card", kind: "workflow" };
-  if (stage === "task") return { key: "task-runtime", label: "Task Runtime", subtitle: "Task Trace Card", kind: "task" };
-  if (stage === "mailbox") return { key: "mailbox-runtime", label: "Mailbox", subtitle: "Mailbox Trace Card", kind: "mailbox" };
-  return { key: "system-runtime", label: "System Entry", subtitle: "System Trace Card", kind: "system" };
+  if (stage === "scheduler") return { key: "scheduler", label: t("cowork.scheduler"), subtitle: t("cowork.schedulerTraceCard"), kind: "scheduler" };
+  if (stage === "workflow") return { key: "workflow", label: t("cowork.workflow"), subtitle: t("cowork.workflowTraceCard"), kind: "workflow" };
+  if (stage === "task") return { key: "task-runtime", label: t("cowork.taskRuntime"), subtitle: t("cowork.taskTraceCard"), kind: "task" };
+  if (stage === "mailbox") return { key: "mailbox-runtime", label: t("cowork.mailbox"), subtitle: t("cowork.mailboxTraceCard"), kind: "mailbox" };
+  return { key: "system-runtime", label: t("cowork.systemEntry"), subtitle: t("cowork.systemTraceCard"), kind: "system" };
 }
 
 function coworkTraceItems(session) {
@@ -2379,7 +2391,7 @@ function coworkTraceItems(session) {
     id: span.id,
     type: `span.${span.kind || "trace"}`,
     stage: span.kind || "trace",
-    action: span.name || span.kind || "Trace span",
+    action: span.name || span.kind || t("cowork.traceSpan"),
     detail: span.summary || span.error || span.output_ref || span.input_ref || "",
     actor_id: span.actor_id || "",
     actor_name: span.actor_id || "",
@@ -2473,9 +2485,9 @@ function coworkTraceObservations(step) {
 
 function coworkObservationTitle(observation) {
   if (observation.observation_kind === "tool") {
-    return observation.tool_name || observation.purpose || observation.id || "Tool observation";
+    return observation.tool_name || observation.purpose || observation.id || t("cowork.toolObservation");
   }
-  return observation.title || observation.resource_ref || observation.purpose || observation.id || "Browser observation";
+  return observation.title || observation.resource_ref || observation.purpose || observation.id || t("cowork.browserObservation");
 }
 
 function coworkObservationSummary(observation) {
@@ -2484,8 +2496,8 @@ function coworkObservationSummary(observation) {
     observation.result_summary,
     observation.resource_ref,
     observation.duration_ms !== null && observation.duration_ms !== undefined ? `${observation.duration_ms}ms` : "",
-    observation.redacted ? "redacted" : "",
-    observation.sensitive ? "sensitive" : "",
+    observation.redacted ? t("cowork.redacted") : "",
+    observation.sensitive ? t("cowork.sensitive") : "",
   ].filter(Boolean);
   return compactText(parts.join(" - "), 220);
 }
@@ -2498,7 +2510,7 @@ function renderCoworkObservationContent(detail, target) {
   meta.textContent = [
     stateText,
     detail?.content_type || "",
-    detail?.redacted ? "redacted" : "",
+    detail?.redacted ? t("cowork.redacted") : "",
     detail?.sensitivity || "",
   ].filter(Boolean).join(" - ");
   target.append(meta);
@@ -2524,7 +2536,7 @@ async function loadCoworkObservationDetail(detailRef, target, button) {
   if (!state.activeCoworkSessionId || !detailRef) return;
   if (button) {
     button.disabled = true;
-    button.textContent = "Loading";
+    button.textContent = t("status.loading");
   }
   try {
     const response = await fetch(
@@ -2533,15 +2545,15 @@ async function loadCoworkObservationDetail(detailRef, target, button) {
     );
     const payload = await response.json().catch(() => ({}));
     if (!response.ok && response.status !== 403) {
-      throw new Error(payload.error || "Failed to load observation detail");
+      throw new Error(payload.error || t("cowork.loadObservationFailed"));
     }
     renderCoworkObservationContent(payload.detail || {}, target);
-    if (button) button.textContent = "Loaded";
+    if (button) button.textContent = t("status.loaded");
   } catch (error) {
     target.textContent = error.message || String(error);
     if (button) {
       button.disabled = false;
-      button.textContent = "Retry detail";
+      button.textContent = t("cowork.retryDetail");
     }
   }
 }
@@ -2551,7 +2563,7 @@ function renderCoworkTraceObservations(observations) {
   const panel = document.createElement("div");
   panel.className = "cowork-observation-list";
   const heading = document.createElement("strong");
-  heading.textContent = `Observations (${observations.length})`;
+  heading.textContent = formatMessage("cowork.observationsCount", { count: observations.length });
   panel.append(heading);
   for (const observation of observations) {
     const details = document.createElement("details");
@@ -2562,12 +2574,12 @@ function renderCoworkTraceObservations(observations) {
     const status = document.createElement("span");
     title.textContent = coworkObservationTitle(observation);
     status.className = coworkStatusClass(observation.status || observation.observation_kind || "active");
-    status.textContent = observation.observation_kind === "tool" ? "Tool" : "Browser";
+    status.textContent = observation.observation_kind === "tool" ? t("runChain.kind.tool") : t("browser.title");
     summary.append(title, status);
     const body = document.createElement("div");
     body.className = "cowork-observation-body";
     const text = document.createElement("p");
-    text.textContent = coworkObservationSummary(observation) || "No summary.";
+    text.textContent = coworkObservationSummary(observation) || t("cowork.noSummary");
     body.append(text);
     if (observation.observation_kind === "tool" && observation.parameter_summary && Object.keys(observation.parameter_summary).length) {
       const pre = document.createElement("pre");
@@ -2581,7 +2593,7 @@ function renderCoworkTraceObservations(observations) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "button button-small";
-      button.textContent = "Load detail";
+      button.textContent = t("cowork.loadDetail");
       const target = document.createElement("div");
       target.className = "cowork-observation-detail";
       button.addEventListener("click", (event) => {
@@ -2867,7 +2879,7 @@ function renderCoworkAgentFieldPopover(session, selectedNode) {
 
   const field = coworkAgentFieldItems(session, agentId);
   const mailboxState = coworkAgentMailboxState(session, agentId);
-  const currentFocus = agent.current_task_title || agent.goal || selectedNode.detail || "Standing by";
+  const currentFocus = agent.current_task_title || agent.goal || selectedNode.detail || t("cowork.standingBy");
   const section = (title, items, renderItem, emptyText) => `
     <section class="cowork-agent-field-section">
       <h5>${escapeHtml(title)}</h5>
@@ -2879,50 +2891,50 @@ function renderCoworkAgentFieldPopover(session, selectedNode) {
   popover.innerHTML = `
     <div class="cowork-agent-field-head">
       <div>
-        <span class="cowork-kicker">Agent field</span>
+        <span class="cowork-kicker">${escapeHtml(t("cowork.agentField"))}</span>
         <h4>${escapeHtml(agent.name || agent.id)}</h4>
         <p>${escapeHtml(agent.role || "Agent")}</p>
       </div>
       <span class="${coworkStatusClass(agent.status)}">${escapeHtml(agent.status || "idle")}</span>
     </div>
     <div class="cowork-agent-field-focus">
-      <strong>Current focus</strong>
+      <strong>${escapeHtml(t("cowork.currentFocus"))}</strong>
       <p>${escapeHtml(compactText(currentFocus, 180))}</p>
     </div>
     <div class="cowork-agent-field-stats">
-      <span>Inbox ${agent.inbox_count || 0}</span>
-      <span>Pending ${field.pending.length}</span>
-      <span>Rounds ${agent.rounds || 0}</span>
-      ${mailboxState.waitingOn ? `<span>Waiting on ${escapeHtml(mailboxState.waitingOn)}</span>` : ""}
+      <span>${escapeHtml(formatMessage("cowork.inboxCount", { count: agent.inbox_count || 0 }))}</span>
+      <span>${escapeHtml(formatMessage("cowork.pendingCount", { count: field.pending.length }))}</span>
+      <span>${escapeHtml(formatMessage("cowork.roundsCount", { count: agent.rounds || 0 }))}</span>
+      ${mailboxState.waitingOn ? `<span>${escapeHtml(formatMessage("cowork.waitingOn", { value: mailboxState.waitingOn }))}</span>` : ""}
     </div>
-    ${section("Needs attention", field.pending, (record) => `
+    ${section(t("runChain.needsAttention"), field.pending, (record) => `
       <article class="cowork-agent-field-item urgent">
         <strong class="cowork-agent-field-route">${escapeHtml(record.sender_id || "sender")} <span aria-hidden="true">-></span> ${escapeHtml((record.recipient_ids || []).join(", ") || agentId)}</strong>
         <p>${escapeHtml(compactText(record.content || "", 150))}</p>
         <small>${escapeHtml([record.request_type || "reply", record.status || "delivered", record.updated_at || record.created_at || ""].filter(Boolean).join(" - "))}</small>
       </article>
-    `, "No pending replies.")}
-    ${section("Inbox", field.inbox, (record) => `
+    `, t("cowork.noPendingReplies"))}
+    ${section(t("cowork.inbox"), field.inbox, (record) => `
       <article class="cowork-agent-field-item">
         <strong class="cowork-agent-field-route">${escapeHtml(record.sender_id || "sender")} <span aria-hidden="true">-></span> ${escapeHtml((record.recipient_ids || []).join(", ") || agentId)}</strong>
         <p>${escapeHtml(compactText(record.content || "", 150))}</p>
         <small>${escapeHtml([record.kind || "message", record.status || "queued", record.created_at || ""].filter(Boolean).join(" - "))}</small>
       </article>
-    `, "No inbox items.")}
-    ${section("Sent", field.sent, (record) => `
+    `, t("cowork.noInboxItems"))}
+    ${section(t("cowork.sent"), field.sent, (record) => `
       <article class="cowork-agent-field-item">
         <strong class="cowork-agent-field-route">${escapeHtml(record.sender_id || agentId)} <span aria-hidden="true">-></span> ${escapeHtml((record.recipient_ids || []).join(", ") || "team")}</strong>
         <p>${escapeHtml(compactText(record.content || "", 150))}</p>
         <small>${escapeHtml([record.kind || "message", record.status || "queued", record.created_at || ""].filter(Boolean).join(" - "))}</small>
       </article>
-    `, "No sent mailbox items.")}
-    ${section("Recent dialog", field.messages, (message) => `
+    `, t("cowork.noSentMailboxItems"))}
+    ${section(t("cowork.recentDialog"), field.messages, (message) => `
       <article class="cowork-agent-field-item">
         <strong>${escapeHtml(message.sender_id || "sender")} -> ${escapeHtml((message.recipient_ids || []).join(", ") || "team")}</strong>
         <p>${escapeHtml(compactText(message.content || "", 150))}</p>
         <small>${escapeHtml(message.created_at || "")}</small>
       </article>
-    `, "No dialog yet.")}
+    `, t("cowork.noDialogYet"))}
   `;
 }
 
@@ -3159,11 +3171,11 @@ function renderCoworkGraph(session) {
   renderCoworkFieldOverlay(session);
   if (!nodes.length) {
     const empty = coworkGraphCreateSvg("text", { x: 600, y: 310, "text-anchor": "middle", class: "cowork-graph-empty-text" });
-    empty.textContent = "No cowork session selected";
+    empty.textContent = t("cowork.noSessionSelected");
     svg.append(empty);
     renderCoworkAgentFieldPopover(null, null);
     if (elements.coworkGraphInspector) {
-      elements.coworkGraphInspector.textContent = "Select or start a session.";
+      elements.coworkGraphInspector.textContent = t("cowork.selectOrStartSentence");
     }
     return;
   }
@@ -3199,8 +3211,8 @@ function renderCoworkGraph(session) {
       y: Math.max(90, minY + 48),
       class: "cowork-graph-peer-meta",
     });
-    peerTitle.textContent = "Peer Collaboration Zone";
-    peerMeta.textContent = "Agents coordinate here; handoff and mailbox edges appear as the run evolves.";
+    peerTitle.textContent = t("cowork.peerZone");
+    peerMeta.textContent = t("cowork.peerZoneDesc");
     peerGroup.append(peerRect, peerTitle, peerMeta);
     viewport.append(peerGroup);
   }
@@ -3444,13 +3456,13 @@ function renderCoworkSessions() {
   }
   if (state.coworkLoading) {
     for (const list of lists) {
-      list.append(coworkEmpty("Loading sessions..."));
+      list.append(coworkEmpty(t("cowork.loadingSessions")));
     }
     return;
   }
   if (!state.coworkSessions.length) {
     for (const list of lists) {
-      list.append(coworkEmpty("No cowork sessions."));
+      list.append(coworkEmpty(t("cowork.noSessions")));
     }
     return;
   }
@@ -3567,7 +3579,7 @@ function renderCoworkBranchResults(session) {
     elements.coworkBranchMergeButton.disabled = results.length < 2 || Boolean(state.coworkPendingAction);
   }
   if (!results.length) {
-    list.append(coworkEmpty("No completed branch results yet."));
+    list.append(coworkEmpty(t("cowork.noCompletedBranchResults")));
     return;
   }
   const branches = new Map(coworkArray(session?.branches).map((branch) => [branch.id, branch]));
@@ -3818,22 +3830,22 @@ function renderCoworkFocusStrip(session) {
   setCoworkFocusText(
     elements.coworkFocusProgressDetail,
     [
-      units.length ? "work units" : "tasks",
-      blocked ? `${blocked} blocked` : "",
-      queues.ready ? `${queues.ready} ready` : "",
-    ].filter(Boolean).join(" - ") || "No queued work",
+      units.length ? t("cowork.workUnits") : t("cowork.tasks"),
+      blocked ? formatMessage("cowork.blockedCount", { count: blocked }) : "",
+      queues.ready ? formatMessage("cowork.readyCount", { count: queues.ready }) : "",
+    ].filter(Boolean).join(" - ") || t("cowork.noQueuedWork"),
   );
   setCoworkFocusText(elements.coworkFocusRunning, activeAgents.length ? String(activeAgents.length) : String(running || 0));
   setCoworkFocusText(
     elements.coworkFocusRunningDetail,
     activeAgents.length
       ? activeAgents.map((agent) => agent.name || agent.id).slice(0, 3).join(", ")
-      : (running ? `${running} work item(s)` : "No active agents"),
+      : (running ? formatMessage("cowork.workItemsCount", { count: running }) : t("cowork.noActiveAgents")),
   );
   setCoworkFocusText(elements.coworkFocusNext, compactText(nextAction, 26));
   setCoworkFocusText(elements.coworkFocusNextDetail, compactText(decision.reason || session.current_focus_task || session.goal || "", 92));
-  setCoworkFocusText(elements.coworkFocusOutput, finalDraft ? "Ready" : (artifactCount ? `${artifactCount} artifact(s)` : "Pending"));
-  setCoworkFocusText(elements.coworkFocusOutputDetail, finalDraft ? compactText(finalDraft, 92) : (artifactCount ? "Artifacts available" : "No final draft yet"));
+  setCoworkFocusText(elements.coworkFocusOutput, finalDraft ? t("status.available") : (artifactCount ? formatMessage("cowork.artifactsCount", { count: artifactCount }) : t("status.pending")));
+  setCoworkFocusText(elements.coworkFocusOutputDetail, finalDraft ? compactText(finalDraft, 92) : (artifactCount ? t("cowork.artifactsAvailable") : t("cowork.noFinalDraft")));
 }
 
 function renderCoworkRunMetrics(session) {
@@ -3843,17 +3855,17 @@ function renderCoworkRunMetrics(session) {
   const budget = session?.budget_state || session?.budget || {};
   const usage = budget.usage || {};
   const limits = budget.limits || {};
-  appendCoworkMetric(elements.coworkRunMetrics, usage.rounds ?? session?.rounds ?? latest?.rounds ?? 0, "Rounds");
-  appendCoworkMetric(elements.coworkRunMetrics, usage.agent_calls ?? latest?.agent_calls ?? 0, "Agent calls");
-  appendCoworkMetric(elements.coworkRunMetrics, latest?.tasks_completed || (session?.tasks || []).filter((task) => task.status === "completed").length, "Done");
-  appendCoworkMetric(elements.coworkRunMetrics, session?.stop_reason || latest?.stop_reason || latest?.status || session?.status || "idle", "Stop");
-  appendCoworkMetric(elements.coworkRunMetrics, limits.parallel_width ?? "-", "Width");
+  appendCoworkMetric(elements.coworkRunMetrics, usage.rounds ?? session?.rounds ?? latest?.rounds ?? 0, t("cowork.rounds"));
+  appendCoworkMetric(elements.coworkRunMetrics, usage.agent_calls ?? latest?.agent_calls ?? 0, t("cowork.agentCalls"));
+  appendCoworkMetric(elements.coworkRunMetrics, latest?.tasks_completed || (session?.tasks || []).filter((task) => task.status === "completed").length, t("cowork.done"));
+  appendCoworkMetric(elements.coworkRunMetrics, session?.stop_reason || latest?.stop_reason || latest?.status || session?.status || "idle", t("cowork.stop"));
+  appendCoworkMetric(elements.coworkRunMetrics, limits.parallel_width ?? "-", t("cowork.width"));
   const decision = [...(session?.scheduler_decisions || [])].pop();
   if (elements.coworkSchedulerSummary) {
     const selected = decision?.selected_agent_ids?.length ? ` -> ${decision.selected_agent_ids.join(", ")}` : "";
     elements.coworkSchedulerSummary.textContent = decision
-      ? compactText(`${decision.reason || "Scheduler decision"}${selected}`, 96)
-      : "No decisions";
+      ? compactText(`${decision.reason || t("cowork.schedulerDecision")}${selected}`, 96)
+      : t("cowork.noDecisions");
   }
 }
 
@@ -3865,11 +3877,11 @@ function renderCoworkArchitectureProjection(session) {
   const sections = Array.isArray(projection.sections) ? projection.sections : [];
   if (elements.coworkArchitectureProjectionSummary) {
     elements.coworkArchitectureProjectionSummary.textContent = projection.architecture
-      ? `${coworkArchitectureLabel(projection.architecture)} / ${sections.length} section(s)`
-      : "No projection";
+      ? `${coworkArchitectureLabel(projection.architecture)} / ${formatMessage("cowork.sectionsCount", { count: sections.length })}`
+      : t("cowork.noProjection");
   }
   if (!sections.length) {
-    list.append(coworkEmpty("No architecture projection for this session."));
+    list.append(coworkEmpty(t("cowork.noArchitectureProjection")));
     return;
   }
   for (const section of sections) {
@@ -3884,9 +3896,9 @@ function renderCoworkArchitectureProjection(session) {
       <p></p>
       <small></small>
     `;
-    card.querySelector("strong").textContent = section.title || section.id || "Projection";
+    card.querySelector("strong").textContent = section.title || section.id || t("cowork.projection");
     card.querySelector("span").className = coworkStatusClass(items.length ? "active" : "pending");
-    card.querySelector("span").textContent = `${items.length} item(s)`;
+    card.querySelector("span").textContent = formatMessage("runChain.itemsCount", { count: items.length });
     card.querySelector("p").textContent = compactText(JSON.stringify(items.slice(0, 3), null, 2), 240);
     card.querySelector("small").textContent = [
       section.id || "",
@@ -3904,11 +3916,11 @@ function renderCoworkSwarmPlan(session) {
   const units = Array.isArray(plan.work_units) ? plan.work_units : [];
   if (elements.coworkSwarmPlanSummary) {
     elements.coworkSwarmPlanSummary.textContent = plan.id
-      ? `${plan.status || "active"} / ${units.length} units`
-      : "No plan";
+      ? `${plan.status || "active"} / ${formatMessage("cowork.unitsCount", { count: units.length })}`
+      : t("cowork.noPlan");
   }
   if (!plan.id) {
-    panel.append(coworkEmpty("No swarm plan for this session."));
+    panel.append(coworkEmpty(t("cowork.noSwarmPlan")));
     return;
   }
   const budget = session?.budget_state || session?.budget || {};
@@ -3933,11 +3945,11 @@ function renderCoworkSwarmPlan(session) {
   card.querySelector("span").textContent = plan.status || "active";
   card.querySelector("p").textContent = compactText(plan.goal || session?.goal || "", 180);
   card.querySelector("small").textContent = [
-    limits.parallel_width !== undefined ? `width ${limits.parallel_width}` : "",
-    limits.max_work_units !== undefined ? `units ${units.length}/${limits.max_work_units}` : `${units.length} units`,
-    queues.counts ? `ready ${queues.counts.ready || 0} / running ${queues.counts.running || 0}` : "",
-    organization.grouped_counts ? `${organization.grouped_counts.workstreams || 0} streams` : "",
-    usage.agent_calls !== undefined ? `calls ${usage.agent_calls}` : "",
+    limits.parallel_width !== undefined ? formatMessage("cowork.widthValue", { value: limits.parallel_width }) : "",
+    limits.max_work_units !== undefined ? formatMessage("cowork.unitsProgress", { count: units.length, total: limits.max_work_units }) : formatMessage("cowork.unitsCount", { count: units.length }),
+    queues.counts ? `${formatMessage("cowork.readyCount", { count: queues.counts.ready || 0 })} / ${formatMessage("cowork.runningCount", { count: queues.counts.running || 0 })}` : "",
+    organization.grouped_counts ? formatMessage("cowork.streamsCount", { count: organization.grouped_counts.workstreams || 0 }) : "",
+    usage.agent_calls !== undefined ? formatMessage("cowork.callsCount", { count: usage.agent_calls }) : "",
     session?.stop_reason || "",
   ].filter(Boolean).join(" - ");
   panel.append(card);
@@ -3952,25 +3964,25 @@ function renderCoworkSwarmPlan(session) {
       <p></p>
       <small></small>
     `;
-    queueCard.querySelector("strong").textContent = organization.schema_version ? "Swarm organization" : "Scheduler queues";
+    queueCard.querySelector("strong").textContent = organization.schema_version ? t("cowork.swarmOrganization") : t("cowork.schedulerQueues");
     queueCard.querySelector("span").className = coworkStatusClass(queues.available_slots ? "ready" : "pending");
-    queueCard.querySelector("span").textContent = `${queues.available_slots ?? 0} slots`;
+    queueCard.querySelector("span").textContent = formatMessage("cowork.slotsCount", { count: queues.available_slots ?? 0 });
     const counts = queues.counts || {};
     queueCard.querySelector("p").textContent = [
-      `ready ${counts.ready || 0}`,
-      `blocked ${counts.blocked || 0}`,
-      `retry ${counts.failed_retry || 0}`,
-      `done ${counts.completed || 0}`,
+      formatMessage("cowork.readyCount", { count: counts.ready || 0 }),
+      formatMessage("cowork.blockedCount", { count: counts.blocked || 0 }),
+      formatMessage("cowork.retryCount", { count: counts.failed_retry || 0 }),
+      formatMessage("cowork.doneCount", { count: counts.completed || 0 }),
     ].join(" - ");
     const gates = organization.gates || {};
     queueCard.querySelector("small").textContent = organization.schema_version
       ? [
-        `reducer ${gates.reducer?.status || "not_ready"}`,
-        `reviewer ${gates.reviewer?.status || "not_ready"}`,
-        `eff ${metrics.parallel_efficiency ?? "-"}`,
-        `coverage ${metrics.reducer_coverage ?? "-"}`,
+        formatMessage("cowork.reducerStatus", { status: gates.reducer?.status || "not_ready" }),
+        formatMessage("cowork.reviewerStatus", { status: gates.reviewer?.status || "not_ready" }),
+        formatMessage("cowork.efficiencyValue", { value: metrics.parallel_efficiency ?? "-" }),
+        formatMessage("cowork.coverageValue", { value: metrics.reducer_coverage ?? "-" }),
       ].join(" - ")
-      : "Dependency-aware queues survive refresh and replay.";
+      : t("cowork.queueReplayHint");
     panel.append(queueCard);
   }
 }
@@ -3994,10 +4006,10 @@ function renderCoworkWorkUnits(session) {
   if (elements.coworkWorkUnitSummary) {
     elements.coworkWorkUnitSummary.textContent = units.length
       ? Object.entries(counts).map(([status, count]) => `${status} ${count}`).join(" / ")
-      : "No units";
+      : t("cowork.noUnits");
   }
   if (!units.length) {
-    list.append(coworkEmpty("No swarm work units yet."));
+    list.append(coworkEmpty(t("cowork.noSwarmWorkUnits")));
     return;
   }
   const consoleQuery = String(state.coworkConsoleFilter || "").trim();
@@ -4014,15 +4026,15 @@ function renderCoworkWorkUnits(session) {
         <p></p>
         <small></small>
       `;
-      item.querySelector("strong").textContent = group.title || group.id || "workstream";
+      item.querySelector("strong").textContent = group.title || group.id || t("cowork.workstream");
       item.querySelector("span").className = coworkStatusClass(group.status || "active");
-      item.querySelector("span").textContent = `${Object.values(group.unit_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0)} units`;
+      item.querySelector("span").textContent = formatMessage("cowork.unitsCount", { count: Object.values(group.unit_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0) });
       item.querySelector("p").textContent = Object.entries(group.unit_counts || {}).map(([status, count]) => `${status} ${count}`).join(" - ");
       item.querySelector("small").textContent = [
-        group.agent_ids?.length ? `agents ${group.agent_ids.join(", ")}` : "",
-        group.coverage !== undefined ? `coverage ${Math.round(Number(group.coverage || 0) * 100)}%` : "",
-        group.risk ? `risk ${group.risk}` : "",
-        group.blockers?.length ? `${group.blockers.length} blockers` : "",
+        group.agent_ids?.length ? formatMessage("cowork.agentsValue", { value: group.agent_ids.join(", ") }) : "",
+        group.coverage !== undefined ? formatMessage("cowork.coverageValue", { value: `${Math.round(Number(group.coverage || 0) * 100)}%` }) : "",
+        group.risk ? formatMessage("cowork.riskValue", { value: group.risk }) : "",
+        group.blockers?.length ? formatMessage("cowork.blockersCount", { count: group.blockers.length }) : "",
       ].filter(Boolean).join(" - ");
       list.append(item);
     }
@@ -4048,10 +4060,10 @@ function renderCoworkWorkUnits(session) {
     item.querySelector("span").textContent = unit.kind ? `${unit.kind}:${unit.status || "pending"}` : (unit.status || "pending");
     item.querySelector("p").textContent = compactText(unit.result?.answer || unit.error || unit.description || "", 180);
     item.querySelector("small").textContent = [
-      unit.assigned_agent_id ? `Agent ${unit.assigned_agent_id}` : "",
-      `Stream ${coworkWorkUnitWorkstream(unit)}`,
-      unit.dependencies?.length ? `Deps ${unit.dependencies.join(", ")}` : "",
-      unit.confidence !== null && unit.confidence !== undefined ? `Confidence ${Math.round(Number(unit.confidence) * 100)}%` : "",
+      unit.assigned_agent_id ? formatMessage("cowork.agentValue", { value: unit.assigned_agent_id }) : "",
+      formatMessage("cowork.streamValue", { value: coworkWorkUnitWorkstream(unit) }),
+      unit.dependencies?.length ? formatMessage("cowork.depsValue", { value: unit.dependencies.join(", ") }) : "",
+      unit.confidence !== null && unit.confidence !== undefined ? formatMessage("cowork.confidenceValue", { value: `${Math.round(Number(unit.confidence) * 100)}%` }) : "",
       unit.replan_reason || "",
     ].filter(Boolean).join(" - ");
     const actions = item.querySelector(".cowork-card-actions");
@@ -4059,7 +4071,7 @@ function renderCoworkWorkUnits(session) {
       const retry = document.createElement("button");
       retry.type = "button";
       retry.className = "button button-small";
-      retry.textContent = "Retry";
+      retry.textContent = t("cowork.retry");
       retry.disabled = Boolean(state.coworkPendingAction);
       retry.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -4071,7 +4083,7 @@ function renderCoworkWorkUnits(session) {
       const skip = document.createElement("button");
       skip.type = "button";
       skip.className = "button button-small";
-      skip.textContent = "Skip";
+      skip.textContent = t("cowork.skip");
       skip.disabled = Boolean(state.coworkPendingAction);
       skip.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -4083,7 +4095,7 @@ function renderCoworkWorkUnits(session) {
       const cancel = document.createElement("button");
       cancel.type = "button";
       cancel.className = "button button-small";
-      cancel.textContent = "Cancel";
+      cancel.textContent = t("cowork.cancel");
       cancel.disabled = Boolean(state.coworkPendingAction);
       cancel.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -4107,7 +4119,7 @@ function renderCoworkEvaluations(session) {
       : "No evals";
   }
   if (!evaluations.length) {
-    list.append(coworkEmpty("No evaluation results yet."));
+    list.append(coworkEmpty(t("cowork.noEvaluationResults")));
     return;
   }
   for (const evaluation of evaluations.slice(-12).reverse()) {
@@ -4189,7 +4201,7 @@ function renderCoworkTaskDag(session) {
     elements.coworkDagSummary.textContent = nodes.length ? `${nodes.length} nodes / ${edges.length} edges` : "No graph";
   }
   if (!taskNodes.length) {
-    list.append(coworkEmpty("No DAG nodes yet."));
+    list.append(coworkEmpty(t("cowork.noDagNodes")));
     return;
   }
   for (const node of taskNodes) {
@@ -4234,7 +4246,7 @@ function renderCoworkTraceSpans(session) {
     }
   }
   if (!view.items.length) {
-    list.append(coworkEmpty("No trace events yet."));
+    list.append(coworkEmpty(t("cowork.noTraceEvents")));
     return;
   }
   if (view.mode === "detail") {
@@ -4257,7 +4269,7 @@ function renderCoworkTraceSpans(session) {
         const details = document.createElement("details");
         const summary = document.createElement("summary");
         const pre = document.createElement("pre");
-        summary.textContent = "Payload";
+        summary.textContent = t("cowork.payload");
         pre.textContent = step.payloadText;
         details.append(summary, pre);
         item.append(details);
@@ -4334,7 +4346,7 @@ function renderCoworkArtifacts(session) {
     elements.coworkArtifactSummary.textContent = artifacts.length ? `${artifacts.length} linked` : "No artifacts";
   }
   if (!artifacts.length) {
-    list.append(coworkEmpty("No linked artifacts yet."));
+    list.append(coworkEmpty(t("cowork.noLinkedArtifacts")));
   } else {
     for (const artifact of artifacts.slice(-20).reverse()) {
       const id = coworkSelectionId("artifact", artifact);
@@ -4402,7 +4414,7 @@ function renderCoworkSecondaryPanels() {
     const expanded = !state.coworkGraphCollapsed;
     elements.coworkMapButton.classList.toggle("active", expanded);
     elements.coworkMapButton.setAttribute("aria-pressed", expanded ? "true" : "false");
-    elements.coworkMapButton.textContent = expanded ? "Hide map" : "Map";
+    elements.coworkMapButton.textContent = expanded ? t("cowork.hideMap") : t("cowork.map");
   }
 }
 
@@ -4437,7 +4449,7 @@ function renderCoworkSelectedInspector(session) {
     elements.coworkInspectorKind.textContent = item ? type : "Nothing selected";
   }
   if (!item) {
-    elements.coworkSelectedInspector.append(coworkEmpty("Select a task, work unit, agent, trace span, artifact, or mailbox record."));
+    elements.coworkSelectedInspector.append(coworkEmpty(t("cowork.selectInspectable")));
     updateCoworkTaskActionControls(null);
     return;
   }
@@ -4455,7 +4467,7 @@ function renderCoworkSelectedInspector(session) {
   if (item.data || item.result_data || item.payload) {
     const details = document.createElement("details");
     const summary = document.createElement("summary");
-    summary.textContent = "Payload";
+    summary.textContent = t("cowork.payload");
     const pre = document.createElement("pre");
     pre.textContent = JSON.stringify(item.data || item.result_data || item.payload, null, 2);
     details.append(summary, pre);
@@ -4493,7 +4505,7 @@ function renderCoworkDetail() {
     elements.coworkConsoleFilter.value = state.coworkConsoleFilter || "";
   }
   if (elements.coworkActiveTitle) {
-    elements.coworkActiveTitle.textContent = hasSession ? session.title : "Select or start a session";
+  elements.coworkActiveTitle.textContent = hasSession ? session.title : t("cowork.selectOrStart");
   }
   if (elements.coworkActiveGoal) {
     elements.coworkActiveGoal.textContent = hasSession ? session.goal : "";
@@ -4671,7 +4683,7 @@ function appendCoworkStatusActivity(feed, session, threads) {
     .slice(-36);
   const section = coworkStatusFeedSection("Activity");
   if (!items.length) {
-    section.append(coworkEmpty("No activity yet."));
+    section.append(coworkEmpty(t("cowork.noActivity")));
     feed.append(section);
     return;
   }
@@ -4716,7 +4728,7 @@ function renderCoworkStatusFeed(session, threads = []) {
   const feed = elements.coworkStatusFeed;
   feed.textContent = "";
   if (!session) {
-    feed.append(coworkEmpty("Select or start a session."));
+    feed.append(coworkEmpty(t("cowork.selectOrStartSentence")));
     return;
   }
 
@@ -4738,7 +4750,7 @@ function renderCoworkStatusFeed(session, threads = []) {
   }));
   if ((session.final_draft || "").trim()) {
     overview.append(coworkStatusBubble({
-      title: "Final draft",
+      title: t("cowork.finalDraft"),
       status: "completed",
       body: compactText(session.final_draft, 420),
       meta: "Session output",
@@ -4750,7 +4762,7 @@ function renderCoworkStatusFeed(session, threads = []) {
   const agentSection = coworkStatusFeedSection("Agents");
   const agents = session.agents || [];
   if (!agents.length) {
-    agentSection.append(coworkEmpty("No agents."));
+    agentSection.append(coworkEmpty(t("cowork.noAgentsSentence")));
   } else {
     for (const agent of agents) {
       const mailboxState = coworkAgentMailboxState(session, agent.id);
@@ -4775,7 +4787,7 @@ function renderCoworkStatusFeed(session, threads = []) {
   const taskSection = coworkStatusFeedSection("Tasks");
   const tasks = [...(session.tasks || [])].slice(-12);
   if (!tasks.length) {
-    taskSection.append(coworkEmpty("No tasks."));
+    taskSection.append(coworkEmpty(t("cowork.noTasks")));
   } else {
     for (const task of tasks) {
       taskSection.append(coworkStatusBubble({
@@ -4800,7 +4812,7 @@ function renderCoworkStatusFeed(session, threads = []) {
     .sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))
     .slice(0, 10);
   if (!records.length) {
-    mailboxSection.append(coworkEmpty("No mailbox records."));
+    mailboxSection.append(coworkEmpty(t("cowork.noMailboxRecords")));
   } else {
     for (const record of records) {
       mailboxSection.append(coworkStatusBubble({
@@ -4823,7 +4835,7 @@ function renderCoworkStatusFeed(session, threads = []) {
 
   const topicSection = coworkStatusFeedSection("Topics");
   if (!threads.length) {
-    topicSection.append(coworkEmpty("No topics."));
+    topicSection.append(coworkEmpty(t("cowork.noTopics")));
   } else {
     for (const thread of threads) {
       const item = coworkStatusBubble({
@@ -4862,7 +4874,7 @@ function renderCoworkAgents(session) {
   }
   elements.coworkAgentList.textContent = "";
   if (!agents.length) {
-    elements.coworkAgentList.append(coworkEmpty("No agents."));
+    elements.coworkAgentList.append(coworkEmpty(t("cowork.noAgentsSentence")));
     return;
   }
   for (const agent of agents) {
@@ -4894,14 +4906,14 @@ function renderCoworkMailbox(session) {
   if (!elements.coworkMailboxList) return;
   elements.coworkMailboxList.textContent = "";
   if (!session) {
-    elements.coworkMailboxList.append(coworkEmpty("No mailbox."));
+    elements.coworkMailboxList.append(coworkEmpty(t("cowork.noMailbox")));
     return;
   }
   const records = [...(session.mailbox || [])]
     .sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))
     .slice(0, 16);
   if (!records.length) {
-    elements.coworkMailboxList.append(coworkEmpty("No mailbox records."));
+    elements.coworkMailboxList.append(coworkEmpty(t("cowork.noMailboxRecords")));
     return;
   }
   for (const record of records) {
@@ -4934,7 +4946,7 @@ function renderCoworkTasks(tasks) {
   elements.coworkTaskList.textContent = "";
   tasks = tasks.filter((task) => coworkMatchesConsoleFilter(task, ["assigned_agent_id", "description", "result", "result_data", "dependencies"]));
   if (!tasks.length) {
-    elements.coworkTaskList.append(coworkEmpty("No tasks."));
+    elements.coworkTaskList.append(coworkEmpty(t("cowork.noTasks")));
     return;
   }
   const groups = [
@@ -4981,7 +4993,7 @@ function renderCoworkThreads(threads) {
   if (!elements.coworkThreadList) return;
   elements.coworkThreadList.textContent = "";
   if (!threads.length) {
-    elements.coworkThreadList.append(coworkEmpty("No topics."));
+    elements.coworkThreadList.append(coworkEmpty(t("cowork.noTopics")));
     return;
   }
   for (const thread of threads) {
@@ -5021,7 +5033,7 @@ function renderCoworkTimeline(session) {
   if (!elements.coworkMessageList) return;
   elements.coworkMessageList.textContent = "";
   if (!session) {
-    elements.coworkMessageList.append(coworkEmpty("Select or start a session."));
+    elements.coworkMessageList.append(coworkEmpty(t("cowork.selectOrStartSentence")));
     return;
   }
   const conversationView = coworkConversationViewModel(session);
@@ -5040,13 +5052,13 @@ function renderCoworkTimeline(session) {
     const title = document.createElement("strong");
     const body = document.createElement("div");
     body.className = "cowork-chat-body";
-    title.textContent = "Session Output";
+    title.textContent = t("cowork.sessionOutput");
     renderCoworkMessageBody(body, compactText(conversationView.finalDraft, 1800));
     output.append(title, body);
     elements.coworkMessageList.append(output);
   }
   if (!conversationView.items.length) {
-    elements.coworkMessageList.append(coworkEmpty("No team activity yet."));
+    elements.coworkMessageList.append(coworkEmpty(t("cowork.noTeamActivity")));
     return;
   }
   for (const itemData of conversationView.items) {
@@ -5106,7 +5118,7 @@ function renderCoworkTimeline(session) {
     .sort((a, b) => String(a.at).localeCompare(String(b.at)))
     .slice(-80);
   if (!items.length) {
-    elements.coworkMessageList.append(coworkEmpty("No team activity yet."));
+    elements.coworkMessageList.append(coworkEmpty(t("cowork.noTeamActivity")));
     return;
   }
   for (const itemData of items) {
@@ -5155,7 +5167,7 @@ function renderCoworkEvents(events) {
   elements.coworkEventList.textContent = "";
   const recent = [...events].slice(-12).reverse();
   if (!recent.length) {
-    elements.coworkEventList.append(coworkEmpty("No events."));
+    elements.coworkEventList.append(coworkEmpty(t("cowork.noEvents")));
     return;
   }
   for (const event of recent) {
@@ -5305,7 +5317,7 @@ function coworkBlueprintPayload() {
 async function validateCoworkBlueprint({ preview = false } = {}) {
   const blueprint = coworkBlueprintPayload();
   if (!blueprint) {
-    if (elements.coworkBlueprintStatus) elements.coworkBlueprintStatus.textContent = "No blueprint JSON";
+    if (elements.coworkBlueprintStatus) elements.coworkBlueprintStatus.textContent = t("cowork.noBlueprintJson");
     return null;
   }
   const response = await fetch(`${state.coworkApiPath}/blueprints/${preview ? "preview" : "validate"}`, {
@@ -6487,7 +6499,7 @@ function ensureGlobalKnowledgeToast() {
   toast.innerHTML = `
     <div class="global-knowledge-spinner" aria-hidden="true"></div>
     <div class="global-knowledge-copy">
-      <div id="global-knowledge-toast-title" class="global-knowledge-title">Building knowledge graph</div>
+      <div id="global-knowledge-toast-title" class="global-knowledge-title">${escapeHtml(t("knowledge.indexingTitle"))}</div>
       <div id="global-knowledge-toast-desc" class="global-knowledge-desc"></div>
       <div class="global-knowledge-progress" aria-hidden="true">
         <div id="global-knowledge-progress-bar" class="global-knowledge-progress-bar"></div>

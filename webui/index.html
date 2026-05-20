@@ -26,7 +26,7 @@
   <div class="shell">
     <!-- 左侧边栏：会话列表 + 系统状态 -->
     <aside class="sidebar">
-      <button id="sidebar-collapse-button" class="button button-icon sidebar-collapse-button" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">
+      <button id="sidebar-collapse-button" class="button button-icon sidebar-collapse-button" type="button" data-i18n-aria-label="a11y.collapseSidebar" data-i18n-title="a11y.collapseSidebar" aria-label="Collapse sidebar" title="Collapse sidebar">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M15 18l-6-6 6-6"/>
         </svg>
@@ -57,44 +57,44 @@
 
 
 
-      <section class="sidebar-feature-panel" aria-label="Workspace navigation">
-        <p class="sidebar-nav-label">Control</p>
+      <section class="sidebar-feature-panel" data-i18n-aria-label="a11y.workspaceNavigation" aria-label="Workspace navigation">
+        <p class="sidebar-nav-label" data-i18n="sidebar.control">Control</p>
         <section class="tools-panel compact-panel">
           <header class="section-header clickable" id="tools-toggle" tabindex="0" role="button" aria-expanded="false">
-            <h2>TOOLS</h2>
+            <h2 data-i18n="ui.tools">AI capabilities</h2>
             <span id="tools-count" class="compact-stats" aria-hidden="true">0</span>
           </header>
         </section>
         <section class="knowledge-panel compact-panel">
           <header class="section-header clickable" id="knowledge-toggle" tabindex="0" role="button" aria-expanded="false">
-            <h2>RAG</h2>
+            <h2 data-i18n="knowledge.documents">Documents</h2>
             <span class="compact-stats" aria-hidden="true"><span id="stats-docs">0</span><span id="stats-chunks">0</span></span>
           </header>
         </section>
         <section class="skills-panel compact-panel">
           <header class="section-header clickable" id="skills-toggle" tabindex="0" role="button" aria-expanded="false">
-            <h2>SKILLS</h2>
+            <h2 data-i18n="ui.skills">AI behavior templates</h2>
             <span class="compact-stats" aria-hidden="true"><span id="skills-count">0</span><span id="skills-enabled-count">0</span></span>
           </header>
         </section>
         <section class="workspace-panel compact-panel">
           <header class="section-header clickable" id="workspace-toggle" tabindex="0" role="button" aria-expanded="false">
-            <h2>WORKSPACE</h2>
+            <h2 data-i18n="ui.workspace">Workspace</h2>
             <span class="compact-file" id="current-file-name" aria-hidden="true">-</span>
           </header>
         </section>
-        <p class="sidebar-nav-label">Automation</p>
+        <p class="sidebar-nav-label" data-i18n="sidebar.automation">Automation</p>
         <section class="cowork-panel compact-panel">
           <header class="section-header clickable" id="cowork-toggle" tabindex="0" role="button" aria-expanded="false">
-            <h2>COWORK</h2>
+            <h2 data-i18n="cowork.title">Cowork</h2>
             <span id="cowork-session-count" class="compact-stats" aria-hidden="true">0</span>
           </header>
           <div id="cowork-sidebar-session-list" class="cowork-sidebar-session-list"></div>
         </section>
         <section class="browser-panel compact-panel" id="browser-panel" hidden aria-hidden="true">
           <header class="section-header">
-            <h2>BROWSER</h2>
-            <button id="browser-panel-toggle" class="button button-icon browser-panel-button" type="button" aria-label="Collapse browser view" title="Collapse browser view">
+            <h2 data-i18n="browser.title">Browser</h2>
+            <button id="browser-panel-toggle" class="button button-icon browser-panel-button" type="button" data-i18n-aria-label="browser.collapseView" data-i18n-title="browser.collapseView" aria-label="Collapse browser view" title="Collapse browser view">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M6 9l6 6 6-6"/>
               </svg>
@@ -102,21 +102,21 @@
           </header>
           <div class="browser-frame-wrap" id="browser-frame-wrap">
             <div class="browser-frame-empty" id="browser-frame-empty">
-              <span>Browser</span>
-              <small>Idle</small>
+              <span data-i18n="browser.title">Browser</span>
+              <small data-i18n="browser.idle">Idle</small>
             </div>
             <img id="browser-frame-image" class="browser-frame-image" alt="Browser view" hidden>
           </div>
           <div class="browser-frame-meta">
-            <span id="browser-frame-status">Waiting for browser activity</span>
+            <span id="browser-frame-status" data-i18n="browser.waiting">Waiting for browser activity</span>
             <span id="browser-frame-time" class="browser-frame-time">-</span>
           </div>
           <div id="browser-frame-command" class="browser-frame-command" title=""></div>
         </section>
-        <p class="sidebar-nav-label">Settings</p>
+        <p class="sidebar-nav-label" data-i18n="sidebar.settings">Settings</p>
         <div class="settings-bar">
-          <button id="language-toggle" class="button" type="button" aria-label="Switch language">EN</button>
-          <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" aria-label="Toggle theme">
+          <button id="language-toggle" class="button" type="button" data-i18n-aria-label="ui.switchLanguage" aria-label="Switch language">EN</button>
+          <button id="theme-toggle" class="theme-toggle" type="button" data-i18n-title="ui.toggleTheme" data-i18n-aria-label="ui.toggleTheme" aria-label="Toggle theme">
             <svg class="sun-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <circle cx="12" cy="12" r="5"/>
               <line x1="12" y1="1" x2="12" y2="3"/>
@@ -132,7 +132,7 @@
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
             </svg>
           </button>
-          <a href="/docs" class="button button-icon" data-i18n-title="ui.docs" aria-label="Documentation">
+          <a href="/docs" class="button button-icon" data-i18n-title="ui.docs" data-i18n-aria-label="ui.docs" aria-label="Documentation">
             <svg class="icon-docs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
@@ -141,14 +141,14 @@
               <line x1="8" y1="14" x2="12" y2="14"/>
             </svg>
           </a>
-          <button id="help-tour-button" class="button button-icon" type="button" data-i18n-title="ui.helpTour" aria-label="Help tour">
+          <button id="help-tour-button" class="button button-icon" type="button" data-i18n-title="ui.helpTour" data-i18n-aria-label="ui.helpTour" aria-label="Help tour">
             <svg class="icon-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>
               <path d="M9.09 9a3 3 0 1 1 5.82 1c-.58 1.18-1.91 1.6-2.48 2.5"/>
               <line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
           </button>
-          <button id="settings-button" class="button button-icon" type="button" data-i18n-title="ui.settings" aria-label="Settings">
+          <button id="settings-button" class="button button-icon" type="button" data-i18n-title="ui.settings" data-i18n-aria-label="ui.settings" aria-label="Settings">
             <svg class="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"/>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -178,8 +178,8 @@
         <div id="approval-panel" class="approval-panel" hidden>
           <div class="approval-panel-header">
             <div>
-              <div class="approval-title">需要批准</div>
-              <div class="approval-subtitle">高风险工具调用已暂停，批准后会自动继续。</div>
+              <div class="approval-title" data-i18n="approval.title">Approval required</div>
+              <div class="approval-subtitle" data-i18n="approval.subtitle">A high-risk tool call is paused and will continue after approval.</div>
             </div>
           </div>
           <div id="approval-list" class="approval-list"></div>
@@ -187,7 +187,7 @@
         <label class="composer-label" for="composer-input" data-i18n="ui.enterMessage">输入消息</label>
         <div class="composer-row">
           <input id="temporary-file-upload" type="file" accept=".txt,.md,.pdf" hidden />
-          <button id="temporary-file-button" class="button button-ghost composer-file" type="button" data-i18n-title="sessionFiles.upload" aria-label="上传临时文件">
+          <button id="temporary-file-button" class="button button-ghost composer-file" type="button" data-i18n-title="sessionFiles.upload" data-i18n-aria-label="sessionFiles.upload" aria-label="上传临时文件">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M21.4 11.6 12 21a6.5 6.5 0 0 1-9.2-9.2l9.7-9.7a4.4 4.4 0 0 1 6.2 6.2l-9.8 9.8a2.4 2.4 0 0 1-3.4-3.4l8.7-8.7" />
             </svg>
@@ -199,7 +199,7 @@
             placeholder="输入内容后按 Enter 发送，Shift+Enter 换行"
             rows="1"
           ></textarea>
-          <button id="send-button" class="button button-primary composer-send" type="submit" data-i18n-title="ui.send" aria-label="发送">
+          <button id="send-button" class="button button-primary composer-send" type="submit" data-i18n-title="ui.send" data-i18n-aria-label="ui.send" aria-label="发送">
             <svg class="icon-send" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M22 2 11 13" />
               <path d="m22 2-7 20-4-9-9-4Z" />
@@ -242,14 +242,14 @@
       </form>
     </section>
 
-    <aside id="inspector-panel" class="inspector-panel" aria-label="Inspector Panel" aria-hidden="true">
+    <aside id="inspector-panel" class="inspector-panel" data-i18n-aria-label="inspector.panel" aria-label="Inspector Panel" aria-hidden="true">
       <header class="inspector-header">
         <div>
-          <p class="eyebrow">Inspector</p>
-          <h2 id="inspector-title">Select a chain item</h2>
-          <p id="inspector-subtitle" class="inspector-subtitle">Tool, file, and artifact details appear here.</p>
+          <p class="eyebrow" data-i18n="inspector.title">Inspector</p>
+          <h2 id="inspector-title" data-i18n="inspector.selectChainItem">Select a chain item</h2>
+          <p id="inspector-subtitle" class="inspector-subtitle" data-i18n="inspector.subtitle">Tool, file, and artifact details appear here.</p>
         </div>
-        <button id="inspector-close" class="button button-icon inspector-close" type="button" aria-label="Close inspector" title="Close inspector">
+        <button id="inspector-close" class="button button-icon inspector-close" type="button" data-i18n-aria-label="inspector.close" data-i18n-title="inspector.close" aria-label="Close inspector" title="Close inspector">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M18 6 6 18" />
             <path d="m6 6 12 12" />
@@ -257,33 +257,33 @@
         </button>
       </header>
       <section id="inspector-body" class="inspector-body">
-        <div class="inspector-empty">Select an inspectable Run Chain item.</div>
+        <div class="inspector-empty" data-i18n="inspector.empty">Select an inspectable Run Chain item.</div>
       </section>
     </aside>
 
     <!-- 右侧：精简面板 -->
-  <section id="cowork-modal" class="cowork-page" aria-label="Cowork workspace">
+  <section id="cowork-modal" class="cowork-page" data-i18n-aria-label="cowork.workspace" aria-label="Cowork workspace">
     <div class="modal-overlay" id="cowork-modal-overlay"></div>
     <div class="cowork-page-content cowork-modal-content">
       <header class="modal-header cowork-page-header">
         <div class="cowork-title-block">
-          <p class="eyebrow">Cowork</p>
-          <h2>Cowork Console</h2>
-          <p>Sessions, work units, trace, and outputs.</p>
+          <p class="eyebrow" data-i18n="cowork.title">Cowork</p>
+          <h2 data-i18n="cowork.console">Cowork Console</h2>
+          <p data-i18n="cowork.consoleSubtitle">Sessions, work units, trace, and outputs.</p>
         </div>
         <div class="cowork-header-actions">
-          <button id="cowork-refresh-button" class="button" type="button">Refresh</button>
-          <button id="cowork-modal-close" class="button button-ghost" type="button" aria-label="Back to chat">Back to chat</button>
+          <button id="cowork-refresh-button" class="button" type="button" data-i18n="ui.refresh">Refresh</button>
+          <button id="cowork-modal-close" class="button button-ghost" type="button" data-i18n="cowork.backToChat" data-i18n-aria-label="cowork.backToChat" aria-label="Back to chat">Back to chat</button>
         </div>
       </header>
       <div class="modal-body cowork-modal-body">
         <div class="cowork-workspace cowork-collab-workspace">
           <aside class="cowork-session-pane">
             <div class="cowork-pane-header">
-              <h3>Sessions</h3>
+              <h3 data-i18n="ui.sessions">Sessions</h3>
               <label class="config-checkbox-label">
                 <input id="cowork-include-completed" type="checkbox" />
-                <span>Completed</span>
+                <span data-i18n="cowork.completed">Completed</span>
               </label>
             </div>
             <div id="cowork-session-list" class="cowork-session-list"></div>
@@ -291,242 +291,242 @@
           <section class="cowork-detail-pane">
             <header class="cowork-detail-header">
               <div class="cowork-active-heading">
-                <p id="cowork-active-status" class="cowork-session-meta">No session</p>
-                <h3 id="cowork-active-title">Select or start a session</h3>
+                <p id="cowork-active-status" class="cowork-session-meta" data-i18n="cowork.noSession">No session</p>
+                <h3 id="cowork-active-title" data-i18n="cowork.selectOrStart">Select or start a session</h3>
                 <p id="cowork-active-goal" class="cowork-goal-text"></p>
-                <div id="cowork-branch-list" class="cowork-branch-list" aria-label="Cowork branches"></div>
+                <div id="cowork-branch-list" class="cowork-branch-list" data-i18n-aria-label="cowork.branches" aria-label="Cowork branches"></div>
               </div>
               <div class="cowork-toolbar cowork-session-actions">
-                <button id="cowork-pause-button" class="button" type="button">Emergency stop</button>
-                <button id="cowork-resume-button" class="button" type="button">Resume</button>
-                <button id="cowork-map-button" class="button active" type="button" aria-pressed="true">Hide map</button>
-                <button id="cowork-summary-button" class="button" type="button">Summary</button>
-                <button id="cowork-delete-button" class="button button-ghost" type="button">Delete</button>
+                <button id="cowork-pause-button" class="button" type="button" data-i18n="cowork.emergencyStop">Emergency stop</button>
+                <button id="cowork-resume-button" class="button" type="button" data-i18n="cowork.resume">Resume</button>
+                <button id="cowork-map-button" class="button active" type="button" aria-pressed="true" data-i18n="cowork.hideMap">Hide map</button>
+                <button id="cowork-summary-button" class="button" type="button" data-i18n="cowork.summary">Summary</button>
+                <button id="cowork-delete-button" class="button button-ghost" type="button" data-i18n="ui.delete">Delete</button>
               </div>
             </header>
-            <section id="cowork-focus-strip" class="cowork-focus-strip" aria-label="Cowork session focus">
+            <section id="cowork-focus-strip" class="cowork-focus-strip" data-i18n-aria-label="cowork.sessionFocus" aria-label="Cowork session focus">
               <article class="cowork-focus-card">
-                <span>Progress</span>
+                <span data-i18n="cowork.progress">Progress</span>
                 <strong id="cowork-focus-progress">-</strong>
-                <small id="cowork-focus-progress-detail">No active session</small>
+                <small id="cowork-focus-progress-detail" data-i18n="cowork.noActiveSession">No active session</small>
               </article>
               <article class="cowork-focus-card">
-                <span>Running</span>
+                <span data-i18n="cowork.running">Running</span>
                 <strong id="cowork-focus-running">-</strong>
-                <small id="cowork-focus-running-detail">No active agents</small>
+                <small id="cowork-focus-running-detail" data-i18n="cowork.noActiveAgents">No active agents</small>
               </article>
               <article class="cowork-focus-card">
-                <span>Next</span>
+                <span data-i18n="cowork.next">Next</span>
                 <strong id="cowork-focus-next">-</strong>
-                <small id="cowork-focus-next-detail">Select or start a session</small>
+                <small id="cowork-focus-next-detail" data-i18n="cowork.selectOrStart">Select or start a session</small>
               </article>
               <article class="cowork-focus-card">
-                <span>Output</span>
+                <span data-i18n="cowork.output">Output</span>
                 <strong id="cowork-focus-output">-</strong>
-                <small id="cowork-focus-output-detail">No final draft</small>
+                <small id="cowork-focus-output-detail" data-i18n="cowork.noFinalDraft">No final draft</small>
               </article>
             </section>
             <div class="cowork-primary-column">
-              <section class="cowork-graph-panel" aria-label="Cowork team map">
+              <section class="cowork-graph-panel" data-i18n-aria-label="cowork.teamMap" aria-label="Cowork team map">
                 <div class="cowork-graph-header">
                   <div>
-                    <h4>Workflow Graph</h4>
-                    <p id="cowork-graph-caption">Focused agents and the live communication between them.</p>
+                    <h4 data-i18n="cowork.workflowGraph">Workflow Graph</h4>
+                    <p id="cowork-graph-caption" data-i18n="cowork.workflowGraphCaption">Focused agents and the live communication between them.</p>
                   </div>
-                  <div class="cowork-graph-controls" aria-label="Team map controls">
-                    <button id="cowork-graph-zoom-out" class="button button-icon" type="button" aria-label="Zoom out" title="Zoom out">-</button>
-                    <button id="cowork-graph-reset" class="button" type="button">Fit</button>
-                    <button id="cowork-graph-zoom-in" class="button button-icon" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+                  <div class="cowork-graph-controls" data-i18n-aria-label="cowork.teamMapControls" aria-label="Team map controls">
+                    <button id="cowork-graph-zoom-out" class="button button-icon" type="button" data-i18n-aria-label="cowork.zoomOut" data-i18n-title="cowork.zoomOut" aria-label="Zoom out" title="Zoom out">-</button>
+                    <button id="cowork-graph-reset" class="button" type="button" data-i18n="cowork.fit">Fit</button>
+                    <button id="cowork-graph-zoom-in" class="button button-icon" type="button" data-i18n-aria-label="cowork.zoomIn" data-i18n-title="cowork.zoomIn" aria-label="Zoom in" title="Zoom in">+</button>
                   </div>
                 </div>
-                <div id="cowork-graph-stage" class="cowork-graph-stage" tabindex="0" role="img" aria-label="Interactive cowork state graph">
+                <div id="cowork-graph-stage" class="cowork-graph-stage" tabindex="0" role="img" data-i18n-aria-label="cowork.interactiveGraph" aria-label="Interactive cowork state graph">
                   <svg id="cowork-graph-svg" class="cowork-graph-svg" viewBox="0 0 1200 620" aria-hidden="true"></svg>
                   <div id="cowork-agent-field-popover" class="cowork-agent-field-popover" hidden></div>
                   <div id="cowork-field-overlay" class="cowork-field-overlay" aria-live="polite"></div>
                 </div>
-                <div id="cowork-graph-inspector" class="cowork-graph-inspector">Select an agent to inspect its current focus and communication state.</div>
+                <div id="cowork-graph-inspector" class="cowork-graph-inspector" data-i18n="cowork.graphInspectorEmpty">Select an agent to inspect its current focus and communication state.</div>
               </section>
               <section id="cowork-conversation-panel" class="cowork-team-chat cowork-conversation-panel">
-                <h4>Conversation</h4>
+                <h4 data-i18n="cowork.conversation">Conversation</h4>
                 <div id="cowork-message-list" class="cowork-list cowork-chat-list" aria-live="polite"></div>
               </section>
-              <section class="cowork-observability-grid" aria-label="Cowork observability">
-                <div id="cowork-secondary-tabs" class="cowork-secondary-tabs" role="tablist" aria-label="Cowork detail views" data-active="trace">
-                  <button class="cowork-secondary-tab active" type="button" data-tab="trace" role="tab" aria-selected="true">Trace</button>
-                  <button class="cowork-secondary-tab" type="button" data-tab="tasks" role="tab" aria-selected="false">Tasks</button>
-                  <button class="cowork-secondary-tab" type="button" data-tab="mailbox" role="tab" aria-selected="false">Mailbox</button>
-                  <button class="cowork-secondary-tab" type="button" data-tab="outputs" role="tab" aria-selected="false">Outputs</button>
+              <section class="cowork-observability-grid" data-i18n-aria-label="cowork.observability" aria-label="Cowork observability">
+                <div id="cowork-secondary-tabs" class="cowork-secondary-tabs" role="tablist" data-i18n-aria-label="cowork.detailViews" aria-label="Cowork detail views" data-active="trace">
+                  <button class="cowork-secondary-tab active" type="button" data-tab="trace" role="tab" aria-selected="true" data-i18n="cowork.trace">Trace</button>
+                  <button class="cowork-secondary-tab" type="button" data-tab="tasks" role="tab" aria-selected="false" data-i18n="cowork.tasks">Tasks</button>
+                  <button class="cowork-secondary-tab" type="button" data-tab="mailbox" role="tab" aria-selected="false" data-i18n="cowork.mailbox">Mailbox</button>
+                  <button class="cowork-secondary-tab" type="button" data-tab="outputs" role="tab" aria-selected="false" data-i18n="cowork.outputs">Outputs</button>
                 </div>
-                <section class="cowork-ops-panel cowork-run-panel" aria-label="Run metrics">
+                <section class="cowork-ops-panel cowork-run-panel" data-i18n-aria-label="cowork.runMetrics" aria-label="Run metrics">
                   <div class="cowork-panel-heading">
-                    <h4>Run metrics</h4>
-                    <span id="cowork-scheduler-summary" class="cowork-panel-note">No decisions</span>
+                    <h4 data-i18n="cowork.runMetrics">Run metrics</h4>
+                    <span id="cowork-scheduler-summary" class="cowork-panel-note" data-i18n="cowork.noDecisions">No decisions</span>
                   </div>
-                  <input id="cowork-console-filter" class="config-input cowork-filter-input" type="search" placeholder="Filter workstream, unit, agent, artifact, trace, status..." aria-label="Filter cowork console" />
+                  <input id="cowork-console-filter" class="config-input cowork-filter-input" type="search" data-i18n-placeholder="cowork.filterPlaceholder" placeholder="Filter workstream, unit, agent, artifact, trace, status..." data-i18n-aria-label="cowork.filterConsole" aria-label="Filter cowork console" />
                   <div id="cowork-run-metrics" class="cowork-metrics cowork-compact-metrics"></div>
                 </section>
-                <section class="cowork-ops-panel cowork-swarm-summary-panel" aria-label="Swarm plan">
+                <section class="cowork-ops-panel cowork-swarm-summary-panel" data-i18n-aria-label="cowork.swarmPlan" aria-label="Swarm plan">
                   <div class="cowork-panel-heading">
-                    <h4>Swarm plan</h4>
-                    <span id="cowork-swarm-plan-summary" class="cowork-panel-note">No plan</span>
+                    <h4 data-i18n="cowork.swarmPlan">Swarm plan</h4>
+                    <span id="cowork-swarm-plan-summary" class="cowork-panel-note" data-i18n="cowork.noPlan">No plan</span>
                   </div>
                   <div id="cowork-swarm-plan-panel" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel cowork-advanced-panel" aria-label="Architecture projection" data-cowork-panel="trace">
+                <section class="cowork-ops-panel cowork-advanced-panel" data-i18n-aria-label="cowork.architectureProjection" aria-label="Architecture projection" data-cowork-panel="trace">
                   <div class="cowork-panel-heading">
-                    <h4>Architecture projection</h4>
-                    <span id="cowork-architecture-projection-summary" class="cowork-panel-note">No projection</span>
+                    <h4 data-i18n="cowork.architectureProjection">Architecture projection</h4>
+                    <span id="cowork-architecture-projection-summary" class="cowork-panel-note" data-i18n="cowork.noProjection">No projection</span>
                   </div>
                   <div id="cowork-architecture-projection-list" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Work units" data-cowork-panel="tasks">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.workUnits" aria-label="Work units" data-cowork-panel="tasks">
                   <div class="cowork-panel-heading">
-                    <h4>Work units</h4>
-                    <span id="cowork-work-unit-summary" class="cowork-panel-note">No units</span>
+                    <h4 data-i18n="cowork.workUnits">Work units</h4>
+                    <span id="cowork-work-unit-summary" class="cowork-panel-note" data-i18n="cowork.noUnits">No units</span>
                   </div>
                   <div id="cowork-work-unit-list" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Task DAG" data-cowork-panel="tasks">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.taskDag" aria-label="Task DAG" data-cowork-panel="tasks">
                   <div class="cowork-panel-heading">
-                    <h4>Task DAG</h4>
-                    <span id="cowork-dag-summary" class="cowork-panel-note">No graph</span>
+                    <h4 data-i18n="cowork.taskDag">Task DAG</h4>
+                    <span id="cowork-dag-summary" class="cowork-panel-note" data-i18n="cowork.noGraph">No graph</span>
                   </div>
                   <div id="cowork-task-dag-list" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Agent lanes" data-cowork-panel="tasks">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.agentLanes" aria-label="Agent lanes" data-cowork-panel="tasks">
                   <div class="cowork-panel-heading">
-                    <h4>Agent lanes</h4>
-                    <span id="cowork-agent-summary" class="cowork-panel-note">No agents</span>
+                    <h4 data-i18n="cowork.agentLanes">Agent lanes</h4>
+                    <span id="cowork-agent-summary" class="cowork-panel-note" data-i18n="cowork.noAgents">No agents</span>
                   </div>
                   <div id="cowork-agent-list" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Tasks" data-cowork-panel="tasks">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.tasks" aria-label="Tasks" data-cowork-panel="tasks">
                   <div class="cowork-panel-heading">
-                    <h4>Tasks</h4>
-                    <span class="cowork-panel-note">Shared pool</span>
+                    <h4 data-i18n="cowork.tasks">Tasks</h4>
+                    <span class="cowork-panel-note" data-i18n="cowork.sharedPool">Shared pool</span>
                   </div>
                   <div id="cowork-task-list" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Mailbox" data-cowork-panel="mailbox">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.mailbox" aria-label="Mailbox" data-cowork-panel="mailbox">
                   <div class="cowork-panel-heading">
-                    <h4>Mailbox</h4>
-                    <span class="cowork-panel-note">Agent messages</span>
+                    <h4 data-i18n="cowork.mailbox">Mailbox</h4>
+                    <span class="cowork-panel-note" data-i18n="cowork.agentMessages">Agent messages</span>
                   </div>
                   <div id="cowork-mailbox-list" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Threads" data-cowork-panel="mailbox">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.threads" aria-label="Threads" data-cowork-panel="mailbox">
                   <div class="cowork-panel-heading">
-                    <h4>Threads</h4>
-                    <span class="cowork-panel-note">Topics</span>
+                    <h4 data-i18n="cowork.threads">Threads</h4>
+                    <span class="cowork-panel-note" data-i18n="cowork.topics">Topics</span>
                   </div>
                   <div id="cowork-thread-list" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel cowork-trace-panel" aria-label="Trace timeline" data-cowork-panel="trace">
+                <section class="cowork-ops-panel cowork-trace-panel" data-i18n-aria-label="cowork.traceTimeline" aria-label="Trace timeline" data-cowork-panel="trace">
                   <div class="cowork-panel-heading">
-                    <h4>Trace</h4>
+                    <h4 data-i18n="cowork.trace">Trace</h4>
                     <div class="cowork-trace-toolbar">
-                      <div id="cowork-trace-mode-tabs" class="cowork-trace-mode-tabs" role="tablist" aria-label="Trace mode" data-active="key">
-                        <button class="cowork-trace-mode-button active" type="button" data-mode="key" role="tab" aria-selected="true">Key</button>
-                        <button class="cowork-trace-mode-button" type="button" data-mode="detail" role="tab" aria-selected="false">All</button>
+                      <div id="cowork-trace-mode-tabs" class="cowork-trace-mode-tabs" role="tablist" data-i18n-aria-label="cowork.traceMode" aria-label="Trace mode" data-active="key">
+                        <button class="cowork-trace-mode-button active" type="button" data-mode="key" role="tab" aria-selected="true" data-i18n="cowork.key">Key</button>
+                        <button class="cowork-trace-mode-button" type="button" data-mode="detail" role="tab" aria-selected="false" data-i18n="cowork.all">All</button>
                       </div>
-                      <select id="cowork-trace-filter" class="config-select cowork-filter-select" aria-label="Trace filter">
-                        <option value="all">All</option>
-                        <option value="scheduler">Scheduler</option>
-                        <option value="agent">Agent</option>
-                        <option value="task">Task</option>
-                        <option value="mailbox">Mailbox</option>
-                        <option value="review">Review</option>
-                        <option value="error">Error</option>
+                      <select id="cowork-trace-filter" class="config-select cowork-filter-select" data-i18n-aria-label="cowork.traceFilter" aria-label="Trace filter">
+                        <option value="all" data-i18n="cowork.all">All</option>
+                        <option value="scheduler" data-i18n="cowork.scheduler">Scheduler</option>
+                        <option value="agent" data-i18n="cowork.agent">Agent</option>
+                        <option value="task" data-i18n="cowork.task">Task</option>
+                        <option value="mailbox" data-i18n="cowork.mailbox">Mailbox</option>
+                        <option value="review" data-i18n="cowork.review">Review</option>
+                        <option value="error" data-i18n="cowork.error">Error</option>
                       </select>
                     </div>
                   </div>
                   <div id="cowork-trace-list" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Artifacts and final draft" data-cowork-panel="outputs">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.artifactsAndFinalDraft" aria-label="Artifacts and final draft" data-cowork-panel="outputs">
                   <div class="cowork-panel-heading">
-                    <h4>Artifacts</h4>
-                    <span id="cowork-artifact-summary" class="cowork-panel-note">No artifacts</span>
+                    <h4 data-i18n="cowork.artifacts">Artifacts</h4>
+                    <span id="cowork-artifact-summary" class="cowork-panel-note" data-i18n="cowork.noArtifacts">No artifacts</span>
                   </div>
                   <div id="cowork-observable-artifact-list" class="cowork-list cowork-projection-list"></div>
                   <div id="cowork-final-draft" class="cowork-final-draft" hidden></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Branch results" data-cowork-panel="outputs">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.branchResults" aria-label="Branch results" data-cowork-panel="outputs">
                   <div class="cowork-panel-heading">
-                    <h4>Branch results</h4>
-                    <span id="cowork-branch-result-summary" class="cowork-panel-note">No results</span>
+                    <h4 data-i18n="cowork.branchResults">Branch results</h4>
+                    <span id="cowork-branch-result-summary" class="cowork-panel-note" data-i18n="cowork.noResults">No results</span>
                   </div>
                   <div id="cowork-branch-result-list" class="cowork-list cowork-projection-list"></div>
                   <div class="cowork-card-actions">
-                    <button id="cowork-branch-merge-button" class="button button-small" type="button">Merge selected</button>
+                    <button id="cowork-branch-merge-button" class="button button-small" type="button" data-i18n="cowork.mergeSelected">Merge selected</button>
                   </div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Blockers and output state" data-cowork-panel="outputs">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.blockersAndOutputState" aria-label="Blockers and output state" data-cowork-panel="outputs">
                   <div class="cowork-panel-heading">
-                    <h4>Blockers</h4>
-                    <span id="cowork-blocker-summary" class="cowork-panel-note">No blockers</span>
+                    <h4 data-i18n="cowork.blockers">Blockers</h4>
+                    <span id="cowork-blocker-summary" class="cowork-panel-note" data-i18n="cowork.noBlockers">No blockers</span>
                   </div>
                   <div id="cowork-blocker-panel" class="cowork-list cowork-projection-list"></div>
                 </section>
-                <section class="cowork-ops-panel" aria-label="Evaluations" data-cowork-panel="outputs">
+                <section class="cowork-ops-panel" data-i18n-aria-label="cowork.evaluations" aria-label="Evaluations" data-cowork-panel="outputs">
                   <div class="cowork-panel-heading">
-                    <h4>Evaluations</h4>
-                    <span id="cowork-evaluation-summary" class="cowork-panel-note">No evals</span>
+                    <h4 data-i18n="cowork.evaluations">Evaluations</h4>
+                    <span id="cowork-evaluation-summary" class="cowork-panel-note" data-i18n="cowork.noEvals">No evals</span>
                   </div>
                   <div id="cowork-evaluation-list" class="cowork-list cowork-projection-list"></div>
                 </section>
               </section>
             </div>
-            <aside class="cowork-action-rail" aria-label="Cowork selected entity actions">
-              <section class="cowork-inspector-panel" aria-label="Selected cowork entity">
+            <aside class="cowork-action-rail" data-i18n-aria-label="cowork.selectedEntityActions" aria-label="Cowork selected entity actions">
+              <section class="cowork-inspector-panel" data-i18n-aria-label="cowork.selectedEntity" aria-label="Selected cowork entity">
                 <div class="cowork-panel-heading">
-                  <h4>Inspector</h4>
-                  <span id="cowork-inspector-kind" class="cowork-panel-note">Nothing selected</span>
+                  <h4 data-i18n="inspector.title">Inspector</h4>
+                  <span id="cowork-inspector-kind" class="cowork-panel-note" data-i18n="cowork.nothingSelected">Nothing selected</span>
                 </div>
                 <div id="cowork-selected-inspector" class="cowork-selected-inspector"></div>
                 <div class="cowork-task-controls">
-                  <input id="cowork-task-title" class="config-input" type="text" placeholder="Add a task..." />
-                  <select id="cowork-task-agent" class="config-select" aria-label="Assign task to agent"></select>
-                  <button id="cowork-task-button" class="button" type="button">Add</button>
-                  <button id="cowork-task-assign-button" class="button" type="button">Assign</button>
-                  <button id="cowork-task-retry-button" class="button" type="button">Retry</button>
-                  <button id="cowork-task-review-button" class="button" type="button">Review</button>
+                  <input id="cowork-task-title" class="config-input" type="text" data-i18n-placeholder="cowork.addTaskPlaceholder" placeholder="Add a task..." />
+                  <select id="cowork-task-agent" class="config-select" data-i18n-aria-label="cowork.assignTaskToAgent" aria-label="Assign task to agent"></select>
+                  <button id="cowork-task-button" class="button" type="button" data-i18n="cowork.add">Add</button>
+                  <button id="cowork-task-assign-button" class="button" type="button" data-i18n="cowork.assign">Assign</button>
+                  <button id="cowork-task-retry-button" class="button" type="button" data-i18n="cowork.retry">Retry</button>
+                  <button id="cowork-task-review-button" class="button" type="button" data-i18n="cowork.review">Review</button>
                 </div>
               </section>
             </aside>
             <section class="cowork-create cowork-composer">
               <div class="cowork-create-input">
-                <div id="cowork-mode-tabs" class="cowork-mode-tabs" role="radiogroup" aria-label="Cowork architecture">
-                  <button class="cowork-mode-tab active" type="button" data-mode="adaptive_starter" role="radio" aria-checked="true">Adaptive Starter</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="team" role="radio" aria-checked="false">Agent Team</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="generator_verifier" role="radio" aria-checked="false">Generator-Verifier</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="message_bus" role="radio" aria-checked="false">Message Bus</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="shared_state" role="radio" aria-checked="false">Shared State</button>
-                  <button class="cowork-mode-tab" type="button" data-mode="swarm" role="radio" aria-checked="false">Swarm</button>
+                <div id="cowork-mode-tabs" class="cowork-mode-tabs" role="radiogroup" data-i18n-aria-label="cowork.architecture" aria-label="Cowork architecture">
+                  <button class="cowork-mode-tab active" type="button" data-mode="adaptive_starter" role="radio" aria-checked="true" data-i18n="cowork.mode.adaptiveStarter">Adaptive Starter</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="team" role="radio" aria-checked="false" data-i18n="cowork.mode.agentTeam">Agent Team</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="generator_verifier" role="radio" aria-checked="false" data-i18n="cowork.mode.generatorVerifier">Generator-Verifier</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="message_bus" role="radio" aria-checked="false" data-i18n="cowork.mode.messageBus">Message Bus</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="shared_state" role="radio" aria-checked="false" data-i18n="cowork.mode.sharedState">Shared State</button>
+                  <button class="cowork-mode-tab" type="button" data-mode="swarm" role="radio" aria-checked="false" data-i18n="cowork.mode.swarm">Swarm</button>
                 </div>
-                <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" placeholder="Describe the shared goal..." aria-label="Cowork goal or message"></textarea>
+                <textarea id="cowork-goal-input" class="config-input cowork-goal-input" rows="1" data-i18n-placeholder="cowork.goalPlaceholder" placeholder="Describe the shared goal..." data-i18n-aria-label="cowork.goalOrMessage" aria-label="Cowork goal or message"></textarea>
                 <details class="cowork-blueprint-editor">
-                  <summary>Blueprint</summary>
+                  <summary data-i18n="cowork.blueprint">Blueprint</summary>
                   <textarea id="cowork-blueprint-input" class="config-input cowork-blueprint-input" rows="6" spellcheck="false" placeholder='{"goal":"...","agents":[],"tasks":[],"budgets":{"parallel_width":3}}'></textarea>
                   <div class="cowork-toolbar cowork-blueprint-actions">
-                    <button id="cowork-blueprint-validate-button" class="button" type="button">Validate</button>
-                    <button id="cowork-blueprint-preview-button" class="button" type="button">Preview</button>
+                    <button id="cowork-blueprint-validate-button" class="button" type="button" data-i18n="cowork.validate">Validate</button>
+                    <button id="cowork-blueprint-preview-button" class="button" type="button" data-i18n="cowork.preview">Preview</button>
                     <span id="cowork-blueprint-status" class="cowork-panel-note"></span>
                   </div>
                 </details>
                 <label id="cowork-mode-label" class="config-label cowork-mode-label hidden-control" for="cowork-workflow-mode">
-                  Architecture
+                  <span data-i18n="cowork.architecture">Architecture</span>
                   <select id="cowork-workflow-mode" class="config-select">
-                    <option value="adaptive_starter">Adaptive Starter</option>
-                    <option value="team">Agent Team</option>
-                    <option value="generator_verifier">Generator-Verifier</option>
-                    <option value="message_bus">Message Bus</option>
-                    <option value="shared_state">Shared State</option>
-                    <option value="swarm">Swarm</option>
+                    <option value="adaptive_starter" data-i18n="cowork.mode.adaptiveStarter">Adaptive Starter</option>
+                    <option value="team" data-i18n="cowork.mode.agentTeam">Agent Team</option>
+                    <option value="generator_verifier" data-i18n="cowork.mode.generatorVerifier">Generator-Verifier</option>
+                    <option value="message_bus" data-i18n="cowork.mode.messageBus">Message Bus</option>
+                    <option value="shared_state" data-i18n="cowork.mode.sharedState">Shared State</option>
+                    <option value="swarm" data-i18n="cowork.mode.swarm">Swarm</option>
                   </select>
                 </label>
                 <div class="cowork-toolbar cowork-create-actions">
                   <span id="cowork-error" class="error-text" aria-live="polite"></span>
-                  <button id="cowork-start-button" class="button button-primary composer-send" type="button" aria-label="Start Cowork" title="Start Cowork">
+                  <button id="cowork-start-button" class="button button-primary composer-send" type="button" data-i18n-aria-label="cowork.startCowork" data-i18n-title="cowork.startCowork" aria-label="Start Cowork" title="Start Cowork">
                     <svg class="icon-send" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                       <path d="M22 2 11 13" />
                       <path d="m22 2-7 20-4-9-9-4Z" />
@@ -548,8 +548,8 @@
     <div class="modal-overlay" id="skill-modal-overlay"></div>
     <div class="modal-content skill-modal-content">
       <header class="modal-header">
-        <h2 id="skill-modal-title">Skill</h2>
-        <button id="skill-modal-close" class="button button-ghost" type="button" aria-label="Close skill modal">✕</button>
+        <h2 id="skill-modal-title" data-i18n="skill.new">New Skill</h2>
+        <button id="skill-modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close skill modal">✕</button>
       </header>
       <div class="modal-body">
         <div class="skill-detail-info">
@@ -594,7 +594,7 @@
     <div class="modal-content tools-modal-content">
       <header class="modal-header">
         <h2 data-i18n="ui.tools">可用工具</h2>
-        <button id="tools-modal-close" class="button button-ghost" type="button" aria-label="Close tools modal">✕</button>
+        <button id="tools-modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close tools modal">✕</button>
       </header>
       <div class="modal-body">
         <!-- 功能配置提示 -->
@@ -618,8 +618,8 @@
     <div class="modal-overlay" id="tool-modal-overlay"></div>
     <div class="modal-content tool-modal-content">
       <header class="modal-header">
-        <h2 id="tool-modal-title">Tool</h2>
-        <button id="tool-modal-close" class="button button-ghost" type="button" aria-label="Close tool modal">✕</button>
+        <h2 id="tool-modal-title" data-i18n="runChain.kind.tool">Tool</h2>
+        <button id="tool-modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close tool modal">✕</button>
       </header>
       <div class="modal-body">
         <div class="tool-detail-info">
@@ -650,10 +650,10 @@
       <header class="modal-header">
         <h2 data-i18n="ui.skills">可用技能</h2>
         <div class="modal-header-buttons">
-          <button id="new-skill-button" class="button button-ghost button-small" type="button" aria-label="Create new skill">+</button>
+          <button id="new-skill-button" class="button button-ghost button-small" type="button" data-i18n-aria-label="skill.new" aria-label="Create new skill">+</button>
           <button id="refresh-skills-button" class="button button-ghost button-small" type="button" data-i18n="ui.refresh">刷新</button>
         </div>
-        <button id="skills-modal-close" class="button button-ghost" type="button" aria-label="Close skills modal">✕</button>
+        <button id="skills-modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close skills modal">✕</button>
       </header>
       <div class="modal-body">
         <div id="skills-modal-list" class="modal-list"></div>
@@ -667,7 +667,7 @@
     <div class="modal-content knowledge-modal-content">
       <header class="modal-header">
         <h2 data-i18n="ui.knowledge">知识库</h2>
-        <button id="knowledge-modal-close" class="button button-ghost" type="button" aria-label="Close knowledge modal">✕</button>
+        <button id="knowledge-modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close knowledge modal">✕</button>
       </header>
       <div class="modal-body">
         <!-- 功能配置提示 -->
@@ -785,7 +785,7 @@
     <div class="modal-content workspace-modal-content">
       <header class="modal-header">
         <h2 id="workspace-modal-title" data-i18n="ui.workspace">工作区</h2>
-        <button id="workspace-modal-close" class="button button-ghost" type="button" aria-label="Close workspace modal">✕</button>
+        <button id="workspace-modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close workspace modal">✕</button>
       </header>
       <div class="modal-body">
         <div class="editor-toolbar">
@@ -814,7 +814,7 @@
     <div class="modal-content doc-modal-content">
       <header class="modal-header">
         <h2 id="doc-modal-title" data-i18n="knowledge.addDoc">添加文档</h2>
-        <button id="doc-modal-close" class="button button-ghost" type="button" aria-label="Close doc modal">✕</button>
+        <button id="doc-modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close doc modal">✕</button>
       </header>
       <div class="modal-body">
         <div class="doc-detail-info">
@@ -857,7 +857,7 @@
     <div class="modal-content doc-modal-content">
       <header class="modal-header">
         <h2 id="doc-view-modal-title" data-i18n="knowledge.docDetail">文档详情</h2>
-        <button id="doc-view-modal-close" class="button button-ghost" type="button" aria-label="Close doc view modal">✕</button>
+        <button id="doc-view-modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close doc view modal">✕</button>
       </header>
       <div class="modal-body">
         <div class="doc-view-info">
@@ -906,7 +906,7 @@
           </svg>
           <span data-i18n="settings.title">设置</span>
         </h2>
-        <button id="modal-close" class="button button-ghost" type="button" aria-label="Close settings modal">✕</button>
+        <button id="modal-close" class="button button-ghost" type="button" data-i18n-aria-label="ui.close" aria-label="Close settings modal">✕</button>
       </header>
       <div class="config-toolbar">
         <div class="config-search-wrap">
@@ -916,7 +916,7 @@
           <button id="config-expand-all" class="button button-ghost button-small" type="button" data-i18n="settings.expandAll">Expand all</button>
           <button id="config-collapse-all" class="button button-ghost button-small" type="button" data-i18n="settings.collapseAll">Collapse all</button>
         </div>
-        <div id="config-quick-nav" class="config-quick-nav" aria-label="Config sections">
+        <div id="config-quick-nav" class="config-quick-nav" data-i18n-aria-label="settings.configSections" aria-label="Config sections">
           <button class="config-nav-chip active" type="button" data-config-jump="agent" data-i18n="settings.agent">Agent 配置</button>
           <button class="config-nav-chip" type="button" data-config-jump="knowledge" data-i18n="settings.knowledge">Knowledge 配置</button>
           <button class="config-nav-chip" type="button" data-config-jump="embedding" data-i18n="settings.embedding">Embedding 配置</button>
@@ -943,7 +943,7 @@
                 <span data-i18n="settings.agent.model">Model</span>
                 <span class="config-help" data-i18n-help="help.model">?</span>
               </label>
-              <select id="config-model-select" class="config-select config-model-select" aria-label="Model list">
+              <select id="config-model-select" class="config-select config-model-select" data-i18n-aria-label="settings.modelList" aria-label="Model list">
                 <option value="" data-i18n="settings.provider.modelSelectPlaceholder">Select from model list</option>
               </select>
               <input id="config-model" class="config-input config-model-custom" type="text" list="config-model-options" data-i18n-placeholder="settings.agent.modelPlaceholder" placeholder="模型名称" />
@@ -1104,7 +1104,7 @@
               </label>
               <div class="config-sensitive-group">
                 <input id="config-knowledge-rerank-api-key" class="config-input config-sensitive-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
-                <button class="config-sensitive-toggle" type="button" data-target="config-knowledge-rerank-api-key" aria-label="Toggle visibility">
+                <button class="config-sensitive-toggle" type="button" data-target="config-knowledge-rerank-api-key" data-i18n-aria-label="ui.toggleVisibility" aria-label="Toggle visibility">
                   <svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   <svg class="eye-off-icon" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                 </button>
@@ -1234,8 +1234,8 @@
                 <span class="config-sensitive-badge" data-i18n="settings.sensitive">敏感</span>
               </label>
               <div class="config-sensitive-group">
-                <input id="config-embedding-api-key" class="config-input config-sensitive-input" type="password" placeholder="API密钥" />
-                <button class="config-sensitive-toggle" type="button" data-target="config-embedding-api-key" aria-label="Toggle visibility">
+                <input id="config-embedding-api-key" class="config-input config-sensitive-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
+                <button class="config-sensitive-toggle" type="button" data-target="config-embedding-api-key" data-i18n-aria-label="ui.toggleVisibility" aria-label="Toggle visibility">
                   <svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   <svg class="eye-off-icon" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                 </button>
@@ -1246,7 +1246,7 @@
                 <span data-i18n="settings.embedding.apiBase">API Base</span>
                 <span class="config-help" data-i18n-help="help.embeddingApiBase">?</span>
               </label>
-              <input id="config-embedding-api-base" class="config-input" type="text" placeholder="API地址" />
+              <input id="config-embedding-api-base" class="config-input" type="text" data-i18n-placeholder="settings.provider.apiBasePlaceholder" placeholder="API地址" />
             </div>
           </div>
         </div>
@@ -1281,7 +1281,7 @@
               </label>
               <div class="config-sensitive-group">
                 <input id="config-api-key" class="config-input config-sensitive-input" type="password" data-i18n-placeholder="settings.provider.apiKeyPlaceholder" placeholder="API密钥" />
-                <button class="config-sensitive-toggle" type="button" data-target="config-api-key" aria-label="Toggle visibility">
+                <button class="config-sensitive-toggle" type="button" data-target="config-api-key" data-i18n-aria-label="ui.toggleVisibility" aria-label="Toggle visibility">
                   <svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   <svg class="eye-off-icon" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
                 </button>
