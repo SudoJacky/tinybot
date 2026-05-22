@@ -480,6 +480,11 @@ button.run-chain-item:hover,
   background: var(--danger);
 }
 
+.run-chain-item-browser .run-chain-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
 .run-chain-item-text {
   display: grid;
   min-width: 0;
@@ -811,6 +816,33 @@ button.run-chain-item:hover,
   gap: 8px;
 }
 
+.inspector-section-collapsible {
+  display: grid;
+  gap: 8px;
+}
+
+.inspector-section-collapsible summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.inspector-section-collapsible summary::-webkit-details-marker {
+  display: none;
+}
+
+.inspector-section-collapsible summary h3::before {
+  content: ">";
+  display: inline-block;
+  margin-right: 7px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  transition: transform var(--transition-fast);
+}
+
+.inspector-section-collapsible[open] summary h3::before {
+  transform: rotate(90deg);
+}
+
 .inspector-section h3 {
   margin: 0;
   color: var(--text-subtle);
@@ -834,6 +866,102 @@ button.run-chain-item:hover,
   font-size: 12px;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+.browser-activity-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-strong) 78%, var(--bg-subtle));
+}
+
+.browser-activity-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.browser-activity-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-subtle));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.browser-activity-main {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.browser-activity-main h3 {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-activity-url {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-activity-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.browser-activity-metrics div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-subtle) 58%, transparent);
+}
+
+.browser-activity-metrics dt {
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.browser-activity-metrics dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-progress-card summary {
