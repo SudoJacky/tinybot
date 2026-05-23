@@ -8,6 +8,7 @@ The agent runtime turns user input, session state, tools, memory, skills, and pr
 | --- | --- |
 | Main interaction loop | `tinybot/agent/loop.py` |
 | Single agent run abstraction | `tinybot/agent/runner.py` |
+| Completed-turn lifecycle | `tinybot/agent/turn_lifecycle.py` |
 | Context budgeting and assembly | `tinybot/agent/context.py`, `tinybot/agent/dependencies.py` |
 | Tool execution and registry | `tinybot/agent/tool_executor.py`, `tinybot/agent/tools/` |
 | Streaming and session persistence | `tinybot/agent/stream_handler.py`, `tinybot/agent/session_handler.py`, `tinybot/session/` |
@@ -22,7 +23,15 @@ The agent runtime turns user input, session state, tools, memory, skills, and pr
 3. The provider returns assistant text and/or tool calls.
 4. Tool calls are dispatched through `ToolRegistry` and `ToolExecutor`.
 5. Results are fed back into the loop until completion, max-iteration stop, or an error boundary.
-6. Session state and stream events are persisted and emitted to the caller.
+6. Completed-turn effects are delegated to the lifecycle boundary, then stream events are emitted to the caller.
+
+## Completed-Turn Lifecycle
+
+`tinybot/agent/turn_lifecycle.py` owns the shared finalization boundary after a provider/tool run has produced a final assistant response. `AgentLoop` still builds context, handles streaming, approval checkpoints, tools, and outbound messages, but completed-turn effects should go through `TurnLifecycle.finalize()`.
+
+The caller supplies a `CompletedTurn` with the session, produced messages, turn start index, runtime context tag, selected Memory Recall and Recent Context references, user/assistant text, and explicit after-effect flags. Real user turns enable checkpoint cleanup, Conversation Evidence capture, Memory Extraction scheduling, token-budget consolidation, and profile update as appropriate. Synthetic subagent or background notifications can save session-visible assistant output while disabling evidence capture and Memory Extraction.
+
+The lifecycle boundary coordinates existing owners rather than replacing them: `SessionHandler.save_turn()` filters and persists Session History, `capture_conversation_evidence()` and `MemoryStore` write Conversation Evidence, Dream performs Memory Extraction, the consolidator owns token-budget consolidation, and the entity extractor owns runtime profile updates. The result object reports saved-message counts, attached reference counts, captured evidence, and scheduled after-effects so tests can verify the ordering without driving a live provider run.
 
 ## Tool Contract
 
@@ -57,7 +66,7 @@ Dream is the background capture path for durable conversation facts. It reads pe
 
 Memory Notes carry a `scope` (`user`, `assistant`, `project`, or `session`) separate from their type, plus optional structured metadata. Evidence citations live on `MemorySource.evidence_ids`; trace output and managed views show those citations when present. `session.user_profile` remains a runtime cache for prompt hydration. Durable user facts, preferences, identity, and habits belong in user-scoped Memory Notes.
 
-Memory Extraction triggers are independent from token-budget consolidation. The loop captures evidence synchronously, then schedules extraction after warmup turns, every configured number of later turns, and idle flushes while preventing overlapping extraction for the same session. Token-budget consolidation still only runs from context pressure.
+Memory Extraction triggers are independent from token-budget consolidation. The completed-turn lifecycle captures evidence synchronously, then schedules extraction after warmup turns, every configured number of later turns, and idle flushes while preventing overlapping extraction for the same session. Token-budget consolidation still only runs from context pressure.
 
 Memory Recall is a distinct context section selected from active Memory Notes. It stays separate from Experience, which records reusable execution guidance, and from Knowledge, which provides document evidence. Optional vector indexing may accelerate Memory Note search, but JSONL remains the canonical source and indexes must be rebuildable from it.
 
