@@ -17,6 +17,7 @@ from typing import Any
 from loguru import logger
 
 from tinybot.api.cowork import cowork_session_snapshot
+from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, register_webui_control_routes
 from tinybot.cowork.snapshot import build_cowork_graph, build_cowork_trace
 from tinybot.bus.events import OutboundMessage
 from tinybot.bus.queue import MessageBus
@@ -394,44 +395,23 @@ class WebSocketChannel(BaseChannel):
 
     def _build_app(self) -> web.Application:
         app = web.Application()
-        app.router.add_get(self.bootstrap_path, self.handle_bootstrap)
-        app.router.add_post("/webui/refresh-token", self.handle_refresh_token)
-        app.router.add_get(self.sessions_path, self.handle_list_sessions)
-        app.router.add_get(f"{self.sessions_path}/{{key}}/messages", self.handle_get_messages)
-        app.router.add_delete(f"{self.sessions_path}/{{key}}", self.handle_delete_session)
-        app.router.add_patch(f"{self.sessions_path}/{{key}}", self.handle_patch_session)
-        app.router.add_post(f"{self.sessions_path}/{{key}}/clear", self.handle_clear_session)
-        app.router.add_get(f"{self.sessions_path}/{{key}}/profile", self.handle_get_profile)
-        app.router.add_get(f"{self.sessions_path}/{{key}}/temporary-files", self.handle_list_temporary_files)
-        app.router.add_post(f"{self.sessions_path}/{{key}}/temporary-files", self.handle_upload_temporary_file)
-        app.router.add_get("/api/config", self.handle_get_config)
-        app.router.add_patch("/api/config", self.handle_patch_config)
-        app.router.add_post("/api/provider-models", self.handle_provider_models)
-        app.router.add_get("/api/status", self.handle_get_status)
-        app.router.add_get("/api/tools", self.handle_get_tools)
-        app.router.add_get("/api/approvals", self.handle_get_approvals)
-        app.router.add_post("/api/approvals/{approval_id}/approve", self.handle_approve_approval)
-        app.router.add_post("/api/approvals/{approval_id}/deny", self.handle_deny_approval)
-        app.router.add_get("/api/skills", self.handle_get_skills)
-        app.router.add_post("/api/skills", self.handle_create_skill)
-        app.router.add_get("/api/skills/{name}", self.handle_get_skill_detail)
-        app.router.add_patch("/api/skills/{name}", self.handle_update_skill)
-        app.router.add_delete("/api/skills/{name}", self.handle_delete_skill)
-        app.router.add_post("/api/skills/{name}/validate", self.handle_validate_skill)
-        app.router.add_get("/api/cowork/sessions", self.handle_list_cowork_sessions)
-        app.router.add_post("/api/cowork/sessions", self.handle_create_cowork_session)
-        app.router.add_get("/api/cowork/sessions/{session_id}", self.handle_get_cowork_session)
-        app.router.add_get("/api/cowork/sessions/{session_id}/graph", self.handle_get_cowork_graph)
-        app.router.add_delete("/api/cowork/sessions/{session_id}", self.handle_delete_cowork_session)
-        app.router.add_post("/api/cowork/sessions/{session_id}/run", self.handle_run_cowork_session)
-        app.router.add_post("/api/cowork/sessions/{session_id}/pause", self.handle_pause_cowork_session)
-        app.router.add_post("/api/cowork/sessions/{session_id}/resume", self.handle_resume_cowork_session)
-        app.router.add_post("/api/cowork/sessions/{session_id}/messages", self.handle_send_cowork_message)
-        app.router.add_post("/api/cowork/sessions/{session_id}/tasks", self.handle_add_cowork_task)
-        app.router.add_get("/api/cowork/sessions/{session_id}/summary", self.handle_cowork_summary)
-        app.router.add_get("/api/workspace/files", self.handle_list_workspace_files)
-        app.router.add_get("/api/workspace/files/{path:.+}", self.handle_get_workspace_file)
-        app.router.add_put("/api/workspace/files/{path:.+}", self.handle_put_workspace_file)
+        register_webui_control_routes(
+            app,
+            WebUIControlRuntime(
+                token_manager=self.token_manager,
+                workspace=self.workspace,
+                session_manager=self.session_manager,
+                agent_loop=self.agent_loop,
+                config=self.config_ref,
+                config_path=self.config_path,
+                knowledge_store=self.knowledge_store,
+                control_handlers=self._webui_control_handlers(),
+            ),
+            WebUIControlPaths(
+                bootstrap_path=self.bootstrap_path,
+                sessions_path=self.sessions_path,
+            ),
+        )
         app.router.add_get(self.ws_path, self.handle_websocket)
         # Register knowledge routes BEFORE catch-all static routes
         if self.knowledge_store:
@@ -440,6 +420,49 @@ class WebSocketChannel(BaseChannel):
             register_knowledge_routes(app)
         self._add_static_routes(app)
         return app
+
+    def _webui_control_handlers(self) -> dict[str, Any]:
+        """Temporary handler map while route families move out of this channel."""
+        return {
+            "bootstrap": self.handle_bootstrap,
+            "refresh_token": self.handle_refresh_token,
+            "list_sessions": self.handle_list_sessions,
+            "get_messages": self.handle_get_messages,
+            "delete_session": self.handle_delete_session,
+            "patch_session": self.handle_patch_session,
+            "clear_session": self.handle_clear_session,
+            "get_profile": self.handle_get_profile,
+            "list_temporary_files": self.handle_list_temporary_files,
+            "upload_temporary_file": self.handle_upload_temporary_file,
+            "get_config": self.handle_get_config,
+            "patch_config": self.handle_patch_config,
+            "provider_models": self.handle_provider_models,
+            "get_status": self.handle_get_status,
+            "get_tools": self.handle_get_tools,
+            "get_approvals": self.handle_get_approvals,
+            "approve_approval": self.handle_approve_approval,
+            "deny_approval": self.handle_deny_approval,
+            "get_skills": self.handle_get_skills,
+            "create_skill": self.handle_create_skill,
+            "get_skill_detail": self.handle_get_skill_detail,
+            "update_skill": self.handle_update_skill,
+            "delete_skill": self.handle_delete_skill,
+            "validate_skill": self.handle_validate_skill,
+            "list_cowork_sessions": self.handle_list_cowork_sessions,
+            "create_cowork_session": self.handle_create_cowork_session,
+            "get_cowork_session": self.handle_get_cowork_session,
+            "get_cowork_graph": self.handle_get_cowork_graph,
+            "delete_cowork_session": self.handle_delete_cowork_session,
+            "run_cowork_session": self.handle_run_cowork_session,
+            "pause_cowork_session": self.handle_pause_cowork_session,
+            "resume_cowork_session": self.handle_resume_cowork_session,
+            "send_cowork_message": self.handle_send_cowork_message,
+            "add_cowork_task": self.handle_add_cowork_task,
+            "cowork_summary": self.handle_cowork_summary,
+            "list_workspace_files": self.handle_list_workspace_files,
+            "get_workspace_file": self.handle_get_workspace_file,
+            "put_workspace_file": self.handle_put_workspace_file,
+        }
 
     def _add_static_routes(self, app: web.Application) -> None:
         static_dir = Path(self.static_dir).expanduser() if self.static_dir else None
