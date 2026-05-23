@@ -13,12 +13,22 @@ The WebUI is a static frontend served by the gateway. It is intentionally close 
 | Generated docs output | `webui/docs/` |
 | Source docs | `docs/` |
 | Docs builder | `scripts/build_docs.py` |
+| Browser HTTP control plane | `tinybot/api/webui.py` |
+| WebSocket transport/static gateway | `tinybot/channels/websocket.py` |
 
 ## Design Shape
 
 The WebUI combines chat, settings, knowledge, skills, workspace file editing, and Cowork. State is mostly browser-side view state backed by gateway snapshots. Durable domain state should remain in Python services.
 
 For complex surfaces such as Cowork, the UI should render backend projections: graph, trace, artifact index, scheduler decisions, work queues, and completion decisions. Avoid deriving business state in JavaScript when the backend can expose it explicitly and test it.
+
+## Control Plane
+
+Browser HTTP operations are registered by `tinybot/api/webui.py` through `register_webui_control_routes()`. The registrar receives a `WebUIControlRuntime` with explicit dependencies: token manager, workspace, session manager, agent loop, config object/path, knowledge store, Cowork service/tool, and callbacks such as global WebSocket broadcast.
+
+Protected WebUI control routes use the same browser token manager as the WebSocket endpoint. Public bootstrap and token-refresh routes stay public to loopback requests; session, status/tools, approvals, workspace files, skills, config/provider-models, and Cowork controls require a valid browser token.
+
+Cowork WebUI routes delegate to the shared `tinybot/api/cowork.py` handlers through a WebUI authorization wrapper. The wrapper prepares the app runtime expected by the shared handlers and keeps WebSocket broadcasts for Cowork updates attached to the current gateway runtime.
 
 ## API Coupling
 
@@ -50,3 +60,5 @@ node --check webui/assets/src/legacy/app.js
 ```
 
 For layout or interaction changes, also run the gateway and inspect the affected route. API tests are still needed when frontend changes depend on new backend payloads.
+
+For WebUI control-plane changes, prefer focused `tests/api/test_webui.py` coverage that registers an aiohttp app without constructing a full `WebSocketChannel`. Keep `tests/channels/test_websocket.py` for transport behavior and mount smoke checks.

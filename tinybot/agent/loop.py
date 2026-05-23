@@ -50,10 +50,8 @@ from tinybot.agent.hook import AgentHook
 from tinybot.agent.knowledge import KnowledgeStore
 from tinybot.agent.memory import (
     Consolidator,
-    ConversationEvidence,
     Dream,
     EntityExtractor,
-    capture_conversation_evidence,
 )
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.session_knowledge import SessionKnowledgeStore
@@ -99,6 +97,7 @@ from tinybot.agent.dependencies import AgentDependencies
 from tinybot.agent.session_handler import SessionHandler
 from tinybot.agent.stream_handler import StreamHandler, StreamHookChain
 from tinybot.agent.tool_executor import BrowserSnapshotHook, ToolContextManager, format_tool_call_detail
+from tinybot.agent.turn_lifecycle import CompletedTurn, TurnLifecycle
 from tinybot.session.manager import Session, SessionManager
 from tinybot.utils.prompt_templates import render_template
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
@@ -357,6 +356,17 @@ class AgentLoop:
         self._memory_extraction_locks: dict[str, asyncio.Lock] = {}
         self._memory_extraction_run_lock = asyncio.Lock()
         self._memory_extraction_idle_tasks: dict[str, asyncio.Task] = {}
+        self.turn_lifecycle = TurnLifecycle(
+            session_handler=self.session_handler,
+            sessions=self.sessions,
+            memory_store=self.context.memory,
+            schedule_background=self._schedule_background,
+            memory_extraction_config=self._memory_extraction_config,
+            run_memory_extraction=self._run_memory_extraction_once,
+            schedule_idle_extraction=self._schedule_memory_extraction_after_idle_task,
+            consolidate=self.consolidator.maybe_consolidate_by_tokens,
+            update_user_profile=self._update_user_profile,
+        )
         # tinybot_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("tinybot_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
@@ -1069,28 +1079,29 @@ class AgentLoop:
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
+    def _schedule_memory_extraction_after_idle_task(self, session_key: str, idle_seconds: int) -> bool:
+        """Schedule an idle Memory Extraction pass for one session."""
+        old_idle = self._memory_extraction_idle_tasks.pop(session_key, None)
+        if old_idle and not old_idle.done():
+            old_idle.cancel()
+        idle_task = asyncio.create_task(self._run_memory_extraction_after_idle(session_key, idle_seconds))
+        self._memory_extraction_idle_tasks[session_key] = idle_task
+        self._background_tasks.append(idle_task)
+
+        def _forget_idle_task(task: asyncio.Task, key: str = session_key) -> None:
+            if self._memory_extraction_idle_tasks.get(key) is task:
+                self._memory_extraction_idle_tasks.pop(key, None)
+            if task in self._background_tasks:
+                self._background_tasks.remove(task)
+
+        idle_task.add_done_callback(_forget_idle_task)
+        return True
+
     def _last_user_message_index(self, session: Session) -> int:
         for idx in range(len(session.messages) - 1, -1, -1):
             if session.messages[idx].get("role") == "user":
                 return idx
         return len(session.messages)
-
-    def _capture_conversation_evidence(
-        self,
-        session: Session,
-        turn_start_index: int,
-    ) -> list[ConversationEvidence]:
-        try:
-            turn_messages = session.messages[turn_start_index:]
-            return capture_conversation_evidence(
-                self.context.memory,
-                session_key=session.key,
-                messages=turn_messages,
-                start_index=turn_start_index,
-            )
-        except Exception:
-            logger.exception("Conversation Evidence capture failed for {}", session.key)
-            return []
 
     @staticmethod
     def _current_memory_references_from_context(context: ContextBuilder) -> list[dict[str, Any]]:
@@ -1102,34 +1113,6 @@ class AgentLoop:
         references = getattr(context, "last_recent_context_references", []) or []
         return [dict(item) for item in references if isinstance(item, dict)]
 
-    def _attach_memory_references_to_latest_assistant(
-        self,
-        session: Session,
-        turn_start_index: int,
-        references: list[dict[str, Any]],
-    ) -> None:
-        if not references:
-            return
-        for idx in range(len(session.messages) - 1, max(turn_start_index, 0) - 1, -1):
-            message = session.messages[idx]
-            if message.get("role") == "assistant":
-                message["_memory_references"] = references
-                return
-
-    def _attach_recent_context_references_to_latest_assistant(
-        self,
-        session: Session,
-        turn_start_index: int,
-        references: list[dict[str, Any]],
-    ) -> None:
-        if not references:
-            return
-        for idx in range(len(session.messages) - 1, max(turn_start_index, 0) - 1, -1):
-            message = session.messages[idx]
-            if message.get("role") == "assistant":
-                message["_recent_context_references"] = references
-                return
-
     def _memory_extraction_config(self) -> tuple[int, int]:
         dream_cfg = None
         if self._config_ref is not None:
@@ -1137,43 +1120,6 @@ class AgentLoop:
         every_n = int(getattr(dream_cfg, "extraction_every_n_turns", 6) or 6)
         idle_seconds = int(getattr(dream_cfg, "extraction_idle_seconds", 300) or 300)
         return max(every_n, 1), max(idle_seconds, 1)
-
-    def _schedule_memory_extraction_triggers(
-        self,
-        session: Session,
-        evidence: list[ConversationEvidence],
-    ) -> None:
-        if not evidence or not any(record.role == "user" for record in evidence):
-            return
-        every_n, idle_seconds = self._memory_extraction_config()
-        state = session.metadata.setdefault("memory_extraction", {})
-        if not isinstance(state, dict):
-            state = {}
-            session.metadata["memory_extraction"] = state
-
-        completed_turns = int(state.get("completed_user_turns") or 0) + 1
-        state["completed_user_turns"] = completed_turns
-        should_run_now = completed_turns in {1, 2, 4}
-        if completed_turns > 4 and (completed_turns - 4) % every_n == 0:
-            should_run_now = True
-        self.sessions.save(session)
-
-        if should_run_now:
-            self._schedule_background(self._run_memory_extraction_once(session.key))
-
-        old_idle = self._memory_extraction_idle_tasks.pop(session.key, None)
-        if old_idle and not old_idle.done():
-            old_idle.cancel()
-        idle_task = asyncio.create_task(self._run_memory_extraction_after_idle(session.key, idle_seconds))
-        self._memory_extraction_idle_tasks[session.key] = idle_task
-        self._background_tasks.append(idle_task)
-        def _forget_idle_task(task: asyncio.Task, key: str = session.key) -> None:
-            if self._memory_extraction_idle_tasks.get(key) is task:
-                self._memory_extraction_idle_tasks.pop(key, None)
-            if task in self._background_tasks:
-                self._background_tasks.remove(task)
-
-        idle_task.add_done_callback(_forget_idle_task)
 
     async def _run_memory_extraction_after_idle(self, session_key: str, idle_seconds: int) -> None:
         try:
@@ -1399,16 +1345,21 @@ class AgentLoop:
                         and entry.get("content") == notification_content
                     )
                 ]
-            skip_count = len(session.messages)
-            self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
-            self.session_handler.clear_checkpoint(session)
-            self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
-            self._attach_recent_context_references_to_latest_assistant(session, turn_start_index, recent_context_references)
-            self.sessions.save(session)
-            self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
-            self._schedule_background(self._update_user_profile(
-                session, msg.content, final_content or "",
-            ))
+            self.turn_lifecycle.finalize(
+                CompletedTurn(
+                    session=session,
+                    messages=all_msgs,
+                    turn_start_index=turn_start_index,
+                    runtime_context_tag=ContextBuilder._RUNTIME_CONTEXT_TAG,
+                    memory_references=memory_references,
+                    recent_context_references=recent_context_references,
+                    user_text=msg.content,
+                    assistant_text=final_content or "",
+                    capture_evidence=False,
+                    schedule_memory_extraction=False,
+                    update_user_profile=msg.sender_id != "subagent",
+                )
+            )
             if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
                 return None
             return OutboundMessage(
@@ -1533,19 +1484,18 @@ class AgentLoop:
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
 
-        # Process remaining messages (user message, etc.) that checkpoint didn't handle
-        skip_count = len(session.messages)
-        self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
-        self.session_handler.clear_checkpoint(session)
-        self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
-        self._attach_recent_context_references_to_latest_assistant(session, turn_start_index, recent_context_references)
-        self.sessions.save(session)
-        evidence = self._capture_conversation_evidence(session, turn_start_index)
-        self._schedule_memory_extraction_triggers(session, evidence)
-        self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
-        self._schedule_background(self._update_user_profile(
-            session, msg.content, final_content or "",
-        ))
+        self.turn_lifecycle.finalize(
+            CompletedTurn(
+                session=session,
+                messages=all_msgs,
+                turn_start_index=turn_start_index,
+                runtime_context_tag=ContextBuilder._RUNTIME_CONTEXT_TAG,
+                memory_references=memory_references,
+                recent_context_references=recent_context_references,
+                user_text=msg.content,
+                assistant_text=final_content or "",
+            )
+        )
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
@@ -1804,15 +1754,19 @@ class AgentLoop:
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
 
-        skip_count = len(session.messages)
-        self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
-        self.session_handler.clear_checkpoint(session)
-        self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
-        self._attach_recent_context_references_to_latest_assistant(session, turn_start_index, recent_context_references)
-        self.sessions.save(session)
-        evidence = self._capture_conversation_evidence(session, turn_start_index)
-        self._schedule_memory_extraction_triggers(session, evidence)
-        self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
+        self.turn_lifecycle.finalize(
+            CompletedTurn(
+                session=session,
+                messages=all_msgs,
+                turn_start_index=turn_start_index,
+                runtime_context_tag=ContextBuilder._RUNTIME_CONTEXT_TAG,
+                memory_references=memory_references,
+                recent_context_references=recent_context_references,
+                user_text=msg.content,
+                assistant_text=final_content or "",
+                update_user_profile=False,
+            )
+        )
         return OutboundMessage(
             channel=channel,
             chat_id=chat_id,
