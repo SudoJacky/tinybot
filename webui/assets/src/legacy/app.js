@@ -602,6 +602,141 @@ function parseToolArguments(args) {
   return {};
 }
 
+function firstRegexMatch(text = "", patterns = []) {
+  const value = String(text || "");
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return "";
+}
+
+function extractCommandFromToolArgs(args, argsText = "") {
+  const parsed = parseToolArguments(args);
+  if (typeof parsed.command === "string" && parsed.command.trim()) {
+    return parsed.command.trim();
+  }
+  return firstRegexMatch(argsText, [
+    /"command"\s*:\s*"([^"]+)"/i,
+    /command\s*=\s*"([^"]+)"/i,
+    /command\s*=\s*'([^']+)'/i,
+  ]);
+}
+
+function parseOpenCliBrowserCommand(command = "") {
+  const text = String(command || "");
+  const commandMatch = text.match(/opencli(?:\.(?:cmd|ps1|bat|exe))?\s+browser\s+([^\s&|;]+)?/i);
+  if (!commandMatch) {
+    return null;
+  }
+  const action = (commandMatch[1] || "open").toLowerCase();
+  const url = firstRegexMatch(text, [
+    /opencli(?:\.(?:cmd|ps1|bat|exe))?\s+browser\s+open\s+["']?([^"'\s&|;]+)/i,
+    /(https?:\/\/[^\s"']+)/i,
+  ]);
+  return { action, url };
+}
+
+function browserActionLabel(action = "") {
+  const labels = {
+    open: t("browser.action.open"),
+    back: t("browser.action.back"),
+    forward: t("browser.action.forward"),
+    reload: t("browser.action.reload"),
+    click: t("browser.action.click"),
+    type: t("browser.action.type"),
+    select: t("browser.action.select"),
+    keys: t("browser.action.keys"),
+    wait: t("browser.action.wait"),
+    state: t("browser.action.state"),
+    screenshot: t("browser.action.screenshot"),
+    network: t("browser.action.network"),
+  };
+  return labels[action] || action || t("browser.action.activity");
+}
+
+function parseBrowserResponseMeta(responseText = "") {
+  const text = String(responseText || "");
+  return {
+    navigatedTo: firstRegexMatch(text, [/^Navigated to:\s*(.+)$/im]),
+    url: firstRegexMatch(text, [/^URL:\s*(.+)$/im, /^url:\s*(.+)$/im]),
+    title: firstRegexMatch(text, [/^title:\s*(.+)$/im]),
+    viewport: firstRegexMatch(text, [/^viewport:\s*(.+)$/im]),
+    pageScroll: firstRegexMatch(text, [/^page_scroll:\s*(.+)$/im]),
+  };
+}
+
+function splitBrowserSnapshotOutput(responseText = "") {
+  const text = String(responseText || "").trim();
+  if (!text) {
+    return { metadata: "", snapshot: "" };
+  }
+  const parts = text.split(/\r?\n---\r?\n/);
+  if (parts.length < 2) {
+    return { metadata: "", snapshot: "" };
+  }
+  return {
+    metadata: parts.shift().trim(),
+    snapshot: parts.join("\n---\n").trim(),
+  };
+}
+
+function buildBrowserActivity(name, args, argsText, responseText = "") {
+  const command = extractCommandFromToolArgs(args, argsText);
+  const commandInfo = parseOpenCliBrowserCommand(command);
+  const responseInfo = parseBrowserResponseMeta(responseText);
+  const output = splitBrowserSnapshotOutput(responseText);
+  const hasBrowserResponse = Boolean(responseInfo.navigatedTo || responseInfo.url || responseInfo.title);
+  if (!commandInfo && !(String(name || "").toLowerCase() === "exec" && hasBrowserResponse)) {
+    return null;
+  }
+
+  const action = commandInfo?.action || (responseInfo.navigatedTo ? "open" : "activity");
+  const url = responseInfo.url || responseInfo.navigatedTo || commandInfo?.url || "";
+  return {
+    action,
+    actionLabel: browserActionLabel(action),
+    command,
+    url,
+    title: responseInfo.title,
+    viewport: responseInfo.viewport,
+    pageScroll: responseInfo.pageScroll,
+    responseText,
+    metadataText: output.metadata,
+    snapshotText: output.snapshot,
+    argsText,
+  };
+}
+
+function browserActivityPreview(activity) {
+  const parts = [];
+  if (activity.title) {
+    parts.push(activity.title);
+  }
+  if (activity.url) {
+    parts.push(activity.url);
+  }
+  if (activity.viewport) {
+    parts.push(activity.viewport);
+  }
+  return compactText(parts.join(" | ") || activity.command || t("browser.activity"), 120);
+}
+
+function browserActivitySections(activity) {
+  const sections = [{ type: "browserActivity", activity }];
+  if (activity.command) {
+    sections.push({ label: t("browser.command"), text: activity.command });
+  }
+  if (activity.snapshotText) {
+    sections.push({ label: t("browser.pageSnapshot"), text: activity.snapshotText, collapsed: true });
+  } else if (activity.responseText) {
+    sections.push({ label: t("browser.rawOutput"), text: activity.responseText, collapsed: true });
+  }
+  return sections;
+}
+
 function clampPercent(value) {
   if (!Number.isFinite(value)) {
     return 0;
@@ -716,8 +851,18 @@ function getToolMessageCallId(message) {
   return message?.tool_call_id || message?._tool_call_id || "";
 }
 
+function getToolCalls(message) {
+  if (Array.isArray(message?.tool_calls)) {
+    return message.tool_calls;
+  }
+  if (message?.tool_calls && typeof message.tool_calls === "object") {
+    return [message.tool_calls];
+  }
+  return [];
+}
+
 function hasToolCalls(message) {
-  return Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
+  return getToolCalls(message).length > 0;
 }
 
 function isProgressToolDetail(message) {
@@ -795,7 +940,7 @@ function prepareMessageRelationships(messages) {
     }
 
     message._relatedToolMessages = [];
-    const toolNames = new Set(message.tool_calls.map((tc) => tc.function?.name || tc.name || "").filter(Boolean));
+    const toolNames = new Set(getToolCalls(message).map((tc) => tc.function?.name || tc.name || "").filter(Boolean));
     let nextIndex = index + 1;
     while (nextIndex < messages.length) {
       const nextMessage = messages[nextIndex];
@@ -851,7 +996,7 @@ function relatedToolMessagesEndIndex(messages, startIndex) {
     return startIndex;
   }
 
-  const toolNames = new Set(message.tool_calls.map((tc) => tc.function?.name || tc.name || "").filter(Boolean));
+  const toolNames = new Set(getToolCalls(message).map((tc) => tc.function?.name || tc.name || "").filter(Boolean));
   let nextIndex = startIndex + 1;
   while (nextIndex < messages.length) {
     const nextMessage = messages[nextIndex];
@@ -1122,24 +1267,29 @@ function createRunChainItems(messages) {
 
     if (hasToolCalls(message)) {
       const relatedMessages = message._relatedToolMessages || [];
-      const relatedGroups = relatedToolMessageGroups(message.tool_calls, relatedMessages);
-      message.tool_calls.forEach((toolCall, toolIndex) => {
+      const toolCalls = getToolCalls(message);
+      const relatedGroups = relatedToolMessageGroups(toolCalls, relatedMessages);
+      toolCalls.forEach((toolCall, toolIndex) => {
         const name = getToolCallName(toolCall) || "tool";
-        const argsText = formatToolArguments(toolCall.function?.arguments ?? toolCall.arguments ?? "");
+        const rawArgs = toolCall.function?.arguments ?? toolCall.arguments ?? "";
+        const argsText = formatToolArguments(rawArgs);
         const responseText = (relatedGroups[toolIndex] || []).map((item) => item.content || "").filter(Boolean).join("\n\n");
+        const browserActivity = buildBrowserActivity(name, rawArgs, argsText, responseText);
         items.push({
           key: `${message.message_id || `tool-call-${index}`}:${getToolCallId(toolCall) || toolIndex}`,
-          kind: "tool",
-          title: `${toolKindLabel(name)} | ${name}`,
-          preview: responseText ? compactText(responseText, 120) : summarizeToolArguments(argsText),
+          kind: browserActivity ? "browser" : "tool",
+          title: browserActivity ? `${t("runChain.kind.browser")} | ${browserActivity.actionLabel}` : `${toolKindLabel(name)} | ${name}`,
+          preview: browserActivity ? browserActivityPreview(browserActivity) : (responseText ? compactText(responseText, 120) : summarizeToolArguments(argsText)),
           status: inferRunChainItemStatus(message, responseText),
           inspectable: true,
-          detailTitle: name,
-          detailSubtitle: responseText ? t("runChain.toolCallAndResponse") : t("message.toolCall"),
-          detailSections: [
-            { label: t("message.toolArgs"), text: argsText || t("message.toolNoArgs") },
-            ...(responseText ? [{ label: t("message.toolResponse"), text: responseText }] : []),
-          ],
+          detailTitle: browserActivity?.title || (browserActivity ? t("browser.activity") : name),
+          detailSubtitle: browserActivity ? t("browser.activitySubtitle") : (responseText ? t("runChain.toolCallAndResponse") : t("message.toolCall")),
+          detailSections: browserActivity
+            ? browserActivitySections(browserActivity)
+            : [
+                { label: t("message.toolArgs"), text: argsText || t("message.toolNoArgs") },
+                ...(responseText ? [{ label: t("message.toolResponse"), text: responseText }] : []),
+              ],
         });
       });
       index = relatedToolMessagesEndIndex(messages, index);
@@ -1151,19 +1301,22 @@ function createRunChainItems(messages) {
       const isResult = message._tool_result || message.role === "tool";
       const argsText = isResult ? "" : message.content || "";
       const responseText = isResult ? message.content || "" : message._pairedToolResponse?.content || "";
+      const browserActivity = buildBrowserActivity(name, message.content || "", argsText, responseText);
       items.push({
         key: `${message.message_id || `tool-message-${index}`}:${message._tool_result ? "result" : "detail"}`,
-        kind: "tool",
-        title: `${toolKindLabel(name)} | ${name}`,
-        preview: compactText(responseText || argsText || t("runChain.toolActivity"), 120),
+        kind: browserActivity ? "browser" : "tool",
+        title: browserActivity ? `${t("runChain.kind.browser")} | ${browserActivity.actionLabel}` : `${toolKindLabel(name)} | ${name}`,
+        preview: browserActivity ? browserActivityPreview(browserActivity) : compactText(responseText || argsText || t("runChain.toolActivity"), 120),
         status: inferRunChainItemStatus(message, responseText),
         inspectable: true,
-        detailTitle: name,
-        detailSubtitle: responseText ? t("runChain.toolDetailAndResponse") : t("runChain.toolDetail"),
-        detailSections: [
-          ...(argsText ? [{ label: t("runChain.detail"), text: argsText }] : []),
-          ...(responseText ? [{ label: t("message.toolResponse"), text: responseText }] : []),
-        ],
+        detailTitle: browserActivity?.title || (browserActivity ? t("browser.activity") : name),
+        detailSubtitle: browserActivity ? t("browser.activitySubtitle") : (responseText ? t("runChain.toolDetailAndResponse") : t("runChain.toolDetail")),
+        detailSections: browserActivity
+          ? browserActivitySections(browserActivity)
+          : [
+              ...(argsText ? [{ label: t("runChain.detail"), text: argsText }] : []),
+              ...(responseText ? [{ label: t("message.toolResponse"), text: responseText }] : []),
+            ],
       });
     }
   }
@@ -1171,7 +1324,7 @@ function createRunChainItems(messages) {
 }
 
 function runChainSummaryText(items) {
-  const toolCount = items.filter((item) => item.kind === "tool").length;
+  const toolCount = items.filter((item) => item.kind === "tool" || item.kind === "browser").length;
   const planningCount = items.filter((item) => item.kind === "planning").length;
   const status = runChainStatusClass(items);
   const parts = [runChainStatusLabel(status), formatMessage("runChain.itemsCount", { count: items.length })];
@@ -1188,13 +1341,77 @@ function runChainKey(messages) {
 }
 
 function renderInspectorSection(section) {
+  if (section?.type === "browserActivity") {
+    return renderBrowserActivityInspector(section.activity);
+  }
+
   const block = document.createElement("section");
   block.className = "inspector-section";
   const label = document.createElement("h3");
   label.textContent = section.label;
   const pre = document.createElement("pre");
   pre.textContent = section.text || "";
+
+  if (section.collapsed) {
+    const details = document.createElement("details");
+    details.className = "inspector-section-collapsible";
+    const summary = document.createElement("summary");
+    summary.append(label);
+    details.append(summary, pre);
+    block.append(details);
+    return block;
+  }
+
   block.append(label, pre);
+  return block;
+}
+
+function renderBrowserActivityInspector(activity) {
+  const block = document.createElement("section");
+  block.className = "browser-activity-card";
+
+  const header = document.createElement("div");
+  header.className = "browser-activity-header";
+
+  const badge = document.createElement("span");
+  badge.className = "browser-activity-badge";
+  badge.textContent = activity.actionLabel || t("browser.activity");
+
+  const main = document.createElement("div");
+  main.className = "browser-activity-main";
+
+  const title = document.createElement("h3");
+  title.textContent = activity.title || activity.url || t("browser.activity");
+
+  const url = document.createElement("div");
+  url.className = "browser-activity-url";
+  url.textContent = activity.url || t("browser.urlUnavailable");
+  url.title = activity.url || "";
+
+  main.append(title, url);
+  header.append(badge, main);
+
+  const metrics = document.createElement("dl");
+  metrics.className = "browser-activity-metrics";
+  [
+    [t("browser.metric.action"), activity.actionLabel],
+    [t("browser.metric.viewport"), activity.viewport],
+    [t("browser.metric.scroll"), activity.pageScroll],
+  ].forEach(([label, value]) => {
+    if (!value) return;
+    const item = document.createElement("div");
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    item.append(dt, dd);
+    metrics.append(item);
+  });
+
+  block.append(header);
+  if (metrics.children.length) {
+    block.append(metrics);
+  }
   return block;
 }
 
@@ -1950,12 +2167,13 @@ function updateMessageContent(contentEl, message) {
   }
 
   // Handle tool_calls for assistant messages
-  if (message.role === "assistant" && message.tool_calls && message.tool_calls.length > 0) {
+  if (message.role === "assistant" && hasToolCalls(message)) {
     const toolCallsEl = document.createElement("div");
     toolCallsEl.className = "tool-activities";
     const relatedMessages = message._relatedToolMessages || [];
-    const relatedGroups = relatedToolMessageGroups(message.tool_calls, relatedMessages);
-    message.tool_calls.forEach((tc, index) => {
+    const toolCalls = getToolCalls(message);
+    const relatedGroups = relatedToolMessageGroups(toolCalls, relatedMessages);
+    toolCalls.forEach((tc, index) => {
       toolCallsEl.append(createToolCallNode(tc, relatedGroups[index] || []));
     });
     contentEl.append(toolCallsEl);
