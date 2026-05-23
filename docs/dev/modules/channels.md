@@ -13,11 +13,14 @@ Channels connect external chat surfaces to the internal agent runtime. The messa
 | Channel lifecycle and outbound dispatch | `tinybot/channels/manager.py` |
 | Built-in command routing | `tinybot/command/` |
 | Web gateway channel | `tinybot/channels/websocket.py` |
+| Browser HTTP control routes | `tinybot/api/webui.py` |
 | Platform adapters | `tinybot/channels/weixin.py`, `tinybot/channels/feishu.py`, `tinybot/channels/dingtalk.py` |
 
 ## Design Intent
 
-Channels should translate platform-specific events into `InboundMessage` and translate `OutboundMessage` back to the platform. They should not own agent reasoning, task planning, or provider calls.
+Channels should translate platform-specific events into `InboundMessage` and translate `OutboundMessage` back to the platform. They should not own agent reasoning, task planning, provider calls, or browser HTTP control behavior.
+
+`WebSocketChannel` is the browser transport adapter. It owns WebSocket admission, client subscription state, outbound serialization, stream deltas, active-token refresh, static WebUI serving, and mounting the WebUI control plane. Browser operations such as sessions, status, tools, approvals, workspace files, skills, config updates, provider model discovery, and Cowork HTTP controls live in `tinybot/api/webui.py` or the shared domain API modules it delegates to.
 
 The bus provides backpressure and batching. The channel manager owns startup, shutdown, retries, stream delta coalescing, and status reporting.
 
@@ -49,6 +52,7 @@ Non-streaming channels receive completed messages. The channel manager can coale
 - The manager owns channel lifecycle and retries.
 - Agent execution owns reasoning and tool use.
 - Config owns channel enablement and allow-list settings.
+- WebUI control owns browser HTTP request parsing, authorization, runtime dependency checks, and JSON response construction for browser control operations.
 
 ## Extension Checklist
 
@@ -62,4 +66,6 @@ Non-streaming channels receive completed messages. The channel manager can coale
 
 ## Test Strategy
 
-Use `tests/channels/` for adapter behavior and `tests/bus/` for queue behavior. For new platform channels, test allow-list handling, inbound normalization, send failure propagation, and stream support if implemented.
+Use `tests/channels/` for adapter behavior and `tests/bus/` for queue behavior. WebSocket channel tests should focus on socket admission, message frames, stream deltas, subscriptions, broadcast behavior, and control-route mount smoke checks. Browser HTTP control behavior belongs in `tests/api/`.
+
+For new platform channels, test allow-list handling, inbound normalization, send failure propagation, and stream support if implemented.

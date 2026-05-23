@@ -9,6 +9,9 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, register_webui_control_routes
+from tinybot.config.schema import Config, MCPServerConfig
+from tinybot.cowork.service import CoworkService
+from tinybot.security.approval import ApprovalAction, ApprovalManager
 from tinybot.session.manager import SessionManager
 from tinybot.utils.web_tokens import WebTokenManager
 
@@ -295,7 +298,7 @@ async def test_webui_control_route_rejects_missing_token_before_handler_runs():
 
 
 @pytest.mark.asyncio
-async def test_webui_control_missing_runtime_dependency_returns_controlled_error():
+async def test_webui_control_unmigrated_route_returns_controlled_error():
     token_manager = WebTokenManager(ttl_s=300)
     app = web.Application()
     register_webui_control_routes(app, WebUIControlRuntime(token_manager=token_manager))
@@ -303,12 +306,520 @@ async def test_webui_control_missing_runtime_dependency_returns_controlled_error
     try:
         token = token_manager.issue()
         response = await client.get(
-            "/api/tools",
+            "/api/config",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status == 503
         payload = await response.json()
         assert payload["error"] == "webui control route unavailable"
-        assert payload["route"] == "get_tools"
+        assert payload["route"] == "get_config"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_status_and_tools_use_explicit_runtime():
+    token_manager = WebTokenManager(ttl_s=300)
+
+    class FakeDefaults:
+        active_profile = "fast"
+
+    class FakeAgents:
+        defaults = FakeDefaults()
+
+    class FakeConfig:
+        agents = FakeAgents()
+
+        def get_provider_name(self):
+            return "openai"
+
+    class FakeTool:
+        description = "A" * 250
+
+    class FakeTools:
+        tool_names = ["shell"]
+
+        def get(self, name):
+            return FakeTool() if name == "shell" else None
+
+    class FakeAgentLoop:
+        model = "gpt-5"
+        tools = FakeTools()
+
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            agent_loop=FakeAgentLoop(),
+            config=FakeConfig(),
+            channel_running=True,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/status", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["channels"]["websocket"]["running"] is True
+        assert payload["model"] == "gpt-5"
+        assert payload["provider"] == {"name": "openai", "profile": "fast"}
+
+        response = await client.get("/api/tools", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["tools"] == [{"name": "shell", "description": "A" * 200}]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_approvals_approve_deny_and_schedule_retry(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    session_manager = SessionManager(api_workspace)
+    session = session_manager.get_or_create("websocket:chat-1")
+    decision = ApprovalManager.evaluate(
+        session=session,
+        tool=None,
+        tool_name="exec",
+        params={"command": "powershell -Command Remove-Item secret.txt"},
+    )
+    assert decision.action == ApprovalAction.REQUIRE_APPROVAL
+    assert decision.request is not None
+    denied_decision = ApprovalManager.evaluate(
+        session=session,
+        tool=None,
+        tool_name="exec",
+        params={"command": "powershell -Command Remove-Item another-secret.txt"},
+    )
+    assert denied_decision.request is not None
+    session_manager.save(session)
+
+    class FakeAgentLoop:
+        def __init__(self):
+            self.retry_calls: list[dict] = []
+
+        def schedule_approval_retry(self, **kwargs):
+            self.retry_calls.append(kwargs)
+
+    fake_loop = FakeAgentLoop()
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            session_manager=session_manager,
+            agent_loop=fake_loop,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get(
+            "/api/approvals?session_key=websocket:chat-1",
+            headers=headers,
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert {item["id"] for item in payload["approvals"]} == {
+            decision.request.id,
+            denied_decision.request.id,
+        }
+
+        response = await client.post(
+            f"/api/approvals/{decision.request.id}/approve",
+            headers=headers,
+            json={"session_key": "websocket:chat-1", "scope": "once"},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["approved"] is True
+        assert payload["approval"]["id"] == decision.request.id
+
+        response = await client.post(
+            f"/api/approvals/{denied_decision.request.id}/deny",
+            headers=headers,
+            json={"session_key": "websocket:chat-1"},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["denied"] is True
+        assert payload["approval"]["id"] == denied_decision.request.id
+
+        assert [call["approved"] for call in fake_loop.retry_calls] == [True, False]
+        assert fake_loop.retry_calls[0]["channel"] == "websocket"
+        assert fake_loop.retry_calls[0]["chat_id"] == "chat-1"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_workspace_file_routes_use_allow_list(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    broadcasts: list[dict] = []
+
+    async def broadcast_global(payload: dict):
+        broadcasts.append(payload)
+
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            workspace_files={"AGENTS.md": Path("AGENTS.md")},
+            broadcast_global=broadcast_global,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/workspace/files", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["items"] == [{"path": "AGENTS.md", "exists": False, "updated_at": None}]
+
+        response = await client.get("/api/workspace/files/AGENTS.md", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["path"] == "AGENTS.md"
+        assert payload["content"] == ""
+        assert payload["exists"] is False
+
+        response = await client.put(
+            "/api/workspace/files/AGENTS.md",
+            headers=headers,
+            json={"content": "# Agent Rules\n", "expected_updated_at": None},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["saved"] is True
+        assert broadcasts == [
+            {
+                "event": "file_updated",
+                "path": "AGENTS.md",
+                "updated_at": payload["updated_at"],
+            }
+        ]
+
+        response = await client.put(
+            "/api/workspace/files/AGENTS.md",
+            headers=headers,
+            json={"content": "# stale\n", "expected_updated_at": "2000-01-01T00:00:00+00:00"},
+        )
+        assert response.status == 409
+
+        response = await client.get("/api/workspace/files/SECRET.md", headers=headers)
+        assert response.status == 404
+        payload = await response.json()
+        assert payload["error"] == "file is not editable"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_skills_crud_and_validation_use_workspace(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            config=Config(),
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            "/api/skills",
+            headers=headers,
+            json={
+                "name": "My Skill",
+                "description": "Does one useful thing",
+                "content": "Use this skill carefully.",
+                "always": True,
+                "resources": ["scripts"],
+            },
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["created"] is True
+        assert payload["name"] == "my-skill"
+
+        response = await client.get("/api/skills/my-skill", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["name"] == "my-skill"
+        assert payload["content"].strip().endswith("Use this skill carefully.")
+        assert payload["tinybot_meta"]["always"] is True
+
+        response = await client.patch(
+            "/api/skills/my-skill",
+            headers=headers,
+            json={"description": "Updated description", "always": False, "content": "Updated body."},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["updated"] is True
+
+        response = await client.post("/api/skills/my-skill/validate", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload == {"name": "my-skill", "valid": True, "message": "Skill is valid"}
+
+        response = await client.delete("/api/skills/my-skill", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload == {"deleted": True, "name": "my-skill"}
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_config_get_and_patch_preserve_side_effects(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+
+    class FakeTools:
+        def __init__(self):
+            self.tool_names = ["read_file", "mcp_old_echo"]
+            self.unregistered: list[str] = []
+
+        def unregister(self, name: str) -> None:
+            self.unregistered.append(name)
+            self.tool_names.remove(name)
+
+    class FakeAgentLoop:
+        def __init__(self):
+            self.tools = FakeTools()
+            self._mcp_servers = {}
+            self._mcp_connected = True
+            self._mcp_connecting = False
+            self._vector_store = None
+            self.closed = False
+            self.connected = False
+
+        async def close_mcp(self) -> None:
+            self.closed = True
+
+        async def _connect_mcp(self) -> None:
+            self.connected = True
+
+    config = Config()
+    config.agents.defaults.max_tokens = 8192
+    config.agents.defaults.context_window_tokens = 256000
+    config.providers.deepseek.api_key = "real-api-key"
+    fake_loop = FakeAgentLoop()
+    config_path = api_workspace / "config.json"
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            agent_loop=fake_loop,
+            config=config,
+            config_path=config_path,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/config", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["agents"]["defaults"]["maxTokens"] == 8192
+        assert payload["agents"]["defaults"]["contextWindowTokens"] == 256000
+        assert payload["providers"]["deepseek"]["apiKey"] == "********"
+
+        response = await client.patch(
+            "/api/config",
+            headers=headers,
+            json={
+                "tools": {
+                    "mcp_servers": {
+                        "filesystem": {
+                            "type": "stdio",
+                            "command": "npx",
+                            "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+                        },
+                    },
+                },
+            },
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["config"]["tools"]["mcpServers"]["filesystem"]["command"] == "npx"
+        assert isinstance(config.tools.mcp_servers["filesystem"], MCPServerConfig)
+        assert fake_loop._mcp_servers == config.tools.mcp_servers
+        assert fake_loop.closed is True
+        assert fake_loop.connected is True
+        assert fake_loop.tools.unregistered == ["mcp_old_echo"]
+        assert config_path.exists()
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_provider_models_validates_payload(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            config=Config(),
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.post("/api/provider-models", headers=headers, json={})
+        assert response.status == 200
+        payload = await response.json()
+        assert payload == {"ok": False, "error": "provider is required"}
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_cowork_routes_use_shared_api_adaptive_starter_default(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    service = CoworkService(api_workspace)
+
+    class FakeCoworkTool:
+        async def execute(self, action, **kwargs):
+            if action == "start":
+                assert kwargs["workflow_mode"] == "adaptive_starter"
+                session = service.create_session(
+                    goal=kwargs["goal"],
+                    title="Trip plan",
+                    agents=[
+                        {
+                            "id": "planner",
+                            "name": "Planner",
+                            "role": "Planner",
+                            "goal": "Plan the work",
+                            "responsibilities": ["Break down the goal"],
+                        }
+                    ],
+                    tasks=[
+                        {
+                            "id": "task_1",
+                            "title": "Draft plan",
+                            "description": "Create the first plan",
+                            "assigned_agent_id": "planner",
+                        }
+                    ],
+                    workflow_mode=kwargs["workflow_mode"],
+                )
+                return f"Cowork session started: {session.id}"
+            if action == "send_message":
+                session = service.get_session(kwargs["session_id"])
+                service.send_message(
+                    session,
+                    sender_id="user",
+                    recipient_ids=kwargs.get("recipient_ids") or [],
+                    content=kwargs["content"],
+                )
+                return "sent"
+            if action == "add_task":
+                session = service.get_session(kwargs["session_id"])
+                service.add_task(
+                    session,
+                    title=kwargs["title"],
+                    description=kwargs.get("description", ""),
+                    assigned_agent_id=kwargs["assigned_agent_id"],
+                    dependencies=kwargs.get("dependencies") or [],
+                )
+                return "added"
+            if action == "run":
+                session = service.get_session(kwargs["session_id"])
+                service.add_event(session, "session.round", "round complete")
+                return "ran"
+            if action == "summary":
+                return "summary text"
+            return "ok"
+
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            cowork_service=service,
+            cowork_tool=FakeCoworkTool(),
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            "/api/cowork/sessions",
+            headers=headers,
+            json={"goal": "Plan a Kyoto trip"},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        session = payload["session"]
+        assert session["title"] == "Trip plan"
+        assert session["workflow_mode"] == "adaptive_starter"
+        session_id = session["id"]
+
+        response = await client.get("/api/cowork/sessions", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["items"][0]["id"] == session_id
+
+        response = await client.get(f"/api/cowork/sessions/{session_id}", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["session"]["id"] == session_id
+
+        response = await client.get(f"/api/cowork/sessions/{session_id}/graph", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert "graph" in payload
+        assert "architecture_topology" in payload
+
+        response = await client.post(
+            f"/api/cowork/sessions/{session_id}/messages",
+            headers=headers,
+            json={"content": "Prefer public transit"},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["session"]["messages"][-1]["content"] == "Prefer public transit"
+
+        response = await client.post(
+            f"/api/cowork/sessions/{session_id}/tasks",
+            headers=headers,
+            json={"title": "Check rainy day options", "assigned_agent_id": "planner"},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert any(task["title"] == "Check rainy day options" for task in payload["session"]["tasks"])
+
+        response = await client.post(f"/api/cowork/sessions/{session_id}/run", headers=headers, json={"max_rounds": 1})
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["session"]["events"][-1]["type"] == "session.round"
+
+        response = await client.post(f"/api/cowork/sessions/{session_id}/pause", headers=headers)
+        assert response.status == 200
+        response = await client.post(f"/api/cowork/sessions/{session_id}/resume", headers=headers)
+        assert response.status == 200
+
+        response = await client.get(f"/api/cowork/sessions/{session_id}/summary", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["summary"] == "summary text"
+
+        response = await client.delete(f"/api/cowork/sessions/{session_id}", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["deleted"] is True
     finally:
         await client.close()
