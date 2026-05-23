@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib.util
-import ipaddress
 import io
 import json
 import re
@@ -122,16 +121,6 @@ def _extract_bearer_token(request: web.Request) -> str | None:
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
     return request.query.get("token")
-
-
-def _is_loopback_request(request: web.Request) -> bool:
-    remote = request.remote
-    if not remote:
-        return False
-    try:
-        return ipaddress.ip_address(remote).is_loopback
-    except ValueError:
-        return remote in {"localhost"}
 
 
 def _iso_mtime(path: Path) -> str:
@@ -410,6 +399,7 @@ class WebSocketChannel(BaseChannel):
             WebUIControlPaths(
                 bootstrap_path=self.bootstrap_path,
                 sessions_path=self.sessions_path,
+                ws_path=self.ws_path,
             ),
         )
         app.router.add_get(self.ws_path, self.handle_websocket)
@@ -424,16 +414,6 @@ class WebSocketChannel(BaseChannel):
     def _webui_control_handlers(self) -> dict[str, Any]:
         """Temporary handler map while route families move out of this channel."""
         return {
-            "bootstrap": self.handle_bootstrap,
-            "refresh_token": self.handle_refresh_token,
-            "list_sessions": self.handle_list_sessions,
-            "get_messages": self.handle_get_messages,
-            "delete_session": self.handle_delete_session,
-            "patch_session": self.handle_patch_session,
-            "clear_session": self.handle_clear_session,
-            "get_profile": self.handle_get_profile,
-            "list_temporary_files": self.handle_list_temporary_files,
-            "upload_temporary_file": self.handle_upload_temporary_file,
             "get_config": self.handle_get_config,
             "patch_config": self.handle_patch_config,
             "provider_models": self.handle_provider_models,
@@ -597,147 +577,6 @@ class WebSocketChannel(BaseChannel):
         details = output.getvalue().strip()
         if details:
             logger.debug("Docs rebuild output:\n{}", details)
-
-    async def handle_bootstrap(self, request: web.Request) -> web.Response:
-        if not _is_loopback_request(request):
-            return web.json_response({"error": "bootstrap is limited to localhost"}, status=403)
-
-        token = self.token_manager.issue()
-        return web.json_response(
-            {
-                "token": token,
-                "ws_path": self.ws_path,
-                "token_ttl_s": self.token_manager.ttl_s,
-                "refresh_token_path": "/webui/refresh-token",
-                "sessions_path": self.sessions_path,
-                "workspace_files_path": "/api/workspace/files",
-                "cowork_path": "/api/cowork",
-            }
-        )
-
-    async def handle_refresh_token(self, request: web.Request) -> web.Response:
-        if not _is_loopback_request(request):
-            return web.json_response({"error": "token refresh is limited to localhost"}, status=403)
-
-        token = _extract_bearer_token(request)
-        if not self.token_manager.refresh(token or ""):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        return web.json_response(
-            {
-                "token": token,
-                "token_ttl_s": self.token_manager.ttl_s,
-            }
-        )
-
-    async def handle_list_sessions(self, request: web.Request) -> web.Response:
-        if not self._is_authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        assert self.session_manager is not None
-        items = []
-        for entry in self.session_manager.list_sessions():
-            key = entry.get("key", "")
-            if not key.startswith("websocket:"):
-                continue
-            session = self.session_manager.get(key)
-            items.append(
-                {
-                    "key": key,
-                    "chat_id": key.split(":", 1)[1],
-                    "title": _compact_session_title(session.messages if session else []),
-                    "created_at": entry.get("created_at"),
-                    "updated_at": entry.get("updated_at"),
-                }
-            )
-        return web.json_response({"items": items})
-
-    async def handle_get_messages(self, request: web.Request) -> web.Response:
-        if not self._is_authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        assert self.session_manager is not None
-        key = request.match_info["key"]
-        session = self.session_manager.get(key)
-        if session is None:
-            return web.json_response({"error": "session not found"}, status=404)
-
-        messages: list[dict[str, Any]] = []
-        emitted_task_plan_ids = {
-            str(message.get("_task_plan_id"))
-            for message in session.messages
-            if message.get("_task_event") and message.get("_task_plan_id")
-        }
-        for message in session.messages:
-            if _is_internal_task_notification(message):
-                plan_id = _extract_task_plan_id(message)
-                if plan_id and plan_id not in emitted_task_plan_ids:
-                    task_message = self._task_progress_message_from_plan(plan_id)
-                    if task_message:
-                        messages.append(_serialize_message(task_message))
-                        emitted_task_plan_ids.add(plan_id)
-                continue
-            messages.append(_serialize_message(message))
-
-        return web.json_response(
-            {
-                "key": session.key,
-                "messages": messages,
-            }
-        )
-
-    def _task_progress_message_from_plan(self, plan_id: str) -> dict[str, Any] | None:
-        task_manager = getattr(self.agent_loop, "task_manager", None)
-        if task_manager is None:
-            return None
-        plan = task_manager.get_plan(plan_id)
-        if plan is None:
-            return None
-        progress = task_manager.get_progress(plan_id)
-        if progress is None:
-            return None
-
-        payload = {
-            "event": "restored",
-            "plan_id": plan.id,
-            "plan_title": plan.title,
-            "plan_status": plan.status,
-            "progress": progress,
-            "subtasks": [
-                {
-                    "id": subtask.id,
-                    "title": subtask.title,
-                    "status": subtask.status,
-                    "dependencies": subtask.dependencies,
-                    "parallel_safe": subtask.parallel_safe,
-                    "result": subtask.result,
-                    "error": subtask.error,
-                }
-                for subtask in plan.subtasks
-            ],
-        }
-        return {
-            "role": "progress",
-            "content": f"Task Progress: {plan.title}",
-            "timestamp": plan.updated_at.isoformat(),
-            "_progress": True,
-            "_tool_name": "task",
-            "_task_event": True,
-            "_task_progress": payload,
-            "_task_plan_id": plan.id,
-        }
-
-    async def handle_delete_session(self, request: web.Request) -> web.Response:
-        if not self._is_authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        assert self.session_manager is not None
-        key = request.match_info["key"]
-        deleted = self.session_manager.delete(key)
-        if not deleted:
-            return web.json_response({"error": "session not found"}, status=404)
-        self._clear_temporary_files(key)
-        return web.json_response({"deleted": True, "key": key})
 
     async def handle_websocket(self, request: web.Request) -> web.StreamResponse:
         if not self._is_authorized(request):
@@ -1732,145 +1571,6 @@ class WebSocketChannel(BaseChannel):
             })
 
         return web.json_response({"name": name, "valid": True, "message": "Skill is valid"})
-
-    async def handle_patch_session(self, request: web.Request) -> web.Response:
-        """Update session metadata (title, etc.)."""
-        if not self._is_authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        assert self.session_manager is not None
-        key = request.match_info["key"]
-        session = self.session_manager.get(key)
-        if session is None:
-            return web.json_response({"error": "session not found"}, status=404)
-
-        try:
-            payload = await request.json()
-        except Exception:
-            return web.json_response({"error": "invalid json body"}, status=400)
-
-        metadata = payload.get("metadata")
-        if metadata is not None and isinstance(metadata, dict):
-            session.metadata.update(metadata)
-            self.session_manager.save(session)
-
-        return web.json_response({
-            "key": session.key,
-            "metadata": session.metadata,
-            "updated_at": session.updated_at.isoformat(),
-        })
-
-    async def handle_clear_session(self, request: web.Request) -> web.Response:
-        """Clear session messages but keep session."""
-        if not self._is_authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        assert self.session_manager is not None
-        key = request.match_info["key"]
-        session = self.session_manager.get(key)
-        if session is None:
-            return web.json_response({"error": "session not found"}, status=404)
-
-        session.clear()
-        self.session_manager.save(session)
-        self._clear_temporary_files(key)
-        return web.json_response({
-            "key": session.key,
-            "cleared": True,
-            "updated_at": session.updated_at.isoformat(),
-        })
-
-    def _clear_temporary_files(self, session_key: str) -> None:
-        store = getattr(self.agent_loop, "session_knowledge_store", None)
-        if store:
-            store.clear_session(session_key)
-
-    async def handle_list_temporary_files(self, request: web.Request) -> web.Response:
-        if not self._is_authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        key = request.match_info["key"]
-        store = getattr(self.agent_loop, "session_knowledge_store", None)
-        items = store.list_documents(key) if store else []
-        return web.json_response({"items": items})
-
-    async def handle_upload_temporary_file(self, request: web.Request) -> web.Response:
-        if not self._is_authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        key = request.match_info["key"]
-        if not key.startswith(f"{self.name}:"):
-            return web.json_response({"error": "temporary files are only supported for websocket sessions"}, status=400)
-
-        store = getattr(self.agent_loop, "session_knowledge_store", None)
-        if store is None:
-            return web.json_response({"error": "temporary knowledge store is not available"}, status=503)
-
-        try:
-            reader = await request.multipart()
-            file_content: bytes | None = None
-            filename = ""
-            while True:
-                field = await reader.next()
-                if field is None:
-                    break
-                if field.filename:
-                    filename = field.filename
-                    file_content = await field.read()
-        except Exception as exc:
-            return web.json_response({"error": f"failed to parse upload: {exc}"}, status=400)
-
-        if not filename or file_content is None:
-            return web.json_response({"error": "file is required"}, status=400)
-
-        file_type = Path(filename).suffix.lower().lstrip(".")
-        if file_type not in {"txt", "md", "pdf"}:
-            return web.json_response({"error": "supported temporary file types: txt, md, pdf"}, status=400)
-
-        try:
-            if file_type == "pdf":
-                content: str | bytes = file_content
-            else:
-                content = file_content.decode("utf-8")
-            doc = store.add_upload(
-                key,
-                name=filename,
-                content=content,
-                file_type=file_type,
-                metadata={"size_bytes": len(file_content)},
-            )
-        except UnicodeDecodeError as exc:
-            return web.json_response({"error": f"expected UTF-8 text file: {exc}"}, status=400)
-        except ValueError as exc:
-            return web.json_response({"error": str(exc)}, status=400)
-        except Exception as exc:
-            logger.exception("Failed to upload temporary file for {}", key)
-            return web.json_response({"error": f"failed to upload temporary file: {exc}"}, status=500)
-
-        return web.json_response({
-            "id": doc.id,
-            "name": doc.name,
-            "file_type": doc.file_type,
-            "chunk_count": doc.chunk_count,
-            "size_bytes": len(file_content),
-            "temporary": True,
-        })
-
-    async def handle_get_profile(self, request: web.Request) -> web.Response:
-        """Get user profile for a session."""
-        if not self._is_authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-
-        assert self.session_manager is not None
-        key = request.match_info["key"]
-        session = self.session_manager.get(key)
-        if session is None:
-            return web.json_response({"error": "session not found"}, status=404)
-
-        return web.json_response({
-            "key": session.key,
-            "profile": session.user_profile,
-        })
 
     async def handle_get_config(self, request: web.Request) -> web.Response:
         """Get current configuration with sensitive values masked."""
