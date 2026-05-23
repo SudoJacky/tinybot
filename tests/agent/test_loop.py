@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from tinybot.agent.loop import AgentLoop
+from tinybot.agent.turn_lifecycle import CompletedTurn
 from tinybot.agent.stream_handler import StreamHandler
 from tinybot.agent.memory import MemoryStore
 from tinybot.session.manager import Session
@@ -133,3 +134,63 @@ def test_recent_context_references_attach_to_latest_assistant():
 
     assert session.messages[-1]["_recent_context_references"] == references
     assert "_memory_references" not in session.messages[-1]
+
+
+@pytest.mark.asyncio
+async def test_process_direct_finalizes_through_turn_lifecycle():
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.task_progress_state = SimpleNamespace(reset=lambda: None)
+    loop.sessions = MagicMock()
+    session = Session(key="api:test")
+    loop.sessions.get_or_create.return_value = session
+    loop.commands = SimpleNamespace(dispatch=AsyncMock(return_value=None))
+    loop.consolidator = SimpleNamespace(maybe_consolidate_by_tokens=AsyncMock(return_value=None))
+    loop._set_tool_context = lambda *args, **kwargs: None
+    loop.tools = MagicMock()
+    loop.tools.get.return_value = None
+    loop.context = SimpleNamespace(
+        last_memory_references=[{"note_id": "note_1"}],
+        last_recent_context_references=[{"evidence_id": "ev_1"}],
+    )
+    loop.context.build_messages = MagicMock(return_value=[{"role": "user", "content": "Hello"}])
+    loop._run_agent_loop = AsyncMock(
+        return_value=(
+            "Hi there.",
+            None,
+            [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi there."},
+            ],
+            "stop",
+        )
+    )
+    loop._connect_mcp = AsyncMock(return_value=None)
+
+    class FakeLifecycle:
+        def __init__(self):
+            self.turns: list[CompletedTurn] = []
+
+        def finalize(self, turn: CompletedTurn):
+            self.turns.append(turn)
+
+    lifecycle = FakeLifecycle()
+    loop.turn_lifecycle = lifecycle
+
+    response = await loop.process_direct(
+        "Hello",
+        session_key="api:test",
+        channel="api",
+        chat_id="default",
+    )
+
+    assert response is not None
+    assert response.content == "Hi there."
+    assert loop.sessions.get_or_create.call_args.args == ("api:test",)
+    assert len(lifecycle.turns) == 1
+    turn = lifecycle.turns[0]
+    assert turn.session is session
+    assert turn.messages[-1]["content"] == "Hi there."
+    assert turn.memory_references == [{"note_id": "note_1"}]
+    assert turn.recent_context_references == [{"evidence_id": "ev_1"}]
+    assert turn.user_text == "Hello"
+    assert turn.assistant_text == "Hi there."

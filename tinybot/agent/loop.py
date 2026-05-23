@@ -99,6 +99,7 @@ from tinybot.agent.dependencies import AgentDependencies
 from tinybot.agent.session_handler import SessionHandler
 from tinybot.agent.stream_handler import StreamHandler, StreamHookChain
 from tinybot.agent.tool_executor import BrowserSnapshotHook, ToolContextManager, format_tool_call_detail
+from tinybot.agent.turn_lifecycle import CompletedTurn, TurnLifecycle
 from tinybot.session.manager import Session, SessionManager
 from tinybot.utils.prompt_templates import render_template
 from tinybot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
@@ -357,6 +358,17 @@ class AgentLoop:
         self._memory_extraction_locks: dict[str, asyncio.Lock] = {}
         self._memory_extraction_run_lock = asyncio.Lock()
         self._memory_extraction_idle_tasks: dict[str, asyncio.Task] = {}
+        self.turn_lifecycle = TurnLifecycle(
+            session_handler=self.session_handler,
+            sessions=self.sessions,
+            memory_store=self.context.memory,
+            schedule_background=self._schedule_background,
+            memory_extraction_config=self._memory_extraction_config,
+            run_memory_extraction=self._run_memory_extraction_once,
+            schedule_idle_extraction=self._schedule_memory_extraction_after_idle_task,
+            consolidate=self.consolidator.maybe_consolidate_by_tokens,
+            update_user_profile=self._update_user_profile,
+        )
         # tinybot_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("tinybot_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
@@ -1069,6 +1081,24 @@ class AgentLoop:
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
+    def _schedule_memory_extraction_after_idle_task(self, session_key: str, idle_seconds: int) -> bool:
+        """Schedule an idle Memory Extraction pass for one session."""
+        old_idle = self._memory_extraction_idle_tasks.pop(session_key, None)
+        if old_idle and not old_idle.done():
+            old_idle.cancel()
+        idle_task = asyncio.create_task(self._run_memory_extraction_after_idle(session_key, idle_seconds))
+        self._memory_extraction_idle_tasks[session_key] = idle_task
+        self._background_tasks.append(idle_task)
+
+        def _forget_idle_task(task: asyncio.Task, key: str = session_key) -> None:
+            if self._memory_extraction_idle_tasks.get(key) is task:
+                self._memory_extraction_idle_tasks.pop(key, None)
+            if task in self._background_tasks:
+                self._background_tasks.remove(task)
+
+        idle_task.add_done_callback(_forget_idle_task)
+        return True
+
     def _last_user_message_index(self, session: Session) -> int:
         for idx in range(len(session.messages) - 1, -1, -1):
             if session.messages[idx].get("role") == "user":
@@ -1161,19 +1191,7 @@ class AgentLoop:
         if should_run_now:
             self._schedule_background(self._run_memory_extraction_once(session.key))
 
-        old_idle = self._memory_extraction_idle_tasks.pop(session.key, None)
-        if old_idle and not old_idle.done():
-            old_idle.cancel()
-        idle_task = asyncio.create_task(self._run_memory_extraction_after_idle(session.key, idle_seconds))
-        self._memory_extraction_idle_tasks[session.key] = idle_task
-        self._background_tasks.append(idle_task)
-        def _forget_idle_task(task: asyncio.Task, key: str = session.key) -> None:
-            if self._memory_extraction_idle_tasks.get(key) is task:
-                self._memory_extraction_idle_tasks.pop(key, None)
-            if task in self._background_tasks:
-                self._background_tasks.remove(task)
-
-        idle_task.add_done_callback(_forget_idle_task)
+        self._schedule_memory_extraction_after_idle_task(session.key, idle_seconds)
 
     async def _run_memory_extraction_after_idle(self, session_key: str, idle_seconds: int) -> None:
         try:
@@ -1533,19 +1551,18 @@ class AgentLoop:
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
 
-        # Process remaining messages (user message, etc.) that checkpoint didn't handle
-        skip_count = len(session.messages)
-        self.session_handler.save_turn(session, all_msgs, skip_count, ContextBuilder._RUNTIME_CONTEXT_TAG)
-        self.session_handler.clear_checkpoint(session)
-        self._attach_memory_references_to_latest_assistant(session, turn_start_index, memory_references)
-        self._attach_recent_context_references_to_latest_assistant(session, turn_start_index, recent_context_references)
-        self.sessions.save(session)
-        evidence = self._capture_conversation_evidence(session, turn_start_index)
-        self._schedule_memory_extraction_triggers(session, evidence)
-        self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
-        self._schedule_background(self._update_user_profile(
-            session, msg.content, final_content or "",
-        ))
+        self.turn_lifecycle.finalize(
+            CompletedTurn(
+                session=session,
+                messages=all_msgs,
+                turn_start_index=turn_start_index,
+                runtime_context_tag=ContextBuilder._RUNTIME_CONTEXT_TAG,
+                memory_references=memory_references,
+                recent_context_references=recent_context_references,
+                user_text=msg.content,
+                assistant_text=final_content or "",
+            )
+        )
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
