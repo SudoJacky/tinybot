@@ -228,6 +228,9 @@ class AgentRunner:
                             result,
                         ),
                     }
+                    if isinstance(result, AwaitingUserInputResult):
+                        tool_message["_awaiting_user_input"] = True
+                        tool_message["_agent_ui_internal"] = True
                     messages.append(tool_message)
                     completed_tool_results.append(tool_message)
                 await self._emit_checkpoint(
@@ -677,6 +680,9 @@ class AgentRunner:
             if spec.fail_on_tool_error:
                 return result + suggestions, event, RuntimeError(result)
             return result + suggestions, event, None
+
+        if isinstance(result, AwaitingUserInputResult):
+            return result, {"name": tool_call.name, "status": result.stop_reason, "detail": ""}, None
 
         detail = "" if result is None else str(result)
         detail = detail.replace("\n", " ").strip()

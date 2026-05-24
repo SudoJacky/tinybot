@@ -75,3 +75,5 @@ async def test_runner_stops_after_tool_requests_user_input():
     assert result.final_content is None
     assert result.messages[-1]["role"] == "tool"
     assert result.messages[-1]["content"] == "Agent UI form `travel-form-1` requested asynchronously."
+    assert result.messages[-1]["_awaiting_user_input"] is True
+    assert result.messages[-1]["_agent_ui_internal"] is True

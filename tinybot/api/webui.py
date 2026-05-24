@@ -169,6 +169,19 @@ def _is_internal_task_notification(message: dict[str, Any]) -> bool:
     )
 
 
+def _is_internal_agent_ui_tool_result(message: dict[str, Any]) -> bool:
+    if message.get("_agent_ui_internal"):
+        return True
+    if message.get("role") != "tool" or message.get("name") != "request_form":
+        return False
+    content = _message_text(message.get("content"))
+    return (
+        "Agent UI form `" in content
+        and "requested asynchronously for WebUI chat" in content
+        and "Wait for the form response continuation" in content
+    )
+
+
 def _extract_task_plan_id(message: dict[str, Any]) -> str:
     content = _message_text(message.get("content"))
     match = _TASK_PLAN_ID_RE.search(content)
@@ -383,6 +396,8 @@ def _get_messages_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths
             if message.get("_task_event") and message.get("_task_plan_id")
         }
         for message in session.messages:
+            if _is_internal_agent_ui_tool_result(message):
+                continue
             if _is_internal_task_notification(message):
                 plan_id = _extract_task_plan_id(message)
                 if plan_id and plan_id not in emitted_task_plan_ids:

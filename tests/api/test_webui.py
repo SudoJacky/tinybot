@@ -755,6 +755,52 @@ async def test_webui_control_messages_restore_agent_ui_form_display_metadata(api
 
 
 @pytest.mark.asyncio
+async def test_webui_control_messages_hide_internal_agent_ui_tool_results(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    session_manager = SessionManager(api_workspace)
+    session = session_manager.get_or_create("websocket:chat-1")
+    session.add_message("user", "Collect travel preferences.")
+    session.add_message(
+        "assistant",
+        "",
+        tool_calls=[{"id": "call_form", "type": "function", "function": {"name": "request_form", "arguments": "{}"}}],
+    )
+    session.add_message(
+        "tool",
+        "Agent UI form `travel_plan` requested asynchronously for WebUI chat `chat-1`.",
+        tool_call_id="call_form",
+        name="request_form",
+        _awaiting_user_input=True,
+        _agent_ui_internal=True,
+    )
+    session.add_message(
+        "tool",
+        (
+            "Agent UI form `old_form` requested asynchronously for WebUI chat `chat-1`. "
+            "Wait for the form response continuation instead of expecting values from this tool call."
+        ),
+        tool_call_id="call_old_form",
+        name="request_form",
+    )
+    session_manager.save(session)
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(token_manager=token_manager, session_manager=session_manager),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/sessions/websocket:chat-1/messages", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
+        assert all("requested asynchronously" not in message.get("content", "") for message in payload["messages"])
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_webui_control_workspace_file_routes_use_allow_list(api_workspace):
     token_manager = WebTokenManager(ttl_s=300)
     broadcasts: list[dict] = []

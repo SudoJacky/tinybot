@@ -57,6 +57,27 @@ class TestStreamHandlerHook:
         handler = StreamHandler(None, on_stream=callback)
         assert handler.wants_streaming() is True
 
+    @pytest.mark.asyncio
+    async def test_after_execute_tools_skips_awaiting_user_input_events(self):
+        progress: list[tuple[str, dict]] = []
+
+        async def callback(content, **kwargs):
+            progress.append((content, kwargs))
+
+        handler = StreamHandler(None, on_progress=callback)
+        await handler.after_execute_tools(
+            AgentHookContext(
+                iteration=0,
+                messages=[],
+                tool_events=[
+                    {"name": "request_form", "status": "awaiting_form", "detail": ""},
+                    {"name": "read_file", "status": "ok", "detail": "done"},
+                ],
+            )
+        )
+
+        assert progress == [("done", {"tool_hint": True, "tool_result": True, "tool_name": "read_file"})]
+
 
 class TestStreamHookChain:
     """Tests for StreamHookChain functionality."""
