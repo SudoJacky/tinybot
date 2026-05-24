@@ -1,0 +1,148 @@
+import { AGENT_UI_EVENT_TYPES } from "./agent-ui-events.js";
+
+export const LEGACY_AGENT_UI_FRAME_FIXTURES = Object.freeze([
+  {
+    name: "chat created starts pending user message flow",
+    frame: { event: "chat_created", chat_id: "chat-1" },
+    visibleBehavior: "Activates the created chat, refreshes sessions, and sends the pending message when present.",
+    normalizedEvents: [],
+  },
+  {
+    name: "attached reloads persisted messages",
+    frame: { event: "attached", chat_id: "chat-1" },
+    visibleBehavior: "Activates the attached chat and reloads persisted messages from the session route.",
+    normalizedEvents: [],
+  },
+  {
+    name: "assistant text delta",
+    frame: { event: "delta", chat_id: "chat-1", message_id: "msg-1", text: "Hello", is_reasoning: false },
+    visibleBehavior: "Appends text to the assistant streaming message.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["message.delta"]],
+  },
+  {
+    name: "reasoning delta",
+    frame: { event: "delta", chat_id: "chat-1", message_id: "msg-1", text: "Plan", is_reasoning: true },
+    visibleBehavior: "Appends text to the collapsible reasoning area for the live message.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["reasoning.delta"]],
+  },
+  {
+    name: "assistant message with references",
+    frame: {
+      event: "message",
+      chat_id: "chat-1",
+      message_id: "msg-2",
+      text: "Final answer",
+      _memory_references: [{ id: "mem-1", title: "Memory" }],
+      _recent_context_references: [{ id: "ctx-1", title: "Recent context" }],
+    },
+    visibleBehavior: "Adds a completed assistant message and renders memory plus recent-context references.",
+    normalizedEvents: [
+      AGENT_UI_EVENT_TYPES["message.completed"],
+      AGENT_UI_EVENT_TYPES["memory.references.updated"],
+      AGENT_UI_EVENT_TYPES["recent_context.references.updated"],
+    ],
+  },
+  {
+    name: "tool progress message",
+    frame: {
+      event: "message",
+      chat_id: "chat-1",
+      text: "Running shell command",
+      _progress: true,
+      _tool_detail: true,
+      _tool_name: "shell",
+      _approval_id: "approval-1",
+    },
+    visibleBehavior: "Adds a temporary progress/tool card and refreshes approvals.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["tool.call.updated"]],
+  },
+  {
+    name: "task progress message",
+    frame: {
+      event: "message",
+      chat_id: "chat-1",
+      message_id: "task-plan-1",
+      text: "Task progress",
+      _progress: true,
+      _task_event: true,
+      _task_progress: { plan_id: "plan-1", progress: { completed: 1, total: 3 } },
+    },
+    visibleBehavior: "Upserts the task progress card instead of adding a persisted chat message.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["tool.call.updated"]],
+  },
+  {
+    name: "stream end with references",
+    frame: {
+      event: "stream_end",
+      chat_id: "chat-1",
+      message_id: "msg-1",
+      _memory_references: [{ id: "mem-1" }],
+      _recent_context_references: [{ id: "ctx-1" }],
+    },
+    visibleBehavior: "Finalizes the live stream, attaches references, rerenders, and refreshes approvals.",
+    normalizedEvents: [
+      AGENT_UI_EVENT_TYPES["message.stream.completed"],
+      AGENT_UI_EVENT_TYPES["memory.references.updated"],
+      AGENT_UI_EVENT_TYPES["recent_context.references.updated"],
+    ],
+  },
+  {
+    name: "approval pending",
+    frame: { event: "approval_pending", chat_id: "chat-1", approval_id: "approval-1" },
+    visibleBehavior: "Refreshes approval cards through the existing approval control route.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["approval.requested"]],
+  },
+  {
+    name: "browser frame",
+    frame: {
+      event: "browser_frame",
+      chat_id: "chat-1",
+      url: "/browser/frame.png",
+      command: "click",
+      captured_at: "2026-05-24T00:00:00Z",
+    },
+    visibleBehavior: "Updates the browser panel with the latest frame.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["browser.frame.updated"]],
+  },
+  {
+    name: "browser snapshot",
+    frame: {
+      event: "browser_snapshot",
+      chat_id: "chat-1",
+      image_url: "/browser/snapshot.png",
+      command: "inspect",
+      captured_at: "2026-05-24T00:00:01Z",
+    },
+    visibleBehavior: "Updates the browser panel with a captured snapshot.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["browser.frame.updated"]],
+  },
+  {
+    name: "usage update",
+    frame: {
+      event: "usage",
+      chat_id: "chat-1",
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cached_tokens: 0 },
+    },
+    visibleBehavior: "Updates the token usage status surface.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["usage.updated"]],
+  },
+  {
+    name: "session file updated",
+    frame: { event: "file_updated", chat_id: "chat-1", path: "notes.md" },
+    visibleBehavior: "Reloads editable files and refreshes the active file if it has no local edits.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["session.file.updated"]],
+  },
+  {
+    name: "error notice",
+    frame: { event: "error", chat_id: "chat-1", message: "Server error", path: "notes.md" },
+    visibleBehavior: "Shows the error in the global status and mirrors file errors to the editor.",
+    normalizedEvents: [AGENT_UI_EVENT_TYPES["error.raised"]],
+  },
+  {
+    name: "cowork compatibility refresh",
+    frame: { event: "cowork_updated", session_id: "cowork-1" },
+    visibleBehavior: "Schedules a Cowork snapshot refresh without Agent UI normalization.",
+    normalizedEvents: [],
+    compatibilityPassthrough: true,
+  },
+]);

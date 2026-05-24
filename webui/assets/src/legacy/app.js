@@ -9,6 +9,12 @@ import {
   TOOL_CONTENT_COLLAPSE_LINES,
 } from '../constants.js';
 import { t, getLanguage, setLanguage } from '../i18n/index.js';
+import {
+  AGENT_UI_EVENT_TYPES,
+  createAgentUiEventState,
+  normalizeAgentUiEvents,
+  reduceAgentUiEventState,
+} from '../agent-ui-events.js';
 
 // Legacy application module. The functions below are intentionally kept together
 // for this pass because chat, settings, knowledge, and cowork flows share state
@@ -23,6 +29,8 @@ const SIDEBAR_DRAWER_CLOSE_MS = 480;
 const nativeFetch = window.fetch.bind(window);
 const BOOTSTRAP_PATH = "/webui/bootstrap";
 const DEFAULT_TOKEN_REFRESH_PATH = "/webui/refresh-token";
+
+state.agentUi = state.agentUi || createAgentUiEventState();
 
 function setStatus(text, kind = "idle") {
   if (!elements.connectionStatus) {
@@ -10124,6 +10132,10 @@ async function connectWebSocket() {
 
     socket.addEventListener("message", async (event) => {
       const payload = JSON.parse(event.data);
+      const agentUiEvents = normalizeAgentUiEvents(payload);
+      for (const agentUiEvent of agentUiEvents) {
+        reduceAgentUiEventState(state.agentUi, agentUiEvent);
+      }
 
       if (payload.event === "ready") {
         resolve();
@@ -10164,7 +10176,19 @@ async function connectWebSocket() {
       }
 
       if (payload.event === "delta") {
-        upsertStreamMessage(payload.chat_id, payload.message_id || crypto.randomUUID(), payload.text || "", payload.is_reasoning || false);
+        for (const agentUiEvent of agentUiEvents) {
+          if (
+            agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["message.delta"] ||
+            agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["reasoning.delta"]
+          ) {
+            upsertStreamMessage(
+              agentUiEvent.chat_id,
+              agentUiEvent.message_id,
+              agentUiEvent.payload.text || "",
+              agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["reasoning.delta"],
+            );
+          }
+        }
         return;
       }
 
@@ -10219,20 +10243,29 @@ async function connectWebSocket() {
       }
 
       if (payload.event === "browser_frame" || payload.event === "browser_snapshot") {
-        updateBrowserFrame(payload);
+        const browserEvent = agentUiEvents.find((item) => item.event_type === AGENT_UI_EVENT_TYPES["browser.frame.updated"]);
+        updateBrowserFrame(browserEvent ? {
+          ...payload,
+          image_url: browserEvent.payload.image_url,
+          url: browserEvent.payload.image_url || payload.url,
+          command: browserEvent.payload.command,
+          captured_at: browserEvent.payload.captured_at,
+        } : payload);
         return;
       }
 
       if (payload.event === "stream_end") {
         if (payload.message_id) {
           const streamState = state.streamBuffers.get(payload.message_id);
+          const memoryReferences = state.agentUi.memoryReferences.get(payload.message_id);
+          const recentContextReferences = state.agentUi.recentContextReferences.get(payload.message_id);
           if (streamState?.entry) {
             streamState.entry._stream_resuming = payload.resuming === true;
-            if (Array.isArray(payload._memory_references)) {
-              streamState.entry._memory_references = payload._memory_references;
+            if (Array.isArray(memoryReferences)) {
+              streamState.entry._memory_references = memoryReferences;
             }
-            if (Array.isArray(payload._recent_context_references)) {
-              streamState.entry._recent_context_references = payload._recent_context_references;
+            if (Array.isArray(recentContextReferences)) {
+              streamState.entry._recent_context_references = recentContextReferences;
             }
           }
           state.streamBuffers.delete(payload.message_id);
@@ -10247,7 +10280,7 @@ async function connectWebSocket() {
       }
 
       if (payload.event === "usage") {
-        updateUsageDisplay(payload.usage);
+        updateUsageDisplay(state.agentUi.usage || payload.usage);
         return;
       }
 
@@ -10272,9 +10305,11 @@ async function connectWebSocket() {
       }
 
       if (payload.event === "error") {
-        setError(payload.message || t("status.serverError"));
+        const errorEvent = agentUiEvents.find((item) => item.event_type === AGENT_UI_EVENT_TYPES["error.raised"]);
+        const message = errorEvent?.payload.message || payload.message || t("status.serverError");
+        setError(message);
         if (payload.path) {
-          setFileError(payload.message || t("status.serverError"));
+          setFileError(message);
         }
       }
     });

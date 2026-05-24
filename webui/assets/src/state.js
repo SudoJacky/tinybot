@@ -52,6 +52,7 @@ export const state = {
   contextWindowTokens: 65536,  // 默认上下文窗口大小
   lastUsage: null,  // 最后一次的usage数据
   browserFrame: null,
+  agentUi: null,
   browserPanelCollapsed: false,
   inspectionOpen: false,
   selectedChainItemKey: "",
