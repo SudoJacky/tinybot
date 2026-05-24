@@ -20,6 +20,81 @@ A lightweight personal AI assistant framework that integrates Large Language Mod
 ## Change log
 
 <details>
+<summary>2026.05.24 Event-oriented frontend components inspired by AG-UI, plus A2UI-style form collection when Tinybot needs follow-up information from the user.</summary>
+
+![form](./show/webui_form.PNG)
+
+</details>
+
+<details>
+<summary>2026.05.22 Implemented an efficient, real-time, editable memory system maintained alongside the agent, using memory state labels to handle contradictory memories over time.</summary>
+
+![save](./show/webui_memory_save.PNG)
+
+![load](./show/webui_memory_load.PNG)
+
+```mermaid
+flowchart TD
+    UserTurn["Completed agent turn"] --> SaveSession["SessionHandler.save_turn"]
+    SaveSession --> CaptureEvidence["capture_conversation_evidence"]
+    CaptureEvidence --> EvidenceFiles["memory/conversations/*.jsonl"]
+    CaptureEvidence --> Schedule["Memory extraction schedule"]
+
+    Schedule --> DreamRun["Dream.run"]
+    DreamRun --> HasEvidence{"Pending Conversation Evidence?"}
+    HasEvidence -->|yes| EvidenceBatch["Read evidence after .evidence_cursor"]
+    HasEvidence -->|no| LegacyBatch["Read legacy memory/history.jsonl after .dream_cursor"]
+
+    EvidenceBatch --> Prompt["dream_phase1.md + current notes/views"]
+    LegacyBatch --> Prompt
+    Prompt --> LLMOps["LLM JSON Memory Operations"]
+    LLMOps --> ParseOps["parse operations"]
+
+    ParseOps --> OpType{"operation"}
+    OpType -->|save| SaveNote["upsert MemoryNote"]
+    OpType -->|supersede| Supersede["create replacement + mark old superseded"]
+    OpType -->|reject| Reject["mark note rejected"]
+    OpType -->|skip| Noop["no durable change"]
+
+    SaveNote --> Notes["memory/notes.jsonl"]
+    Supersede --> Notes
+    Reject --> Notes
+
+    Notes --> RefreshViews["refresh_memory_views"]
+    RefreshViews --> ProjectView["memory/MEMORY.md"]
+    RefreshViews --> UserView["USER.md"]
+    RefreshViews --> SoulView["SOUL.md"]
+
+    Notes --> RecallSelect["select_memory_recall"]
+    RecallSelect --> RecallBlock["[MEMORY RECALL] system block"]
+    RecallBlock --> AgentContext["ContextBuilder.build_messages"]
+
+    Experience["ExperienceStore"] --> ExperienceBlock["[RELEVANT WORKFLOWS / RECOVERIES]"]
+    Knowledge["KnowledgeStore / SessionKnowledgeStore"] --> KnowledgeBlock["Knowledge context"]
+    ExperienceBlock --> AgentContext
+    KnowledgeBlock --> AgentContext
+```
+
+```mermaid
+flowchart LR
+    Notes["Memory Notes\ncanonical JSONL"] --> Views["Memory Views\nMarkdown projection"]
+    Notes --> Recall["Memory Recall\nprompt retrieval"]
+    Evidence["Conversation Evidence\nraw source layer"] --> Dream["Dream\nbackground extraction"]
+    Dream --> Notes
+
+    ExplicitTools["Explicit memory tools\nforeground correction"] --> Notes
+    Legacy["Legacy Markdown/history\nmigration + fallback"] --> Notes
+
+    Experience["Experience\nhow to act"] --> AgentPrompt["Agent prompt"]
+    Knowledge["Knowledge\nexternal document evidence"] --> AgentPrompt
+    Recall --> AgentPrompt
+
+    Views -. "inspection + compatibility" .-> AgentPrompt
+```
+
+</details>
+
+<details>
 <summary>2026.05.15 Continued Cowork architecture runtime evolution.</summary>
 
 Cowork now uses canonical architectures (`adaptive_starter`, `team`, `generator_verifier`, `message_bus`, `shared_state`, `swarm`), branch-aware session snapshots, Agent Step observation detail expansion, architecture-specific projections, and explicit branch result selection or merge controls.
@@ -106,6 +181,10 @@ dark mode
 
 ## ✨ Core Highlights
 
+### Interactive Forms
+
+<video src="https://github.com/user-attachments/assets/d788bf1f-e70f-47be-869c-db1bf44d2d64" controls width="100%"></video>
+
 ### Chatbot-agent
 
 <video src="https://github.com/user-attachments/assets/6b2e9439-7870-440e-8c49-61d38d46caf9" controls width="100%"></video>
@@ -147,14 +226,14 @@ A self-learning system that continuously improves from problem-solving experienc
   "error_message": "",
   "params": {},
   "outcome": "resolved",
-  "resolution": "当使用opencli的scroll命令时，确保只传递一个参数，避免参数过多错误。检查命令调用格式，正确示例为`scroll(distance)`或`scroll(selector)`，而非多个参数。在工具调用前验证参数数量，可参考opencli文档或使用测试命令确认API要求。",
-  "context_summary": "网页自动化执行：使用opencli执行JavaScript命令时参数错误和代码语法/类型错误，通过调整命令和防御性编程解决",
+  "resolution": "When using the opencli scroll command, pass exactly one argument to avoid argument-count errors. Check the command call format; valid examples are `scroll(distance)` or `scroll(selector)`, not multiple arguments. Validate argument counts before tool calls, using the opencli documentation or a test command to confirm API requirements.",
+  "context_summary": "Browser automation: fixed argument errors and JavaScript syntax/type errors while using opencli by adjusting commands and adding defensive handling.",
   "confidence": 0.7,
   "session_key": "cli:direct",
   "merged_count": 0,
   "last_used_at": "2026-04-20T21:19:17",
   "category": "api",
-  "tags": ["opencli", "scroll", "参数错误", "浏览器自动化"],
+  "tags": ["opencli", "scroll", "argument-error", "browser-automation"],
   "use_count": 0,
   "success_count": 0,
   "feedback_positive": 0,
