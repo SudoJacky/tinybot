@@ -13,8 +13,11 @@ import {
   AGENT_UI_EVENT_TYPES,
   AGENT_UI_FORM_STATUSES,
   AGENT_UI_RENDERER_SURFACES,
+  buildAgentUiFormCancelRequest,
+  buildAgentUiFormSubmitRequest,
   createAgentUiEventState,
   createAgentUiRendererRegistry,
+  isAgentUiFormSubmittable,
   normalizeAgentUiEvents,
   reduceAgentUiEventState,
   renderAgentUiSurface,
@@ -2164,6 +2167,35 @@ function createTaskProgressNode(message) {
   return details;
 }
 
+function restoreAgentUiFormsFromMessages(messages) {
+  state.agentUi = state.agentUi || createAgentUiEventState();
+  for (const message of messages || []) {
+    const display = message._agent_ui_form_display;
+    if (!display || !display.form_id) {
+      continue;
+    }
+    const schema = display.schema || {};
+    state.agentUi.forms.set(display.form_id, {
+      form_id: display.form_id,
+      schema,
+      title: schema.title || "",
+      description: schema.description || "",
+      fields: schema.fields || [],
+      submit_label: schema.submit_label || "",
+      cancel_label: schema.cancel_label || "",
+      expires_at: display.expires_at || schema.expires_at || "",
+      status: display.status || message._agent_ui_form_status || AGENT_UI_FORM_STATUSES.pending,
+      correlation: display.correlation || schema.correlation || { form_id: display.form_id },
+      values: display.values || {},
+      errors: display.errors || {},
+      chat_id: schema.correlation?.chat_id || "",
+      message_id: message.message_id || schema.correlation?.message_id || "",
+      run_id: schema.correlation?.run_id || "",
+      updated_at: display.updated_at || message.timestamp || "",
+    });
+  }
+}
+
 function createBrowserSnapshotNode(message) {
   const snapshotEl = document.createElement("figure");
   snapshotEl.className = "browser-snapshot";
@@ -2214,8 +2246,8 @@ function updateMessageContent(contentEl, message) {
     const form = state.agentUi?.forms?.get(message._agent_ui_form_id);
     if (form) {
       contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.formRequest, { form, message }));
+      return;
     }
-    return;
   }
 
   // Handle tool_calls for assistant messages
@@ -2469,6 +2501,7 @@ function applyAgentUiFormValidationErrors(form, values, errors) {
     status: AGENT_UI_FORM_STATUSES.validationFailed,
     values,
     errors,
+    submitting: false,
     updated_at: new Date().toISOString(),
   });
   renderMessages(false);
@@ -2483,6 +2516,9 @@ function focusFirstAgentUiFormError(formId) {
 }
 
 async function submitAgentUiForm(form, root) {
+  if (!isAgentUiFormSubmittable(form)) {
+    return;
+  }
   const values = collectAgentUiFormValues(form, root);
   const errors = validateAgentUiFormCardValues(form, values);
   if (Object.keys(errors).length) {
@@ -2490,10 +2526,19 @@ async function submitAgentUiForm(form, root) {
     focusFirstAgentUiFormError(form.form_id);
     return;
   }
+  const requestPayload = buildAgentUiFormSubmitRequest(form, values);
+  if (!requestPayload) {
+    return;
+  }
+  const existing = state.agentUi.forms.get(form.form_id) || form;
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    submitting: true,
+  });
   const response = await fetch(`/api/agent-ui/forms/${encodeURIComponent(form.form_id)}/submit`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ values, correlation: form.correlation || {} }),
+    body: JSON.stringify(requestPayload),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -2501,33 +2546,42 @@ async function submitAgentUiForm(form, root) {
     focusFirstAgentUiFormError(form.form_id);
     return;
   }
-  const existing = state.agentUi.forms.get(form.form_id) || form;
   state.agentUi.forms.set(form.form_id, {
     ...existing,
     status: AGENT_UI_FORM_STATUSES.submitted,
     values: payload.values || values,
     errors: {},
+    submitting: false,
     updated_at: new Date().toISOString(),
   });
   renderMessages(false);
 }
 
 async function cancelAgentUiForm(form) {
+  const requestPayload = buildAgentUiFormCancelRequest(form);
+  if (!requestPayload) {
+    return;
+  }
+  const existing = state.agentUi.forms.get(form.form_id) || form;
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    submitting: true,
+  });
   const response = await fetch(`/api/agent-ui/forms/${encodeURIComponent(form.form_id)}/cancel`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ correlation: form.correlation || {} }),
+    body: JSON.stringify(requestPayload),
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     applyAgentUiFormValidationErrors(form, form.values || {}, { _form: payload.error || "Cancel failed" });
     return;
   }
-  const existing = state.agentUi.forms.get(form.form_id) || form;
   state.agentUi.forms.set(form.form_id, {
     ...existing,
     status: AGENT_UI_FORM_STATUSES.cancelled,
     errors: {},
+    submitting: false,
     updated_at: new Date().toISOString(),
   });
   renderMessages(false);
@@ -3032,7 +3086,9 @@ async function loadMessages(sessionKey) {
     throw new Error(`load messages failed: ${response.status}`);
   }
   const payload = await response.json();
-  state.messages.set(sessionKey, payload.messages || []);
+  const messages = payload.messages || [];
+  restoreAgentUiFormsFromMessages(messages);
+  state.messages.set(sessionKey, messages);
   updateActiveChatTitle();
   renderSessions();
   renderMessages();

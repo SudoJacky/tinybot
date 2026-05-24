@@ -44,7 +44,31 @@ The renderer registry is an allowlist created by local code at startup. Model or
 
 Cowork remains outside this home-page Agent UI event protocol. Cowork rendering continues to use its existing HTTP snapshots, projections, and `cowork_updated` refresh signal.
 
+### Dynamic Form Requests
+
+Agent UI dynamic forms collect structured user input for the home-page chat surface. The agent owns the data need: title, safe field definitions, correlation ids, expiry, and optional continuation mode. The WebUI owns rendering and interaction behavior: field widgets, layout, escaping, validation display, submit/cancel controls, disabled states, and reload restoration.
+
+The canonical runtime schema is tinybot's internal Agent UI form request, validated in `tinybot/agent/forms.py`. It allows only the fixed field set: `text`, `textarea`, `number`, `select`, `multiselect`, `checkbox`, `radio`, `date`, `time`, `datetime`, and `file_path`. The schema validator rejects unsafe keys such as raw HTML, scripts, styles, DOM instructions, component definitions, renderer registration, and event handlers. The browser normalizer repeats the same safety posture before reducing events into `state.agentUi.forms`.
+
+Forms render through the fixed `formRequest` renderer surface. Model output cannot register a renderer, replace the renderer, supply component implementations, or inject HTML/CSS/JS through labels, descriptions, options, help text, or errors. Browser-side validation is ergonomic only; backend validation remains authoritative.
+
+Submissions and cancellations are HTTP control operations:
+
+- `POST /api/agent-ui/forms/{form_id}/submit`
+- `POST /api/agent-ui/forms/{form_id}/cancel`
+
+Both routes live in `tinybot/api/webui.py`, require the browser token, check session/chat/run/message/interaction correlation, verify pending registry state, enforce expiry, and emit form lifecycle events for browser synchronization. The pending interaction registry remains authoritative for whether an action is accepted. Session messages may carry `_agent_ui_form_display` metadata so a pending or completed form card can be restored after reload, but the transcript is display metadata, not the continuation authority.
+
+The first continuation modes are explicit:
+
+- `structured_message` records a structured user message in the correlated session when no live paused interaction is available.
+- `resume` requires an agent loop with `schedule_form_response()` and rejects the action if that continuation target is missing.
+
+Dynamic forms do not approve tools or grant safety permissions. A submitted form can provide parameters to the agent, but risky tool authorization still flows through approval records and approval routes. Form continuation metadata should not be interpreted as approval scope.
+
 Future AG-UI compatibility should be layered as an adapter around the tinybot event envelope. Keep AG-UI optional: translate to or from the internal event shape at the boundary, do not make the browser depend on an external SDK before the local normalizer, reducer, and renderer registry contract is stable.
+
+Future A2UI adapters should map the internal form request to an adapter surface at the boundary: form request to surface/message, fields to the allowed component subset, submitted values to data model updates, and submit/cancel to actions. Do not make A2UI a required dependency or accept arbitrary A2UI component trees as tinybot's canonical runtime contract.
 
 ## API Coupling
 
@@ -84,3 +108,5 @@ node webui/assets/src/agent-ui-events.test.mjs
 For layout or interaction changes, also run the gateway and inspect the affected route. API tests are still needed when frontend changes depend on new backend payloads.
 
 For WebUI control-plane changes, prefer focused `tests/api/test_webui.py` coverage that registers an aiohttp app without constructing a full `WebSocketChannel`. Keep `tests/channels/test_websocket.py` for transport behavior and mount smoke checks.
+
+Dynamic form coverage lives across `webui/assets/src/agent-ui-events.test.mjs`, `tests/agent/test_forms.py`, `tests/api/test_webui.py`, `tests/channels/test_websocket.py`, and the focused AgentLoop continuation tests in `tests/agent/test_loop.py`.

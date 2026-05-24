@@ -53,6 +53,10 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
         "_task_plan_id",
         "_memory_references",
         "_recent_context_references",
+        "_agent_ui_form_id",
+        "_agent_ui_form_status",
+        "_agent_ui_form_display",
+        "_agent_ui_form_response",
     ):
         if key in message:
             payload[key] = message[key]
@@ -267,6 +271,18 @@ class WebSocketChannel(BaseChannel):
                 {
                     "event": "approval_pending",
                     "chat_id": msg.chat_id,
+                },
+            )
+            return
+        if meta.get("_agent_ui_event"):
+            agent_ui_event = dict(meta.get("_agent_ui_event") or {})
+            agent_ui_event.setdefault("chat_id", msg.chat_id)
+            await self._broadcast(
+                msg.chat_id,
+                {
+                    "event": "agent_ui_event",
+                    "chat_id": msg.chat_id,
+                    "agent_ui_event": agent_ui_event,
                 },
             )
             return

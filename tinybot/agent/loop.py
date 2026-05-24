@@ -1187,6 +1187,46 @@ class AgentLoop:
             metadata=meta,
         )))
 
+    def schedule_form_response(
+        self,
+        *,
+        interaction: Any,
+        action: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Route an Agent UI form response back into the owning session."""
+        response_payload = dict(payload or {})
+        values = response_payload.get("values") if isinstance(response_payload.get("values"), dict) else {}
+        title = ((response_payload.get("schema") or {}).get("title") if isinstance(response_payload.get("schema"), dict) else "") or getattr(interaction, "form_id", "form")
+        if action == "submitted":
+            content = (
+                f"Agent UI form `{getattr(interaction, 'form_id', '')}` was submitted for {title}.\n\n"
+                f"Structured values:\n```json\n{json.dumps(values, ensure_ascii=False, sort_keys=True)}\n```"
+            )
+        elif action == "cancelled":
+            content = f"Agent UI form `{getattr(interaction, 'form_id', '')}` was cancelled by the user for {title}."
+        else:
+            content = f"Agent UI form `{getattr(interaction, 'form_id', '')}` changed state to {action} for {title}."
+
+        session_key = getattr(interaction, "session_key", "") or (
+            f"websocket:{getattr(interaction, 'chat_id', '')}" if getattr(interaction, "chat_id", "") else ""
+        )
+        if not session_key:
+            logger.warning("Cannot schedule Agent UI form response without session correlation")
+            return
+        meta = {
+            "_agent_ui_form_response": response_payload,
+            "_agent_ui_form_id": getattr(interaction, "form_id", ""),
+            "_approval_grant": False,
+        }
+        self._schedule_background(self.bus.publish_inbound(InboundMessage(
+            channel="system",
+            sender_id="agent-ui-form",
+            chat_id=session_key,
+            content=content,
+            metadata=meta,
+        )))
+
     async def _update_user_profile(
         self,
         session: Session,

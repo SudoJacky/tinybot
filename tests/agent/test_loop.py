@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from tinybot.agent.loop import AgentLoop
+from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.agent.session_handler import SessionHandler
 from tinybot.agent.turn_lifecycle import CompletedTurn
 from tinybot.agent.stream_handler import StreamHandler
@@ -280,6 +281,46 @@ async def test_approval_continuation_finalizes_through_turn_lifecycle(tmp_path):
     assert turn.recent_context_references == [{"evidence_id": "ev_1"}]
     assert turn.user_text == "Approval resolved."
     assert turn.assistant_text == "Approved work complete."
+
+
+def test_agent_loop_schedules_form_response_without_approval_grant():
+    loop = AgentLoop.__new__(AgentLoop)
+    captured: list[InboundMessage] = []
+
+    class FakeBus:
+        def publish_inbound(self, message):
+            captured.append(message)
+            return None
+
+    loop.bus = FakeBus()
+    loop._schedule_background = lambda item: None
+    registry = AgentUiFormRegistry()
+    interaction = registry.create(
+        {
+            "form_id": "travel-form-1",
+            "title": "Travel preferences",
+            "correlation": {"session_key": "websocket:chat-1", "chat_id": "chat-1"},
+            "fields": [{"name": "destination", "type": "text", "label": "Destination"}],
+        },
+        continuation={"mode": "resume"},
+    )
+    registry.submit(interaction.form_id, {"destination": "Shanghai"})
+
+    loop.schedule_form_response(
+        interaction=interaction,
+        action="submitted",
+        payload={
+            "values": interaction.submitted_values,
+            "schema": interaction.schema,
+            "continuation_mode": interaction.continuation_mode,
+        },
+    )
+
+    assert captured[0].channel == "system"
+    assert captured[0].sender_id == "agent-ui-form"
+    assert captured[0].chat_id == "websocket:chat-1"
+    assert captured[0].metadata["_agent_ui_form_response"]["values"]["destination"] == "Shanghai"
+    assert captured[0].metadata["_approval_grant"] is False
 
 
 @pytest.mark.asyncio

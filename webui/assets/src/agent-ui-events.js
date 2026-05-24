@@ -542,6 +542,36 @@ export function renderAgentUiSurface(registry, surface, context = {}) {
   return renderer(context);
 }
 
+export function isAgentUiFormSubmittable(form) {
+  if (!form || form.submitting === true) {
+    return false;
+  }
+  return ![
+    AGENT_UI_FORM_STATUSES.submitted,
+    AGENT_UI_FORM_STATUSES.cancelled,
+    AGENT_UI_FORM_STATUSES.expired,
+  ].includes(form.status);
+}
+
+export function buildAgentUiFormSubmitRequest(form, values = {}) {
+  if (!isAgentUiFormSubmittable(form)) {
+    return null;
+  }
+  return {
+    values: isPlainObject(values) ? { ...values } : {},
+    correlation: isPlainObject(form.correlation) ? { ...form.correlation } : {},
+  };
+}
+
+export function buildAgentUiFormCancelRequest(form) {
+  if (!isAgentUiFormSubmittable(form)) {
+    return null;
+  }
+  return {
+    correlation: isPlainObject(form.correlation) ? { ...form.correlation } : {},
+  };
+}
+
 function legacyStreamMessageId(frame) {
   return frame.message_id || frame.run_id || (frame.chat_id ? `legacy-stream:${frame.chat_id}` : "");
 }
@@ -825,7 +855,11 @@ function reduceFormEventState(agentUiState, event, status) {
     run_id: event.run_id || existing.run_id || "",
     status,
     updated_at: event.timestamp,
-    correlation: event.payload.correlation || existing.correlation || { form_id: formId },
+    correlation: {
+      ...(existing.correlation || {}),
+      ...(event.payload.correlation || {}),
+      form_id: formId,
+    },
   };
   if (event.event_type === AGENT_UI_EVENT_TYPES["ui.form.requested"]) {
     next.status = AGENT_UI_FORM_STATUSES.pending;

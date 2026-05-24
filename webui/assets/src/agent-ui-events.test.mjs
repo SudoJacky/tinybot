@@ -9,9 +9,12 @@ import {
   AGENT_UI_RENDERER_SURFACES,
   LEGACY_FRAME_BEHAVIOR,
   assertAgentUiPayloadIsSafe,
+  buildAgentUiFormCancelRequest,
+  buildAgentUiFormSubmitRequest,
   createAgentUiEventState,
   createAgentUiEventEnvelope,
   createAgentUiRendererRegistry,
+  isAgentUiFormSubmittable,
   normalizeAgentUiEvents,
   reduceAgentUiEventState,
   renderAgentUiSurface,
@@ -304,6 +307,35 @@ const validationForm = validationState.forms.get("travel-preferences-1");
 assert.equal(validationForm.status, AGENT_UI_FORM_STATUSES.validationFailed);
 assert.equal(validationForm.values.nights, 31);
 assert.equal(validationForm.errors.destination, "Destination is required.");
+
+const submitPayload = buildAgentUiFormSubmitRequest(normalizedForm, {
+  destination: "Shanghai",
+  nights: 3,
+});
+assert.deepEqual(submitPayload, {
+  values: {
+    destination: "Shanghai",
+    nights: 3,
+  },
+  correlation: {
+    form_id: "travel-preferences-1",
+    session_key: "websocket:chat-1",
+    chat_id: "chat-1",
+    run_id: "run-1",
+    message_id: "msg-form-1",
+  },
+});
+assert.deepEqual(buildAgentUiFormCancelRequest(normalizedForm), {
+  correlation: {
+    form_id: "travel-preferences-1",
+    session_key: "websocket:chat-1",
+    chat_id: "chat-1",
+    run_id: "run-1",
+    message_id: "msg-form-1",
+  },
+});
+assert.equal(isAgentUiFormSubmittable({ ...normalizedForm, submitting: true }), false);
+assert.equal(buildAgentUiFormSubmitRequest({ ...normalizedForm, status: AGENT_UI_FORM_STATUSES.submitted }, {}), null);
 
 for (const frame of AGENT_UI_FORM_REQUEST_FIXTURES.nativeFrames.slice(3)) {
   const state = createAgentUiEventState();

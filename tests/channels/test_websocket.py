@@ -9,6 +9,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from tinybot.bus.queue import MessageBus
 from tinybot.bus.events import OutboundMessage
+from tinybot.agent.forms import AgentUiFormRegistry, AGENT_UI_FORM_EVENT_TYPES, form_event
 from tinybot.channels.websocket import WebSocketChannel, _serialize_message
 from tinybot.session.manager import SessionManager
 
@@ -131,6 +132,29 @@ def test_serialize_message_preserves_recent_context_references():
     assert payload["_recent_context_references"][0]["line"] == 1
 
 
+def test_serialize_message_preserves_agent_ui_form_display_metadata():
+    registry = AgentUiFormRegistry()
+    interaction = registry.create(
+        {
+            "form_id": "travel-form-1",
+            "title": "Travel preferences",
+            "correlation": {"session_key": "websocket:chat-1", "chat_id": "chat-1"},
+            "fields": [{"name": "destination", "type": "text", "label": "Destination"}],
+        }
+    )
+
+    payload = _serialize_message(
+        {
+            "role": "assistant",
+            "content": "",
+            **interaction.display_metadata(),
+        }
+    )
+
+    assert payload["_agent_ui_form_id"] == "travel-form-1"
+    assert payload["_agent_ui_form_display"]["schema"]["title"] == "Travel preferences"
+
+
 @pytest.mark.asyncio
 async def test_websocket_chat_flow(web_channel, web_client):
     channel, bus, _ = web_channel
@@ -248,6 +272,41 @@ async def test_websocket_message_frame_preserves_agent_ui_compatible_metadata(we
             "_memory_references": [{"note_id": "note-1"}],
             "_recent_context_references": [{"evidence_id": "ev-1"}],
         }
+    finally:
+        await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_websocket_native_agent_ui_form_event_is_additive(web_channel, web_client):
+    channel, _, _ = web_channel
+    ws, chat_id = await _open_chat_ws(web_client)
+    registry = AgentUiFormRegistry()
+    interaction = registry.create(
+        {
+            "form_id": "travel-form-1",
+            "title": "Travel preferences",
+            "correlation": {"session_key": f"websocket:{chat_id}", "chat_id": chat_id},
+            "fields": [{"name": "destination", "type": "text", "label": "Destination"}],
+        }
+    )
+    event = form_event(AGENT_UI_FORM_EVENT_TYPES["requested"], interaction, **interaction.schema)
+    try:
+        await channel.send(
+            OutboundMessage(
+                channel="websocket",
+                chat_id=chat_id,
+                content="",
+                metadata={"_agent_ui_event": event["agent_ui_event"]},
+            )
+        )
+
+        payload = await ws.receive_json()
+        assert payload["event"] == "agent_ui_event"
+        assert payload["agent_ui_event"]["event_type"] == "ui.form.requested"
+        assert payload["agent_ui_event"]["payload"]["form_id"] == "travel-form-1"
+
+        await channel.send(OutboundMessage(channel="websocket", chat_id=chat_id, content="plain"))
+        assert (await ws.receive_json())["event"] == "message"
     finally:
         await ws.close()
 

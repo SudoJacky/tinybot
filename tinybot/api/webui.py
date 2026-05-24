@@ -212,6 +212,10 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
         "_task_plan_id",
         "_memory_references",
         "_recent_context_references",
+        "_agent_ui_form_id",
+        "_agent_ui_form_status",
+        "_agent_ui_form_display",
+        "_agent_ui_form_response",
     ):
         if key in message:
             payload[key] = message[key]
@@ -744,6 +748,81 @@ def _form_payload_correlation_matches(interaction: Any, correlation: Mapping[str
     return True
 
 
+def _runtime_agent_loop(runtime: WebUIControlRuntime) -> Any:
+    if runtime.agent_loop_provider is not None:
+        try:
+            loop = runtime.agent_loop_provider()
+        except Exception:
+            logger.debug("failed to resolve live agent loop for Agent UI form continuation")
+        else:
+            if loop is not None:
+                return loop
+    return runtime.agent_loop
+
+
+def _form_response_payload(interaction: Any, action: str) -> dict[str, Any]:
+    return {
+        "action": action,
+        "form_id": interaction.form_id,
+        "interaction_id": interaction.interaction_id,
+        "status": interaction.status,
+        "values": dict(getattr(interaction, "submitted_values", {}) or {}),
+        "errors": dict(getattr(interaction, "validation_errors", {}) or {}),
+        "correlation": dict(interaction.correlation),
+        "schema": dict(interaction.schema),
+        "continuation": dict(getattr(interaction, "continuation", {}) or {}),
+        "continuation_mode": interaction.continuation_mode,
+    }
+
+
+def _can_route_form_continuation(runtime: WebUIControlRuntime, interaction: Any) -> bool:
+    if interaction.continuation_mode != "resume":
+        return True
+    return callable(getattr(_runtime_agent_loop(runtime), "schedule_form_response", None))
+
+
+def _record_structured_form_message(runtime: WebUIControlRuntime, interaction: Any, action: str) -> bool:
+    if runtime.session_manager is None:
+        return False
+    session_key = interaction.session_key or (
+        f"{runtime.channel_name}:{interaction.chat_id}" if interaction.chat_id else ""
+    )
+    if not session_key:
+        return False
+    session = runtime.session_manager.get_or_create(session_key)
+    title = interaction.schema.get("title") or interaction.form_id
+    if action == "submitted":
+        content = f"Agent UI form submitted: {title}"
+    elif action == "cancelled":
+        content = f"Agent UI form cancelled: {title}"
+    else:
+        content = f"Agent UI form {action}: {title}"
+    session.add_message(
+        "user",
+        content,
+        _agent_ui_form_response=_form_response_payload(interaction, action),
+    )
+    runtime.session_manager.save(session)
+    return True
+
+
+def _route_form_continuation(runtime: WebUIControlRuntime, interaction: Any, action: str) -> dict[str, Any]:
+    payload = _form_response_payload(interaction, action)
+    loop = _runtime_agent_loop(runtime)
+    schedule_form_response = getattr(loop, "schedule_form_response", None)
+    if callable(schedule_form_response):
+        schedule_form_response(interaction=interaction, action=action, payload=payload)
+        return {"mode": interaction.continuation_mode, "delivered": True, "target": "agent_loop"}
+    if interaction.continuation_mode == "resume":
+        return {"mode": "resume", "delivered": False, "reason": "missing_continuation"}
+    delivered = _record_structured_form_message(runtime, interaction, action)
+    return {
+        "mode": "structured_message",
+        "delivered": delivered,
+        "target": "session_message" if delivered else "none",
+    }
+
+
 async def _emit_form_event(runtime: WebUIControlRuntime, event: dict[str, Any]) -> None:
     if runtime.broadcast_global is None:
         return
@@ -776,6 +855,8 @@ def _form_submit_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths)
         values = payload.get("values") or {}
         if not isinstance(values, dict):
             return web.json_response({"error": "values must be a dict"}, status=400)
+        if not _can_route_form_continuation(runtime, interaction):
+            return web.json_response({"error": "form continuation unavailable"}, status=409)
         try:
             submitted = runtime.form_interactions.submit(form_id, values)
         except AgentUiFormError as exc:
@@ -802,12 +883,14 @@ def _form_submit_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths)
             values=submitted.submitted_values,
         )
         await _emit_form_event(runtime, event)
+        continuation = _route_form_continuation(runtime, submitted, "submitted")
         return web.json_response(
             {
                 "submitted": True,
                 "form_id": submitted.form_id,
                 "values": submitted.submitted_values,
                 "event": event["agent_ui_event"],
+                "continuation": continuation,
             }
         )
 
@@ -834,6 +917,8 @@ def _form_cancel_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths)
         if not _form_payload_correlation_matches(interaction, correlation):
             return web.json_response({"error": "form correlation mismatch"}, status=409)
 
+        if not _can_route_form_continuation(runtime, interaction):
+            return web.json_response({"error": "form continuation unavailable"}, status=409)
         try:
             cancelled = runtime.form_interactions.cancel(form_id)
         except AgentUiFormError as exc:
@@ -852,11 +937,13 @@ def _form_cancel_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths)
 
         event = form_event(AGENT_UI_FORM_EVENT_TYPES["cancelled"], cancelled)
         await _emit_form_event(runtime, event)
+        continuation = _route_form_continuation(runtime, cancelled, "cancelled")
         return web.json_response(
             {
                 "cancelled": True,
                 "form_id": cancelled.form_id,
                 "event": event["agent_ui_event"],
+                "continuation": continuation,
             }
         )
 

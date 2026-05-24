@@ -38,6 +38,10 @@ AGENT_UI_FORM_STATUSES = {
     "expired",
     "validation_failed",
 }
+AGENT_UI_FORM_CONTINUATION_MODES = {
+    "structured_message",
+    "resume",
+}
 
 CHOICE_FIELD_TYPES = {"select", "multiselect", "radio"}
 STRING_FIELD_TYPES = {"text", "textarea", "date", "time", "datetime", "file_path"}
@@ -341,16 +345,46 @@ class PendingFormInteraction:
     continuation: dict[str, Any] = field(default_factory=dict)
     submitted_values: dict[str, Any] = field(default_factory=dict)
     validation_errors: dict[str, str] = field(default_factory=dict)
+    correlation_data: dict[str, Any] = field(default_factory=dict)
 
     @property
     def correlation(self) -> dict[str, Any]:
         return {
+            **self.correlation_data,
             "form_id": self.form_id,
             "interaction_id": self.interaction_id,
             "session_key": self.session_key,
             "chat_id": self.chat_id,
             "run_id": self.run_id,
             "message_id": self.message_id,
+        }
+
+    @property
+    def continuation_mode(self) -> str:
+        raw_mode = self.continuation.get("mode") or self.continuation.get("continuation_mode")
+        if raw_mode is None:
+            raw_mode = self.schema.get("metadata", {}).get("continuation_mode", "structured_message")
+        mode = str(raw_mode)
+        return mode if mode in AGENT_UI_FORM_CONTINUATION_MODES else "structured_message"
+
+    def display_metadata(self) -> dict[str, Any]:
+        values = self.submitted_values if self.status == "submitted" else {}
+        if self.status == "validation_failed":
+            values = self.submitted_values
+        return {
+            "_agent_ui_form_id": self.form_id,
+            "_agent_ui_form_status": self.status,
+            "_agent_ui_form_display": {
+                "form_id": self.form_id,
+                "schema": self.schema,
+                "status": self.status,
+                "correlation": self.correlation,
+                "values": dict(values),
+                "errors": dict(self.validation_errors),
+                "created_at": self.created_at.isoformat(),
+                "updated_at": self.updated_at.isoformat(),
+                "expires_at": self.expires_at.isoformat() if self.expires_at else self.schema.get("expires_at", ""),
+            },
         }
 
 
@@ -382,6 +416,7 @@ class AgentUiFormRegistry:
             message_id=str(correlation.get("message_id") or ""),
             expires_at=expires_at,
             continuation=dict(continuation or {}),
+            correlation_data=dict(correlation),
         )
         self._forms[interaction.form_id] = interaction
         return interaction
@@ -428,3 +463,20 @@ class AgentUiFormRegistry:
         interaction.status = "cancelled"
         interaction.updated_at = datetime.now(UTC)
         return interaction
+
+
+def create_form_request(
+    registry: AgentUiFormRegistry,
+    schema: Mapping[str, Any],
+    *,
+    interaction_id: str | None = None,
+    continuation: Mapping[str, Any] | None = None,
+) -> tuple[PendingFormInteraction, dict[str, Any]]:
+    """Create a pending interaction and its native Agent UI form request event."""
+
+    interaction = registry.create(schema, interaction_id=interaction_id, continuation=continuation)
+    return interaction, form_event(
+        AGENT_UI_FORM_EVENT_TYPES["requested"],
+        interaction,
+        **interaction.schema,
+    )
