@@ -11,9 +11,12 @@ import {
 import { t, getLanguage, setLanguage } from '../i18n/index.js';
 import {
   AGENT_UI_EVENT_TYPES,
+  AGENT_UI_RENDERER_SURFACES,
   createAgentUiEventState,
+  createAgentUiRendererRegistry,
   normalizeAgentUiEvents,
   reduceAgentUiEventState,
+  renderAgentUiSurface,
 } from '../agent-ui-events.js';
 
 // Legacy application module. The functions below are intentionally kept together
@@ -31,6 +34,27 @@ const BOOTSTRAP_PATH = "/webui/bootstrap";
 const DEFAULT_TOKEN_REFRESH_PATH = "/webui/refresh-token";
 
 state.agentUi = state.agentUi || createAgentUiEventState();
+
+const agentUiRenderers = createAgentUiRendererRegistry({
+  [AGENT_UI_RENDERER_SURFACES.message]: ({ message, options = {} }) => createMessageNode(message, options),
+  [AGENT_UI_RENDERER_SURFACES.reasoning]: ({ text, previousState = {} }) => createReasoningNode(text, previousState),
+  [AGENT_UI_RENDERER_SURFACES.toolRun]: ({ toolCall, relatedMessages = [], message }) => (
+    message ? createToolMessageNode(message) : createToolCallNode(toolCall, relatedMessages)
+  ),
+  [AGENT_UI_RENDERER_SURFACES.approval]: ({ sessionKey }) => loadApprovals(sessionKey).catch(console.error),
+  [AGENT_UI_RENDERER_SURFACES.browserSnapshot]: ({ message, frame }) => (
+    message ? createBrowserSnapshotNode(message) : updateBrowserFrame(frame || {})
+  ),
+  [AGENT_UI_RENDERER_SURFACES.memoryReferences]: ({ references }) => createMemoryReferencesNode(references || []),
+  [AGENT_UI_RENDERER_SURFACES.recentContextReferences]: ({ references }) => createRecentContextReferencesNode(references || []),
+  [AGENT_UI_RENDERER_SURFACES.usageStatus]: ({ usage }) => updateUsageDisplay(usage),
+  [AGENT_UI_RENDERER_SURFACES.errorNotice]: ({ message, path = "" }) => {
+    setError(message);
+    if (path) {
+      setFileError(message);
+    }
+  },
+});
 
 function setStatus(text, kind = "idle") {
   if (!elements.connectionStatus) {
@@ -231,7 +255,7 @@ function updateBrowserFrame(payload) {
   const receivedAt = payload.captured_at || new Date().toISOString();
   state.browserFrame = {
     imageUrl: payload.image_url || "",
-    sourceCommand: payload.source_command || "",
+    sourceCommand: payload.source_command || payload.command || "",
     capturedAt: receivedAt,
   };
 
@@ -1924,7 +1948,10 @@ function renderMessages(forceScroll = true) {
       ? createRunChainNode(item.messages)
       : item.type === "collapse"
         ? createCollapsedMessagesNode(item.messages)
-        : createMessageNode(item.message, { hideMeta: item.hideMeta });
+        : renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.message, {
+            message: item.message,
+            options: { hideMeta: item.hideMeta },
+          });
     elements.messageList.append(node);
   }
 
@@ -2135,6 +2162,28 @@ function createTaskProgressNode(message) {
   return details;
 }
 
+function createBrowserSnapshotNode(message) {
+  const snapshotEl = document.createElement("figure");
+  snapshotEl.className = "browser-snapshot";
+
+  if (message.image_url) {
+    const img = document.createElement("img");
+    img.className = "browser-snapshot-image";
+    img.src = message.image_url;
+    img.alt = "Browser snapshot";
+    snapshotEl.append(img);
+  }
+
+  if (message.source_command) {
+    const caption = document.createElement("figcaption");
+    caption.className = "browser-snapshot-caption";
+    caption.textContent = message.source_command;
+    snapshotEl.append(caption);
+  }
+
+  return snapshotEl;
+}
+
 function updateMessageContent(contentEl, message) {
   const previousReasoning = contentEl.querySelector(".message-reasoning-details");
   const previousReasoningState = previousReasoning
@@ -2143,29 +2192,14 @@ function updateMessageContent(contentEl, message) {
   contentEl.textContent = "";
 
   if (message.reasoning_content && message.reasoning_content.trim()) {
-    contentEl.append(createReasoningNode(message.reasoning_content, previousReasoningState));
+    contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.reasoning, {
+      text: message.reasoning_content,
+      previousState: previousReasoningState,
+    }));
   }
 
   if (message._browser_snapshot) {
-    const snapshotEl = document.createElement("figure");
-    snapshotEl.className = "browser-snapshot";
-
-    if (message.image_url) {
-      const img = document.createElement("img");
-      img.className = "browser-snapshot-image";
-      img.src = message.image_url;
-      img.alt = "Browser snapshot";
-      snapshotEl.append(img);
-    }
-
-    if (message.source_command) {
-      const caption = document.createElement("figcaption");
-      caption.className = "browser-snapshot-caption";
-      caption.textContent = message.source_command;
-      snapshotEl.append(caption);
-    }
-
-    contentEl.append(snapshotEl);
+    contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.browserSnapshot, { message }));
     return;
   }
 
@@ -2182,7 +2216,10 @@ function updateMessageContent(contentEl, message) {
     const toolCalls = getToolCalls(message);
     const relatedGroups = relatedToolMessageGroups(toolCalls, relatedMessages);
     toolCalls.forEach((tc, index) => {
-      toolCallsEl.append(createToolCallNode(tc, relatedGroups[index] || []));
+      toolCallsEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.toolRun, {
+        toolCall: tc,
+        relatedMessages: relatedGroups[index] || [],
+      }));
     });
     contentEl.append(toolCallsEl);
   }
@@ -2190,7 +2227,7 @@ function updateMessageContent(contentEl, message) {
   if (message.role === "tool" || message.role === "progress") {
     const toolCallsEl = document.createElement("div");
     toolCallsEl.className = "tool-activities";
-    toolCallsEl.append(createToolMessageNode(message));
+    toolCallsEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.toolRun, { message }));
     contentEl.append(toolCallsEl);
     return;
   }
@@ -2244,10 +2281,14 @@ function updateMessageContent(contentEl, message) {
   }
 
   if (message.role === "assistant" && Array.isArray(message._memory_references) && message._memory_references.length) {
-    contentEl.append(createMemoryReferencesNode(message._memory_references));
+    contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.memoryReferences, {
+      references: message._memory_references,
+    }));
   }
   if (message.role === "assistant" && Array.isArray(message._recent_context_references) && message._recent_context_references.length) {
-    contentEl.append(createRecentContextReferencesNode(message._recent_context_references));
+    contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.recentContextReferences, {
+      references: message._recent_context_references,
+    }));
   }
 }
 
@@ -10233,24 +10274,30 @@ async function connectWebSocket() {
             _recent_context_references: payload._recent_context_references || [],
           });
         }
-        loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.approval, {
+          sessionKey: sessionKeyForChat(payload.chat_id),
+        });
         return;
       }
 
       if (payload.event === "approval_pending") {
-        loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.approval, {
+          sessionKey: sessionKeyForChat(payload.chat_id),
+        });
         return;
       }
 
       if (payload.event === "browser_frame" || payload.event === "browser_snapshot") {
         const browserEvent = agentUiEvents.find((item) => item.event_type === AGENT_UI_EVENT_TYPES["browser.frame.updated"]);
-        updateBrowserFrame(browserEvent ? {
-          ...payload,
-          image_url: browserEvent.payload.image_url,
-          url: browserEvent.payload.image_url || payload.url,
-          command: browserEvent.payload.command,
-          captured_at: browserEvent.payload.captured_at,
-        } : payload);
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.browserSnapshot, {
+          frame: browserEvent ? {
+            ...payload,
+            image_url: browserEvent.payload.image_url,
+            url: browserEvent.payload.image_url || payload.url,
+            source_command: browserEvent.payload.command,
+            captured_at: browserEvent.payload.captured_at,
+          } : payload,
+        });
         return;
       }
 
@@ -10273,14 +10320,18 @@ async function connectWebSocket() {
             renderMessages(false);
           }
           if (streamState?.sessionKey) {
-            loadApprovals(streamState.sessionKey).catch(console.error);
+            renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.approval, {
+              sessionKey: streamState.sessionKey,
+            });
           }
         }
         return;
       }
 
       if (payload.event === "usage") {
-        updateUsageDisplay(state.agentUi.usage || payload.usage);
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.usageStatus, {
+          usage: state.agentUi.usage || payload.usage,
+        });
         return;
       }
 
@@ -10307,10 +10358,10 @@ async function connectWebSocket() {
       if (payload.event === "error") {
         const errorEvent = agentUiEvents.find((item) => item.event_type === AGENT_UI_EVENT_TYPES["error.raised"]);
         const message = errorEvent?.payload.message || payload.message || t("status.serverError");
-        setError(message);
-        if (payload.path) {
-          setFileError(message);
-        }
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.errorNotice, {
+          message,
+          path: payload.path,
+        });
       }
     });
 

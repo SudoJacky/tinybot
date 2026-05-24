@@ -30,6 +30,22 @@ Protected WebUI control routes use the same browser token manager as the WebSock
 
 Cowork WebUI routes delegate to the shared `tinybot/api/cowork.py` handlers through a WebUI authorization wrapper. The wrapper prepares the app runtime expected by the shared handlers and keeps WebSocket broadcasts for Cowork updates attached to the current gateway runtime.
 
+## Agent UI Event Stream
+
+The home-page chat surface normalizes legacy WebSocket frames into tinybot-owned Agent UI events in `webui/assets/src/agent-ui-events.js`. The browser still receives compatible frames such as `delta`, `message`, `stream_end`, `approval_pending`, `browser_frame`, `usage`, `file_updated`, `error`, and `cowork_updated`; the normalized event model is an internal browser contract used before updating live UI state.
+
+Agent UI events flow through three layers:
+
+- `normalizeAgentUiEvents()` maps legacy transport frames into versioned, JSON-safe event envelopes.
+- `reduceAgentUiEventState()` updates browser-owned live state for streaming text, reasoning, tool runs, approvals, browser frames, references, usage, and transient errors.
+- the fixed renderer registry in `legacy/app.js` routes known surfaces to existing DOM renderers for messages, reasoning, tool runs, approval refreshes, browser snapshots, memory references, recent-context references, usage status, and error notices.
+
+The renderer registry is an allowlist created by local code at startup. Model or agent output must not register renderers, supply executable component definitions, inject raw DOM, or provide scripts/styles. Unknown Agent UI event types should be ignored or surfaced as safe diagnostics without breaking known controls.
+
+Cowork remains outside this home-page Agent UI event protocol. Cowork rendering continues to use its existing HTTP snapshots, projections, and `cowork_updated` refresh signal.
+
+Future AG-UI compatibility should be layered as an adapter around the tinybot event envelope. Keep AG-UI optional: translate to or from the internal event shape at the boundary, do not make the browser depend on an external SDK before the local normalizer, reducer, and renderer registry contract is stable.
+
 ## API Coupling
 
 The frontend should depend on stable API fields, not internal Python class names. When a field is added for UI needs, add it to the API snapshot and cover it in API tests.
@@ -57,6 +73,12 @@ Run JavaScript syntax checks after frontend edits:
 
 ```bash
 node --check webui/assets/src/legacy/app.js
+```
+
+Run the focused Agent UI browser smoke test after normalizer, reducer, or renderer-registry edits:
+
+```bash
+node webui/assets/src/agent-ui-events.test.mjs
 ```
 
 For layout or interaction changes, also run the gateway and inspect the affected route. API tests are still needed when frontend changes depend on new backend payloads.

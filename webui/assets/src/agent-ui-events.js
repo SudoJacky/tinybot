@@ -18,6 +18,20 @@ export const AGENT_UI_EVENT_TYPES = Object.freeze({
   "error.raised": "error.raised",
 });
 
+export const AGENT_UI_RENDERER_SURFACES = Object.freeze({
+  message: "message",
+  reasoning: "reasoning",
+  toolRun: "toolRun",
+  approval: "approval",
+  browserSnapshot: "browserSnapshot",
+  memoryReferences: "memoryReferences",
+  recentContextReferences: "recentContextReferences",
+  usageStatus: "usageStatus",
+  errorNotice: "errorNotice",
+});
+
+const AGENT_UI_RENDERER_SURFACE_VALUES = new Set(Object.values(AGENT_UI_RENDERER_SURFACES));
+
 export const LEGACY_FRAME_BEHAVIOR = Object.freeze([
   {
     event: "chat_created",
@@ -181,6 +195,34 @@ export function createAgentUiEventEnvelope({
     payload,
     metadata,
   };
+}
+
+export function createAgentUiRendererRegistry(renderers = {}) {
+  const registry = {};
+  for (const surface of Object.values(AGENT_UI_RENDERER_SURFACES)) {
+    const renderer = renderers[surface];
+    if (renderer !== undefined && typeof renderer !== "function") {
+      throw new TypeError(`Agent UI renderer for ${surface} must be a function.`);
+    }
+    Object.defineProperty(registry, surface, {
+      value: renderer || null,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+  }
+  return Object.freeze(registry);
+}
+
+export function renderAgentUiSurface(registry, surface, context = {}) {
+  if (!AGENT_UI_RENDERER_SURFACE_VALUES.has(surface)) {
+    return null;
+  }
+  const renderer = registry?.[surface];
+  if (typeof renderer !== "function") {
+    return null;
+  }
+  return renderer(context);
 }
 
 function legacyStreamMessageId(frame) {

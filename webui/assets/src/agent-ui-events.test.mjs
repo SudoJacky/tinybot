@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import {
   AGENT_UI_EVENT_SCHEMA_VERSION,
   AGENT_UI_EVENT_TYPES,
+  AGENT_UI_RENDERER_SURFACES,
   LEGACY_FRAME_BEHAVIOR,
   assertAgentUiPayloadIsSafe,
   createAgentUiEventState,
   createAgentUiEventEnvelope,
+  createAgentUiRendererRegistry,
   normalizeAgentUiEvents,
   reduceAgentUiEventState,
+  renderAgentUiSurface,
 } from "./agent-ui-events.js";
 import { LEGACY_AGENT_UI_FRAME_FIXTURES } from "./agent-ui-event-fixtures.js";
 
@@ -103,6 +106,45 @@ const unsafeEvents = normalizeAgentUiEvents({
   html: "<script>alert(1)</script>",
 });
 assert.equal(unsafeEvents[0].event_type, AGENT_UI_EVENT_TYPES["error.raised"]);
+
+const rendererRegistry = createAgentUiRendererRegistry({
+  [AGENT_UI_RENDERER_SURFACES.message]: ({ message }) => `message:${message.content}`,
+  [AGENT_UI_RENDERER_SURFACES.reasoning]: ({ text }) => `reasoning:${text}`,
+  [AGENT_UI_RENDERER_SURFACES.toolRun]: ({ name }) => `tool:${name}`,
+  [AGENT_UI_RENDERER_SURFACES.approval]: ({ approvalId }) => `approval:${approvalId}`,
+  [AGENT_UI_RENDERER_SURFACES.browserSnapshot]: ({ imageUrl }) => `browser:${imageUrl}`,
+  [AGENT_UI_RENDERER_SURFACES.memoryReferences]: ({ references }) => `memory:${references.length}`,
+  [AGENT_UI_RENDERER_SURFACES.recentContextReferences]: ({ references }) => `recent:${references.length}`,
+  [AGENT_UI_RENDERER_SURFACES.usageStatus]: ({ usage }) => `usage:${usage.total_tokens}`,
+  [AGENT_UI_RENDERER_SURFACES.errorNotice]: ({ message }) => `error:${message}`,
+});
+
+assert.deepEqual(
+  Object.keys(AGENT_UI_RENDERER_SURFACES).sort(),
+  [
+    "approval",
+    "browserSnapshot",
+    "errorNotice",
+    "memoryReferences",
+    "message",
+    "reasoning",
+    "recentContextReferences",
+    "toolRun",
+    "usageStatus",
+  ],
+);
+assert.equal(
+  renderAgentUiSurface(rendererRegistry, AGENT_UI_RENDERER_SURFACES.toolRun, { name: "read_file" }),
+  "tool:read_file",
+);
+assert.equal(renderAgentUiSurface(rendererRegistry, "model.supplied.renderer", {}), null);
+assert.equal(typeof rendererRegistry.register, "undefined");
+assert.throws(
+  () => {
+    rendererRegistry[AGENT_UI_RENDERER_SURFACES.toolRun] = () => "mutated";
+  },
+  /read only|Cannot assign/i,
+);
 
 const reducerState = createAgentUiEventState();
 for (const fixture of LEGACY_AGENT_UI_FRAME_FIXTURES) {
