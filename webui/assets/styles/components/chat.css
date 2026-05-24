@@ -1875,6 +1875,176 @@ button.run-chain-item:hover,
   color: var(--danger);
 }
 
+.agent-ui-form-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-strong) 82%, var(--bg-subtle));
+  box-shadow: var(--shadow-sm);
+}
+
+.agent-ui-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.agent-ui-form-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.agent-ui-form-status {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.agent-ui-form-description {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-ui-form {
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+}
+
+.agent-ui-form-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-ui-form-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.agent-ui-form-required {
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.agent-ui-form-control {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--panel-strong) 78%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
+.agent-ui-form-control:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.agent-ui-form-control[aria-invalid="true"] {
+  border-color: color-mix(in srgb, var(--danger) 66%, var(--border));
+}
+
+.agent-ui-form-choice-group {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.agent-ui-form-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.agent-ui-form-choice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-ui-form-help,
+.agent-ui-form-error {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.agent-ui-form-help {
+  color: var(--text-muted);
+}
+
+.agent-ui-form-error {
+  color: var(--danger);
+}
+
+.agent-ui-form-error-banner {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border));
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--danger-soft) 38%, transparent);
+}
+
+.agent-ui-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.agent-ui-form-submitted,
+.agent-ui-form-cancelled,
+.agent-ui-form-expired {
+  opacity: 0.82;
+}
+
+.agent-ui-form-submitted .agent-ui-form-status {
+  color: var(--success);
+}
+
+.agent-ui-form-validation_failed .agent-ui-form-status {
+  color: var(--danger);
+}
+
+.agent-ui-form-cancelled .agent-ui-form-status,
+.agent-ui-form-expired .agent-ui-form-status {
+  color: var(--text-subtle);
+}
+
 .composer-label {
   position: absolute;
   width: 1px;

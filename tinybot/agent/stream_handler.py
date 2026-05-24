@@ -129,7 +129,7 @@ class StreamHandler(AgentHook):
             for event in context.tool_events:
                 name = event.get("name", "tool")
                 status = event.get("status", "ok")
-                if status == "approval_required":
+                if status == "approval_required" or status.startswith("awaiting_"):
                     continue
                 detail = event.get("detail", "")
                 # Truncate long detail

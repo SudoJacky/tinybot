@@ -37,6 +37,7 @@ from typing import Any
 from loguru import logger
 
 from tinybot.agent.hook import AgentHook, AgentHookContext
+from tinybot.agent.tools.base import AwaitingUserInputResult
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.providers.base import LLMProvider, ToolCallRequest
 from tinybot.security.approval import ApprovalAction, ApprovalManager, format_approval_required
@@ -227,6 +228,9 @@ class AgentRunner:
                             result,
                         ),
                     }
+                    if isinstance(result, AwaitingUserInputResult):
+                        tool_message["_awaiting_user_input"] = True
+                        tool_message["_agent_ui_internal"] = True
                     messages.append(tool_message)
                     completed_tool_results.append(tool_message)
                 await self._emit_checkpoint(
@@ -240,6 +244,19 @@ class AgentRunner:
                         "pending_tool_calls": [],
                     },
                 )
+                awaiting_user_input = next(
+                    (result for result in results if isinstance(result, AwaitingUserInputResult)),
+                    None,
+                )
+                if awaiting_user_input is not None:
+                    if hook.wants_streaming():
+                        await hook.on_stream_end(context, resuming=False)
+                    final_content = None
+                    stop_reason = awaiting_user_input.stop_reason
+                    context.final_content = None
+                    context.stop_reason = stop_reason
+                    await hook.after_iteration(context)
+                    break
                 await hook.after_iteration(context)
                 continue
 
@@ -663,6 +680,9 @@ class AgentRunner:
             if spec.fail_on_tool_error:
                 return result + suggestions, event, RuntimeError(result)
             return result + suggestions, event, None
+
+        if isinstance(result, AwaitingUserInputResult):
+            return result, {"name": tool_call.name, "status": result.stop_reason, "detail": ""}, None
 
         detail = "" if result is None else str(result)
         detail = detail.replace("\n", " ").strip()

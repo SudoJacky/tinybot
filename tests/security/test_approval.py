@@ -50,6 +50,25 @@ def test_low_risk_exec_is_allowed() -> None:
     assert decision.action == ApprovalAction.ALLOW
 
 
+def test_request_form_tool_is_allowed_without_security_approval() -> None:
+    session = Session(key="websocket:chat-1")
+    decision = ApprovalManager.evaluate(
+        session=session,
+        tool=_Tool(read_only=False),
+        tool_name="request_form",
+        params={
+            "form": {
+                "form_id": "travel_plan",
+                "title": "Travel preferences",
+                "fields": [{"name": "destination", "type": "text", "label": "Destination"}],
+            }
+        },
+    )
+
+    assert decision.action == ApprovalAction.ALLOW
+    assert ApprovalManager.list_pending(session) == []
+
+
 def test_low_risk_exec_with_shell_control_requires_approval() -> None:
     session = Session(key="cli:test")
     decision = ApprovalManager.evaluate(

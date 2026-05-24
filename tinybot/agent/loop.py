@@ -53,18 +53,21 @@ from tinybot.agent.memory import (
     Dream,
     EntityExtractor,
 )
+from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.session_knowledge import SessionKnowledgeStore
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
 from tinybot.agent.subagent import SubagentManager
 from tinybot.agent.tools.cron import CronTool
 from tinybot.agent.tools.cowork import CoworkTool
+from tinybot.agent.tools.base import AwaitingUserInputResult
 from tinybot.agent.tools.experience import (
     DeleteExperienceTool,
     FeedbackExperienceTool,
     QueryExperienceTool,
     SaveExperienceTool,
 )
+from tinybot.agent.tools.form import FormRequestTool
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from tinybot.agent.tools.knowledge import (
     AddDocumentTool,
@@ -341,6 +344,9 @@ class AgentLoop:
             )
 
         self.runner = AgentRunner(provider)
+        self.form_interactions = getattr(deps, "form_interactions", None) if deps is not None else None
+        if self.form_interactions is None:
+            self.form_interactions = AgentUiFormRegistry()
 
         # Create error analyzer for auto error diagnosis
         self.experience_analyzer = ErrorAnalyzer(self.experience_store) if self.experience_store else None
@@ -454,6 +460,12 @@ class AgentLoop:
                 path_append=self.exec_config.path_append,
             ))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+        self.tools.register(
+            FormRequestTool(
+                form_interactions=self.form_interactions,
+                send_callback=self.bus.publish_outbound,
+            )
+        )
         spawn_tool = SpawnTool(manager=self.subagents)
         self.tools.register(spawn_tool)
         cowork_service = getattr(self, "cowork_service", None)
@@ -606,6 +618,9 @@ class AgentLoop:
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id)
+        if tool := self.tools.get("request_form"):
+            if hasattr(tool, "set_context"):
+                tool.set_context(channel, chat_id, message_id)
         # Set task progress channel for real-time updates
         self._task_progress_channel = channel
         self._task_progress_chat_id = chat_id
@@ -928,6 +943,13 @@ class AgentLoop:
 
         return result.final_content, result.tools_used, result.messages, result.stop_reason
 
+    def _pause_for_form_response(self, session: Session | None) -> None:
+        """Persist a form-request turn without sending a final assistant reply."""
+        if session is None:
+            return
+        self.session_handler.clear_checkpoint(session)
+        self.sessions.save(session)
+
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
@@ -1187,6 +1209,46 @@ class AgentLoop:
             metadata=meta,
         )))
 
+    def schedule_form_response(
+        self,
+        *,
+        interaction: Any,
+        action: str,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Route an Agent UI form response back into the owning session."""
+        response_payload = dict(payload or {})
+        values = response_payload.get("values") if isinstance(response_payload.get("values"), dict) else {}
+        title = ((response_payload.get("schema") or {}).get("title") if isinstance(response_payload.get("schema"), dict) else "") or getattr(interaction, "form_id", "form")
+        if action == "submitted":
+            content = (
+                f"Agent UI form `{getattr(interaction, 'form_id', '')}` was submitted for {title}.\n\n"
+                f"Structured values:\n```json\n{json.dumps(values, ensure_ascii=False, sort_keys=True)}\n```"
+            )
+        elif action == "cancelled":
+            content = f"Agent UI form `{getattr(interaction, 'form_id', '')}` was cancelled by the user for {title}."
+        else:
+            content = f"Agent UI form `{getattr(interaction, 'form_id', '')}` changed state to {action} for {title}."
+
+        session_key = getattr(interaction, "session_key", "") or (
+            f"websocket:{getattr(interaction, 'chat_id', '')}" if getattr(interaction, "chat_id", "") else ""
+        )
+        if not session_key:
+            logger.warning("Cannot schedule Agent UI form response without session correlation")
+            return
+        meta = {
+            "_agent_ui_form_response": response_payload,
+            "_agent_ui_form_id": getattr(interaction, "form_id", ""),
+            "_approval_grant": False,
+        }
+        self._schedule_background(self.bus.publish_inbound(InboundMessage(
+            channel="system",
+            sender_id="agent-ui-form",
+            chat_id=session_key,
+            content=content,
+            metadata=meta,
+        )))
+
     async def _update_user_profile(
         self,
         session: Session,
@@ -1337,6 +1399,9 @@ class AgentLoop:
                     content="",
                     metadata={"_approval_pending": True},
                 )
+            if stop_reason == "awaiting_form":
+                self._pause_for_form_response(session)
+                return None
             if msg.sender_id == "subagent":
                 all_msgs = [
                     entry for entry in all_msgs
@@ -1480,6 +1545,9 @@ class AgentLoop:
                 content="",
                 metadata={**dict(msg.metadata or {}), "_approval_pending": True},
             )
+        if stop_reason == "awaiting_form":
+            self._pause_for_form_response(session)
+            return None
 
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
@@ -1599,6 +1667,10 @@ class AgentLoop:
             "content": content,
             "timestamp": datetime.now().isoformat(),
         }
+        if isinstance(content, AwaitingUserInputResult):
+            tool_message["_awaiting_user_input"] = True
+            tool_message["_agent_ui_internal"] = True
+            tool_message["_stop_reason"] = content.stop_reason
         if approved:
             tool_message["_approval_status"] = "approved"
             tool_message["_approval_id"] = request.id
@@ -1663,7 +1735,7 @@ class AgentLoop:
         )
         if not self.session_handler._is_duplicate_message(session, tool_message):
             session.messages.append(tool_message)
-        if channel == "websocket":
+        if channel == "websocket" and not tool_message.get("_agent_ui_internal"):
             await self.bus.publish_outbound(OutboundMessage(
                 channel=channel,
                 chat_id=chat_id,
@@ -1709,6 +1781,10 @@ class AgentLoop:
                 content="",
                 metadata={"_approval_pending": True},
             )
+
+        if tool_message.get("_awaiting_user_input"):
+            self._pause_for_form_response(session)
+            return None
 
         self.session_handler.clear_checkpoint(session)
         self.sessions.save(session)

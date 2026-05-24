@@ -18,6 +18,20 @@ _JSON_TYPE_MAP: dict[str, type | tuple[type, ...]] = {
 }
 
 
+class AwaitingUserInputResult(str):
+    """Tool result that pauses the agent run until an external user response arrives."""
+
+    def __new__(
+        cls,
+        content: str,
+        *,
+        stop_reason: str = "awaiting_user_input",
+    ) -> "AwaitingUserInputResult":
+        instance = str.__new__(cls, content)
+        instance.stop_reason = stop_reason
+        return instance
+
+
 class Schema(ABC):
     """Abstract base for JSON Schema fragments describing tool parameters.
 

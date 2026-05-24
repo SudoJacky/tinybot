@@ -5,7 +5,7 @@
   padding: 16px 14px;
   gap: 12px;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   scrollbar-gutter: stable;
   transition: background-color var(--transition-theme),
               border-color var(--transition-theme),

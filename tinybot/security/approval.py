@@ -155,6 +155,9 @@ def classify_tool_call(tool: Tool | None, tool_name: str, params: dict[str, Any]
     if tool is not None and tool.read_only and not tool_name.startswith("mcp_"):
         return None
 
+    if tool_name == "request_form":
+        return None
+
     if tool_name == "exec":
         command = str(params.get("command") or "")
         if _is_low_risk_exec(command):

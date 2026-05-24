@@ -9,6 +9,19 @@ import {
   TOOL_CONTENT_COLLAPSE_LINES,
 } from '../constants.js';
 import { t, getLanguage, setLanguage } from '../i18n/index.js';
+import {
+  AGENT_UI_EVENT_TYPES,
+  AGENT_UI_FORM_STATUSES,
+  AGENT_UI_RENDERER_SURFACES,
+  buildAgentUiFormCancelRequest,
+  buildAgentUiFormSubmitRequest,
+  createAgentUiEventState,
+  createAgentUiRendererRegistry,
+  isAgentUiFormSubmittable,
+  normalizeAgentUiEvents,
+  reduceAgentUiEventState,
+  renderAgentUiSurface,
+} from '../agent-ui-events.js';
 
 // Legacy application module. The functions below are intentionally kept together
 // for this pass because chat, settings, knowledge, and cowork flows share state
@@ -23,6 +36,30 @@ const SIDEBAR_DRAWER_CLOSE_MS = 480;
 const nativeFetch = window.fetch.bind(window);
 const BOOTSTRAP_PATH = "/webui/bootstrap";
 const DEFAULT_TOKEN_REFRESH_PATH = "/webui/refresh-token";
+
+state.agentUi = state.agentUi || createAgentUiEventState();
+
+const agentUiRenderers = createAgentUiRendererRegistry({
+  [AGENT_UI_RENDERER_SURFACES.message]: ({ message, options = {} }) => createMessageNode(message, options),
+  [AGENT_UI_RENDERER_SURFACES.reasoning]: ({ text, previousState = {} }) => createReasoningNode(text, previousState),
+  [AGENT_UI_RENDERER_SURFACES.toolRun]: ({ toolCall, relatedMessages = [], message }) => (
+    message ? createToolMessageNode(message) : createToolCallNode(toolCall, relatedMessages)
+  ),
+  [AGENT_UI_RENDERER_SURFACES.approval]: ({ sessionKey }) => loadApprovals(sessionKey).catch(console.error),
+  [AGENT_UI_RENDERER_SURFACES.browserSnapshot]: ({ message, frame }) => (
+    message ? createBrowserSnapshotNode(message) : updateBrowserFrame(frame || {})
+  ),
+  [AGENT_UI_RENDERER_SURFACES.memoryReferences]: ({ references }) => createMemoryReferencesNode(references || []),
+  [AGENT_UI_RENDERER_SURFACES.recentContextReferences]: ({ references }) => createRecentContextReferencesNode(references || []),
+  [AGENT_UI_RENDERER_SURFACES.usageStatus]: ({ usage }) => updateUsageDisplay(usage),
+  [AGENT_UI_RENDERER_SURFACES.errorNotice]: ({ message, path = "" }) => {
+    setError(message);
+    if (path) {
+      setFileError(message);
+    }
+  },
+  [AGENT_UI_RENDERER_SURFACES.formRequest]: ({ form }) => createAgentUiFormNode(form),
+});
 
 function setStatus(text, kind = "idle") {
   if (!elements.connectionStatus) {
@@ -223,7 +260,7 @@ function updateBrowserFrame(payload) {
   const receivedAt = payload.captured_at || new Date().toISOString();
   state.browserFrame = {
     imageUrl: payload.image_url || "",
-    sourceCommand: payload.source_command || "",
+    sourceCommand: payload.source_command || payload.command || "",
     capturedAt: receivedAt,
   };
 
@@ -449,6 +486,26 @@ function updateActiveChatTitle() {
     ? sessionTitleForKey(state.activeSessionKey)
     : t("ui.notConnected");
   elements.chatTitle.title = state.activeChatId || "";
+}
+
+function setSessionResponding(sessionKey, responding) {
+  if (!sessionKey) {
+    return;
+  }
+  if (responding) {
+    state.respondingSessionKeys.add(sessionKey);
+  } else {
+    state.respondingSessionKeys.delete(sessionKey);
+  }
+  renderSessions();
+}
+
+function clearAllSessionResponding() {
+  if (!state.respondingSessionKeys.size) {
+    return;
+  }
+  state.respondingSessionKeys.clear();
+  renderSessions();
 }
 
 function setSidebarDropdown(section) {
@@ -1916,7 +1973,10 @@ function renderMessages(forceScroll = true) {
       ? createRunChainNode(item.messages)
       : item.type === "collapse"
         ? createCollapsedMessagesNode(item.messages)
-        : createMessageNode(item.message, { hideMeta: item.hideMeta });
+        : renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.message, {
+            message: item.message,
+            options: { hideMeta: item.hideMeta },
+          });
     elements.messageList.append(node);
   }
 
@@ -2127,6 +2187,57 @@ function createTaskProgressNode(message) {
   return details;
 }
 
+function restoreAgentUiFormsFromMessages(messages) {
+  state.agentUi = state.agentUi || createAgentUiEventState();
+  for (const message of messages || []) {
+    const display = message._agent_ui_form_display;
+    if (!display || !display.form_id) {
+      continue;
+    }
+    const schema = display.schema || {};
+    state.agentUi.forms.set(display.form_id, {
+      form_id: display.form_id,
+      schema,
+      title: schema.title || "",
+      description: schema.description || "",
+      fields: schema.fields || [],
+      submit_label: schema.submit_label || "",
+      cancel_label: schema.cancel_label || "",
+      expires_at: display.expires_at || schema.expires_at || "",
+      status: display.status || message._agent_ui_form_status || AGENT_UI_FORM_STATUSES.pending,
+      correlation: display.correlation || schema.correlation || { form_id: display.form_id },
+      values: display.values || {},
+      errors: display.errors || {},
+      chat_id: schema.correlation?.chat_id || "",
+      message_id: message.message_id || schema.correlation?.message_id || "",
+      run_id: schema.correlation?.run_id || "",
+      updated_at: display.updated_at || message.timestamp || "",
+    });
+  }
+}
+
+function createBrowserSnapshotNode(message) {
+  const snapshotEl = document.createElement("figure");
+  snapshotEl.className = "browser-snapshot";
+
+  if (message.image_url) {
+    const img = document.createElement("img");
+    img.className = "browser-snapshot-image";
+    img.src = message.image_url;
+    img.alt = "Browser snapshot";
+    snapshotEl.append(img);
+  }
+
+  if (message.source_command) {
+    const caption = document.createElement("figcaption");
+    caption.className = "browser-snapshot-caption";
+    caption.textContent = message.source_command;
+    snapshotEl.append(caption);
+  }
+
+  return snapshotEl;
+}
+
 function updateMessageContent(contentEl, message) {
   const previousReasoning = contentEl.querySelector(".message-reasoning-details");
   const previousReasoningState = previousReasoning
@@ -2135,35 +2246,28 @@ function updateMessageContent(contentEl, message) {
   contentEl.textContent = "";
 
   if (message.reasoning_content && message.reasoning_content.trim()) {
-    contentEl.append(createReasoningNode(message.reasoning_content, previousReasoningState));
+    contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.reasoning, {
+      text: message.reasoning_content,
+      previousState: previousReasoningState,
+    }));
   }
 
   if (message._browser_snapshot) {
-    const snapshotEl = document.createElement("figure");
-    snapshotEl.className = "browser-snapshot";
-
-    if (message.image_url) {
-      const img = document.createElement("img");
-      img.className = "browser-snapshot-image";
-      img.src = message.image_url;
-      img.alt = "Browser snapshot";
-      snapshotEl.append(img);
-    }
-
-    if (message.source_command) {
-      const caption = document.createElement("figcaption");
-      caption.className = "browser-snapshot-caption";
-      caption.textContent = message.source_command;
-      snapshotEl.append(caption);
-    }
-
-    contentEl.append(snapshotEl);
+    contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.browserSnapshot, { message }));
     return;
   }
 
   if (message._task_event) {
     contentEl.append(createTaskProgressNode(message));
     return;
+  }
+
+  if (message._agent_ui_form_id) {
+    const form = state.agentUi?.forms?.get(message._agent_ui_form_id);
+    if (form) {
+      contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.formRequest, { form, message }));
+      return;
+    }
   }
 
   // Handle tool_calls for assistant messages
@@ -2174,7 +2278,10 @@ function updateMessageContent(contentEl, message) {
     const toolCalls = getToolCalls(message);
     const relatedGroups = relatedToolMessageGroups(toolCalls, relatedMessages);
     toolCalls.forEach((tc, index) => {
-      toolCallsEl.append(createToolCallNode(tc, relatedGroups[index] || []));
+      toolCallsEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.toolRun, {
+        toolCall: tc,
+        relatedMessages: relatedGroups[index] || [],
+      }));
     });
     contentEl.append(toolCallsEl);
   }
@@ -2182,7 +2289,7 @@ function updateMessageContent(contentEl, message) {
   if (message.role === "tool" || message.role === "progress") {
     const toolCallsEl = document.createElement("div");
     toolCallsEl.className = "tool-activities";
-    toolCallsEl.append(createToolMessageNode(message));
+    toolCallsEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.toolRun, { message }));
     contentEl.append(toolCallsEl);
     return;
   }
@@ -2236,11 +2343,460 @@ function updateMessageContent(contentEl, message) {
   }
 
   if (message.role === "assistant" && Array.isArray(message._memory_references) && message._memory_references.length) {
-    contentEl.append(createMemoryReferencesNode(message._memory_references));
+    contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.memoryReferences, {
+      references: message._memory_references,
+    }));
   }
   if (message.role === "assistant" && Array.isArray(message._recent_context_references) && message._recent_context_references.length) {
-    contentEl.append(createRecentContextReferencesNode(message._recent_context_references));
+    contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.recentContextReferences, {
+      references: message._recent_context_references,
+    }));
   }
+}
+
+function agentUiFormMessageId(form) {
+  return form.message_id || `agent-ui-form:${form.form_id}`;
+}
+
+function upsertAgentUiFormMessage(event) {
+  const formId = event.payload?.form_id || "";
+  if (!formId || !event.chat_id) {
+    return;
+  }
+  const sessionKey = sessionKeyForChat(event.chat_id);
+  const bucket = ensureMessageBucket(sessionKey);
+  const messageId = event.message_id || `agent-ui-form:${formId}`;
+  const existing = bucket.find((message) => message._agent_ui_form_id === formId || message.message_id === messageId);
+  if (existing) {
+    existing.message_id = messageId;
+    existing.timestamp = event.timestamp || existing.timestamp;
+    existing._agent_ui_form_id = formId;
+    existing._agent_ui_form_status = state.agentUi.forms.get(formId)?.status || existing._agent_ui_form_status || "";
+  } else {
+    bucket.push({
+      role: "assistant",
+      content: "",
+      timestamp: event.timestamp || new Date().toISOString(),
+      message_id: messageId,
+      _agent_ui_form_id: formId,
+      _agent_ui_form_status: state.agentUi.forms.get(formId)?.status || AGENT_UI_FORM_STATUSES.pending,
+    });
+  }
+  if (sessionKey === state.activeSessionKey) {
+    renderMessages(false);
+  }
+}
+
+function isAgentUiFormEvent(event) {
+  return event?.event_type && event.event_type.startsWith("ui.form.");
+}
+
+function formStatusLabel(status) {
+  switch (status) {
+    case AGENT_UI_FORM_STATUSES.submitted:
+      return "Submitted";
+    case AGENT_UI_FORM_STATUSES.cancelled:
+      return "Cancelled";
+    case AGENT_UI_FORM_STATUSES.expired:
+      return "Expired";
+    case AGENT_UI_FORM_STATUSES.validationFailed:
+      return "Needs changes";
+    default:
+      return "Pending";
+  }
+}
+
+function isFormReadonly(form) {
+  return [
+    AGENT_UI_FORM_STATUSES.submitted,
+    AGENT_UI_FORM_STATUSES.cancelled,
+    AGENT_UI_FORM_STATUSES.expired,
+  ].includes(form?.status);
+}
+
+function formFieldInputId(form, field) {
+  return `agent-ui-form-${form.form_id}-${field.name}`.replace(/[^A-Za-z0-9_-]/g, "-");
+}
+
+function formFieldValue(form, field) {
+  if (form.values && Object.hasOwn(form.values, field.name)) {
+    return form.values[field.name];
+  }
+  return field.default ?? "";
+}
+
+function setFormFieldValue(values, field, value) {
+  if (field.type === "number") {
+    values[field.name] = value === "" ? "" : Number(value);
+  } else {
+    values[field.name] = value;
+  }
+}
+
+function agentUiFormOptionValue(field, optionIndex) {
+  const index = Number(optionIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= (field.options || []).length) {
+    return "";
+  }
+  return field.options[index].value;
+}
+
+function agentUiFormOptionMatches(value, optionValue) {
+  return Object.is(value, optionValue);
+}
+
+function agentUiFormValueInOptions(field, value) {
+  return (field.options || []).some((option) => agentUiFormOptionMatches(value, option.value));
+}
+
+function collectAgentUiFormValues(form, root) {
+  const values = {};
+  for (const field of form.fields || []) {
+    const selector = `[data-agent-ui-form-field="${CSS.escape(field.name)}"]`;
+    if (field.type === "checkbox") {
+      values[field.name] = root.querySelector(selector)?.checked === true;
+    } else if (field.type === "select") {
+      const selected = root.querySelector(selector)?.selectedOptions?.[0];
+      values[field.name] = selected ? agentUiFormOptionValue(field, selected.dataset.agentUiFormOptionIndex) : "";
+    } else if (field.type === "multiselect") {
+      values[field.name] = Array.from(root.querySelectorAll(`${selector}:checked`))
+        .map((input) => agentUiFormOptionValue(field, input.dataset.agentUiFormOptionIndex));
+    } else if (field.type === "radio") {
+      const selected = root.querySelector(`${selector}:checked`);
+      values[field.name] = selected ? agentUiFormOptionValue(field, selected.dataset.agentUiFormOptionIndex) : "";
+    } else {
+      setFormFieldValue(values, field, root.querySelector(selector)?.value ?? "");
+    }
+  }
+  return values;
+}
+
+function validateAgentUiFormCardValues(form, values) {
+  const errors = {};
+  for (const field of form.fields || []) {
+    const value = values[field.name];
+    if (field.required) {
+      const missing = Array.isArray(value) ? value.length === 0 : value === "" || value === null || value === undefined;
+      if (missing) {
+        errors[field.name] = "Required";
+        continue;
+      }
+    }
+    if (field.type === "number" && value !== "" && value !== null && value !== undefined) {
+      if (!Number.isFinite(value)) {
+        errors[field.name] = "Enter a valid number";
+      } else if (typeof field.min === "number" && value < field.min) {
+        errors[field.name] = `Must be at least ${field.min}`;
+      } else if (typeof field.max === "number" && value > field.max) {
+        errors[field.name] = `Must be ${field.max} or less`;
+      }
+    }
+    if (typeof value === "string") {
+      if (typeof field.min_length === "number" && value.length < field.min_length) {
+        errors[field.name] = `Use at least ${field.min_length} characters`;
+      } else if (typeof field.max_length === "number" && value.length > field.max_length) {
+        errors[field.name] = `Use ${field.max_length} characters or fewer`;
+      } else if (field.pattern && !new RegExp(field.pattern).test(value)) {
+        errors[field.name] = "Use the requested format";
+      }
+    }
+    if (["select", "radio"].includes(field.type) && value !== "" && value !== null && value !== undefined) {
+      if (!agentUiFormValueInOptions(field, value)) {
+        errors[field.name] = "Choose a listed option";
+      }
+    }
+    if (field.type === "multiselect" && Array.isArray(value)) {
+      if (value.some((item) => !agentUiFormValueInOptions(field, item))) {
+        errors[field.name] = "Choose listed options";
+      }
+    }
+  }
+  return errors;
+}
+
+function applyAgentUiFormValidationErrors(form, values, errors) {
+  const existing = state.agentUi.forms.get(form.form_id) || form;
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    status: AGENT_UI_FORM_STATUSES.validationFailed,
+    values,
+    errors,
+    submitting: false,
+    updated_at: new Date().toISOString(),
+  });
+  renderMessages(false);
+}
+
+function focusFirstAgentUiFormError(formId) {
+  requestAnimationFrame(() => {
+    const card = elements.messageList.querySelector(`[data-agent-ui-form-id="${CSS.escape(formId)}"]`);
+    const errorField = card?.querySelector("[aria-invalid='true']");
+    errorField?.focus();
+  });
+}
+
+async function submitAgentUiForm(form, root) {
+  if (!isAgentUiFormSubmittable(form)) {
+    return;
+  }
+  const values = collectAgentUiFormValues(form, root);
+  const errors = validateAgentUiFormCardValues(form, values);
+  if (Object.keys(errors).length) {
+    applyAgentUiFormValidationErrors(form, values, errors);
+    focusFirstAgentUiFormError(form.form_id);
+    return;
+  }
+  const requestPayload = buildAgentUiFormSubmitRequest(form, values);
+  if (!requestPayload) {
+    return;
+  }
+  const existing = state.agentUi.forms.get(form.form_id) || form;
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    submitting: true,
+  });
+  const response = await fetch(`/api/agent-ui/forms/${encodeURIComponent(form.form_id)}/submit`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(requestPayload),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    applyAgentUiFormValidationErrors(form, values, payload.errors || { _form: payload.error || "Submit failed" });
+    focusFirstAgentUiFormError(form.form_id);
+    return;
+  }
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    status: AGENT_UI_FORM_STATUSES.submitted,
+    values: payload.values || values,
+    errors: {},
+    submitting: false,
+    updated_at: new Date().toISOString(),
+  });
+  renderMessages(false);
+}
+
+async function cancelAgentUiForm(form) {
+  const requestPayload = buildAgentUiFormCancelRequest(form);
+  if (!requestPayload) {
+    return;
+  }
+  const existing = state.agentUi.forms.get(form.form_id) || form;
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    submitting: true,
+  });
+  const response = await fetch(`/api/agent-ui/forms/${encodeURIComponent(form.form_id)}/cancel`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(requestPayload),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    applyAgentUiFormValidationErrors(form, form.values || {}, { _form: payload.error || "Cancel failed" });
+    return;
+  }
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    status: AGENT_UI_FORM_STATUSES.cancelled,
+    errors: {},
+    submitting: false,
+    updated_at: new Date().toISOString(),
+  });
+  renderMessages(false);
+}
+
+function createAgentUiFieldHelp(text, id, className = "agent-ui-form-help") {
+  const help = document.createElement("div");
+  help.id = id;
+  help.className = className;
+  help.textContent = text;
+  return help;
+}
+
+function createAgentUiChoiceField(form, field, readonly) {
+  const group = document.createElement("div");
+  group.className = `agent-ui-form-choice-group agent-ui-form-choice-${field.type}`;
+  const current = formFieldValue(form, field);
+  const currentValues = Array.isArray(current) ? current : [current];
+  for (const [optionIndex, option] of (field.options || []).entries()) {
+    const label = document.createElement("label");
+    label.className = "agent-ui-form-choice";
+    const input = document.createElement("input");
+    input.type = field.type === "radio" ? "radio" : "checkbox";
+    input.name = `${form.form_id}:${field.name}`;
+    input.value = String(optionIndex);
+    input.checked = currentValues.some((value) => agentUiFormOptionMatches(value, option.value));
+    input.disabled = readonly;
+    input.dataset.agentUiFormField = field.name;
+    input.dataset.agentUiFormOptionIndex = String(optionIndex);
+    const text = document.createElement("span");
+    text.textContent = option.label;
+    label.append(input, text);
+    group.append(label);
+  }
+  return group;
+}
+
+function createAgentUiFormField(form, field, readonly) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "agent-ui-form-field";
+  const inputId = formFieldInputId(form, field);
+  const errorText = form.errors?.[field.name] || "";
+  const helpId = `${inputId}-help`;
+  const errorId = `${inputId}-error`;
+
+  const label = document.createElement("label");
+  label.className = "agent-ui-form-label";
+  label.htmlFor = inputId;
+  label.textContent = field.label;
+  if (field.required) {
+    const required = document.createElement("span");
+    required.className = "agent-ui-form-required";
+    required.textContent = "Required";
+    label.append(required);
+  }
+
+  let control;
+  const value = formFieldValue(form, field);
+  if (field.type === "textarea") {
+    control = document.createElement("textarea");
+    control.rows = 3;
+    control.value = value || "";
+  } else if (field.type === "select") {
+    control = document.createElement("select");
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "";
+    control.append(empty);
+    for (const [optionIndex, option] of (field.options || []).entries()) {
+      const optionEl = document.createElement("option");
+      optionEl.value = String(optionIndex);
+      optionEl.textContent = option.label;
+      optionEl.selected = agentUiFormOptionMatches(value, option.value);
+      optionEl.dataset.agentUiFormOptionIndex = String(optionIndex);
+      control.append(optionEl);
+    }
+  } else if (field.type === "radio" || field.type === "multiselect") {
+    control = createAgentUiChoiceField(form, field, readonly);
+  } else {
+    control = document.createElement("input");
+    control.type = field.type === "number" ? "number" : field.type === "datetime" ? "datetime-local" : field.type === "file_path" ? "text" : field.type;
+    control.value = value === undefined || value === null ? "" : String(value);
+  }
+
+  if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement) {
+    control.id = inputId;
+    control.className = "agent-ui-form-control";
+    control.disabled = readonly;
+    control.required = field.required === true;
+    if (field.placeholder) {
+      control.placeholder = field.placeholder;
+    }
+    if (typeof field.min === "number") {
+      control.min = String(field.min);
+    }
+    if (typeof field.max === "number") {
+      control.max = String(field.max);
+    }
+    if (typeof field.min_length === "number") {
+      control.minLength = field.min_length;
+    }
+    if (typeof field.max_length === "number") {
+      control.maxLength = field.max_length;
+    }
+    if (field.pattern) {
+      control.pattern = field.pattern;
+    }
+    control.dataset.agentUiFormField = field.name;
+    control.setAttribute("aria-describedby", [field.help ? helpId : "", errorText ? errorId : ""].filter(Boolean).join(" "));
+    control.setAttribute("aria-invalid", errorText ? "true" : "false");
+  } else {
+    control.id = inputId;
+    control.setAttribute("role", field.type === "radio" ? "radiogroup" : "group");
+    control.setAttribute("aria-describedby", [field.help ? helpId : "", errorText ? errorId : ""].filter(Boolean).join(" "));
+  }
+
+  wrapper.append(label, control);
+  if (field.help) {
+    wrapper.append(createAgentUiFieldHelp(field.help, helpId));
+  }
+  if (errorText) {
+    wrapper.append(createAgentUiFieldHelp(errorText, errorId, "agent-ui-form-error"));
+  }
+  return wrapper;
+}
+
+function createAgentUiFormNode(form) {
+  const readonly = isFormReadonly(form);
+  const card = document.createElement("section");
+  card.className = `agent-ui-form-card agent-ui-form-${form.status || AGENT_UI_FORM_STATUSES.pending}`;
+  card.dataset.agentUiFormId = form.form_id;
+
+  const header = document.createElement("div");
+  header.className = "agent-ui-form-header";
+  const title = document.createElement("div");
+  title.className = "agent-ui-form-title";
+  title.textContent = form.title || "Form request";
+  const status = document.createElement("span");
+  status.className = "agent-ui-form-status";
+  status.textContent = formStatusLabel(form.status);
+  header.append(title, status);
+  card.append(header);
+
+  if (form.description) {
+    const description = document.createElement("p");
+    description.className = "agent-ui-form-description";
+    description.textContent = form.description;
+    card.append(description);
+  }
+  if (form.errors?._form) {
+    const error = document.createElement("div");
+    error.className = "agent-ui-form-error agent-ui-form-error-banner";
+    error.textContent = form.errors._form;
+    card.append(error);
+  }
+
+  const formEl = document.createElement("form");
+  formEl.className = "agent-ui-form";
+  formEl.noValidate = true;
+  for (const field of form.fields || []) {
+    formEl.append(createAgentUiFormField(form, field, readonly));
+  }
+  if (!readonly) {
+    const actions = document.createElement("div");
+    actions.className = "agent-ui-form-actions";
+    const submit = document.createElement("button");
+    submit.className = "button button-primary button-small agent-ui-form-submit";
+    submit.type = "submit";
+    submit.textContent = form.submit_label || "Submit";
+    const cancel = document.createElement("button");
+    cancel.className = "button button-ghost button-small agent-ui-form-cancel";
+    cancel.type = "button";
+    cancel.textContent = form.cancel_label || "Cancel";
+    cancel.addEventListener("click", async () => {
+      submit.disabled = true;
+      cancel.disabled = true;
+      await cancelAgentUiForm(form).finally(() => {
+        submit.disabled = false;
+        cancel.disabled = false;
+      });
+    });
+    actions.append(submit, cancel);
+    formEl.append(actions);
+    formEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      cancel.disabled = true;
+      await submitAgentUiForm(form, formEl).finally(() => {
+        submit.disabled = false;
+        cancel.disabled = false;
+      });
+    });
+  }
+  card.append(formEl);
+  return card;
 }
 
 function createMemoryReferencesNode(references) {
@@ -2409,12 +2965,23 @@ function renderSessions() {
       button.classList.add("active");
       wrapper.classList.add("expanded");
     }
+    const isResponding = state.respondingSessionKeys.has(item.key);
+    if (isResponding) {
+      button.classList.add("responding");
+    }
     button.dataset.chatId = item.chat_id;
 
     const key = document.createElement("span");
     key.className = "session-key";
     key.textContent = sessionTitleForKey(item.key);
     key.title = item.chat_id;
+
+    const responseSpinner = document.createElement("span");
+    responseSpinner.className = "session-response-spinner";
+    responseSpinner.setAttribute("aria-hidden", "true");
+    if (isResponding) {
+      responseSpinner.title = t("status.loading");
+    }
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
@@ -2425,7 +2992,7 @@ function renderSessions() {
     deleteBtn.setAttribute("aria-label", t("ui.deleteSession"));
     deleteBtn.textContent = "×";
 
-    button.append(key, deleteBtn);
+    button.append(key, responseSpinner, deleteBtn);
     wrapper.append(button);
     elements.sessionList.append(wrapper);
   }
@@ -2550,7 +3117,9 @@ async function loadMessages(sessionKey) {
     throw new Error(`load messages failed: ${response.status}`);
   }
   const payload = await response.json();
-  state.messages.set(sessionKey, payload.messages || []);
+  const messages = payload.messages || [];
+  restoreAgentUiFormsFromMessages(messages);
+  state.messages.set(sessionKey, messages);
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
@@ -6058,6 +6627,7 @@ async function clearSession(sessionKey) {
   }
   state.messages.set(sessionKey, []);
   state.sessionFiles.set(sessionKey, []);
+  state.respondingSessionKeys.delete(sessionKey);
   state.pendingApprovals = [];
   closeInspectionMode();
   updateActiveChatTitle();
@@ -6080,6 +6650,7 @@ async function deleteSession(sessionKey, chatId) {
   // Remove from local state
   state.messages.delete(sessionKey);
   state.sessionFiles.delete(sessionKey);
+  state.respondingSessionKeys.delete(sessionKey);
   state.sessionItems = state.sessionItems.filter((item) => item.key !== sessionKey);
 
   // If deleted session was active, switch to another
@@ -10124,6 +10695,10 @@ async function connectWebSocket() {
 
     socket.addEventListener("message", async (event) => {
       const payload = JSON.parse(event.data);
+      const agentUiEvents = normalizeAgentUiEvents(payload);
+      for (const agentUiEvent of agentUiEvents) {
+        reduceAgentUiEventState(state.agentUi, agentUiEvent);
+      }
 
       if (payload.event === "ready") {
         resolve();
@@ -10147,12 +10722,18 @@ async function connectWebSocket() {
             timestamp: new Date().toISOString(),
           });
 
-          sendSocketMessage({
-            type: "message",
-            chat_id: state.activeChatId,
-            content,
-            use_persistent_rag: elements.persistentRagToggle?.checked !== false,
-          });
+          setSessionResponding(sessionKey, true);
+          try {
+            sendSocketMessage({
+              type: "message",
+              chat_id: state.activeChatId,
+              content,
+              use_persistent_rag: elements.persistentRagToggle?.checked !== false,
+            });
+          } catch (error) {
+            setSessionResponding(sessionKey, false);
+            throw error;
+          }
         }
         return;
       }
@@ -10163,8 +10744,43 @@ async function connectWebSocket() {
         return;
       }
 
+      if (payload.event === "agent_ui_event") {
+        for (const agentUiEvent of agentUiEvents) {
+          if (isAgentUiFormEvent(agentUiEvent)) {
+            upsertAgentUiFormMessage(agentUiEvent);
+            if (agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["ui.form.requested"]) {
+              setSessionResponding(sessionKeyForChat(agentUiEvent.chat_id || payload.chat_id), false);
+            }
+          } else if (agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["error.raised"]) {
+            renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.errorNotice, {
+              message: agentUiEvent.payload.message || t("status.serverError"),
+              path: agentUiEvent.payload.path || "",
+            });
+            setSessionResponding(sessionKeyForChat(agentUiEvent.chat_id || payload.chat_id), false);
+          } else if (
+            agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["message.completed"] ||
+            agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["message.stream.completed"]
+          ) {
+            setSessionResponding(sessionKeyForChat(agentUiEvent.chat_id || payload.chat_id), false);
+          }
+        }
+        return;
+      }
+
       if (payload.event === "delta") {
-        upsertStreamMessage(payload.chat_id, payload.message_id || crypto.randomUUID(), payload.text || "", payload.is_reasoning || false);
+        for (const agentUiEvent of agentUiEvents) {
+          if (
+            agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["message.delta"] ||
+            agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["reasoning.delta"]
+          ) {
+            upsertStreamMessage(
+              agentUiEvent.chat_id,
+              agentUiEvent.message_id,
+              agentUiEvent.payload.text || "",
+              agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["reasoning.delta"],
+            );
+          }
+        }
         return;
       }
 
@@ -10200,6 +10816,7 @@ async function connectWebSocket() {
           });
         } else {
           // Regular assistant message
+          setSessionResponding(sessionKeyForChat(payload.chat_id), false);
           pushMessage(sessionKeyForChat(payload.chat_id), {
             role: "assistant",
             content: payload.text || "",
@@ -10209,45 +10826,68 @@ async function connectWebSocket() {
             _recent_context_references: payload._recent_context_references || [],
           });
         }
-        loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.approval, {
+          sessionKey: sessionKeyForChat(payload.chat_id),
+        });
         return;
       }
 
       if (payload.event === "approval_pending") {
-        loadApprovals(sessionKeyForChat(payload.chat_id)).catch(console.error);
+        setSessionResponding(sessionKeyForChat(payload.chat_id), false);
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.approval, {
+          sessionKey: sessionKeyForChat(payload.chat_id),
+        });
         return;
       }
 
       if (payload.event === "browser_frame" || payload.event === "browser_snapshot") {
-        updateBrowserFrame(payload);
+        const browserEvent = agentUiEvents.find((item) => item.event_type === AGENT_UI_EVENT_TYPES["browser.frame.updated"]);
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.browserSnapshot, {
+          frame: browserEvent ? {
+            ...payload,
+            image_url: browserEvent.payload.image_url,
+            url: browserEvent.payload.image_url || payload.url,
+            source_command: browserEvent.payload.command,
+            captured_at: browserEvent.payload.captured_at,
+          } : payload,
+        });
         return;
       }
 
       if (payload.event === "stream_end") {
         if (payload.message_id) {
           const streamState = state.streamBuffers.get(payload.message_id);
+          const memoryReferences = state.agentUi.memoryReferences.get(payload.message_id);
+          const recentContextReferences = state.agentUi.recentContextReferences.get(payload.message_id);
           if (streamState?.entry) {
             streamState.entry._stream_resuming = payload.resuming === true;
-            if (Array.isArray(payload._memory_references)) {
-              streamState.entry._memory_references = payload._memory_references;
+            if (Array.isArray(memoryReferences)) {
+              streamState.entry._memory_references = memoryReferences;
             }
-            if (Array.isArray(payload._recent_context_references)) {
-              streamState.entry._recent_context_references = payload._recent_context_references;
+            if (Array.isArray(recentContextReferences)) {
+              streamState.entry._recent_context_references = recentContextReferences;
             }
           }
           state.streamBuffers.delete(payload.message_id);
+          if (payload.resuming !== true && streamState?.sessionKey) {
+            setSessionResponding(streamState.sessionKey, false);
+          }
           if (payload.resuming !== true && streamState?.sessionKey === state.activeSessionKey) {
             renderMessages(false);
           }
           if (streamState?.sessionKey) {
-            loadApprovals(streamState.sessionKey).catch(console.error);
+            renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.approval, {
+              sessionKey: streamState.sessionKey,
+            });
           }
         }
         return;
       }
 
       if (payload.event === "usage") {
-        updateUsageDisplay(payload.usage);
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.usageStatus, {
+          usage: state.agentUi.usage || payload.usage,
+        });
         return;
       }
 
@@ -10272,19 +10912,24 @@ async function connectWebSocket() {
       }
 
       if (payload.event === "error") {
-        setError(payload.message || t("status.serverError"));
-        if (payload.path) {
-          setFileError(payload.message || t("status.serverError"));
-        }
+        const errorEvent = agentUiEvents.find((item) => item.event_type === AGENT_UI_EVENT_TYPES["error.raised"]);
+        const message = errorEvent?.payload.message || payload.message || t("status.serverError");
+        renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.errorNotice, {
+          message,
+          path: payload.path,
+        });
+        setSessionResponding(sessionKeyForChat(payload.chat_id || state.activeChatId), false);
       }
     });
 
     socket.addEventListener("close", () => {
       setStatus(t("status.disconnected"), "error");
+      clearAllSessionResponding();
     });
 
     socket.addEventListener("error", () => {
       setStatus(t("status.failed"), "error");
+      clearAllSessionResponding();
       reject(new Error("websocket connection failed"));
     });
   });
@@ -10343,12 +10988,18 @@ async function submitMessage() {
   resizeComposer();
   setError("");
 
-  sendSocketMessage({
-    type: "message",
-    chat_id: state.activeChatId,
-    content,
-    use_persistent_rag: elements.persistentRagToggle?.checked !== false,
-  });
+  setSessionResponding(sessionKey, true);
+  try {
+    sendSocketMessage({
+      type: "message",
+      chat_id: state.activeChatId,
+      content,
+      use_persistent_rag: elements.persistentRagToggle?.checked !== false,
+    });
+  } catch (error) {
+    setSessionResponding(sessionKey, false);
+    throw error;
+  }
 }
 
 function bindEvents() {

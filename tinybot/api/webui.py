@@ -14,6 +14,12 @@ from typing import Any
 from aiohttp import web
 from loguru import logger
 
+from tinybot.agent.forms import (
+    AGENT_UI_FORM_EVENT_TYPES,
+    AgentUiFormError,
+    AgentUiFormRegistry,
+    form_event,
+)
 from tinybot.security.approval import ApprovalManager, ApprovalScope
 from tinybot.utils.web_tokens import WebTokenManager
 
@@ -101,6 +107,7 @@ class WebUIControlRuntime:
     broadcast_global: BroadcastHandler | None = None
     cowork_listener_services: set[int] = field(default_factory=set)
     control_handlers: Mapping[str, Handler] = field(default_factory=dict)
+    form_interactions: AgentUiFormRegistry = field(default_factory=AgentUiFormRegistry)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +169,19 @@ def _is_internal_task_notification(message: dict[str, Any]) -> bool:
     )
 
 
+def _is_internal_agent_ui_tool_result(message: dict[str, Any]) -> bool:
+    if message.get("_agent_ui_internal"):
+        return True
+    if message.get("role") != "tool" or message.get("name") != "request_form":
+        return False
+    content = _message_text(message.get("content"))
+    return (
+        "Agent UI form `" in content
+        and "requested asynchronously for WebUI chat" in content
+        and "Wait for the form response continuation" in content
+    )
+
+
 def _extract_task_plan_id(message: dict[str, Any]) -> str:
     content = _message_text(message.get("content"))
     match = _TASK_PLAN_ID_RE.search(content)
@@ -205,6 +225,10 @@ def _serialize_message(message: dict[str, Any]) -> dict[str, Any]:
         "_task_plan_id",
         "_memory_references",
         "_recent_context_references",
+        "_agent_ui_form_id",
+        "_agent_ui_form_status",
+        "_agent_ui_form_display",
+        "_agent_ui_form_response",
     ):
         if key in message:
             payload[key] = message[key]
@@ -372,6 +396,8 @@ def _get_messages_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths
             if message.get("_task_event") and message.get("_task_plan_id")
         }
         for message in session.messages:
+            if _is_internal_agent_ui_tool_result(message):
+                continue
             if _is_internal_task_notification(message):
                 plan_id = _extract_task_plan_id(message)
                 if plan_id and plan_id not in emitted_task_plan_ids:
@@ -510,7 +536,7 @@ def _upload_temporary_file_handler(runtime: WebUIControlRuntime, paths: WebUICon
                 field = await reader.next()
                 if field is None:
                     break
-                if field.filename:
+                if field.filename and Path(field.filename).suffix:
                     filename = field.filename
                     file_content = await field.read()
         except Exception as exc:
@@ -728,6 +754,217 @@ def _deny_approval_handler(runtime: WebUIControlRuntime, paths: WebUIControlPath
     return handler
 
 
+def _form_payload_correlation_matches(interaction: Any, correlation: Mapping[str, Any]) -> bool:
+    for key in ("session_key", "chat_id", "run_id", "message_id", "interaction_id"):
+        expected = getattr(interaction, key, "")
+        supplied = correlation.get(key)
+        if expected and supplied and str(expected) != str(supplied):
+            return False
+    return True
+
+
+def _runtime_agent_loop(runtime: WebUIControlRuntime) -> Any:
+    if runtime.agent_loop_provider is not None:
+        try:
+            loop = runtime.agent_loop_provider()
+        except Exception:
+            logger.debug("failed to resolve live agent loop for Agent UI form continuation")
+        else:
+            if loop is not None:
+                return loop
+    return runtime.agent_loop
+
+
+def _form_response_payload(interaction: Any, action: str) -> dict[str, Any]:
+    return {
+        "action": action,
+        "form_id": interaction.form_id,
+        "interaction_id": interaction.interaction_id,
+        "status": interaction.status,
+        "values": dict(getattr(interaction, "submitted_values", {}) or {}),
+        "errors": dict(getattr(interaction, "validation_errors", {}) or {}),
+        "correlation": dict(interaction.correlation),
+        "schema": dict(interaction.schema),
+        "continuation": dict(getattr(interaction, "continuation", {}) or {}),
+        "continuation_mode": interaction.continuation_mode,
+    }
+
+
+def _can_route_form_continuation(runtime: WebUIControlRuntime, interaction: Any) -> bool:
+    if interaction.continuation_mode != "resume":
+        return True
+    return callable(getattr(_runtime_agent_loop(runtime), "schedule_form_response", None))
+
+
+def _record_structured_form_message(runtime: WebUIControlRuntime, interaction: Any, action: str) -> bool:
+    if runtime.session_manager is None:
+        return False
+    session_key = interaction.session_key or (
+        f"{runtime.channel_name}:{interaction.chat_id}" if interaction.chat_id else ""
+    )
+    if not session_key:
+        return False
+    session = runtime.session_manager.get_or_create(session_key)
+    title = interaction.schema.get("title") or interaction.form_id
+    if action == "submitted":
+        content = f"Agent UI form submitted: {title}"
+    elif action == "cancelled":
+        content = f"Agent UI form cancelled: {title}"
+    else:
+        content = f"Agent UI form {action}: {title}"
+    session.add_message(
+        "user",
+        content,
+        _agent_ui_form_response=_form_response_payload(interaction, action),
+    )
+    runtime.session_manager.save(session)
+    return True
+
+
+def _route_form_continuation(runtime: WebUIControlRuntime, interaction: Any, action: str) -> dict[str, Any]:
+    payload = _form_response_payload(interaction, action)
+    loop = _runtime_agent_loop(runtime)
+    schedule_form_response = getattr(loop, "schedule_form_response", None)
+    if callable(schedule_form_response):
+        schedule_form_response(interaction=interaction, action=action, payload=payload)
+        return {"mode": interaction.continuation_mode, "delivered": True, "target": "agent_loop"}
+    if interaction.continuation_mode == "resume":
+        return {"mode": "resume", "delivered": False, "reason": "missing_continuation"}
+    delivered = _record_structured_form_message(runtime, interaction, action)
+    return {
+        "mode": "structured_message",
+        "delivered": delivered,
+        "target": "session_message" if delivered else "none",
+    }
+
+
+async def _emit_form_event(runtime: WebUIControlRuntime, event: dict[str, Any]) -> None:
+    if runtime.broadcast_global is None:
+        return
+    try:
+        await runtime.broadcast_global(event)
+    except Exception as exc:  # pragma: no cover - broadcast failures should not fail route actions.
+        logger.debug("failed to broadcast Agent UI form event: {}", exc)
+
+
+def _form_submit_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
+    async def handler(request: web.Request) -> web.Response:
+        form_id = request.match_info["form_id"]
+        interaction = runtime.form_interactions.get(form_id)
+        if interaction is None:
+            return web.json_response({"error": "form not found"}, status=404)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            return web.json_response({"error": "payload must be a dict"}, status=400)
+
+        correlation = payload.get("correlation") or {}
+        if not isinstance(correlation, dict):
+            return web.json_response({"error": "correlation must be a dict"}, status=400)
+        if not _form_payload_correlation_matches(interaction, correlation):
+            return web.json_response({"error": "form correlation mismatch"}, status=409)
+
+        values = payload.get("values") or {}
+        if not isinstance(values, dict):
+            return web.json_response({"error": "values must be a dict"}, status=400)
+        if not _can_route_form_continuation(runtime, interaction):
+            return web.json_response({"error": "form continuation unavailable"}, status=409)
+        try:
+            submitted = runtime.form_interactions.submit(form_id, values)
+        except AgentUiFormError as exc:
+            refreshed = runtime.form_interactions.get(form_id) or interaction
+            if refreshed.status == "expired":
+                event = form_event(AGENT_UI_FORM_EVENT_TYPES["expired"], refreshed)
+                await _emit_form_event(runtime, event)
+                return web.json_response({"error": "form expired", "event": event["agent_ui_event"]}, status=409)
+            event = form_event(
+                AGENT_UI_FORM_EVENT_TYPES["validation_failed"],
+                refreshed,
+                values=values,
+                errors=exc.errors,
+            )
+            await _emit_form_event(runtime, event)
+            return web.json_response(
+                {"error": str(exc), "errors": exc.errors, "event": event["agent_ui_event"]},
+                status=400,
+            )
+
+        event = form_event(
+            AGENT_UI_FORM_EVENT_TYPES["submitted"],
+            submitted,
+            values=submitted.submitted_values,
+        )
+        await _emit_form_event(runtime, event)
+        continuation = _route_form_continuation(runtime, submitted, "submitted")
+        return web.json_response(
+            {
+                "submitted": True,
+                "form_id": submitted.form_id,
+                "values": submitted.submitted_values,
+                "event": event["agent_ui_event"],
+                "continuation": continuation,
+            }
+        )
+
+    return handler
+
+
+def _form_cancel_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
+    async def handler(request: web.Request) -> web.Response:
+        form_id = request.match_info["form_id"]
+        interaction = runtime.form_interactions.get(form_id)
+        if interaction is None:
+            return web.json_response({"error": "form not found"}, status=404)
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        if not isinstance(payload, dict):
+            return web.json_response({"error": "payload must be a dict"}, status=400)
+
+        correlation = payload.get("correlation") or {}
+        if not isinstance(correlation, dict):
+            return web.json_response({"error": "correlation must be a dict"}, status=400)
+        if not _form_payload_correlation_matches(interaction, correlation):
+            return web.json_response({"error": "form correlation mismatch"}, status=409)
+
+        if not _can_route_form_continuation(runtime, interaction):
+            return web.json_response({"error": "form continuation unavailable"}, status=409)
+        try:
+            cancelled = runtime.form_interactions.cancel(form_id)
+        except AgentUiFormError as exc:
+            refreshed = runtime.form_interactions.get(form_id) or interaction
+            event_type = (
+                AGENT_UI_FORM_EVENT_TYPES["expired"]
+                if refreshed.status == "expired"
+                else AGENT_UI_FORM_EVENT_TYPES["validation_failed"]
+            )
+            event = form_event(event_type, refreshed, errors=exc.errors)
+            await _emit_form_event(runtime, event)
+            return web.json_response(
+                {"error": str(exc), "errors": exc.errors, "event": event["agent_ui_event"]},
+                status=409,
+            )
+
+        event = form_event(AGENT_UI_FORM_EVENT_TYPES["cancelled"], cancelled)
+        await _emit_form_event(runtime, event)
+        continuation = _route_form_continuation(runtime, cancelled, "cancelled")
+        return web.json_response(
+            {
+                "cancelled": True,
+                "form_id": cancelled.form_id,
+                "event": event["agent_ui_event"],
+                "continuation": continuation,
+            }
+        )
+
+    return handler
+
+
 def _resolve_workspace_file(runtime: WebUIControlRuntime, relative_path: Path) -> Path:
     assert runtime.workspace is not None
     return runtime.workspace / relative_path
@@ -846,6 +1083,19 @@ def _skills_loader(runtime: WebUIControlRuntime):
     return SkillsLoader(runtime.workspace)
 
 
+def _frontmatter_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _skill_tinybot_meta(loader: Any, meta: dict[str, Any]) -> dict[str, Any]:
+    skill_meta = dict(loader._parse_tinybot_metadata(meta.get("metadata", "")))
+    if "always" in meta and "always" not in skill_meta:
+        skill_meta["always"] = _frontmatter_bool(meta["always"])
+    return skill_meta
+
+
 def _get_skills_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
     async def handler(request: web.Request) -> web.Response:
         if runtime.workspace is None:
@@ -859,7 +1109,7 @@ def _get_skills_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) 
         skills: list[dict[str, Any]] = []
         for item in loader.list_skills(filter_unavailable=False):
             meta = loader.get_skill_metadata(item["name"]) or {}
-            skill_meta = loader._parse_tinybot_metadata(meta.get("metadata", ""))
+            skill_meta = _skill_tinybot_meta(loader, meta)
             available = loader._check_requirements(skill_meta)
             enabled = loader.is_skill_enabled(item["name"], enabled_list)
 
@@ -897,7 +1147,7 @@ def _get_skill_detail_handler(runtime: WebUIControlRuntime, paths: WebUIControlP
             return web.json_response({"error": "skill not found"}, status=404)
 
         meta = loader.get_skill_metadata(name) or {}
-        skill_meta = loader._parse_tinybot_metadata(meta.get("metadata", ""))
+        skill_meta = _skill_tinybot_meta(loader, meta)
         stripped_content = loader._strip_frontmatter(content)
 
         return web.json_response(
@@ -1152,7 +1402,10 @@ def _validate_skill_handler(runtime: WebUIControlRuntime, paths: WebUIControlPat
 def _get_config_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
     async def handler(request: web.Request) -> web.Response:
         if runtime.config is None:
-            return web.json_response({"error": "config not available"}, status=404)
+            return web.json_response(
+                {"error": "webui control route unavailable", "route": "get_config"},
+                status=503,
+            )
 
         data = runtime.config.model_dump(mode="json", by_alias=True)
         return web.json_response(_mask_config_secrets(data))
@@ -1331,7 +1584,10 @@ def _restore_config(config: Any, snapshot: Any) -> None:
 def _patch_config_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
     async def handler(request: web.Request) -> web.Response:
         if runtime.config is None or runtime.config_path is None:
-            return web.json_response({"error": "config not available"}, status=404)
+            return web.json_response(
+                {"error": "webui control route unavailable", "route": "patch_config"},
+                status=503,
+            )
 
         try:
             payload = await request.json()
@@ -1532,6 +1788,8 @@ def _default_handler(route_key: str, runtime: WebUIControlRuntime, paths: WebUIC
         "get_approvals": _get_approvals_handler,
         "approve_approval": _approve_approval_handler,
         "deny_approval": _deny_approval_handler,
+        "submit_agent_ui_form": _form_submit_handler,
+        "cancel_agent_ui_form": _form_cancel_handler,
         "list_workspace_files": _list_workspace_files_handler,
         "get_workspace_file": _get_workspace_file_handler,
         "put_workspace_file": _put_workspace_file_handler,
@@ -1572,6 +1830,8 @@ def _route_specs(paths: WebUIControlPaths) -> tuple[_RouteSpec, ...]:
         _RouteSpec("get_approvals", "GET", "/api/approvals"),
         _RouteSpec("approve_approval", "POST", "/api/approvals/{approval_id}/approve"),
         _RouteSpec("deny_approval", "POST", "/api/approvals/{approval_id}/deny"),
+        _RouteSpec("submit_agent_ui_form", "POST", "/api/agent-ui/forms/{form_id}/submit"),
+        _RouteSpec("cancel_agent_ui_form", "POST", "/api/agent-ui/forms/{form_id}/cancel"),
         _RouteSpec("get_skills", "GET", "/api/skills"),
         _RouteSpec("create_skill", "POST", "/api/skills"),
         _RouteSpec("get_skill_detail", "GET", "/api/skills/{name}"),

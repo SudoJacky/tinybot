@@ -7,7 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from tinybot.agent.loop import AgentLoop
+from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.agent.session_handler import SessionHandler
+from tinybot.agent.tool_executor import ToolContextManager
+from tinybot.agent.tools.base import AwaitingUserInputResult
+from tinybot.agent.tools.form import FormRequestTool
+from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.turn_lifecycle import CompletedTurn
 from tinybot.agent.stream_handler import StreamHandler
 from tinybot.agent.memory import MemoryStore
@@ -168,6 +173,61 @@ async def test_process_direct_finalizes_through_turn_lifecycle():
 
 
 @pytest.mark.asyncio
+async def test_webui_form_request_waits_without_final_assistant_reply():
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.task_progress_state = SimpleNamespace(reset=lambda: None)
+    loop.session_handler = SessionHandler(max_tool_result_chars=10000)
+    loop.sessions = MagicMock()
+    session = Session(key="websocket:chat-1")
+    loop.sessions.get_or_create.return_value = session
+    loop.commands = SimpleNamespace(dispatch=AsyncMock(return_value=None))
+    loop.consolidator = SimpleNamespace(maybe_consolidate_by_tokens=AsyncMock(return_value=None))
+    loop._set_tool_context = lambda *args, **kwargs: None
+    loop.tools = MagicMock()
+    loop.tools.get.return_value = None
+    loop.context = SimpleNamespace(
+        last_memory_references=[],
+        last_recent_context_references=[],
+    )
+    loop.context.build_messages = MagicMock(return_value=[{"role": "user", "content": "Collect travel preferences."}])
+    loop._run_agent_loop = AsyncMock(
+        return_value=(
+            None,
+            ["request_form"],
+            [
+                {"role": "user", "content": "Collect travel preferences."},
+                {"role": "assistant", "content": "", "tool_calls": [{"id": "call_form"}]},
+                {"role": "tool", "tool_call_id": "call_form", "name": "request_form", "content": "form requested"},
+            ],
+            "awaiting_form",
+        )
+    )
+
+    class FakeLifecycle:
+        def __init__(self):
+            self.turns: list[CompletedTurn] = []
+
+        def finalize(self, turn: CompletedTurn):
+            self.turns.append(turn)
+
+    lifecycle = FakeLifecycle()
+    loop.turn_lifecycle = lifecycle
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="websocket",
+            sender_id="user",
+            chat_id="chat-1",
+            content="Collect travel preferences.",
+        )
+    )
+
+    assert response is None
+    assert lifecycle.turns == []
+    loop.sessions.save.assert_called_once_with(session)
+
+
+@pytest.mark.asyncio
 async def test_approval_continuation_finalizes_through_turn_lifecycle(tmp_path):
     loop = AgentLoop.__new__(AgentLoop)
     loop.session_handler = SessionHandler(max_tool_result_chars=10000)
@@ -280,6 +340,132 @@ async def test_approval_continuation_finalizes_through_turn_lifecycle(tmp_path):
     assert turn.recent_context_references == [{"evidence_id": "ev_1"}]
     assert turn.user_text == "Approval resolved."
     assert turn.assistant_text == "Approved work complete."
+
+
+@pytest.mark.asyncio
+async def test_approval_resolution_pauses_for_approved_form_request_without_tool_result_progress():
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.session_handler = SessionHandler(max_tool_result_chars=10000)
+    loop.sessions = MagicMock()
+    loop.bus = SimpleNamespace(publish_outbound=AsyncMock())
+    loop._pause_for_form_response = MagicMock()
+
+    raw_tool_call = {
+        "id": "call_form",
+        "function": {"name": "request_form", "arguments": "{}"},
+    }
+    request = ApprovalRequest(
+        id="approval_form",
+        tool_name="request_form",
+        params={},
+        fingerprint=build_fingerprint("request_form", {}, "tool"),
+        category="tool",
+        risk="medium",
+        reason="legacy approval",
+        summary="request_form({})",
+        created_at=1.0,
+    )
+    session = Session(key="websocket:chat-1")
+    session.add_message("user", "Collect travel preferences.")
+    session.metadata[SessionHandler.RUNTIME_CHECKPOINT_KEY] = {
+        "assistant_message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [raw_tool_call],
+        },
+        "pending_tool_calls": [raw_tool_call],
+        "completed_tool_results": [],
+    }
+    loop._execute_resolved_approval_tool = AsyncMock(
+        return_value={
+            "role": "tool",
+            "tool_call_id": "call_form",
+            "name": "request_form",
+            "content": AwaitingUserInputResult(
+                "Agent UI form `travel_plan` requested asynchronously.",
+                stop_reason="awaiting_form",
+            ),
+            "_approval_status": "approved",
+            "_approval_id": "approval_form",
+            "_awaiting_user_input": True,
+            "_agent_ui_internal": True,
+            "_stop_reason": "awaiting_form",
+        }
+    )
+
+    response = await loop._process_approval_resolution(
+        msg=InboundMessage(
+            channel="system",
+            sender_id="approval",
+            chat_id="websocket:chat-1",
+            content="Approval resolved.",
+            metadata={
+                "_approval_resolution": {"id": "approval_form", "approved": True},
+                "_approval_request": request.to_dict(),
+            },
+        ),
+        session=session,
+        channel="websocket",
+        chat_id="chat-1",
+    )
+
+    assert response is None
+    loop._pause_for_form_response.assert_called_once_with(session)
+    loop.bus.publish_outbound.assert_not_called()
+
+
+def test_agent_loop_schedules_form_response_without_approval_grant():
+    loop = AgentLoop.__new__(AgentLoop)
+    captured: list[InboundMessage] = []
+
+    class FakeBus:
+        def publish_inbound(self, message):
+            captured.append(message)
+            return None
+
+    loop.bus = FakeBus()
+    loop._schedule_background = lambda item: None
+    registry = AgentUiFormRegistry()
+    interaction = registry.create(
+        {
+            "form_id": "travel-form-1",
+            "title": "Travel preferences",
+            "correlation": {"session_key": "websocket:chat-1", "chat_id": "chat-1"},
+            "fields": [{"name": "destination", "type": "text", "label": "Destination"}],
+        },
+        continuation={"mode": "resume"},
+    )
+    registry.submit(interaction.form_id, {"destination": "Shanghai"})
+
+    loop.schedule_form_response(
+        interaction=interaction,
+        action="submitted",
+        payload={
+            "values": interaction.submitted_values,
+            "schema": interaction.schema,
+            "continuation_mode": interaction.continuation_mode,
+        },
+    )
+
+    assert captured[0].channel == "system"
+    assert captured[0].sender_id == "agent-ui-form"
+    assert captured[0].chat_id == "websocket:chat-1"
+    assert captured[0].metadata["_agent_ui_form_response"]["values"]["destination"] == "Shanghai"
+    assert captured[0].metadata["_approval_grant"] is False
+
+
+def test_agent_loop_applies_context_to_request_form_tool():
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.tool_context = ToolContextManager()
+    loop.tools = ToolRegistry()
+    form_tool = FormRequestTool(form_interactions=AgentUiFormRegistry(), send_callback=lambda message: None)
+    loop.tools.register(form_tool)
+    loop._task_progress_channel = ""
+    loop._task_progress_chat_id = ""
+
+    loop._set_tool_context("websocket", "chat-1", "msg-1")
+
+    assert form_tool.current_context == ("websocket", "chat-1", "msg-1")
 
 
 @pytest.mark.asyncio

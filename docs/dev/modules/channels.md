@@ -45,6 +45,17 @@ Channels that support streaming implement delta delivery. Stateful channels shou
 
 Non-streaming channels receive completed messages. The channel manager can coalesce deltas when necessary.
 
+For the browser channel, `WebSocketChannel` emits legacy transport frames and should keep those outward shapes stable during the Agent UI event migration:
+
+- `delta` and `stream_end` carry streamed assistant or reasoning content plus stream correlation metadata.
+- `message` carries completed assistant/progress/tool/task messages and any memory or recent-context references needed by restored rendering.
+- `approval_pending`, `browser_frame`, `usage`, `file_updated`, and `error` carry operational UI updates without becoming HTTP route handlers.
+- `cowork_updated` remains a compatibility refresh signal for the Cowork console and is not part of the home-page Agent UI event protocol.
+
+The browser converts those frames into internal Agent UI events before reducing and rendering them. That conversion belongs in `webui/assets/src/agent-ui-events.js`, not in channel internals. Native Agent UI event frames are additive: `WebSocketChannel` may deliver an `agent_ui_event` frame for new typed surfaces such as `ui.form.requested`, but existing message, delta, stream-end, approval, browser, usage, file, error, and Cowork frame shapes must remain compatible.
+
+Dynamic form submissions are not WebSocket commands. The WebSocket transport delivers form lifecycle events to keep cards in sync, while `tinybot/api/webui.py` owns authenticated HTTP submit/cancel routes, token checks, correlation checks, pending-interaction status, backend validation, and continuation routing.
+
 ## Boundaries
 
 - Channel adapters own platform authentication and API quirks.
@@ -53,6 +64,8 @@ Non-streaming channels receive completed messages. The channel manager can coale
 - Agent execution owns reasoning and tool use.
 - Config owns channel enablement and allow-list settings.
 - WebUI control owns browser HTTP request parsing, authorization, runtime dependency checks, and JSON response construction for browser control operations.
+- WebUI Agent UI normalization, reducer state, and renderer registration own browser-side interpretation of WebSocket frames.
+- Agent UI form events are transport notifications only; approval gates remain separate safety primitives and cannot be satisfied by form submissions.
 
 ## Extension Checklist
 
@@ -66,6 +79,10 @@ Non-streaming channels receive completed messages. The channel manager can coale
 
 ## Test Strategy
 
-Use `tests/channels/` for adapter behavior and `tests/bus/` for queue behavior. WebSocket channel tests should focus on socket admission, message frames, stream deltas, subscriptions, broadcast behavior, and control-route mount smoke checks. Browser HTTP control behavior belongs in `tests/api/`.
+Use `tests/channels/` for adapter behavior and `tests/bus/` for queue behavior. WebSocket channel tests should focus on socket admission, message frames, stream deltas, subscriptions, broadcast behavior, frame compatibility, and control-route mount smoke checks. Browser HTTP control behavior belongs in `tests/api/`.
+
+When frontend Agent UI behavior changes, pair channel compatibility tests with browser-side smoke tests such as `node webui/assets/src/agent-ui-events.test.mjs`. The channel tests should prove the transport contract did not drift; the JavaScript tests should prove normalization, reducer, and renderer allowlist behavior.
+
+For dynamic forms, channel tests should cover native `agent_ui_event` delivery and at least one existing legacy frame after it. API tests cover submit, cancel, validation failure, missing continuation, and fallback behavior because those are HTTP control-plane responsibilities.
 
 For new platform channels, test allow-list handling, inbound normalization, send failure propagation, and stream support if implemented.

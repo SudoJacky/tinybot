@@ -9,6 +9,8 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, register_webui_control_routes
+from tinybot.agent.forms import AgentUiFormRegistry
+from tinybot.agent.tools.form import FormRequestTool
 from tinybot.config.schema import Config, MCPServerConfig
 from tinybot.cowork.service import CoworkService
 from tinybot.security.approval import ApprovalAction, ApprovalManager
@@ -450,6 +452,350 @@ async def test_webui_control_approvals_approve_deny_and_schedule_retry(api_works
         assert [call["approved"] for call in fake_loop.retry_calls] == [True, False]
         assert fake_loop.retry_calls[0]["channel"] == "websocket"
         assert fake_loop.retry_calls[0]["chat_id"] == "chat-1"
+    finally:
+        await client.close()
+
+
+def _sample_form_schema() -> dict:
+    return {
+        "form_id": "travel-form-1",
+        "title": "Travel preferences",
+        "correlation": {
+            "session_key": "websocket:chat-1",
+            "chat_id": "chat-1",
+            "run_id": "run-1",
+            "message_id": "msg-form-1",
+        },
+        "fields": [
+            {"name": "destination", "type": "text", "label": "Destination", "required": True},
+            {"name": "nights", "type": "number", "label": "Nights", "min": 1, "max": 30},
+            {
+                "name": "priority",
+                "type": "select",
+                "label": "Priority",
+                "options": [
+                    {"label": "One", "value": 1},
+                    {"label": "Two", "value": 2},
+                ],
+            },
+            {
+                "name": "extras",
+                "type": "multiselect",
+                "label": "Extras",
+                "options": [
+                    {"label": "Hotel", "value": True},
+                    {"label": "Museum", "value": "museum"},
+                ],
+            },
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_webui_control_agent_ui_form_submit_cancel_and_validation(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    broadcasts: list[dict] = []
+
+    async def broadcast_global(payload: dict):
+        broadcasts.append(payload)
+
+    runtime = WebUIControlRuntime(token_manager=token_manager, broadcast_global=broadcast_global)
+    interaction = runtime.form_interactions.create(_sample_form_schema())
+    app = web.Application()
+    register_webui_control_routes(app, runtime)
+    client = await _client(app)
+    try:
+        correlation = interaction.correlation
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            json={"values": {"destination": "", "nights": 99}, "correlation": correlation},
+        )
+        assert response.status == 401
+
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            "/api/agent-ui/forms/missing-form/submit",
+            headers=headers,
+            json={"values": {}, "correlation": correlation},
+        )
+        assert response.status == 404
+
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            headers=headers,
+            json={"values": {"destination": "", "nights": 99}, "correlation": correlation},
+        )
+        assert response.status == 400
+        payload = await response.json()
+        assert set(payload["errors"]) == {"destination", "nights"}
+        assert payload["event"]["event_type"] == "ui.form.validation_failed"
+
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            headers=headers,
+            json={
+                "values": {
+                    "destination": "Shanghai",
+                    "nights": 3,
+                    "priority": 1,
+                    "extras": [True, "museum"],
+                },
+                "correlation": correlation,
+            },
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["submitted"] is True
+        assert payload["values"]["priority"] == 1
+        assert payload["values"]["extras"] == [True, "museum"]
+        assert payload["event"]["event_type"] == "ui.form.submitted"
+        assert payload["continuation"]["mode"] == "structured_message"
+        assert broadcasts[-1]["agent_ui_event"]["event_type"] == "ui.form.submitted"
+
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            headers=headers,
+            json={"values": {"destination": "Again"}, "correlation": correlation},
+        )
+        assert response.status == 400
+        payload = await response.json()
+        assert "submitted" in payload["error"]
+
+        cancelled = runtime.form_interactions.create({**_sample_form_schema(), "form_id": "cancel-form-1"})
+        response = await client.post(
+            f"/api/agent-ui/forms/{cancelled.form_id}/cancel",
+            headers=headers,
+            json={"correlation": cancelled.correlation},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["cancelled"] is True
+        assert payload["event"]["event_type"] == "ui.form.cancelled"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_submits_and_cancels_tool_created_form(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    emitted = []
+
+    async def send(message):
+        emitted.append(message)
+
+    runtime = WebUIControlRuntime(token_manager=token_manager)
+    tool = FormRequestTool(form_interactions=runtime.form_interactions, send_callback=send)
+    tool.set_context("websocket", "chat-1", "msg-1")
+    await tool.execute(
+        form={
+            "form_id": "tool-form-1",
+            "title": "Travel preferences",
+            "fields": [
+                {"name": "destination", "type": "text", "label": "Destination", "required": True},
+            ],
+        }
+    )
+    interaction = runtime.form_interactions.get("tool-form-1")
+    assert interaction is not None
+    assert emitted[0].metadata["_agent_ui_event"]["payload"]["form_id"] == "tool-form-1"
+
+    app = web.Application()
+    register_webui_control_routes(app, runtime)
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            "/api/agent-ui/forms/tool-form-1/submit",
+            headers=headers,
+            json={"values": {"destination": "Shanghai"}, "correlation": interaction.correlation},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["submitted"] is True
+        assert payload["values"] == {"destination": "Shanghai"}
+
+        await tool.execute(
+            form={
+                "form_id": "tool-cancel-form-1",
+                "title": "Cancel preferences",
+                "fields": [
+                    {"name": "reason", "type": "text", "label": "Reason"},
+                ],
+            }
+        )
+        cancel_interaction = runtime.form_interactions.get("tool-cancel-form-1")
+        response = await client.post(
+            "/api/agent-ui/forms/tool-cancel-form-1/cancel",
+            headers=headers,
+            json={"correlation": cancel_interaction.correlation},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["cancelled"] is True
+        assert payload["event"]["event_type"] == "ui.form.cancelled"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_agent_ui_form_structured_fallback_and_resume_missing(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    session_manager = SessionManager(api_workspace)
+    runtime = WebUIControlRuntime(token_manager=token_manager, session_manager=session_manager)
+    structured = runtime.form_interactions.create(_sample_form_schema())
+    resume_only = runtime.form_interactions.create(
+        {**_sample_form_schema(), "form_id": "resume-form-1"},
+        continuation={"mode": "resume"},
+    )
+    app = web.Application()
+    register_webui_control_routes(app, runtime)
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            f"/api/agent-ui/forms/{structured.form_id}/submit",
+            headers=headers,
+            json={
+                "values": {"destination": "Shanghai", "nights": 2, "priority": 1, "extras": []},
+                "correlation": structured.correlation,
+            },
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["continuation"]["target"] == "session_message"
+        session = session_manager.get("websocket:chat-1")
+        assert session is not None
+        assert session.messages[-1]["_agent_ui_form_response"]["values"]["destination"] == "Shanghai"
+        assert "_agent_ui_form_id" not in session.messages[-1]
+        assert session.messages[-1]["content"] == "Agent UI form submitted: Travel preferences"
+
+        response = await client.post(
+            f"/api/agent-ui/forms/{resume_only.form_id}/submit",
+            headers=headers,
+            json={
+                "values": {"destination": "Shanghai", "nights": 2, "priority": 1, "extras": []},
+                "correlation": resume_only.correlation,
+            },
+        )
+        assert response.status == 409
+        payload = await response.json()
+        assert payload["error"] == "form continuation unavailable"
+        assert runtime.form_interactions.get(resume_only.form_id).status == "pending"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_agent_ui_form_routes_to_agent_loop(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    routed: list[dict] = []
+
+    class FakeLoop:
+        def schedule_form_response(self, **kwargs):
+            routed.append(kwargs)
+
+    runtime = WebUIControlRuntime(token_manager=token_manager, agent_loop=FakeLoop())
+    interaction = runtime.form_interactions.create(
+        {**_sample_form_schema(), "form_id": "loop-form-1"},
+        continuation={"mode": "resume"},
+    )
+    app = web.Application()
+    register_webui_control_routes(app, runtime)
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            headers=headers,
+            json={
+                "values": {"destination": "Shanghai", "nights": 2, "priority": 1, "extras": []},
+                "correlation": interaction.correlation,
+            },
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["continuation"]["target"] == "agent_loop"
+        assert routed[0]["action"] == "submitted"
+        assert routed[0]["payload"]["continuation_mode"] == "resume"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_messages_restore_agent_ui_form_display_metadata(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    session_manager = SessionManager(api_workspace)
+    registry = AgentUiFormRegistry()
+    interaction = registry.create(_sample_form_schema())
+    session = session_manager.get_or_create("websocket:chat-1")
+    session.add_message(
+        "assistant",
+        "",
+        message_id="msg-form-1",
+        **interaction.display_metadata(),
+    )
+    session_manager.save(session)
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(token_manager=token_manager, session_manager=session_manager),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/sessions/websocket:chat-1/messages", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        message = payload["messages"][0]
+        assert message["_agent_ui_form_id"] == interaction.form_id
+        assert message["_agent_ui_form_display"]["schema"]["title"] == "Travel preferences"
+        assert message["_agent_ui_form_display"]["correlation"]["interaction_id"] == interaction.interaction_id
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_messages_hide_internal_agent_ui_tool_results(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    session_manager = SessionManager(api_workspace)
+    session = session_manager.get_or_create("websocket:chat-1")
+    session.add_message("user", "Collect travel preferences.")
+    session.add_message(
+        "assistant",
+        "",
+        tool_calls=[{"id": "call_form", "type": "function", "function": {"name": "request_form", "arguments": "{}"}}],
+    )
+    session.add_message(
+        "tool",
+        "Agent UI form `travel_plan` requested asynchronously for WebUI chat `chat-1`.",
+        tool_call_id="call_form",
+        name="request_form",
+        _awaiting_user_input=True,
+        _agent_ui_internal=True,
+    )
+    session.add_message(
+        "tool",
+        (
+            "Agent UI form `old_form` requested asynchronously for WebUI chat `chat-1`. "
+            "Wait for the form response continuation instead of expecting values from this tool call."
+        ),
+        tool_call_id="call_old_form",
+        name="request_form",
+    )
+    session_manager.save(session)
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(token_manager=token_manager, session_manager=session_manager),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/sessions/websocket:chat-1/messages", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        assert [message["role"] for message in payload["messages"]] == ["user", "assistant"]
+        assert all("requested asynchronously" not in message.get("content", "") for message in payload["messages"])
     finally:
         await client.close()
 
