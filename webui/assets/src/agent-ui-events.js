@@ -331,7 +331,7 @@ function normalizeKnownAgentUiFrame(frame) {
     case "browser_snapshot":
       return [createLegacyEnvelope(frame, AGENT_UI_EVENT_TYPES["browser.frame.updated"], {
         image_url: frame.image_url || frame.url || "",
-        command: frame.command || "",
+        command: frame.command || frame.source_command || "",
         captured_at: frame.captured_at || frame.timestamp || "",
       })];
     case "usage":

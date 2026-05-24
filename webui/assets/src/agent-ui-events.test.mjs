@@ -107,6 +107,15 @@ const unsafeEvents = normalizeAgentUiEvents({
 });
 assert.equal(unsafeEvents[0].event_type, AGENT_UI_EVENT_TYPES["error.raised"]);
 
+const backendBrowserFrameEvents = normalizeAgentUiEvents({
+  event: "browser_frame",
+  chat_id: "chat-1",
+  image_url: "data:image/png;base64,abc",
+  source_command: "opencli browser state",
+  captured_at: "2026-05-24T00:00:00Z",
+});
+assert.equal(backendBrowserFrameEvents[0].payload.command, "opencli browser state");
+
 const rendererRegistry = createAgentUiRendererRegistry({
   [AGENT_UI_RENDERER_SURFACES.message]: ({ message }) => `message:${message.content}`,
   [AGENT_UI_RENDERER_SURFACES.reasoning]: ({ text }) => `reasoning:${text}`,
