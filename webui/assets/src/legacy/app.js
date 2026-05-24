@@ -11,6 +11,7 @@ import {
 import { t, getLanguage, setLanguage } from '../i18n/index.js';
 import {
   AGENT_UI_EVENT_TYPES,
+  AGENT_UI_FORM_STATUSES,
   AGENT_UI_RENDERER_SURFACES,
   createAgentUiEventState,
   createAgentUiRendererRegistry,
@@ -54,6 +55,7 @@ const agentUiRenderers = createAgentUiRendererRegistry({
       setFileError(message);
     }
   },
+  [AGENT_UI_RENDERER_SURFACES.formRequest]: ({ form }) => createAgentUiFormNode(form),
 });
 
 function setStatus(text, kind = "idle") {
@@ -2208,6 +2210,14 @@ function updateMessageContent(contentEl, message) {
     return;
   }
 
+  if (message._agent_ui_form_id) {
+    const form = state.agentUi?.forms?.get(message._agent_ui_form_id);
+    if (form) {
+      contentEl.append(renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.formRequest, { form, message }));
+    }
+    return;
+  }
+
   // Handle tool_calls for assistant messages
   if (message.role === "assistant" && hasToolCalls(message)) {
     const toolCallsEl = document.createElement("div");
@@ -2290,6 +2300,429 @@ function updateMessageContent(contentEl, message) {
       references: message._recent_context_references,
     }));
   }
+}
+
+function agentUiFormMessageId(form) {
+  return form.message_id || `agent-ui-form:${form.form_id}`;
+}
+
+function upsertAgentUiFormMessage(event) {
+  const formId = event.payload?.form_id || "";
+  if (!formId || !event.chat_id) {
+    return;
+  }
+  const sessionKey = sessionKeyForChat(event.chat_id);
+  const bucket = ensureMessageBucket(sessionKey);
+  const messageId = event.message_id || `agent-ui-form:${formId}`;
+  const existing = bucket.find((message) => message._agent_ui_form_id === formId || message.message_id === messageId);
+  if (existing) {
+    existing.message_id = messageId;
+    existing.timestamp = event.timestamp || existing.timestamp;
+    existing._agent_ui_form_id = formId;
+    existing._agent_ui_form_status = state.agentUi.forms.get(formId)?.status || existing._agent_ui_form_status || "";
+  } else {
+    bucket.push({
+      role: "assistant",
+      content: "",
+      timestamp: event.timestamp || new Date().toISOString(),
+      message_id: messageId,
+      _agent_ui_form_id: formId,
+      _agent_ui_form_status: state.agentUi.forms.get(formId)?.status || AGENT_UI_FORM_STATUSES.pending,
+    });
+  }
+  if (sessionKey === state.activeSessionKey) {
+    renderMessages(false);
+  }
+}
+
+function isAgentUiFormEvent(event) {
+  return event?.event_type && event.event_type.startsWith("ui.form.");
+}
+
+function formStatusLabel(status) {
+  switch (status) {
+    case AGENT_UI_FORM_STATUSES.submitted:
+      return "Submitted";
+    case AGENT_UI_FORM_STATUSES.cancelled:
+      return "Cancelled";
+    case AGENT_UI_FORM_STATUSES.expired:
+      return "Expired";
+    case AGENT_UI_FORM_STATUSES.validationFailed:
+      return "Needs changes";
+    default:
+      return "Pending";
+  }
+}
+
+function isFormReadonly(form) {
+  return [
+    AGENT_UI_FORM_STATUSES.submitted,
+    AGENT_UI_FORM_STATUSES.cancelled,
+    AGENT_UI_FORM_STATUSES.expired,
+  ].includes(form?.status);
+}
+
+function formFieldInputId(form, field) {
+  return `agent-ui-form-${form.form_id}-${field.name}`.replace(/[^A-Za-z0-9_-]/g, "-");
+}
+
+function formFieldValue(form, field) {
+  if (form.values && Object.hasOwn(form.values, field.name)) {
+    return form.values[field.name];
+  }
+  return field.default ?? "";
+}
+
+function setFormFieldValue(values, field, value) {
+  if (field.type === "number") {
+    values[field.name] = value === "" ? "" : Number(value);
+  } else {
+    values[field.name] = value;
+  }
+}
+
+function agentUiFormOptionValue(field, optionIndex) {
+  const index = Number(optionIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= (field.options || []).length) {
+    return "";
+  }
+  return field.options[index].value;
+}
+
+function agentUiFormOptionMatches(value, optionValue) {
+  return Object.is(value, optionValue);
+}
+
+function agentUiFormValueInOptions(field, value) {
+  return (field.options || []).some((option) => agentUiFormOptionMatches(value, option.value));
+}
+
+function collectAgentUiFormValues(form, root) {
+  const values = {};
+  for (const field of form.fields || []) {
+    const selector = `[data-agent-ui-form-field="${CSS.escape(field.name)}"]`;
+    if (field.type === "checkbox") {
+      values[field.name] = root.querySelector(selector)?.checked === true;
+    } else if (field.type === "select") {
+      const selected = root.querySelector(selector)?.selectedOptions?.[0];
+      values[field.name] = selected ? agentUiFormOptionValue(field, selected.dataset.agentUiFormOptionIndex) : "";
+    } else if (field.type === "multiselect") {
+      values[field.name] = Array.from(root.querySelectorAll(`${selector}:checked`))
+        .map((input) => agentUiFormOptionValue(field, input.dataset.agentUiFormOptionIndex));
+    } else if (field.type === "radio") {
+      const selected = root.querySelector(`${selector}:checked`);
+      values[field.name] = selected ? agentUiFormOptionValue(field, selected.dataset.agentUiFormOptionIndex) : "";
+    } else {
+      setFormFieldValue(values, field, root.querySelector(selector)?.value ?? "");
+    }
+  }
+  return values;
+}
+
+function validateAgentUiFormCardValues(form, values) {
+  const errors = {};
+  for (const field of form.fields || []) {
+    const value = values[field.name];
+    if (field.required) {
+      const missing = Array.isArray(value) ? value.length === 0 : value === "" || value === null || value === undefined;
+      if (missing) {
+        errors[field.name] = "Required";
+        continue;
+      }
+    }
+    if (field.type === "number" && value !== "" && value !== null && value !== undefined) {
+      if (!Number.isFinite(value)) {
+        errors[field.name] = "Enter a valid number";
+      } else if (typeof field.min === "number" && value < field.min) {
+        errors[field.name] = `Must be at least ${field.min}`;
+      } else if (typeof field.max === "number" && value > field.max) {
+        errors[field.name] = `Must be ${field.max} or less`;
+      }
+    }
+    if (typeof value === "string") {
+      if (typeof field.min_length === "number" && value.length < field.min_length) {
+        errors[field.name] = `Use at least ${field.min_length} characters`;
+      } else if (typeof field.max_length === "number" && value.length > field.max_length) {
+        errors[field.name] = `Use ${field.max_length} characters or fewer`;
+      } else if (field.pattern && !new RegExp(field.pattern).test(value)) {
+        errors[field.name] = "Use the requested format";
+      }
+    }
+    if (["select", "radio"].includes(field.type) && value !== "" && value !== null && value !== undefined) {
+      if (!agentUiFormValueInOptions(field, value)) {
+        errors[field.name] = "Choose a listed option";
+      }
+    }
+    if (field.type === "multiselect" && Array.isArray(value)) {
+      if (value.some((item) => !agentUiFormValueInOptions(field, item))) {
+        errors[field.name] = "Choose listed options";
+      }
+    }
+  }
+  return errors;
+}
+
+function applyAgentUiFormValidationErrors(form, values, errors) {
+  const existing = state.agentUi.forms.get(form.form_id) || form;
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    status: AGENT_UI_FORM_STATUSES.validationFailed,
+    values,
+    errors,
+    updated_at: new Date().toISOString(),
+  });
+  renderMessages(false);
+}
+
+function focusFirstAgentUiFormError(formId) {
+  requestAnimationFrame(() => {
+    const card = elements.messageList.querySelector(`[data-agent-ui-form-id="${CSS.escape(formId)}"]`);
+    const errorField = card?.querySelector("[aria-invalid='true']");
+    errorField?.focus();
+  });
+}
+
+async function submitAgentUiForm(form, root) {
+  const values = collectAgentUiFormValues(form, root);
+  const errors = validateAgentUiFormCardValues(form, values);
+  if (Object.keys(errors).length) {
+    applyAgentUiFormValidationErrors(form, values, errors);
+    focusFirstAgentUiFormError(form.form_id);
+    return;
+  }
+  const response = await fetch(`/api/agent-ui/forms/${encodeURIComponent(form.form_id)}/submit`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ values, correlation: form.correlation || {} }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    applyAgentUiFormValidationErrors(form, values, payload.errors || { _form: payload.error || "Submit failed" });
+    focusFirstAgentUiFormError(form.form_id);
+    return;
+  }
+  const existing = state.agentUi.forms.get(form.form_id) || form;
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    status: AGENT_UI_FORM_STATUSES.submitted,
+    values: payload.values || values,
+    errors: {},
+    updated_at: new Date().toISOString(),
+  });
+  renderMessages(false);
+}
+
+async function cancelAgentUiForm(form) {
+  const response = await fetch(`/api/agent-ui/forms/${encodeURIComponent(form.form_id)}/cancel`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ correlation: form.correlation || {} }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    applyAgentUiFormValidationErrors(form, form.values || {}, { _form: payload.error || "Cancel failed" });
+    return;
+  }
+  const existing = state.agentUi.forms.get(form.form_id) || form;
+  state.agentUi.forms.set(form.form_id, {
+    ...existing,
+    status: AGENT_UI_FORM_STATUSES.cancelled,
+    errors: {},
+    updated_at: new Date().toISOString(),
+  });
+  renderMessages(false);
+}
+
+function createAgentUiFieldHelp(text, id, className = "agent-ui-form-help") {
+  const help = document.createElement("div");
+  help.id = id;
+  help.className = className;
+  help.textContent = text;
+  return help;
+}
+
+function createAgentUiChoiceField(form, field, readonly) {
+  const group = document.createElement("div");
+  group.className = `agent-ui-form-choice-group agent-ui-form-choice-${field.type}`;
+  const current = formFieldValue(form, field);
+  const currentValues = Array.isArray(current) ? current : [current];
+  for (const [optionIndex, option] of (field.options || []).entries()) {
+    const label = document.createElement("label");
+    label.className = "agent-ui-form-choice";
+    const input = document.createElement("input");
+    input.type = field.type === "radio" ? "radio" : "checkbox";
+    input.name = `${form.form_id}:${field.name}`;
+    input.value = String(optionIndex);
+    input.checked = currentValues.some((value) => agentUiFormOptionMatches(value, option.value));
+    input.disabled = readonly;
+    input.dataset.agentUiFormField = field.name;
+    input.dataset.agentUiFormOptionIndex = String(optionIndex);
+    const text = document.createElement("span");
+    text.textContent = option.label;
+    label.append(input, text);
+    group.append(label);
+  }
+  return group;
+}
+
+function createAgentUiFormField(form, field, readonly) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "agent-ui-form-field";
+  const inputId = formFieldInputId(form, field);
+  const errorText = form.errors?.[field.name] || "";
+  const helpId = `${inputId}-help`;
+  const errorId = `${inputId}-error`;
+
+  const label = document.createElement("label");
+  label.className = "agent-ui-form-label";
+  label.htmlFor = inputId;
+  label.textContent = field.label;
+  if (field.required) {
+    const required = document.createElement("span");
+    required.className = "agent-ui-form-required";
+    required.textContent = "Required";
+    label.append(required);
+  }
+
+  let control;
+  const value = formFieldValue(form, field);
+  if (field.type === "textarea") {
+    control = document.createElement("textarea");
+    control.rows = 3;
+    control.value = value || "";
+  } else if (field.type === "select") {
+    control = document.createElement("select");
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "";
+    control.append(empty);
+    for (const [optionIndex, option] of (field.options || []).entries()) {
+      const optionEl = document.createElement("option");
+      optionEl.value = String(optionIndex);
+      optionEl.textContent = option.label;
+      optionEl.selected = agentUiFormOptionMatches(value, option.value);
+      optionEl.dataset.agentUiFormOptionIndex = String(optionIndex);
+      control.append(optionEl);
+    }
+  } else if (field.type === "radio" || field.type === "multiselect") {
+    control = createAgentUiChoiceField(form, field, readonly);
+  } else {
+    control = document.createElement("input");
+    control.type = field.type === "number" ? "number" : field.type === "datetime" ? "datetime-local" : field.type === "file_path" ? "text" : field.type;
+    control.value = value === undefined || value === null ? "" : String(value);
+  }
+
+  if (control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement || control instanceof HTMLSelectElement) {
+    control.id = inputId;
+    control.className = "agent-ui-form-control";
+    control.disabled = readonly;
+    control.required = field.required === true;
+    if (field.placeholder) {
+      control.placeholder = field.placeholder;
+    }
+    if (typeof field.min === "number") {
+      control.min = String(field.min);
+    }
+    if (typeof field.max === "number") {
+      control.max = String(field.max);
+    }
+    if (typeof field.min_length === "number") {
+      control.minLength = field.min_length;
+    }
+    if (typeof field.max_length === "number") {
+      control.maxLength = field.max_length;
+    }
+    if (field.pattern) {
+      control.pattern = field.pattern;
+    }
+    control.dataset.agentUiFormField = field.name;
+    control.setAttribute("aria-describedby", [field.help ? helpId : "", errorText ? errorId : ""].filter(Boolean).join(" "));
+    control.setAttribute("aria-invalid", errorText ? "true" : "false");
+  } else {
+    control.id = inputId;
+    control.setAttribute("role", field.type === "radio" ? "radiogroup" : "group");
+    control.setAttribute("aria-describedby", [field.help ? helpId : "", errorText ? errorId : ""].filter(Boolean).join(" "));
+  }
+
+  wrapper.append(label, control);
+  if (field.help) {
+    wrapper.append(createAgentUiFieldHelp(field.help, helpId));
+  }
+  if (errorText) {
+    wrapper.append(createAgentUiFieldHelp(errorText, errorId, "agent-ui-form-error"));
+  }
+  return wrapper;
+}
+
+function createAgentUiFormNode(form) {
+  const readonly = isFormReadonly(form);
+  const card = document.createElement("section");
+  card.className = `agent-ui-form-card agent-ui-form-${form.status || AGENT_UI_FORM_STATUSES.pending}`;
+  card.dataset.agentUiFormId = form.form_id;
+
+  const header = document.createElement("div");
+  header.className = "agent-ui-form-header";
+  const title = document.createElement("div");
+  title.className = "agent-ui-form-title";
+  title.textContent = form.title || "Form request";
+  const status = document.createElement("span");
+  status.className = "agent-ui-form-status";
+  status.textContent = formStatusLabel(form.status);
+  header.append(title, status);
+  card.append(header);
+
+  if (form.description) {
+    const description = document.createElement("p");
+    description.className = "agent-ui-form-description";
+    description.textContent = form.description;
+    card.append(description);
+  }
+  if (form.errors?._form) {
+    const error = document.createElement("div");
+    error.className = "agent-ui-form-error agent-ui-form-error-banner";
+    error.textContent = form.errors._form;
+    card.append(error);
+  }
+
+  const formEl = document.createElement("form");
+  formEl.className = "agent-ui-form";
+  formEl.noValidate = true;
+  for (const field of form.fields || []) {
+    formEl.append(createAgentUiFormField(form, field, readonly));
+  }
+  if (!readonly) {
+    const actions = document.createElement("div");
+    actions.className = "agent-ui-form-actions";
+    const submit = document.createElement("button");
+    submit.className = "button button-primary button-small agent-ui-form-submit";
+    submit.type = "submit";
+    submit.textContent = form.submit_label || "Submit";
+    const cancel = document.createElement("button");
+    cancel.className = "button button-ghost button-small agent-ui-form-cancel";
+    cancel.type = "button";
+    cancel.textContent = form.cancel_label || "Cancel";
+    cancel.addEventListener("click", async () => {
+      submit.disabled = true;
+      cancel.disabled = true;
+      await cancelAgentUiForm(form).finally(() => {
+        submit.disabled = false;
+        cancel.disabled = false;
+      });
+    });
+    actions.append(submit, cancel);
+    formEl.append(actions);
+    formEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submit.disabled = true;
+      cancel.disabled = true;
+      await submitAgentUiForm(form, formEl).finally(() => {
+        submit.disabled = false;
+        cancel.disabled = false;
+      });
+    });
+  }
+  card.append(formEl);
+  return card;
 }
 
 function createMemoryReferencesNode(references) {
@@ -10213,6 +10646,20 @@ async function connectWebSocket() {
       if (payload.event === "attached") {
         activateChat(payload.chat_id);
         await loadMessages(sessionKeyForChat(payload.chat_id));
+        return;
+      }
+
+      if (payload.event === "agent_ui_event") {
+        for (const agentUiEvent of agentUiEvents) {
+          if (isAgentUiFormEvent(agentUiEvent)) {
+            upsertAgentUiFormMessage(agentUiEvent);
+          } else if (agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["error.raised"]) {
+            renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.errorNotice, {
+              message: agentUiEvent.payload.message || t("status.serverError"),
+              path: agentUiEvent.payload.path || "",
+            });
+          }
+        }
         return;
       }
 

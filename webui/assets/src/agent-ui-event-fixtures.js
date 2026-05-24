@@ -146,3 +146,246 @@ export const LEGACY_AGENT_UI_FRAME_FIXTURES = Object.freeze([
     compatibilityPassthrough: true,
   },
 ]);
+
+export const AGENT_UI_FORM_REQUEST_FIXTURES = Object.freeze({
+  validRequest: {
+    form_id: "travel-preferences-1",
+    title: "Travel preferences",
+    description: "Collect itinerary constraints before planning.",
+    submit_label: "Save preferences",
+    cancel_label: "Skip",
+    expires_at: "2026-05-24T12:00:00Z",
+    correlation: {
+      session_key: "websocket:chat-1",
+      chat_id: "chat-1",
+      run_id: "run-1",
+      message_id: "msg-form-1",
+    },
+    initial_values: {
+      destination: "Shanghai",
+      nights: 3,
+      hotel_required: true,
+      interests: ["food"],
+    },
+    fields: [
+      {
+        name: "destination",
+        type: "text",
+        label: "Destination",
+        required: true,
+        placeholder: "City or region",
+        min_length: 2,
+        max_length: 80,
+      },
+      {
+        name: "notes",
+        type: "textarea",
+        label: "Notes",
+        help: "Dietary needs, schedule constraints, or anything else.",
+        max_length: 500,
+      },
+      {
+        name: "nights",
+        type: "number",
+        label: "Nights",
+        required: true,
+        min: 1,
+        max: 30,
+        default: 3,
+      },
+      {
+        name: "style",
+        type: "select",
+        label: "Travel style",
+        options: [
+          { label: "Relaxed", value: "relaxed" },
+          { label: "Packed", value: "packed" },
+        ],
+      },
+      {
+        name: "interests",
+        type: "multiselect",
+        label: "Interests",
+        options: [
+          { label: "Food", value: "food" },
+          { label: "Museums", value: "museums" },
+        ],
+      },
+      {
+        name: "hotel_required",
+        type: "checkbox",
+        label: "Need hotel suggestions",
+        default: true,
+      },
+      {
+        name: "budget",
+        type: "radio",
+        label: "Budget",
+        options: [
+          { label: "Standard", value: "standard" },
+          { label: "Premium", value: "premium" },
+        ],
+      },
+      { name: "depart_on", type: "date", label: "Depart on" },
+      { name: "wake_time", type: "time", label: "Preferred start time" },
+      { name: "deadline", type: "datetime", label: "Decision deadline" },
+      { name: "workspace_path", type: "file_path", label: "Workspace file" },
+    ],
+  },
+  invalidSchemas: [
+    {
+      name: "unsafe html payload",
+      payload: {
+        form_id: "unsafe-1",
+        title: "Unsafe",
+        correlation: { chat_id: "chat-1" },
+        fields: [{ name: "details", type: "text", label: "Details", html: "<script>alert(1)</script>" }],
+      },
+      error: /unsafe key|executable UI payload/i,
+    },
+    {
+      name: "unsupported field type",
+      payload: {
+        form_id: "unsupported-1",
+        title: "Unsupported",
+        correlation: { chat_id: "chat-1" },
+        fields: [{ name: "color", type: "color_picker", label: "Color" }],
+      },
+      error: /unsupported/i,
+    },
+    {
+      name: "choice field without options",
+      payload: {
+        form_id: "missing-options-1",
+        title: "Missing options",
+        correlation: { chat_id: "chat-1" },
+        fields: [{ name: "choice", type: "select", label: "Choice" }],
+      },
+      error: /options/i,
+    },
+    {
+      name: "duplicate field names",
+      payload: {
+        form_id: "duplicate-1",
+        title: "Duplicate",
+        correlation: { chat_id: "chat-1" },
+        fields: [
+          { name: "value", type: "text", label: "Value" },
+          { name: "value", type: "text", label: "Value again" },
+        ],
+      },
+      error: /duplicated/i,
+    },
+  ],
+  submitted: {
+    form_id: "travel-preferences-1",
+    status: "submitted",
+    values: {
+      destination: "Shanghai",
+      nights: 3,
+      hotel_required: true,
+    },
+    correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+  },
+  cancelled: {
+    form_id: "travel-preferences-1",
+    status: "cancelled",
+    correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+  },
+  expired: {
+    form_id: "travel-preferences-1",
+    status: "expired",
+    expired_at: "2026-05-24T12:00:01Z",
+    correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+  },
+  validationFailed: {
+    form_id: "travel-preferences-1",
+    status: "validation_failed",
+    values: {
+      destination: "",
+      nights: 31,
+    },
+    errors: {
+      destination: "Destination is required.",
+      nights: "Nights must be 30 or less.",
+    },
+    correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+  },
+  nativeFrames: [
+    {
+      event: "agent_ui_event",
+      chat_id: "chat-1",
+      agent_ui_event: {
+        event_type: AGENT_UI_EVENT_TYPES["ui.form.requested"],
+        chat_id: "chat-1",
+        message_id: "msg-form-1",
+        run_id: "run-1",
+        payload: {
+          form_id: "travel-preferences-1",
+          title: "Travel preferences",
+          correlation: {
+            chat_id: "chat-1",
+            run_id: "run-1",
+            message_id: "msg-form-1",
+          },
+          fields: [
+            { name: "destination", type: "text", label: "Destination", required: true },
+            { name: "nights", type: "number", label: "Nights", min: 1, max: 30 },
+          ],
+          initial_values: { destination: "Shanghai", nights: 3 },
+        },
+      },
+    },
+    {
+      event: "agent_ui_event",
+      chat_id: "chat-1",
+      agent_ui_event: {
+        event_type: AGENT_UI_EVENT_TYPES["ui.form.validation_failed"],
+        chat_id: "chat-1",
+        payload: {
+          form_id: "travel-preferences-1",
+          values: { destination: "", nights: 31 },
+          errors: { destination: "Destination is required." },
+          correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+        },
+      },
+    },
+    {
+      event: "agent_ui_event",
+      chat_id: "chat-1",
+      agent_ui_event: {
+        event_type: AGENT_UI_EVENT_TYPES["ui.form.submitted"],
+        chat_id: "chat-1",
+        payload: {
+          form_id: "travel-preferences-1",
+          values: { destination: "Shanghai", nights: 3 },
+          correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+        },
+      },
+    },
+    {
+      event: "agent_ui_event",
+      chat_id: "chat-1",
+      agent_ui_event: {
+        event_type: AGENT_UI_EVENT_TYPES["ui.form.cancelled"],
+        chat_id: "chat-1",
+        payload: {
+          form_id: "travel-preferences-1",
+          correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+        },
+      },
+    },
+    {
+      event: "agent_ui_event",
+      chat_id: "chat-1",
+      agent_ui_event: {
+        event_type: AGENT_UI_EVENT_TYPES["ui.form.expired"],
+        chat_id: "chat-1",
+        payload: {
+          form_id: "travel-preferences-1",
+          correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+        },
+      },
+    },
+  ],
+});

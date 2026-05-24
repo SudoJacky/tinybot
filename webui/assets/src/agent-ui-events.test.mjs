@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   AGENT_UI_EVENT_SCHEMA_VERSION,
   AGENT_UI_EVENT_TYPES,
+  AGENT_UI_FORM_FIELD_TYPES,
+  AGENT_UI_FORM_LIFECYCLE_EVENT_TYPES,
+  AGENT_UI_FORM_STATUSES,
   AGENT_UI_RENDERER_SURFACES,
   LEGACY_FRAME_BEHAVIOR,
   assertAgentUiPayloadIsSafe,
@@ -12,8 +15,10 @@ import {
   normalizeAgentUiEvents,
   reduceAgentUiEventState,
   renderAgentUiSurface,
+  validateAgentUiFormRequestPayload,
+  validateAgentUiFormValues,
 } from "./agent-ui-events.js";
-import { LEGACY_AGENT_UI_FRAME_FIXTURES } from "./agent-ui-event-fixtures.js";
+import { AGENT_UI_FORM_REQUEST_FIXTURES, LEGACY_AGENT_UI_FRAME_FIXTURES } from "./agent-ui-event-fixtures.js";
 
 const requiredEventTypes = [
   "message.delta",
@@ -31,6 +36,12 @@ const requiredEventTypes = [
   "usage.updated",
   "session.file.updated",
   "error.raised",
+  "ui.form.requested",
+  "ui.form.updated",
+  "ui.form.submitted",
+  "ui.form.cancelled",
+  "ui.form.expired",
+  "ui.form.validation_failed",
 ];
 
 for (const type of requiredEventTypes) {
@@ -69,6 +80,96 @@ assert.throws(
   () => assertAgentUiPayloadIsSafe({ html: "<script>alert(1)</script>" }),
   /executable UI payload/i,
 );
+assert.throws(
+  () => assertAgentUiPayloadIsSafe({ renderer: "model-supplied-form-renderer" }),
+  /executable UI payload/i,
+);
+
+assert.deepEqual(Object.values(AGENT_UI_FORM_LIFECYCLE_EVENT_TYPES), [
+  AGENT_UI_EVENT_TYPES["ui.form.requested"],
+  AGENT_UI_EVENT_TYPES["ui.form.updated"],
+  AGENT_UI_EVENT_TYPES["ui.form.submitted"],
+  AGENT_UI_EVENT_TYPES["ui.form.cancelled"],
+  AGENT_UI_EVENT_TYPES["ui.form.expired"],
+  AGENT_UI_EVENT_TYPES["ui.form.validation_failed"],
+]);
+assert.deepEqual(AGENT_UI_FORM_STATUSES, {
+  pending: "pending",
+  submitted: "submitted",
+  cancelled: "cancelled",
+  expired: "expired",
+  validationFailed: "validation_failed",
+});
+assert.deepEqual(AGENT_UI_FORM_FIELD_TYPES, [
+  "text",
+  "textarea",
+  "number",
+  "select",
+  "multiselect",
+  "checkbox",
+  "radio",
+  "date",
+  "time",
+  "datetime",
+  "file_path",
+]);
+
+const normalizedForm = validateAgentUiFormRequestPayload(AGENT_UI_FORM_REQUEST_FIXTURES.validRequest);
+assert.equal(normalizedForm.form_id, AGENT_UI_FORM_REQUEST_FIXTURES.validRequest.form_id);
+assert.equal(normalizedForm.correlation.form_id, AGENT_UI_FORM_REQUEST_FIXTURES.validRequest.form_id);
+assert.equal(normalizedForm.fields.length, AGENT_UI_FORM_FIELD_TYPES.length);
+assert.deepEqual(
+  normalizedForm.fields.map((field) => field.type),
+  AGENT_UI_FORM_FIELD_TYPES,
+);
+assert.doesNotThrow(() => validateAgentUiFormValues(normalizedForm, AGENT_UI_FORM_REQUEST_FIXTURES.validRequest.initial_values));
+assert.throws(
+  () => validateAgentUiFormValues(normalizedForm, { destination: "", nights: 31 }),
+  /required|above the maximum/i,
+);
+
+for (const fixture of AGENT_UI_FORM_REQUEST_FIXTURES.invalidSchemas) {
+  assert.throws(
+    () => validateAgentUiFormRequestPayload(fixture.payload),
+    fixture.error,
+    `expected invalid form schema fixture to fail: ${fixture.name}`,
+  );
+}
+
+for (const lifecycleFixture of [
+  AGENT_UI_FORM_REQUEST_FIXTURES.submitted,
+  AGENT_UI_FORM_REQUEST_FIXTURES.cancelled,
+  AGENT_UI_FORM_REQUEST_FIXTURES.expired,
+  AGENT_UI_FORM_REQUEST_FIXTURES.validationFailed,
+]) {
+  assert.equal(lifecycleFixture.form_id, AGENT_UI_FORM_REQUEST_FIXTURES.validRequest.form_id);
+  assert.ok(Object.values(AGENT_UI_FORM_STATUSES).includes(lifecycleFixture.status));
+  assert.equal(lifecycleFixture.correlation.chat_id, "chat-1");
+}
+
+const formRequestEvents = normalizeAgentUiEvents(AGENT_UI_FORM_REQUEST_FIXTURES.nativeFrames[0]);
+assert.equal(formRequestEvents.length, 1);
+assert.equal(formRequestEvents[0].event_type, AGENT_UI_EVENT_TYPES["ui.form.requested"]);
+assert.equal(formRequestEvents[0].metadata.compatibility, "native-agent-ui-event");
+assert.equal(formRequestEvents[0].payload.form_id, "travel-preferences-1");
+assert.equal(formRequestEvents[0].payload.fields.length, 2);
+
+const malformedFormEvents = normalizeAgentUiEvents({
+  event: "agent_ui_event",
+  chat_id: "chat-1",
+  agent_ui_event: {
+    event_type: AGENT_UI_EVENT_TYPES["ui.form.requested"],
+    chat_id: "chat-1",
+    payload: {
+      form_id: "bad-form-1",
+      title: "Bad form",
+      correlation: { chat_id: "chat-1" },
+      fields: [{ name: "unsafe", type: "text", label: "Unsafe", script: "alert(1)" }],
+    },
+  },
+});
+assert.equal(malformedFormEvents[0].event_type, AGENT_UI_EVENT_TYPES["error.raised"]);
+assert.match(malformedFormEvents[0].payload.message, /executable UI payload|unsafe key/i);
 
 const coworkFixture = LEGACY_AGENT_UI_FRAME_FIXTURES.find((fixture) => fixture.frame.event === "cowork_updated");
 assert.ok(coworkFixture);
@@ -126,6 +227,7 @@ const rendererRegistry = createAgentUiRendererRegistry({
   [AGENT_UI_RENDERER_SURFACES.recentContextReferences]: ({ references }) => `recent:${references.length}`,
   [AGENT_UI_RENDERER_SURFACES.usageStatus]: ({ usage }) => `usage:${usage.total_tokens}`,
   [AGENT_UI_RENDERER_SURFACES.errorNotice]: ({ message }) => `error:${message}`,
+  [AGENT_UI_RENDERER_SURFACES.formRequest]: ({ form }) => `form:${form.form_id}`,
 });
 
 assert.deepEqual(
@@ -134,6 +236,7 @@ assert.deepEqual(
     "approval",
     "browserSnapshot",
     "errorNotice",
+    "formRequest",
     "memoryReferences",
     "message",
     "reasoning",
@@ -141,6 +244,10 @@ assert.deepEqual(
     "toolRun",
     "usageStatus",
   ],
+);
+assert.equal(
+  renderAgentUiSurface(rendererRegistry, AGENT_UI_RENDERER_SURFACES.formRequest, { form: normalizedForm }),
+  "form:travel-preferences-1",
 );
 assert.equal(
   renderAgentUiSurface(rendererRegistry, AGENT_UI_RENDERER_SURFACES.toolRun, { name: "read_file" }),
@@ -174,3 +281,40 @@ assert.equal(reducerState.browserFrame.image_url, "/browser/snapshot.png");
 assert.equal(reducerState.usage.total_tokens, 15);
 assert.equal(reducerState.sessionFiles.at(-1).path, "notes.md");
 assert.equal(reducerState.errors.at(-1).message, "Server error");
+
+const formReducerState = createAgentUiEventState();
+for (const frame of AGENT_UI_FORM_REQUEST_FIXTURES.nativeFrames.slice(0, 3)) {
+  for (const event of normalizeAgentUiEvents(frame)) {
+    reduceAgentUiEventState(formReducerState, event);
+  }
+}
+const submittedForm = formReducerState.forms.get("travel-preferences-1");
+assert.equal(submittedForm.status, AGENT_UI_FORM_STATUSES.submitted);
+assert.equal(submittedForm.title, "Travel preferences");
+assert.equal(submittedForm.values.destination, "Shanghai");
+assert.deepEqual(submittedForm.errors, {});
+
+const validationState = createAgentUiEventState();
+for (const frame of AGENT_UI_FORM_REQUEST_FIXTURES.nativeFrames.slice(0, 2)) {
+  for (const event of normalizeAgentUiEvents(frame)) {
+    reduceAgentUiEventState(validationState, event);
+  }
+}
+const validationForm = validationState.forms.get("travel-preferences-1");
+assert.equal(validationForm.status, AGENT_UI_FORM_STATUSES.validationFailed);
+assert.equal(validationForm.values.nights, 31);
+assert.equal(validationForm.errors.destination, "Destination is required.");
+
+for (const frame of AGENT_UI_FORM_REQUEST_FIXTURES.nativeFrames.slice(3)) {
+  const state = createAgentUiEventState();
+  for (const event of normalizeAgentUiEvents(AGENT_UI_FORM_REQUEST_FIXTURES.nativeFrames[0])) {
+    reduceAgentUiEventState(state, event);
+  }
+  for (const event of normalizeAgentUiEvents(frame)) {
+    reduceAgentUiEventState(state, event);
+  }
+  assert.ok([
+    AGENT_UI_FORM_STATUSES.cancelled,
+    AGENT_UI_FORM_STATUSES.expired,
+  ].includes(state.forms.get("travel-preferences-1").status));
+}

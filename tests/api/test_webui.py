@@ -454,6 +454,124 @@ async def test_webui_control_approvals_approve_deny_and_schedule_retry(api_works
         await client.close()
 
 
+def _sample_form_schema() -> dict:
+    return {
+        "form_id": "travel-form-1",
+        "title": "Travel preferences",
+        "correlation": {
+            "session_key": "websocket:chat-1",
+            "chat_id": "chat-1",
+            "run_id": "run-1",
+            "message_id": "msg-form-1",
+        },
+        "fields": [
+            {"name": "destination", "type": "text", "label": "Destination", "required": True},
+            {"name": "nights", "type": "number", "label": "Nights", "min": 1, "max": 30},
+            {
+                "name": "priority",
+                "type": "select",
+                "label": "Priority",
+                "options": [
+                    {"label": "One", "value": 1},
+                    {"label": "Two", "value": 2},
+                ],
+            },
+            {
+                "name": "extras",
+                "type": "multiselect",
+                "label": "Extras",
+                "options": [
+                    {"label": "Hotel", "value": True},
+                    {"label": "Museum", "value": "museum"},
+                ],
+            },
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_webui_control_agent_ui_form_submit_cancel_and_validation(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    broadcasts: list[dict] = []
+
+    async def broadcast_global(payload: dict):
+        broadcasts.append(payload)
+
+    runtime = WebUIControlRuntime(token_manager=token_manager, broadcast_global=broadcast_global)
+    interaction = runtime.form_interactions.create(_sample_form_schema())
+    app = web.Application()
+    register_webui_control_routes(app, runtime)
+    client = await _client(app)
+    try:
+        correlation = interaction.correlation
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            json={"values": {"destination": "", "nights": 99}, "correlation": correlation},
+        )
+        assert response.status == 401
+
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            "/api/agent-ui/forms/missing-form/submit",
+            headers=headers,
+            json={"values": {}, "correlation": correlation},
+        )
+        assert response.status == 404
+
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            headers=headers,
+            json={"values": {"destination": "", "nights": 99}, "correlation": correlation},
+        )
+        assert response.status == 400
+        payload = await response.json()
+        assert set(payload["errors"]) == {"destination", "nights"}
+        assert payload["event"]["event_type"] == "ui.form.validation_failed"
+
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            headers=headers,
+            json={
+                "values": {
+                    "destination": "Shanghai",
+                    "nights": 3,
+                    "priority": 1,
+                    "extras": [True, "museum"],
+                },
+                "correlation": correlation,
+            },
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["submitted"] is True
+        assert payload["values"]["priority"] == 1
+        assert payload["values"]["extras"] == [True, "museum"]
+        assert payload["event"]["event_type"] == "ui.form.submitted"
+        assert broadcasts[-1]["agent_ui_event"]["event_type"] == "ui.form.submitted"
+
+        response = await client.post(
+            f"/api/agent-ui/forms/{interaction.form_id}/submit",
+            headers=headers,
+            json={"values": {"destination": "Again"}, "correlation": correlation},
+        )
+        assert response.status == 400
+        payload = await response.json()
+        assert "submitted" in payload["error"]
+
+        cancelled = runtime.form_interactions.create({**_sample_form_schema(), "form_id": "cancel-form-1"})
+        response = await client.post(
+            f"/api/agent-ui/forms/{cancelled.form_id}/cancel",
+            headers=headers,
+            json={"correlation": cancelled.correlation},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["cancelled"] is True
+        assert payload["event"]["event_type"] == "ui.form.cancelled"
+    finally:
+        await client.close()
+
+
 @pytest.mark.asyncio
 async def test_webui_control_workspace_file_routes_use_allow_list(api_workspace):
     token_manager = WebTokenManager(ttl_s=300)

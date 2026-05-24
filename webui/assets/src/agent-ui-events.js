@@ -16,6 +16,12 @@ export const AGENT_UI_EVENT_TYPES = Object.freeze({
   "usage.updated": "usage.updated",
   "session.file.updated": "session.file.updated",
   "error.raised": "error.raised",
+  "ui.form.requested": "ui.form.requested",
+  "ui.form.updated": "ui.form.updated",
+  "ui.form.submitted": "ui.form.submitted",
+  "ui.form.cancelled": "ui.form.cancelled",
+  "ui.form.expired": "ui.form.expired",
+  "ui.form.validation_failed": "ui.form.validation_failed",
 });
 
 export const AGENT_UI_RENDERER_SURFACES = Object.freeze({
@@ -28,9 +34,51 @@ export const AGENT_UI_RENDERER_SURFACES = Object.freeze({
   recentContextReferences: "recentContextReferences",
   usageStatus: "usageStatus",
   errorNotice: "errorNotice",
+  formRequest: "formRequest",
 });
 
 const AGENT_UI_RENDERER_SURFACE_VALUES = new Set(Object.values(AGENT_UI_RENDERER_SURFACES));
+
+export const AGENT_UI_FORM_LIFECYCLE_EVENT_TYPES = Object.freeze({
+  requested: AGENT_UI_EVENT_TYPES["ui.form.requested"],
+  updated: AGENT_UI_EVENT_TYPES["ui.form.updated"],
+  submitted: AGENT_UI_EVENT_TYPES["ui.form.submitted"],
+  cancelled: AGENT_UI_EVENT_TYPES["ui.form.cancelled"],
+  expired: AGENT_UI_EVENT_TYPES["ui.form.expired"],
+  validationFailed: AGENT_UI_EVENT_TYPES["ui.form.validation_failed"],
+});
+
+export const AGENT_UI_FORM_FIELD_TYPES = Object.freeze([
+  "text",
+  "textarea",
+  "number",
+  "select",
+  "multiselect",
+  "checkbox",
+  "radio",
+  "date",
+  "time",
+  "datetime",
+  "file_path",
+]);
+
+export const AGENT_UI_FORM_STATUSES = Object.freeze({
+  pending: "pending",
+  submitted: "submitted",
+  cancelled: "cancelled",
+  expired: "expired",
+  validationFailed: "validation_failed",
+});
+
+const AGENT_UI_FORM_FIELD_TYPE_VALUES = new Set(AGENT_UI_FORM_FIELD_TYPES);
+const CHOICE_FIELD_TYPES = new Set(["select", "multiselect", "radio"]);
+const STRING_FIELD_TYPES = new Set(["text", "textarea", "date", "time", "datetime", "file_path"]);
+const FORM_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+const FIELD_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
+const RESERVED_FIELD_NAMES = new Set(["__proto__", "constructor", "prototype"]);
+const MAX_FORM_FIELDS = 50;
+const MAX_FORM_OPTIONS = 100;
+const MAX_FORM_TEXT_LENGTH = 2000;
 
 export const LEGACY_FRAME_BEHAVIOR = Object.freeze([
   {
@@ -120,6 +168,26 @@ const UNSAFE_PAYLOAD_KEYS = new Set([
   "rawDom",
   "component",
   "componentDefinition",
+  "renderer",
+  "renderers",
+  "rendererRegistry",
+  "registerRenderer",
+  "runtimeRenderer",
+  "template",
+  "templates",
+]);
+
+const UNSAFE_FORM_SCHEMA_KEYS = new Set([
+  ...UNSAFE_PAYLOAD_KEYS,
+  "action",
+  "actions",
+  "handler",
+  "handlers",
+  "onChange",
+  "onClick",
+  "onSubmit",
+  "onCancel",
+  "onRender",
 ]);
 
 let fallbackEventCounter = 0;
@@ -162,6 +230,255 @@ function assertJsonSafe(value, path = "payload") {
 export function assertAgentUiPayloadIsSafe(payload) {
   assertJsonSafe(payload);
   return payload;
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertNoUnsafeFormSchemaKeys(value, path = "form") {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoUnsafeFormSchemaKeys(item, `${path}[${index}]`));
+    return;
+  }
+  if (!isPlainObject(value)) {
+    return;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (UNSAFE_FORM_SCHEMA_KEYS.has(key)) {
+      throw new TypeError(`Agent UI form schema rejected unsafe key: ${path}.${key}`);
+    }
+    assertNoUnsafeFormSchemaKeys(item, `${path}.${key}`);
+  }
+}
+
+function normalizeOptionalString(value, path, maxLength = 512) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (typeof value !== "string") {
+    throw new TypeError(`Agent UI form ${path} must be a string.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    throw new TypeError(`Agent UI form ${path} is too long.`);
+  }
+  return trimmed;
+}
+
+function normalizeRequiredString(value, path, maxLength = 512) {
+  const normalized = normalizeOptionalString(value, path, maxLength);
+  if (!normalized) {
+    throw new TypeError(`Agent UI form ${path} is required.`);
+  }
+  return normalized;
+}
+
+function assertSafeFieldName(name, path) {
+  if (!FIELD_NAME_RE.test(name) || RESERVED_FIELD_NAMES.has(name)) {
+    throw new TypeError(`Agent UI form ${path} has an unsafe field name.`);
+  }
+}
+
+function normalizeFormOption(option, path) {
+  if (!isPlainObject(option)) {
+    throw new TypeError(`Agent UI form ${path} must be an object.`);
+  }
+  const label = normalizeRequiredString(option.label, `${path}.label`, 256);
+  const value = option.value;
+  if (!["string", "number", "boolean"].includes(typeof value)) {
+    throw new TypeError(`Agent UI form ${path}.value must be a string, number, or boolean.`);
+  }
+  return { label, value };
+}
+
+function normalizedOptionValues(field) {
+  return new Set((field.options || []).map((option) => option.value));
+}
+
+function validateValueAgainstField(field, value, path) {
+  if (value === undefined || value === null || value === "") {
+    if (field.required) {
+      throw new TypeError(`Agent UI form ${path} is required.`);
+    }
+    return;
+  }
+  if (field.type === "number") {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new TypeError(`Agent UI form ${path} must be a finite number.`);
+    }
+    if (typeof field.min === "number" && value < field.min) {
+      throw new TypeError(`Agent UI form ${path} is below the minimum.`);
+    }
+    if (typeof field.max === "number" && value > field.max) {
+      throw new TypeError(`Agent UI form ${path} is above the maximum.`);
+    }
+    return;
+  }
+  if (field.type === "checkbox") {
+    if (typeof value !== "boolean") {
+      throw new TypeError(`Agent UI form ${path} must be a boolean.`);
+    }
+    return;
+  }
+  if (field.type === "multiselect") {
+    if (!Array.isArray(value)) {
+      throw new TypeError(`Agent UI form ${path} must be an array.`);
+    }
+    const optionValues = normalizedOptionValues(field);
+    for (const item of value) {
+      if (!optionValues.has(item)) {
+        throw new TypeError(`Agent UI form ${path} contains an unsupported option.`);
+      }
+    }
+    return;
+  }
+  if (CHOICE_FIELD_TYPES.has(field.type)) {
+    if (!normalizedOptionValues(field).has(value)) {
+      throw new TypeError(`Agent UI form ${path} contains an unsupported option.`);
+    }
+    return;
+  }
+  if (STRING_FIELD_TYPES.has(field.type)) {
+    if (typeof value !== "string") {
+      throw new TypeError(`Agent UI form ${path} must be a string.`);
+    }
+    if (value.length > MAX_FORM_TEXT_LENGTH) {
+      throw new TypeError(`Agent UI form ${path} is too long.`);
+    }
+    if (typeof field.min_length === "number" && value.length < field.min_length) {
+      throw new TypeError(`Agent UI form ${path} is shorter than the minimum length.`);
+    }
+    if (typeof field.max_length === "number" && value.length > field.max_length) {
+      throw new TypeError(`Agent UI form ${path} is longer than the maximum length.`);
+    }
+    if (field.pattern) {
+      const pattern = new RegExp(field.pattern);
+      if (!pattern.test(value)) {
+        throw new TypeError(`Agent UI form ${path} does not match the required pattern.`);
+      }
+    }
+  }
+}
+
+function normalizeFormField(field, index) {
+  const path = `fields[${index}]`;
+  if (!isPlainObject(field)) {
+    throw new TypeError(`Agent UI form ${path} must be an object.`);
+  }
+  const name = normalizeRequiredString(field.name, `${path}.name`, 64);
+  assertSafeFieldName(name, path);
+  const type = normalizeRequiredString(field.type, `${path}.type`, 64);
+  if (!AGENT_UI_FORM_FIELD_TYPE_VALUES.has(type)) {
+    throw new TypeError(`Agent UI form ${path}.type is unsupported.`);
+  }
+  const normalized = {
+    name,
+    type,
+    label: normalizeRequiredString(field.label, `${path}.label`, 256),
+    required: field.required === true,
+  };
+  for (const key of ["placeholder", "help"]) {
+    const value = normalizeOptionalString(field[key], `${path}.${key}`, 512);
+    if (value) {
+      normalized[key] = value;
+    }
+  }
+  for (const key of ["min", "max", "min_length", "max_length"]) {
+    if (field[key] !== undefined) {
+      if (typeof field[key] !== "number" || !Number.isFinite(field[key])) {
+        throw new TypeError(`Agent UI form ${path}.${key} must be a finite number.`);
+      }
+      normalized[key] = field[key];
+    }
+  }
+  if (field.pattern !== undefined) {
+    normalized.pattern = normalizeRequiredString(field.pattern, `${path}.pattern`, 256);
+    new RegExp(normalized.pattern);
+  }
+  if (CHOICE_FIELD_TYPES.has(type)) {
+    if (!Array.isArray(field.options) || field.options.length === 0 || field.options.length > MAX_FORM_OPTIONS) {
+      throw new TypeError(`Agent UI form ${path}.options must be a bounded non-empty array.`);
+    }
+    normalized.options = field.options.map((option, optionIndex) => normalizeFormOption(option, `${path}.options[${optionIndex}]`));
+  } else if (field.options !== undefined) {
+    throw new TypeError(`Agent UI form ${path}.options is only allowed for choice fields.`);
+  }
+  if (field.default !== undefined) {
+    validateValueAgainstField(normalized, field.default, `${path}.default`);
+    normalized.default = field.default;
+  }
+  return normalized;
+}
+
+export function validateAgentUiFormValues(form, values = {}) {
+  const schema = validateAgentUiFormRequestPayload(form);
+  if (!isPlainObject(values)) {
+    throw new TypeError("Agent UI form values must be an object.");
+  }
+  for (const field of schema.fields) {
+    validateValueAgainstField(field, values[field.name], `values.${field.name}`);
+  }
+  return values;
+}
+
+export function validateAgentUiFormRequestPayload(payload) {
+  assertAgentUiPayloadIsSafe(payload);
+  assertNoUnsafeFormSchemaKeys(payload);
+  if (!isPlainObject(payload)) {
+    throw new TypeError("Agent UI form payload must be an object.");
+  }
+  const formId = normalizeRequiredString(payload.form_id, "form_id", 128);
+  if (!FORM_ID_RE.test(formId)) {
+    throw new TypeError("Agent UI form form_id is unsafe.");
+  }
+  const fields = payload.fields;
+  if (!Array.isArray(fields) || fields.length === 0 || fields.length > MAX_FORM_FIELDS) {
+    throw new TypeError("Agent UI form fields must be a bounded non-empty array.");
+  }
+  const normalizedFields = fields.map((field, index) => normalizeFormField(field, index));
+  const fieldNames = new Set();
+  for (const field of normalizedFields) {
+    if (fieldNames.has(field.name)) {
+      throw new TypeError(`Agent UI form field name is duplicated: ${field.name}`);
+    }
+    fieldNames.add(field.name);
+  }
+  const correlation = payload.correlation;
+  if (!isPlainObject(correlation)) {
+    throw new TypeError("Agent UI form correlation is required.");
+  }
+  assertJsonSafe(correlation, "correlation");
+  const normalized = {
+    form_id: formId,
+    title: normalizeRequiredString(payload.title, "title", 256),
+    fields: normalizedFields,
+    correlation: { ...correlation, form_id: correlation.form_id || formId },
+  };
+  for (const key of ["description", "submit_label", "cancel_label"]) {
+    const value = normalizeOptionalString(payload[key], key, 1024);
+    if (value) {
+      normalized[key] = value;
+    }
+  }
+  if (payload.expires_at !== undefined && payload.expires_at !== null) {
+    const expiresAt = normalizeRequiredString(payload.expires_at, "expires_at", 128);
+    if (Number.isNaN(Date.parse(expiresAt))) {
+      throw new TypeError("Agent UI form expires_at must be an ISO timestamp.");
+    }
+    normalized.expires_at = expiresAt;
+  }
+  if (payload.initial_values !== undefined) {
+    validateAgentUiFormValues(normalized, payload.initial_values);
+    normalized.initial_values = { ...payload.initial_values };
+  }
+  if (payload.metadata !== undefined) {
+    if (!isPlainObject(payload.metadata)) {
+      throw new TypeError("Agent UI form metadata must be an object.");
+    }
+    normalized.metadata = { ...payload.metadata };
+  }
+  return normalized;
 }
 
 export function createAgentUiEventEnvelope({
@@ -248,6 +565,65 @@ function createLegacyEnvelope(frame, eventType, payload, fields = {}) {
       ...(fields.metadata || {}),
     },
   });
+}
+
+function normalizeFormLifecyclePayload(eventType, payload) {
+  assertAgentUiPayloadIsSafe(payload);
+  assertNoUnsafeFormSchemaKeys(payload);
+  if (eventType === AGENT_UI_EVENT_TYPES["ui.form.requested"]) {
+    return validateAgentUiFormRequestPayload(payload);
+  }
+  if (!isPlainObject(payload)) {
+    throw new TypeError("Agent UI form lifecycle payload must be an object.");
+  }
+  const formId = normalizeRequiredString(payload.form_id, "form_id", 128);
+  if (!FORM_ID_RE.test(formId)) {
+    throw new TypeError("Agent UI form form_id is unsafe.");
+  }
+  const normalized = {
+    ...payload,
+    form_id: formId,
+    correlation: isPlainObject(payload.correlation) ? { ...payload.correlation, form_id: payload.correlation.form_id || formId } : { form_id: formId },
+  };
+  if (payload.values !== undefined && !isPlainObject(payload.values)) {
+    throw new TypeError("Agent UI form lifecycle values must be an object.");
+  }
+  if (payload.errors !== undefined && !isPlainObject(payload.errors)) {
+    throw new TypeError("Agent UI form lifecycle errors must be an object.");
+  }
+  return normalized;
+}
+
+function isFormLifecycleEventType(eventType) {
+  return Object.values(AGENT_UI_FORM_LIFECYCLE_EVENT_TYPES).includes(eventType);
+}
+
+function normalizeNativeAgentUiEventFrame(frame) {
+  const source = isPlainObject(frame.agent_ui_event) ? frame.agent_ui_event : frame;
+  const eventType = source.event_type || source.type || "";
+  if (!Object.hasOwn(AGENT_UI_EVENT_TYPES, eventType)) {
+    throw new TypeError(`Unknown Agent UI event type: ${eventType}`);
+  }
+  const payload = isPlainObject(source.payload) ? source.payload : {};
+  const normalizedPayload = isFormLifecycleEventType(eventType)
+    ? normalizeFormLifecyclePayload(eventType, payload)
+    : assertAgentUiPayloadIsSafe(payload);
+  return {
+    schema_version: source.schema_version || AGENT_UI_EVENT_SCHEMA_VERSION,
+    event_id: source.event_id || generateEventId(),
+    event_type: eventType,
+    chat_id: source.chat_id || frame.chat_id || normalizedPayload.correlation?.chat_id || "",
+    message_id: source.message_id || normalizedPayload.correlation?.message_id || "",
+    run_id: source.run_id || normalizedPayload.correlation?.run_id || "",
+    parent_id: source.parent_id || normalizedPayload.correlation?.parent_id || "",
+    timestamp: source.timestamp || frame.timestamp || new Date().toISOString(),
+    payload: normalizedPayload,
+    metadata: {
+      ...(isPlainObject(source.metadata) ? source.metadata : {}),
+      source_frame: frame.event || "agent_ui_event",
+      compatibility: "native-agent-ui-event",
+    },
+  };
 }
 
 function referenceEvents(frame, messageId) {
@@ -356,6 +732,25 @@ export function normalizeAgentUiEvents(frame) {
   if (!frame || typeof frame !== "object" || Array.isArray(frame) || !frame.event) {
     return [];
   }
+  if (frame.event === "agent_ui_event") {
+    try {
+      const event = normalizeNativeAgentUiEventFrame(frame);
+      if (!event.chat_id) {
+        return [];
+      }
+      return [event];
+    } catch (error) {
+      return [createAgentUiEventEnvelope({
+        eventType: AGENT_UI_EVENT_TYPES["error.raised"],
+        chatId: frame.chat_id || "agent-ui",
+        payload: {
+          message: error?.message || "Agent UI event normalization failed.",
+          source_event: frame.event,
+        },
+        metadata: { source_frame: frame.event },
+      })];
+    }
+  }
   if (frame.event === "chat_created" || frame.event === "attached" || frame.event === "cowork_updated") {
     return [];
   }
@@ -382,6 +777,7 @@ export function createAgentUiEventState() {
     approvals: new Map(),
     browserFrame: null,
     usage: null,
+    forms: new Map(),
     memoryReferences: new Map(),
     recentContextReferences: new Map(),
     sessionFiles: [],
@@ -409,6 +805,49 @@ function toolRunKey(event) {
     event.message_id ||
     `${event.event_type}:${event.event_id}`
   );
+}
+
+function formIdFromEvent(event) {
+  return event.payload?.form_id || event.metadata?.form_id || event.event_id || "";
+}
+
+function reduceFormEventState(agentUiState, event, status) {
+  const formId = formIdFromEvent(event);
+  if (!formId) {
+    return agentUiState;
+  }
+  const existing = agentUiState.forms.get(formId) || {};
+  const next = {
+    ...existing,
+    form_id: formId,
+    chat_id: event.chat_id || existing.chat_id || "",
+    message_id: event.message_id || existing.message_id || "",
+    run_id: event.run_id || existing.run_id || "",
+    status,
+    updated_at: event.timestamp,
+    correlation: event.payload.correlation || existing.correlation || { form_id: formId },
+  };
+  if (event.event_type === AGENT_UI_EVENT_TYPES["ui.form.requested"]) {
+    next.status = AGENT_UI_FORM_STATUSES.pending;
+    next.schema = event.payload;
+    next.title = event.payload.title || "";
+    next.description = event.payload.description || "";
+    next.fields = event.payload.fields || [];
+    next.expires_at = event.payload.expires_at || "";
+    next.submit_label = event.payload.submit_label || "";
+    next.cancel_label = event.payload.cancel_label || "";
+    next.values = event.payload.initial_values || {};
+    next.errors = {};
+  } else if (event.event_type === AGENT_UI_EVENT_TYPES["ui.form.validation_failed"]) {
+    next.status = AGENT_UI_FORM_STATUSES.validationFailed;
+    next.values = event.payload.values || existing.values || {};
+    next.errors = event.payload.errors || {};
+  } else {
+    next.values = event.payload.values || existing.values || {};
+    next.errors = {};
+  }
+  agentUiState.forms.set(formId, next);
+  return agentUiState;
 }
 
 export function reduceAgentUiEventState(agentUiState, event) {
@@ -498,6 +937,18 @@ export function reduceAgentUiEventState(agentUiState, event) {
     case AGENT_UI_EVENT_TYPES["session.file.updated"]:
       agentUiState.sessionFiles.push({ path: event.payload.path || "", timestamp: event.timestamp });
       return agentUiState;
+    case AGENT_UI_EVENT_TYPES["ui.form.requested"]:
+      return reduceFormEventState(agentUiState, event, AGENT_UI_FORM_STATUSES.pending);
+    case AGENT_UI_EVENT_TYPES["ui.form.submitted"]:
+      return reduceFormEventState(agentUiState, event, AGENT_UI_FORM_STATUSES.submitted);
+    case AGENT_UI_EVENT_TYPES["ui.form.cancelled"]:
+      return reduceFormEventState(agentUiState, event, AGENT_UI_FORM_STATUSES.cancelled);
+    case AGENT_UI_EVENT_TYPES["ui.form.expired"]:
+      return reduceFormEventState(agentUiState, event, AGENT_UI_FORM_STATUSES.expired);
+    case AGENT_UI_EVENT_TYPES["ui.form.validation_failed"]:
+      return reduceFormEventState(agentUiState, event, AGENT_UI_FORM_STATUSES.validationFailed);
+    case AGENT_UI_EVENT_TYPES["ui.form.updated"]:
+      return reduceFormEventState(agentUiState, event, event.payload.status || AGENT_UI_FORM_STATUSES.pending);
     case AGENT_UI_EVENT_TYPES["error.raised"]:
       agentUiState.errors.push({
         message: event.payload.message || "",
