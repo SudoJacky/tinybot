@@ -50,6 +50,8 @@ Agent UI dynamic forms collect structured user input for the home-page chat surf
 
 The canonical runtime schema is tinybot's internal Agent UI form request, validated in `tinybot/agent/forms.py`. It allows only the fixed field set: `text`, `textarea`, `number`, `select`, `multiselect`, `checkbox`, `radio`, `date`, `time`, `datetime`, and `file_path`. The schema validator rejects unsafe keys such as raw HTML, scripts, styles, DOM instructions, component definitions, renderer registration, and event handlers. The browser normalizer repeats the same safety posture before reducing events into `state.agentUi.forms`.
 
+Normal conversations request forms through the `request_form` tool in `tinybot/agent/tools/form.py`. The tool uses the active `AgentLoop.form_interactions` registry and emits a `_agent_ui_event` outbound message for `ui.form.requested`. `WebSocketChannel._build_app()` wires `WebUIControlRuntime.form_interactions` to the loop-owned registry when a loop is bound; standalone WebUI route tests can still use the runtime default registry.
+
 Forms render through the fixed `formRequest` renderer surface. Model output cannot register a renderer, replace the renderer, supply component implementations, or inject HTML/CSS/JS through labels, descriptions, options, help text, or errors. Browser-side validation is ergonomic only; backend validation remains authoritative.
 
 Submissions and cancellations are HTTP control operations:
@@ -65,6 +67,8 @@ The first continuation modes are explicit:
 - `resume` requires an agent loop with `schedule_form_response()` and rejects the action if that continuation target is missing.
 
 Dynamic forms do not approve tools or grant safety permissions. A submitted form can provide parameters to the agent, but risky tool authorization still flows through approval records and approval routes. Form continuation metadata should not be interpreted as approval scope.
+
+Agents should prefer a form when the user needs to provide multiple fields, bounded choices, typed values, or data that benefits from backend validation. For a single open-ended clarification, normal chat text stays the cheaper and clearer path. Tool-triggered forms are asynchronous: the tool result only confirms that the browser form was requested, and the actual submit/cancel/expiry result returns later through continuation metadata.
 
 Future AG-UI compatibility should be layered as an adapter around the tinybot event envelope. Keep AG-UI optional: translate to or from the internal event shape at the boundary, do not make the browser depend on an external SDK before the local normalizer, reducer, and renderer registry contract is stable.
 

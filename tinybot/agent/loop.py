@@ -53,6 +53,7 @@ from tinybot.agent.memory import (
     Dream,
     EntityExtractor,
 )
+from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.session_knowledge import SessionKnowledgeStore
 from tinybot.agent.skills import BUILTIN_SKILLS_DIR
@@ -65,6 +66,7 @@ from tinybot.agent.tools.experience import (
     QueryExperienceTool,
     SaveExperienceTool,
 )
+from tinybot.agent.tools.form import FormRequestTool
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from tinybot.agent.tools.knowledge import (
     AddDocumentTool,
@@ -341,6 +343,9 @@ class AgentLoop:
             )
 
         self.runner = AgentRunner(provider)
+        self.form_interactions = getattr(deps, "form_interactions", None) if deps is not None else None
+        if self.form_interactions is None:
+            self.form_interactions = AgentUiFormRegistry()
 
         # Create error analyzer for auto error diagnosis
         self.experience_analyzer = ErrorAnalyzer(self.experience_store) if self.experience_store else None
@@ -454,6 +459,12 @@ class AgentLoop:
                 path_append=self.exec_config.path_append,
             ))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+        self.tools.register(
+            FormRequestTool(
+                form_interactions=self.form_interactions,
+                send_callback=self.bus.publish_outbound,
+            )
+        )
         spawn_tool = SpawnTool(manager=self.subagents)
         self.tools.register(spawn_tool)
         cowork_service = getattr(self, "cowork_service", None)
@@ -606,6 +617,9 @@ class AgentLoop:
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id)
+        if tool := self.tools.get("request_form"):
+            if hasattr(tool, "set_context"):
+                tool.set_context(channel, chat_id, message_id)
         # Set task progress channel for real-time updates
         self._task_progress_channel = channel
         self._task_progress_chat_id = chat_id

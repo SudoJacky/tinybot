@@ -9,6 +9,9 @@ from unittest.mock import AsyncMock, MagicMock
 from tinybot.agent.loop import AgentLoop
 from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.agent.session_handler import SessionHandler
+from tinybot.agent.tool_executor import ToolContextManager
+from tinybot.agent.tools.form import FormRequestTool
+from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.turn_lifecycle import CompletedTurn
 from tinybot.agent.stream_handler import StreamHandler
 from tinybot.agent.memory import MemoryStore
@@ -321,6 +324,20 @@ def test_agent_loop_schedules_form_response_without_approval_grant():
     assert captured[0].chat_id == "websocket:chat-1"
     assert captured[0].metadata["_agent_ui_form_response"]["values"]["destination"] == "Shanghai"
     assert captured[0].metadata["_approval_grant"] is False
+
+
+def test_agent_loop_applies_context_to_request_form_tool():
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.tool_context = ToolContextManager()
+    loop.tools = ToolRegistry()
+    form_tool = FormRequestTool(form_interactions=AgentUiFormRegistry(), send_callback=lambda message: None)
+    loop.tools.register(form_tool)
+    loop._task_progress_channel = ""
+    loop._task_progress_chat_id = ""
+
+    loop._set_tool_context("websocket", "chat-1", "msg-1")
+
+    assert form_tool.current_context == ("websocket", "chat-1", "msg-1")
 
 
 @pytest.mark.asyncio

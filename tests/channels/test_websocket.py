@@ -10,6 +10,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from tinybot.bus.queue import MessageBus
 from tinybot.bus.events import OutboundMessage
 from tinybot.agent.forms import AgentUiFormRegistry, AGENT_UI_FORM_EVENT_TYPES, form_event
+from tinybot.agent.tools.form import FormRequestTool
 from tinybot.channels.websocket import WebSocketChannel, _serialize_message
 from tinybot.session.manager import SessionManager
 
@@ -90,6 +91,23 @@ async def test_webui_control_routes_are_mounted_by_channel(web_client):
     assert response.status == 200
     payload = await response.json()
     assert payload["channels"]["websocket"]["enabled"] is True
+
+
+def test_websocket_control_runtime_uses_loop_owned_form_registry(web_workspace):
+    bus = MessageBus()
+    session_manager = SessionManager(web_workspace)
+    registry = AgentUiFormRegistry()
+    agent_loop = type("FakeLoop", (), {"form_interactions": registry})()
+    channel = WebSocketChannel({"enabled": True, "streaming": True}, bus)
+    channel.bind_runtime(
+        workspace=web_workspace,
+        session_manager=session_manager,
+        agent_loop=agent_loop,
+    )
+
+    channel._build_app()
+
+    assert channel._webui_control_runtime.form_interactions is registry
 
 
 def test_serialize_message_preserves_memory_references():
@@ -307,6 +325,31 @@ async def test_websocket_native_agent_ui_form_event_is_additive(web_channel, web
 
         await channel.send(OutboundMessage(channel="websocket", chat_id=chat_id, content="plain"))
         assert (await ws.receive_json())["event"] == "message"
+    finally:
+        await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_websocket_request_form_tool_emits_native_agent_ui_event(web_channel, web_client):
+    channel, _, _ = web_channel
+    ws, chat_id = await _open_chat_ws(web_client)
+    registry = AgentUiFormRegistry()
+    tool = FormRequestTool(form_interactions=registry, send_callback=channel.send)
+    tool.set_context("websocket", chat_id, "msg-1")
+    try:
+        result = await tool.execute(
+            form={
+                "form_id": "tool-form-1",
+                "title": "Travel preferences",
+                "fields": [{"name": "destination", "type": "text", "label": "Destination"}],
+            }
+        )
+
+        payload = await ws.receive_json()
+        assert payload["event"] == "agent_ui_event"
+        assert payload["agent_ui_event"]["event_type"] == "ui.form.requested"
+        assert payload["agent_ui_event"]["payload"]["form_id"] == "tool-form-1"
+        assert "requested asynchronously" in result
     finally:
         await ws.close()
 

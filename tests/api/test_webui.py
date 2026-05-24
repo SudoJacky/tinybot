@@ -10,6 +10,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, register_webui_control_routes
 from tinybot.agent.forms import AgentUiFormRegistry
+from tinybot.agent.tools.form import FormRequestTool
 from tinybot.config.schema import Config, MCPServerConfig
 from tinybot.cowork.service import CoworkService
 from tinybot.security.approval import ApprovalAction, ApprovalManager
@@ -565,6 +566,68 @@ async def test_webui_control_agent_ui_form_submit_cancel_and_validation(api_work
             f"/api/agent-ui/forms/{cancelled.form_id}/cancel",
             headers=headers,
             json={"correlation": cancelled.correlation},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["cancelled"] is True
+        assert payload["event"]["event_type"] == "ui.form.cancelled"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_submits_and_cancels_tool_created_form(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    emitted = []
+
+    async def send(message):
+        emitted.append(message)
+
+    runtime = WebUIControlRuntime(token_manager=token_manager)
+    tool = FormRequestTool(form_interactions=runtime.form_interactions, send_callback=send)
+    tool.set_context("websocket", "chat-1", "msg-1")
+    await tool.execute(
+        form={
+            "form_id": "tool-form-1",
+            "title": "Travel preferences",
+            "fields": [
+                {"name": "destination", "type": "text", "label": "Destination", "required": True},
+            ],
+        }
+    )
+    interaction = runtime.form_interactions.get("tool-form-1")
+    assert interaction is not None
+    assert emitted[0].metadata["_agent_ui_event"]["payload"]["form_id"] == "tool-form-1"
+
+    app = web.Application()
+    register_webui_control_routes(app, runtime)
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            "/api/agent-ui/forms/tool-form-1/submit",
+            headers=headers,
+            json={"values": {"destination": "Shanghai"}, "correlation": interaction.correlation},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["submitted"] is True
+        assert payload["values"] == {"destination": "Shanghai"}
+
+        await tool.execute(
+            form={
+                "form_id": "tool-cancel-form-1",
+                "title": "Cancel preferences",
+                "fields": [
+                    {"name": "reason", "type": "text", "label": "Reason"},
+                ],
+            }
+        )
+        cancel_interaction = runtime.form_interactions.get("tool-cancel-form-1")
+        response = await client.post(
+            "/api/agent-ui/forms/tool-cancel-form-1/cancel",
+            headers=headers,
+            json={"correlation": cancel_interaction.correlation},
         )
         assert response.status == 200
         payload = await response.json()

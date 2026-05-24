@@ -14,6 +14,7 @@ from typing import Any
 
 from loguru import logger
 
+from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, register_webui_control_routes
 from tinybot.bus.events import OutboundMessage
 from tinybot.bus.queue import MessageBus
@@ -193,6 +194,8 @@ class WebSocketChannel(BaseChannel):
         self._webui_control_runtime.workspace = self.workspace
         self._webui_control_runtime.session_manager = self.session_manager
         self._webui_control_runtime.agent_loop = self.agent_loop
+        if self.agent_loop is not None and getattr(self.agent_loop, "form_interactions", None) is not None:
+            self._webui_control_runtime.form_interactions = self.agent_loop.form_interactions
         self._webui_control_runtime.config = self.config_ref
         self._webui_control_runtime.config_path = self.config_path
         self._webui_control_runtime.knowledge_store = self.knowledge_store
@@ -381,6 +384,7 @@ class WebSocketChannel(BaseChannel):
             workspace_files=self._workspace_files,
             broadcast_global=self._broadcast_global,
             control_handlers=self._webui_control_handlers(),
+            form_interactions=getattr(self.agent_loop, "form_interactions", None) or AgentUiFormRegistry(),
         )
         register_webui_control_routes(
             app,

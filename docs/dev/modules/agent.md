@@ -44,6 +44,16 @@ Tools inherit from the base tool abstraction in `tinybot/agent/tools/base.py`. A
 
 Tool logic should be local to the tool unless it is a service-level feature. For example, `cowork_internal` delegates state changes to `CoworkService` rather than mutating cowork sessions directly.
 
+### Agent UI Form Tool
+
+`request_form` is registered by `AgentLoop._register_default_tools()` as the agent-facing entry point for dynamic WebUI forms. `AgentLoop` owns the active `AgentUiFormRegistry` at `loop.form_interactions`; the same registry is passed to the tool and to WebUI control routes so a form emitted by the tool can later be submitted or cancelled by the browser.
+
+The tool accepts a constrained form schema with `form_id`, `title`, and fixed field definitions. It injects the active WebUI chat correlation, validates through `tinybot/agent/forms.py`, creates a pending interaction, then publishes an outbound message with `_agent_ui_event` metadata. `WebSocketChannel.send()` converts that metadata into a native `agent_ui_event` frame.
+
+`request_form` is WebUI-only in the first phase. If the active channel is not `websocket`, or if no active WebUI chat is available, the tool returns a controlled error and the agent should ask the clarification in normal text. The tool returns an asynchronous status after emission; submitted values arrive later through `schedule_form_response()` or the structured-message fallback.
+
+Forms are for structured, multi-field, or validation-sensitive input. Prefer normal assistant text for a single plain-text clarification. Form responses are data collection only: continuation metadata sets `_agent_ui_form_response` and `_approval_grant: false`, and approval-required work still goes through the approval manager and approval routes.
+
 ## Context Design
 
 Context is assembled with a budget. New context sources should answer three questions:

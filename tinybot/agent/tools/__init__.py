@@ -1,6 +1,7 @@
 """Agent tools module."""
 
 from tinybot.agent.tools.base import Schema, Tool, tool_parameters
+from tinybot.agent.tools.form import FormRequestTool
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.schema import (
     ArraySchema,
@@ -20,6 +21,7 @@ __all__ = [
     "NumberSchema",
     "ObjectSchema",
     "StringSchema",
+    "FormRequestTool",
     "Tool",
     "ToolRegistry",
     "tool_parameters",
