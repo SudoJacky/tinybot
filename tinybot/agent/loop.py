@@ -942,6 +942,13 @@ class AgentLoop:
 
         return result.final_content, result.tools_used, result.messages, result.stop_reason
 
+    def _pause_for_form_response(self, session: Session | None) -> None:
+        """Persist a form-request turn without sending a final assistant reply."""
+        if session is None:
+            return
+        self.session_handler.clear_checkpoint(session)
+        self.sessions.save(session)
+
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
@@ -1391,6 +1398,9 @@ class AgentLoop:
                     content="",
                     metadata={"_approval_pending": True},
                 )
+            if stop_reason == "awaiting_form":
+                self._pause_for_form_response(session)
+                return None
             if msg.sender_id == "subagent":
                 all_msgs = [
                     entry for entry in all_msgs
@@ -1534,6 +1544,9 @@ class AgentLoop:
                 content="",
                 metadata={**dict(msg.metadata or {}), "_approval_pending": True},
             )
+        if stop_reason == "awaiting_form":
+            self._pause_for_form_response(session)
+            return None
 
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE

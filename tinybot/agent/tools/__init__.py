@@ -1,6 +1,6 @@
 """Agent tools module."""
 
-from tinybot.agent.tools.base import Schema, Tool, tool_parameters
+from tinybot.agent.tools.base import AwaitingUserInputResult, Schema, Tool, tool_parameters
 from tinybot.agent.tools.form import FormRequestTool
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.schema import (
@@ -15,6 +15,7 @@ from tinybot.agent.tools.schema import (
 
 __all__ = [
     "Schema",
+    "AwaitingUserInputResult",
     "ArraySchema",
     "BooleanSchema",
     "IntegerSchema",

@@ -172,6 +172,61 @@ async def test_process_direct_finalizes_through_turn_lifecycle():
 
 
 @pytest.mark.asyncio
+async def test_webui_form_request_waits_without_final_assistant_reply():
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.task_progress_state = SimpleNamespace(reset=lambda: None)
+    loop.session_handler = SessionHandler(max_tool_result_chars=10000)
+    loop.sessions = MagicMock()
+    session = Session(key="websocket:chat-1")
+    loop.sessions.get_or_create.return_value = session
+    loop.commands = SimpleNamespace(dispatch=AsyncMock(return_value=None))
+    loop.consolidator = SimpleNamespace(maybe_consolidate_by_tokens=AsyncMock(return_value=None))
+    loop._set_tool_context = lambda *args, **kwargs: None
+    loop.tools = MagicMock()
+    loop.tools.get.return_value = None
+    loop.context = SimpleNamespace(
+        last_memory_references=[],
+        last_recent_context_references=[],
+    )
+    loop.context.build_messages = MagicMock(return_value=[{"role": "user", "content": "Collect travel preferences."}])
+    loop._run_agent_loop = AsyncMock(
+        return_value=(
+            None,
+            ["request_form"],
+            [
+                {"role": "user", "content": "Collect travel preferences."},
+                {"role": "assistant", "content": "", "tool_calls": [{"id": "call_form"}]},
+                {"role": "tool", "tool_call_id": "call_form", "name": "request_form", "content": "form requested"},
+            ],
+            "awaiting_form",
+        )
+    )
+
+    class FakeLifecycle:
+        def __init__(self):
+            self.turns: list[CompletedTurn] = []
+
+        def finalize(self, turn: CompletedTurn):
+            self.turns.append(turn)
+
+    lifecycle = FakeLifecycle()
+    loop.turn_lifecycle = lifecycle
+
+    response = await loop._process_message(
+        InboundMessage(
+            channel="websocket",
+            sender_id="user",
+            chat_id="chat-1",
+            content="Collect travel preferences.",
+        )
+    )
+
+    assert response is None
+    assert lifecycle.turns == []
+    loop.sessions.save.assert_called_once_with(session)
+
+
+@pytest.mark.asyncio
 async def test_approval_continuation_finalizes_through_turn_lifecycle(tmp_path):
     loop = AgentLoop.__new__(AgentLoop)
     loop.session_handler = SessionHandler(max_tool_result_chars=10000)
