@@ -536,7 +536,7 @@ def _upload_temporary_file_handler(runtime: WebUIControlRuntime, paths: WebUICon
                 field = await reader.next()
                 if field is None:
                     break
-                if field.filename:
+                if field.filename and Path(field.filename).suffix:
                     filename = field.filename
                     file_content = await field.read()
         except Exception as exc:
@@ -1083,6 +1083,19 @@ def _skills_loader(runtime: WebUIControlRuntime):
     return SkillsLoader(runtime.workspace)
 
 
+def _frontmatter_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _skill_tinybot_meta(loader: Any, meta: dict[str, Any]) -> dict[str, Any]:
+    skill_meta = dict(loader._parse_tinybot_metadata(meta.get("metadata", "")))
+    if "always" in meta and "always" not in skill_meta:
+        skill_meta["always"] = _frontmatter_bool(meta["always"])
+    return skill_meta
+
+
 def _get_skills_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
     async def handler(request: web.Request) -> web.Response:
         if runtime.workspace is None:
@@ -1096,7 +1109,7 @@ def _get_skills_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) 
         skills: list[dict[str, Any]] = []
         for item in loader.list_skills(filter_unavailable=False):
             meta = loader.get_skill_metadata(item["name"]) or {}
-            skill_meta = loader._parse_tinybot_metadata(meta.get("metadata", ""))
+            skill_meta = _skill_tinybot_meta(loader, meta)
             available = loader._check_requirements(skill_meta)
             enabled = loader.is_skill_enabled(item["name"], enabled_list)
 
@@ -1134,7 +1147,7 @@ def _get_skill_detail_handler(runtime: WebUIControlRuntime, paths: WebUIControlP
             return web.json_response({"error": "skill not found"}, status=404)
 
         meta = loader.get_skill_metadata(name) or {}
-        skill_meta = loader._parse_tinybot_metadata(meta.get("metadata", ""))
+        skill_meta = _skill_tinybot_meta(loader, meta)
         stripped_content = loader._strip_frontmatter(content)
 
         return web.json_response(
@@ -1389,7 +1402,10 @@ def _validate_skill_handler(runtime: WebUIControlRuntime, paths: WebUIControlPat
 def _get_config_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
     async def handler(request: web.Request) -> web.Response:
         if runtime.config is None:
-            return web.json_response({"error": "config not available"}, status=404)
+            return web.json_response(
+                {"error": "webui control route unavailable", "route": "get_config"},
+                status=503,
+            )
 
         data = runtime.config.model_dump(mode="json", by_alias=True)
         return web.json_response(_mask_config_secrets(data))
@@ -1568,7 +1584,10 @@ def _restore_config(config: Any, snapshot: Any) -> None:
 def _patch_config_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
     async def handler(request: web.Request) -> web.Response:
         if runtime.config is None or runtime.config_path is None:
-            return web.json_response({"error": "config not available"}, status=404)
+            return web.json_response(
+                {"error": "webui control route unavailable", "route": "patch_config"},
+                status=503,
+            )
 
         try:
             payload = await request.json()
