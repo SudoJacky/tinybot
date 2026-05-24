@@ -10,6 +10,7 @@ from tinybot.agent.loop import AgentLoop
 from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.agent.session_handler import SessionHandler
 from tinybot.agent.tool_executor import ToolContextManager
+from tinybot.agent.tools.base import AwaitingUserInputResult
 from tinybot.agent.tools.form import FormRequestTool
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.turn_lifecycle import CompletedTurn
@@ -339,6 +340,78 @@ async def test_approval_continuation_finalizes_through_turn_lifecycle(tmp_path):
     assert turn.recent_context_references == [{"evidence_id": "ev_1"}]
     assert turn.user_text == "Approval resolved."
     assert turn.assistant_text == "Approved work complete."
+
+
+@pytest.mark.asyncio
+async def test_approval_resolution_pauses_for_approved_form_request_without_tool_result_progress():
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.session_handler = SessionHandler(max_tool_result_chars=10000)
+    loop.sessions = MagicMock()
+    loop.bus = SimpleNamespace(publish_outbound=AsyncMock())
+    loop._pause_for_form_response = MagicMock()
+
+    raw_tool_call = {
+        "id": "call_form",
+        "function": {"name": "request_form", "arguments": "{}"},
+    }
+    request = ApprovalRequest(
+        id="approval_form",
+        tool_name="request_form",
+        params={},
+        fingerprint=build_fingerprint("request_form", {}, "tool"),
+        category="tool",
+        risk="medium",
+        reason="legacy approval",
+        summary="request_form({})",
+        created_at=1.0,
+    )
+    session = Session(key="websocket:chat-1")
+    session.add_message("user", "Collect travel preferences.")
+    session.metadata[SessionHandler.RUNTIME_CHECKPOINT_KEY] = {
+        "assistant_message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [raw_tool_call],
+        },
+        "pending_tool_calls": [raw_tool_call],
+        "completed_tool_results": [],
+    }
+    loop._execute_resolved_approval_tool = AsyncMock(
+        return_value={
+            "role": "tool",
+            "tool_call_id": "call_form",
+            "name": "request_form",
+            "content": AwaitingUserInputResult(
+                "Agent UI form `travel_plan` requested asynchronously.",
+                stop_reason="awaiting_form",
+            ),
+            "_approval_status": "approved",
+            "_approval_id": "approval_form",
+            "_awaiting_user_input": True,
+            "_agent_ui_internal": True,
+            "_stop_reason": "awaiting_form",
+        }
+    )
+
+    response = await loop._process_approval_resolution(
+        msg=InboundMessage(
+            channel="system",
+            sender_id="approval",
+            chat_id="websocket:chat-1",
+            content="Approval resolved.",
+            metadata={
+                "_approval_resolution": {"id": "approval_form", "approved": True},
+                "_approval_request": request.to_dict(),
+            },
+        ),
+        session=session,
+        channel="websocket",
+        chat_id="chat-1",
+    )
+
+    assert response is None
+    loop._pause_for_form_response.assert_called_once_with(session)
+    loop.bus.publish_outbound.assert_not_called()
 
 
 def test_agent_loop_schedules_form_response_without_approval_grant():

@@ -60,6 +60,7 @@ from tinybot.agent.skills import BUILTIN_SKILLS_DIR
 from tinybot.agent.subagent import SubagentManager
 from tinybot.agent.tools.cron import CronTool
 from tinybot.agent.tools.cowork import CoworkTool
+from tinybot.agent.tools.base import AwaitingUserInputResult
 from tinybot.agent.tools.experience import (
     DeleteExperienceTool,
     FeedbackExperienceTool,
@@ -1666,6 +1667,10 @@ class AgentLoop:
             "content": content,
             "timestamp": datetime.now().isoformat(),
         }
+        if isinstance(content, AwaitingUserInputResult):
+            tool_message["_awaiting_user_input"] = True
+            tool_message["_agent_ui_internal"] = True
+            tool_message["_stop_reason"] = content.stop_reason
         if approved:
             tool_message["_approval_status"] = "approved"
             tool_message["_approval_id"] = request.id
@@ -1730,7 +1735,7 @@ class AgentLoop:
         )
         if not self.session_handler._is_duplicate_message(session, tool_message):
             session.messages.append(tool_message)
-        if channel == "websocket":
+        if channel == "websocket" and not tool_message.get("_agent_ui_internal"):
             await self.bus.publish_outbound(OutboundMessage(
                 channel=channel,
                 chat_id=chat_id,
@@ -1776,6 +1781,10 @@ class AgentLoop:
                 content="",
                 metadata={"_approval_pending": True},
             )
+
+        if tool_message.get("_awaiting_user_input"):
+            self._pause_for_form_response(session)
+            return None
 
         self.session_handler.clear_checkpoint(session)
         self.sessions.save(session)

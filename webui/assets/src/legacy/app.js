@@ -488,6 +488,26 @@ function updateActiveChatTitle() {
   elements.chatTitle.title = state.activeChatId || "";
 }
 
+function setSessionResponding(sessionKey, responding) {
+  if (!sessionKey) {
+    return;
+  }
+  if (responding) {
+    state.respondingSessionKeys.add(sessionKey);
+  } else {
+    state.respondingSessionKeys.delete(sessionKey);
+  }
+  renderSessions();
+}
+
+function clearAllSessionResponding() {
+  if (!state.respondingSessionKeys.size) {
+    return;
+  }
+  state.respondingSessionKeys.clear();
+  renderSessions();
+}
+
 function setSidebarDropdown(section) {
   const isCowork = section === "cowork";
   document.body.classList.toggle("sidebar-cowork-open", isCowork);
@@ -2945,12 +2965,23 @@ function renderSessions() {
       button.classList.add("active");
       wrapper.classList.add("expanded");
     }
+    const isResponding = state.respondingSessionKeys.has(item.key);
+    if (isResponding) {
+      button.classList.add("responding");
+    }
     button.dataset.chatId = item.chat_id;
 
     const key = document.createElement("span");
     key.className = "session-key";
     key.textContent = sessionTitleForKey(item.key);
     key.title = item.chat_id;
+
+    const responseSpinner = document.createElement("span");
+    responseSpinner.className = "session-response-spinner";
+    responseSpinner.setAttribute("aria-hidden", "true");
+    if (isResponding) {
+      responseSpinner.title = t("status.loading");
+    }
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
@@ -2961,7 +2992,7 @@ function renderSessions() {
     deleteBtn.setAttribute("aria-label", t("ui.deleteSession"));
     deleteBtn.textContent = "×";
 
-    button.append(key, deleteBtn);
+    button.append(key, responseSpinner, deleteBtn);
     wrapper.append(button);
     elements.sessionList.append(wrapper);
   }
@@ -6596,6 +6627,7 @@ async function clearSession(sessionKey) {
   }
   state.messages.set(sessionKey, []);
   state.sessionFiles.set(sessionKey, []);
+  state.respondingSessionKeys.delete(sessionKey);
   state.pendingApprovals = [];
   closeInspectionMode();
   updateActiveChatTitle();
@@ -6618,6 +6650,7 @@ async function deleteSession(sessionKey, chatId) {
   // Remove from local state
   state.messages.delete(sessionKey);
   state.sessionFiles.delete(sessionKey);
+  state.respondingSessionKeys.delete(sessionKey);
   state.sessionItems = state.sessionItems.filter((item) => item.key !== sessionKey);
 
   // If deleted session was active, switch to another
@@ -10689,12 +10722,18 @@ async function connectWebSocket() {
             timestamp: new Date().toISOString(),
           });
 
-          sendSocketMessage({
-            type: "message",
-            chat_id: state.activeChatId,
-            content,
-            use_persistent_rag: elements.persistentRagToggle?.checked !== false,
-          });
+          setSessionResponding(sessionKey, true);
+          try {
+            sendSocketMessage({
+              type: "message",
+              chat_id: state.activeChatId,
+              content,
+              use_persistent_rag: elements.persistentRagToggle?.checked !== false,
+            });
+          } catch (error) {
+            setSessionResponding(sessionKey, false);
+            throw error;
+          }
         }
         return;
       }
@@ -10709,11 +10748,20 @@ async function connectWebSocket() {
         for (const agentUiEvent of agentUiEvents) {
           if (isAgentUiFormEvent(agentUiEvent)) {
             upsertAgentUiFormMessage(agentUiEvent);
+            if (agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["ui.form.requested"]) {
+              setSessionResponding(sessionKeyForChat(agentUiEvent.chat_id || payload.chat_id), false);
+            }
           } else if (agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["error.raised"]) {
             renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.errorNotice, {
               message: agentUiEvent.payload.message || t("status.serverError"),
               path: agentUiEvent.payload.path || "",
             });
+            setSessionResponding(sessionKeyForChat(agentUiEvent.chat_id || payload.chat_id), false);
+          } else if (
+            agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["message.completed"] ||
+            agentUiEvent.event_type === AGENT_UI_EVENT_TYPES["message.stream.completed"]
+          ) {
+            setSessionResponding(sessionKeyForChat(agentUiEvent.chat_id || payload.chat_id), false);
           }
         }
         return;
@@ -10768,6 +10816,7 @@ async function connectWebSocket() {
           });
         } else {
           // Regular assistant message
+          setSessionResponding(sessionKeyForChat(payload.chat_id), false);
           pushMessage(sessionKeyForChat(payload.chat_id), {
             role: "assistant",
             content: payload.text || "",
@@ -10784,6 +10833,7 @@ async function connectWebSocket() {
       }
 
       if (payload.event === "approval_pending") {
+        setSessionResponding(sessionKeyForChat(payload.chat_id), false);
         renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.approval, {
           sessionKey: sessionKeyForChat(payload.chat_id),
         });
@@ -10819,6 +10869,9 @@ async function connectWebSocket() {
             }
           }
           state.streamBuffers.delete(payload.message_id);
+          if (payload.resuming !== true && streamState?.sessionKey) {
+            setSessionResponding(streamState.sessionKey, false);
+          }
           if (payload.resuming !== true && streamState?.sessionKey === state.activeSessionKey) {
             renderMessages(false);
           }
@@ -10865,15 +10918,18 @@ async function connectWebSocket() {
           message,
           path: payload.path,
         });
+        setSessionResponding(sessionKeyForChat(payload.chat_id || state.activeChatId), false);
       }
     });
 
     socket.addEventListener("close", () => {
       setStatus(t("status.disconnected"), "error");
+      clearAllSessionResponding();
     });
 
     socket.addEventListener("error", () => {
       setStatus(t("status.failed"), "error");
+      clearAllSessionResponding();
       reject(new Error("websocket connection failed"));
     });
   });
@@ -10932,12 +10988,18 @@ async function submitMessage() {
   resizeComposer();
   setError("");
 
-  sendSocketMessage({
-    type: "message",
-    chat_id: state.activeChatId,
-    content,
-    use_persistent_rag: elements.persistentRagToggle?.checked !== false,
-  });
+  setSessionResponding(sessionKey, true);
+  try {
+    sendSocketMessage({
+      type: "message",
+      chat_id: state.activeChatId,
+      content,
+      use_persistent_rag: elements.persistentRagToggle?.checked !== false,
+    });
+  } catch (error) {
+    setSessionResponding(sessionKey, false);
+    throw error;
+  }
 }
 
 function bindEvents() {

@@ -16,6 +16,7 @@ export const state = {
   activeSessionKey: "",
   messages: new Map(),
   sessionItems: [],
+  respondingSessionKeys: new Set(),
   sessionFiles: new Map(),
   streamBuffers: new Map(),
   editableFiles: [],
