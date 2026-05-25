@@ -65,6 +65,30 @@ class SequenceRunner:
         return Result()
 
 
+class StaticPlanner:
+    async def plan(self, goal, workflow_mode="adaptive_starter"):
+        return (
+            "Planned Session",
+            [
+                {
+                    "id": "researcher",
+                    "name": "Researcher",
+                    "role": "Research",
+                    "goal": goal,
+                    "responsibilities": [],
+                }
+            ],
+            [
+                {
+                    "id": "research",
+                    "title": "Research",
+                    "description": "Research the goal",
+                    "assigned_agent_id": "researcher",
+                }
+            ],
+        )
+
+
 @pytest.mark.asyncio
 async def test_team_planner_falls_back(temp_workspace):
     planner = CoworkTeamPlanner(FailingProvider(), "test-model", temp_workspace)
@@ -76,6 +100,42 @@ async def test_team_planner_falls_back(temp_workspace):
     assert len(tasks) == 1
     assert {agent["id"] for agent in agents}
     assert tasks[0]["assigned_agent_id"] == "coordinator"
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_start_persists_chat_origin_metadata(temp_workspace):
+    service = CoworkService(temp_workspace)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.planner = StaticPlanner()
+    tool.set_context("websocket", "chat-1")
+
+    await tool.execute(action="start", goal="Coordinate the research")
+
+    session = service.list_sessions()[0]
+    assert session.runtime_state["origin_channel"] == "websocket"
+    assert session.runtime_state["origin_chat_id"] == "chat-1"
+    assert session.runtime_state["origin_session_key"] == "websocket:chat-1"
+    assert session.runtime_state["origin_surface"] == "main_chat"
+
+    reloaded = CoworkService(temp_workspace).get_session(session.id)
+    assert reloaded is not None
+    assert reloaded.runtime_state["origin_chat_id"] == "chat-1"
+
+
+@pytest.mark.asyncio
+async def test_non_webui_cowork_start_omits_chat_origin_metadata(temp_workspace):
+    service = CoworkService(temp_workspace)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.planner = StaticPlanner()
+    tool.set_context("api", "chat-1")
+
+    await tool.execute(action="start", goal="Coordinate the research")
+
+    session = service.list_sessions()[0]
+    assert "origin_channel" not in session.runtime_state
+    assert "origin_chat_id" not in session.runtime_state
+    assert "origin_session_key" not in session.runtime_state
+    assert "origin_surface" not in session.runtime_state
 
 
 def test_team_planner_adds_reviewer_for_risky_goals(temp_workspace):

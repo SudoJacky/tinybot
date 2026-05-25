@@ -636,6 +636,8 @@ class CoworkTool(Tool):
         self.runner = AgentRunner(provider)
         self.planner = CoworkTeamPlanner(provider, model, workspace)
         self.mailbox = CoworkMailbox(service)
+        self._context_channel = ""
+        self._context_chat_id = ""
 
     @property
     def name(self) -> str:
@@ -648,6 +650,26 @@ class CoworkTool(Tool):
             "specialized agents with private context, persistent state, inboxes, discussion threads, and task updates. "
             "Actions: start/status/list/send_message/add_task/run/pause/resume/summary."
         )
+
+    @property
+    def current_context(self) -> tuple[str, str]:
+        return self._context_channel, self._context_chat_id
+
+    def set_context(self, channel: str, chat_id: str) -> None:
+        self._context_channel = channel
+        self._context_chat_id = chat_id
+
+    def _origin_runtime_state(self) -> dict[str, str]:
+        channel = self._context_channel.strip()
+        chat_id = self._context_chat_id.strip()
+        if channel != "websocket" or not chat_id:
+            return {}
+        return {
+            "origin_channel": channel,
+            "origin_chat_id": chat_id,
+            "origin_session_key": f"{channel}:{chat_id}",
+            "origin_surface": "main_chat",
+        }
 
     async def execute(
         self,
@@ -684,8 +706,12 @@ class CoworkTool(Tool):
             return json.dumps(result, ensure_ascii=False, indent=2)
 
         if action == "start":
+            origin_runtime_state = self._origin_runtime_state()
             if blueprint:
-                session, diagnostics = self.service.create_session_from_blueprint(blueprint)
+                session, diagnostics = self.service.create_session_from_blueprint(
+                    blueprint,
+                    runtime_state=origin_runtime_state or None,
+                )
                 if session is None:
                     return "Error: blueprint validation failed\n" + json.dumps(diagnostics, ensure_ascii=False, indent=2)
                 response = f"Cowork session started from blueprint: {session.id}\n\n{self.service.format_status(session, verbose=True)}"
@@ -721,6 +747,7 @@ class CoworkTool(Tool):
                 tasks=tasks,
                 workflow_mode=mode,
                 blueprint=generated_blueprint,
+                runtime_state=origin_runtime_state or None,
             )
             response = f"Cowork session started: {session.id}\n\n{self.service.format_status(session, verbose=True)}"
             if auto_run:

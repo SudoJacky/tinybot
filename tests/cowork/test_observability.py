@@ -1,6 +1,11 @@
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.cowork.service import CoworkService
-from tinybot.cowork.snapshot import build_cowork_agent_steps, build_cowork_graph, build_cowork_trace
+from tinybot.cowork.snapshot import (
+    build_cowork_agent_activity,
+    build_cowork_agent_steps,
+    build_cowork_graph,
+    build_cowork_trace,
+)
 from tinybot.cowork.types import CoworkMailboxRecord
 
 
@@ -268,6 +273,86 @@ def test_native_agent_step_records_tool_and_browser_observations(temp_workspace)
     assert native["browser_observations"][0]["sensitive"] is True
     assert native["browser_observations"][0]["redacted"] is True
     assert session.sensitive_artifacts
+
+
+def test_agent_activity_projection_is_bounded_and_preserves_observation_metadata(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Inspect agent", "Inspect", [], [])
+    agent_id = next(iter(session.agents))
+
+    for index in range(7):
+        step = service.start_agent_step(
+            session,
+            agent_id=agent_id,
+            action_kind="agent_run",
+            scheduler_reason=f"Step {index}",
+            task_id="1",
+            input_summary="Run bounded step",
+        )
+        if index == 6:
+            service.record_tool_observation(
+                session,
+                step,
+                tool_name="exec",
+                purpose="Run command",
+                parameters={"command": "echo ok", "api_token": "secret"},
+                result="ok",
+                detail_content="full result",
+            )
+            service.record_browser_observation(
+                session,
+                step,
+                purpose="Inspect page",
+                resource_ref="http://localhost:3000",
+                result_summary="Loaded",
+                detail_content="<html>secret</html>",
+                sensitive=True,
+            )
+        service.finish_agent_step(session, step, output_summary=f"Finished {index}", linked_task_ids=["1"])
+
+    activity = build_cowork_agent_activity(session, agent_id, limit=3)
+
+    assert activity["available"] is True
+    assert activity["agent"]["id"] == agent_id
+    assert "private_summary" not in activity["agent"]
+    assert activity["current_task"]["id"] == "1"
+    assert len(activity["recent_steps"]) == 3
+    assert activity["tool_observations"][0]["parameter_summary"]["api_token"] == "[redacted]"
+    assert activity["tool_observations"][0]["detail_ref"]
+    assert activity["browser_observations"][0]["redacted"] is True
+    assert activity["browser_observations"][0]["detail_ref"]
+
+
+def test_agent_activity_projection_returns_controlled_unavailable_for_unknown_agent(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Unknown", "Unknown", [], [])
+
+    activity = build_cowork_agent_activity(session, "missing")
+
+    assert activity["available"] is False
+    assert activity["agent_id"] == "missing"
+    assert activity["recent_steps"] == []
+
+
+def test_agent_activity_projection_uses_legacy_steps_when_native_steps_are_absent(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Legacy activity", "Legacy", [], [])
+    agent_id = next(iter(session.agents))
+    service.add_trace_event(
+        session,
+        kind="tool",
+        name="Tool call",
+        actor_id=agent_id,
+        summary="Collected result",
+        data={"task_id": "1"},
+        save=False,
+    )
+
+    activity = build_cowork_agent_activity(session, agent_id)
+
+    assert activity["available"] is True
+    assert activity["recent_steps"][0]["projected"] is True
+    assert activity["recent_steps"][0]["task_id"] == "1"
 
 
 def test_full_observation_detail_states(temp_workspace):

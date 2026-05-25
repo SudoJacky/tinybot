@@ -982,7 +982,12 @@ class CoworkService:
     def export_blueprint(self, session: CoworkSession) -> dict[str, Any]:
         return export_session_blueprint(session)
 
-    def create_session_from_blueprint(self, blueprint: dict[str, Any]) -> tuple[CoworkSession | None, list[dict[str, Any]]]:
+    def create_session_from_blueprint(
+        self,
+        blueprint: dict[str, Any],
+        *,
+        runtime_state: dict[str, Any] | None = None,
+    ) -> tuple[CoworkSession | None, list[dict[str, Any]]]:
         preview = self.preview_blueprint(blueprint)
         diagnostics = list(preview.get("diagnostics", []))
         if not preview.get("ok"):
@@ -1008,6 +1013,7 @@ class CoworkService:
             budgets=inputs["budgets"],
             blueprint=normalized,
             blueprint_diagnostics=diagnostics,
+            runtime_state=runtime_state,
         )
         self.add_event(
             session,
@@ -1280,6 +1286,7 @@ class CoworkService:
         budgets: dict[str, Any] | None = None,
         blueprint: dict[str, Any] | None = None,
         blueprint_diagnostics: list[dict[str, Any]] | None = None,
+        runtime_state: dict[str, Any] | None = None,
     ) -> CoworkSession:
         sessions = self._load()
         session_id = self._new_id("cw")
@@ -1292,6 +1299,7 @@ class CoworkService:
         session.stop_reason = ""
         session.blueprint = blueprint or {}
         session.blueprint_diagnostics = blueprint_diagnostics or []
+        session.runtime_state = dict(runtime_state or {})
         for raw in agents:
             agent_id = self._slug(raw.get("id") or raw.get("name") or raw.get("role") or "agent")
             base_id = agent_id

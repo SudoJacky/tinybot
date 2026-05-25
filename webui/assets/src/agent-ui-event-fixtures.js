@@ -145,6 +145,21 @@ export const LEGACY_AGENT_UI_FRAME_FIXTURES = Object.freeze([
     normalizedEvents: [],
     compatibilityPassthrough: true,
   },
+  {
+    name: "chat-scoped cowork state refresh",
+    frame: {
+      event: "cowork_state",
+      chat_id: "chat-1",
+      session_id: "cowork-1",
+      change_type: "agent_step_completed",
+      agent_id: "researcher",
+      task_id: "task-1",
+      status: "active",
+    },
+    visibleBehavior: "Refreshes the matching chat-bound Agent Swarm snapshot without Agent UI normalization.",
+    normalizedEvents: [],
+    compatibilityPassthrough: true,
+  },
 ]);
 
 export const AGENT_UI_FORM_REQUEST_FIXTURES = Object.freeze({

@@ -754,6 +754,313 @@ button.run-chain-item:hover,
   -webkit-backdrop-filter: blur(14px) saturate(1.18);
 }
 
+.chat-cowork-surface {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 760px);
+  margin: 6px 0 10px;
+}
+
+.chat-cowork-swarm {
+  display: grid;
+  gap: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-subtle));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-cowork-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 14px 0;
+}
+
+.chat-cowork-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chat-cowork-title > span {
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.chat-cowork-title > strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-cowork-title > small,
+.chat-cowork-session-note {
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.chat-cowork-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 170px;
+}
+
+.chat-cowork-status,
+.chat-cowork-metric {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chat-cowork-status {
+  padding: 0 9px;
+  font-weight: 800;
+}
+
+.chat-cowork-metric {
+  gap: 5px;
+  padding: 0 8px;
+}
+
+.chat-cowork-metric strong {
+  color: var(--text);
+}
+
+.chat-cowork-agent-list {
+  display: grid;
+  gap: 1px;
+  padding: 0 8px 8px;
+}
+
+.chat-cowork-agent-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) minmax(104px, auto);
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 9px 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-strong) 54%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-cowork-agent-row:hover,
+.chat-cowork-agent-row.selected {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong));
+}
+
+.chat-cowork-agent-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-cowork-agent-avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chat-cowork-agent-main,
+.chat-cowork-agent-aside {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chat-cowork-agent-main strong,
+.chat-cowork-agent-main span,
+.chat-cowork-agent-aside small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-cowork-agent-main strong {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.chat-cowork-agent-main span,
+.chat-cowork-agent-aside small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.chat-cowork-agent-aside {
+  justify-items: end;
+}
+
+.chat-cowork-final {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chat-cowork-final strong {
+  color: var(--text);
+}
+
+.cowork-agent-inspector-section {
+  gap: 10px;
+}
+
+.cowork-agent-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cowork-agent-inspector-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cowork-agent-task-card,
+.cowork-agent-output,
+.cowork-agent-browser-observation,
+.cowork-agent-mailbox-card,
+.cowork-agent-artifact-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-strong) 62%, transparent);
+}
+
+.cowork-agent-task-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.cowork-agent-task-card p,
+.cowork-agent-browser-observation p,
+.cowork-agent-mailbox-card p,
+.cowork-agent-artifact-card p {
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cowork-agent-output-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cowork-agent-output-meta strong,
+.cowork-agent-task-card strong,
+.cowork-agent-mailbox-card strong,
+.cowork-agent-artifact-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.cowork-agent-output-body {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.cowork-agent-output small,
+.cowork-agent-browser-observation small,
+.cowork-agent-mailbox-card small {
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.cowork-agent-observation-detail {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cowork-agent-detail-button {
+  justify-self: start;
+}
+
+.cowork-agent-tool-observation {
+  max-width: 100%;
+}
+
+.cowork-agent-empty {
+  min-height: 72px;
+}
+
+@media (max-width: 720px) {
+  .chat-cowork-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-cowork-metrics {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  .chat-cowork-agent-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .chat-cowork-agent-aside {
+    grid-column: 2;
+    justify-items: start;
+  }
+
+  .cowork-agent-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .inspector-header {
   display: flex;
   align-items: flex-start;

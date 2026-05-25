@@ -26,6 +26,7 @@ from tinybot.utils.web_tokens import WebTokenManager
 
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 BroadcastHandler = Callable[[dict[str, Any]], Awaitable[None]]
+BroadcastChatHandler = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 APP_RUNTIME_KEY = "tinybot_webui_control_runtime"
 APP_PATHS_KEY = "tinybot_webui_control_paths"
@@ -105,6 +106,7 @@ class WebUIControlRuntime:
     channel_running: bool = False
     workspace_files: Mapping[str, Path] = field(default_factory=lambda: dict(DEFAULT_WORKSPACE_FILES))
     broadcast_global: BroadcastHandler | None = None
+    broadcast_chat: BroadcastChatHandler | None = None
     cowork_listener_services: set[int] = field(default_factory=set)
     control_handlers: Mapping[str, Handler] = field(default_factory=dict)
     form_interactions: AgentUiFormRegistry = field(default_factory=AgentUiFormRegistry)
@@ -1702,6 +1704,32 @@ def _runtime_cowork_tool(runtime: WebUIControlRuntime) -> Any:
     return tools.get("cowork") if tools is not None else None
 
 
+def _cowork_origin_chat_id(session: Any) -> str:
+    runtime_state = getattr(session, "runtime_state", {}) or {}
+    if not isinstance(runtime_state, dict):
+        return ""
+    if runtime_state.get("origin_channel") and runtime_state.get("origin_channel") != "websocket":
+        return ""
+    return str(runtime_state.get("origin_chat_id") or "").strip()
+
+
+def _cowork_state_payload(session: Any, event: Any, chat_id: str) -> dict[str, Any]:
+    data = getattr(event, "data", {}) or {}
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "event": "cowork_state",
+        "chat_id": chat_id,
+        "session_id": getattr(session, "id", ""),
+        "change_type": getattr(event, "type", ""),
+        "agent_id": data.get("agent_id") or getattr(event, "actor_id", None) or "",
+        "task_id": data.get("task_id") or "",
+        "work_unit_id": data.get("work_unit_id") or "",
+        "status": data.get("status") or getattr(session, "status", ""),
+        "updated_at": getattr(session, "updated_at", "") or getattr(event, "created_at", ""),
+    }
+
+
 def _attach_cowork_listener(runtime: WebUIControlRuntime, service: Any) -> None:
     if runtime.broadcast_global is None:
         return
@@ -1725,6 +1753,9 @@ def _attach_cowork_listener(runtime: WebUIControlRuntime, service: Any) -> None:
         except RuntimeError:
             return
         loop.create_task(runtime.broadcast_global(payload))
+        chat_id = _cowork_origin_chat_id(session)
+        if chat_id and runtime.broadcast_chat is not None:
+            loop.create_task(runtime.broadcast_chat(chat_id, _cowork_state_payload(session, event, chat_id)))
 
     service.add_listener(listener)
     runtime.cowork_listener_services.add(identity)
@@ -1751,6 +1782,7 @@ def _cowork_route_handler(route_key: str, runtime: WebUIControlRuntime, paths: W
         "list_cowork_sessions": cowork_api.handle_list_sessions,
         "create_cowork_session": cowork_api.handle_create_session,
         "get_cowork_session": cowork_api.handle_get_session,
+        "get_cowork_agent_activity": cowork_api.handle_get_agent_activity,
         "get_cowork_graph": cowork_api.handle_get_session_graph,
         "delete_cowork_session": cowork_api.handle_delete_session,
         "run_cowork_session": cowork_api.handle_run_session,
@@ -1841,6 +1873,7 @@ def _route_specs(paths: WebUIControlPaths) -> tuple[_RouteSpec, ...]:
         _RouteSpec("list_cowork_sessions", "GET", "/api/cowork/sessions"),
         _RouteSpec("create_cowork_session", "POST", "/api/cowork/sessions"),
         _RouteSpec("get_cowork_session", "GET", "/api/cowork/sessions/{session_id}"),
+        _RouteSpec("get_cowork_agent_activity", "GET", "/api/cowork/sessions/{session_id}/agents/{agent_id}/activity"),
         _RouteSpec("get_cowork_graph", "GET", "/api/cowork/sessions/{session_id}/graph"),
         _RouteSpec("delete_cowork_session", "DELETE", "/api/cowork/sessions/{session_id}"),
         _RouteSpec("run_cowork_session", "POST", "/api/cowork/sessions/{session_id}/run"),

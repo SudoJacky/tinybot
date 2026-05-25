@@ -1,5 +1,6 @@
 """Tests for standalone WebUI control-plane route registration."""
 
+import asyncio
 import shutil
 import uuid
 from pathlib import Path
@@ -8,7 +9,12 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, register_webui_control_routes
+from tinybot.api.webui import (
+    WebUIControlPaths,
+    WebUIControlRuntime,
+    _attach_cowork_listener,
+    register_webui_control_routes,
+)
 from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.agent.tools.form import FormRequestTool
 from tinybot.config.schema import Config, MCPServerConfig
@@ -489,6 +495,129 @@ def _sample_form_schema() -> dict:
             },
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_listener_emits_chat_scoped_state(api_workspace):
+    service = CoworkService(api_workspace)
+    global_events: list[dict] = []
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        global_events.append(payload)
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session(
+        "Route updates",
+        "Updates",
+        [{"id": "agent_1", "name": "Agent", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "task_1", "title": "Task", "description": "Work", "assigned_agent_id": "agent_1"}],
+        runtime_state={
+            "origin_channel": "websocket",
+            "origin_chat_id": "chat-1",
+            "origin_session_key": "websocket:chat-1",
+            "origin_surface": "main_chat",
+        },
+    )
+
+    service.add_event(
+        session,
+        "agent.step.completed",
+        "Agent step completed",
+        actor_id="agent_1",
+        data={"agent_id": "agent_1", "task_id": "task_1", "work_unit_id": "unit_1", "status": "done"},
+    )
+    await asyncio.sleep(0)
+
+    assert global_events[-1]["event"] == "cowork_updated"
+    assert chat_events[-1][0] == "chat-1"
+    payload = chat_events[-1][1]
+    assert payload["event"] == "cowork_state"
+    assert payload["chat_id"] == "chat-1"
+    assert payload["session_id"] == session.id
+    assert payload["change_type"] == "agent.step.completed"
+    assert payload["agent_id"] == "agent_1"
+    assert payload["task_id"] == "task_1"
+    assert payload["work_unit_id"] == "unit_1"
+    assert payload["status"] == "done"
+    assert payload["updated_at"]
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_listener_skips_chat_state_without_origin(api_workspace):
+    service = CoworkService(api_workspace)
+    global_events: list[dict] = []
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        global_events.append(payload)
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session("Global only", "Global", [], [])
+
+    service.add_event(session, "session.round", "Round complete")
+    await asyncio.sleep(0)
+
+    assert global_events[-1]["event"] == "cowork_updated"
+    assert chat_events == []
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_listener_routes_multiple_chats_independently(api_workspace):
+    service = CoworkService(api_workspace)
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        return None
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    first = service.create_session(
+        "First chat",
+        "First",
+        [],
+        [],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1"},
+    )
+    second = service.create_session(
+        "Second chat",
+        "Second",
+        [],
+        [],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-2"},
+    )
+
+    service.add_event(first, "session.round", "First update")
+    service.add_event(second, "session.round", "Second update")
+    await asyncio.sleep(0)
+
+    assert [(chat_id, payload["session_id"]) for chat_id, payload in chat_events[-2:]] == [
+        ("chat-1", first.id),
+        ("chat-2", second.id),
+    ]
 
 
 @pytest.mark.asyncio
