@@ -6,13 +6,18 @@ import {
   agentRecentActivity,
   chatCoworkKey,
   coworkAgentActivityKey,
+  coworkFinalOutput,
   createChatCoworkState,
+  deriveCoworkAgentAttention,
+  deriveCoworkAgentSummary,
+  deriveCoworkRunSummary,
   getChatCoworkSessions,
   normalizeCoworkStateEvent,
   normalizeCoworkAgentActivityPayload,
   observationDetailState,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
+  summarizeCoworkAttention,
   summarizeCoworkTasks,
   upsertChatCoworkSession,
 } from "./cowork-chat.js";
@@ -68,6 +73,21 @@ assert.deepEqual(summarizeCoworkTasks(firstSession), { total: 2, completed: 1, f
 assert.equal(agentDisplayLabel(firstSession.agents[0], 0), "Researcher");
 assert.equal(agentDisplayLabel({ role: "critic" }, 1), "critic 2");
 assert.equal(agentCurrentTask(firstSession, firstSession.agents[0]), "Collect sources");
+assert.equal(coworkFinalOutput({ completion_decision: { reason: "2 task(s) still need progress." } }), "");
+assert.equal(
+  coworkFinalOutput({ session_final_result: { summary: "Selected final result." } }),
+  "Selected final result.",
+);
+assert.deepEqual(summarizeCoworkAttention(firstSession), {
+  total: 0,
+  blockers: 0,
+  pending_replies: 0,
+  task_issues: 0,
+  work_unit_issues: 0,
+  agent_issues: 0,
+  tone: "normal",
+  label: "No attention needed",
+});
 
 const event = normalizeCoworkStateEvent({
   event: "cowork_state",
@@ -78,6 +98,63 @@ const event = normalizeCoworkStateEvent({
 });
 rememberCoworkStateEvent(chatCowork, event);
 assert.equal(agentRecentActivity(firstSession, firstSession.agents[0], event), "task_progress");
+assert.deepEqual(deriveCoworkAgentSummary(firstSession, firstSession.agents[0], 0, event), {
+  id: "researcher",
+  label: "Researcher",
+  roleOrTask: "Collect sources",
+  status: "working",
+  latestActivity: "task_progress",
+  attention: { state: "normal", label: "", tone: "normal" },
+});
+
+const blockedSession = {
+  ...firstSession,
+  status: "blocked",
+  agents: [
+    { id: "researcher", name: "Researcher", role: "research", status: "blocked", current_task_id: "task-1" },
+    { id: "writer", role: "writer", status: "waiting", pending_reply_count: 1 },
+  ],
+  tasks: [
+    { id: "task-1", title: "Collect sources", status: "blocked" },
+    { id: "task-2", title: "Write synthesis", status: "completed" },
+  ],
+  mailbox: [
+    { id: "mail-1", recipient_ids: ["writer"], requires_reply: true, status: "delivered" },
+  ],
+  completion_decision: {
+    blocked: [{ id: "mail-1", reason: "Need direction" }],
+  },
+};
+assert.deepEqual(summarizeCoworkAttention(blockedSession), {
+  total: 4,
+  blockers: 1,
+  pending_replies: 1,
+  task_issues: 1,
+  work_unit_issues: 0,
+  agent_issues: 1,
+  tone: "attention",
+  label: "1 blocker",
+});
+assert.deepEqual(deriveCoworkAgentAttention(blockedSession, blockedSession.agents[0]), {
+  state: "blocked",
+  label: "blocked",
+  tone: "attention",
+});
+assert.deepEqual(deriveCoworkAgentAttention(blockedSession, blockedSession.agents[1]), {
+  state: "reply_needed",
+  label: "reply needed",
+  tone: "attention",
+});
+assert.equal(summarizeCoworkAttention({
+  ...blockedSession,
+  completion_decision: {},
+  mailbox: [
+    { id: "mail-1", recipient_ids: ["writer"], requires_reply: true, status: "delivered" },
+    { id: "mail-2", recipient_ids: ["writer"], requires_reply: true, status: "read" },
+  ],
+  tasks: blockedSession.tasks.map((task) => ({ ...task, status: "completed" })),
+  agents: blockedSession.agents.map((agent) => ({ ...agent, status: "working", pending_reply_count: 0 })),
+}).label, "2 replies needed");
 
 upsertChatCoworkSession(chatCowork, "chat-1", {
   id: "cw-2",
@@ -104,6 +181,31 @@ assert.deepEqual(summarizeCoworkTasks(selectVisibleChatCoworkSessions(chatCowork
   completed: 2,
   failed: 0,
   blocked: 0,
+});
+assert.deepEqual(deriveCoworkRunSummary(selectVisibleChatCoworkSessions(chatCowork, "chat-1")[0]), {
+  id: "cw-1",
+  title: "Research plan",
+  status: "completed",
+  workflow: "swarm",
+  agentCount: 1,
+  activeAgentCount: 0,
+  taskProgress: {
+    total: 2,
+    completed: 2,
+    failed: 0,
+    blocked: 0,
+  },
+  finalOutput: "Complete.",
+  attention: {
+    total: 0,
+    blockers: 0,
+    pending_replies: 0,
+    task_issues: 0,
+    work_unit_issues: 0,
+    agent_issues: 0,
+    tone: "complete",
+    label: "Final output ready",
+  },
 });
 
 const unavailableActivity = normalizeCoworkAgentActivityPayload(

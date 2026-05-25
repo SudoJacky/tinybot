@@ -1,5 +1,8 @@
 const ACTIVE_SESSION_STATUSES = new Set(["active", "running", "paused", "blocked"]);
 const DONE_TASK_STATUSES = new Set(["completed", "done", "reviewed", "accepted"]);
+const ACTIVE_WORK_STATUSES = new Set(["active", "running", "working", "in_progress"]);
+const ATTENTION_STATUSES = new Set(["blocked", "failed", "error", "needs_revision", "expired"]);
+const PENDING_REPLY_STATUSES = new Set(["delivered", "read", "pending"]);
 
 export function createChatCoworkState() {
   return {
@@ -100,6 +103,88 @@ export function summarizeCoworkTasks(session) {
   return { total, completed, failed, blocked };
 }
 
+export function coworkFinalOutput(session) {
+  const decision = session?.completion_decision || {};
+  const sessionFinalResult = session?.session_final_result || {};
+  return String(
+    session?.final_draft
+      || sessionFinalResult.summary
+      || decision.final_output
+      || decision.final_answer
+      || "",
+  ).trim();
+}
+
+function pluralizeCount(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function summarizeCoworkAttention(session) {
+  const tasks = Array.isArray(session?.tasks) ? session.tasks : [];
+  const agents = Array.isArray(session?.agents) ? session.agents : [];
+  const mailbox = Array.isArray(session?.mailbox) ? session.mailbox : [];
+  const workUnits = Array.isArray(session?.swarm_plan?.work_units) ? session.swarm_plan.work_units : [];
+  const decision = session?.completion_decision || {};
+  const decisionBlockers = [
+    ...(Array.isArray(decision.blocked) ? decision.blocked : []),
+    ...(Array.isArray(decision.review_blockers) ? decision.review_blockers : []),
+    ...(Array.isArray(decision.fanout_blockers) ? decision.fanout_blockers : []),
+    ...(Array.isArray(decision.disagreements) ? decision.disagreements : []),
+  ];
+  const taskIssues = tasks.filter((task) => ATTENTION_STATUSES.has(String(task.status || "").toLowerCase()));
+  const unitIssues = workUnits.filter((unit) => ATTENTION_STATUSES.has(String(unit.status || "").toLowerCase()));
+  const agentIssues = agents.filter((agent) => ATTENTION_STATUSES.has(String(agent.status || agent.lifecycle_status || "").toLowerCase()));
+  const pendingReplies = mailbox.filter((record) => {
+    const status = String(record.status || "").toLowerCase();
+    return Boolean(record.requires_reply) && (!status || PENDING_REPLY_STATUSES.has(status));
+  });
+  const total = decisionBlockers.length + taskIssues.length + unitIssues.length + agentIssues.length + pendingReplies.length;
+  let label = "";
+  if (decisionBlockers.length) {
+    label = `${decisionBlockers.length} blocker${decisionBlockers.length === 1 ? "" : "s"}`;
+  } else if (pendingReplies.length) {
+    label = `${pluralizeCount(pendingReplies.length, "reply", "replies")} needed`;
+  } else if (taskIssues.length || unitIssues.length) {
+    const count = taskIssues.length + unitIssues.length;
+    label = `${count} work item${count === 1 ? "" : "s"} need attention`;
+  } else if (agentIssues.length) {
+    label = `${agentIssues.length} agent${agentIssues.length === 1 ? "" : "s"} need attention`;
+  } else {
+    label = coworkFinalOutput(session) ? "Final output ready" : "No attention needed";
+  }
+  return {
+    total,
+    blockers: decisionBlockers.length,
+    pending_replies: pendingReplies.length,
+    task_issues: taskIssues.length,
+    work_unit_issues: unitIssues.length,
+    agent_issues: agentIssues.length,
+    tone: total ? "attention" : coworkFinalOutput(session) ? "complete" : "normal",
+    label,
+  };
+}
+
+export function deriveCoworkRunSummary(session) {
+  const agents = Array.isArray(session?.agents) ? session.agents : [];
+  const taskProgress = summarizeCoworkTasks(session);
+  const finalOutput = coworkFinalOutput(session);
+  const attention = summarizeCoworkAttention(session);
+  const activeAgents = isCoworkSessionActive(session)
+    ? agents.filter((agent) => ACTIVE_WORK_STATUSES.has(String(agent.status || agent.lifecycle_status || "").toLowerCase()))
+    : [];
+  return {
+    id: String(session?.id || ""),
+    title: String(session?.title || session?.goal || session?.id || "Cowork session"),
+    status: String(session?.status || "active"),
+    workflow: String(session?.architecture || session?.workflow_mode || ""),
+    agentCount: agents.length,
+    activeAgentCount: activeAgents.length,
+    taskProgress,
+    finalOutput,
+    attention,
+  };
+}
+
 export function agentDisplayLabel(agent, index = 0) {
   const name = String(agent?.name || "").trim();
   if (name) {
@@ -131,6 +216,47 @@ export function agentRecentActivity(session, agent, event = null) {
     return latestStep.action_kind || latestStep.status || latestStep.updated_at || "step";
   }
   return agent?.last_active_at ? `active ${agent.last_active_at}` : "waiting";
+}
+
+export function deriveCoworkAgentAttention(session, agent) {
+  const status = String(agent?.status || agent?.lifecycle_status || "").toLowerCase();
+  if (ATTENTION_STATUSES.has(status)) {
+    return { state: status, label: status.replaceAll("_", " "), tone: "attention" };
+  }
+  if (Number(agent?.pending_reply_count || 0) > 0) {
+    return { state: "reply_needed", label: "reply needed", tone: "attention" };
+  }
+  const mailbox = Array.isArray(session?.mailbox) ? session.mailbox : [];
+  const waitingReply = mailbox.find((record) => {
+    const recipients = Array.isArray(record.recipient_ids) ? record.recipient_ids : [];
+    const recordStatus = String(record.status || "").toLowerCase();
+    return recipients.includes(agent?.id) && record.requires_reply && (!recordStatus || PENDING_REPLY_STATUSES.has(recordStatus));
+  });
+  if (waitingReply) {
+    return { state: "reply_needed", label: "reply needed", tone: "attention" };
+  }
+  const task = Array.isArray(session?.tasks)
+    ? session.tasks.find((item) => item.id && item.id === agent?.current_task_id)
+    : null;
+  const taskStatus = String(task?.status || "").toLowerCase();
+  if (ATTENTION_STATUSES.has(taskStatus)) {
+    return { state: taskStatus, label: taskStatus.replaceAll("_", " "), tone: "attention" };
+  }
+  if (["waiting", "paused", "idle"].includes(status)) {
+    return { state: status || "waiting", label: status || "waiting", tone: "waiting" };
+  }
+  return { state: "normal", label: "", tone: "normal" };
+}
+
+export function deriveCoworkAgentSummary(session, agent, index = 0, event = null) {
+  return {
+    id: String(agent?.id || ""),
+    label: agentDisplayLabel(agent, index),
+    roleOrTask: agentCurrentTask(session, agent) || agent?.role || "Waiting for work",
+    status: String(agent?.status || agent?.lifecycle_status || "idle"),
+    latestActivity: agentRecentActivity(session, agent, event),
+    attention: deriveCoworkAgentAttention(session, agent),
+  };
 }
 
 export function normalizeCoworkAgentActivityPayload(payload = {}, selection = {}) {

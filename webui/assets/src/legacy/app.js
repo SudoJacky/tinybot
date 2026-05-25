@@ -23,19 +23,17 @@ import {
   renderAgentUiSurface,
 } from '../agent-ui-events.js';
 import {
-  agentCurrentTask,
-  agentDisplayLabel,
-  agentRecentActivity,
   chatCoworkKey,
   coworkAgentActivityKey,
   createChatCoworkState,
+  deriveCoworkAgentSummary,
+  deriveCoworkRunSummary,
   getChatCoworkSessions,
   normalizeCoworkAgentActivityPayload,
   normalizeCoworkStateEvent,
   observationDetailState,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
-  summarizeCoworkTasks,
   upsertChatCoworkSession,
 } from '../cowork-chat.js';
 
@@ -1983,6 +1981,35 @@ function createChatCoworkMetric(label, value) {
   return item;
 }
 
+function createChatCoworkAttentionBadge(attention) {
+  const badge = document.createElement("span");
+  badge.className = `chat-cowork-attention chat-cowork-attention-${attention?.tone || "normal"}`;
+  badge.textContent = attention?.label || "No attention needed";
+  return badge;
+}
+
+function createChatCoworkProgressNode(taskProgress) {
+  const total = Number(taskProgress?.total || 0);
+  const completed = Number(taskProgress?.completed || 0);
+  const percent = total ? Math.max(0, Math.min(100, Math.round((completed / total) * 100))) : 0;
+  const node = document.createElement("div");
+  node.className = "chat-cowork-progress";
+  const header = document.createElement("div");
+  header.className = "chat-cowork-progress-header";
+  const label = document.createElement("strong");
+  label.textContent = "Task progress";
+  const value = document.createElement("span");
+  value.textContent = total ? `${completed}/${total}` : "No tasks yet";
+  header.append(label, value);
+  const track = document.createElement("div");
+  track.className = "chat-cowork-progress-track";
+  const fill = document.createElement("span");
+  fill.style.width = `${percent}%`;
+  track.append(fill);
+  node.append(header, track);
+  return node;
+}
+
 function createChatCoworkStatusBadge(status) {
   const badge = document.createElement("span");
   badge.className = `chat-cowork-status ${coworkStatusClass(status || "active")}`;
@@ -1991,17 +2018,20 @@ function createChatCoworkStatusBadge(status) {
 }
 
 function createChatCoworkAgentRow(session, agent, index) {
+  const event = latestCoworkEventForSession(session._chat_id || state.activeChatId, session.id);
+  const summary = deriveCoworkAgentSummary(session, agent, index, event);
   const row = document.createElement("button");
-  row.className = "chat-cowork-agent-row";
+  row.className = `chat-cowork-agent-row chat-cowork-agent-row-${summary.attention.tone || "normal"}`;
   row.type = "button";
-  row.dataset.agentId = agent.id || "";
+  row.dataset.agentId = summary.id || agent.id || "";
   if (
     state.selectedCoworkAgent?.sessionId === session.id &&
     state.selectedCoworkAgent?.agentId === agent.id
   ) {
     row.classList.add("selected");
+    row.setAttribute("aria-current", "true");
   }
-  row.setAttribute("aria-label", `Inspect ${agentDisplayLabel(agent, index)}`);
+  row.setAttribute("aria-label", `Inspect ${summary.label}`);
   row.addEventListener("click", () => openCoworkAgentInspector({
     chatId: session._chat_id || state.activeChatId,
     sessionId: session.id,
@@ -2011,35 +2041,37 @@ function createChatCoworkAgentRow(session, agent, index) {
   const avatar = document.createElement("span");
   avatar.className = "chat-cowork-agent-avatar";
   avatar.setAttribute("aria-hidden", "true");
-  avatar.textContent = agentDisplayLabel(agent, index).slice(0, 1).toUpperCase();
+  avatar.textContent = summary.label.slice(0, 1).toUpperCase();
 
   const main = document.createElement("span");
   main.className = "chat-cowork-agent-main";
   const title = document.createElement("strong");
-  title.textContent = agentDisplayLabel(agent, index);
+  title.textContent = summary.label;
   const task = document.createElement("span");
-  task.textContent = compactText(agentCurrentTask(session, agent) || agent.role || "Waiting for work", 130);
+  task.textContent = compactText(summary.roleOrTask, 130);
   main.append(title, task);
 
   const aside = document.createElement("span");
   aside.className = "chat-cowork-agent-aside";
-  aside.append(createChatCoworkStatusBadge(agent.status || agent.lifecycle_status || "idle"));
+  aside.append(createChatCoworkStatusBadge(summary.status));
   const activity = document.createElement("small");
-  activity.textContent = compactText(agentRecentActivity(
-    session,
-    agent,
-    latestCoworkEventForSession(session._chat_id || state.activeChatId, session.id),
-  ), 44);
+  activity.textContent = compactText(summary.latestActivity, 44);
   aside.append(activity);
+  if (summary.attention.label) {
+    const attention = document.createElement("small");
+    attention.className = `chat-cowork-agent-attention chat-cowork-agent-attention-${summary.attention.tone || "normal"}`;
+    attention.textContent = summary.attention.label;
+    aside.append(attention);
+  }
 
   row.append(avatar, main, aside);
   return row;
 }
 
 function createChatCoworkSessionNode(session, index, totalSessions) {
-  const taskProgress = summarizeCoworkTasks(session);
-  const completedText = taskProgress.total
-    ? `${taskProgress.completed}/${taskProgress.total}`
+  const run = deriveCoworkRunSummary(session);
+  const completedText = run.taskProgress.total
+    ? `${run.taskProgress.completed}/${run.taskProgress.total}`
     : "0/0";
   const node = document.createElement("section");
   node.className = "chat-cowork-swarm";
@@ -2050,25 +2082,31 @@ function createChatCoworkSessionNode(session, index, totalSessions) {
   const titleWrap = document.createElement("div");
   titleWrap.className = "chat-cowork-title";
   const eyebrow = document.createElement("span");
-  eyebrow.textContent = totalSessions > 1 ? `Agent Swarm ${index + 1}/${totalSessions}` : "Agent Swarm";
+  eyebrow.textContent = totalSessions > 1 ? `Cowork run ${index + 1}/${totalSessions}` : "Cowork run";
   const title = document.createElement("strong");
-  title.textContent = compactText(session.title || session.goal || session.id || "Cowork session", 96);
+  title.textContent = compactText(run.title, 96);
   const identity = document.createElement("small");
   identity.textContent = [
     session.id ? `Session ${session.id}` : "",
-    coworkArchitectureLabel(session.architecture || session.workflow_mode),
+    coworkArchitectureLabel(run.workflow),
   ].filter(Boolean).join(" - ");
   titleWrap.append(eyebrow, title, identity);
 
   const metrics = document.createElement("div");
   metrics.className = "chat-cowork-metrics";
   metrics.append(
-    createChatCoworkStatusBadge(session.status || "active"),
-    createChatCoworkMetric("Agents", session.agents?.length || 0),
+    createChatCoworkStatusBadge(run.status),
+    createChatCoworkMetric("Agents", run.agentCount),
+    createChatCoworkMetric("Active", run.activeAgentCount),
     createChatCoworkMetric("Tasks", completedText),
   );
   header.append(titleWrap, metrics);
   node.append(header);
+
+  const summary = document.createElement("div");
+  summary.className = "chat-cowork-run-summary";
+  summary.append(createChatCoworkProgressNode(run.taskProgress), createChatCoworkAttentionBadge(run.attention));
+  node.append(summary);
 
   const agentList = document.createElement("div");
   agentList.className = "chat-cowork-agent-list";
@@ -2077,13 +2115,13 @@ function createChatCoworkSessionNode(session, index, totalSessions) {
   }
   node.append(agentList);
 
-  if (session.final_draft || session.status === "completed") {
+  if (run.finalOutput || run.status === "completed") {
     const final = document.createElement("div");
     final.className = "chat-cowork-final";
     const label = document.createElement("strong");
-    label.textContent = "Completed";
+    label.textContent = "Final output";
     const text = document.createElement("span");
-    text.textContent = compactText(session.final_draft || session.completion_decision?.reason || "Session completed.", 220);
+    text.textContent = compactText(run.finalOutput || "Session completed.", 260);
     final.append(label, text);
     node.append(final);
   }
@@ -2105,7 +2143,7 @@ function createChatCoworkSurfaceNode(chatId) {
   if (allSessions.length > sessions.length) {
     const note = document.createElement("small");
     note.className = "chat-cowork-session-note";
-    note.textContent = `${allSessions.length} Cowork sessions in this chat; latest active shown.`;
+    note.textContent = `${allSessions.length - sessions.length} older Cowork session${allSessions.length - sessions.length === 1 ? "" : "s"} hidden; latest active session shown.`;
     wrapper.append(note);
   }
   return wrapper;
@@ -2347,9 +2385,9 @@ function renderCoworkAgentInspector() {
     return;
   }
   elements.inspectorBody.append(
+    createCoworkAgentListSection("Recent Output", activity.recent_steps, createCoworkAgentStepNode, "No recent output."),
     createCoworkAgentInspectorSection("Overview", [createCoworkAgentOverview(activity)]),
     createCoworkAgentInspectorSection("Current Task", [createCoworkAgentTaskNode(activity.current_task)]),
-    createCoworkAgentListSection("Recent Output", activity.recent_steps, createCoworkAgentStepNode, "No recent output."),
     createCoworkAgentListSection(
       "Tool Calls",
       activity.tool_observations,

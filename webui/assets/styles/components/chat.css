@@ -763,7 +763,7 @@ button.run-chain-item:hover,
 
 .chat-cowork-swarm {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-subtle));
   border-radius: var(--radius-md);
@@ -846,6 +846,82 @@ button.run-chain-item:hover,
   color: var(--text);
 }
 
+.chat-cowork-run-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 0 14px;
+}
+
+.chat-cowork-progress {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-cowork-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.chat-cowork-progress-header strong {
+  color: var(--text-subtle);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.chat-cowork-progress-track {
+  overflow: hidden;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 34%, transparent);
+}
+
+.chat-cowork-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 72%, var(--success));
+}
+
+.chat-cowork-attention {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  max-width: 220px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.chat-cowork-attention-attention,
+.chat-cowork-agent-row-attention {
+  border-color: color-mix(in srgb, var(--warning) 36%, var(--border-subtle));
+  background: color-mix(in srgb, var(--warning) 8%, var(--panel-strong));
+}
+
+.chat-cowork-attention-attention {
+  color: var(--warning);
+}
+
+.chat-cowork-attention-complete {
+  border-color: color-mix(in srgb, var(--success) 32%, var(--border-subtle));
+  color: var(--success);
+}
+
 .chat-cowork-agent-list {
   display: grid;
   gap: 1px;
@@ -870,6 +946,10 @@ button.run-chain-item:hover,
 .chat-cowork-agent-row:hover,
 .chat-cowork-agent-row.selected {
   background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong));
+}
+
+.chat-cowork-agent-row.selected {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 72%, var(--success));
 }
 
 .chat-cowork-agent-row:focus-visible {
@@ -922,6 +1002,20 @@ button.run-chain-item:hover,
   justify-items: end;
 }
 
+.chat-cowork-agent-aside .chat-cowork-agent-attention {
+  color: var(--text-subtle);
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.chat-cowork-agent-aside .chat-cowork-agent-attention-attention {
+  color: var(--warning);
+}
+
+.chat-cowork-agent-aside .chat-cowork-agent-attention-waiting {
+  color: var(--text-muted);
+}
+
 .chat-cowork-final {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -935,6 +1029,11 @@ button.run-chain-item:hover,
 
 .chat-cowork-final strong {
   color: var(--text);
+}
+
+.chat-cowork-final span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .cowork-agent-inspector-section {
@@ -964,6 +1063,11 @@ button.run-chain-item:hover,
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--panel-strong) 62%, transparent);
+}
+
+.cowork-agent-output {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border-subtle));
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
 }
 
 .cowork-agent-task-card {
@@ -1004,8 +1108,8 @@ button.run-chain-item:hover,
 .cowork-agent-output-body {
   overflow-wrap: anywhere;
   color: var(--text);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .cowork-agent-output small,
@@ -1042,6 +1146,15 @@ button.run-chain-item:hover,
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .chat-cowork-run-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-cowork-attention {
+    justify-self: start;
+    max-width: 100%;
+  }
+
   .chat-cowork-metrics {
     justify-content: flex-start;
     min-width: 0;
@@ -1054,6 +1167,10 @@ button.run-chain-item:hover,
   .chat-cowork-agent-aside {
     grid-column: 2;
     justify-items: start;
+  }
+
+  .chat-cowork-final {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .cowork-agent-overview-grid {
