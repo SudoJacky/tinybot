@@ -280,6 +280,51 @@ export function normalizeCoworkAgentActivityPayload(payload = {}, selection = {}
   };
 }
 
+export function deriveCoworkAgentTasks(activity = {}) {
+  const tasks = [];
+  const seen = new Set();
+  const addTask = (task) => {
+    const id = String(task?.id || "").trim();
+    if (!id || seen.has(id)) {
+      return;
+    }
+    seen.add(id);
+    tasks.push({
+      id,
+      title: String(task?.title || id),
+      status: String(task?.status || "pending"),
+      description: String(task?.description || ""),
+      updatedAt: String(task?.updated_at || task?.created_at || ""),
+    });
+  };
+  addTask(activity?.current_task);
+  for (const task of activity?.linked_tasks || []) {
+    addTask(task);
+  }
+  return tasks;
+}
+
+export function deriveCoworkAgentTimeline(activity = {}) {
+  const agentId = String(activity?.agent_id || activity?.agent?.id || "").trim();
+  return (activity?.mailbox_records || []).map((record) => {
+    const sender = String(record?.sender_id || "sender");
+    const recipients = Array.isArray(record?.recipient_ids)
+      ? record.recipient_ids.map((item) => String(item)).filter(Boolean)
+      : [];
+    const direction = sender === agentId ? "outgoing" : recipients.includes(agentId) ? "incoming" : "message";
+    return {
+      id: String(record?.id || `${sender}:${record?.created_at || record?.updated_at || ""}`),
+      direction,
+      route: `${sender} -> ${recipients.join(", ") || "none"}`,
+      body: String(record?.content || ""),
+      kind: String(record?.kind || "message"),
+      status: String(record?.status || ""),
+      requiresReply: Boolean(record?.requires_reply),
+      timestamp: String(record?.updated_at || record?.created_at || ""),
+    };
+  });
+}
+
 export function observationDetailState(observation = {}) {
   if (observation.redacted) {
     return "redacted";

@@ -27,11 +27,12 @@ import {
   coworkAgentActivityKey,
   createChatCoworkState,
   deriveCoworkAgentSummary,
+  deriveCoworkAgentTasks,
+  deriveCoworkAgentTimeline,
   deriveCoworkRunSummary,
   getChatCoworkSessions,
   normalizeCoworkAgentActivityPayload,
   normalizeCoworkStateEvent,
-  observationDetailState,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
   upsertChatCoworkSession,
@@ -2013,7 +2014,7 @@ function createChatCoworkProgressNode(taskProgress) {
 function createChatCoworkStatusBadge(status) {
   const badge = document.createElement("span");
   badge.className = `chat-cowork-status ${coworkStatusClass(status || "active")}`;
-  badge.textContent = status || "active";
+  badge.textContent = String(status || "active").replaceAll("_", " ");
   return badge;
 }
 
@@ -2224,21 +2225,6 @@ function createCoworkAgentInspectorSection(titleText, children = []) {
   return section;
 }
 
-function createCoworkAgentOverview(activity) {
-  const agent = activity.agent || {};
-  const metrics = document.createElement("div");
-  metrics.className = "cowork-agent-overview-grid";
-  metrics.append(
-    inspectorRow("Status", agent.status || "-"),
-    inspectorRow("Role", agent.role || "-"),
-    inspectorRow("Rounds", agent.rounds ?? 0),
-    inspectorRow("Inbox", agent.inbox_count ?? 0),
-    inspectorRow("Pending replies", agent.pending_reply_count ?? 0),
-    inspectorRow("Updated", activity.updated_at || agent.last_active_at || "-"),
-  );
-  return metrics;
-}
-
 function createCoworkAgentTaskNode(task) {
   if (!task) {
     const empty = document.createElement("div");
@@ -2251,100 +2237,56 @@ function createCoworkAgentTaskNode(task) {
   const title = document.createElement("strong");
   title.textContent = task.title || task.id || "Task";
   const status = createChatCoworkStatusBadge(task.status || "pending");
-  const body = document.createElement("p");
-  body.textContent = compactText(task.description || task.result || task.error || "", 420);
-  node.append(title, status, body);
+  node.append(title, status);
   return node;
 }
 
-function createCoworkAgentStepNode(step) {
-  const node = document.createElement("article");
-  node.className = "cowork-agent-output";
-  const meta = document.createElement("div");
-  meta.className = "cowork-agent-output-meta";
-  const title = document.createElement("strong");
-  title.textContent = step.summary?.purpose || step.action_kind || "Agent step";
-  const status = createChatCoworkStatusBadge(step.status || "completed");
-  meta.append(title, status);
-  const body = document.createElement("div");
-  body.className = "cowork-agent-output-body";
-  renderCoworkMessageBody(body, step.summary?.outcome_summary || step.output_summary || step.summary?.input_summary || step.input_summary || "", {
-    markdown: true,
-  });
-  const foot = document.createElement("small");
-  foot.textContent = [
-    step.task_id ? `Task ${step.task_id}` : "",
-    step.work_unit_id ? `Unit ${step.work_unit_id}` : "",
-    step.ended_at || step.started_at || "",
-  ].filter(Boolean).join(" - ");
-  node.append(meta, body, foot);
-  return node;
-}
-
-function createCoworkAgentObservationDetailNode(observation, sessionId) {
-  const stateLabel = observationDetailState(observation);
-  const target = document.createElement("div");
-  target.className = "cowork-agent-observation-detail";
-  if (stateLabel === "redacted" || stateLabel === "sensitive" || stateLabel === "unavailable") {
-    target.textContent = stateLabel === "unavailable" ? "No full detail is available." : `Detail is ${stateLabel}.`;
-    return target;
-  }
-  const button = document.createElement("button");
-  button.className = "button button-ghost cowork-agent-detail-button";
-  button.type = "button";
-  button.textContent = "Load detail";
-  button.addEventListener("click", () => {
-    loadCoworkObservationDetail(observation.detail_ref, target, button, sessionId);
-  });
-  target.append(button);
-  return target;
-}
-
-function createCoworkAgentToolObservationNode(observation, sessionId) {
-  const node = createToolActivityNode({
-    name: observation.tool_name || "tool",
-    argsText: JSON.stringify(observation.parameter_summary || {}, null, 2),
-    responseText: observation.result_summary || "",
-    kind: observation.status === "failed" ? "error" : "result",
-  });
-  node.classList.add("cowork-agent-tool-observation");
-  node.append(createCoworkAgentObservationDetailNode(observation, sessionId));
-  return node;
-}
-
-function createCoworkAgentBrowserObservationNode(observation, sessionId) {
-  const node = document.createElement("article");
-  node.className = "cowork-agent-browser-observation";
-  const header = document.createElement("div");
-  header.className = "cowork-agent-output-meta";
-  const title = document.createElement("strong");
-  title.textContent = observation.title || observation.resource_ref || "Browser observation";
-  header.append(title, createChatCoworkStatusBadge(observation.status || "completed"));
-  const body = document.createElement("p");
-  body.textContent = compactText([observation.purpose, observation.result_summary].filter(Boolean).join(" - "), 420);
-  const meta = document.createElement("small");
-  meta.textContent = [
-    observation.resource_ref || "",
-    observation.sensitive ? "sensitive" : "",
-    observation.duration_ms !== null && observation.duration_ms !== undefined ? `${observation.duration_ms} ms` : "",
-  ].filter(Boolean).join(" - ");
-  node.append(header, body, meta, createCoworkAgentObservationDetailNode(observation, sessionId));
-  return node;
-}
-
-function createCoworkAgentListSection(title, items, renderItem, emptyText) {
-  if (!items.length) {
-    const empty = document.createElement("div");
-    empty.className = "inspector-empty cowork-agent-empty";
-    empty.textContent = emptyText;
-    return createCoworkAgentInspectorSection(title, [empty]);
+function createCoworkAgentTasksNode(activity) {
+  const tasks = deriveCoworkAgentTasks(activity);
+  if (!tasks.length) {
+    return createCoworkAgentInspectorSection("Tasks", [createCoworkAgentTaskNode(null)]);
   }
   const list = document.createElement("div");
-  list.className = "cowork-agent-inspector-list";
-  for (const item of items) {
-    list.append(renderItem(item));
+  list.className = "cowork-agent-task-list";
+  for (const task of tasks) {
+    list.append(createCoworkAgentTaskNode(task));
   }
-  return createCoworkAgentInspectorSection(title, [list]);
+  return createCoworkAgentInspectorSection("Tasks", [list]);
+}
+
+function createCoworkAgentMessageNode(item) {
+  const node = document.createElement("article");
+  node.className = `cowork-agent-message cowork-agent-message-${item.direction || "message"}`;
+  const meta = document.createElement("div");
+  meta.className = "cowork-agent-message-meta";
+  const route = document.createElement("strong");
+  route.textContent = item.route;
+  const status = document.createElement("span");
+  status.textContent = [item.kind, item.status, item.requiresReply ? "reply required" : "", item.timestamp]
+    .filter(Boolean)
+    .join(" - ");
+  meta.append(route, status);
+  const body = document.createElement("div");
+  body.className = "cowork-agent-message-body";
+  renderCoworkMessageBody(body, item.body || "", { markdown: true });
+  node.append(meta, body);
+  return node;
+}
+
+function createCoworkAgentTimelineNode(activity) {
+  const timeline = deriveCoworkAgentTimeline(activity);
+  if (!timeline.length) {
+    const empty = document.createElement("div");
+    empty.className = "inspector-empty cowork-agent-empty";
+    empty.textContent = "No mailbox messages.";
+    return createCoworkAgentInspectorSection("Agent Thread", [empty]);
+  }
+  const list = document.createElement("div");
+  list.className = "cowork-agent-message-list";
+  for (const item of timeline) {
+    list.append(createCoworkAgentMessageNode(item));
+  }
+  return createCoworkAgentInspectorSection("Agent Thread", [list]);
 }
 
 function renderCoworkAgentInspector() {
@@ -2385,43 +2327,8 @@ function renderCoworkAgentInspector() {
     return;
   }
   elements.inspectorBody.append(
-    createCoworkAgentListSection("Recent Output", activity.recent_steps, createCoworkAgentStepNode, "No recent output."),
-    createCoworkAgentInspectorSection("Overview", [createCoworkAgentOverview(activity)]),
-    createCoworkAgentInspectorSection("Current Task", [createCoworkAgentTaskNode(activity.current_task)]),
-    createCoworkAgentListSection(
-      "Tool Calls",
-      activity.tool_observations,
-      (observation) => createCoworkAgentToolObservationNode(observation, activity.session_id),
-      "No tool observations.",
-    ),
-    createCoworkAgentListSection(
-      "Browser Observations",
-      activity.browser_observations,
-      (observation) => createCoworkAgentBrowserObservationNode(observation, activity.session_id),
-      "No browser observations.",
-    ),
-    createCoworkAgentListSection("Mailbox", activity.mailbox_records, (record) => {
-      const node = document.createElement("article");
-      node.className = "cowork-agent-mailbox-card";
-      const title = document.createElement("strong");
-      title.textContent = `${record.sender_id || "sender"} -> ${(record.recipient_ids || []).join(", ") || "none"}`;
-      const body = document.createElement("p");
-      body.textContent = compactText(record.content || "", 420);
-      const meta = document.createElement("small");
-      meta.textContent = [record.kind || "message", record.status || "", record.requires_reply ? "reply required" : "", record.updated_at || record.created_at || ""].filter(Boolean).join(" - ");
-      node.append(title, body, meta);
-      return node;
-    }, "No mailbox records."),
-    createCoworkAgentListSection("Artifacts and Results", [...activity.linked_tasks, ...activity.artifacts], (item) => {
-      const node = document.createElement("article");
-      node.className = "cowork-agent-artifact-card";
-      const title = document.createElement("strong");
-      title.textContent = item.title || item.path || item.url || item.ref || item.id || "Artifact";
-      const body = document.createElement("p");
-      body.textContent = compactText(item.result || item.description || item.value || JSON.stringify(item), 420);
-      node.append(title, body);
-      return node;
-    }, "No artifacts or task results."),
+    createCoworkAgentTasksNode(activity),
+    createCoworkAgentTimelineNode(activity),
   );
 }
 

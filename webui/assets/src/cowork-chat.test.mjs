@@ -8,6 +8,8 @@ import {
   coworkAgentActivityKey,
   coworkFinalOutput,
   createChatCoworkState,
+  deriveCoworkAgentTasks,
+  deriveCoworkAgentTimeline,
   deriveCoworkAgentAttention,
   deriveCoworkAgentSummary,
   deriveCoworkRunSummary,
@@ -232,5 +234,75 @@ const redactedActivity = normalizeCoworkAgentActivityPayload(
 assert.equal(redactedActivity.available, true);
 assert.equal(observationDetailState(redactedActivity.tool_observations[0]), "redacted");
 assert.equal(observationDetailState(redactedActivity.tool_observations[1]), "available");
+
+const inspectorActivity = normalizeCoworkAgentActivityPayload(
+  {
+    activity: {
+      session_id: "cw-1",
+      agent: { id: "researcher", name: "Researcher" },
+      current_task: { id: "task-1", title: "Research sources", status: "in_progress", description: "Find reliable sources" },
+      linked_tasks: [
+        { id: "task-1", title: "Research sources", status: "in_progress", result: "do not duplicate" },
+        { id: "task-2", title: "Share findings", status: "completed", result: "hidden result" },
+      ],
+      recent_steps: [{ id: "step-1", output_summary: "hidden step output" }],
+      tool_observations: [{ id: "tool-1", result_summary: "hidden tool output" }],
+      browser_observations: [{ id: "browser-1", result_summary: "hidden browser output" }],
+      artifacts: [{ id: "artifact-1", value: "hidden artifact" }],
+      mailbox_records: [
+        {
+          id: "mail-1",
+          sender_id: "coordinator",
+          recipient_ids: ["researcher"],
+          content: "Please collect sources.",
+          kind: "message",
+          status: "read",
+          requires_reply: true,
+          updated_at: "2026-05-25T01:00:00Z",
+        },
+        {
+          id: "mail-2",
+          sender_id: "researcher",
+          recipient_ids: ["coordinator"],
+          content: "I found three sources.",
+          kind: "message",
+          status: "delivered",
+          requires_reply: false,
+          created_at: "2026-05-25T01:05:00Z",
+        },
+      ],
+    },
+  },
+  {},
+);
+assert.deepEqual(deriveCoworkAgentTasks(inspectorActivity).map((task) => [task.id, task.title, task.status]), [
+  ["task-1", "Research sources", "in_progress"],
+  ["task-2", "Share findings", "completed"],
+]);
+assert.deepEqual(deriveCoworkAgentTimeline(inspectorActivity).map((item) => ({
+  id: item.id,
+  direction: item.direction,
+  route: item.route,
+  body: item.body,
+  status: item.status,
+  requiresReply: item.requiresReply,
+})), [
+  {
+    id: "mail-1",
+    direction: "incoming",
+    route: "coordinator -> researcher",
+    body: "Please collect sources.",
+    status: "read",
+    requiresReply: true,
+  },
+  {
+    id: "mail-2",
+    direction: "outgoing",
+    route: "researcher -> coordinator",
+    body: "I found three sources.",
+    status: "delivered",
+    requiresReply: false,
+  },
+]);
 assert.equal(observationDetailState({ sensitive: true, detail_ref: "detail-3" }), "sensitive");
 assert.equal(observationDetailState({}), "unavailable");

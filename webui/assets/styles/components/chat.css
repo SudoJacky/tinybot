@@ -1040,22 +1040,37 @@ button.run-chain-item:hover,
   gap: 10px;
 }
 
-.cowork-agent-overview-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.cowork-agent-inspector-list {
+.cowork-agent-task-list,
+.cowork-agent-message-list {
   display: grid;
   gap: 8px;
 }
 
-.cowork-agent-task-card,
-.cowork-agent-output,
-.cowork-agent-browser-observation,
-.cowork-agent-mailbox-card,
-.cowork-agent-artifact-card {
+.cowork-agent-task-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--panel-strong) 62%, transparent);
+}
+
+.cowork-agent-task-card strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.cowork-agent-task-card .chat-cowork-status {
+  justify-self: start;
+}
+
+.cowork-agent-message {
   display: grid;
   gap: 7px;
   min-width: 0;
@@ -1065,39 +1080,22 @@ button.run-chain-item:hover,
   background: color-mix(in srgb, var(--panel-strong) 62%, transparent);
 }
 
-.cowork-agent-output {
-  border-color: color-mix(in srgb, var(--accent) 18%, var(--border-subtle));
+.cowork-agent-message-incoming {
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--border-subtle));
+}
+
+.cowork-agent-message-outgoing {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
   background: color-mix(in srgb, var(--panel) 82%, transparent);
 }
 
-.cowork-agent-task-card {
-  grid-template-columns: minmax(0, 1fr) auto;
+.cowork-agent-message-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
-.cowork-agent-task-card p,
-.cowork-agent-browser-observation p,
-.cowork-agent-mailbox-card p,
-.cowork-agent-artifact-card p {
-  grid-column: 1 / -1;
-  margin: 0;
-  overflow-wrap: anywhere;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.cowork-agent-output-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.cowork-agent-output-meta strong,
-.cowork-agent-task-card strong,
-.cowork-agent-mailbox-card strong,
-.cowork-agent-artifact-card strong {
+.cowork-agent-message-meta strong {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text);
@@ -1105,36 +1103,18 @@ button.run-chain-item:hover,
   line-height: 1.35;
 }
 
-.cowork-agent-output-body {
+.cowork-agent-message-meta span {
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.cowork-agent-message-body {
   overflow-wrap: anywhere;
   color: var(--text);
   font-size: 13px;
   line-height: 1.55;
-}
-
-.cowork-agent-output small,
-.cowork-agent-browser-observation small,
-.cowork-agent-mailbox-card small {
-  overflow-wrap: anywhere;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.cowork-agent-observation-detail {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.cowork-agent-detail-button {
-  justify-self: start;
-}
-
-.cowork-agent-tool-observation {
-  max-width: 100%;
 }
 
 .cowork-agent-empty {
@@ -1173,7 +1153,7 @@ button.run-chain-item:hover,
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .cowork-agent-overview-grid {
+  .cowork-agent-task-card {
     grid-template-columns: minmax(0, 1fr);
   }
 }
