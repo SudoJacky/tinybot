@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 from tinybot.config.schema import (
     AgentDefaults,
+    EmbeddingConfig,
     MCPServerConfig,
     DreamConfig,
 )
@@ -125,6 +126,32 @@ class TestAgentDefaultsValidation:
             )
         assert "context_block_limit" in str(exc_info.value)
         assert "must be less than" in str(exc_info.value)
+
+    def test_default_embedding_uses_api_provider(self):
+        """Embedding defaults should require an API provider, not local compute."""
+        defaults = AgentDefaults()
+        assert defaults.embedding.provider == "openai"
+        assert defaults.embedding.model_name == "text-embedding-3-small"
+
+    def test_embedding_rejects_local_provider(self):
+        """Local embedding computation is not a supported configuration."""
+        with pytest.raises(ValidationError) as exc_info:
+            EmbeddingConfig(provider="local")
+        assert "Input should be" in str(exc_info.value)
+        assert "openai" in str(exc_info.value)
+
+    def test_vector_store_requires_embedding_api_key(self, monkeypatch):
+        """Vector store cannot be enabled unless an embedding API key is resolvable."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        with pytest.raises(ValidationError) as exc_info:
+            AgentDefaults(enable_vector_store=True)
+        assert "embedding API key is required" in str(exc_info.value)
+
+    def test_vector_store_accepts_embedding_env_api_key(self, monkeypatch):
+        """Vector store can be enabled when the configured API key env var is set."""
+        monkeypatch.setenv("OPENAI_API_KEY", "test-embedding-key")
+        defaults = AgentDefaults(enable_vector_store=True)
+        assert defaults.embedding.provider == "openai"
 
 
 class TestMCPServerConfigValidation:

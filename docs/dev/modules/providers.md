@@ -33,6 +33,7 @@ Agent code should not need to know whether a provider used a native OpenAI SDK, 
 - Empty assistant content with tool calls should be represented in a provider-safe way.
 - Tool call IDs should be normalized so follow-up tool results can be matched.
 - Streaming chunks should accumulate into the same final shape as non-streaming responses.
+- Streaming providers that expose native tool-call argument chunks should forward normalized tool-call argument deltas before the final `ToolCallRequest` is available. Providers without native argument deltas should leave the callback silent and still return final tool calls normally; missing draft deltas are not an error.
 - Usage data should be best-effort and never required for correctness.
 - Reasoning/thinking fields should be preserved separately from user-visible content.
 
@@ -48,6 +49,7 @@ Agent code should not need to know whether a provider used a native OpenAI SDK, 
 - Add provider metadata to the registry.
 - Implement chat and streaming behavior against the base contract.
 - Normalize tool calls and usage.
+- Preserve snapshot-only fallback behavior for providers without streamed tool-call arguments.
 - Add config schema fields only when necessary.
 - Add provider tests for creation, parsing, error handling, and streaming if supported.
 

@@ -133,14 +133,16 @@ class TestVectorStoreCollectionCache:
 
     def test_collection_cache_hit(self, temp_chromadb_dir):
         """Test that collection cache is used on repeated access."""
+        from tinybot.config.schema import EmbeddingConfig
         from tinybot.agent.vector_store import VectorStore
 
         VectorStore.clear_collection_cache()
         VectorStore._client = None
         VectorStore._embedding_fn = MagicMock()
+        VectorStore._embedding_config = EmbeddingConfig(api_key="test-embedding-key")
         VectorStore._initialized = True
 
-        store = VectorStore(temp_chromadb_dir)
+        store = VectorStore(temp_chromadb_dir, embedding_config=VectorStore._embedding_config)
 
         with patch.object(store.client, "get_collection") as mock_get:
             mock_collection = MagicMock()
@@ -160,14 +162,16 @@ class TestVectorStoreCollectionCache:
 
     def test_collection_cache_invalidation(self, temp_chromadb_dir):
         """Test that invalidate_collection_cache removes cached entry."""
+        from tinybot.config.schema import EmbeddingConfig
         from tinybot.agent.vector_store import VectorStore
 
         VectorStore.clear_collection_cache()
         VectorStore._client = None
         VectorStore._embedding_fn = MagicMock()
+        VectorStore._embedding_config = EmbeddingConfig(api_key="test-embedding-key")
         VectorStore._initialized = True
 
-        store = VectorStore(temp_chromadb_dir)
+        store = VectorStore(temp_chromadb_dir, embedding_config=VectorStore._embedding_config)
 
         with patch.object(store.client, "get_collection") as mock_get:
             mock_collection = MagicMock()
@@ -240,10 +244,8 @@ class TestVectorStoreAsyncInit:
 
         store = VectorStore(temp_chromadb_dir)
 
-        # Pre-set embedding function to avoid actual model loading
-        VectorStore._embedding_fn = MagicMock()
-
-        await store.async_initialize()
+        with patch.object(store, "_get_embedding_function", return_value=MagicMock()):
+            await store.async_initialize()
 
         # After initialization, _initialized should be True
         assert VectorStore._initialized is True

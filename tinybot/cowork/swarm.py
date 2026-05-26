@@ -550,7 +550,7 @@ def _tool_risk(goal: str, units: list[dict[str, Any]], policy: dict[str, Any]) -
     if _contains_any(goal, {"web", "url", "http", "browser", "download"}):
         risk += 0.18
     tools = {tool for unit in units for tool in (unit.get("tool_allowlist") or [])}
-    if tools & {"write_file", "edit_file"} or policy.get("allow_file_writes"):
+    if tools & {"write_file", "edit_file", "delete_file"} or policy.get("allow_file_writes"):
         risk += 0.22
     if "exec" in tools or policy.get("allow_exec"):
         risk += 0.26
@@ -824,7 +824,9 @@ def _normalize_policy(policy: dict[str, Any]) -> dict[str, Any]:
         allowed = sorted(DEFAULT_ALLOWED_TOOLS)
     normalized["allowed_tools"] = [str(item).strip() for item in allowed if str(item).strip()]
     if not normalized.get("allow_file_writes"):
-        normalized["allowed_tools"] = [tool for tool in normalized["allowed_tools"] if tool not in {"write_file", "edit_file"}]
+        normalized["allowed_tools"] = [
+            tool for tool in normalized["allowed_tools"] if tool not in {"write_file", "edit_file", "delete_file"}
+        ]
     if not normalized.get("allow_exec"):
         normalized["allowed_tools"] = [tool for tool in normalized["allowed_tools"] if tool != "exec"]
     return normalized

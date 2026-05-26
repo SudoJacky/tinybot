@@ -153,6 +153,18 @@ export const LEGACY_FRAME_BEHAVIOR = Object.freeze([
     normalizedEvents: [],
     compatibilityPassthrough: true,
   },
+  {
+    event: "cowork_state",
+    visibleBehavior: "Refreshes a chat-scoped Cowork Agent Swarm snapshot without entering the home-page Agent UI reducer.",
+    normalizedEvents: [],
+    compatibilityPassthrough: true,
+  },
+  {
+    event: "cowork_stream",
+    visibleBehavior: "Updates transient chat-scoped Cowork live output without entering normal assistant stream buffers.",
+    normalizedEvents: [],
+    compatibilityPassthrough: true,
+  },
 ]);
 
 const UNSAFE_PAYLOAD_KEYS = new Set([
@@ -781,7 +793,7 @@ export function normalizeAgentUiEvents(frame) {
       })];
     }
   }
-  if (frame.event === "chat_created" || frame.event === "attached" || frame.event === "cowork_updated") {
+  if (frame.event === "chat_created" || frame.event === "attached" || frame.event === "cowork_updated" || frame.event === "cowork_state" || frame.event === "cowork_stream") {
     return [];
   }
   if (!frame.chat_id) {

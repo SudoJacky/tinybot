@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -74,18 +75,26 @@ class DreamConfig(Base):
 class EmbeddingConfig(Base):
     """Embedding model configuration for vector store.
 
-    Supports both local sentence-transformers models and API-based embeddings
-    (OpenAI, Azure OpenAI, or custom OpenAI-compatible endpoints).
+    Supports API-based embeddings (OpenAI, Azure OpenAI, or custom
+    OpenAI-compatible endpoints).
     """
 
-    provider: Literal["local", "openai", "azure", "custom"] = "local"
-    model_name: str = "all-MiniLM-L6-v2"  # Local model name or API embedding model
+    provider: Literal["openai", "azure", "custom"] = "openai"
+    model_name: str = "text-embedding-3-small"
     # API configuration (for openai/azure/custom providers)
     api_key: str = ""  # API key (or use api_key_env_var)
-    api_key_env_var: str | None = None  # Environment variable name for API key (e.g. "OPENAI_API_KEY")
+    api_key_env_var: str | None = "OPENAI_API_KEY"  # Environment variable name for API key
     api_base: str | None = None  # API base URL (e.g. "https://api.openai.com/v1" or Azure endpoint)
     api_type: str | None = None  # "azure" for Azure OpenAI
     api_version: str | None = None  # Azure API version (e.g. "2024-02-01")
+
+    def resolve_api_key(self) -> str:
+        """Return the configured embedding API key, resolving env vars."""
+        if self.api_key:
+            return self.api_key
+        if self.api_key_env_var:
+            return os.environ.get(self.api_key_env_var, "")
+        return ""
 
 
 class RecentContextConfig(Base):
@@ -186,13 +195,17 @@ class AgentDefaults(Base):
 
     @model_validator(mode="after")
     def validate_context_limits(self) -> AgentDefaults:
-        """Validate context_block_limit is less than context_window_tokens."""
+        """Validate dependent agent defaults."""
         if self.context_block_limit is not None:
             if self.context_block_limit > self.context_window_tokens:
                 raise ValueError(
                     f"context_block_limit ({self.context_block_limit}) must be less than "
                     f"context_window_tokens ({self.context_window_tokens})"
                 )
+        if self.enable_vector_store and not self.embedding.resolve_api_key():
+            raise ValueError(
+                "embedding API key is required when enable_vector_store is true"
+            )
         return self
 
 

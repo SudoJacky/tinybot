@@ -177,6 +177,10 @@ class StreamHookChain(AgentHook):
         await self._primary.on_reasoning_stream(context, delta)
         await self._extras.on_reasoning_stream(context, delta)
 
+    async def on_tool_call_delta(self, context: AgentHookContext, delta) -> None:
+        await self._primary.on_tool_call_delta(context, delta)
+        await self._extras.on_tool_call_delta(context, delta)
+
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         await self._primary.on_stream_end(context, resuming=resuming)
         await self._extras.on_stream_end(context, resuming=resuming)

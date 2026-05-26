@@ -164,8 +164,8 @@ def classify_tool_call(tool: Tool | None, tool_name: str, params: dict[str, Any]
             return None
         return ("shell", "high", "Shell execution can modify files, run programs, or access the network.")
 
-    if tool_name in {"write_file", "edit_file"}:
-        return ("filesystem_write", "medium", "File write/edit tools can modify workspace state.")
+    if tool_name in {"write_file", "edit_file", "delete_file"}:
+        return ("filesystem_write", "medium", "File write/edit/delete tools can modify workspace state.")
 
     if tool_name in {"cron", "task", "spawn"}:
         return ("agent_control", "high", "Agent control tools can create background or delegated execution.")
@@ -189,7 +189,7 @@ def build_fingerprint(tool_name: str, params: dict[str, Any], category: str) -> 
     """Build a precise approval fingerprint for one operation."""
     if tool_name == "exec":
         return f"exec:{_normalize_command(str(params.get('command') or '')).lower()}"
-    if tool_name in {"write_file", "edit_file"}:
+    if tool_name in {"write_file", "edit_file", "delete_file"}:
         return f"{tool_name}:{_normalize_path_value(params.get('path'))}"
     if tool_name.startswith("mcp_"):
         return f"{tool_name}:{_short_hash(_stable_json(params))}"
@@ -200,7 +200,7 @@ def build_session_fingerprint(tool_name: str, params: dict[str, Any], category: 
     """Build a broader fingerprint for session-scoped approval."""
     if tool_name == "exec":
         return build_fingerprint(tool_name, params, category)
-    if tool_name in {"write_file", "edit_file"}:
+    if tool_name in {"write_file", "edit_file", "delete_file"}:
         return f"{tool_name}:{_normalize_path_value(params.get('path'))}"
     return f"{category}:{tool_name}"
 
@@ -208,7 +208,7 @@ def build_session_fingerprint(tool_name: str, params: dict[str, Any], category: 
 def _summary(tool_name: str, params: dict[str, Any]) -> str:
     if tool_name == "exec":
         return f'exec command="{_normalize_command(str(params.get("command") or ""))[:160]}"'
-    if tool_name in {"write_file", "edit_file", "read_file", "list_dir"}:
+    if tool_name in {"write_file", "edit_file", "delete_file", "read_file", "list_dir"}:
         return f'{tool_name} path="{params.get("path", "")}"'
     return f"{tool_name}({_stable_json(params)[:160]})"
 

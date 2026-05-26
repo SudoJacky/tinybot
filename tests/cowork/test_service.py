@@ -50,6 +50,29 @@ def test_create_session_persists_agents_threads_and_lead_inbox(temp_workspace):
     assert reloaded.trace_spans[0].kind == "session"
 
 
+def test_create_session_assigns_session_workspace_and_default_crud_tools(temp_workspace):
+    service = CoworkService(temp_workspace)
+
+    session = service.create_session("Draft files", "Files", [], [])
+
+    session_workspace = temp_workspace / "cowork" / session.id
+    assert session.workspace_dir == str(session_workspace)
+    assert session_workspace.is_dir()
+    for agent in session.agents.values():
+        assert {
+            "cowork_internal",
+            "read_file",
+            "list_dir",
+            "write_file",
+            "edit_file",
+            "delete_file",
+        }.issubset(set(agent.tools))
+
+    reloaded = CoworkService(temp_workspace).get_session(session.id)
+    assert reloaded is not None
+    assert reloaded.workspace_dir == str(session_workspace)
+
+
 def test_send_message_and_mark_read(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Compare tools", "Tools", [], [])

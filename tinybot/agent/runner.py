@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +39,7 @@ from loguru import logger
 from tinybot.agent.hook import AgentHook, AgentHookContext
 from tinybot.agent.tools.base import AwaitingUserInputResult
 from tinybot.agent.tools.registry import ToolRegistry
-from tinybot.providers.base import LLMProvider, ToolCallRequest
+from tinybot.providers.base import LLMProvider, ToolCallArgumentDelta, ToolCallRequest
 from tinybot.security.approval import ApprovalAction, ApprovalManager, format_approval_required
 from tinybot.utils.fs import find_legal_message_start
 from tinybot.utils.helper import (
@@ -414,11 +414,37 @@ class AgentRunner:
             async def _reasoning_stream(delta: str) -> None:
                 await hook.on_reasoning_stream(context, delta)
 
-            return await self.provider.chat_stream_with_retry(
+            active_tool_delta = False
+
+            async def _tool_call_delta(delta: ToolCallArgumentDelta) -> None:
+                nonlocal active_tool_delta
+                run_id = delta.run_id or f"{spec.session_key or 'run'}:{context.iteration}"
+                normalized = replace(delta, run_id=run_id)
+                if normalized.status == "streaming":
+                    active_tool_delta = True
+                if normalized.completed or normalized.status in {"completed", "failed", "interrupted", "discarded"}:
+                    active_tool_delta = False
+                await hook.on_tool_call_delta(context, normalized)
+
+            response = await self.provider.chat_stream_with_retry(
                 **kwargs,
                 on_content_delta=_stream,
                 on_reasoning_delta=_reasoning_stream,
+                on_tool_call_delta=_tool_call_delta,
             )
+            if active_tool_delta and response.finish_reason == "error":
+                await hook.on_tool_call_delta(
+                    context,
+                    ToolCallArgumentDelta(
+                        run_id=f"{spec.session_key or 'run'}:{context.iteration}",
+                        sequence=0,
+                        delta_text="",
+                        phase="terminal",
+                        status="failed",
+                        completed=True,
+                    ),
+                )
+            return response
         return await self.provider.chat_with_retry(**kwargs)
 
     async def _request_finalization_retry(
@@ -586,6 +612,10 @@ class AgentRunner:
                     related_experience_id=related_id,
                 )
             return prep_error + suggestions, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
+
+        if tool_call.name == "cowork_internal" and isinstance(params, dict):
+            params = dict(params)
+            params.setdefault("_tool_call_id", tool_call.id)
 
         approval = ApprovalManager.evaluate(
             session=spec.session,

@@ -10,6 +10,7 @@ from aiohttp import web
 from tinybot.cowork.blueprint import budget_remaining, default_budget_usage, export_session_blueprint, normalize_budget_limits
 from tinybot.cowork.policies import default_policy_registry
 from tinybot.cowork.snapshot import (
+    build_cowork_agent_activity,
     build_cowork_agent_steps,
     build_cowork_artifact_index,
     build_cowork_graph,
@@ -418,7 +419,14 @@ async def handle_list_sessions(request: web.Request) -> web.Response:
     if service is None:
         return web.json_response({"error": "cowork is not available"}, status=503)
     include_completed = request.query.get("include_completed", "false").lower() in {"1", "true", "yes"}
+    origin_chat_id = str(request.query.get("origin_chat_id") or "").strip()
     sessions = service.list_sessions(include_completed=include_completed)
+    if origin_chat_id:
+        sessions = [
+            session
+            for session in sessions
+            if str((getattr(session, "runtime_state", {}) or {}).get("origin_chat_id") or "").strip() == origin_chat_id
+        ]
     return web.json_response({"items": [cowork_session_snapshot(session, verbose=False) for session in sessions]})
 
 
@@ -655,6 +663,22 @@ async def handle_get_observation_detail(request: web.Request) -> web.Response:
     )
     status = 404 if detail.state == "unavailable" else 403 if detail.state == "unauthorized" else 200
     return web.json_response({"detail": _observation_detail_snapshot(detail, verbose=True)}, status=status)
+
+
+async def handle_get_agent_activity(request: web.Request) -> web.Response:
+    service = _cowork_service(request.app)
+    if service is None:
+        return web.json_response({"error": "cowork is not available"}, status=503)
+    session = service.get_session(request.match_info["session_id"])
+    if session is None:
+        return web.json_response({"error": "cowork session not found"}, status=404)
+    try:
+        limit = int(request.query.get("limit", "20"))
+    except ValueError:
+        limit = 20
+    activity = build_cowork_agent_activity(session, request.match_info["agent_id"], limit=max(1, min(limit, 80)))
+    status = 200 if activity.get("available") else 404
+    return web.json_response({"activity": activity}, status=status)
 
 
 async def handle_export_session_blueprint(request: web.Request) -> web.Response:
@@ -971,6 +995,7 @@ def register_cowork_routes(app: web.Application) -> None:
     app.router.add_post("/api/cowork/sessions/{session_id}/branches/{branch_id}/derive", handle_derive_branch)
     app.router.add_post("/api/cowork/sessions/{session_id}/branches/{branch_id}/result/select-final", handle_select_final_result)
     app.router.add_get("/api/cowork/sessions/{session_id}/trace", handle_get_session_trace)
+    app.router.add_get("/api/cowork/sessions/{session_id}/agents/{agent_id}/activity", handle_get_agent_activity)
     app.router.add_get("/api/cowork/sessions/{session_id}/observations/{detail_id}", handle_get_observation_detail)
     app.router.add_get("/api/cowork/sessions/{session_id}/blueprint", handle_export_session_blueprint)
     app.router.add_get("/api/cowork/sessions/{session_id}/dag", handle_get_session_dag)

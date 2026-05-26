@@ -86,4 +86,9 @@ export const state = {
   coworkGraphDrag: null,
   coworkLoading: false,
   coworkRefreshTimer: null,
+  chatCowork: null,
+  selectedCoworkAgent: null,
+  coworkAgentActivities: new Map(),
+  coworkAgentActivityLoading: new Set(),
+  coworkAgentActivityErrors: new Map(),
 };

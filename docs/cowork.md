@@ -180,6 +180,20 @@ POST /api/cowork/sessions/{id}/branch-results/merge
 GET  /api/cowork/sessions/{id}/observations/{detail_id}
 ```
 
+Chat-originated Cowork sessions also emit additive websocket frames for live WebUI updates. `cowork_state` announces authoritative session changes, `cowork_stream` carries public agent output, and `cowork_mailbox_stream` carries transient mailbox draft text while a `cowork_internal send_message` tool call is still being generated.
+
+`cowork_mailbox_stream` payloads include:
+
+- `chat_id`, `session_id`, `sender_agent_id`
+- `draft_id`, `tool_call_id`
+- `phase`, `status`, `sequence`, `timestamp`, `completed`
+- bounded safe `text` deltas
+- optional routing metadata: `recipient_ids`, `requires_reply`, `topic`, `event_type`, `request_type`, `thread_id`
+
+Mailbox draft frames are transient UI state. The stream policy extracts only allowlisted message text and routing metadata; it does not forward raw tool arguments, private notes, hidden reasoning, or unrelated tool fields. Durable mailbox records and agent activity remain authoritative after delivery. When available, delivered records include `draft_id` and `tool_call_id` so clients can replace draft bubbles without duplicates. Legacy records may be reconciled only by tightly scoped sender, recipient, and exact content matching.
+
+Providers that do not expose native tool-call argument deltas skip `cowork_mailbox_stream`; final tool execution and snapshot-only mailbox behavior continue unchanged. Rollback can disable the Cowork mailbox stream hook while leaving durable mailbox delivery, `cowork_state`, and activity projections intact.
+
 Send a message to agents:
 
 ```text

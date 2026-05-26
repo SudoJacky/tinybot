@@ -112,6 +112,36 @@
         "chat_id": "test",
         "session_key": "cli:test"
       }
+    },
+    {
+      "id": "c1db4c52",
+      "title": "Review the experience module and propose improveme",
+      "original_request": "Review the experience module and propose improvements.",
+      "subtasks": [
+        {
+          "id": "1",
+          "title": "Review the experience module a",
+          "description": "Review the experience module and propose improvements.",
+          "status": "pending",
+          "dependencies": [],
+          "parallel_safe": true,
+          "result": null,
+          "error": null,
+          "started_at": null,
+          "completed_at": null,
+          "retry_count": 0,
+          "max_retries": 2
+        }
+      ],
+      "created_at": "2026-05-26T18:40:05.454898",
+      "updated_at": "2026-05-26T18:40:05.455171",
+      "status": "planning",
+      "current_subtask_ids": [],
+      "context": {
+        "channel": "cli",
+        "chat_id": "test",
+        "session_key": "cli:test"
+      }
     }
   ]
 }

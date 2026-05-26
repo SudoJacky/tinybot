@@ -1,5 +1,6 @@
 """Tests for standalone WebUI control-plane route registration."""
 
+import asyncio
 import shutil
 import uuid
 from pathlib import Path
@@ -8,7 +9,12 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, register_webui_control_routes
+from tinybot.api.webui import (
+    WebUIControlPaths,
+    WebUIControlRuntime,
+    _attach_cowork_listener,
+    register_webui_control_routes,
+)
 from tinybot.agent.forms import AgentUiFormRegistry
 from tinybot.agent.tools.form import FormRequestTool
 from tinybot.config.schema import Config, MCPServerConfig
@@ -489,6 +495,391 @@ def _sample_form_schema() -> dict:
             },
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_listener_emits_chat_scoped_state(api_workspace):
+    service = CoworkService(api_workspace)
+    global_events: list[dict] = []
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        global_events.append(payload)
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session(
+        "Route updates",
+        "Updates",
+        [{"id": "agent_1", "name": "Agent", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "task_1", "title": "Task", "description": "Work", "assigned_agent_id": "agent_1"}],
+        runtime_state={
+            "origin_channel": "websocket",
+            "origin_chat_id": "chat-1",
+            "origin_session_key": "websocket:chat-1",
+            "origin_surface": "main_chat",
+        },
+    )
+
+    service.add_event(
+        session,
+        "agent.step.completed",
+        "Agent step completed",
+        actor_id="agent_1",
+        data={"agent_id": "agent_1", "task_id": "task_1", "work_unit_id": "unit_1", "status": "done"},
+    )
+    await asyncio.sleep(0)
+
+    assert global_events[-1]["event"] == "cowork_updated"
+    assert chat_events[-1][0] == "chat-1"
+    payload = chat_events[-1][1]
+    assert payload["event"] == "cowork_state"
+    assert payload["chat_id"] == "chat-1"
+    assert payload["session_id"] == session.id
+    assert payload["change_type"] == "agent.step.completed"
+    assert payload["agent_id"] == "agent_1"
+    assert payload["task_id"] == "task_1"
+    assert payload["work_unit_id"] == "unit_1"
+    assert payload["status"] == "done"
+    assert payload["updated_at"]
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_listener_skips_chat_state_without_origin(api_workspace):
+    service = CoworkService(api_workspace)
+    global_events: list[dict] = []
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        global_events.append(payload)
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session("Global only", "Global", [], [])
+
+    service.add_event(session, "session.round", "Round complete")
+    await asyncio.sleep(0)
+
+    assert global_events[-1]["event"] == "cowork_updated"
+    assert chat_events == []
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_listener_routes_multiple_chats_independently(api_workspace):
+    service = CoworkService(api_workspace)
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        return None
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    first = service.create_session(
+        "First chat",
+        "First",
+        [],
+        [],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1"},
+    )
+    second = service.create_session(
+        "Second chat",
+        "Second",
+        [],
+        [],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-2"},
+    )
+
+    service.add_event(first, "session.round", "First update")
+    service.add_event(second, "session.round", "Second update")
+    await asyncio.sleep(0)
+
+    assert [(chat_id, payload["session_id"]) for chat_id, payload in chat_events[-2:]] == [
+        ("chat-1", first.id),
+        ("chat-2", second.id),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_listener_emits_chat_scoped_stream_without_refresh(api_workspace):
+    service = CoworkService(api_workspace)
+    global_events: list[dict] = []
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        global_events.append(payload)
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session(
+        "Stream updates",
+        "Streaming",
+        [{"id": "agent_1", "name": "Agent", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "task_1", "title": "Task", "description": "Work", "assigned_agent_id": "agent_1"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    await asyncio.sleep(0)
+    global_events.clear()
+    chat_events.clear()
+
+    event = service.emit_agent_stream(
+        session,
+        agent_id="agent_1",
+        step_id="step_1",
+        phase="delta",
+        status="running",
+        sequence=3,
+        text="hello",
+    )
+    await asyncio.sleep(0)
+
+    assert event is not None
+    assert global_events == []
+    assert chat_events[-1][0] == "chat-1"
+    payload = chat_events[-1][1]
+    assert payload == {
+        "event": "cowork_stream",
+        "chat_id": "chat-1",
+        "session_id": session.id,
+        "agent_id": "agent_1",
+        "step_id": "step_1",
+        "phase": "delta",
+        "status": "running",
+        "sequence": 3,
+        "timestamp": payload["timestamp"],
+        "text": "hello",
+        "completed": False,
+    }
+    assert payload["timestamp"]
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_stream_skips_sessions_without_origin(api_workspace):
+    service = CoworkService(api_workspace)
+    global_events: list[dict] = []
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        global_events.append(payload)
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session("No stream", "No stream", [], [])
+    await asyncio.sleep(0)
+    global_events.clear()
+
+    event = service.emit_agent_stream(
+        session,
+        agent_id="agent_1",
+        step_id="step_1",
+        phase="delta",
+        status="running",
+        sequence=1,
+        text="hidden",
+    )
+    await asyncio.sleep(0)
+
+    assert event is None
+    assert global_events == []
+    assert chat_events == []
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_listener_emits_chat_scoped_mailbox_stream(api_workspace):
+    service = CoworkService(api_workspace)
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        return None
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session(
+        "Mailbox stream",
+        "Streaming",
+        [],
+        [],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    chat_events.clear()
+
+    event = service.emit_mailbox_stream(
+        session,
+        sender_agent_id="researcher",
+        draft_id="draft-1",
+        tool_call_id="call-1",
+        phase="delta",
+        status="streaming",
+        sequence=4,
+        text="hello",
+        recipient_ids=["reviewer"],
+        requires_reply=True,
+        topic="review",
+        request_type="review",
+    )
+    await asyncio.sleep(0)
+
+    assert event is not None
+    assert chat_events[-1][0] == "chat-1"
+    payload = chat_events[-1][1]
+    assert payload == {
+        "event": "cowork_mailbox_stream",
+        "chat_id": "chat-1",
+        "session_id": session.id,
+        "sender_agent_id": "researcher",
+        "draft_id": "draft-1",
+        "tool_call_id": "call-1",
+        "phase": "delta",
+        "status": "streaming",
+        "sequence": 4,
+        "timestamp": payload["timestamp"],
+        "text": "hello",
+        "completed": False,
+        "recipient_ids": ["reviewer"],
+        "requires_reply": True,
+        "topic": "review",
+        "event_type": "",
+        "request_type": "review",
+        "thread_id": "",
+    }
+    assert payload["timestamp"]
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_mailbox_stream_routes_multiple_chats_independently(api_workspace):
+    service = CoworkService(api_workspace)
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        return None
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    first = service.create_session(
+        "First chat",
+        "First",
+        [],
+        [],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    second = service.create_session(
+        "Second chat",
+        "Second",
+        [],
+        [],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-2", "origin_surface": "main_chat"},
+    )
+    chat_events.clear()
+
+    service.emit_mailbox_stream(
+        first,
+        sender_agent_id="a",
+        draft_id="d1",
+        tool_call_id="c1",
+        phase="delta",
+        status="streaming",
+        sequence=1,
+        text="one",
+    )
+    service.emit_mailbox_stream(
+        second,
+        sender_agent_id="b",
+        draft_id="d2",
+        tool_call_id="c2",
+        phase="terminal",
+        status="completed",
+        sequence=1,
+        completed=True,
+    )
+    await asyncio.sleep(0)
+
+    assert [(chat_id, payload["session_id"], payload["draft_id"]) for chat_id, payload in chat_events[-2:]] == [
+        ("chat-1", first.id, "d1"),
+        ("chat-2", second.id, "d2"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_mailbox_stream_skips_sessions_without_origin(api_workspace):
+    service = CoworkService(api_workspace)
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        return None
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session("No origin", "No origin", [], [])
+
+    event = service.emit_mailbox_stream(
+        session,
+        sender_agent_id="researcher",
+        draft_id="draft-1",
+        tool_call_id="call-1",
+        phase="delta",
+        status="streaming",
+        sequence=1,
+        text="hidden",
+    )
+    await asyncio.sleep(0)
+
+    assert event is None
+    assert chat_events == []
 
 
 @pytest.mark.asyncio
@@ -1027,6 +1418,60 @@ async def test_webui_control_provider_models_validates_payload(api_workspace):
         assert response.status == 200
         payload = await response.json()
         assert payload == {"ok": False, "error": "provider is required"}
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_cowork_sessions_filter_by_origin_chat_id(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    service = CoworkService(api_workspace)
+    chat_session = service.create_session(
+        "Chat scoped",
+        "Chat Session",
+        [{"id": "agent_1", "name": "Agent", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "task_1", "title": "Task", "description": "Work", "assigned_agent_id": "agent_1"}],
+        runtime_state={
+            "origin_channel": "websocket",
+            "origin_chat_id": "chat-1",
+            "origin_session_key": "websocket:chat-1",
+            "origin_surface": "main_chat",
+        },
+    )
+    other_chat_session = service.create_session(
+        "Other chat",
+        "Other Chat Session",
+        [{"id": "agent_2", "name": "Agent 2", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "task_2", "title": "Other task", "description": "Work", "assigned_agent_id": "agent_2"}],
+        runtime_state={
+            "origin_channel": "websocket",
+            "origin_chat_id": "chat-2",
+            "origin_session_key": "websocket:chat-2",
+            "origin_surface": "main_chat",
+        },
+    )
+    service.create_session("No origin", "No Origin", [], [])
+
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            cowork_service=service,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get(
+            "/api/cowork/sessions?include_completed=true&origin_chat_id=chat-1",
+            headers=headers,
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert [item["id"] for item in payload["items"]] == [chat_session.id]
+        assert payload["items"][0]["agents"][0]["id"] == "agent_1"
+        assert other_chat_session.id not in {item["id"] for item in payload["items"]}
     finally:
         await client.close()
 

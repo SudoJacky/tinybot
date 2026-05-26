@@ -170,6 +170,20 @@ async def test_dedicated_cowork_api_routes(cowork_api_client):
     assert response.status == 404
     assert (await response.json())["detail"]["state"] == "unavailable"
 
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/agents/planner/activity")
+    assert response.status == 200
+    activity = (await response.json())["activity"]
+    assert activity["available"] is True
+    assert activity["agent"]["id"] == "planner"
+    assert activity["recent_steps"]
+    assert "private_summary" not in activity["agent"]
+
+    response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/agents/missing/activity")
+    assert response.status == 404
+    activity = (await response.json())["activity"]
+    assert activity["available"] is False
+    assert activity["agent_id"] == "missing"
+
     response = await cowork_api_client.get(f"/api/cowork/sessions/{session_id}/dag")
     assert response.status == 200
     assert (await response.json())["task_dag"]["stats"]["tasks"] == 1

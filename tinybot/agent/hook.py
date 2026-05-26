@@ -7,7 +7,7 @@ from typing import Any
 
 from loguru import logger
 
-from tinybot.providers.base import LLMResponse, ToolCallRequest
+from tinybot.providers.base import LLMResponse, ToolCallArgumentDelta, ToolCallRequest
 
 
 @dataclass(slots=True)
@@ -40,6 +40,9 @@ class AgentHook:
         pass
 
     async def on_reasoning_stream(self, context: AgentHookContext, delta: str) -> None:
+        pass
+
+    async def on_tool_call_delta(self, context: AgentHookContext, delta: ToolCallArgumentDelta) -> None:
         pass
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
@@ -106,6 +109,13 @@ class CompositeHook(AgentHook):
                 await h.on_reasoning_stream(context, delta)
             except Exception:
                 logger.exception("AgentHook.on_reasoning_stream error in {}", type(h).__name__)
+
+    async def on_tool_call_delta(self, context: AgentHookContext, delta: ToolCallArgumentDelta) -> None:
+        for h in self._hooks:
+            try:
+                await h.on_tool_call_delta(context, delta)
+            except Exception:
+                logger.exception("AgentHook.on_tool_call_delta error in {}", type(h).__name__)
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         for h in self._hooks:

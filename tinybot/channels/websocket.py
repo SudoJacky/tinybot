@@ -200,6 +200,7 @@ class WebSocketChannel(BaseChannel):
         self._webui_control_runtime.config_path = self.config_path
         self._webui_control_runtime.knowledge_store = self.knowledge_store
         self._webui_control_runtime.channel_running = self._running
+        self._webui_control_runtime.broadcast_chat = self._broadcast
 
     def _cfg(self, key: str, default: Any) -> Any:
         if isinstance(self.config, dict):
@@ -383,6 +384,7 @@ class WebSocketChannel(BaseChannel):
             channel_running=self._running,
             workspace_files=self._workspace_files,
             broadcast_global=self._broadcast_global,
+            broadcast_chat=self._broadcast,
             control_handlers=self._webui_control_handlers(),
             form_interactions=getattr(self.agent_loop, "form_interactions", None) or AgentUiFormRegistry(),
         )

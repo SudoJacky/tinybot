@@ -697,6 +697,180 @@ def build_cowork_agent_steps(session: CoworkSession, *, limit: int = 120) -> lis
     return [_agent_step_payload(step) for step in _project_legacy_agent_steps(session, limit=limit)]
 
 
+def build_cowork_agent_activity(
+    session: CoworkSession,
+    agent_id: str,
+    *,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Return a bounded, safe projection for one Cowork agent inspector."""
+
+    agent_id = str(agent_id or "").strip()
+    agent = getattr(session, "agents", {}).get(agent_id)
+    if agent is None:
+        return {
+            "available": False,
+            "session_id": session.id,
+            "agent_id": agent_id,
+            "error": "agent not found",
+            "updated_at": getattr(session, "updated_at", ""),
+            "recent_steps": [],
+            "linked_tasks": [],
+            "linked_messages": [],
+            "mailbox_records": [],
+            "tool_observations": [],
+            "browser_observations": [],
+            "artifacts": [],
+        }
+
+    current_task = _agent_current_task(session, agent_id)
+    steps = [
+        step for step in build_cowork_agent_steps(session, limit=max(limit * 6, limit))
+        if step.get("agent_id") == agent_id
+    ][-limit:]
+    linked_task_ids = {
+        str(value)
+        for step in steps
+        for value in [
+            step.get("task_id"),
+            *step.get("linked_task_ids", []),
+        ]
+        if value
+    }
+    if current_task:
+        linked_task_ids.add(current_task["id"])
+    linked_message_ids = {
+        str(value)
+        for step in steps
+        for value in step.get("linked_message_ids", [])
+        if value
+    }
+    linked_artifact_refs = [
+        str(value)
+        for step in steps
+        for value in step.get("linked_artifact_refs", [])
+        if value
+    ]
+    messages = _agent_messages(session, agent_id, linked_message_ids, limit=limit)
+    mailbox = _agent_mailbox_records(session, agent_id, limit=limit)
+    return {
+        "available": True,
+        "session_id": session.id,
+        "agent": {
+            "id": agent.id,
+            "name": agent.name,
+            "role": agent.role,
+            "goal": agent.goal,
+            "status": agent.status,
+            "current_task_id": agent.current_task_id,
+            "current_task_title": agent.current_task_title or (current_task or {}).get("title", ""),
+            "rounds": agent.rounds,
+            "inbox_count": len(getattr(agent, "inbox", []) or []),
+            "pending_reply_count": sum(1 for record in mailbox if record.get("requires_reply") and record.get("status") in {"delivered", "read"}),
+            "last_active_at": agent.last_active_at,
+        },
+        "current_task": current_task,
+        "recent_steps": steps,
+        "linked_tasks": [_task_activity_payload(task) for task_id, task in getattr(session, "tasks", {}).items() if task_id in linked_task_ids][:limit],
+        "linked_messages": messages,
+        "mailbox_records": mailbox,
+        "tool_observations": [item for step in steps for item in step.get("tool_observations", [])][-limit:],
+        "browser_observations": [item for step in steps for item in step.get("browser_observations", [])][-limit:],
+        "artifacts": _agent_artifacts(session, linked_artifact_refs, limit=limit),
+        "counts": {
+            "recent_steps": len(steps),
+            "linked_tasks": len(linked_task_ids),
+            "linked_messages": len(messages),
+            "mailbox_records": len(mailbox),
+            "artifacts": len(linked_artifact_refs),
+        },
+        "updated_at": getattr(session, "updated_at", ""),
+    }
+
+
+def _agent_current_task(session: CoworkSession, agent_id: str) -> dict[str, Any] | None:
+    agent = session.agents.get(agent_id)
+    if agent and agent.current_task_id and agent.current_task_id in session.tasks:
+        return _task_activity_payload(session.tasks[agent.current_task_id])
+    for task in session.tasks.values():
+        if task.assigned_agent_id == agent_id and task.status not in {"completed", "skipped", "failed"}:
+            return _task_activity_payload(task)
+    return None
+
+
+def _task_activity_payload(task: Any) -> dict[str, Any]:
+    return {
+        "id": task.id,
+        "title": task.title,
+        "description": _compact(task.description, 500),
+        "assigned_agent_id": task.assigned_agent_id,
+        "status": task.status,
+        "result": _compact(task.result, 700),
+        "error": _compact(task.error, 500),
+        "review_status": getattr(task, "review_status", ""),
+        "updated_at": task.updated_at,
+        "created_at": task.created_at,
+    }
+
+
+def _agent_messages(session: CoworkSession, agent_id: str, linked_ids: set[str], *, limit: int) -> list[dict[str, Any]]:
+    messages = []
+    for message in getattr(session, "messages", {}).values():
+        if message.id not in linked_ids and message.sender_id != agent_id and agent_id not in message.recipient_ids:
+            continue
+        messages.append(
+            {
+                "id": message.id,
+                "thread_id": message.thread_id,
+                "sender_id": message.sender_id,
+                "recipient_ids": list(message.recipient_ids),
+                "content": _compact(message.content, 1000),
+                "created_at": message.created_at,
+            }
+        )
+    return messages[-limit:]
+
+
+def _agent_mailbox_records(session: CoworkSession, agent_id: str, *, limit: int) -> list[dict[str, Any]]:
+    records = []
+    for record in getattr(session, "mailbox", {}).values():
+        if record.sender_id != agent_id and agent_id not in record.recipient_ids:
+            continue
+        records.append(
+            {
+                "id": record.id,
+                "sender_id": record.sender_id,
+                "recipient_ids": list(record.recipient_ids),
+                "content": _compact(record.content, 1000),
+                "status": record.status,
+                "kind": record.kind,
+                "topic": getattr(record, "topic", ""),
+                "requires_reply": record.requires_reply,
+                "blocking_task_id": record.blocking_task_id,
+                "message_id": record.message_id,
+                "thread_id": record.thread_id,
+                "tool_call_id": getattr(record, "tool_call_id", None),
+                "draft_id": getattr(record, "draft_id", None),
+                "created_at": record.created_at,
+                "updated_at": record.updated_at,
+            }
+        )
+    return records[-limit:]
+
+
+def _agent_artifacts(session: CoworkSession, refs: list[str], *, limit: int) -> list[dict[str, Any]]:
+    wanted = set(refs)
+    artifacts = []
+    for item in getattr(session, "artifacts", []) or []:
+        if isinstance(item, dict):
+            ref = str(item.get("id") or item.get("path") or item.get("url") or item.get("ref") or "")
+            if not wanted or ref in wanted:
+                artifacts.append(dict(item))
+        elif str(item) in wanted:
+            artifacts.append({"ref": str(item)})
+    return artifacts[-limit:]
+
+
 def _agent_step_payload(step: CoworkAgentStep) -> dict[str, Any]:
     payload = asdict(step)
     summary = step.summary or _step_summary_from_step(step)

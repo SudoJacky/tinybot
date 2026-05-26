@@ -21,6 +21,21 @@ from tinybot.security.approval import ApprovalRequest, build_fingerprint
 from tinybot.session.manager import Session
 
 
+class ContextRecordingTool:
+    name = "cowork"
+    description = "Record context for tests."
+    parameters = {"type": "object", "properties": {}}
+
+    def __init__(self):
+        self.context = None
+
+    def set_context(self, channel, chat_id):
+        self.context = (channel, chat_id)
+
+    async def execute(self, **kwargs):
+        return "ok"
+
+
 class TestLoopHookMergeStreamBuffer:
     """Tests for StreamHandler.merge_stream_buffer static method."""
 
@@ -466,6 +481,20 @@ def test_agent_loop_applies_context_to_request_form_tool():
     loop._set_tool_context("websocket", "chat-1", "msg-1")
 
     assert form_tool.current_context == ("websocket", "chat-1", "msg-1")
+
+
+def test_agent_loop_applies_context_to_cowork_tool():
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.tool_context = ToolContextManager()
+    loop.tools = ToolRegistry()
+    cowork_tool = ContextRecordingTool()
+    loop.tools.register(cowork_tool)
+    loop._task_progress_channel = ""
+    loop._task_progress_chat_id = ""
+
+    loop._set_tool_context("websocket", "chat-1", "msg-1")
+
+    assert cowork_tool.context == ("websocket", "chat-1")
 
 
 @pytest.mark.asyncio

@@ -1,15 +1,81 @@
 import pytest
 import json
 
+from tinybot.agent.hook import AgentHookContext
 from tinybot.agent.tools.cowork import CoworkInternalTool, CoworkTeamPlanner, CoworkTool
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkMailboxRecord
+from tinybot.providers.base import LLMResponse, ToolCallArgumentDelta, ToolCallRequest
 
 
 class FailingProvider:
     async def chat(self, *args, **kwargs):
         raise RuntimeError("offline")
+
+
+class ToolStreamingProvider:
+    def __init__(self):
+        self.calls = 0
+
+    def estimate_prompt_tokens(self, messages, tools, model):
+        return 1, "fake"
+
+    async def chat_stream_with_retry(self, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            await kwargs["on_tool_call_delta"](
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_call_index=0,
+                    tool_name="cowork_internal",
+                    sequence=1,
+                    delta_text='{"action":"send_message","recipient_ids":["reviewer"],"content":"Please ',
+                    status="streaming",
+                )
+            )
+            await kwargs["on_tool_call_delta"](
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_call_index=0,
+                    tool_name="cowork_internal",
+                    sequence=2,
+                    delta_text='review","private_note":"secret"}',
+                    status="streaming",
+                )
+            )
+            await kwargs["on_tool_call_delta"](
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_call_index=0,
+                    tool_name="cowork_internal",
+                    sequence=3,
+                    delta_text="",
+                    phase="terminal",
+                    status="completed",
+                    completed=True,
+                )
+            )
+            return LLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_1",
+                        name="cowork_internal",
+                        arguments={
+                            "action": "send_message",
+                            "recipient_ids": ["reviewer"],
+                            "content": "Please review",
+                        },
+                    )
+                ],
+            )
+        return LLMResponse(
+            content='{"status":"done","action":"complete","public_note":"","private_note":"sent request"}',
+        )
+
+    async def chat_with_retry(self, **kwargs):
+        return await self.chat_stream_with_retry(**kwargs)
 
 
 class FakeRunner:
@@ -65,6 +131,56 @@ class SequenceRunner:
         return Result()
 
 
+class StreamingRunner:
+    def __init__(self, chunks):
+        self.chunks = list(chunks)
+        self.specs = []
+
+    async def run(self, spec):
+        self.specs.append(spec)
+        context = AgentHookContext(iteration=0, messages=[])
+        for kind, chunk in self.chunks:
+            if kind == "reasoning":
+                await spec.hook.on_reasoning_stream(context, chunk)
+            elif kind == "tool_delta":
+                await spec.hook.on_tool_call_delta(context, chunk)
+            else:
+                await spec.hook.on_stream(context, chunk)
+        await spec.hook.on_stream_end(context, resuming=False)
+
+        class Result:
+            final_content = (
+                '{"status":"done","action":"complete","public_note":"Hello world","private_note":"secret memory"}'
+            )
+            error = None
+
+        return Result()
+
+
+class StaticPlanner:
+    async def plan(self, goal, workflow_mode="adaptive_starter"):
+        return (
+            "Planned Session",
+            [
+                {
+                    "id": "researcher",
+                    "name": "Researcher",
+                    "role": "Research",
+                    "goal": goal,
+                    "responsibilities": [],
+                }
+            ],
+            [
+                {
+                    "id": "research",
+                    "title": "Research",
+                    "description": "Research the goal",
+                    "assigned_agent_id": "researcher",
+                }
+            ],
+        )
+
+
 @pytest.mark.asyncio
 async def test_team_planner_falls_back(temp_workspace):
     planner = CoworkTeamPlanner(FailingProvider(), "test-model", temp_workspace)
@@ -76,6 +192,468 @@ async def test_team_planner_falls_back(temp_workspace):
     assert len(tasks) == 1
     assert {agent["id"] for agent in agents}
     assert tasks[0]["assigned_agent_id"] == "coordinator"
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_start_persists_chat_origin_metadata(temp_workspace):
+    service = CoworkService(temp_workspace)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.planner = StaticPlanner()
+    tool.set_context("websocket", "chat-1")
+
+    await tool.execute(action="start", goal="Coordinate the research")
+
+    session = service.list_sessions()[0]
+    assert session.runtime_state["origin_channel"] == "websocket"
+    assert session.runtime_state["origin_chat_id"] == "chat-1"
+    assert session.runtime_state["origin_session_key"] == "websocket:chat-1"
+    assert session.runtime_state["origin_surface"] == "main_chat"
+
+    reloaded = CoworkService(temp_workspace).get_session(session.id)
+    assert reloaded is not None
+    assert reloaded.runtime_state["origin_chat_id"] == "chat-1"
+
+
+@pytest.mark.asyncio
+async def test_non_webui_cowork_start_omits_chat_origin_metadata(temp_workspace):
+    service = CoworkService(temp_workspace)
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.planner = StaticPlanner()
+    tool.set_context("api", "chat-1")
+
+    await tool.execute(action="start", goal="Coordinate the research")
+
+    session = service.list_sessions()[0]
+    assert "origin_channel" not in session.runtime_state
+    assert "origin_chat_id" not in session.runtime_state
+    assert "origin_session_key" not in session.runtime_state
+    assert "origin_surface" not in session.runtime_state
+
+
+@pytest.mark.asyncio
+async def test_cowork_agent_file_tools_are_scoped_to_session_workspace(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Write scoped files",
+        "Scoped Files",
+        [
+            {
+                "id": "writer",
+                "name": "Writer",
+                "role": "Writer",
+                "goal": "Write files",
+                "responsibilities": [],
+                "tools": ["read_file", "list_dir", "write_file", "edit_file", "delete_file", "cowork_internal"],
+            }
+        ],
+        [],
+    )
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+
+    registry = tool._build_agent_tools(session.id, session.agents["writer"])
+
+    assert registry.has("write_file")
+    assert registry.has("edit_file")
+    assert registry.has("delete_file")
+    assert await registry.execute("write_file", {"path": "notes/plan.md", "content": "alpha"}) == (
+        f"Successfully wrote 5 bytes to {temp_workspace / 'cowork' / session.id / 'notes' / 'plan.md'}"
+    )
+    assert (temp_workspace / "cowork" / session.id / "notes" / "plan.md").read_text(encoding="utf-8") == "alpha"
+    assert "Successfully edited" in await registry.execute(
+        "edit_file",
+        {
+            "path": "notes/plan.md",
+            "old_text": "alpha",
+            "new_text": "beta",
+        },
+    )
+    assert "beta" in await registry.execute("read_file", {"path": "notes/plan.md"})
+    assert "notes" in await registry.execute("list_dir", {"path": "."})
+    assert "Successfully deleted file" in await registry.execute("delete_file", {"path": "notes/plan.md"})
+    assert not (temp_workspace / "cowork" / session.id / "notes" / "plan.md").exists()
+
+    outside = await registry.execute("write_file", {"path": "../outside.md", "content": "escape"})
+    assert "outside allowed directory" in outside
+    assert not (temp_workspace / "cowork" / "outside.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_cowork_agent_streams_public_note_without_private_content(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Stream public note",
+        "Streaming",
+        [{"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []}],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner(
+        [
+            ("content", '{"status":"done","action":"complete","public_note":"Hello '),
+            ("reasoning", "secret reasoning"),
+            ("content", 'world","private_note":"secret memory"}'),
+        ]
+    )
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    stream_events = [event for event in events if event.type == "agent.stream"]
+    assert tool.runner.specs[-1].hook.wants_streaming() is True
+    assert (
+        "".join(event.data.get("text", "") for event in stream_events if event.data.get("phase") == "delta")
+        == "Hello world"
+    )
+    assert stream_events[-1].data["phase"] == "complete"
+    assert stream_events[-1].data["status"] == "completed"
+    assert all("secret" not in json.dumps(event.data) for event in stream_events)
+
+
+@pytest.mark.asyncio
+async def test_cowork_agent_streaming_hook_is_disabled_without_chat_origin(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "No origin stream",
+        "No origin",
+        [{"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []}],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner([("content", '{"public_note":"Hello","private_note":"secret"}')])
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    assert tool.runner.specs[-1].hook.wants_streaming() is False
+    assert [event for event in events if event.type == "agent.stream"] == []
+
+
+@pytest.mark.asyncio
+async def test_cowork_agent_streams_mailbox_draft_from_tool_call_arguments(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Stream mailbox",
+        "Streaming",
+        [
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+            {"id": "reviewer", "name": "Reviewer", "role": "Review", "goal": "Review", "responsibilities": []},
+        ],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner(
+        [
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_call_index=0,
+                    tool_name="cowork_internal",
+                    sequence=1,
+                    delta_text='{"action":"send_message","recipient_ids":["reviewer"],"content":"Please ',
+                    status="streaming",
+                ),
+            ),
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_call_index=0,
+                    tool_name="cowork_internal",
+                    sequence=2,
+                    delta_text='review","requires_reply":true,"topic":"review"}',
+                    status="streaming",
+                ),
+            ),
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_call_index=0,
+                    tool_name="cowork_internal",
+                    sequence=3,
+                    delta_text="",
+                    phase="terminal",
+                    status="completed",
+                    completed=True,
+                ),
+            ),
+        ]
+    )
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    mailbox_events = [event for event in events if event.type == "mailbox.stream"]
+    assert [event.data.get("text") for event in mailbox_events if event.data.get("phase") == "delta"] == [
+        "Please ",
+        "review",
+    ]
+    assert mailbox_events[0].data["sender_agent_id"] == "researcher"
+    assert mailbox_events[0].data["tool_call_id"] == "call_1"
+    assert mailbox_events[0].data["draft_id"]
+    assert mailbox_events[-1].data["phase"] == "terminal"
+    assert mailbox_events[-1].data["status"] == "completed"
+    assert mailbox_events[-1].data["completed"] is True
+    assert mailbox_events[-1].data["recipient_ids"] == ["reviewer"]
+    assert mailbox_events[-1].data["requires_reply"] is True
+    assert mailbox_events[-1].data["topic"] == "review"
+
+
+@pytest.mark.asyncio
+async def test_cowork_mailbox_stream_ignores_unrelated_tools_and_private_fields(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Stream mailbox",
+        "Streaming",
+        [{"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []}],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner(
+        [
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_name="read_file",
+                    sequence=1,
+                    delta_text='{"path":"secret.txt"}',
+                    status="streaming",
+                ),
+            ),
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_2",
+                    tool_name="cowork_internal",
+                    sequence=2,
+                    delta_text='{"action":"send_message","content":"Visible","private_note":"secret","raw":"hidden"}',
+                    status="streaming",
+                ),
+            ),
+        ]
+    )
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    mailbox_events = [event for event in events if event.type == "mailbox.stream"]
+    assert [event.data.get("text") for event in mailbox_events if event.data.get("phase") == "delta"] == ["Visible"]
+    assert all("secret" not in json.dumps(event.data) for event in mailbox_events)
+    assert all("hidden" not in json.dumps(event.data) for event in mailbox_events)
+
+
+@pytest.mark.asyncio
+async def test_cowork_mailbox_stream_is_disabled_without_chat_origin(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "No origin stream",
+        "No origin",
+        [{"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []}],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner(
+        [
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_name="cowork_internal",
+                    sequence=1,
+                    delta_text='{"action":"send_message","content":"Hidden"}',
+                    status="streaming",
+                ),
+            )
+        ]
+    )
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    assert [event for event in events if event.type == "mailbox.stream"] == []
+
+
+@pytest.mark.asyncio
+async def test_cowork_mailbox_stream_isolates_interleaved_tool_calls_and_late_recipients(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Interleaved mailbox",
+        "Streaming",
+        [
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+            {"id": "reviewer", "name": "Reviewer", "role": "Review", "goal": "Review", "responsibilities": []},
+            {"id": "writer", "name": "Writer", "role": "Write", "goal": "Write", "responsibilities": []},
+        ],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner(
+        [
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_a",
+                    tool_name="cowork_internal",
+                    sequence=1,
+                    delta_text='{"action":"send_message","content":"Alpha ',
+                ),
+            ),
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_b",
+                    tool_name="cowork_internal",
+                    sequence=2,
+                    delta_text='{"action":"send_message","recipient_ids":["writer"],"content":"Beta"}',
+                ),
+            ),
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_a",
+                    tool_name="cowork_internal",
+                    sequence=3,
+                    delta_text='done","recipient_ids":["reviewer"]}',
+                ),
+            ),
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_a",
+                    tool_name="cowork_internal",
+                    sequence=4,
+                    delta_text="",
+                    phase="terminal",
+                    status="completed",
+                    completed=True,
+                ),
+            ),
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_b",
+                    tool_name="cowork_internal",
+                    sequence=5,
+                    delta_text="",
+                    phase="terminal",
+                    status="completed",
+                    completed=True,
+                ),
+            ),
+        ]
+    )
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    mailbox_events = [event for event in events if event.type == "mailbox.stream"]
+    deltas_by_call = {}
+    terminals = {}
+    for event in mailbox_events:
+        call_id = event.data["tool_call_id"]
+        if event.data["phase"] == "delta":
+            deltas_by_call.setdefault(call_id, []).append(event.data["text"])
+        else:
+            terminals[call_id] = event.data
+
+    assert deltas_by_call == {"call_a": ["Alpha ", "done"], "call_b": ["Beta"]}
+    assert terminals["call_a"]["recipient_ids"] == ["reviewer"]
+    assert terminals["call_b"]["recipient_ids"] == ["writer"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("terminal_status", ["failed", "interrupted", "discarded"])
+async def test_cowork_mailbox_stream_emits_terminal_noncompleted_states(temp_workspace, terminal_status):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Terminal mailbox",
+        "Streaming",
+        [{"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []}],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner(
+        [
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_name="cowork_internal",
+                    sequence=1,
+                    delta_text='{"action":"send_message","content":"Draft"}',
+                    status="streaming",
+                ),
+            ),
+            (
+                "tool_delta",
+                ToolCallArgumentDelta(
+                    tool_call_id="call_1",
+                    tool_name="cowork_internal",
+                    sequence=2,
+                    delta_text="",
+                    phase="terminal",
+                    status=terminal_status,
+                    completed=True,
+                ),
+            ),
+        ]
+    )
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    terminal = [event for event in events if event.type == "mailbox.stream" and event.data["phase"] == "terminal"][-1]
+    assert terminal.data["status"] == terminal_status
+    assert terminal.data["completed"] is False
+
+
+@pytest.mark.asyncio
+async def test_cowork_streamed_send_message_tool_call_creates_draft_before_durable_record(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Integrated mailbox stream",
+        "Streaming",
+        [
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+            {"id": "reviewer", "name": "Reviewer", "role": "Review", "goal": "Review", "responsibilities": []},
+        ],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, ToolStreamingProvider(), temp_workspace, "test-model", 1200)
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    mailbox_stream_events = [event for event in events if event.type == "mailbox.stream"]
+    delivered_events = [event for event in events if event.type == "mailbox.delivered"]
+    assert (
+        "".join(event.data.get("text", "") for event in mailbox_stream_events if event.data["phase"] == "delta")
+        == "Please review"
+    )
+    assert events.index(mailbox_stream_events[0]) < events.index(delivered_events[0])
+    assert all("private_note" not in json.dumps(event.data) for event in mailbox_stream_events)
+    assert all("secret" not in json.dumps(event.data) for event in mailbox_stream_events)
+
+    updated = service.get_session(session.id)
+    record = next(record for record in updated.mailbox.values() if record.content == "Please review")
+    assert record.tool_call_id == "call_1"
+    assert record.draft_id == f"{session.id}:researcher:call_1"
 
 
 def test_team_planner_adds_reviewer_for_risky_goals(temp_workspace):
@@ -105,6 +683,29 @@ async def test_internal_tool_sends_message_and_completes_task(temp_workspace):
     assert updated.agents[recipient].inbox
     assert "marked completed" in completed
     assert updated.tasks[task_id].status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_internal_tool_attaches_mailbox_stream_correlation_to_sent_message(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Correlate mailbox", "Mailbox", [], [])
+    sender, recipient = list(session.agents)[:2]
+    tool = CoworkInternalTool(service, session_id=session.id, sender_id=sender)
+
+    result = await tool.execute(
+        action="send_message",
+        recipient_ids=[recipient],
+        content="Please review",
+        _tool_call_id="call_1",
+        _draft_id=f"{session.id}:{sender}:call_1",
+    )
+
+    updated = service.get_session(session.id)
+    assert updated is not None
+    record = next(record for record in updated.mailbox.values() if record.content == "Please review")
+    assert result.startswith("Sent message")
+    assert record.tool_call_id == "call_1"
+    assert record.draft_id == f"{session.id}:{sender}:call_1"
 
 
 @pytest.mark.asyncio
@@ -188,7 +789,14 @@ def test_cowork_agent_tools_follow_agent_allowlist(temp_workspace):
 
     registry = tool._build_agent_tools("cw_test", coordinator)
 
-    assert registry.tool_names == ["cowork_internal"]
+    assert set(registry.tool_names) == {
+        "cowork_internal",
+        "read_file",
+        "list_dir",
+        "write_file",
+        "edit_file",
+        "delete_file",
+    }
 
     researcher = coordinator
     researcher.id = "researcher"

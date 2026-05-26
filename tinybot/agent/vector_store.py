@@ -8,7 +8,6 @@ import re
 import threading
 from collections import OrderedDict
 from datetime import datetime
-from functools import lru_cache
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -102,14 +101,14 @@ class CachedEmbeddingFunction:
                 batch_embeddings = self._underlying(batch_texts)
                 new_embeddings.extend(batch_embeddings)
 
-            for text, embedding in zip(uncached_texts, new_embeddings):
+            for text, embedding in zip(uncached_texts, new_embeddings, strict=False):
                 cache_key = self._make_cache_key(text)
                 with CachedEmbeddingFunction._cache_lock:
                     CachedEmbeddingFunction._cache[cache_key] = embedding
                     if len(CachedEmbeddingFunction._cache) > CachedEmbeddingFunction._max_cache_size:
                         CachedEmbeddingFunction._cache.popitem(last=False)
 
-            for idx, embedding in zip(uncached_indices, new_embeddings):
+            for idx, embedding in zip(uncached_indices, new_embeddings, strict=False):
                 results[idx] = embedding
 
         return [r for r in results]  # Convert None placeholders to actual values
@@ -157,8 +156,7 @@ class VectorStore:
     old messages are summarized and stored as a single document with
     their original text chunks as additional context.
 
-    Supports multiple embedding providers:
-      - local: sentence-transformers models (downloaded or local path)
+    Supports API embedding providers:
       - openai: OpenAI embedding API
       - azure: Azure OpenAI embedding API
       - custom: OpenAI-compatible custom endpoint
@@ -266,22 +264,20 @@ class VectorStore:
             with VectorStore._lock:
                 # Double-check under lock
                 if VectorStore._embedding_fn is None or self._config_changed(config):
-                    # Create embedding function based on provider type
-                    if config.provider == "local":
-                        base_fn = self._create_local_embedding_function(config)
-                    elif config.provider in ("openai", "azure", "custom"):
+                    if config.provider in ("openai", "azure", "custom"):
                         base_fn = self._create_api_embedding_function(config)
                     else:
-                        # Fallback to local
-                        logger.warning("Unknown embedding provider '{}', using local", config.provider)
-                        base_fn = self._create_local_embedding_function(config)
+                        raise ValueError(
+                            f"Unsupported embedding provider '{config.provider}'. "
+                            "Use openai, azure, or custom."
+                        )
 
                     # Wrap with caching layer - set on CLASS level
                     VectorStore._embedding_fn = CachedEmbeddingFunction(base_fn)
                     VectorStore._embedding_config = config
                     logger.info(
                         "Embedding initialized: provider={}, model={}, api_base={}",
-                        config.provider, config.model_name, config.api_base or "local"
+                        config.provider, config.model_name, config.api_base or "default"
                     )
 
         return VectorStore._embedding_fn
@@ -302,64 +298,11 @@ class VectorStore:
             old.api_version != new_config.api_version
         )
 
-    def _create_local_embedding_function(self, config: Any):
-        """Create local sentence-transformers embedding function."""
-        from chromadb.utils.embedding_functions import (
-            SentenceTransformerEmbeddingFunction,
-        )
-
-        model_name = config.model_name
-
-        # Check if it's already a local path
-        if Path(model_name).exists():
-            logger.info("Loading embedding model from local path: {}", model_name)
-            model_local_path = Path(model_name)
-        else:
-            # Check local cache for this model
-            model_cache_dir = Path.home() / ".tinybot" / "models"
-            model_local_path = model_cache_dir / model_name.replace("/", "_")
-
-            if model_local_path.exists() and (model_local_path / "config.json").exists():
-                model_name = str(model_local_path)
-                logger.info("Loading embedding model from local cache: {}", model_local_path)
-            else:
-                model_cache_dir.mkdir(parents=True, exist_ok=True)
-                logger.info("Downloading embedding model '{}' (first run only)...", config.model_name)
-
-        device = "cpu"
-        try:
-            import torch
-            if torch.cuda.is_available():
-                device = "cuda"
-        except ImportError:
-            pass
-
-        logger.info("Embedding device: {}", device)
-        base_fn = SentenceTransformerEmbeddingFunction(
-            model_name=model_name,
-            device=device,
-        )
-
-        # Persist downloaded model to local cache for future use
-        if not Path(model_name).exists() and not (model_local_path / "config.json").exists():
-            try:
-                base_fn.model.save(str(model_local_path))
-                logger.info("Embedding model saved to local cache: {}", model_local_path)
-            except Exception as e:
-                logger.warning("Failed to cache embedding model: {}", e)
-
-        return base_fn
-
     def _create_api_embedding_function(self, config: Any):
         """Create API-based embedding function (OpenAI/Azure/Custom)."""
         import chromadb.utils.embedding_functions as ef
 
-        # Resolve API key: direct value or environment variable
-        api_key = config.api_key
-        if not api_key and config.api_key_env_var:
-            import os
-            api_key = os.environ.get(config.api_key_env_var, "")
-
+        api_key = config.resolve_api_key() if hasattr(config, "resolve_api_key") else config.api_key
         if not api_key:
             raise ValueError(
                 f"Embedding API key not configured. Set '{config.api_key_env_var}' "
@@ -534,7 +477,7 @@ class VectorStore:
         if not results["documents"]:
             return None
 
-        summaries = list(zip(results["documents"], results["metadatas"]))
+        summaries = list(zip(results["documents"], results["metadatas"], strict=False))
         summaries.sort(key=lambda x: x[1].get("boundary_end", 0), reverse=True)
         return summaries[0][0] if summaries else None
 
@@ -589,7 +532,7 @@ class VectorStore:
         metadatas = results.get("metadatas", [[]])[0]
 
         out: list[dict[str, Any]] = []
-        for doc_id, doc, dist, meta in zip(ids, documents, distances, metadatas):
+        for doc_id, doc, dist, meta in zip(ids, documents, distances, metadatas, strict=False):
             if not doc:
                 continue
             if exclude_ids and doc_id in exclude_ids:
@@ -645,7 +588,7 @@ class VectorStore:
         metadatas = results.get("metadatas", [[]])[0]
 
         out: list[dict[str, Any]] = []
-        for doc_id, doc, dist, meta in zip(ids, documents, distances, metadatas):
+        for doc_id, doc, dist, meta in zip(ids, documents, distances, metadatas, strict=False):
             if not doc:
                 continue
             out.append({
@@ -957,7 +900,7 @@ class VectorStore:
         c_metas = chunk_results.get("metadatas", [[]])[0]
 
         out: list[dict[str, Any]] = []
-        for cid, cdoc, cdist, cmeta in zip(c_ids, c_docs, c_dists, c_metas):
+        for cid, cdoc, cdist, cmeta in zip(c_ids, c_docs, c_dists, c_metas, strict=False):
             if not cdoc:
                 continue
             if cdist > adaptive_threshold:
@@ -1023,6 +966,7 @@ class VectorStore:
             all_summaries["ids"],
             all_summaries["documents"],
             all_summaries["metadatas"],
+            strict=False,
         ):
             if not doc:
                 continue
@@ -1059,6 +1003,7 @@ class VectorStore:
             ranked.get("documents", [[]])[0],
             ranked.get("distances", [[]])[0],
             ranked.get("metadatas", [[]])[0],
+            strict=False,
         ):
             if rid in candidate_id_set and rdoc:
                 out.append({
@@ -1093,7 +1038,7 @@ class VectorStore:
                 "boundary_end": meta.get("boundary_end", 0),
                 "created_at": meta.get("created_at", ""),
             }
-            for doc, meta in zip(results["documents"], results["metadatas"])
+            for doc, meta in zip(results["documents"], results["metadatas"], strict=False)
         ]
         items.sort(key=lambda x: x["boundary_end"], reverse=True)
         return items
