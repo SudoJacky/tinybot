@@ -10338,8 +10338,8 @@ function populateConfigForm(config) {
 
   // Embedding config (nested in agents.defaults)
   const embedding = defaults.embedding || {};
-  elements.configEmbeddingProvider.value = embedding.provider || "local";
-  elements.configEmbeddingModelName.value = embedding.modelName || embedding.model_name || "all-MiniLM-L6-v2";
+  elements.configEmbeddingProvider.value = embedding.provider || "openai";
+  elements.configEmbeddingModelName.value = embedding.modelName || embedding.model_name || "text-embedding-3-small";
   elements.configEmbeddingApiKey.value = embedding.apiKey || embedding.api_key || "";
   elements.configEmbeddingApiBase.value = embedding.apiBase || embedding.api_base || "";
 
