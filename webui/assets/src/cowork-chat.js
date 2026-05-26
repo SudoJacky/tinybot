@@ -21,6 +21,32 @@ export function chatCoworkKey(chatId, sessionId) {
   return `${chatId || ""}:${sessionId || ""}`;
 }
 
+function displayItemTimestamp(item) {
+  const source = item?.message || item?.messages?.[0] || null;
+  return source?.timestamp || source?.created_at || source?.updated_at || "";
+}
+
+function coworkSessionAnchorTimestamp(session) {
+  return session?.created_at || session?.started_at || session?._chat_updated_at || session?.updated_at || "";
+}
+
+export function chatCoworkSurfaceInsertionIndex(displayItems = [], sessions = []) {
+  const anchors = sessions
+    .map((session) => coworkSessionAnchorTimestamp(session))
+    .filter(Boolean)
+    .sort();
+  const anchor = anchors[0] || "";
+  if (!anchor) {
+    return displayItems.length;
+  }
+
+  const index = displayItems.findIndex((item) => {
+    const timestamp = displayItemTimestamp(item);
+    return timestamp && String(timestamp).localeCompare(anchor) > 0;
+  });
+  return index === -1 ? displayItems.length : index;
+}
+
 export function coworkAgentActivityKey(sessionId, agentId) {
   return `${sessionId || ""}:${agentId || ""}`;
 }

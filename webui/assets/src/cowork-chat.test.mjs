@@ -7,6 +7,7 @@ import {
   agentRecentActivity,
   chatCoworkKey,
   coworkMailboxDraftKey,
+  chatCoworkSurfaceInsertionIndex,
   coworkAgentActivityKey,
   coworkFinalOutput,
   createChatCoworkState,
@@ -93,6 +94,23 @@ assert.doesNotMatch(selectedCoworkAgentRow.groups.body, /inset\s+3px\s+0\s+0/);
 assert.equal(chatCoworkKey("chat-1", "cw-1"), "chat-1:cw-1");
 assert.equal(coworkMailboxDraftKey("chat-1", "cw-1", "researcher", "call-1", "draft-1"), "chat-1:cw-1:researcher:call-1:draft-1");
 assert.equal(coworkAgentActivityKey("cw-1", "researcher"), "cw-1:researcher");
+assert.equal(
+  chatCoworkSurfaceInsertionIndex(
+    [
+      { type: "message", message: { timestamp: "2026-05-26T10:00:00.000Z" } },
+      { type: "message", message: { timestamp: "2026-05-26T10:02:00.000Z" } },
+    ],
+    [{ id: "cw-1", created_at: "2026-05-26T10:01:00.000Z" }],
+  ),
+  1,
+);
+assert.equal(
+  chatCoworkSurfaceInsertionIndex(
+    [{ type: "message", message: { timestamp: "2026-05-26T10:00:00.000Z" } }],
+    [{ id: "cw-1", created_at: "2026-05-26T10:01:00.000Z" }],
+  ),
+  1,
+);
 assert.equal(shouldRefreshCoworkAgentInspectorForStream({ chatId: "chat-1" }, "chat-1"), true);
 assert.equal(shouldRefreshCoworkAgentInspectorForStream({ chatId: "chat-1" }, "chat-2"), false);
 assert.equal(shouldRefreshCoworkAgentInspectorForStream(null, "chat-1"), false);
