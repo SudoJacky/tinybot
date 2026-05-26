@@ -24,6 +24,7 @@ import {
 } from '../agent-ui-events.js';
 import {
   captureCoworkAgentThreadScroll,
+  chatCoworkSurfaceInsertionIndex,
   chatCoworkKey,
   coworkAgentActivityKey,
   createChatCoworkState,
@@ -2440,20 +2441,27 @@ function renderMessages(forceScroll = true) {
 
   prepareMessageRelationships(messages);
   const displayItems = createMessageDisplayItems(messages);
+  const coworkSessions = selectVisibleChatCoworkSessions(state.chatCowork, state.activeChatId);
+  if (coworkSessions.length) {
+    displayItems.splice(chatCoworkSurfaceInsertionIndex(displayItems, coworkSessions), 0, {
+      type: "chat-cowork-surface",
+      chatId: state.activeChatId,
+    });
+  }
   for (const item of displayItems) {
     const node = item.type === "run-chain"
       ? createRunChainNode(item.messages)
       : item.type === "collapse"
         ? createCollapsedMessagesNode(item.messages)
+        : item.type === "chat-cowork-surface"
+          ? createChatCoworkSurfaceNode(item.chatId)
         : renderAgentUiSurface(agentUiRenderers, AGENT_UI_RENDERER_SURFACES.message, {
             message: item.message,
             options: { hideMeta: item.hideMeta },
           });
-    elements.messageList.append(node);
-  }
-  const coworkSurface = createChatCoworkSurfaceNode(state.activeChatId);
-  if (coworkSurface) {
-    elements.messageList.append(coworkSurface);
+    if (node) {
+      elements.messageList.append(node);
+    }
   }
 
   if (forceScroll || wasNearBottom) {

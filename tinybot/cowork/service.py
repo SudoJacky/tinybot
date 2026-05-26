@@ -319,6 +319,7 @@ class CoworkService:
                         blocking_task_id=item.get("blocking_task_id"),
                         escalate_after_rounds=item.get("escalate_after_rounds"),
                         escalated_at=item.get("escalated_at"),
+                        wake_recipients=bool(item.get("wake_recipients", True)),
                         read_by=item.get("read_by", []),
                         replied_by=item.get("replied_by", []),
                         created_at=item.get("created_at", now_iso()),
@@ -509,7 +510,7 @@ class CoworkService:
             if not isinstance(item, dict) or not item.get("id"):
                 continue
             hydrated = self._hydrate_dataclass(item, cls)
-            result[getattr(hydrated, "id")] = hydrated
+            result[hydrated.id] = hydrated
         return result
 
     def _hydrate_dataclass_list(self, raw: Any, cls: type[Any]) -> list[Any]:
@@ -1616,6 +1617,7 @@ class CoworkService:
         content: str,
         thread_id: str | None = None,
         *,
+        wake_recipients: bool = True,
         save: bool = True,
     ) -> CoworkMessage:
         valid_recipients = [item for item in dict.fromkeys(recipient_ids) if item in session.agents or item == "user"]
@@ -1643,7 +1645,7 @@ class CoworkService:
         thread.last_message_at = message.created_at
         for recipient_id in valid_recipients:
             agent = session.agents.get(recipient_id)
-            if agent and msg_id not in agent.inbox:
+            if wake_recipients and agent and msg_id not in agent.inbox:
                 agent.inbox.append(msg_id)
                 if agent.status in {"idle", "done"}:
                     agent.status = "waiting"
@@ -1652,7 +1654,12 @@ class CoworkService:
             "message.sent",
             f"{sender_id} sent a message to {', '.join(valid_recipients)}",
             actor_id=sender_id,
-            data={"thread_id": thread_id, "message_id": msg_id, "recipients": valid_recipients},
+            data={
+                "thread_id": thread_id,
+                "message_id": msg_id,
+                "recipients": valid_recipients,
+                "wake_recipients": wake_recipients,
+            },
             save=False,
         )
         self._touch(session)

@@ -2377,8 +2377,8 @@ body:not(.sidebar-cowork-open):not(.sidebar-sessions-open) .cowork-panel {
 }
 
 .session-item-wrapper.expanded .session-item {
-  padding-top: 7px;
-  padding-bottom: 7px;
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 
 .session-item-wrapper.expanded .session-item,
