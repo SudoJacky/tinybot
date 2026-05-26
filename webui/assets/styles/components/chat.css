@@ -1229,7 +1229,32 @@ button.run-chain-item:hover,
   line-height: 1.55;
 }
 
+.cowork-agent-message-body :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0 0 6px;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 700;
+  line-height: inherit;
+}
+
+.cowork-agent-message-body :is(p, ul, ol, blockquote) {
+  margin: 0 0 8px;
+}
+
+.cowork-agent-message-body :is(p, ul, ol, blockquote):last-child {
+  margin-bottom: 0;
+}
+
+.cowork-agent-message-body :is(ul, ol) {
+  padding-left: 18px;
+}
+
+.cowork-agent-message-body li + li {
+  margin-top: 3px;
+}
+
 .cowork-agent-message-body pre {
+  margin: 8px 0 0;
   max-width: 100%;
   overflow-x: auto;
   white-space: pre;

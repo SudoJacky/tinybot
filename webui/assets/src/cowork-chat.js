@@ -189,6 +189,17 @@ export function upsertChatCoworkSession(chatCowork, chatId, session) {
   return getChatCoworkSessions(chatCowork, chatId);
 }
 
+export function rememberChatCoworkSessions(chatCowork, chatId, sessions = []) {
+  if (!chatCowork || !chatId || !Array.isArray(sessions)) {
+    return 0;
+  }
+  chatCowork.sessionsByChat.set(chatId, new Map());
+  for (const session of sessions) {
+    upsertChatCoworkSession(chatCowork, chatId, session);
+  }
+  return sessions.length;
+}
+
 export function rememberCoworkStateEvent(chatCowork, event) {
   if (!chatCowork || !event?.chat_id || !event?.session_id) {
     return null;

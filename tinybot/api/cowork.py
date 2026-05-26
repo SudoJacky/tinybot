@@ -419,7 +419,14 @@ async def handle_list_sessions(request: web.Request) -> web.Response:
     if service is None:
         return web.json_response({"error": "cowork is not available"}, status=503)
     include_completed = request.query.get("include_completed", "false").lower() in {"1", "true", "yes"}
+    origin_chat_id = str(request.query.get("origin_chat_id") or "").strip()
     sessions = service.list_sessions(include_completed=include_completed)
+    if origin_chat_id:
+        sessions = [
+            session
+            for session in sessions
+            if str((getattr(session, "runtime_state", {}) or {}).get("origin_chat_id") or "").strip() == origin_chat_id
+        ]
     return web.json_response({"items": [cowork_session_snapshot(session, verbose=False) for session in sessions]})
 
 

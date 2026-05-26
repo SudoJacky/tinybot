@@ -38,6 +38,7 @@ import {
   normalizeCoworkStateEvent,
   normalizeCoworkStreamEvent,
   reconcileCoworkMailboxDrafts,
+  rememberChatCoworkSessions,
   rememberCoworkMailboxStreamEvent,
   rememberCoworkStreamEvent,
   restoreCoworkAgentThreadScroll,
@@ -3595,6 +3596,14 @@ async function loadMessages(sessionKey) {
   const messages = payload.messages || [];
   restoreAgentUiFormsFromMessages(messages);
   state.messages.set(sessionKey, messages);
+  const chatId = sessionKey.includes(":") ? sessionKey.split(":", 2)[1] : "";
+  if (chatId) {
+    try {
+      await loadChatCoworkSessions(chatId);
+    } catch (error) {
+      console.warn("Unable to hydrate chat Cowork sessions", error);
+    }
+  }
   updateActiveChatTitle();
   renderSessions();
   renderMessages();
@@ -6711,6 +6720,26 @@ async function loadChatCoworkSession(chatId, sessionId) {
   } finally {
     state.chatCowork.loadingKeys.delete(key);
   }
+}
+
+async function loadChatCoworkSessions(chatId) {
+  if (!chatId || !state.chatCowork) {
+    return [];
+  }
+  const response = await fetch(
+    `${state.coworkApiPath}/sessions?include_completed=true&origin_chat_id=${encodeURIComponent(chatId)}`,
+    {
+      headers: { Authorization: `Bearer ${state.token}` },
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`load chat cowork sessions failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  const sessions = Array.isArray(payload.items) ? payload.items : [];
+  rememberChatCoworkSessions(state.chatCowork, chatId, sessions);
+  return sessions;
 }
 
 function scheduleChatCoworkRefresh(chatId, sessionId) {

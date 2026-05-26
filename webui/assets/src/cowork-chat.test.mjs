@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   agentCurrentTask,
@@ -25,6 +26,7 @@ import {
   observationDetailState,
   reconcileCoworkMailboxDrafts,
   reconcileCoworkLiveStreams,
+  rememberChatCoworkSessions,
   rememberCoworkMailboxStreamEvent,
   rememberCoworkStreamEvent,
   rememberCoworkStateEvent,
@@ -34,6 +36,8 @@ import {
   summarizeCoworkTasks,
   upsertChatCoworkSession,
 } from "./cowork-chat.js";
+
+const chatCss = readFileSync(new URL("../styles/components/chat.css", import.meta.url), "utf8");
 
 const {
   captureCoworkAgentThreadScroll,
@@ -55,6 +59,9 @@ const chatCowork = createChatCoworkState();
 
 assert.equal(typeof captureCoworkAgentThreadScroll, "function");
 assert.equal(typeof restoreCoworkAgentThreadScroll, "function");
+assert.equal(typeof rememberChatCoworkSessions, "function");
+assert.match(chatCss, /\.cowork-agent-message-body\s+:is\(h1,\s*h2,\s*h3,\s*h4,\s*h5,\s*h6\)/);
+assert.match(chatCss, /\.cowork-agent-message-body\s+:is\(h1,\s*h2,\s*h3,\s*h4,\s*h5,\s*h6\)[\s\S]*font-size:\s*inherit/);
 
 {
   const oldThread = createScrollProbe({ scrollTop: 640, scrollHeight: 1600, clientHeight: 400 });
@@ -217,6 +224,15 @@ assert.equal(upsertChatCoworkSession(chatCowork, "chat-1", { id: "empty", agents
 upsertChatCoworkSession(chatCowork, "chat-1", firstSession);
 assert.equal(getChatCoworkSessions(chatCowork, "chat-1").length, 1);
 assert.equal(getChatCoworkSessions(chatCowork, "chat-2").length, 0);
+const hydratedCowork = createChatCoworkState();
+assert.equal(rememberChatCoworkSessions(hydratedCowork, "chat-hydrate", [
+  { id: "cw-hydrate", title: "Hydrated", agents: [{ id: "agent-h", name: "Hydrated agent" }], tasks: [] },
+  { id: "empty-agents", title: "No agents", agents: [], tasks: [] },
+]), 2);
+assert.deepEqual(getChatCoworkSessions(hydratedCowork, "chat-hydrate").map((session) => ({
+  id: session.id,
+  chatId: session._chat_id,
+})), [{ id: "cw-hydrate", chatId: "chat-hydrate" }]);
 assert.deepEqual(summarizeCoworkTasks(firstSession), { total: 2, completed: 1, failed: 0, blocked: 0 });
 assert.equal(agentDisplayLabel(firstSession.agents[0], 0), "Researcher");
 assert.equal(agentDisplayLabel({ role: "critic" }, 1), "critic 2");

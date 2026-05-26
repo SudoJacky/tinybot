@@ -1423,6 +1423,60 @@ async def test_webui_control_provider_models_validates_payload(api_workspace):
 
 
 @pytest.mark.asyncio
+async def test_webui_control_cowork_sessions_filter_by_origin_chat_id(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    service = CoworkService(api_workspace)
+    chat_session = service.create_session(
+        "Chat scoped",
+        "Chat Session",
+        [{"id": "agent_1", "name": "Agent", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "task_1", "title": "Task", "description": "Work", "assigned_agent_id": "agent_1"}],
+        runtime_state={
+            "origin_channel": "websocket",
+            "origin_chat_id": "chat-1",
+            "origin_session_key": "websocket:chat-1",
+            "origin_surface": "main_chat",
+        },
+    )
+    other_chat_session = service.create_session(
+        "Other chat",
+        "Other Chat Session",
+        [{"id": "agent_2", "name": "Agent 2", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "task_2", "title": "Other task", "description": "Work", "assigned_agent_id": "agent_2"}],
+        runtime_state={
+            "origin_channel": "websocket",
+            "origin_chat_id": "chat-2",
+            "origin_session_key": "websocket:chat-2",
+            "origin_surface": "main_chat",
+        },
+    )
+    service.create_session("No origin", "No Origin", [], [])
+
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            cowork_service=service,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get(
+            "/api/cowork/sessions?include_completed=true&origin_chat_id=chat-1",
+            headers=headers,
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert [item["id"] for item in payload["items"]] == [chat_session.id]
+        assert payload["items"][0]["agents"][0]["id"] == "agent_1"
+        assert other_chat_session.id not in {item["id"] for item in payload["items"]}
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_webui_control_cowork_routes_use_shared_api_adaptive_starter_default(api_workspace):
     token_manager = WebTokenManager(ttl_s=300)
     service = CoworkService(api_workspace)
