@@ -855,6 +855,8 @@ export default {
     "cowork.sessionOutput": "会话输出",
     "cowork.noTeamActivity": "暂无团队活动。",
     "cowork.noEvents": "无事件。",
+    "cowork.liveOutput": "实时输出",
+    "cowork.liveCompleted": "实时输出已完成",
     "cowork.noBlueprintJson": "无蓝图 JSON",
     "cowork.mode.adaptiveStarter": "自适应启动",
     "cowork.mode.agentTeam": "Agent 团队",

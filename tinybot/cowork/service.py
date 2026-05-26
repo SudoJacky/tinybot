@@ -965,6 +965,50 @@ class CoworkService:
         if listener not in self._listeners:
             self._listeners.append(listener)
 
+    def emit_agent_stream(
+        self,
+        session: CoworkSession,
+        *,
+        agent_id: str,
+        step_id: str,
+        phase: str,
+        status: str,
+        sequence: int,
+        text: str = "",
+    ) -> CoworkEvent | None:
+        runtime_state = getattr(session, "runtime_state", {}) or {}
+        if not isinstance(runtime_state, dict):
+            return None
+        if runtime_state.get("origin_channel") != "websocket" or runtime_state.get("origin_surface") != "main_chat":
+            return None
+        chat_id = str(runtime_state.get("origin_chat_id") or "").strip()
+        if not chat_id:
+            return None
+        safe_text = str(text or "")
+        if len(safe_text) > 2000:
+            safe_text = safe_text[:2000]
+        safe_phase = str(phase or "delta").strip().lower()
+        if safe_phase not in {"delta", "complete", "interrupted"}:
+            safe_phase = "delta"
+        event = CoworkEvent(
+            id=self._new_id("stream"),
+            type="agent.stream",
+            message="Cowork agent stream update",
+            actor_id=agent_id,
+            data={
+                "agent_id": str(agent_id or ""),
+                "step_id": str(step_id or ""),
+                "phase": safe_phase,
+                "status": str(status or ""),
+                "sequence": max(0, int(sequence or 0)),
+                "timestamp": now_iso(),
+                "text": safe_text,
+                "completed": safe_phase == "complete",
+            },
+        )
+        self._notify_listeners(session, event)
+        return event
+
     def delete_session(self, session_id: str) -> bool:
         sessions = self._load()
         if session_id not in sessions:

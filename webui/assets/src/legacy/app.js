@@ -31,8 +31,11 @@ import {
   deriveCoworkAgentTimeline,
   deriveCoworkRunSummary,
   getChatCoworkSessions,
+  getCoworkLiveStreamsForAgent,
   normalizeCoworkAgentActivityPayload,
   normalizeCoworkStateEvent,
+  normalizeCoworkStreamEvent,
+  rememberCoworkStreamEvent,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
   upsertChatCoworkSession,
@@ -1971,6 +1974,19 @@ function latestCoworkEventForSession(chatId, sessionId) {
   return state.chatCowork?.lastEvents?.get(chatCoworkKey(chatId, sessionId)) || null;
 }
 
+function scheduleChatCoworkStreamRender(chatId) {
+  if (!chatId || !state.chatCowork?.streamRenderTimers) return;
+  if (state.chatCowork.streamRenderTimers.has(chatId)) return;
+  const schedule = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 50));
+  const timer = schedule(() => {
+    state.chatCowork.streamRenderTimers.delete(chatId);
+    if (chatId === state.activeChatId) {
+      renderMessages(false);
+    }
+  });
+  state.chatCowork.streamRenderTimers.set(chatId, timer);
+}
+
 function createChatCoworkMetric(label, value) {
   const item = document.createElement("span");
   item.className = "chat-cowork-metric";
@@ -2021,8 +2037,14 @@ function createChatCoworkStatusBadge(status) {
 function createChatCoworkAgentRow(session, agent, index) {
   const event = latestCoworkEventForSession(session._chat_id || state.activeChatId, session.id);
   const summary = deriveCoworkAgentSummary(session, agent, index, event);
+  const liveStreams = getCoworkLiveStreamsForAgent(
+    state.chatCowork,
+    session._chat_id || state.activeChatId,
+    session.id,
+    agent.id,
+  );
   const row = document.createElement("button");
-  row.className = `chat-cowork-agent-row chat-cowork-agent-row-${summary.attention.tone || "normal"}`;
+  row.className = `chat-cowork-agent-row chat-cowork-agent-row-${summary.attention.tone || "normal"}${liveStreams.length ? " has-live-output" : ""}`;
   row.type = "button";
   row.dataset.agentId = summary.id || agent.id || "";
   if (
@@ -2051,6 +2073,16 @@ function createChatCoworkAgentRow(session, agent, index) {
   const task = document.createElement("span");
   task.textContent = compactText(summary.roleOrTask, 130);
   main.append(title, task);
+  if (liveStreams.length) {
+    const live = document.createElement("span");
+    live.className = `chat-cowork-live-output chat-cowork-live-output-${liveStreams[0].completed ? "completed" : "running"}`;
+    const label = document.createElement("small");
+    label.textContent = liveStreams[0].completed ? t("cowork.liveCompleted") : t("cowork.liveOutput");
+    const text = document.createElement("span");
+    text.textContent = compactText(liveStreams.map((stream) => stream.text).join("\n"), 360);
+    live.append(label, text);
+    main.append(live);
+  }
 
   const aside = document.createElement("span");
   aside.className = "chat-cowork-agent-aside";
@@ -11361,6 +11393,15 @@ async function connectWebSocket() {
           scheduleChatCoworkRefresh(coworkEvent.chat_id, coworkEvent.session_id);
         }
         scheduleCoworkRefresh(payload.session_id || "");
+        return;
+      }
+
+      if (payload.event === "cowork_stream") {
+        const coworkStreamEvent = normalizeCoworkStreamEvent(payload);
+        if (coworkStreamEvent) {
+          rememberCoworkStreamEvent(state.chatCowork, coworkStreamEvent);
+          scheduleChatCoworkStreamRender(coworkStreamEvent.chat_id);
+        }
         return;
       }
 

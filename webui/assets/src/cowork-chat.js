@@ -10,6 +10,8 @@ export function createChatCoworkState() {
     refreshTimers: new Map(),
     loadingKeys: new Set(),
     lastEvents: new Map(),
+    liveStreams: new Map(),
+    streamRenderTimers: new Map(),
   };
 }
 
@@ -19,6 +21,10 @@ export function chatCoworkKey(chatId, sessionId) {
 
 export function coworkAgentActivityKey(sessionId, agentId) {
   return `${sessionId || ""}:${agentId || ""}`;
+}
+
+export function coworkLiveStreamKey(chatId, sessionId, agentId, stepId) {
+  return `${chatId || ""}:${sessionId || ""}:${agentId || ""}:${stepId || ""}`;
 }
 
 export function normalizeCoworkStateEvent(payload = {}) {
@@ -42,6 +48,33 @@ export function normalizeCoworkStateEvent(payload = {}) {
   };
 }
 
+export function normalizeCoworkStreamEvent(payload = {}) {
+  if (!payload || payload.event !== "cowork_stream") {
+    return null;
+  }
+  const chatId = String(payload.chat_id || "").trim();
+  const sessionId = String(payload.session_id || "").trim();
+  const agentId = String(payload.agent_id || "").trim();
+  const stepId = String(payload.step_id || "").trim();
+  if (!chatId || !sessionId || !agentId || !stepId) {
+    return null;
+  }
+  const phase = String(payload.phase || "delta").trim() || "delta";
+  const sequence = Number.isFinite(Number(payload.sequence)) ? Number(payload.sequence) : 0;
+  return {
+    chat_id: chatId,
+    session_id: sessionId,
+    agent_id: agentId,
+    step_id: stepId,
+    phase,
+    status: String(payload.status || ""),
+    sequence,
+    timestamp: String(payload.timestamp || new Date().toISOString()),
+    text: String(payload.text || ""),
+    completed: Boolean(payload.completed || phase === "complete"),
+  };
+}
+
 export function upsertChatCoworkSession(chatCowork, chatId, session) {
   if (!chatCowork || !chatId || !session?.id) {
     return [];
@@ -55,6 +88,7 @@ export function upsertChatCoworkSession(chatCowork, chatId, session) {
     _chat_id: chatId,
     _chat_updated_at: session.updated_at || session.created_at || new Date().toISOString(),
   });
+  reconcileCoworkLiveStreams(chatCowork, chatId, session);
   return getChatCoworkSessions(chatCowork, chatId);
 }
 
@@ -65,6 +99,79 @@ export function rememberCoworkStateEvent(chatCowork, event) {
   const key = chatCoworkKey(event.chat_id, event.session_id);
   chatCowork.lastEvents.set(key, event);
   return event;
+}
+
+export function rememberCoworkStreamEvent(chatCowork, event) {
+  if (!chatCowork || !event?.chat_id || !event?.session_id || !event?.agent_id || !event?.step_id) {
+    return null;
+  }
+  if (!chatCowork.liveStreams) {
+    chatCowork.liveStreams = new Map();
+  }
+  const key = coworkLiveStreamKey(event.chat_id, event.session_id, event.agent_id, event.step_id);
+  const existing = chatCowork.liveStreams.get(key) || {
+    chat_id: event.chat_id,
+    session_id: event.session_id,
+    agent_id: event.agent_id,
+    step_id: event.step_id,
+    text: "",
+    status: "",
+    phase: "",
+    sequence: -1,
+    timestamp: "",
+    completed: false,
+  };
+  if (event.sequence <= Number(existing.sequence || 0)) {
+    return existing;
+  }
+  const next = {
+    ...existing,
+    phase: event.phase,
+    status: event.status || existing.status,
+    sequence: event.sequence,
+    timestamp: event.timestamp || existing.timestamp,
+    text: event.phase === "delta" ? `${existing.text || ""}${event.text || ""}` : existing.text || "",
+    completed: Boolean(existing.completed || event.completed || event.phase === "complete" || event.phase === "interrupted"),
+  };
+  chatCowork.liveStreams.set(key, next);
+  return next;
+}
+
+export function getCoworkLiveStreamsForAgent(chatCowork, chatId, sessionId, agentId) {
+  if (!chatCowork?.liveStreams || !chatId || !sessionId || !agentId) {
+    return [];
+  }
+  return [...chatCowork.liveStreams.values()]
+    .filter((stream) => (
+      stream.chat_id === chatId
+      && stream.session_id === sessionId
+      && stream.agent_id === agentId
+      && String(stream.text || "").trim()
+    ))
+    .sort((left, right) => Number(left.sequence || 0) - Number(right.sequence || 0));
+}
+
+export function reconcileCoworkLiveStreams(chatCowork, chatId, session) {
+  if (!chatCowork?.liveStreams || !chatId || !session?.id) {
+    return;
+  }
+  const completedStepIds = new Set(
+    (Array.isArray(session.agent_steps) ? session.agent_steps : [])
+      .filter((step) => (
+        ["completed", "failed", "blocked", "stopped"].includes(String(step.status || "").toLowerCase())
+        || String(step.output_summary || "").trim()
+      ))
+      .map((step) => String(step.id || "").trim())
+      .filter(Boolean),
+  );
+  for (const [key, stream] of chatCowork.liveStreams.entries()) {
+    if (stream.chat_id !== chatId || stream.session_id !== session.id) {
+      continue;
+    }
+    if (completedStepIds.has(stream.step_id)) {
+      chatCowork.liveStreams.delete(key);
+    }
+  }
 }
 
 export function getChatCoworkSessions(chatCowork, chatId) {

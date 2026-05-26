@@ -11,7 +11,7 @@ from typing import Any
 
 from loguru import logger
 
-from tinybot.agent.hook import AgentHook, AgentHookContext
+from tinybot.agent.hook import AgentHook, AgentHookContext, CompositeHook
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.tools.base import Tool, tool_parameters
 from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
@@ -31,6 +31,111 @@ _AGENT_PROGRESS_STATUSES = {"idle", "waiting", "blocked", "done", "failed", "nee
 _MAX_RUN_AGENT_CALLS = 30
 _MAX_AGENT_SELF_ACTIVATIONS = 3
 _ITERATION_LIMIT_NOTE = "Cowork round ended because the tool iteration limit was reached."
+
+
+class _PublicNoteStreamExtractor:
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._active = False
+        self._complete = False
+        self._quote = '"'
+        self._pos = 0
+        self._escape = False
+
+    def feed(self, delta: str) -> str:
+        if self._complete or not delta:
+            return ""
+        self._buffer += delta
+        if not self._active:
+            match = re.search(r"""["']public_note["']\s*:\s*["']""", self._buffer)
+            if not match:
+                if len(self._buffer) > 4000:
+                    self._buffer = self._buffer[-4000:]
+                return ""
+            self._active = True
+            self._quote = self._buffer[match.end() - 1]
+            self._pos = match.end()
+
+        out: list[str] = []
+        while self._pos < len(self._buffer):
+            ch = self._buffer[self._pos]
+            self._pos += 1
+            if self._escape:
+                out.append(self._decode_escape(ch))
+                self._escape = False
+                continue
+            if ch == "\\":
+                self._escape = True
+                continue
+            if ch == self._quote:
+                self._complete = True
+                break
+            out.append(ch)
+        return "".join(out)
+
+    @staticmethod
+    def _decode_escape(ch: str) -> str:
+        return {"n": "\n", "r": "\r", "t": "\t", '"': '"', "'": "'", "\\": "\\"}.get(ch, ch)
+
+
+class _CoworkStreamHook(AgentHook):
+    def __init__(self, service: CoworkService, session: CoworkSession, step: Any) -> None:
+        self.service = service
+        self.session = session
+        self.step = step
+        self.sequence = 0
+        self.extractor = _PublicNoteStreamExtractor()
+
+    def wants_streaming(self) -> bool:
+        runtime_state = getattr(self.session, "runtime_state", {}) or {}
+        return (
+            isinstance(runtime_state, dict)
+            and runtime_state.get("origin_channel") == "websocket"
+            and runtime_state.get("origin_surface") == "main_chat"
+            and bool(str(runtime_state.get("origin_chat_id") or "").strip())
+        )
+
+    async def on_stream(self, context: AgentHookContext, delta: str) -> None:
+        text = self.extractor.feed(str(delta or ""))
+        if not text:
+            return
+        self.sequence += 1
+        self.service.emit_agent_stream(
+            self.session,
+            agent_id=str(getattr(self.step, "agent_id", "") or ""),
+            step_id=str(getattr(self.step, "id", "") or ""),
+            phase="delta",
+            status="running",
+            sequence=self.sequence,
+            text=text,
+        )
+
+    async def on_reasoning_stream(self, context: AgentHookContext, delta: str) -> None:
+        return
+
+    async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
+        self.sequence += 1
+        self.service.emit_agent_stream(
+            self.session,
+            agent_id=str(getattr(self.step, "agent_id", "") or ""),
+            step_id=str(getattr(self.step, "id", "") or ""),
+            phase="interrupted" if resuming else "complete",
+            status="interrupted" if resuming else "completed",
+            sequence=self.sequence,
+            text="",
+        )
+
+    async def on_error(self, context: AgentHookContext, error: Exception) -> None:
+        self.sequence += 1
+        self.service.emit_agent_stream(
+            self.session,
+            agent_id=str(getattr(self.step, "agent_id", "") or ""),
+            step_id=str(getattr(self.step, "id", "") or ""),
+            phase="interrupted",
+            status="failed",
+            sequence=self.sequence,
+            text="",
+        )
 
 
 class _CoworkObservationHook(AgentHook):
@@ -1364,7 +1469,10 @@ class CoworkTool(Tool):
                     max_iterations_message="Cowork round ended because the tool iteration limit was reached.",
                     error_message=None,
                     fail_on_tool_error=False,
-                    hook=_CoworkObservationHook(self.service, session, agent_step),
+                    hook=CompositeHook([
+                        _CoworkObservationHook(self.service, session, agent_step),
+                        _CoworkStreamHook(self.service, session, agent_step),
+                    ]),
                 )
             )
             content = result.final_content or result.error or "Cowork round completed without a final note."

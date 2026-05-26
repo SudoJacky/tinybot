@@ -850,6 +850,8 @@ export default {
     "cowork.sessionOutput": "Session Output",
     "cowork.noTeamActivity": "No team activity yet.",
     "cowork.noEvents": "No events.",
+    "cowork.liveOutput": "Live output",
+    "cowork.liveCompleted": "Live output completed",
     "cowork.noBlueprintJson": "No blueprint JSON",
     "cowork.mode.adaptiveStarter": "Adaptive Starter",
     "cowork.mode.agentTeam": "Agent Team",

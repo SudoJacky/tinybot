@@ -621,6 +621,104 @@ async def test_webui_cowork_listener_routes_multiple_chats_independently(api_wor
 
 
 @pytest.mark.asyncio
+async def test_webui_cowork_listener_emits_chat_scoped_stream_without_refresh(api_workspace):
+    service = CoworkService(api_workspace)
+    global_events: list[dict] = []
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        global_events.append(payload)
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session(
+        "Stream updates",
+        "Streaming",
+        [{"id": "agent_1", "name": "Agent", "role": "Worker", "goal": "Work", "responsibilities": []}],
+        [{"id": "task_1", "title": "Task", "description": "Work", "assigned_agent_id": "agent_1"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    await asyncio.sleep(0)
+    global_events.clear()
+    chat_events.clear()
+
+    event = service.emit_agent_stream(
+        session,
+        agent_id="agent_1",
+        step_id="step_1",
+        phase="delta",
+        status="running",
+        sequence=3,
+        text="hello",
+    )
+    await asyncio.sleep(0)
+
+    assert event is not None
+    assert global_events == []
+    assert chat_events[-1][0] == "chat-1"
+    payload = chat_events[-1][1]
+    assert payload == {
+        "event": "cowork_stream",
+        "chat_id": "chat-1",
+        "session_id": session.id,
+        "agent_id": "agent_1",
+        "step_id": "step_1",
+        "phase": "delta",
+        "status": "running",
+        "sequence": 3,
+        "timestamp": payload["timestamp"],
+        "text": "hello",
+        "completed": False,
+    }
+    assert payload["timestamp"]
+
+
+@pytest.mark.asyncio
+async def test_webui_cowork_stream_skips_sessions_without_origin(api_workspace):
+    service = CoworkService(api_workspace)
+    global_events: list[dict] = []
+    chat_events: list[tuple[str, dict]] = []
+
+    async def broadcast_global(payload: dict):
+        global_events.append(payload)
+
+    async def broadcast_chat(chat_id: str, payload: dict):
+        chat_events.append((chat_id, payload))
+
+    runtime = WebUIControlRuntime(
+        token_manager=WebTokenManager(ttl_s=300),
+        broadcast_global=broadcast_global,
+        broadcast_chat=broadcast_chat,
+    )
+    _attach_cowork_listener(runtime, service)
+    session = service.create_session("No stream", "No stream", [], [])
+    await asyncio.sleep(0)
+    global_events.clear()
+
+    event = service.emit_agent_stream(
+        session,
+        agent_id="agent_1",
+        step_id="step_1",
+        phase="delta",
+        status="running",
+        sequence=1,
+        text="hidden",
+    )
+    await asyncio.sleep(0)
+
+    assert event is None
+    assert global_events == []
+    assert chat_events == []
+
+
+@pytest.mark.asyncio
 async def test_webui_control_agent_ui_form_submit_cancel_and_validation(api_workspace):
     token_manager = WebTokenManager(ttl_s=300)
     broadcasts: list[dict] = []

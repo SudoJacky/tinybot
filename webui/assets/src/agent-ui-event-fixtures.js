@@ -160,6 +160,23 @@ export const LEGACY_AGENT_UI_FRAME_FIXTURES = Object.freeze([
     normalizedEvents: [],
     compatibilityPassthrough: true,
   },
+  {
+    name: "chat-scoped cowork live output",
+    frame: {
+      event: "cowork_stream",
+      chat_id: "chat-1",
+      session_id: "cowork-1",
+      agent_id: "researcher",
+      step_id: "step-1",
+      phase: "delta",
+      status: "running",
+      sequence: 1,
+      text: "Live answer",
+    },
+    visibleBehavior: "Updates transient Cowork live output without Agent UI normalization.",
+    normalizedEvents: [],
+    compatibilityPassthrough: true,
+  },
 ]);
 
 export const AGENT_UI_FORM_REQUEST_FIXTURES = Object.freeze({

@@ -1730,6 +1730,26 @@ def _cowork_state_payload(session: Any, event: Any, chat_id: str) -> dict[str, A
     }
 
 
+def _cowork_stream_payload(session: Any, event: Any, chat_id: str) -> dict[str, Any]:
+    data = getattr(event, "data", {}) or {}
+    if not isinstance(data, dict):
+        data = {}
+    phase = str(data.get("phase") or "delta")
+    return {
+        "event": "cowork_stream",
+        "chat_id": chat_id,
+        "session_id": getattr(session, "id", ""),
+        "agent_id": str(data.get("agent_id") or getattr(event, "actor_id", None) or ""),
+        "step_id": str(data.get("step_id") or ""),
+        "phase": phase,
+        "status": str(data.get("status") or ""),
+        "sequence": int(data.get("sequence") or 0),
+        "timestamp": str(data.get("timestamp") or getattr(event, "created_at", "")),
+        "text": str(data.get("text") or "")[:2000],
+        "completed": bool(data.get("completed") or phase == "complete"),
+    }
+
+
 def _attach_cowork_listener(runtime: WebUIControlRuntime, service: Any) -> None:
     if runtime.broadcast_global is None:
         return
@@ -1738,6 +1758,18 @@ def _attach_cowork_listener(runtime: WebUIControlRuntime, service: Any) -> None:
         return
 
     def listener(session: Any, event: Any) -> None:
+        try:
+            import asyncio
+
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        chat_id = _cowork_origin_chat_id(session)
+        if getattr(event, "type", "") == "agent.stream":
+            if chat_id and runtime.broadcast_chat is not None:
+                loop.create_task(runtime.broadcast_chat(chat_id, _cowork_stream_payload(session, event, chat_id)))
+            return
+
         payload = {
             "event": "cowork_updated",
             "session_id": session.id,
@@ -1746,14 +1778,7 @@ def _attach_cowork_listener(runtime: WebUIControlRuntime, service: Any) -> None:
             "message": event.message,
             "updated_at": session.updated_at,
         }
-        try:
-            import asyncio
-
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
         loop.create_task(runtime.broadcast_global(payload))
-        chat_id = _cowork_origin_chat_id(session)
         if chat_id and runtime.broadcast_chat is not None:
             loop.create_task(runtime.broadcast_chat(chat_id, _cowork_state_payload(session, event, chat_id)))
 

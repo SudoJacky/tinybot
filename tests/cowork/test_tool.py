@@ -1,6 +1,7 @@
 import pytest
 import json
 
+from tinybot.agent.hook import AgentHookContext
 from tinybot.agent.tools.cowork import CoworkInternalTool, CoworkTeamPlanner, CoworkTool
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.cowork.service import CoworkService
@@ -60,6 +61,30 @@ class SequenceRunner:
 
         class Result:
             final_content = content
+            error = None
+
+        return Result()
+
+
+class StreamingRunner:
+    def __init__(self, chunks):
+        self.chunks = list(chunks)
+        self.specs = []
+
+    async def run(self, spec):
+        self.specs.append(spec)
+        context = AgentHookContext(iteration=0, messages=[])
+        for kind, chunk in self.chunks:
+            if kind == "reasoning":
+                await spec.hook.on_reasoning_stream(context, chunk)
+            else:
+                await spec.hook.on_stream(context, chunk)
+        await spec.hook.on_stream_end(context, resuming=False)
+
+        class Result:
+            final_content = (
+                '{"status":"done","action":"complete","public_note":"Hello world","private_note":"secret memory"}'
+            )
             error = None
 
         return Result()
@@ -136,6 +161,60 @@ async def test_non_webui_cowork_start_omits_chat_origin_metadata(temp_workspace)
     assert "origin_chat_id" not in session.runtime_state
     assert "origin_session_key" not in session.runtime_state
     assert "origin_surface" not in session.runtime_state
+
+
+@pytest.mark.asyncio
+async def test_cowork_agent_streams_public_note_without_private_content(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Stream public note",
+        "Streaming",
+        [{"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []}],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+        runtime_state={"origin_channel": "websocket", "origin_chat_id": "chat-1", "origin_surface": "main_chat"},
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner(
+        [
+            ("content", '{"status":"done","action":"complete","public_note":"Hello '),
+            ("reasoning", "secret reasoning"),
+            ("content", 'world","private_note":"secret memory"}'),
+        ]
+    )
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    stream_events = [event for event in events if event.type == "agent.stream"]
+    assert tool.runner.specs[-1].hook.wants_streaming() is True
+    assert (
+        "".join(event.data.get("text", "") for event in stream_events if event.data.get("phase") == "delta")
+        == "Hello world"
+    )
+    assert stream_events[-1].data["phase"] == "complete"
+    assert stream_events[-1].data["status"] == "completed"
+    assert all("secret" not in json.dumps(event.data) for event in stream_events)
+
+
+@pytest.mark.asyncio
+async def test_cowork_agent_streaming_hook_is_disabled_without_chat_origin(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "No origin stream",
+        "No origin",
+        [{"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []}],
+        [{"id": "research", "title": "Research", "description": "Research", "assigned_agent_id": "researcher"}],
+    )
+    events = []
+    service.add_listener(lambda _session, event: events.append(event))
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+    tool.runner = StreamingRunner([("content", '{"public_note":"Hello","private_note":"secret"}')])
+
+    await tool._run_agent(session, session.agents["researcher"])
+
+    assert tool.runner.specs[-1].hook.wants_streaming() is False
+    assert [event for event in events if event.type == "agent.stream"] == []
 
 
 def test_team_planner_adds_reviewer_for_risky_goals(temp_workspace):

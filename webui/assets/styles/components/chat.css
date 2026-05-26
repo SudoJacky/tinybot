@@ -943,6 +943,10 @@ button.run-chain-item:hover,
   cursor: pointer;
 }
 
+.chat-cowork-agent-row.has-live-output {
+  align-items: start;
+}
+
 .chat-cowork-agent-row:hover,
 .chat-cowork-agent-row.selected {
   background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong));
@@ -996,6 +1000,54 @@ button.run-chain-item:hover,
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.chat-cowork-live-output {
+  display: grid;
+  gap: 3px;
+  max-height: 96px;
+  margin-top: 4px;
+  overflow: hidden;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-subtle));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+}
+
+.chat-cowork-agent-main .chat-cowork-live-output,
+.chat-cowork-agent-main .chat-cowork-live-output span,
+.chat-cowork-agent-main .chat-cowork-live-output small {
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.chat-cowork-live-output small {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.chat-cowork-live-output span {
+  display: -webkit-box;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.chat-cowork-live-output-completed {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border-subtle));
+  background: color-mix(in srgb, var(--success) 8%, var(--panel-strong));
+}
+
+.chat-cowork-live-output-completed small {
+  color: var(--success);
 }
 
 .chat-cowork-agent-aside {

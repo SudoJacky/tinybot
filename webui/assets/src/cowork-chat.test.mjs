@@ -14,9 +14,13 @@ import {
   deriveCoworkAgentSummary,
   deriveCoworkRunSummary,
   getChatCoworkSessions,
+  getCoworkLiveStreamsForAgent,
   normalizeCoworkStateEvent,
+  normalizeCoworkStreamEvent,
   normalizeCoworkAgentActivityPayload,
   observationDetailState,
+  reconcileCoworkLiveStreams,
+  rememberCoworkStreamEvent,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
   summarizeCoworkAttention,
@@ -29,6 +33,7 @@ const chatCowork = createChatCoworkState();
 assert.equal(chatCoworkKey("chat-1", "cw-1"), "chat-1:cw-1");
 assert.equal(coworkAgentActivityKey("cw-1", "researcher"), "cw-1:researcher");
 assert.equal(normalizeCoworkStateEvent({ event: "cowork_state", chat_id: "chat-1" }), null);
+assert.equal(normalizeCoworkStreamEvent({ event: "cowork_stream", chat_id: "chat-1" }), null);
 assert.deepEqual(
   normalizeCoworkStateEvent({
     event: "cowork_state",
@@ -48,6 +53,32 @@ assert.deepEqual(
     work_unit_id: "",
     status: "active",
     updated_at: "2026-05-25T00:00:00Z",
+  },
+);
+assert.deepEqual(
+  normalizeCoworkStreamEvent({
+    event: "cowork_stream",
+    chat_id: "chat-1",
+    session_id: "cw-1",
+    agent_id: "researcher",
+    step_id: "step-1",
+    phase: "delta",
+    status: "running",
+    sequence: 1,
+    timestamp: "2026-05-25T00:00:01Z",
+    text: "Hello",
+  }),
+  {
+    chat_id: "chat-1",
+    session_id: "cw-1",
+    agent_id: "researcher",
+    step_id: "step-1",
+    phase: "delta",
+    status: "running",
+    sequence: 1,
+    timestamp: "2026-05-25T00:00:01Z",
+    text: "Hello",
+    completed: false,
   },
 );
 
@@ -108,6 +139,85 @@ assert.deepEqual(deriveCoworkAgentSummary(firstSession, firstSession.agents[0], 
   latestActivity: "task_progress",
   attention: { state: "normal", label: "", tone: "normal" },
 });
+
+rememberCoworkStreamEvent(chatCowork, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "researcher",
+  step_id: "step-1",
+  phase: "delta",
+  status: "running",
+  sequence: 1,
+  text: "Draft ",
+}));
+rememberCoworkStreamEvent(chatCowork, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "writer",
+  step_id: "step-2",
+  phase: "delta",
+  status: "running",
+  sequence: 1,
+  text: "Other agent",
+}));
+rememberCoworkStreamEvent(chatCowork, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "researcher",
+  step_id: "step-stale",
+  phase: "delta",
+  status: "running",
+  sequence: 1,
+  text: "Stale draft",
+}));
+rememberCoworkStreamEvent(chatCowork, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "researcher",
+  step_id: "step-1",
+  phase: "delta",
+  status: "running",
+  sequence: 2,
+  text: "answer",
+}));
+rememberCoworkStreamEvent(chatCowork, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "researcher",
+  step_id: "step-1",
+  phase: "delta",
+  status: "running",
+  sequence: 2,
+  text: " duplicate",
+}));
+assert.deepEqual(getCoworkLiveStreamsForAgent(chatCowork, "chat-1", "cw-1", "researcher").map((stream) => stream.text).sort(), ["Draft answer", "Stale draft"]);
+assert.deepEqual(getCoworkLiveStreamsForAgent(chatCowork, "chat-1", "cw-1", "writer").map((stream) => stream.text), ["Other agent"]);
+rememberCoworkStreamEvent(chatCowork, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "researcher",
+  step_id: "step-1",
+  phase: "complete",
+  status: "completed",
+  sequence: 3,
+  completed: true,
+}));
+assert.equal(getCoworkLiveStreamsForAgent(chatCowork, "chat-1", "cw-1", "researcher").find((stream) => stream.step_id === "step-1").completed, true);
+reconcileCoworkLiveStreams(chatCowork, "chat-1", {
+  ...firstSession,
+  agent_steps: [
+    { id: "step-1", agent_id: "researcher", status: "completed", output_summary: "Draft answer" },
+    { id: "step-stale", agent_id: "researcher", status: "completed", output_summary: "Stale draft" },
+  ],
+});
+assert.deepEqual(getCoworkLiveStreamsForAgent(chatCowork, "chat-1", "cw-1", "researcher"), []);
+assert.deepEqual(getCoworkLiveStreamsForAgent(chatCowork, "chat-1", "cw-1", "writer").map((stream) => stream.text), ["Other agent"]);
 
 const blockedSession = {
   ...firstSession,
