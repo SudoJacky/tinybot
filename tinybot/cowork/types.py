@@ -147,6 +147,7 @@ class CoworkMailboxRecord:
     blocking_task_id: str | None = None
     escalate_after_rounds: int | None = None
     escalated_at: str | None = None
+    wake_recipients: bool = True
     tool_call_id: str | None = None
     draft_id: str | None = None
     read_by: list[str] = field(default_factory=list)

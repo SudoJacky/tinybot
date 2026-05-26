@@ -264,6 +264,95 @@ def test_message_to_done_peer_wakes_peer_for_followup(temp_workspace):
     assert service.select_active_agents(session, limit=1)[0].id == "researcher"
 
 
+def test_non_reply_peer_message_records_without_waking_done_agent(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Avoid courtesy loops",
+        "Courtesy",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+        ],
+        [],
+    )
+    session.agents["researcher"].status = "done"
+
+    message = CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="coordinator",
+            recipient_ids=["researcher"],
+            content="Thanks for the detailed result.",
+        ),
+    )
+
+    record = next(record for record in session.mailbox.values() if record.message_id == message.id)
+    assert record.requires_reply is False
+    assert record.wake_recipients is False
+    assert message.id not in session.agents["researcher"].inbox
+    assert session.agents["researcher"].status == "done"
+    assert all(agent.id != "researcher" for agent in service.select_active_agents(session, limit=2))
+
+
+def test_non_reply_peer_message_can_explicitly_wake_recipient(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Wake on FYI",
+        "Wake",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+        ],
+        [],
+    )
+    session.agents["researcher"].status = "done"
+
+    message = CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="coordinator",
+            recipient_ids=["researcher"],
+            content="The user added a new constraint for your next round.",
+            wake_recipients=True,
+        ),
+    )
+
+    record = next(record for record in session.mailbox.values() if record.message_id == message.id)
+    assert record.wake_recipients is True
+    assert message.id in session.agents["researcher"].inbox
+    assert session.agents["researcher"].status == "waiting"
+
+
+def test_requires_reply_wakes_recipient_even_without_explicit_wake(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Wake on question",
+        "Question",
+        [
+            {"id": "coordinator", "name": "Coordinator", "role": "Lead", "goal": "Lead", "responsibilities": []},
+            {"id": "researcher", "name": "Researcher", "role": "Research", "goal": "Research", "responsibilities": []},
+        ],
+        [],
+    )
+    session.agents["researcher"].status = "done"
+
+    message = CoworkMailbox(service).deliver(
+        session,
+        CoworkEnvelope(
+            sender_id="coordinator",
+            recipient_ids=["researcher"],
+            content="Please verify this result.",
+            requires_reply=True,
+        ),
+    )
+
+    record = next(record for record in session.mailbox.values() if record.message_id == message.id)
+    assert record.requires_reply is True
+    assert record.wake_recipients is True
+    assert message.id in session.agents["researcher"].inbox
+    assert session.agents["researcher"].status == "waiting"
+
+
 def test_multi_recipient_request_waits_for_all_replies(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session(

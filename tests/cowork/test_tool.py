@@ -674,7 +674,12 @@ async def test_internal_tool_sends_message_and_completes_task(temp_workspace):
     task_id = next(task.id for task in session.tasks.values() if task.assigned_agent_id == sender)
     tool = CoworkInternalTool(service, session_id=session.id, sender_id=sender)
 
-    sent = await tool.execute(action="send_message", recipient_ids=[recipient], content="Can you check cost?")
+    sent = await tool.execute(
+        action="send_message",
+        recipient_ids=[recipient],
+        content="Can you check cost?",
+        wake_recipients=True,
+    )
     completed = await tool.execute(action="complete_task", task_id=task_id, content="Coordinator framed the work.")
 
     updated = service.get_session(session.id)
@@ -1372,7 +1377,14 @@ async def test_cowork_scheduler_continues_when_mailbox_makes_peer_ready(temp_wor
                     "status": "waiting",
                     "public_note": "A asks B",
                     "private_note": "Asked B",
-                    "requests": [{"recipient_ids": ["b"], "content": "Please check", "visibility": "direct"}],
+                    "requests": [
+                        {
+                            "recipient_ids": ["b"],
+                            "content": "Please check",
+                            "visibility": "direct",
+                            "wake_recipients": True,
+                        }
+                    ],
                 }
             ),
             json.dumps({"status": "idle", "public_note": "B checked", "private_note": "Checked"}),

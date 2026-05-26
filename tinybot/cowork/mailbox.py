@@ -38,6 +38,7 @@ class CoworkEnvelope:
     expected_output_schema: dict[str, object] = field(default_factory=dict)
     blocking_task_id: str | None = None
     escalate_after_rounds: int | None = None
+    wake_recipients: bool | None = None
     tool_call_id: str | None = None
     draft_id: str | None = None
 
@@ -64,6 +65,7 @@ class CoworkMailbox:
                 save=save,
             )
             return session.messages[duplicate.message_id]
+        wake_recipients = self._should_wake_recipients(envelope)
         record = CoworkMailboxRecord(
             id=self.service._new_id("env"),
             sender_id=envelope.sender_id,
@@ -85,6 +87,7 @@ class CoworkMailbox:
             expected_output_schema=dict(envelope.expected_output_schema or {}),
             blocking_task_id=envelope.blocking_task_id,
             escalate_after_rounds=envelope.escalate_after_rounds,
+            wake_recipients=wake_recipients,
             tool_call_id=envelope.tool_call_id,
             draft_id=envelope.draft_id,
         )
@@ -102,6 +105,7 @@ class CoworkMailbox:
                 "event_type": record.event_type,
                 "priority": record.priority,
                 "requires_reply": record.requires_reply,
+                "wake_recipients": record.wake_recipients,
                 "deadline_round": record.deadline_round,
                 "correlation_id": record.correlation_id,
                 "lineage_id": record.lineage_id,
@@ -116,6 +120,7 @@ class CoworkMailbox:
             recipient_ids=recipients,
             content=envelope.content,
             thread_id=thread_id,
+            wake_recipients=wake_recipients,
             save=False,
         )
         self._reopen_for_user_message(session, envelope.sender_id, recipients)
@@ -140,6 +145,7 @@ class CoworkMailbox:
                 "event_type": record.event_type,
                 "recipients": recipients,
                 "requires_reply": record.requires_reply,
+                "wake_recipients": record.wake_recipients,
                 "priority": record.priority,
                 "deadline_round": record.deadline_round,
                 "correlation_id": record.correlation_id,
@@ -168,6 +174,7 @@ class CoworkMailbox:
                 "request_type": record.request_type,
                 "recipients": recipients,
                 "requires_reply": record.requires_reply,
+                "wake_recipients": record.wake_recipients,
                 "priority": record.priority,
                 "deadline_round": record.deadline_round,
                 "correlation_id": record.correlation_id,
@@ -179,6 +186,24 @@ class CoworkMailbox:
         )
         self.service.assess_session(session, save=save)
         return message
+
+    @staticmethod
+    def _should_wake_recipients(envelope: CoworkEnvelope) -> bool:
+        if envelope.requires_reply or envelope.kind == "question":
+            return True
+        if envelope.wake_recipients is not None:
+            return envelope.wake_recipients
+        if envelope.sender_id == "user" or envelope.visibility == "user":
+            return True
+        if envelope.kind in {"task_request", "result"}:
+            return True
+        if envelope.request_type:
+            return True
+        if envelope.reply_to_envelope_id or envelope.caused_by_envelope_id:
+            return True
+        if envelope.event_type:
+            return True
+        return False
 
     def _reopen_for_user_message(self, session: CoworkSession, sender_id: str, recipients: list[str]) -> None:
         if sender_id != "user":

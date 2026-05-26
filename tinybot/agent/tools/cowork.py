@@ -659,6 +659,7 @@ Workspace: {self.workspace}
         status=StringSchema("Status value"),
         extra_properties={"description": StringSchema("Task description")},
         requires_reply=BooleanSchema(description="Whether the recipient should reply", default=False),
+        wake_recipients=BooleanSchema(description="Whether this message should wake recipients for another cowork round"),
         priority=IntegerSchema(description="Mailbox priority from 0 to 100", minimum=0, maximum=100),
         deadline_round=IntegerSchema(description="Round number or relative round budget when this envelope expires", minimum=1, maximum=100),
         correlation_id=StringSchema("Stable id that groups a question with replies"),
@@ -716,6 +717,7 @@ class CoworkInternalTool(Tool):
         task_id: str = "",
         status: str = "",
         requires_reply: bool = False,
+        wake_recipients: bool | None = None,
         priority: int = 0,
         deadline_round: int | None = None,
         correlation_id: str = "",
@@ -773,6 +775,7 @@ class CoworkInternalTool(Tool):
                     event_type=event_type,
                     request_type=request_type if request_type in {"", "clarify", "verify", "produce", "review", "unblock"} else "",
                     requires_reply=requires_reply,
+                    wake_recipients=wake_recipients,
                     priority=max(0, min(100, int(priority or 0))),
                     deadline_round=deadline_round,
                     correlation_id=correlation_id or None,
@@ -1818,6 +1821,11 @@ class CoworkTool(Tool):
                     event_type=str(request.get("event_type") or ""),
                     request_type=self._request_type(request.get("request_type")),
                     requires_reply=bool(request.get("requires_reply", False)),
+                    wake_recipients=(
+                        bool(request["wake_recipients"])
+                        if "wake_recipients" in request and request.get("wake_recipients") is not None
+                        else None
+                    ),
                     priority=self._bounded_int(request.get("priority"), default=0, minimum=0, maximum=100),
                     deadline_round=self._deadline_round(session, request.get("deadline_round")),
                     correlation_id=str(request.get("correlation_id") or "") or None,
@@ -2272,7 +2280,7 @@ task_title: concrete next focus task for continue, handoff, or review
 reason: short business reason for the action
 public_note: the actual user-facing answer/content. Do not write status-only text such as "I completed the introduction"; if you do not have final content for the user, leave this empty.
 private_note: concise private memory update, including progress/status details
-requests: optional list of mailbox messages, each with recipient_ids, content, visibility, topic, event_type, requires_reply, priority, deadline_round, correlation_id, lineage_id, reply_to_envelope_id, caused_by_envelope_id, request_type, expected_output_schema, blocking_task_id
+requests: optional list of mailbox messages, each with recipient_ids, content, visibility, topic, event_type, requires_reply, wake_recipients, priority, deadline_round, correlation_id, lineage_id, reply_to_envelope_id, caused_by_envelope_id, request_type, expected_output_schema, blocking_task_id
 completed_task_ids: optional list of task ids you completed
 completed_task_results: optional list of structured task results with task_id, answer, findings, risks, open_questions, artifacts, confidence from 0 to 1
 new_task_suggestions: optional list of task objects with title, description, assigned_agent_id, dependencies
@@ -2388,7 +2396,7 @@ Expected behavior:
 1. Make concrete progress on your current task or inbox.
 2. If the current task is directly answerable, produce the actual answer in public_note instead of asking another agent for permission.
 3. If another agent must help, call cowork_internal send_message or add_task with a concrete, non-duplicative request.
-4. If a user group/broadcast message already reached other agents, do not ask those agents to repeat the same work; wait for their notes or synthesize what is already available.
+4. Do not send gratitude, acknowledgement, or "you're welcome" messages; keep those in private_note/status. Set wake_recipients only for concrete follow-up work, not courtesy.
 5. If you answer a pending reply request, include the original correlation_id or reply_to_envelope_id in your request/message.
 6. If you need work and no task is assigned, use the shared task pool: prefer the lowest ready unassigned task id and call cowork_internal claim_task before working on it.
 7. If you complete the current task, call cowork_internal complete_task with the actual useful result, not a status-only sentence.

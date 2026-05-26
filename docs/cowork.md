@@ -188,7 +188,7 @@ Chat-originated Cowork sessions also emit additive websocket frames for live Web
 - `draft_id`, `tool_call_id`
 - `phase`, `status`, `sequence`, `timestamp`, `completed`
 - bounded safe `text` deltas
-- optional routing metadata: `recipient_ids`, `requires_reply`, `topic`, `event_type`, `request_type`, `thread_id`
+- optional routing metadata: `recipient_ids`, `requires_reply`, `wake_recipients`, `topic`, `event_type`, `request_type`, `thread_id`
 
 Mailbox draft frames are transient UI state. The stream policy extracts only allowlisted message text and routing metadata; it does not forward raw tool arguments, private notes, hidden reasoning, or unrelated tool fields. Durable mailbox records and agent activity remain authoritative after delivery. When available, delivered records include `draft_id` and `tool_call_id` so clients can replace draft bubbles without duplicates. Legacy records may be reconciled only by tightly scoped sender, recipient, and exact content matching.
 
@@ -199,6 +199,12 @@ Send a message to agents:
 ```text
 cowork action=send_message session_id="cw_xxxxxxxx" recipient_ids=["researcher"] content="Prioritize train travel."
 ```
+
+`requires_reply` means the recipient owes a concrete answer. `wake_recipients`
+controls whether the message should put recipients back into the scheduler for
+another round. Routine acknowledgements and courtesy messages should not wake
+recipients; use `private_note` or status instead of sending “thanks” /
+“you are welcome” loops.
 
 Add an unassigned task to the shared pool:
 
