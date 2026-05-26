@@ -27,6 +27,10 @@ export function coworkLiveStreamKey(chatId, sessionId, agentId, stepId) {
   return `${chatId || ""}:${sessionId || ""}:${agentId || ""}:${stepId || ""}`;
 }
 
+export function shouldRefreshCoworkAgentInspectorForStream(selection, chatId) {
+  return Boolean(selection?.chatId && chatId && selection.chatId === chatId);
+}
+
 export function normalizeCoworkStateEvent(payload = {}) {
   if (!payload || payload.event !== "cowork_state") {
     return null;
@@ -411,25 +415,140 @@ export function deriveCoworkAgentTasks(activity = {}) {
   return tasks;
 }
 
-export function deriveCoworkAgentTimeline(activity = {}) {
-  const agentId = String(activity?.agent_id || activity?.agent?.id || "").trim();
-  return (activity?.mailbox_records || []).map((record) => {
-    const sender = String(record?.sender_id || "sender");
+function threadTimestampValue(value) {
+  if (!value) {
+    return 0;
+  }
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function completedAgentStepIds(activity = {}, extraStepIds = null) {
+  const ids = new Set(extraStepIds ? [...extraStepIds].map((item) => String(item || "").trim()).filter(Boolean) : []);
+  for (const step of activity?.recent_steps || []) {
+    const status = String(step?.status || "").toLowerCase();
+    if (
+      ["completed", "failed", "blocked", "stopped"].includes(status)
+      || String(step?.output_summary || "").trim()
+    ) {
+      const id = String(step?.id || "").trim();
+      if (id) {
+        ids.add(id);
+      }
+    }
+  }
+  return ids;
+}
+
+function normalizeLiveStreamEntries(liveStreams) {
+  if (!liveStreams) {
+    return [];
+  }
+  if (liveStreams instanceof Map) {
+    return [...liveStreams.values()];
+  }
+  return Array.isArray(liveStreams) ? liveStreams : [];
+}
+
+export function deriveCoworkAgentThread(activity = {}, options = {}) {
+  const agentId = String(options.agentId || activity?.agent_id || activity?.agent?.id || "").trim();
+  const sessionId = String(options.sessionId || activity?.session_id || "").trim();
+  const chatId = String(options.chatId || "").trim();
+  const agentLabel = agentDisplayLabel(activity?.agent || { id: agentId }, 0);
+  const items = [];
+
+  for (const record of activity?.mailbox_records || []) {
+    const sender = String(record?.sender_id || "").trim();
     const recipients = Array.isArray(record?.recipient_ids)
-      ? record.recipient_ids.map((item) => String(item)).filter(Boolean)
+      ? record.recipient_ids.map((item) => String(item).trim()).filter(Boolean)
       : [];
-    const direction = sender === agentId ? "outgoing" : recipients.includes(agentId) ? "incoming" : "message";
-    return {
+    let direction = "neutral";
+    let align = "neutral";
+    if (sender && sender === agentId) {
+      direction = "outgoing";
+      align = "left";
+    } else if (agentId && recipients.includes(agentId)) {
+      direction = "incoming";
+      align = "right";
+    }
+    const timestamp = String(record?.updated_at || record?.created_at || "");
+    const id = String(record?.id || `${sender || "unknown"}:${timestamp}`);
+    items.push({
       id: String(record?.id || `${sender}:${record?.created_at || record?.updated_at || ""}`),
+      source: "mailbox",
       direction,
-      route: `${sender} -> ${recipients.join(", ") || "none"}`,
+      align,
+      senderLabel: sender || "unknown",
+      recipientLabel: recipients.join(", ") || "none",
+      route: `${sender || "unknown"} -> ${recipients.join(", ") || "none"}`,
       body: String(record?.content || ""),
       kind: String(record?.kind || "message"),
       status: String(record?.status || ""),
       requiresReply: Boolean(record?.requires_reply),
-      timestamp: String(record?.updated_at || record?.created_at || ""),
-    };
-  });
+      timestamp,
+      streaming: false,
+      completed: true,
+      sortTime: threadTimestampValue(timestamp),
+      sortSequence: 0,
+      sortId: id,
+    });
+  }
+
+  const suppressedStepIds = completedAgentStepIds(activity, options.completedStepIds);
+  for (const stream of normalizeLiveStreamEntries(options.liveStreams)) {
+    if (!stream || String(stream.text || "").trim() === "") {
+      continue;
+    }
+    if (chatId && stream.chat_id !== chatId) {
+      continue;
+    }
+    if (sessionId && stream.session_id !== sessionId) {
+      continue;
+    }
+    if (agentId && stream.agent_id !== agentId) {
+      continue;
+    }
+    const stepId = String(stream.step_id || "").trim();
+    if (stepId && suppressedStepIds.has(stepId)) {
+      continue;
+    }
+    const timestamp = String(stream.timestamp || "");
+    const completed = Boolean(stream.completed);
+    const status = String(stream.status || (completed ? "completed" : "running"));
+    const id = `live:${coworkLiveStreamKey(stream.chat_id, stream.session_id, stream.agent_id, stepId)}`;
+    items.push({
+      id,
+      source: "live_stream",
+      direction: "live_outgoing",
+      align: "left",
+      senderLabel: agentLabel || agentId || "Agent",
+      recipientLabel: "live output",
+      route: `${agentLabel || agentId || "Agent"} -> live output`,
+      body: String(stream.text || ""),
+      kind: "live output",
+      status,
+      requiresReply: false,
+      timestamp,
+      streaming: !completed,
+      completed,
+      phase: String(stream.phase || ""),
+      stepId,
+      sortTime: threadTimestampValue(timestamp),
+      sortSequence: Number(stream.sequence || 0),
+      sortId: id,
+    });
+  }
+
+  items.sort((left, right) => (
+    left.sortTime - right.sortTime
+    || Number(left.sortSequence || 0) - Number(right.sortSequence || 0)
+    || String(left.sortId || left.id).localeCompare(String(right.sortId || right.id))
+  ));
+  return items.map(({ sortTime, sortSequence, sortId, ...item }) => item);
+}
+
+export function deriveCoworkAgentTimeline(activity = {}) {
+  return deriveCoworkAgentThread(activity);
 }
 
 export function observationDetailState(observation = {}) {

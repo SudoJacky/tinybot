@@ -1098,6 +1098,15 @@ button.run-chain-item:hover,
   gap: 8px;
 }
 
+.cowork-agent-message-list {
+  align-items: start;
+  max-height: min(48vh, 520px);
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 4px;
+}
+
 .cowork-agent-task-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1125,6 +1134,9 @@ button.run-chain-item:hover,
 .cowork-agent-message {
   display: grid;
   gap: 7px;
+  justify-self: center;
+  width: min(92%, 420px);
+  max-width: 100%;
   min-width: 0;
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
@@ -1132,13 +1144,43 @@ button.run-chain-item:hover,
   background: color-mix(in srgb, var(--panel-strong) 62%, transparent);
 }
 
-.cowork-agent-message-incoming {
-  border-color: color-mix(in srgb, var(--warning) 24%, var(--border-subtle));
+.cowork-agent-message-left {
+  justify-self: start;
+  border-top-left-radius: 4px;
 }
 
-.cowork-agent-message-outgoing {
+.cowork-agent-message-right {
+  justify-self: end;
+  border-top-right-radius: 4px;
+}
+
+.cowork-agent-message-neutral {
+  width: 100%;
+}
+
+.cowork-agent-message-incoming,
+.cowork-agent-message-right {
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--border-subtle));
+  background: color-mix(in srgb, var(--warning-soft) 34%, var(--panel-strong));
+}
+
+.cowork-agent-message-outgoing,
+.cowork-agent-message-live,
+.cowork-agent-message-left {
   border-color: color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
   background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+
+.cowork-agent-message-live {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 58%, transparent);
+}
+
+.cowork-agent-message-live.is-streaming {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-subtle));
+}
+
+.cowork-agent-message-live.is-completed {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--border-subtle));
 }
 
 .cowork-agent-message-meta {
@@ -1163,10 +1205,24 @@ button.run-chain-item:hover,
 }
 
 .cowork-agent-message-body {
+  min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
   color: var(--text);
   font-size: 13px;
   line-height: 1.55;
+}
+
+.cowork-agent-message-body pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.cowork-agent-message-body code,
+.cowork-agent-message-body a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .cowork-agent-empty {
@@ -1207,6 +1263,14 @@ button.run-chain-item:hover,
 
   .cowork-agent-task-card {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cowork-agent-message-list {
+    max-height: 52vh;
+  }
+
+  .cowork-agent-message {
+    width: min(96%, 100%);
   }
 }
 

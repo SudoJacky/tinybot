@@ -9,6 +9,7 @@ import {
   coworkFinalOutput,
   createChatCoworkState,
   deriveCoworkAgentTasks,
+  deriveCoworkAgentThread,
   deriveCoworkAgentTimeline,
   deriveCoworkAgentAttention,
   deriveCoworkAgentSummary,
@@ -23,6 +24,7 @@ import {
   rememberCoworkStreamEvent,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
+  shouldRefreshCoworkAgentInspectorForStream,
   summarizeCoworkAttention,
   summarizeCoworkTasks,
   upsertChatCoworkSession,
@@ -32,6 +34,9 @@ const chatCowork = createChatCoworkState();
 
 assert.equal(chatCoworkKey("chat-1", "cw-1"), "chat-1:cw-1");
 assert.equal(coworkAgentActivityKey("cw-1", "researcher"), "cw-1:researcher");
+assert.equal(shouldRefreshCoworkAgentInspectorForStream({ chatId: "chat-1" }, "chat-1"), true);
+assert.equal(shouldRefreshCoworkAgentInspectorForStream({ chatId: "chat-1" }, "chat-2"), false);
+assert.equal(shouldRefreshCoworkAgentInspectorForStream(null, "chat-1"), false);
 assert.equal(normalizeCoworkStateEvent({ event: "cowork_state", chat_id: "chat-1" }), null);
 assert.equal(normalizeCoworkStreamEvent({ event: "cowork_stream", chat_id: "chat-1" }), null);
 assert.deepEqual(
@@ -79,6 +84,32 @@ assert.deepEqual(
     timestamp: "2026-05-25T00:00:01Z",
     text: "Hello",
     completed: false,
+  },
+);
+assert.deepEqual(
+  normalizeCoworkStreamEvent({
+    event: "cowork_stream",
+    chat_id: "chat-1",
+    session_id: "cw-1",
+    agent_id: "researcher",
+    step_id: "step-2",
+    phase: "interrupted",
+    status: "interrupted",
+    sequence: 4,
+    timestamp: "2026-05-25T00:00:04Z",
+    completed: true,
+  }),
+  {
+    chat_id: "chat-1",
+    session_id: "cw-1",
+    agent_id: "researcher",
+    step_id: "step-2",
+    phase: "interrupted",
+    status: "interrupted",
+    sequence: 4,
+    timestamp: "2026-05-25T00:00:04Z",
+    text: "",
+    completed: true,
   },
 );
 
@@ -414,5 +445,147 @@ assert.deepEqual(deriveCoworkAgentTimeline(inspectorActivity).map((item) => ({
     requiresReply: false,
   },
 ]);
+
+const threadState = createChatCoworkState();
+rememberCoworkStreamEvent(threadState, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "researcher",
+  step_id: "step-live",
+  phase: "delta",
+  status: "running",
+  sequence: 2,
+  timestamp: "2026-05-25T01:04:00Z",
+  text: "Streaming public note",
+}));
+rememberCoworkStreamEvent(threadState, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-2",
+  session_id: "cw-1",
+  agent_id: "researcher",
+  step_id: "step-other-chat",
+  phase: "delta",
+  status: "running",
+  sequence: 3,
+  timestamp: "2026-05-25T01:04:30Z",
+  text: "Wrong chat",
+}));
+rememberCoworkStreamEvent(threadState, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "writer",
+  step_id: "step-other-agent",
+  phase: "delta",
+  status: "running",
+  sequence: 4,
+  timestamp: "2026-05-25T01:04:30Z",
+  text: "Wrong agent",
+}));
+rememberCoworkStreamEvent(threadState, normalizeCoworkStreamEvent({
+  event: "cowork_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  agent_id: "researcher",
+  step_id: "step-stale",
+  phase: "complete",
+  status: "completed",
+  sequence: 5,
+  timestamp: "2026-05-25T01:06:00Z",
+  completed: true,
+}));
+const directionalThread = deriveCoworkAgentThread(inspectorActivity, {
+  chatId: "chat-1",
+  sessionId: "cw-1",
+  agentId: "researcher",
+  liveStreams: threadState.liveStreams,
+});
+assert.deepEqual(directionalThread.map((item) => ({
+  id: item.id,
+  source: item.source,
+  direction: item.direction,
+  align: item.align,
+  senderLabel: item.senderLabel,
+  recipientLabel: item.recipientLabel,
+  body: item.body,
+  streaming: item.streaming,
+  completed: item.completed,
+})), [
+  {
+    id: "mail-1",
+    source: "mailbox",
+    direction: "incoming",
+    align: "right",
+    senderLabel: "coordinator",
+    recipientLabel: "researcher",
+    body: "Please collect sources.",
+    streaming: false,
+    completed: true,
+  },
+  {
+    id: "live:chat-1:cw-1:researcher:step-live",
+    source: "live_stream",
+    direction: "live_outgoing",
+    align: "left",
+    senderLabel: "Researcher",
+    recipientLabel: "live output",
+    body: "Streaming public note",
+    streaming: true,
+    completed: false,
+  },
+  {
+    id: "mail-2",
+    source: "mailbox",
+    direction: "outgoing",
+    align: "left",
+    senderLabel: "researcher",
+    recipientLabel: "coordinator",
+    body: "I found three sources.",
+    streaming: false,
+    completed: true,
+  },
+]);
+
+const ambiguousThread = deriveCoworkAgentThread({
+  session_id: "cw-1",
+  agent: { id: "researcher" },
+  mailbox_records: [
+    {
+      id: "mail-ambiguous",
+      sender_id: "",
+      recipient_ids: [],
+      content: "Keep this visible.",
+      status: "pending",
+      updated_at: "2026-05-25T01:00:00Z",
+    },
+  ],
+});
+assert.deepEqual(ambiguousThread.map((item) => ({
+  id: item.id,
+  direction: item.direction,
+  align: item.align,
+  route: item.route,
+  body: item.body,
+  status: item.status,
+})), [
+  {
+    id: "mail-ambiguous",
+    direction: "neutral",
+    align: "neutral",
+    route: "unknown -> none",
+    body: "Keep this visible.",
+    status: "pending",
+  },
+]);
+
+const reconciledThread = deriveCoworkAgentThread(inspectorActivity, {
+  chatId: "chat-1",
+  sessionId: "cw-1",
+  agentId: "researcher",
+  liveStreams: threadState.liveStreams,
+  completedStepIds: new Set(["step-live", "step-stale"]),
+});
+assert.equal(reconciledThread.some((item) => item.source === "live_stream"), false);
 assert.equal(observationDetailState({ sensitive: true, detail_ref: "detail-3" }), "sensitive");
 assert.equal(observationDetailState({}), "unavailable");

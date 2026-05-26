@@ -28,7 +28,7 @@ import {
   createChatCoworkState,
   deriveCoworkAgentSummary,
   deriveCoworkAgentTasks,
-  deriveCoworkAgentTimeline,
+  deriveCoworkAgentThread,
   deriveCoworkRunSummary,
   getChatCoworkSessions,
   getCoworkLiveStreamsForAgent,
@@ -38,6 +38,7 @@ import {
   rememberCoworkStreamEvent,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
+  shouldRefreshCoworkAgentInspectorForStream,
   upsertChatCoworkSession,
 } from '../cowork-chat.js';
 
@@ -1983,6 +1984,9 @@ function scheduleChatCoworkStreamRender(chatId) {
     if (chatId === state.activeChatId) {
       renderMessages(false);
     }
+    if (shouldRefreshCoworkAgentInspectorForStream(state.selectedCoworkAgent, chatId)) {
+      renderCoworkAgentInspector();
+    }
   });
   state.chatCowork.streamRenderTimers.set(chatId, timer);
 }
@@ -2288,13 +2292,29 @@ function createCoworkAgentTasksNode(activity) {
 
 function createCoworkAgentMessageNode(item) {
   const node = document.createElement("article");
-  node.className = `cowork-agent-message cowork-agent-message-${item.direction || "message"}`;
+  node.className = [
+    "cowork-agent-message",
+    `cowork-agent-message-${item.align || "neutral"}`,
+    `cowork-agent-message-${item.direction || "neutral"}`,
+    item.source === "live_stream" ? "cowork-agent-message-live" : "",
+    item.streaming ? "is-streaming" : "",
+    item.completed ? "is-completed" : "",
+  ].filter(Boolean).join(" ");
   const meta = document.createElement("div");
   meta.className = "cowork-agent-message-meta";
   const route = document.createElement("strong");
-  route.textContent = item.route;
+  route.textContent = item.route || [item.senderLabel, item.recipientLabel ? `-> ${item.recipientLabel}` : ""]
+    .filter(Boolean)
+    .join(" ");
   const status = document.createElement("span");
-  status.textContent = [item.kind, item.status, item.requiresReply ? "reply required" : "", item.timestamp]
+  status.textContent = [
+    item.kind,
+    item.status,
+    item.requiresReply ? "reply required" : "",
+    item.streaming ? "live" : "",
+    item.completed && item.source === "live_stream" ? "complete" : "",
+    formatTime(item.timestamp) || item.timestamp,
+  ]
     .filter(Boolean)
     .join(" - ");
   meta.append(route, status);
@@ -2306,11 +2326,17 @@ function createCoworkAgentMessageNode(item) {
 }
 
 function createCoworkAgentTimelineNode(activity) {
-  const timeline = deriveCoworkAgentTimeline(activity);
+  const selection = state.selectedCoworkAgent || {};
+  const timeline = deriveCoworkAgentThread(activity, {
+    chatId: selection.chatId || state.activeChatId,
+    sessionId: selection.sessionId,
+    agentId: selection.agentId,
+    liveStreams: state.chatCowork?.liveStreams,
+  });
   if (!timeline.length) {
     const empty = document.createElement("div");
     empty.className = "inspector-empty cowork-agent-empty";
-    empty.textContent = "No mailbox messages.";
+    empty.textContent = "No agent thread messages.";
     return createCoworkAgentInspectorSection("Agent Thread", [empty]);
   }
   const list = document.createElement("div");
