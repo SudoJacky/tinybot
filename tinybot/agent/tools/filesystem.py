@@ -2,6 +2,7 @@
 
 import difflib
 import mimetypes
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -191,6 +192,59 @@ class WriteFileTool(_FsTool):
             return f"Error: {e}"
         except Exception as e:
             return f"Error writing file: {e}"
+
+
+# ---------------------------------------------------------------------------
+# delete_file
+# ---------------------------------------------------------------------------
+
+
+@tool_parameters(
+    tool_parameters_schema(
+        path=StringSchema("The file or directory path to delete"),
+        recursive=BooleanSchema(description="Recursively delete a directory (default false)"),
+        required=["path"],
+    )
+)
+class DeleteFileTool(_FsTool):
+    """Delete a file or directory after path resolution."""
+
+    @property
+    def name(self) -> str:
+        return "delete_file"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Delete a file or directory. Directories must be empty unless recursive=true. "
+            "Creates no backups; use only for files in the active workspace."
+        )
+
+    async def execute(self, path: str | None = None, recursive: bool = False, **kwargs: Any) -> str:
+        try:
+            if not path:
+                raise ValueError("Unknown path")
+            fp = self._resolve(path)
+            protected_roots = [root.resolve() for root in (self._allowed_dir, self._workspace) if root is not None]
+            if any(fp == root for root in protected_roots):
+                return f"Error: refusing to delete protected workspace root: {path}"
+            if not fp.exists():
+                return f"Error: Path not found: {path}"
+            if fp.is_dir():
+                if recursive:
+                    shutil.rmtree(fp)
+                    return f"Successfully deleted directory {fp}"
+                try:
+                    fp.rmdir()
+                except OSError:
+                    return f"Error: Directory is not empty: {path}. Set recursive=true to delete it."
+                return f"Successfully deleted directory {fp}"
+            fp.unlink()
+            return f"Successfully deleted file {fp}"
+        except PermissionError as e:
+            return f"Error: {e}"
+        except Exception as e:
+            return f"Error deleting file: {e}"
 
 
 # ---------------------------------------------------------------------------

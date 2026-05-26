@@ -25,6 +25,7 @@ DEFAULT_ALLOWED_TOOLS = {
     "list_dir",
     "write_file",
     "edit_file",
+    "delete_file",
     "exec",
 }
 

@@ -231,6 +231,53 @@ async def test_non_webui_cowork_start_omits_chat_origin_metadata(temp_workspace)
 
 
 @pytest.mark.asyncio
+async def test_cowork_agent_file_tools_are_scoped_to_session_workspace(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session(
+        "Write scoped files",
+        "Scoped Files",
+        [
+            {
+                "id": "writer",
+                "name": "Writer",
+                "role": "Writer",
+                "goal": "Write files",
+                "responsibilities": [],
+                "tools": ["read_file", "list_dir", "write_file", "edit_file", "delete_file", "cowork_internal"],
+            }
+        ],
+        [],
+    )
+    tool = CoworkTool(service, FailingProvider(), temp_workspace, "test-model", 1200)
+
+    registry = tool._build_agent_tools(session.id, session.agents["writer"])
+
+    assert registry.has("write_file")
+    assert registry.has("edit_file")
+    assert registry.has("delete_file")
+    assert await registry.execute("write_file", {"path": "notes/plan.md", "content": "alpha"}) == (
+        f"Successfully wrote 5 bytes to {temp_workspace / 'cowork' / session.id / 'notes' / 'plan.md'}"
+    )
+    assert (temp_workspace / "cowork" / session.id / "notes" / "plan.md").read_text(encoding="utf-8") == "alpha"
+    assert "Successfully edited" in await registry.execute(
+        "edit_file",
+        {
+            "path": "notes/plan.md",
+            "old_text": "alpha",
+            "new_text": "beta",
+        },
+    )
+    assert "beta" in await registry.execute("read_file", {"path": "notes/plan.md"})
+    assert "notes" in await registry.execute("list_dir", {"path": "."})
+    assert "Successfully deleted file" in await registry.execute("delete_file", {"path": "notes/plan.md"})
+    assert not (temp_workspace / "cowork" / session.id / "notes" / "plan.md").exists()
+
+    outside = await registry.execute("write_file", {"path": "../outside.md", "content": "escape"})
+    assert "outside allowed directory" in outside
+    assert not (temp_workspace / "cowork" / "outside.md").exists()
+
+
+@pytest.mark.asyncio
 async def test_cowork_agent_streams_public_note_without_private_content(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session(
@@ -742,7 +789,14 @@ def test_cowork_agent_tools_follow_agent_allowlist(temp_workspace):
 
     registry = tool._build_agent_tools("cw_test", coordinator)
 
-    assert registry.tool_names == ["cowork_internal"]
+    assert set(registry.tool_names) == {
+        "cowork_internal",
+        "read_file",
+        "list_dir",
+        "write_file",
+        "edit_file",
+        "delete_file",
+    }
 
     researcher = coordinator
     researcher.id = "researcher"

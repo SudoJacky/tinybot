@@ -756,19 +756,19 @@ button.run-chain-item:hover,
 
 .chat-cowork-surface {
   display: grid;
-  gap: 10px;
-  width: min(100%, 760px);
-  margin: 6px 0 10px;
+  gap: 12px;
+  width: min(100%, 780px);
+  margin: 8px 0 12px;
 }
 
 .chat-cowork-swarm {
   display: grid;
-  gap: 10px;
+  gap: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-subtle));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--panel) 86%, transparent);
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  box-shadow: none;
 }
 
 .chat-cowork-header {
@@ -776,7 +776,10 @@ button.run-chain-item:hover,
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: start;
-  padding: 14px 14px 0;
+  padding: 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  background: var(--surface-dark);
+  color: var(--on-dark, #faf9f5);
 }
 
 .chat-cowork-title {
@@ -786,7 +789,7 @@ button.run-chain-item:hover,
 }
 
 .chat-cowork-title > span {
-  color: var(--text-subtle);
+  color: color-mix(in srgb, var(--accent) 82%, #faf9f5);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0;
@@ -795,14 +798,20 @@ button.run-chain-item:hover,
 
 .chat-cowork-title > strong {
   overflow: hidden;
-  color: var(--text);
+  color: #faf9f5;
   font-size: 14px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chat-cowork-title > small,
+.chat-cowork-title > small {
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, #faf9f5 62%, transparent);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .chat-cowork-session-note {
   overflow-wrap: anywhere;
   color: var(--text-muted);
@@ -832,6 +841,17 @@ button.run-chain-item:hover,
   white-space: nowrap;
 }
 
+.chat-cowork-header .chat-cowork-status,
+.chat-cowork-header .chat-cowork-metric {
+  border-color: color-mix(in srgb, #faf9f5 16%, transparent);
+  background: var(--surface-dark-elevated);
+  color: color-mix(in srgb, #faf9f5 68%, transparent);
+}
+
+.chat-cowork-header .chat-cowork-metric strong {
+  color: #faf9f5;
+}
+
 .chat-cowork-status {
   padding: 0 9px;
   font-weight: 800;
@@ -851,7 +871,9 @@ button.run-chain-item:hover,
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 0 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 70%, var(--panel));
 }
 
 .chat-cowork-progress {
@@ -879,16 +901,16 @@ button.run-chain-item:hover,
 
 .chat-cowork-progress-track {
   overflow: hidden;
-  height: 6px;
+  height: 7px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--border) 34%, transparent);
+  background: color-mix(in srgb, var(--border) 40%, transparent);
 }
 
 .chat-cowork-progress-track span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--accent) 72%, var(--success));
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--success)));
 }
 
 .chat-cowork-attention {
@@ -924,8 +946,8 @@ button.run-chain-item:hover,
 
 .chat-cowork-agent-list {
   display: grid;
-  gap: 1px;
-  padding: 0 8px 8px;
+  gap: 6px;
+  padding: 12px;
 }
 
 .chat-cowork-agent-row {
@@ -933,14 +955,16 @@ button.run-chain-item:hover,
   grid-template-columns: 30px minmax(0, 1fr) minmax(104px, auto);
   gap: 10px;
   align-items: center;
-  min-height: 52px;
-  padding: 9px 8px;
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 86%, transparent);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--panel-strong) 54%, transparent);
+  background: color-mix(in srgb, var(--panel) 86%, var(--surface-soft));
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
 .chat-cowork-agent-row.has-live-output {
@@ -949,11 +973,14 @@ button.run-chain-item:hover,
 
 .chat-cowork-agent-row:hover,
 .chat-cowork-agent-row.selected {
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-soft) 54%, var(--panel));
 }
 
 .chat-cowork-agent-row.selected {
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 72%, var(--success));
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent-soft) 68%, var(--panel));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .chat-cowork-agent-row:focus-visible {
@@ -966,9 +993,9 @@ button.run-chain-item:hover,
   width: 28px;
   height: 28px;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-soft));
   color: var(--text);
   font-size: 12px;
   font-weight: 800;
@@ -1009,9 +1036,9 @@ button.run-chain-item:hover,
   margin-top: 4px;
   overflow: hidden;
   padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-subtle));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--surface-dark-elevated));
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+  background: var(--surface-dark);
 }
 
 .chat-cowork-agent-main .chat-cowork-live-output,
@@ -1033,7 +1060,7 @@ button.run-chain-item:hover,
 
 .chat-cowork-live-output span {
   display: -webkit-box;
-  color: var(--text);
+  color: #faf9f5;
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -1042,8 +1069,8 @@ button.run-chain-item:hover,
 }
 
 .chat-cowork-live-output-completed {
-  border-color: color-mix(in srgb, var(--success) 30%, var(--border-subtle));
-  background: color-mix(in srgb, var(--success) 8%, var(--panel-strong));
+  border-color: color-mix(in srgb, var(--success) 32%, var(--surface-dark-elevated));
+  background: var(--surface-dark-soft);
 }
 
 .chat-cowork-live-output-completed small {
@@ -1072,8 +1099,9 @@ button.run-chain-item:hover,
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
-  padding: 10px 14px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  padding: 12px 16px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 84%, var(--panel));
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.45;

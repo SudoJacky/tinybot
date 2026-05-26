@@ -84,6 +84,7 @@ _DEFAULT_RUN_AGENT_CALLS = 30
 _SHARED_MEMORY_BUCKETS = ("findings", "claims", "risks", "open_questions", "decisions", "artifacts")
 _WORKFLOW_MODES = ACCEPTED_ARCHITECTURE_VALUES
 _DEFAULT_BRANCH_ID = "default"
+_DEFAULT_AGENT_TOOLS = ["cowork_internal", "read_file", "list_dir", "write_file", "edit_file", "delete_file"]
 
 
 class CoworkService:
@@ -138,6 +139,32 @@ class CoworkService:
     def _ensure_dir(self) -> None:
         self.cowork_dir.mkdir(parents=True, exist_ok=True)
         self.event_log.ensure_dirs()
+
+    def session_workspace_path(self, session_or_id: CoworkSession | str) -> Path:
+        session_id = session_or_id.id if isinstance(session_or_id, CoworkSession) else str(session_or_id)
+        return self.cowork_dir / session_id
+
+    def ensure_session_workspace(self, session: CoworkSession, *, save: bool = False) -> Path:
+        path = self.session_workspace_path(session)
+        path.mkdir(parents=True, exist_ok=True)
+        workspace_dir = str(path)
+        if session.workspace_dir != workspace_dir:
+            session.workspace_dir = workspace_dir
+            if save:
+                self._touch(session)
+                self._save()
+        return path
+
+    @staticmethod
+    def _agent_tools(raw_tools: Any) -> list[str]:
+        if raw_tools is None:
+            return list(_DEFAULT_AGENT_TOOLS)
+        tools: list[str] = []
+        for tool in raw_tools or []:
+            value = str(tool).strip()
+            if value and value not in tools:
+                tools.append(value)
+        return tools or list(_DEFAULT_AGENT_TOOLS)
 
     def _load(self) -> dict[str, CoworkSession]:
         if self._sessions is not None:
@@ -1406,6 +1433,7 @@ class CoworkService:
         session.blueprint = blueprint or {}
         session.blueprint_diagnostics = blueprint_diagnostics or []
         session.runtime_state = dict(runtime_state or {})
+        self.ensure_session_workspace(session)
         for raw in agents:
             agent_id = self._slug(raw.get("id") or raw.get("name") or raw.get("role") or "agent")
             base_id = agent_id
@@ -1419,7 +1447,7 @@ class CoworkService:
                 role=str(raw.get("role") or "Collaborator").strip(),
                 goal=str(raw.get("goal") or goal).strip(),
                 responsibilities=[str(x).strip() for x in raw.get("responsibilities", []) if str(x).strip()],
-                tools=[str(x).strip() for x in raw.get("tools", []) if str(x).strip()],
+                tools=self._agent_tools(raw.get("tools", [])),
                 subscriptions=self._agent_subscriptions(raw),
                 communication_policy=str(raw.get("communication_policy") or "").strip()
                 or "Coordinate through cowork messages when another agent can unblock or verify work.",
@@ -1440,6 +1468,8 @@ class CoworkService:
 
         if not session.agents:
             for raw in self.default_team(goal, workflow_mode=mode):
+                raw = dict(raw)
+                raw["tools"] = self._agent_tools(raw.get("tools", []))
                 session.agents[raw["id"]] = CoworkAgent(**raw)
 
         for raw in tasks:
@@ -1864,7 +1894,7 @@ class CoworkService:
             limit = limits.get(limit_key)
             if limit is not None and usage.get(usage_key, 0) >= limit:
                 denials.append(reason)
-        allowed_tools = {"cowork_internal", "read_file", "list_dir", "write_file", "edit_file", "exec"}
+        allowed_tools = {"cowork_internal", "read_file", "list_dir", "write_file", "edit_file", "delete_file", "exec"}
         disallowed = [item for item in requested_tools if item not in allowed_tools]
         if disallowed:
             denials.append(f"tool_not_supported:{','.join(disallowed)}")
@@ -1897,7 +1927,7 @@ class CoworkService:
         self.ensure_session_budget(session)
         if parent_agent_id not in session.agents:
             return f"Error: parent agent '{parent_agent_id}' not found"
-        requested_tools = [str(item).strip() for item in (tools or ["cowork_internal"]) if str(item).strip()]
+        requested_tools = self._agent_tools(tools)
         decision = self.architecture_policy(session.workflow_mode).handle_delegation(
             session,
             {
@@ -1999,7 +2029,7 @@ class CoworkService:
         delegated_brief_id: str = "",
         save: bool = True,
     ) -> CoworkAgent | str:
-        requested_tools = [str(item).strip() for item in (tools or ["cowork_internal"]) if str(item).strip()]
+        requested_tools = self._agent_tools(tools)
         removed_by_policy: list[str] = []
         delegated = session.delegated_tasks.get(delegated_task_id) if delegated_task_id else None
         brief = session.delegated_briefs.get(delegated_brief_id) if delegated_brief_id else None
@@ -2018,7 +2048,7 @@ class CoworkService:
             if isinstance(opened, str):
                 return opened
             delegated, brief, _guardrail, removed_by_policy = opened
-        requested_tools = list(brief.allowed_tools or requested_tools or ["cowork_internal"])
+        requested_tools = self._agent_tools(brief.allowed_tools or requested_tools)
         base_id = self._slug(name or role or "specialist")
         agent_id = base_id
         counter = 2
@@ -2031,7 +2061,7 @@ class CoworkService:
             role=role.strip() or "Specialist",
             goal=goal.strip() or session.goal,
             responsibilities=responsibilities or [],
-            tools=requested_tools or ["cowork_internal"],
+            tools=requested_tools or self._agent_tools([]),
             subscriptions=subscriptions or [agent_id, self._slug(role)],
             parent_agent_id=parent_agent_id,
             team_id=team_id,
@@ -5207,7 +5237,7 @@ class CoworkService:
             if disallowed:
                 return {"code": "disallowed_tool", "tools": disallowed}
         checks = (
-            ("allow_file_writes", {"write_file", "edit_file"}, "file_write_requires_approval"),
+            ("allow_file_writes", {"write_file", "edit_file", "delete_file"}, "file_write_requires_approval"),
             ("allow_exec", {"exec"}, "exec_requires_approval"),
             ("allow_web", {"web", "web_search", "browser"}, "network_requires_approval"),
         )
@@ -5372,7 +5402,7 @@ class CoworkService:
             "role": "Team coordinator",
             "goal": f"Keep the collaboration focused on: {goal}",
             "responsibilities": ["Break down work", "Route questions", "Synthesize final progress"],
-            "tools": ["cowork_internal"],
+            "tools": list(_DEFAULT_AGENT_TOOLS),
             "subscriptions": ["coordination", "handoff", "unblock", "decision", "summary"],
         }
         researcher = {
@@ -5381,7 +5411,7 @@ class CoworkService:
             "role": "Information gatherer",
             "goal": f"Gather useful facts and constraints for: {goal}",
             "responsibilities": ["Investigate relevant sources", "Summarize findings", "Flag uncertainty"],
-            "tools": ["read_file", "list_dir", "cowork_internal"],
+            "tools": list(_DEFAULT_AGENT_TOOLS),
             "subscriptions": ["research", "produce", "finding", "source", "context"],
         }
         analyst = {
@@ -5390,7 +5420,7 @@ class CoworkService:
             "role": "Reasoning and verification partner",
             "goal": f"Check assumptions and turn findings into decisions for: {goal}",
             "responsibilities": ["Compare options", "Verify claims", "Identify risks"],
-            "tools": ["read_file", "list_dir", "cowork_internal"],
+            "tools": list(_DEFAULT_AGENT_TOOLS),
             "subscriptions": ["analysis", "review", "verify", "risk", "decision"],
         }
         if mode in {"orchestrator", "supervisor"}:
@@ -5403,7 +5433,7 @@ class CoworkService:
                     "role": "Primary answer producer",
                     "goal": f"Produce a concrete answer or artifact for: {goal}",
                     "responsibilities": ["Create the main output", "State assumptions", "Hand off for verification"],
-                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "tools": list(_DEFAULT_AGENT_TOOLS),
                     "subscriptions": ["produce", "draft", "artifact", "handoff"],
                 },
                 {
@@ -5412,7 +5442,7 @@ class CoworkService:
                     "role": "Quality verifier",
                     "goal": f"Verify correctness, gaps, and risks for: {goal}",
                     "responsibilities": ["Check the output", "Identify issues", "Recommend fixes or approval"],
-                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "tools": list(_DEFAULT_AGENT_TOOLS),
                     "subscriptions": ["verify", "review", "risk", "quality"],
                 },
             ]
@@ -5425,7 +5455,7 @@ class CoworkService:
                     "role": "Message bus router",
                     "goal": f"Route topic-specific requests for: {goal}",
                     "responsibilities": ["Classify requests", "Maintain lineage", "Escalate blockers"],
-                    "tools": ["cowork_internal"],
+                    "tools": list(_DEFAULT_AGENT_TOOLS),
                     "subscriptions": ["routing", "event", "lineage", "unblock"],
                 },
             ]
@@ -5438,7 +5468,7 @@ class CoworkService:
                     "role": "Shared-state curator",
                     "goal": f"Keep durable findings, risks, decisions, and artifacts organized for: {goal}",
                     "responsibilities": ["Extract shared memory", "Track open questions", "Keep decisions explicit"],
-                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "tools": list(_DEFAULT_AGENT_TOOLS),
                     "subscriptions": ["finding", "risk", "decision", "artifact", "memory"],
                 },
             ]
@@ -5450,7 +5480,7 @@ class CoworkService:
                     "role": "First-step planner",
                     "goal": f"Define the next concrete handoff step for: {goal}",
                     "responsibilities": ["Frame the next step", "Hand off clearly", "Avoid parallel duplication"],
-                    "tools": ["cowork_internal"],
+                    "tools": list(_DEFAULT_AGENT_TOOLS),
                     "subscriptions": ["plan", "handoff", "next_step"],
                 },
                 {
@@ -5459,7 +5489,7 @@ class CoworkService:
                     "role": "Completion owner",
                     "goal": f"Complete the final handoff and synthesize the answer for: {goal}",
                     "responsibilities": ["Receive handoffs", "Complete the last step", "Summarize results"],
-                    "tools": ["read_file", "list_dir", "cowork_internal"],
+                    "tools": list(_DEFAULT_AGENT_TOOLS),
                     "subscriptions": ["handoff", "complete", "summary"],
                 },
             ]

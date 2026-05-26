@@ -62,6 +62,12 @@ assert.equal(typeof restoreCoworkAgentThreadScroll, "function");
 assert.equal(typeof rememberChatCoworkSessions, "function");
 assert.match(chatCss, /\.cowork-agent-message-body\s+:is\(h1,\s*h2,\s*h3,\s*h4,\s*h5,\s*h6\)/);
 assert.match(chatCss, /\.cowork-agent-message-body\s+:is\(h1,\s*h2,\s*h3,\s*h4,\s*h5,\s*h6\)[\s\S]*font-size:\s*inherit/);
+assert.match(chatCss, /\.chat-cowork-swarm\s*{[\s\S]*border-radius:\s*var\(--radius-lg\)/);
+assert.match(chatCss, /\.chat-cowork-header\s*{[\s\S]*background:\s*var\(--surface-dark\)/);
+assert.match(chatCss, /\.chat-cowork-live-output\s*{[\s\S]*background:\s*var\(--surface-dark\)/);
+const selectedCoworkAgentRow = chatCss.match(/\.chat-cowork-agent-row\.selected\s*{(?<body>[^}]*)}/);
+assert.ok(selectedCoworkAgentRow);
+assert.doesNotMatch(selectedCoworkAgentRow.groups.body, /inset\s+3px\s+0\s+0/);
 
 {
   const oldThread = createScrollProbe({ scrollTop: 640, scrollHeight: 1600, clientHeight: 400 });

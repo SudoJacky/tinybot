@@ -14,7 +14,7 @@ from loguru import logger
 from tinybot.agent.hook import AgentHook, AgentHookContext, CompositeHook
 from tinybot.agent.runner import AgentRunSpec, AgentRunner
 from tinybot.agent.tools.base import Tool, tool_parameters
-from tinybot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+from tinybot.agent.tools.filesystem import DeleteFileTool, EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from tinybot.agent.tools.registry import ToolRegistry
 from tinybot.agent.tools.schema import ArraySchema, BooleanSchema, IntegerSchema, ObjectSchema, StringSchema, tool_parameters_schema
 from tinybot.agent.tools.shell import ExecTool
@@ -599,7 +599,7 @@ Workspace: {self.workspace}
                 "role": "Quality and risk reviewer",
                 "goal": f"Review assumptions, risks, and completeness for: {goal}",
                 "responsibilities": ["Check claims and assumptions", "Find gaps or risks", "Recommend whether to finish or continue"],
-                "tools": ["read_file", "list_dir", "cowork_internal"],
+                "tools": ["cowork_internal", "read_file", "list_dir", "write_file", "edit_file", "delete_file"],
                 "subscriptions": ["review", "verify", "risk", "quality", "verification_requested"],
                 "communication_policy": "Review completed work when asked by the lead or when a task needs validation.",
                 "context_policy": "Use shared summaries, task results, and targeted file reads instead of replaying the full conversation.",
@@ -2194,27 +2194,38 @@ class CoworkTool(Tool):
 
     def _build_agent_tools(self, session_id: str, agent: CoworkAgent) -> ToolRegistry:
         registry = ToolRegistry()
-        allowed_dir = self.workspace if self.restrict_to_workspace else None
+        tool_workspace = self._agent_workspace(session_id)
+        allowed_dir = tool_workspace
         allowed_tools = {tool.strip().lower() for tool in agent.tools}
         if "read_file" in allowed_tools:
-            registry.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+            registry.register(ReadFileTool(workspace=tool_workspace, allowed_dir=allowed_dir))
         if "list_dir" in allowed_tools:
-            registry.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
+            registry.register(ListDirTool(workspace=tool_workspace, allowed_dir=allowed_dir))
         if "write_file" in allowed_tools:
-            registry.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+            registry.register(WriteFileTool(workspace=tool_workspace, allowed_dir=allowed_dir))
         if "edit_file" in allowed_tools:
-            registry.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+            registry.register(EditFileTool(workspace=tool_workspace, allowed_dir=allowed_dir))
+        if "delete_file" in allowed_tools:
+            registry.register(DeleteFileTool(workspace=tool_workspace, allowed_dir=allowed_dir))
         if self.exec_config.enable and "exec" in allowed_tools:
             registry.register(
                 ExecTool(
-                    working_dir=str(self.workspace),
+                    working_dir=str(tool_workspace),
                     timeout=self.exec_config.timeout,
-                    restrict_to_workspace=self.restrict_to_workspace,
+                    restrict_to_workspace=True,
                     path_append=self.exec_config.path_append,
                 )
             )
         registry.register(CoworkInternalTool(self.service, session_id=session_id, sender_id=agent.id, mailbox=self.mailbox))
         return registry
+
+    def _agent_workspace(self, session_id: str) -> Path:
+        session = self.service.get_session(session_id)
+        if session is not None:
+            return self.service.ensure_session_workspace(session, save=True)
+        path = self.workspace / "cowork" / session_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @staticmethod
     def _build_agent_system_prompt(session: CoworkSession, agent: CoworkAgent) -> str:
