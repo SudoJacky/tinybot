@@ -24,7 +24,7 @@ from tinybot.cowork.service import CoworkService
 from tinybot.cowork.types import CoworkAgent, CoworkSession, now_iso
 from tinybot.cowork.mailbox import CoworkEnvelope, CoworkMailbox
 from tinybot.config.schema import ExecToolConfig
-from tinybot.providers.base import LLMProvider
+from tinybot.providers.base import LLMProvider, ToolCallArgumentDelta
 
 
 _AGENT_PROGRESS_STATUSES = {"idle", "waiting", "blocked", "done", "failed", "needs_review"}
@@ -76,6 +76,139 @@ class _PublicNoteStreamExtractor:
     @staticmethod
     def _decode_escape(ch: str) -> str:
         return {"n": "\n", "r": "\r", "t": "\t", '"': '"', "'": "'", "\\": "\\"}.get(ch, ch)
+
+
+class _JsonStringFieldDeltaExtractor:
+    def __init__(self, field_name: str) -> None:
+        self.field_name = field_name
+        self._buffer = ""
+        self._active = False
+        self._complete = False
+        self._quote = '"'
+        self._pos = 0
+        self._escape = False
+
+    def feed(self, delta: str) -> str:
+        if self._complete or not delta:
+            return ""
+        self._buffer += delta
+        if not self._active:
+            pattern = rf"""["']{re.escape(self.field_name)}["']\s*:\s*["']"""
+            match = re.search(pattern, self._buffer)
+            if not match:
+                if len(self._buffer) > 8000:
+                    self._buffer = self._buffer[-8000:]
+                return ""
+            self._active = True
+            self._quote = self._buffer[match.end() - 1]
+            self._pos = match.end()
+
+        out: list[str] = []
+        while self._pos < len(self._buffer):
+            ch = self._buffer[self._pos]
+            self._pos += 1
+            if self._escape:
+                out.append(_PublicNoteStreamExtractor._decode_escape(ch))
+                self._escape = False
+                continue
+            if ch == "\\":
+                self._escape = True
+                continue
+            if ch == self._quote:
+                self._complete = True
+                break
+            out.append(ch)
+        return "".join(out)
+
+
+def _extract_json_string_field(buffer: str, field_name: str) -> str:
+    pattern = rf"""["']{re.escape(field_name)}["']\s*:\s*(["'])((?:\\.|(?!\1).)*)\1"""
+    match = re.search(pattern, buffer, flags=re.DOTALL)
+    if not match:
+        return ""
+    try:
+        return json.loads(f'"{match.group(2)}"')
+    except Exception:
+        return match.group(2).replace(r"\"", '"').replace(r"\\", "\\")
+
+
+def _extract_json_string_array_field(buffer: str, field_name: str) -> list[str]:
+    pattern = rf"""["']{re.escape(field_name)}["']\s*:\s*(\[[^\]]*\])"""
+    match = re.search(pattern, buffer, flags=re.DOTALL)
+    if not match:
+        return []
+    try:
+        value = json.loads(match.group(1))
+    except Exception:
+        return []
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _extract_json_bool_field(buffer: str, field_name: str) -> bool | None:
+    pattern = rf"""["']{re.escape(field_name)}["']\s*:\s*(true|false)"""
+    match = re.search(pattern, buffer, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).lower() == "true"
+
+
+class _MailboxDraftState:
+    def __init__(self, draft_id: str, tool_call_id: str, tool_call_index: int | None) -> None:
+        self.draft_id = draft_id
+        self.tool_call_id = tool_call_id
+        self.tool_call_index = tool_call_index
+        self.tool_name = ""
+        self.buffer = ""
+        self.content = _JsonStringFieldDeltaExtractor("content")
+        self.pending_text = ""
+        self.sequence = 0
+        self.emitted = False
+        self.terminal = False
+        self.action = ""
+        self.recipient_ids: list[str] = []
+        self.requires_reply: bool | None = None
+        self.topic = ""
+        self.event_type = ""
+        self.request_type = ""
+        self.thread_id = ""
+
+    def feed(self, delta: ToolCallArgumentDelta) -> None:
+        if delta.tool_name:
+            self.tool_name = str(delta.tool_name)
+        if delta.delta_text:
+            text = str(delta.delta_text)
+            self.buffer += text
+            if len(self.buffer) > 32000:
+                self.buffer = self.buffer[-32000:]
+            self.pending_text += self.content.feed(text)
+            self._refresh_metadata()
+
+    def _refresh_metadata(self) -> None:
+        self.action = _extract_json_string_field(self.buffer, "action") or self.action
+        recipients = _extract_json_string_array_field(self.buffer, "recipient_ids")
+        if recipients:
+            self.recipient_ids = recipients
+        requires_reply = _extract_json_bool_field(self.buffer, "requires_reply")
+        if requires_reply is not None:
+            self.requires_reply = requires_reply
+        self.topic = _extract_json_string_field(self.buffer, "topic") or self.topic
+        self.event_type = _extract_json_string_field(self.buffer, "event_type") or self.event_type
+        self.request_type = _extract_json_string_field(self.buffer, "request_type") or self.request_type
+        self.thread_id = _extract_json_string_field(self.buffer, "thread_id") or self.thread_id
+
+    def next_sequence(self) -> int:
+        self.sequence += 1
+        return self.sequence
+
+    def consume_text(self) -> str:
+        text = self.pending_text
+        self.pending_text = ""
+        return text
+
+    def can_emit(self) -> bool:
+        return self.tool_name == "cowork_internal" and self.action == "send_message"
 
 
 class _CoworkStreamHook(AgentHook):
@@ -135,6 +268,91 @@ class _CoworkStreamHook(AgentHook):
             status="failed",
             sequence=self.sequence,
             text="",
+        )
+
+
+class _CoworkMailboxStreamHook(AgentHook):
+    def __init__(self, service: CoworkService, session: CoworkSession, step: Any) -> None:
+        self.service = service
+        self.session = session
+        self.step = step
+        self._drafts: dict[str, _MailboxDraftState] = {}
+
+    def wants_streaming(self) -> bool:
+        runtime_state = getattr(self.session, "runtime_state", {}) or {}
+        return (
+            isinstance(runtime_state, dict)
+            and runtime_state.get("origin_channel") == "websocket"
+            and runtime_state.get("origin_surface") == "main_chat"
+            and bool(str(runtime_state.get("origin_chat_id") or "").strip())
+        )
+
+    async def on_tool_call_delta(self, context: AgentHookContext, delta: ToolCallArgumentDelta) -> None:
+        if not self.wants_streaming():
+            return
+        state = self._state_for(delta)
+        state.feed(delta)
+        if state.can_emit():
+            text = state.consume_text()
+            if text:
+                state.emitted = True
+                self._emit(state, phase="delta", status="streaming", text=text, completed=False)
+        if delta.completed or delta.status in {"completed", "failed", "interrupted", "discarded"}:
+            self._emit_terminal(state, str(delta.status or "completed"))
+
+    async def on_error(self, context: AgentHookContext, error: Exception) -> None:
+        for state in self._drafts.values():
+            if state.emitted and not state.terminal:
+                self._emit_terminal(state, "failed")
+
+    def _state_for(self, delta: ToolCallArgumentDelta) -> _MailboxDraftState:
+        tool_call_id = str(delta.tool_call_id or "")
+        index = delta.tool_call_index
+        key = tool_call_id or f"index:{index if index is not None else 'unknown'}"
+        state = self._drafts.get(key)
+        if state is None:
+            draft_id = f"{self.session.id}:{getattr(self.step, 'agent_id', '')}:{key}"
+            state = _MailboxDraftState(draft_id, tool_call_id or key, index)
+            self._drafts[key] = state
+        return state
+
+    def _emit(self, state: _MailboxDraftState, *, phase: str, status: str, text: str, completed: bool) -> None:
+        self.service.emit_mailbox_stream(
+            self.session,
+            sender_agent_id=str(getattr(self.step, "agent_id", "") or ""),
+            draft_id=state.draft_id,
+            tool_call_id=state.tool_call_id,
+            phase=phase,
+            status=status,
+            sequence=state.next_sequence(),
+            text=text,
+            completed=completed,
+            recipient_ids=state.recipient_ids,
+            requires_reply=state.requires_reply,
+            topic=state.topic,
+            event_type=state.event_type,
+            request_type=state.request_type,
+            thread_id=state.thread_id,
+        )
+
+    def _emit_terminal(self, state: _MailboxDraftState, status: str) -> None:
+        if state.terminal:
+            return
+        if state.can_emit():
+            text = state.consume_text()
+            if text:
+                state.emitted = True
+                self._emit(state, phase="delta", status="streaming", text=text, completed=False)
+        if not state.emitted:
+            return
+        terminal_status = status if status in {"completed", "failed", "interrupted", "discarded"} else "completed"
+        state.terminal = True
+        self._emit(
+            state,
+            phase="terminal",
+            status=terminal_status,
+            text="",
+            completed=terminal_status == "completed",
         )
 
 
@@ -524,6 +742,10 @@ class CoworkInternalTool(Tool):
             return f"Error: cowork session '{self.session_id}' not found"
         if self.sender_id not in session.agents:
             return f"Error: sender '{self.sender_id}' not found"
+        tool_call_id = str(kwargs.get("_tool_call_id") or "").strip()
+        draft_id = str(kwargs.get("_draft_id") or "").strip()
+        if tool_call_id and not draft_id:
+            draft_id = f"{session.id}:{self.sender_id}:{tool_call_id}"
 
         if action == "create_thread":
             participants = [self.sender_id, *(recipient_ids or [])]
@@ -560,6 +782,8 @@ class CoworkInternalTool(Tool):
                     expected_output_schema=expected_output_schema or {},
                     blocking_task_id=blocking_task_id or None,
                     escalate_after_rounds=escalate_after_rounds,
+                    tool_call_id=tool_call_id or None,
+                    draft_id=draft_id or None,
                 ),
             )
             return f"Sent message {message.id}"
@@ -1472,6 +1696,7 @@ class CoworkTool(Tool):
                     hook=CompositeHook([
                         _CoworkObservationHook(self.service, session, agent_step),
                         _CoworkStreamHook(self.service, session, agent_step),
+                        _CoworkMailboxStreamHook(self.service, session, agent_step),
                     ]),
                 )
             )

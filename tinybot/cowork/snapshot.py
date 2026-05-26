@@ -849,6 +849,8 @@ def _agent_mailbox_records(session: CoworkSession, agent_id: str, *, limit: int)
                 "blocking_task_id": record.blocking_task_id,
                 "message_id": record.message_id,
                 "thread_id": record.thread_id,
+                "tool_call_id": getattr(record, "tool_call_id", None),
+                "draft_id": getattr(record, "draft_id", None),
                 "created_at": record.created_at,
                 "updated_at": record.updated_at,
             }

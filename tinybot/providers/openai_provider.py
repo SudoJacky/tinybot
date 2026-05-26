@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import os
 import secrets
 import string
@@ -14,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import json_repair
 from openai import AsyncOpenAI
 
-from tinybot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from tinybot.providers.base import LLMProvider, LLMResponse, ToolCallArgumentDelta, ToolCallRequest
 
 if TYPE_CHECKING:
     from tinybot.providers.registry import ProviderSpec
@@ -27,6 +28,7 @@ _ALNUM = string.ascii_letters + string.digits
 
 _STANDARD_TC_KEYS = frozenset({"id", "type", "index", "function"})
 _STANDARD_FN_KEYS = frozenset({"name", "arguments"})
+_MAX_TOOL_CALL_DELTA_TEXT = 8192
 def _short_tool_id() -> str:
     """9-char alphanumeric ID compatible with all providers (incl. Mistral)."""
     return "".join(secrets.choice(_ALNUM) for _ in range(9))
@@ -638,6 +640,7 @@ class OpenAIProvider(LLMProvider):
         tool_choice: str | dict[str, Any] | None = None,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
         on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
+        on_tool_call_delta: Callable[[ToolCallArgumentDelta], Awaitable[None] | None] | None = None,
     ) -> LLMResponse:
         kwargs = self._build_kwargs(
             messages, tools, model, max_tokens, temperature,
@@ -649,7 +652,85 @@ class OpenAIProvider(LLMProvider):
         try:
             stream = await self._client.chat.completions.create(**kwargs)
             chunks: list[Any] = []
+            tool_delta_sequence = 0
+            tool_delta_state: dict[int, dict[str, Any]] = {}
             stream_iter = stream.__aiter__()
+
+            async def _emit_tool_call_delta(delta: ToolCallArgumentDelta) -> None:
+                if on_tool_call_delta is None:
+                    return
+                result = on_tool_call_delta(delta)
+                if inspect.isawaitable(result):
+                    await result
+
+            async def _observe_tool_call_delta(tc: Any, idx_hint: int, provider_call_id: str | None) -> None:
+                nonlocal tool_delta_sequence
+                tc_index = _get(tc, "index") if _get(tc, "index") is not None else idx_hint
+                try:
+                    tc_index = int(tc_index)
+                except (TypeError, ValueError):
+                    tc_index = idx_hint
+                state = tool_delta_state.setdefault(
+                    tc_index,
+                    {"id": None, "name": None, "provider_call_id": provider_call_id},
+                )
+                if provider_call_id:
+                    state["provider_call_id"] = provider_call_id
+                tc_id = _get(tc, "id")
+                if tc_id:
+                    state["id"] = str(tc_id)
+                fn = _get(tc, "function")
+                name_changed = False
+                arg_delta = ""
+                if fn is not None:
+                    fn_name = _get(fn, "name")
+                    if fn_name and str(fn_name) != state.get("name"):
+                        state["name"] = str(fn_name)
+                        name_changed = True
+                    fn_args = _get(fn, "arguments")
+                    if fn_args:
+                        arg_delta = str(fn_args)
+                if not arg_delta and not name_changed:
+                    return
+                parts = [arg_delta[i:i + _MAX_TOOL_CALL_DELTA_TEXT] for i in range(0, len(arg_delta), _MAX_TOOL_CALL_DELTA_TEXT)]
+                if not parts:
+                    parts = [""]
+                for part in parts:
+                    tool_delta_sequence += 1
+                    await _emit_tool_call_delta(
+                        ToolCallArgumentDelta(
+                            provider_call_id=state.get("provider_call_id"),
+                            tool_call_id=state.get("id"),
+                            tool_call_index=tc_index,
+                            tool_name=state.get("name"),
+                            sequence=tool_delta_sequence,
+                            delta_text=part,
+                            phase="arguments",
+                            status="streaming",
+                            completed=False,
+                        )
+                    )
+
+            async def _complete_tool_call_deltas(status: str) -> None:
+                nonlocal tool_delta_sequence
+                if not tool_delta_state:
+                    return
+                for tc_index, state in sorted(tool_delta_state.items()):
+                    tool_delta_sequence += 1
+                    await _emit_tool_call_delta(
+                        ToolCallArgumentDelta(
+                            provider_call_id=state.get("provider_call_id"),
+                            tool_call_id=state.get("id"),
+                            tool_call_index=tc_index,
+                            tool_name=state.get("name"),
+                            sequence=tool_delta_sequence,
+                            delta_text="",
+                            phase="terminal",
+                            status=status,
+                            completed=status == "completed",
+                        )
+                    )
+
             while True:
                 try:
                     chunk = await asyncio.wait_for(
@@ -659,19 +740,26 @@ class OpenAIProvider(LLMProvider):
                 except StopAsyncIteration:
                     break
                 chunks.append(chunk)
-                if chunk.choices:
+                choices = _get(chunk, "choices") or []
+                if choices:
+                    choice0 = choices[0]
+                    delta = _get(choice0, "delta")
+                    for idx, tc in enumerate((_get(delta, "tool_calls") or []) if delta else []):
+                        await _observe_tool_call_delta(tc, idx, _get(chunk, "id"))
                     # Stream reasoning_content separately if callback provided
-                    reasoning = getattr(chunk.choices[0].delta, "reasoning_content", None)
+                    reasoning = getattr(delta, "reasoning_content", None)
                     if reasoning and on_reasoning_delta:
                         text = self._extract_text_content(reasoning)
                         if text:
                             await on_reasoning_delta(text)
                     # Stream content via on_content_delta
-                    content = getattr(chunk.choices[0].delta, "content", None)
+                    content = getattr(delta, "content", None)
                     if content and on_content_delta:
                         text = self._extract_text_content(content)
                         if text:
                             await on_content_delta(text)
+                    if _get(choice0, "finish_reason"):
+                        await _complete_tool_call_deltas("completed")
             return self._parse_chunks(chunks)
 
         except TimeoutError:

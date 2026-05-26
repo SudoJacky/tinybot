@@ -46,6 +46,22 @@ class ToolCallRequest:
         return tool_call
 
 
+@dataclass(frozen=True)
+class ToolCallArgumentDelta:
+    """A normalized streamed tool-call argument observation."""
+
+    run_id: str | None = None
+    provider_call_id: str | None = None
+    tool_call_id: str | None = None
+    tool_call_index: int | None = None
+    tool_name: str | None = None
+    sequence: int = 0
+    delta_text: str = ""
+    phase: str = "arguments"
+    status: str = "streaming"
+    completed: bool = False
+
+
 @dataclass
 class LLMResponse:
     """Response from an LLM provider."""
@@ -328,6 +344,7 @@ class LLMProvider(ABC):
         tool_choice: str | dict[str, Any] | None = None,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
         on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
+        on_tool_call_delta: Callable[[ToolCallArgumentDelta], Awaitable[None] | None] | None = None,
     ) -> LLMResponse:
         """Stream a chat completion, calling *on_content_delta* for each text chunk.
 
@@ -367,6 +384,7 @@ class LLMProvider(ABC):
         tool_choice: str | dict[str, Any] | None = None,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
         on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
+        on_tool_call_delta: Callable[[ToolCallArgumentDelta], Awaitable[None] | None] | None = None,
         retry_mode: str = "standard",
         on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
     ) -> LLMResponse:
@@ -384,6 +402,7 @@ class LLMProvider(ABC):
             reasoning_effort=reasoning_effort, tool_choice=tool_choice,
             on_content_delta=on_content_delta,
             on_reasoning_delta=on_reasoning_delta,
+            on_tool_call_delta=on_tool_call_delta,
         )
         return await self._run_with_retry(
             self._safe_chat_stream,

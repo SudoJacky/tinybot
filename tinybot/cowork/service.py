@@ -1009,6 +1009,68 @@ class CoworkService:
         self._notify_listeners(session, event)
         return event
 
+    def emit_mailbox_stream(
+        self,
+        session: CoworkSession,
+        *,
+        sender_agent_id: str,
+        draft_id: str,
+        tool_call_id: str,
+        phase: str,
+        status: str,
+        sequence: int,
+        text: str = "",
+        completed: bool = False,
+        recipient_ids: list[str] | None = None,
+        requires_reply: bool | None = None,
+        topic: str = "",
+        event_type: str = "",
+        request_type: str = "",
+        thread_id: str = "",
+    ) -> CoworkEvent | None:
+        runtime_state = getattr(session, "runtime_state", {}) or {}
+        if not isinstance(runtime_state, dict):
+            return None
+        if runtime_state.get("origin_channel") != "websocket" or runtime_state.get("origin_surface") != "main_chat":
+            return None
+        chat_id = str(runtime_state.get("origin_chat_id") or "").strip()
+        if not chat_id:
+            return None
+        safe_text = str(text or "")
+        if len(safe_text) > 2000:
+            safe_text = safe_text[:2000]
+        safe_phase = str(phase or "delta").strip().lower()
+        if safe_phase not in {"delta", "terminal"}:
+            safe_phase = "delta"
+        safe_status = str(status or "streaming").strip().lower()
+        if safe_status not in {"streaming", "completed", "failed", "interrupted", "discarded"}:
+            safe_status = "streaming"
+        event = CoworkEvent(
+            id=self._new_id("mailbox_stream"),
+            type="mailbox.stream",
+            message="Cowork mailbox draft stream update",
+            actor_id=sender_agent_id,
+            data={
+                "sender_agent_id": str(sender_agent_id or ""),
+                "draft_id": str(draft_id or ""),
+                "tool_call_id": str(tool_call_id or ""),
+                "phase": safe_phase,
+                "status": safe_status,
+                "sequence": max(0, int(sequence or 0)),
+                "timestamp": now_iso(),
+                "text": safe_text,
+                "completed": bool(completed),
+                "recipient_ids": [str(item) for item in (recipient_ids or []) if str(item or "").strip()],
+                "requires_reply": bool(requires_reply) if requires_reply is not None else None,
+                "topic": str(topic or ""),
+                "event_type": str(event_type or ""),
+                "request_type": str(request_type or ""),
+                "thread_id": str(thread_id or ""),
+            },
+        )
+        self._notify_listeners(session, event)
+        return event
+
     def delete_session(self, session_id: str) -> bool:
         sessions = self._load()
         if session_id not in sessions:

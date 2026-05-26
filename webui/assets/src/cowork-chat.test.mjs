@@ -5,6 +5,7 @@ import {
   agentDisplayLabel,
   agentRecentActivity,
   chatCoworkKey,
+  coworkMailboxDraftKey,
   coworkAgentActivityKey,
   coworkFinalOutput,
   createChatCoworkState,
@@ -16,11 +17,15 @@ import {
   deriveCoworkRunSummary,
   getChatCoworkSessions,
   getCoworkLiveStreamsForAgent,
+  getCoworkMailboxDraftsForAgent,
   normalizeCoworkStateEvent,
+  normalizeCoworkMailboxStreamEvent,
   normalizeCoworkStreamEvent,
   normalizeCoworkAgentActivityPayload,
   observationDetailState,
+  reconcileCoworkMailboxDrafts,
   reconcileCoworkLiveStreams,
+  rememberCoworkMailboxStreamEvent,
   rememberCoworkStreamEvent,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
@@ -30,15 +35,57 @@ import {
   upsertChatCoworkSession,
 } from "./cowork-chat.js";
 
+const {
+  captureCoworkAgentThreadScroll,
+  restoreCoworkAgentThreadScroll,
+} = await import("./cowork-chat.js");
+
+function createScrollProbe({ scrollTop = 0, scrollHeight = 0, clientHeight = 0, thread = null } = {}) {
+  return {
+    scrollTop,
+    scrollHeight,
+    clientHeight,
+    querySelector(selector) {
+      return selector === ".cowork-agent-message-list" ? thread : null;
+    },
+  };
+}
+
 const chatCowork = createChatCoworkState();
 
+assert.equal(typeof captureCoworkAgentThreadScroll, "function");
+assert.equal(typeof restoreCoworkAgentThreadScroll, "function");
+
+{
+  const oldThread = createScrollProbe({ scrollTop: 640, scrollHeight: 1600, clientHeight: 400 });
+  const oldInspector = createScrollProbe({ scrollTop: 120, scrollHeight: 900, clientHeight: 500, thread: oldThread });
+  const scrollState = captureCoworkAgentThreadScroll(oldInspector);
+  const newThread = createScrollProbe({ scrollTop: 0, scrollHeight: 1700, clientHeight: 400 });
+  const newInspector = createScrollProbe({ scrollTop: 0, scrollHeight: 900, clientHeight: 500, thread: newThread });
+  restoreCoworkAgentThreadScroll(newInspector, scrollState);
+  assert.equal(newInspector.scrollTop, 120);
+  assert.equal(newThread.scrollTop, 640);
+}
+
+{
+  const oldThread = createScrollProbe({ scrollTop: 1190, scrollHeight: 1600, clientHeight: 400 });
+  const oldInspector = createScrollProbe({ scrollTop: 0, scrollHeight: 900, clientHeight: 500, thread: oldThread });
+  const scrollState = captureCoworkAgentThreadScroll(oldInspector);
+  const newThread = createScrollProbe({ scrollTop: 0, scrollHeight: 2000, clientHeight: 400 });
+  const newInspector = createScrollProbe({ scrollTop: 0, scrollHeight: 900, clientHeight: 500, thread: newThread });
+  restoreCoworkAgentThreadScroll(newInspector, scrollState);
+  assert.equal(newThread.scrollTop, 1590);
+}
+
 assert.equal(chatCoworkKey("chat-1", "cw-1"), "chat-1:cw-1");
+assert.equal(coworkMailboxDraftKey("chat-1", "cw-1", "researcher", "call-1", "draft-1"), "chat-1:cw-1:researcher:call-1:draft-1");
 assert.equal(coworkAgentActivityKey("cw-1", "researcher"), "cw-1:researcher");
 assert.equal(shouldRefreshCoworkAgentInspectorForStream({ chatId: "chat-1" }, "chat-1"), true);
 assert.equal(shouldRefreshCoworkAgentInspectorForStream({ chatId: "chat-1" }, "chat-2"), false);
 assert.equal(shouldRefreshCoworkAgentInspectorForStream(null, "chat-1"), false);
 assert.equal(normalizeCoworkStateEvent({ event: "cowork_state", chat_id: "chat-1" }), null);
 assert.equal(normalizeCoworkStreamEvent({ event: "cowork_stream", chat_id: "chat-1" }), null);
+assert.equal(normalizeCoworkMailboxStreamEvent({ event: "cowork_mailbox_stream", chat_id: "chat-1" }), null);
 assert.deepEqual(
   normalizeCoworkStateEvent({
     event: "cowork_state",
@@ -84,6 +131,43 @@ assert.deepEqual(
     timestamp: "2026-05-25T00:00:01Z",
     text: "Hello",
     completed: false,
+  },
+);
+assert.deepEqual(
+  normalizeCoworkMailboxStreamEvent({
+    event: "cowork_mailbox_stream",
+    chat_id: "chat-1",
+    session_id: "cw-1",
+    sender_agent_id: "researcher",
+    draft_id: "draft-1",
+    tool_call_id: "call-1",
+    phase: "delta",
+    status: "streaming",
+    sequence: 1,
+    timestamp: "2026-05-25T00:00:01Z",
+    text: "Please ",
+    recipient_ids: ["reviewer"],
+    requires_reply: true,
+    topic: "review",
+  }),
+  {
+    chat_id: "chat-1",
+    session_id: "cw-1",
+    sender_agent_id: "researcher",
+    draft_id: "draft-1",
+    tool_call_id: "call-1",
+    phase: "delta",
+    status: "streaming",
+    sequence: 1,
+    timestamp: "2026-05-25T00:00:01Z",
+    text: "Please ",
+    completed: false,
+    recipient_ids: ["reviewer"],
+    requires_reply: true,
+    topic: "review",
+    event_type: "",
+    request_type: "",
+    thread_id: "",
   },
 );
 assert.deepEqual(
@@ -228,6 +312,143 @@ rememberCoworkStreamEvent(chatCowork, normalizeCoworkStreamEvent({
 }));
 assert.deepEqual(getCoworkLiveStreamsForAgent(chatCowork, "chat-1", "cw-1", "researcher").map((stream) => stream.text).sort(), ["Draft answer", "Stale draft"]);
 assert.deepEqual(getCoworkLiveStreamsForAgent(chatCowork, "chat-1", "cw-1", "writer").map((stream) => stream.text), ["Other agent"]);
+
+const mailboxDraftState = createChatCoworkState();
+rememberCoworkMailboxStreamEvent(mailboxDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "draft-1",
+  tool_call_id: "call-1",
+  phase: "delta",
+  status: "streaming",
+  sequence: 1,
+  timestamp: "2026-05-25T01:00:00Z",
+  text: "Please ",
+}));
+rememberCoworkMailboxStreamEvent(mailboxDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "draft-1",
+  tool_call_id: "call-1",
+  phase: "delta",
+  status: "streaming",
+  sequence: 1,
+  text: "duplicate",
+}));
+rememberCoworkMailboxStreamEvent(mailboxDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "draft-1",
+  tool_call_id: "call-1",
+  phase: "delta",
+  status: "streaming",
+  sequence: 2,
+  text: "review",
+  recipient_ids: ["reviewer"],
+}));
+rememberCoworkMailboxStreamEvent(mailboxDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-2",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "draft-other",
+  tool_call_id: "call-other",
+  phase: "delta",
+  status: "streaming",
+  sequence: 1,
+  text: "wrong chat",
+  recipient_ids: ["reviewer"],
+}));
+rememberCoworkMailboxStreamEvent(mailboxDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "draft-1",
+  tool_call_id: "call-1",
+  phase: "terminal",
+  status: "completed",
+  sequence: 3,
+  completed: true,
+}));
+assert.deepEqual(getCoworkMailboxDraftsForAgent(mailboxDraftState, "chat-1", "cw-1", "reviewer").map((draft) => draft.text), ["Please review"]);
+assert.deepEqual(getCoworkMailboxDraftsForAgent(mailboxDraftState, "chat-1", "cw-1", "writer"), []);
+assert.deepEqual(getCoworkMailboxDraftsForAgent(mailboxDraftState, "chat-1", "cw-1", "researcher").map((draft) => draft.text), ["Please review"]);
+reconcileCoworkMailboxDrafts(mailboxDraftState, "chat-1", {
+  session_id: "cw-1",
+  mailbox_records: [
+    {
+      id: "mail-1",
+      sender_id: "researcher",
+      recipient_ids: ["reviewer"],
+      content: "Please review",
+      tool_call_id: "call-1",
+      draft_id: "draft-1",
+    },
+  ],
+});
+assert.deepEqual(getCoworkMailboxDraftsForAgent(mailboxDraftState, "chat-1", "cw-1", "reviewer"), []);
+
+const fallbackDraftState = createChatCoworkState();
+rememberCoworkMailboxStreamEvent(fallbackDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "legacy-draft",
+  tool_call_id: "legacy-call",
+  phase: "delta",
+  status: "streaming",
+  sequence: 1,
+  text: "Legacy text",
+  recipient_ids: ["reviewer"],
+}));
+reconcileCoworkMailboxDrafts(fallbackDraftState, "chat-1", {
+  session_id: "cw-1",
+  mailbox_records: [
+    {
+      id: "legacy-mail",
+      sender_id: "researcher",
+      recipient_ids: ["reviewer"],
+      content: "Legacy text",
+    },
+  ],
+});
+assert.deepEqual(getCoworkMailboxDraftsForAgent(fallbackDraftState, "chat-1", "cw-1", "reviewer"), []);
+
+const failedDraftState = createChatCoworkState();
+rememberCoworkMailboxStreamEvent(failedDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "failed-draft",
+  tool_call_id: "failed-call",
+  phase: "delta",
+  status: "streaming",
+  sequence: 1,
+  text: "Failed text",
+  recipient_ids: ["reviewer"],
+}));
+rememberCoworkMailboxStreamEvent(failedDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "failed-draft",
+  tool_call_id: "failed-call",
+  phase: "terminal",
+  status: "failed",
+  sequence: 2,
+}));
+reconcileCoworkMailboxDrafts(failedDraftState, "chat-1", { session_id: "cw-1", mailbox_records: [] });
+assert.deepEqual(getCoworkMailboxDraftsForAgent(failedDraftState, "chat-1", "cw-1", "reviewer"), []);
 rememberCoworkStreamEvent(chatCowork, normalizeCoworkStreamEvent({
   event: "cowork_stream",
   chat_id: "chat-1",
@@ -544,6 +765,81 @@ assert.deepEqual(directionalThread.map((item) => ({
     body: "I found three sources.",
     streaming: false,
     completed: true,
+  },
+]);
+
+const mailboxThreadDraftState = createChatCoworkState();
+rememberCoworkMailboxStreamEvent(mailboxThreadDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "coordinator",
+  draft_id: "draft-in",
+  tool_call_id: "call-in",
+  phase: "delta",
+  status: "streaming",
+  sequence: 1,
+  timestamp: "2026-05-25T01:02:00Z",
+  text: "Incoming draft",
+  recipient_ids: ["researcher"],
+}));
+rememberCoworkMailboxStreamEvent(mailboxThreadDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "researcher",
+  draft_id: "draft-out",
+  tool_call_id: "call-out",
+  phase: "delta",
+  status: "streaming",
+  sequence: 1,
+  timestamp: "2026-05-25T01:02:30Z",
+  text: "Outgoing draft",
+  recipient_ids: ["coordinator"],
+}));
+rememberCoworkMailboxStreamEvent(mailboxThreadDraftState, normalizeCoworkMailboxStreamEvent({
+  event: "cowork_mailbox_stream",
+  chat_id: "chat-1",
+  session_id: "cw-1",
+  sender_agent_id: "writer",
+  draft_id: "draft-unrelated",
+  tool_call_id: "call-unrelated",
+  phase: "delta",
+  status: "streaming",
+  sequence: 1,
+  timestamp: "2026-05-25T01:02:45Z",
+  text: "Unrelated draft",
+  recipient_ids: ["coordinator"],
+}));
+const threadWithMailboxDrafts = deriveCoworkAgentThread(inspectorActivity, {
+  chatId: "chat-1",
+  sessionId: "cw-1",
+  agentId: "researcher",
+  mailboxDrafts: mailboxThreadDraftState.mailboxDrafts,
+});
+assert.deepEqual(threadWithMailboxDrafts.filter((item) => item.source === "mailbox_draft").map((item) => ({
+  id: item.id,
+  direction: item.direction,
+  align: item.align,
+  body: item.body,
+  streaming: item.streaming,
+  plainText: item.plainText,
+})), [
+  {
+    id: "draft:draft-in",
+    direction: "incoming",
+    align: "right",
+    body: "Incoming draft",
+    streaming: true,
+    plainText: true,
+  },
+  {
+    id: "draft:draft-out",
+    direction: "outgoing",
+    align: "left",
+    body: "Outgoing draft",
+    streaming: true,
+    plainText: true,
   },
 ]);
 

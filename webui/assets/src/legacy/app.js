@@ -23,6 +23,7 @@ import {
   renderAgentUiSurface,
 } from '../agent-ui-events.js';
 import {
+  captureCoworkAgentThreadScroll,
   chatCoworkKey,
   coworkAgentActivityKey,
   createChatCoworkState,
@@ -33,9 +34,13 @@ import {
   getChatCoworkSessions,
   getCoworkLiveStreamsForAgent,
   normalizeCoworkAgentActivityPayload,
+  normalizeCoworkMailboxStreamEvent,
   normalizeCoworkStateEvent,
   normalizeCoworkStreamEvent,
+  reconcileCoworkMailboxDrafts,
+  rememberCoworkMailboxStreamEvent,
   rememberCoworkStreamEvent,
+  restoreCoworkAgentThreadScroll,
   rememberCoworkStateEvent,
   selectVisibleChatCoworkSessions,
   shouldRefreshCoworkAgentInspectorForStream,
@@ -1991,6 +1996,19 @@ function scheduleChatCoworkStreamRender(chatId) {
   state.chatCowork.streamRenderTimers.set(chatId, timer);
 }
 
+function scheduleChatCoworkMailboxRender(chatId) {
+  if (!chatId || !state.chatCowork?.mailboxRenderTimers) return;
+  if (state.chatCowork.mailboxRenderTimers.has(chatId)) return;
+  const schedule = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 50));
+  const timer = schedule(() => {
+    state.chatCowork.mailboxRenderTimers.delete(chatId);
+    if (shouldRefreshCoworkAgentInspectorForStream(state.selectedCoworkAgent, chatId)) {
+      renderCoworkAgentInspector();
+    }
+  });
+  state.chatCowork.mailboxRenderTimers.set(chatId, timer);
+}
+
 function createChatCoworkMetric(label, value) {
   const item = document.createElement("span");
   item.className = "chat-cowork-metric";
@@ -2218,6 +2236,7 @@ async function loadCoworkAgentActivity(selection, { renderLoading = true } = {})
     }
     const activity = normalizeCoworkAgentActivityPayload(payload, selection);
     state.coworkAgentActivities.set(key, activity);
+    reconcileCoworkMailboxDrafts(state.chatCowork, selection.chatId || state.activeChatId, activity);
     return activity;
   } catch (error) {
     state.coworkAgentActivityErrors.set(key, error.message || String(error));
@@ -2297,6 +2316,7 @@ function createCoworkAgentMessageNode(item) {
     `cowork-agent-message-${item.align || "neutral"}`,
     `cowork-agent-message-${item.direction || "neutral"}`,
     item.source === "live_stream" ? "cowork-agent-message-live" : "",
+    item.source === "mailbox_draft" ? "cowork-agent-message-draft" : "",
     item.streaming ? "is-streaming" : "",
     item.completed ? "is-completed" : "",
   ].filter(Boolean).join(" ");
@@ -2320,7 +2340,7 @@ function createCoworkAgentMessageNode(item) {
   meta.append(route, status);
   const body = document.createElement("div");
   body.className = "cowork-agent-message-body";
-  renderCoworkMessageBody(body, item.body || "", { markdown: true });
+  renderCoworkMessageBody(body, item.body || "", { markdown: !item.plainText });
   node.append(meta, body);
   return node;
 }
@@ -2332,6 +2352,7 @@ function createCoworkAgentTimelineNode(activity) {
     sessionId: selection.sessionId,
     agentId: selection.agentId,
     liveStreams: state.chatCowork?.liveStreams,
+    mailboxDrafts: state.chatCowork?.mailboxDrafts,
   });
   if (!timeline.length) {
     const empty = document.createElement("div");
@@ -2351,6 +2372,7 @@ function renderCoworkAgentInspector() {
   if (!elements.inspectorPanel || !elements.inspectorBody) return;
   const selection = state.selectedCoworkAgent;
   if (!selection) return;
+  const scrollState = captureCoworkAgentThreadScroll(elements.inspectorBody);
   const key = selectedCoworkAgentKey(selection);
   const activity = state.coworkAgentActivities.get(key);
   const loading = state.coworkAgentActivityLoading.has(key);
@@ -2368,6 +2390,7 @@ function renderCoworkAgentInspector() {
     empty.className = "inspector-empty";
     empty.textContent = "Loading agent activity...";
     elements.inspectorBody.append(empty);
+    restoreCoworkAgentThreadScroll(elements.inspectorBody, scrollState);
     return;
   }
   if (error && !activity) {
@@ -2375,6 +2398,7 @@ function renderCoworkAgentInspector() {
     empty.className = "inspector-empty";
     empty.textContent = error;
     elements.inspectorBody.append(empty);
+    restoreCoworkAgentThreadScroll(elements.inspectorBody, scrollState);
     return;
   }
   if (!activity || activity.available === false) {
@@ -2382,12 +2406,14 @@ function renderCoworkAgentInspector() {
     empty.className = "inspector-empty";
     empty.textContent = activity?.error || "Agent activity is unavailable.";
     elements.inspectorBody.append(empty);
+    restoreCoworkAgentThreadScroll(elements.inspectorBody, scrollState);
     return;
   }
   elements.inspectorBody.append(
     createCoworkAgentTasksNode(activity),
     createCoworkAgentTimelineNode(activity),
   );
+  restoreCoworkAgentThreadScroll(elements.inspectorBody, scrollState);
 }
 
 function renderMessages(forceScroll = true) {
@@ -11427,6 +11453,15 @@ async function connectWebSocket() {
         if (coworkStreamEvent) {
           rememberCoworkStreamEvent(state.chatCowork, coworkStreamEvent);
           scheduleChatCoworkStreamRender(coworkStreamEvent.chat_id);
+        }
+        return;
+      }
+
+      if (payload.event === "cowork_mailbox_stream") {
+        const mailboxStreamEvent = normalizeCoworkMailboxStreamEvent(payload);
+        if (mailboxStreamEvent) {
+          rememberCoworkMailboxStreamEvent(state.chatCowork, mailboxStreamEvent);
+          scheduleChatCoworkMailboxRender(mailboxStreamEvent.chat_id);
         }
         return;
       }

@@ -38,6 +38,8 @@ class CoworkEnvelope:
     expected_output_schema: dict[str, object] = field(default_factory=dict)
     blocking_task_id: str | None = None
     escalate_after_rounds: int | None = None
+    tool_call_id: str | None = None
+    draft_id: str | None = None
 
 
 class CoworkMailbox:
@@ -83,6 +85,8 @@ class CoworkMailbox:
             expected_output_schema=dict(envelope.expected_output_schema or {}),
             blocking_task_id=envelope.blocking_task_id,
             escalate_after_rounds=envelope.escalate_after_rounds,
+            tool_call_id=envelope.tool_call_id,
+            draft_id=envelope.draft_id,
         )
         self.service.add_mailbox_record(session, record, save=False)
         self.service.add_event(

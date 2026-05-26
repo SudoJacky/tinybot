@@ -1750,6 +1750,33 @@ def _cowork_stream_payload(session: Any, event: Any, chat_id: str) -> dict[str, 
     }
 
 
+def _cowork_mailbox_stream_payload(session: Any, event: Any, chat_id: str) -> dict[str, Any]:
+    data = getattr(event, "data", {}) or {}
+    if not isinstance(data, dict):
+        data = {}
+    phase = str(data.get("phase") or "delta")
+    return {
+        "event": "cowork_mailbox_stream",
+        "chat_id": chat_id,
+        "session_id": getattr(session, "id", ""),
+        "sender_agent_id": str(data.get("sender_agent_id") or getattr(event, "actor_id", None) or ""),
+        "draft_id": str(data.get("draft_id") or ""),
+        "tool_call_id": str(data.get("tool_call_id") or ""),
+        "phase": phase,
+        "status": str(data.get("status") or ""),
+        "sequence": int(data.get("sequence") or 0),
+        "timestamp": str(data.get("timestamp") or getattr(event, "created_at", "")),
+        "text": str(data.get("text") or "")[:2000],
+        "completed": bool(data.get("completed") or phase == "terminal" and data.get("status") == "completed"),
+        "recipient_ids": [str(item) for item in (data.get("recipient_ids") or []) if str(item or "").strip()],
+        "requires_reply": data.get("requires_reply"),
+        "topic": str(data.get("topic") or ""),
+        "event_type": str(data.get("event_type") or ""),
+        "request_type": str(data.get("request_type") or ""),
+        "thread_id": str(data.get("thread_id") or ""),
+    }
+
+
 def _attach_cowork_listener(runtime: WebUIControlRuntime, service: Any) -> None:
     if runtime.broadcast_global is None:
         return
@@ -1768,6 +1795,10 @@ def _attach_cowork_listener(runtime: WebUIControlRuntime, service: Any) -> None:
         if getattr(event, "type", "") == "agent.stream":
             if chat_id and runtime.broadcast_chat is not None:
                 loop.create_task(runtime.broadcast_chat(chat_id, _cowork_stream_payload(session, event, chat_id)))
+            return
+        if getattr(event, "type", "") == "mailbox.stream":
+            if chat_id and runtime.broadcast_chat is not None:
+                loop.create_task(runtime.broadcast_chat(chat_id, _cowork_mailbox_stream_payload(session, event, chat_id)))
             return
 
         payload = {

@@ -11,7 +11,9 @@ export function createChatCoworkState() {
     loadingKeys: new Set(),
     lastEvents: new Map(),
     liveStreams: new Map(),
+    mailboxDrafts: new Map(),
     streamRenderTimers: new Map(),
+    mailboxRenderTimers: new Map(),
   };
 }
 
@@ -27,8 +29,60 @@ export function coworkLiveStreamKey(chatId, sessionId, agentId, stepId) {
   return `${chatId || ""}:${sessionId || ""}:${agentId || ""}:${stepId || ""}`;
 }
 
+export function coworkMailboxDraftKey(chatId, sessionId, senderAgentId, toolCallId, draftId) {
+  return `${chatId || ""}:${sessionId || ""}:${senderAgentId || ""}:${toolCallId || ""}:${draftId || ""}`;
+}
+
 export function shouldRefreshCoworkAgentInspectorForStream(selection, chatId) {
   return Boolean(selection?.chatId && chatId && selection.chatId === chatId);
+}
+
+function boundedScrollTop(element, value) {
+  if (!element || !Number.isFinite(Number(value))) {
+    return 0;
+  }
+  const maxScrollTop = Math.max(0, Number(element.scrollHeight || 0) - Number(element.clientHeight || 0));
+  return Math.min(Math.max(0, Number(value)), maxScrollTop);
+}
+
+export function captureCoworkAgentThreadScroll(container) {
+  if (!container || typeof container.querySelector !== "function") {
+    return null;
+  }
+  const thread = container.querySelector(".cowork-agent-message-list");
+  return {
+    containerScrollTop: Number(container.scrollTop || 0),
+    threadScrollTop: Number(thread?.scrollTop || 0),
+    threadBottomOffset: thread
+      ? Math.max(0, Number(thread.scrollHeight || 0) - Number(thread.scrollTop || 0) - Number(thread.clientHeight || 0))
+      : 0,
+    threadWasNearBottom: thread
+      ? Number(thread.scrollHeight || 0) - Number(thread.scrollTop || 0) - Number(thread.clientHeight || 0) < 24
+      : false,
+    hadThread: Boolean(thread),
+  };
+}
+
+export function restoreCoworkAgentThreadScroll(container, scrollState) {
+  if (!container || !scrollState) {
+    return;
+  }
+  container.scrollTop = boundedScrollTop(container, scrollState.containerScrollTop);
+  if (!scrollState.hadThread || typeof container.querySelector !== "function") {
+    return;
+  }
+  const thread = container.querySelector(".cowork-agent-message-list");
+  if (!thread) {
+    return;
+  }
+  if (scrollState.threadWasNearBottom) {
+    thread.scrollTop = boundedScrollTop(
+      thread,
+      Number(thread.scrollHeight || 0) - Number(thread.clientHeight || 0) - Number(scrollState.threadBottomOffset || 0),
+    );
+    return;
+  }
+  thread.scrollTop = boundedScrollTop(thread, scrollState.threadScrollTop);
 }
 
 export function normalizeCoworkStateEvent(payload = {}) {
@@ -76,6 +130,45 @@ export function normalizeCoworkStreamEvent(payload = {}) {
     timestamp: String(payload.timestamp || new Date().toISOString()),
     text: String(payload.text || ""),
     completed: Boolean(payload.completed || phase === "complete"),
+  };
+}
+
+export function normalizeCoworkMailboxStreamEvent(payload = {}) {
+  if (!payload || payload.event !== "cowork_mailbox_stream") {
+    return null;
+  }
+  const chatId = String(payload.chat_id || "").trim();
+  const sessionId = String(payload.session_id || "").trim();
+  const senderAgentId = String(payload.sender_agent_id || "").trim();
+  const draftId = String(payload.draft_id || "").trim();
+  const toolCallId = String(payload.tool_call_id || "").trim();
+  if (!chatId || !sessionId || !senderAgentId || !draftId || !toolCallId) {
+    return null;
+  }
+  const phase = String(payload.phase || "delta").trim() || "delta";
+  const status = String(payload.status || "").trim();
+  const sequence = Number.isFinite(Number(payload.sequence)) ? Number(payload.sequence) : 0;
+  const recipientIds = Array.isArray(payload.recipient_ids)
+    ? payload.recipient_ids.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+  return {
+    chat_id: chatId,
+    session_id: sessionId,
+    sender_agent_id: senderAgentId,
+    draft_id: draftId,
+    tool_call_id: toolCallId,
+    phase,
+    status,
+    sequence,
+    timestamp: String(payload.timestamp || new Date().toISOString()),
+    text: String(payload.text || ""),
+    completed: Boolean(payload.completed || (phase === "terminal" && status === "completed")),
+    recipient_ids: recipientIds,
+    requires_reply: payload.requires_reply === undefined ? null : Boolean(payload.requires_reply),
+    topic: String(payload.topic || ""),
+    event_type: String(payload.event_type || ""),
+    request_type: String(payload.request_type || ""),
+    thread_id: String(payload.thread_id || ""),
   };
 }
 
@@ -141,6 +234,61 @@ export function rememberCoworkStreamEvent(chatCowork, event) {
   return next;
 }
 
+export function rememberCoworkMailboxStreamEvent(chatCowork, event) {
+  if (!chatCowork || !event?.chat_id || !event?.session_id || !event?.sender_agent_id || !event?.draft_id || !event?.tool_call_id) {
+    return null;
+  }
+  if (!chatCowork.mailboxDrafts) {
+    chatCowork.mailboxDrafts = new Map();
+  }
+  const key = coworkMailboxDraftKey(
+    event.chat_id,
+    event.session_id,
+    event.sender_agent_id,
+    event.tool_call_id,
+    event.draft_id,
+  );
+  const existing = chatCowork.mailboxDrafts.get(key) || {
+    chat_id: event.chat_id,
+    session_id: event.session_id,
+    sender_agent_id: event.sender_agent_id,
+    draft_id: event.draft_id,
+    tool_call_id: event.tool_call_id,
+    text: "",
+    status: "",
+    phase: "",
+    sequence: -1,
+    timestamp: "",
+    completed: false,
+    recipient_ids: [],
+    requires_reply: null,
+    topic: "",
+    event_type: "",
+    request_type: "",
+    thread_id: "",
+  };
+  if (event.sequence <= Number(existing.sequence || 0)) {
+    return existing;
+  }
+  const next = {
+    ...existing,
+    phase: event.phase,
+    status: event.status || existing.status,
+    sequence: event.sequence,
+    timestamp: event.timestamp || existing.timestamp,
+    text: event.phase === "delta" ? `${existing.text || ""}${event.text || ""}` : existing.text || "",
+    completed: Boolean(existing.completed || event.completed),
+    recipient_ids: event.recipient_ids.length ? event.recipient_ids : existing.recipient_ids,
+    requires_reply: event.requires_reply === null ? existing.requires_reply : event.requires_reply,
+    topic: event.topic || existing.topic,
+    event_type: event.event_type || existing.event_type,
+    request_type: event.request_type || existing.request_type,
+    thread_id: event.thread_id || existing.thread_id,
+  };
+  chatCowork.mailboxDrafts.set(key, next);
+  return next;
+}
+
 export function getCoworkLiveStreamsForAgent(chatCowork, chatId, sessionId, agentId) {
   if (!chatCowork?.liveStreams || !chatId || !sessionId || !agentId) {
     return [];
@@ -153,6 +301,29 @@ export function getCoworkLiveStreamsForAgent(chatCowork, chatId, sessionId, agen
       && String(stream.text || "").trim()
     ))
     .sort((left, right) => Number(left.sequence || 0) - Number(right.sequence || 0));
+}
+
+export function getCoworkMailboxDraftsForAgent(chatCowork, chatId, sessionId, agentId) {
+  if (!chatCowork?.mailboxDrafts || !chatId || !sessionId || !agentId) {
+    return [];
+  }
+  return [...chatCowork.mailboxDrafts.values()]
+    .filter((draft) => {
+      if (
+        draft.chat_id !== chatId
+        || draft.session_id !== sessionId
+        || !String(draft.text || "").trim()
+      ) {
+        return false;
+      }
+      const recipients = Array.isArray(draft.recipient_ids) ? draft.recipient_ids : [];
+      return draft.sender_agent_id === agentId || recipients.includes(agentId);
+    })
+    .sort((left, right) => (
+      threadTimestampValue(left.timestamp) - threadTimestampValue(right.timestamp)
+      || Number(left.sequence || 0) - Number(right.sequence || 0)
+      || String(left.draft_id || "").localeCompare(String(right.draft_id || ""))
+    ));
 }
 
 export function reconcileCoworkLiveStreams(chatCowork, chatId, session) {
@@ -176,6 +347,55 @@ export function reconcileCoworkLiveStreams(chatCowork, chatId, session) {
       chatCowork.liveStreams.delete(key);
     }
   }
+}
+
+export function reconcileCoworkMailboxDrafts(chatCowork, chatId, activityOrSession) {
+  if (!chatCowork?.mailboxDrafts || !chatId || !activityOrSession) {
+    return;
+  }
+  const sessionId = String(activityOrSession.session_id || activityOrSession.id || "").trim();
+  if (!sessionId) {
+    return;
+  }
+  const records = Array.isArray(activityOrSession.mailbox_records)
+    ? activityOrSession.mailbox_records
+    : Array.isArray(activityOrSession.mailbox)
+      ? activityOrSession.mailbox
+      : [];
+  for (const [key, draft] of chatCowork.mailboxDrafts.entries()) {
+    if (draft.chat_id !== chatId || draft.session_id !== sessionId) {
+      continue;
+    }
+    const matched = records.some((record) => mailboxRecordMatchesDraft(record, draft));
+    if (matched || ["failed", "interrupted", "discarded"].includes(String(draft.status || "").toLowerCase())) {
+      chatCowork.mailboxDrafts.delete(key);
+    }
+  }
+}
+
+function mailboxRecordMatchesDraft(record, draft) {
+  if (!record || !draft) {
+    return false;
+  }
+  const recordDraftId = String(record.draft_id || "").trim();
+  if (recordDraftId && recordDraftId === draft.draft_id) {
+    return true;
+  }
+  const recordToolCallId = String(record.tool_call_id || "").trim();
+  if (recordToolCallId && recordToolCallId === draft.tool_call_id) {
+    return true;
+  }
+  const sender = String(record.sender_id || "").trim();
+  const recordRecipients = Array.isArray(record.recipient_ids)
+    ? record.recipient_ids.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+  const draftRecipients = Array.isArray(draft.recipient_ids) ? draft.recipient_ids : [];
+  return (
+    sender === draft.sender_agent_id
+    && recordRecipients.length === draftRecipients.length
+    && recordRecipients.every((recipient) => draftRecipients.includes(recipient))
+    && String(record.content || "").trim() === String(draft.text || "").trim()
+  );
 }
 
 export function getChatCoworkSessions(chatCowork, chatId) {
@@ -450,6 +670,16 @@ function normalizeLiveStreamEntries(liveStreams) {
   return Array.isArray(liveStreams) ? liveStreams : [];
 }
 
+function normalizeMailboxDraftEntries(mailboxDrafts) {
+  if (!mailboxDrafts) {
+    return [];
+  }
+  if (mailboxDrafts instanceof Map) {
+    return [...mailboxDrafts.values()];
+  }
+  return Array.isArray(mailboxDrafts) ? mailboxDrafts : [];
+}
+
 export function deriveCoworkAgentThread(activity = {}, options = {}) {
   const agentId = String(options.agentId || activity?.agent_id || activity?.agent?.id || "").trim();
   const sessionId = String(options.sessionId || activity?.session_id || "").trim();
@@ -490,6 +720,61 @@ export function deriveCoworkAgentThread(activity = {}, options = {}) {
       completed: true,
       sortTime: threadTimestampValue(timestamp),
       sortSequence: 0,
+      sortId: id,
+    });
+  }
+
+  const durableRecords = Array.isArray(activity?.mailbox_records) ? activity.mailbox_records : [];
+  for (const draft of normalizeMailboxDraftEntries(options.mailboxDrafts)) {
+    if (!draft || String(draft.text || "").trim() === "") {
+      continue;
+    }
+    if (chatId && draft.chat_id !== chatId) {
+      continue;
+    }
+    if (sessionId && draft.session_id !== sessionId) {
+      continue;
+    }
+    if (durableRecords.some((record) => mailboxRecordMatchesDraft(record, draft))) {
+      continue;
+    }
+    const recipients = Array.isArray(draft.recipient_ids) ? draft.recipient_ids : [];
+    let direction = "";
+    let align = "";
+    if (agentId && draft.sender_agent_id === agentId) {
+      direction = "outgoing";
+      align = "left";
+    } else if (agentId && recipients.includes(agentId)) {
+      direction = "incoming";
+      align = "right";
+    } else {
+      continue;
+    }
+    const timestamp = String(draft.timestamp || "");
+    const completed = Boolean(draft.completed);
+    const status = String(draft.status || (completed ? "completed" : "streaming"));
+    const id = `draft:${String(draft.draft_id || draft.tool_call_id || "")}`;
+    items.push({
+      id,
+      source: "mailbox_draft",
+      direction,
+      align,
+      senderLabel: draft.sender_agent_id || "unknown",
+      recipientLabel: recipients.join(", ") || "pending",
+      route: `${draft.sender_agent_id || "unknown"} -> ${recipients.join(", ") || "pending"}`,
+      body: String(draft.text || ""),
+      kind: "mailbox draft",
+      status,
+      requiresReply: Boolean(draft.requires_reply),
+      timestamp,
+      streaming: !completed && !["failed", "interrupted", "discarded"].includes(status),
+      completed,
+      phase: String(draft.phase || ""),
+      draftId: String(draft.draft_id || ""),
+      toolCallId: String(draft.tool_call_id || ""),
+      plainText: true,
+      sortTime: threadTimestampValue(timestamp),
+      sortSequence: Number(draft.sequence || 0),
       sortId: id,
     });
   }

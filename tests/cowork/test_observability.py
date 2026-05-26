@@ -323,6 +323,30 @@ def test_agent_activity_projection_is_bounded_and_preserves_observation_metadata
     assert activity["browser_observations"][0]["detail_ref"]
 
 
+def test_agent_activity_projection_exposes_mailbox_stream_correlation(temp_workspace):
+    service = CoworkService(temp_workspace)
+    session = service.create_session("Mailbox correlation", "Mailbox", [], [])
+    sender, recipient = list(session.agents)[:2]
+    service.add_mailbox_record(
+        session,
+        CoworkMailboxRecord(
+            id="env_1",
+            sender_id=sender,
+            recipient_ids=[recipient],
+            content="Please review",
+            status="delivered",
+            message_id="msg_1",
+            tool_call_id="call_1",
+            draft_id=f"{session.id}:{sender}:call_1",
+        ),
+    )
+
+    activity = build_cowork_agent_activity(session, recipient)
+
+    assert activity["mailbox_records"][0]["tool_call_id"] == "call_1"
+    assert activity["mailbox_records"][0]["draft_id"] == f"{session.id}:{sender}:call_1"
+
+
 def test_agent_activity_projection_returns_controlled_unavailable_for_unknown_agent(temp_workspace):
     service = CoworkService(temp_workspace)
     session = service.create_session("Unknown", "Unknown", [], [])

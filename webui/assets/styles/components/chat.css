@@ -1179,6 +1179,22 @@ button.run-chain-item:hover,
   border-color: color-mix(in srgb, var(--accent) 34%, var(--border-subtle));
 }
 
+.cowork-agent-message-draft {
+  max-height: min(32vh, 320px);
+  overflow: hidden;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--warning) 46%, transparent);
+}
+
+.cowork-agent-message-draft.is-streaming {
+  border-style: dashed;
+}
+
+.cowork-agent-message-draft .cowork-agent-message-body {
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
 .cowork-agent-message-live.is-completed {
   border-color: color-mix(in srgb, var(--success) 28%, var(--border-subtle));
 }

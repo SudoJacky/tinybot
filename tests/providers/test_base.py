@@ -3,6 +3,7 @@
 from tinybot.providers.base import (
     GenerationSettings,
     LLMResponse,
+    ToolCallArgumentDelta,
     ToolCallRequest,
 )
 
@@ -92,3 +93,32 @@ class TestGenerationSettings:
     def test_reasoning_effort(self):
         settings = GenerationSettings(reasoning_effort="high")
         assert settings.reasoning_effort == "high"
+
+
+class TestToolCallArgumentDelta:
+    """Tests for streamed tool-call argument delta payloads."""
+
+    def test_payload_contains_stream_identity_and_state(self):
+        delta = ToolCallArgumentDelta(
+            run_id="run-1",
+            provider_call_id="chatcmpl-1",
+            tool_call_id="call_123",
+            tool_call_index=0,
+            tool_name="send_message",
+            sequence=7,
+            delta_text="hello",
+            phase="arguments",
+            status="streaming",
+            completed=False,
+        )
+
+        assert delta.run_id == "run-1"
+        assert delta.provider_call_id == "chatcmpl-1"
+        assert delta.tool_call_id == "call_123"
+        assert delta.tool_call_index == 0
+        assert delta.tool_name == "send_message"
+        assert delta.sequence == 7
+        assert delta.delta_text == "hello"
+        assert delta.phase == "arguments"
+        assert delta.status == "streaming"
+        assert delta.completed is False
