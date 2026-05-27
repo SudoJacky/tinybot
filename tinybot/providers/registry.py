@@ -1,13 +1,7 @@
 """
-Provider Registry - single source of truth for LLM provider metadata.
-
-Adding a new provider:
-  1. Add a ProviderSpec to PROVIDERS below.
-  2. Add a field to ProvidersConfig in config/schema.py.
-  Done. Env vars, config matching, status display all derive from here.
+Provider Registry - compatibility view over the provider catalog.
 
 Order matters - it controls match priority and fallback.
-Every entry writes out all fields so you can copy-paste as a template.
 """
 
 from __future__ import annotations
@@ -16,6 +10,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic.alias_generators import to_snake
+
+from tinybot.providers.catalog import (
+    ProviderCatalogEntry,
+    TokenParameter,
+    list_catalog_entries,
+)
 
 
 @dataclass(frozen=True)
@@ -63,40 +63,43 @@ class ProviderSpec:
     # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
     supports_prompt_caching: bool = False
 
+    # Rich catalog metadata backing this compatibility spec.
+    catalog: ProviderCatalogEntry | None = None
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()
 
 
 # ---------------------------------------------------------------------------
-# PROVIDERS - the registry. Order = priority.
+# PROVIDERS - compatibility registry. Order = catalog priority.
 # ---------------------------------------------------------------------------
 
-PROVIDERS: tuple[ProviderSpec, ...] = (
-    ProviderSpec(
-        name="openai",
-        keywords=("openai", "gpt"),
-        env_key="OPENAI_API_KEY",
-        display_name="OpenAI",
-        backend="openai",
-        supports_max_completion_tokens=True,
-    ),
-    ProviderSpec(
-        name="deepseek",
-        keywords=("deepseek",),
-        env_key="DEEPSEEK_API_KEY",
-        display_name="DeepSeek",
-        backend="openai",
-        default_api_base="https://api.deepseek.com",
-    ),
-    ProviderSpec(
-        name="dashscope",
-        keywords=("qwen", "dashscope"),
-        env_key="DASHSCOPE_API_KEY",
-        display_name="DashScope",
-        backend="openai",
-        default_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    ),
+
+def _provider_spec_from_catalog(entry: ProviderCatalogEntry) -> ProviderSpec:
+    return ProviderSpec(
+        name=entry.id,
+        keywords=tuple(term.lower() for term in entry.match_terms),
+        env_key=entry.primary_api_key_env_var,
+        display_name=entry.display_name,
+        backend=entry.backend,
+        is_gateway=entry.is_gateway,
+        is_local=entry.is_local,
+        detect_by_key_prefix=entry.detect_by_key_prefix,
+        detect_by_base_keyword=entry.detect_by_base_keyword,
+        default_api_base=entry.default_api_base,
+        strip_model_prefix=entry.request_traits.strip_model_prefix,
+        supports_max_completion_tokens=(
+            entry.request_traits.token_parameter == TokenParameter.MAX_COMPLETION_TOKENS
+        ),
+        is_direct=entry.is_custom,
+        supports_prompt_caching=entry.request_traits.supports_prompt_caching,
+        catalog=entry,
+    )
+
+
+PROVIDERS: tuple[ProviderSpec, ...] = tuple(
+    _provider_spec_from_catalog(entry) for entry in list_catalog_entries()
 )
 # ---------------------------------------------------------------------------
 # Lookup helpers
@@ -130,16 +133,19 @@ def create_provider(config: Any, *, on_missing_key: object | None = None) -> Any
     """
     from tinybot.providers.base import GenerationSettings
     from tinybot.providers.openai_provider import OpenAIProvider
+    from tinybot.providers.runtime import resolve_runtime_provider
 
     model = config.agents.defaults.model
-    provider_name = config.get_provider_name(model)
-    p = config.get_provider(model)
+    resolved = resolve_runtime_provider(config, model=model)
+    provider_name = resolved.provider_id
+    p = resolved.provider_config
+    api_key = resolved.api_key
     spec = find_by_name(provider_name) if provider_name else None
     backend = spec.backend if spec else "openai"
 
     # --- validation ---
     if backend == "openai" and not model.startswith("bedrock/"):
-        needs_key = not (p and p.api_key)
+        needs_key = not api_key
         exempt = spec and (spec.is_oauth or spec.is_local or spec.is_direct)
         if needs_key and not exempt:
             if on_missing_key is not None:
@@ -151,11 +157,12 @@ def create_provider(config: Any, *, on_missing_key: object | None = None) -> Any
 
     # --- instantiation ---
     provider = OpenAIProvider(
-        api_key=p.api_key if p else None,
+        api_key=api_key,
         api_base=config.get_api_base(model),
         default_model=model,
         enable_search=p.enable_search if p else False,
         spec=spec,
+        resolved_provider=resolved,
     )
 
     defaults = config.agents.defaults

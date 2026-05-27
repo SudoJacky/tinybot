@@ -94,3 +94,21 @@ When Recent Context is used, `ContextBuilder` injects a separate `[RECENT CONTEX
 ## Test Strategy
 
 Use `tests/agent/` for loop, context, tool executor, stream, knowledge, memory, and experience behavior. For new tools, prefer focused unit tests around schema shape, parameter handling, and service interaction.
+## Provider catalog boundary
+
+Provider selection is split into four layers:
+
+- `tinybot.providers.catalog` owns immutable provider metadata: ids, aliases,
+  categories, API bases, env vars, curated models, discovery support, API mode,
+  and OpenAI-compatible request traits.
+- `tinybot.providers.runtime` resolves one runtime provider from config,
+  active profile, selected model, catalog metadata, env vars, and custom
+  provider settings.
+- `tinybot.providers.models` merges curated, profile, live, and manual model
+  sources and performs provider-aware model validation.
+- `tinybot.providers.openai_provider.OpenAIProvider` is still the only
+  implemented transport for this path and rejects unsupported catalog API modes.
+
+Keep provider-specific request behavior in catalog/request traits or profile
+settings. The agent loop should not grow provider-name branches for token
+parameters, temperature omission, model prefix handling, or extra body defaults.

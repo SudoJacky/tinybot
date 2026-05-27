@@ -16,9 +16,11 @@ import json_repair
 from openai import AsyncOpenAI
 
 from tinybot.providers.base import LLMProvider, LLMResponse, ToolCallArgumentDelta, ToolCallRequest
+from tinybot.providers.catalog import ApiMode, RequestTraits, TemperaturePolicy, TokenParameter
 
 if TYPE_CHECKING:
     from tinybot.providers.registry import ProviderSpec
+    from tinybot.providers.runtime import ResolvedRuntimeProvider
 
 _ALLOWED_MSG_KEYS = frozenset({
     "role", "content", "tool_calls", "tool_call_id", "name",
@@ -105,12 +107,44 @@ class OpenAIProvider(LLMProvider):
         extra_headers: dict[str, str] | None = None,
         enable_search: bool = False,
         spec: ProviderSpec | None = None,
+        resolved_provider: ResolvedRuntimeProvider | None = None,
+        request_traits: RequestTraits | None = None,
+        extra_body_defaults: dict[str, Any] | None = None,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
         self.extra_headers = extra_headers or {}
         self.enable_search = enable_search
         self._spec = spec
+        catalog = (
+            getattr(resolved_provider, "catalog", None)
+            or (spec.catalog if spec else None)
+        )
+        if catalog and catalog.api_mode != ApiMode.OPENAI_CHAT_COMPLETIONS:
+            raise ValueError(
+                f"Unsupported provider api_mode '{catalog.api_mode}' for OpenAIProvider"
+            )
+        self._request_traits = (
+            request_traits
+            or getattr(resolved_provider, "request_traits", None)
+            or (catalog.request_traits if catalog else None)
+            or RequestTraits(
+                token_parameter=(
+                    TokenParameter.MAX_COMPLETION_TOKENS
+                    if spec and spec.supports_max_completion_tokens
+                    else TokenParameter.MAX_TOKENS
+                ),
+                strip_model_prefix=bool(spec and spec.strip_model_prefix),
+                supports_prompt_caching=bool(spec and spec.supports_prompt_caching),
+            )
+        )
+        self._extra_body_defaults: dict[str, Any] = {}
+        self._extra_body_defaults.update(dict(self._request_traits.extra_body_defaults))
+        runtime_extra_body = getattr(resolved_provider, "extra_body", None)
+        if isinstance(runtime_extra_body, dict):
+            self._extra_body_defaults.update(runtime_extra_body)
+        if extra_body_defaults:
+            self._extra_body_defaults.update(extra_body_defaults)
 
         if api_key and spec and spec.env_key:
             self._setup_env(api_key, api_base)
@@ -238,11 +272,12 @@ class OpenAIProvider(LLMProvider):
     ) -> dict[str, Any]:
         model_name = model or self.default_model
         spec = self._spec
+        traits = self._request_traits
 
-        if spec and spec.supports_prompt_caching:
+        if traits.supports_prompt_caching or (spec and spec.supports_prompt_caching):
             model_name = model or self.default_model
 
-        if spec and spec.strip_model_prefix:
+        if traits.strip_model_prefix or (spec and spec.strip_model_prefix):
             model_name = model_name.split("/")[-1]
 
         kwargs: dict[str, Any] = {
@@ -252,10 +287,13 @@ class OpenAIProvider(LLMProvider):
 
         # GPT-5 and reasoning models (o1/o3/o4) reject temperature when
         # reasoning_effort is active.  Only include it when safe.
-        if self._supports_temperature(model_name, reasoning_effort):
+        if (
+            traits.temperature_policy != TemperaturePolicy.OMIT
+            and self._supports_temperature(model_name, reasoning_effort)
+        ):
             kwargs["temperature"] = temperature
 
-        if spec and getattr(spec, "supports_max_completion_tokens", False):
+        if traits.token_parameter == TokenParameter.MAX_COMPLETION_TOKENS:
             kwargs["max_completion_tokens"] = max(1, max_tokens)
         else:
             kwargs["max_tokens"] = max(1, max_tokens)
@@ -273,6 +311,12 @@ class OpenAIProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
+
+        if self._extra_body_defaults:
+            kwargs["extra_body"] = {
+                **dict(self._extra_body_defaults),
+                **(kwargs.get("extra_body") or {}),
+            }
 
         if self.enable_search:
             kwargs["extra_body"] = {

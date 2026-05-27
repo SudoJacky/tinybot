@@ -584,18 +584,17 @@ def _try_auto_fill_context_window(model: BaseModel, new_model_name: str) -> None
 
 @lru_cache(maxsize=1)
 def _get_provider_info() -> dict[str, tuple[str, bool, bool, str]]:
-    """Get provider info from registry (cached)."""
-    from tinybot.providers.registry import PROVIDERS
+    """Get provider info from catalog (cached)."""
+    from tinybot.providers.catalog import list_catalog_entries
 
     return {
-        spec.name: (
-            spec.display_name or spec.name,
-            spec.is_gateway,
-            spec.is_local,
-            spec.default_api_base,
+        entry.id: (
+            entry.display_name or entry.id,
+            entry.is_gateway,
+            entry.is_local,
+            entry.default_api_base,
         )
-        for spec in PROVIDERS
-        if not spec.is_oauth
+        for entry in list_catalog_entries()
     }
 
 
@@ -609,8 +608,16 @@ def _configure_provider(config: Config, provider_name: str) -> None:
     """Configure a single LLM provider."""
     provider_config = getattr(config.providers, provider_name, None)
     if provider_config is None:
-        console.print(f"[red]Unknown provider: {provider_name}[/red]")
-        return
+        provider_config = (getattr(config.providers, "model_extra", None) or {}).get(provider_name)
+    if provider_config is None:
+        from tinybot.config.schema import ProviderConfig
+
+        provider_config = ProviderConfig()
+        extra = getattr(config.providers, "__pydantic_extra__", None)
+        if extra is None:
+            config.providers.__pydantic_extra__ = {}
+            extra = config.providers.__pydantic_extra__
+        extra[provider_name] = provider_config
 
     display_name = _get_provider_names().get(provider_name, provider_name)
     info = _get_provider_info()
@@ -624,7 +631,10 @@ def _configure_provider(config: Config, provider_name: str) -> None:
         display_name,
     )
     if updated_provider is not None:
-        setattr(config.providers, provider_name, updated_provider)
+        if hasattr(config.providers, provider_name):
+            setattr(config.providers, provider_name, updated_provider)
+        else:
+            config.providers.__pydantic_extra__[provider_name] = updated_provider
 
 
 def _configure_providers(config: Config) -> None:

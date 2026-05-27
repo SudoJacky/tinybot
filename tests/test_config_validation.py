@@ -21,9 +21,14 @@ class TestAgentDefaultsValidation:
         assert defaults.timezone == "UTC"
         assert defaults.temperature == 0.1
 
-    def test_removed_provider_normalizes_to_auto(self):
-        """Legacy provider names should not break existing config files."""
+    def test_catalog_provider_is_allowed(self):
+        """Catalog provider names beyond legacy built-ins should be valid."""
         defaults = AgentDefaults(provider="openrouter")
+        assert defaults.provider == "openrouter"
+
+    def test_unknown_provider_normalizes_to_auto(self):
+        """Unknown provider names should not break existing config files."""
+        defaults = AgentDefaults(provider="retired-provider")
         assert defaults.provider == "auto"
 
     def test_invalid_model_empty(self):

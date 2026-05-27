@@ -1,13 +1,13 @@
 import { state } from '../state.js';
 import { elements } from '../utils/dom.js';
 import {
-  LLM_PROVIDERS,
   REASONING_COLLAPSE_CHARS,
   REASONING_COLLAPSE_LINES,
   AUTO_COLLAPSE_MIN_MESSAGES,
   TOOL_CONTENT_COLLAPSE_CHARS,
   TOOL_CONTENT_COLLAPSE_LINES,
 } from '../constants.js';
+import { buildProviderCardViewModel, filterProviderCards } from '../provider-cards.js';
 import { t, getLanguage, setLanguage } from '../i18n/index.js';
 import {
   AGENT_UI_EVENT_TYPES,
@@ -10220,14 +10220,13 @@ function applyUiMode(mode) {
 }
 
 function markAdvancedSettings() {
-  const advancedGroups = ["embedding", "provider", "tools", "gateway", "channels"];
+  const advancedGroups = ["embedding", "tools", "gateway", "channels"];
   for (const group of advancedGroups) {
     document.querySelector(`[data-group="${group}"]`)?.closest(".config-group")?.classList.add("advanced-only");
     document.querySelector(`[data-config-jump="${group}"]`)?.classList.add("advanced-only");
   }
   const advancedFieldIds = [
     "config-active-profile",
-    "config-provider",
     "config-temperature",
     "config-max-tokens",
     "config-context-window",
@@ -10280,7 +10279,9 @@ async function loadConfig() {
   }
   const payload = await response.json();
   state.config = payload;
+  await loadProviderCatalog({ render: false }).catch((error) => console.warn("Provider catalog load failed", error));
   populateConfigForm(payload);
+  renderProviderCards();
 }
 
 function populateConfigForm(config) {
@@ -10354,9 +10355,11 @@ function populateConfigForm(config) {
   // Providers - 根据当前provider选择加载对应的配置
   const providers = config.providers || {};
   const rawProviderName = defaults.provider || "auto";
-  const currentProviderName = rawProviderName === "auto" || LLM_PROVIDERS.includes(rawProviderName)
+  const providerIds = getCatalogProviderIds();
+  const currentProviderName = rawProviderName === "auto" || providerIds.includes(rawProviderName)
     ? rawProviderName
     : "auto";
+  syncProviderSelectOptions();
   elements.configProvider.value = currentProviderName;
 
   // Auto mode keeps model-based routing; show DeepSeek credentials by default.
@@ -10420,19 +10423,33 @@ function getProviderProfiles(providers = {}) {
 function getProfileConfig(providers, profileId, fallbackProvider) {
   const profiles = getProviderProfiles(providers);
   if (profileId && profiles[profileId]) {
-    return profiles[profileId];
+    const profile = profiles[profileId];
+    const profileProvider = profile.provider || fallbackProvider;
+    if (!fallbackProvider || profileProvider === fallbackProvider) {
+      return profile;
+    }
   }
   const legacyProvider = providers[fallbackProvider] || {};
+  const catalogProvider = providerById(fallbackProvider) || {};
   return {
     provider: fallbackProvider,
     apiKey: legacyProvider.apiKey || legacyProvider.api_key || "",
     api_key: legacyProvider.api_key || legacyProvider.apiKey || "",
-    apiBase: legacyProvider.apiBase || legacyProvider.api_base || "",
-    api_base: legacyProvider.api_base || legacyProvider.apiBase || "",
-    models: [],
-    supportsModelDiscovery: true,
-    supports_model_discovery: true,
+    apiBase: legacyProvider.apiBase || legacyProvider.api_base || catalogProvider.baseUrl || "",
+    api_base: legacyProvider.api_base || legacyProvider.apiBase || catalogProvider.baseUrl || "",
+    models: legacyProvider.models || [],
+    supportsModelDiscovery: legacyProvider.supportsModelDiscovery ?? legacyProvider.supports_model_discovery ?? true,
+    supports_model_discovery: legacyProvider.supports_model_discovery ?? legacyProvider.supportsModelDiscovery ?? true,
   };
+}
+
+function findProfileIdForProvider(providers, providerName) {
+  const profiles = getProviderProfiles(providers);
+  if (profiles[providerName]) {
+    return providerName;
+  }
+  const matched = Object.entries(profiles).find(([, profile]) => profile?.provider === providerName);
+  return matched?.[0] || providerName;
 }
 
 function setDatalistOptions(datalist, values) {
@@ -10481,6 +10498,285 @@ function parseModelList(value) {
     .split(/[\n,]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function getCatalogProviderIds() {
+  return state.providerCatalog.map((provider) => provider.id).filter(Boolean);
+}
+
+function upsertSelectOption(select, value, label = value) {
+  if (!select || !value) {
+    return;
+  }
+  let option = Array.from(select.options).find((item) => item.value === value);
+  if (!option) {
+    option = document.createElement("option");
+    option.value = value;
+    select.appendChild(option);
+  }
+  option.textContent = label;
+}
+
+function syncProviderSelectOptions() {
+  const providers = state.providerCatalog || [];
+  if (elements.configProvider) {
+    const current = elements.configProvider.value || "auto";
+    elements.configProvider.innerHTML = "";
+    upsertSelectOption(elements.configProvider, "auto", t("settings.agent.providerAuto"));
+    providers.forEach((provider) => upsertSelectOption(elements.configProvider, provider.id, provider.displayName || provider.id));
+    elements.configProvider.value = providers.some((provider) => provider.id === current) ? current : "auto";
+  }
+  if (elements.configProviderSelect) {
+    const current = elements.configProviderSelect.value || "deepseek";
+    elements.configProviderSelect.innerHTML = "";
+    providers.forEach((provider) => upsertSelectOption(elements.configProviderSelect, provider.id, provider.displayName || provider.id));
+    if (!providers.length) {
+      ["openai", "deepseek", "dashscope"].forEach((id) => upsertSelectOption(elements.configProviderSelect, id, id));
+    }
+    elements.configProviderSelect.value = Array.from(elements.configProviderSelect.options).some((option) => option.value === current)
+      ? current
+      : (providers[0]?.id || "deepseek");
+  }
+}
+
+function ensureProviderCatalogUi() {
+  const group = document.querySelector("#config-provider-group");
+  if (!group || document.querySelector("#provider-card-grid")) {
+    return;
+  }
+  const section = document.createElement("section");
+  section.className = "provider-management";
+  section.innerHTML = `
+    <div class="provider-toolbar">
+      <label class="provider-search-label">
+        <span class="sr-only">Search providers</span>
+        <input id="provider-search" class="config-input provider-search" type="search" placeholder="Search providers" aria-label="Search providers" />
+      </label>
+      <select id="provider-filter" class="config-select provider-filter" aria-label="Filter providers">
+        <option value="all">All</option>
+        <option value="ready">Ready</option>
+        <option value="needs_setup">Needs setup</option>
+        <option value="local">Local</option>
+        <option value="built_in">Built-in</option>
+        <option value="custom">Custom</option>
+      </select>
+      <button id="provider-refresh-all" class="config-secondary-button" type="button" aria-label="Refresh providers">Refresh</button>
+      <button id="provider-add" class="config-secondary-button" type="button" aria-label="Add provider">Add Provider</button>
+    </div>
+    <div id="provider-card-grid" class="provider-card-grid" aria-live="polite"></div>
+    <section id="provider-action-panel" class="provider-action-panel" hidden></section>
+  `;
+  group.prepend(section);
+
+  document.querySelector("#provider-search")?.addEventListener("input", (event) => {
+    state.providerSearch = event.target.value || "";
+    renderProviderCards();
+  });
+  document.querySelector("#provider-filter")?.addEventListener("change", (event) => {
+    state.providerFilter = event.target.value || "all";
+    renderProviderCards();
+  });
+  document.querySelector("#provider-refresh-all")?.addEventListener("click", () => {
+    loadProviderCatalog().catch((error) => setModelDiscoveryStatus(error.message || "Provider refresh failed", "warning"));
+  });
+  document.querySelector("#provider-add")?.addEventListener("click", () => {
+    openAddProviderPanel();
+  });
+}
+
+function renderProviderCards() {
+  ensureProviderCatalogUi();
+  syncProviderSelectOptions();
+  const grid = document.querySelector("#provider-card-grid");
+  if (!grid) {
+    return;
+  }
+  const cards = filterProviderCards(state.providerCatalog || [], {
+    query: state.providerSearch,
+    filter: state.providerFilter,
+  });
+  grid.innerHTML = "";
+  if (!cards.length) {
+    const empty = document.createElement("div");
+    empty.className = "provider-card-empty";
+    empty.textContent = "No providers";
+    grid.appendChild(empty);
+    return;
+  }
+  cards.forEach((card) => {
+    const article = document.createElement("article");
+    article.className = `provider-card provider-status-${card.status}`;
+    article.tabIndex = 0;
+    article.innerHTML = `
+      <header class="provider-card-header">
+        <div>
+          <h4>${card.title}</h4>
+          <div class="provider-card-badges">${card.badges.map((badge) => `<span>${badge}</span>`).join("")}</div>
+        </div>
+        <span class="provider-card-status">${card.statusLabel}</span>
+      </header>
+      <dl class="provider-card-meta">
+        <div><dt>Base</dt><dd>${card.baseUrlText}</dd></div>
+        <div><dt>Key</dt><dd>${card.credentialText}</dd></div>
+        <div><dt>Models</dt><dd>${card.modelCount}${card.defaultModel ? ` / ${card.defaultModel}` : ""}</dd></div>
+      </dl>
+      <footer class="provider-card-actions">
+        <button type="button" class="config-secondary-button" data-provider-action="models" data-provider-id="${card.id}" aria-label="Models for ${card.title}">Models</button>
+        <button type="button" class="config-secondary-button" data-provider-action="settings" data-provider-id="${card.id}" aria-label="Settings for ${card.title}">Settings</button>
+        <button type="button" class="config-secondary-button" data-provider-action="default" data-provider-id="${card.id}" aria-label="Use ${card.title} as default"${card.actions.useAsDefault ? "" : " disabled"}>${card.isDefault ? "Default" : "Use"}</button>
+      </footer>
+    `;
+    grid.appendChild(article);
+  });
+}
+
+function selectProviderForEditing(providerId) {
+  if (!providerId) {
+    return;
+  }
+  upsertSelectOption(elements.configProviderSelect, providerId, providerId);
+  elements.configProviderSelect.value = providerId;
+  if (elements.configProfileId) {
+    elements.configProfileId.value = findProfileIdForProvider(state.config?.providers || {}, providerId);
+  }
+  if (elements.configProvider && providerId !== "auto") {
+    upsertSelectOption(elements.configProvider, providerId, providerId);
+  }
+  loadProviderConfig(state.config?.providers || {}, providerId);
+  updateConfigDirtyState();
+}
+
+function providerById(providerId) {
+  return (state.providerCatalog || []).find((provider) => provider.id === providerId);
+}
+
+async function openProviderModelsPanel(providerId, { refresh = true } = {}) {
+  selectProviderForEditing(providerId);
+  const panel = document.querySelector("#provider-action-panel");
+  if (!panel) {
+    return;
+  }
+  panel.hidden = false;
+  panel.innerHTML = `<h4>Models</h4><p class="config-inline-status">Loading models...</p>`;
+  const response = await fetch("/api/provider-models", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      provider: providerId,
+      api_key: elements.configApiKey?.value?.trim() || "",
+      api_base: elements.configApiBase?.value?.trim() || "",
+      refresh,
+    }),
+  });
+  const result = await response.json();
+  const models = Array.isArray(result.models) ? result.models : [];
+  if (models.length) {
+    elements.configProviderModels.value = models.join("\n");
+    setModelSelectOptions(models);
+  }
+  panel.innerHTML = `
+    <div class="provider-panel-header">
+      <h4>Models</h4>
+      <button class="button button-icon" type="button" data-provider-panel-close aria-label="Close provider panel">×</button>
+    </div>
+    <div class="provider-model-list">
+      ${models.map((model) => `
+        <button type="button" class="provider-model-row" data-provider-model="${model}" aria-label="Use ${model} as default">
+          <span>${model}</span>
+          <small>${(result.model_sources?.[model] || []).join(", ")}</small>
+        </button>
+      `).join("") || "<p>No models</p>"}
+    </div>
+    <div class="provider-manual-row">
+      <input id="provider-manual-model" class="config-input" type="text" placeholder="Manual model id" aria-label="Manual model id" />
+      <button id="provider-add-manual-model" class="config-secondary-button" type="button">Add</button>
+    </div>
+    ${result.warning ? `<p class="config-inline-status warning">${result.warning}</p>` : ""}
+  `;
+  panel.querySelector("[data-provider-panel-close]")?.addEventListener("click", () => {
+    panel.hidden = true;
+  });
+  panel.querySelectorAll("[data-provider-model]").forEach((button) => {
+    button.addEventListener("click", () => {
+      elements.configModel.value = button.dataset.providerModel || "";
+      elements.configProvider.value = providerId;
+      updateConfigDirtyState();
+    });
+  });
+  panel.querySelector("#provider-add-manual-model")?.addEventListener("click", () => {
+    const input = panel.querySelector("#provider-manual-model");
+    const model = input?.value?.trim();
+    if (!model) {
+      return;
+    }
+    const models = new Set(parseModelList(elements.configProviderModels?.value));
+    models.add(model);
+    elements.configProviderModels.value = Array.from(models).join("\n");
+    setModelSelectOptions(Array.from(models));
+    input.value = "";
+    updateConfigDirtyState();
+  });
+}
+
+function openProviderSettingsPanel(providerId) {
+  selectProviderForEditing(providerId);
+  const panel = document.querySelector("#provider-action-panel");
+  const provider = providerById(providerId);
+  if (!panel) {
+    return;
+  }
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div class="provider-panel-header">
+      <h4>Settings</h4>
+      <button class="button button-icon" type="button" data-provider-panel-close aria-label="Close provider panel">×</button>
+    </div>
+    <p class="config-inline-status">${provider?.displayName || providerId} selected. Edit API key, base URL, discovery, and model fields below.</p>
+  `;
+  panel.querySelector("[data-provider-panel-close]")?.addEventListener("click", () => {
+    panel.hidden = true;
+  });
+  elements.configApiKey?.focus();
+}
+
+async function useProviderAsDefault(providerId) {
+  selectProviderForEditing(providerId);
+  elements.configProvider.value = providerId;
+  const models = parseModelList(elements.configProviderModels?.value);
+  if (!elements.configModel.value && models[0]) {
+    elements.configModel.value = models[0];
+  }
+  updateConfigDirtyState();
+}
+
+function openAddProviderPanel() {
+  const providerId = window.prompt("Provider id", "custom");
+  if (!providerId) {
+    return;
+  }
+  upsertSelectOption(elements.configProviderSelect, providerId, providerId);
+  upsertSelectOption(elements.configProvider, providerId, providerId);
+  elements.configProviderSelect.value = providerId;
+  elements.configProvider.value = providerId;
+  elements.configProfileId.value = providerId;
+  elements.configApiBase.focus();
+  updateConfigDirtyState();
+}
+
+async function loadProviderCatalog({ render = true } = {}) {
+  const response = await fetch("/api/providers", {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`load providers failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  state.providerCatalog = Array.isArray(payload.providers) ? payload.providers : [];
+  syncProviderSelectOptions();
+  if (render) {
+    renderProviderCards();
+  }
+  return state.providerCatalog;
 }
 
 function refreshProfileHints(config) {
@@ -10542,6 +10838,7 @@ async function discoverProviderModels({ silent = false } = {}) {
         profile,
         api_key: apiKey,
         api_base: apiBase,
+        refresh: true,
       }),
     });
     const result = await response.json();
@@ -10554,8 +10851,8 @@ async function discoverProviderModels({ silent = false } = {}) {
       elements.configModel.value = result.models[0];
     }
     setModelDiscoveryStatus(
-      `${t("settings.provider.modelsLoaded")} ${result.models.length}`,
-      "success",
+      result.warning || `${t("settings.provider.modelsLoaded")} ${result.models.length}`,
+      result.warning ? "warning" : "success",
     );
     updateConfigDirtyState();
     return true;
@@ -11036,9 +11333,10 @@ async function saveConfig() {
 
   // Add selected provider config and named profile. Keep the legacy provider
   // section populated so older configs continue to work.
-  const providerName = LLM_PROVIDERS.includes(elements.configProviderSelect.value)
+  const providerIds = getCatalogProviderIds();
+  const providerName = providerIds.includes(elements.configProviderSelect.value)
     ? elements.configProviderSelect.value
-    : "deepseek";
+    : (elements.configProviderSelect.value || "deepseek");
   const apiKeyValue = getValue(elements.configApiKey);
   const existingProfiles = { ...getProviderProfiles(state.config?.providers || {}) };
   const profileId = getValue(elements.configProfileId) || getValue(elements.configActiveProfile);
@@ -11933,6 +12231,21 @@ function bindEvents() {
   elements.settingsButton.addEventListener("click", openModal);
   elements.modalOverlay.addEventListener("click", closeModal);
   elements.modalClose.addEventListener("click", closeModal);
+  document.addEventListener("click", (event) => {
+    const actionButton = event.target.closest?.("[data-provider-action]");
+    if (!actionButton) {
+      return;
+    }
+    const providerId = actionButton.dataset.providerId;
+    const action = actionButton.dataset.providerAction;
+    if (action === "models") {
+      openProviderModelsPanel(providerId).catch((error) => setModelDiscoveryStatus(error.message || "Model refresh failed", "warning"));
+    } else if (action === "settings") {
+      openProviderSettingsPanel(providerId);
+    } else if (action === "default") {
+      useProviderAsDefault(providerId).catch((error) => setModelDiscoveryStatus(error.message || "Default update failed", "warning"));
+    }
+  });
 
   // Skill detail modal events
   elements.skillModalOverlay.addEventListener("click", closeSkillModal);
@@ -12145,10 +12458,12 @@ function bindEvents() {
 
   // Provider select change - 更新Provider配置区域
   elements.configProviderSelect.addEventListener("change", () => {
-    if (!elements.configProfileId?.value.trim()) {
-      const providers = state.config?.providers || {};
-      loadProviderConfig(providers, elements.configProviderSelect.value);
+    const providers = state.config?.providers || {};
+    const providerName = elements.configProviderSelect.value;
+    if (elements.configProfileId) {
+      elements.configProfileId.value = findProfileIdForProvider(providers, providerName);
     }
+    loadProviderConfig(providers, providerName);
     updateConfigDirtyState();
   });
 
@@ -12159,6 +12474,9 @@ function bindEvents() {
     const displayProvider = selectedProvider === "auto" ? "deepseek" : selectedProvider;
     elements.configProviderSelect.value = displayProvider;
     const providers = state.config?.providers || {};
+    if (elements.configProfileId) {
+      elements.configProfileId.value = findProfileIdForProvider(providers, displayProvider);
+    }
     loadProviderConfig(providers, displayProvider);
     updateConfigDirtyState();
   });

@@ -9,8 +9,8 @@
 @import './components/panels.css';
 @import './components/knowledge.css';
 @import './components/modal.css';
-@import './components/config.css';
+@import './components/config.css?v=provider-catalog-2';
 @import './components/help.css';
 @import './responsive.css';
-@import './utilities.css';
+@import './utilities.css?v=provider-catalog-2';
 @import './anthropic-theme.css';

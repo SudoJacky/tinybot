@@ -145,3 +145,14 @@ uv run tinybot gateway
 - [知识库](knowledge.md)：把自己的文档交给 Tinybot 使用
 - [技能系统](skills.md)：让 Tinybot 按固定工作流办事
 - [配置说明](config.md)：理解每个常用配置项
+## Providers page
+
+The settings modal includes a provider card grid loaded from `/api/providers`.
+Use search and filters to find providers by name, alias, status, or category.
+The Models action refreshes provider models through `/api/provider-models`,
+shows source labels, lets a model become the default, and supports manual model
+entry. The Settings action selects the provider and exposes API key, base URL,
+profile, discovery, and advanced request fields without overloading the card.
+
+Provider cards do not write masked secret placeholders back as new secrets.
+When a masked value is unchanged, the backend preserves the existing key.

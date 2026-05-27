@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
@@ -112,9 +112,7 @@ class AgentDefaults(Base):
     workspace: str = "~/.tinybot/workspace"
     model: str = "deepseek-reasoner"
     active_profile: str | None = None
-    provider: Literal["auto", "openai", "deepseek", "dashscope"] = (
-        "auto"  # Provider name "auto" for auto-detection
-    )
+    provider: str = "auto"  # Provider name "auto" for auto-detection
     max_tokens: int = 8192
     context_window_tokens: int = 65_536
     context_block_limit: int | None = None
@@ -140,12 +138,17 @@ class AgentDefaults(Base):
     @field_validator("provider", mode="before")
     @classmethod
     def normalize_provider(cls, v: str | None) -> str:
-        """Map removed legacy providers back to auto routing."""
+        """Normalize provider ids while keeping unknown legacy values safe."""
+        from tinybot.providers.catalog import find_catalog_entry
+
         if v is None:
             return "auto"
         normalized = str(v).strip().lower().replace("-", "_")
-        if normalized in {"auto", "openai", "deepseek", "dashscope"}:
+        if normalized == "auto":
             return normalized
+        catalog = find_catalog_entry(normalized)
+        if catalog:
+            return catalog.id
         return "auto"
 
     @field_validator("timezone")
@@ -230,9 +233,33 @@ class ProviderProfileConfig(ProviderConfig):
     plans, such as DashScope regular compatible mode and DashScope coding.
     """
 
-    provider: Literal["openai", "deepseek", "dashscope"] = "openai"
+    provider: str = "openai"
     models: list[str] = Field(default_factory=list)
+    manual_models: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices(
+            "manualModels",
+            "manualModelIds",
+            "manual_models",
+            "manual_model_ids",
+        ),
+    )
     supports_model_discovery: bool = True
+    extra_body: dict[str, Any] = Field(default_factory=dict)
+    request_settings: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def normalize_profile_provider(cls, v: str | None) -> str:
+        from tinybot.providers.catalog import find_catalog_entry
+
+        if v is None:
+            return "openai"
+        raw = str(v).strip()
+        catalog = find_catalog_entry(raw)
+        if catalog:
+            return catalog.id
+        return to_snake(raw.lower().replace("-", "_")) or "openai"
 
     @field_validator("models", mode="before")
     @classmethod
@@ -245,14 +272,31 @@ class ProviderProfileConfig(ProviderConfig):
             return [str(item).strip() for item in v if str(item).strip()]
         return []
 
+    @field_validator("manual_models", mode="before")
+    @classmethod
+    def normalize_manual_models(cls, v: object) -> list[str]:
+        return cls.normalize_models(v)
+
 
 class ProvidersConfig(Base):
     """Configuration for LLM providers."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
 
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
     dashscope: ProviderConfig = Field(default_factory=ProviderConfig)
     profiles: dict[str, ProviderProfileConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize_extra_provider_configs(self) -> ProvidersConfig:
+        extra = getattr(self, "__pydantic_extra__", None)
+        if not extra:
+            return self
+        for key, value in list(extra.items()):
+            if isinstance(value, dict):
+                extra[key] = ProviderConfig.model_validate(value)
+        return self
 
 
 class HeartbeatConfig(Base):
@@ -411,69 +455,10 @@ class Config(BaseSettings):
         self, model: str | None = None
     ) -> tuple[ProviderConfig | None, str | None]:
         """Match provider config and its registry name. Returns (config, spec_name)."""
-        from tinybot.providers.registry import PROVIDERS, find_by_name
+        from tinybot.providers.runtime import resolve_runtime_provider
 
-        active_profile = (self.agents.defaults.active_profile or "").strip()
-        if active_profile:
-            profile = self.providers.profiles.get(active_profile)
-            if profile:
-                return profile, profile.provider
-
-        forced = self.agents.defaults.provider
-        if forced != "auto":
-            spec = find_by_name(forced)
-            if spec:
-                p = getattr(self.providers, spec.name, None)
-                return (p, spec.name) if p else (None, None)
-            return None, None
-
-        model_lower = (model or self.agents.defaults.model).lower()
-        model_normalized = model_lower.replace("-", "_")
-        model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
-        normalized_prefix = model_prefix.replace("-", "_")
-
-        def _kw_matches(kw: str) -> bool:
-            kw = kw.lower()
-            return kw in model_lower or kw.replace("-", "_") in model_normalized
-
-        # Explicit provider prefix wins.
-        for spec in PROVIDERS:
-            p = getattr(self.providers, spec.name, None)
-            if p and model_prefix and normalized_prefix == spec.name:
-                if spec.is_oauth or spec.is_local or p.api_key:
-                    return p, spec.name
-
-        # Match by keyword (order follows PROVIDERS registry)
-        for spec in PROVIDERS:
-            p = getattr(self.providers, spec.name, None)
-            if p and any(_kw_matches(kw) for kw in spec.keywords):
-                if spec.is_oauth or spec.is_local or p.api_key:
-                    return p, spec.name
-
-        # Fallback: configured local providers can route models without
-        # provider-specific keywords.
-        local_fallback: tuple[ProviderConfig, str] | None = None
-        for spec in PROVIDERS:
-            if not spec.is_local:
-                continue
-            p = getattr(self.providers, spec.name, None)
-            if not (p and p.api_base):
-                continue
-            if spec.detect_by_base_keyword and spec.detect_by_base_keyword in p.api_base:
-                return p, spec.name
-            if local_fallback is None:
-                local_fallback = (p, spec.name)
-        if local_fallback:
-            return local_fallback
-
-        # Fallback follows registry order.
-        for spec in PROVIDERS:
-            if spec.is_oauth:
-                continue
-            p = getattr(self.providers, spec.name, None)
-            if p and p.api_key:
-                return p, spec.name
-        return None, None
+        resolved = resolve_runtime_provider(self, model=model)
+        return resolved.provider_config, resolved.provider_id
 
     def get_provider(self, model: str | None = None) -> ProviderConfig | None:
         """Get matched provider config (api_key, api_base). Falls back to first available."""
@@ -487,22 +472,14 @@ class Config(BaseSettings):
 
     def get_api_key(self, model: str | None = None) -> str | None:
         """Get API key for the given model. Falls back to first available key."""
-        p = self.get_provider(model)
-        return p.api_key if p else None
+        from tinybot.providers.runtime import resolve_runtime_provider
+
+        return resolve_runtime_provider(self, model=model).api_key
 
     def get_api_base(self, model: str | None = None) -> str | None:
         """Get API base URL for the given model. Applies default URLs for gateway/local providers."""
-        from tinybot.providers.registry import find_by_name
+        from tinybot.providers.runtime import resolve_runtime_provider
 
-        p, name = self._match_provider(model)
-        if p and p.api_base:
-            return p.api_base
-        # Only gateways get a default api_base here. Standard providers
-        # resolve their base URL from the registry in the provider constructor.
-        if name:
-            spec = find_by_name(name)
-            if spec and (spec.is_gateway or spec.is_local) and spec.default_api_base:
-                return spec.default_api_base
-        return None
+        return resolve_runtime_provider(self, model=model).api_base
 
     model_config = ConfigDict(env_prefix="tinybot_", env_nested_delimiter="__")

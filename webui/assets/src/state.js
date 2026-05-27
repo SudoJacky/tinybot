@@ -43,6 +43,10 @@ export const state = {
   activeKnowledgeJobId: "",
   knowledgeJobPollTimer: null,
   config: null,
+  providerCatalog: [],
+  providerSearch: "",
+  providerFilter: "all",
+  activeProviderPanel: null,
   helpOverlay: null,
   activeTourIndex: 0,
   pendingMessage: null,  // 待发送的消息（创建新会话后发送）
