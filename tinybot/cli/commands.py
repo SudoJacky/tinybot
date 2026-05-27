@@ -2207,12 +2207,21 @@ def status():
     console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")
 
     if config_path.exists():
-        from tinybot.providers.registry import PROVIDERS
+        from tinybot.providers.runtime import resolve_runtime_provider
 
-        console.print(f"Model: {config.agents.defaults.model}")
+        resolved = resolve_runtime_provider(config)
+        console.print(f"Model: {resolved.model}")
+        console.print(f"Provider: {resolved.provider_id or config.agents.defaults.provider}")
+        if resolved.profile_name:
+            console.print(f"Profile: {resolved.profile_name}")
+        console.print(f"API mode: {resolved.api_mode.value if resolved.api_mode else 'unknown'}")
+        console.print(f"API base: {resolved.api_base or '[dim]not set[/dim]'}")
+        console.print(f"Credential: {resolved.api_key_source or '[dim]not set[/dim]'}")
+        for warning in resolved.warnings:
+            console.print(f"[yellow]Warning:[/yellow] {warning}")
 
-        # Check API keys from registry
-        for spec in PROVIDERS:
+        # Runtime provider details are shown above.
+        for spec in ():
             p = getattr(config.providers, spec.name, None)
             if p is None:
                 continue

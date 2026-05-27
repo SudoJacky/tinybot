@@ -26,7 +26,7 @@ from prompt_toolkit.filters import Condition
 from pydantic import BaseModel
 
 from tinybot import __logo__, __version__
-from tinybot.config.schema import Config
+from tinybot.config.schema import Config, ProviderConfig
 
 
 # --- Sensitive Field Masking (from onboard.py) ---
@@ -159,7 +159,10 @@ def _get_nested_attr(obj: Any, path: str) -> Any:
         if isinstance(current, dict):
             current = current.get(part)
         else:
-            current = getattr(current, part, None)
+            parent = current
+            current = getattr(parent, part, None)
+            if current is None and isinstance(parent, BaseModel):
+                current = (getattr(parent, "model_extra", None) or {}).get(part)
     return current
 
 
@@ -185,7 +188,21 @@ def _get_section_fields(config: Config, section_path: str) -> list[tuple[str, An
     if obj is None:
         return []
 
-    # Check if this is a top-level dict section (providers, channels)
+    if section_path == "providers":
+        names = list(_get_provider_names().keys())
+        for key in (getattr(obj, "model_extra", None) or {}).keys():
+            if key not in names:
+                names.append(key)
+        return [
+            (
+                key,
+                getattr(obj, key, None) or (getattr(obj, "model_extra", None) or {}).get(key),
+                FieldTypeInfo("dict_item", None),
+            )
+            for key in names
+        ]
+
+    # Check if this is a top-level dict section (channels)
     if section_path in ("providers", "channels") and isinstance(obj, dict):
         # Return list of provider/channel names
         return [
@@ -206,12 +223,11 @@ def _get_section_fields(config: Config, section_path: str) -> list[tuple[str, An
 
 @lru_cache(maxsize=1)
 def _get_provider_names() -> dict[str, str]:
-    """Get provider display names from registry."""
-    from tinybot.providers.registry import PROVIDERS
+    """Get provider display names from catalog."""
+    from tinybot.providers.catalog import list_catalog_entries
     return {
-        spec.name: spec.display_name or spec.name
-        for spec in PROVIDERS
-        if not spec.is_oauth
+        entry.id: entry.display_name or entry.id
+        for entry in list_catalog_entries()
     }
 
 
@@ -751,6 +767,12 @@ class ConfigEditorUI:
 
     def _enter_dict_section(self, key: str) -> None:
         """Enter a dict section (provider or channel config)."""
+        if self._state.current_path == "providers" and _get_nested_attr(self._state.config, f"providers.{key}") is None:
+            extra = getattr(self._state.config.providers, "__pydantic_extra__", None)
+            if extra is None:
+                self._state.config.providers.__pydantic_extra__ = {}
+                extra = self._state.config.providers.__pydantic_extra__
+            extra[key] = ProviderConfig()
         self._state.current_path = f"{self._state.current_path}.{key}"
         self._state.selected_index = 0
         self._state.focus_panel = "fields"

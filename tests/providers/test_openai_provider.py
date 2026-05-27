@@ -20,6 +20,8 @@ from tinybot.config.schema import (
 )
 from tinybot.providers.openai_provider import OpenAIProvider
 from tinybot.providers.registry import create_provider, find_by_name
+from tinybot.providers.catalog import ApiMode, ProviderCatalogEntry
+from tinybot.providers.registry import ProviderSpec
 
 
 @pytest.fixture
@@ -77,6 +79,81 @@ def test_create_provider_passes_enable_search_from_config(local_provider_workspa
 
     assert isinstance(provider, OpenAIProvider)
     assert provider.enable_search is True
+
+
+def test_build_kwargs_uses_catalog_token_parameter_trait():
+    provider = OpenAIProvider(
+        api_key="test-key",
+        default_model="gpt-5",
+        spec=find_by_name("openai"),
+    )
+
+    kwargs = provider._build_kwargs(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=None,
+        model="gpt-5",
+        max_tokens=123,
+        temperature=0.1,
+        reasoning_effort="medium",
+        tool_choice=None,
+    )
+
+    assert kwargs["max_completion_tokens"] == 123
+    assert "max_tokens" not in kwargs
+    assert "temperature" not in kwargs
+
+
+def test_create_provider_merges_profile_extra_body_defaults(local_provider_workspace):
+    config = Config.model_validate(
+        {
+            "agents": {
+                "defaults": {
+                    "workspace": str(local_provider_workspace),
+                    "model": "qwen-plus",
+                    "active_profile": "dashscope-search",
+                },
+            },
+            "providers": {
+                "profiles": {
+                    "dashscope-search": {
+                        "provider": "dashscope",
+                        "api_key": "test-key",
+                        "extra_body": {"enable_search": True, "custom_flag": "on"},
+                    },
+                },
+            },
+        }
+    )
+
+    provider = create_provider(config)
+    kwargs = provider._build_kwargs(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=None,
+        model="qwen-plus",
+        max_tokens=256,
+        temperature=0.1,
+        reasoning_effort=None,
+        tool_choice=None,
+    )
+
+    assert kwargs["extra_body"] == {"enable_search": True, "custom_flag": "on"}
+
+
+def test_openai_provider_rejects_unsupported_catalog_api_mode():
+    catalog = ProviderCatalogEntry(
+        id="native_provider",
+        display_name="Native Provider",
+        api_mode=ApiMode.UNSUPPORTED,
+    )
+    spec = ProviderSpec(
+        name="native_provider",
+        keywords=("native",),
+        env_key="NATIVE_API_KEY",
+        catalog=catalog,
+    )
+
+    with pytest.raises(ValueError, match="Unsupported provider api_mode"):
+        OpenAIProvider(api_key="test-key", spec=spec)
 
 
 class _AsyncStream:

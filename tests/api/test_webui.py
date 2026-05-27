@@ -1423,6 +1423,156 @@ async def test_webui_control_provider_models_validates_payload(api_workspace):
 
 
 @pytest.mark.asyncio
+async def test_webui_control_provider_models_returns_catalog_sources(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            config=Config(),
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.post(
+            "/api/provider-models",
+            headers=headers,
+            json={"provider": "dashscope"},
+        )
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["ok"] is True
+        assert "qwen-max" in payload["models"]
+        assert payload["sources"]["curated"] >= 1
+        assert payload["warning"] is None
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_provider_catalog_status_payload(api_workspace, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    token_manager = WebTokenManager(ttl_s=300)
+    config = Config.model_validate(
+        {
+            "agents": {"defaults": {"provider": "dashscope", "model": "qwen-max"}},
+            "providers": {"dashscope": {"api_key": "dashscope-key"}},
+        }
+    )
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            config=config,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/providers", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        dashscope = next(item for item in payload["providers"] if item["id"] == "dashscope")
+        openrouter = next(item for item in payload["providers"] if item["id"] == "openrouter")
+
+        assert dashscope["status"] == "ready"
+        assert dashscope["credential"]["state"] == "configured"
+        assert dashscope["models"]["count"] >= 1
+        assert dashscope["default"]["isDefault"] is True
+        assert dashscope["actions"]["useAsDefault"] is True
+
+        assert openrouter["status"] == "needs_key"
+        assert openrouter["credential"]["state"] == "missing"
+        assert openrouter["baseUrl"] == "https://openrouter.ai/api/v1"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_provider_catalog_includes_custom_config(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    config = Config.model_validate(
+        {
+            "providers": {
+                "my_gateway": {
+                    "api_key": "custom-key",
+                    "api_base": "https://gateway.example.test/v1",
+                },
+            },
+        }
+    )
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            config=config,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/providers", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        custom = next(item for item in payload["providers"] if item["id"] == "my_gateway")
+
+        assert custom["custom"] is True
+        assert custom["status"] == "no_models"
+        assert custom["baseUrl"] == "https://gateway.example.test/v1"
+        assert custom["credential"]["state"] == "configured"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_config_patch_saves_catalog_provider_without_deleting_existing(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    config = Config.model_validate(
+        {
+            "providers": {"deepseek": {"api_key": "deepseek-key"}},
+        }
+    )
+    config_path = api_workspace / "config.toml"
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            config=config,
+            config_path=config_path,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.patch(
+            "/api/config",
+            headers=headers,
+            json={
+                "agents": {"defaults": {"provider": "openrouter", "model": "openai/gpt-4o-mini"}},
+                "providers": {"openrouter": {"api_key": "or-key", "api_base": "https://openrouter.ai/api/v1"}},
+            },
+        )
+        assert response.status == 200
+        payload = await response.json()
+
+        assert config.providers.deepseek.api_key == "deepseek-key"
+        assert config.providers.openrouter.api_key == "or-key"
+        assert payload["config"]["providers"]["openrouter"]["apiKey"] == "********"
+        assert payload["config"]["providers"]["deepseek"]["apiKey"] == "********"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_webui_control_cowork_sessions_filter_by_origin_chat_id(api_workspace):
     token_manager = WebTokenManager(ttl_s=300)
     service = CoworkService(api_workspace)

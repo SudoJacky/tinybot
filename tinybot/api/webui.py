@@ -20,6 +20,10 @@ from tinybot.agent.forms import (
     AgentUiFormRegistry,
     form_event,
 )
+from tinybot.config.schema import ProviderConfig
+from tinybot.providers.catalog import ApiMode, ProviderCategory, list_catalog_entries
+from tinybot.providers.models import list_provider_models
+from tinybot.providers.runtime import resolve_runtime_provider
 from tinybot.security.approval import ApprovalManager, ApprovalScope
 from tinybot.utils.web_tokens import WebTokenManager
 
@@ -1415,50 +1419,6 @@ def _get_config_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) 
     return handler
 
 
-def _join_models_url(api_base: str) -> str:
-    base = api_base.strip().rstrip("/")
-    if not base:
-        return ""
-    return f"{base}/models"
-
-
-def _default_models_api_base(provider_name: str) -> str:
-    if provider_name == "openai":
-        return "https://api.openai.com/v1"
-    try:
-        from tinybot.providers.registry import find_by_name
-
-        spec = find_by_name(provider_name)
-        return spec.default_api_base if spec else ""
-    except Exception:
-        return ""
-
-
-def _extract_model_ids(payload: Any) -> list[str]:
-    if isinstance(payload, dict):
-        raw_items = payload.get("data") or payload.get("models") or payload.get("items") or []
-    elif isinstance(payload, list):
-        raw_items = payload
-    else:
-        raw_items = []
-
-    models: list[str] = []
-    seen: set[str] = set()
-    for item in raw_items:
-        model_id = ""
-        if isinstance(item, str):
-            model_id = item
-        elif isinstance(item, dict):
-            value = item.get("id") or item.get("name") or item.get("model")
-            if value:
-                model_id = str(value)
-        if not model_id or model_id in seen:
-            continue
-        seen.add(model_id)
-        models.append(model_id)
-    return models
-
-
 def _provider_models_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
     async def handler(request: web.Request) -> web.Response:
         try:
@@ -1472,59 +1432,201 @@ def _provider_models_handler(runtime: WebUIControlRuntime, paths: WebUIControlPa
         profile_id = str(payload.get("profile") or "").strip()
         api_key = str(payload.get("api_key") or "").strip()
         api_base = str(payload.get("api_base") or "").strip()
+        manual_models = payload.get("manual_models") or payload.get("manualModels") or ()
+        if isinstance(manual_models, str):
+            manual_model_ids = tuple(part.strip() for part in manual_models.replace("\n", ",").split(",") if part.strip())
+        elif isinstance(manual_models, list):
+            manual_model_ids = tuple(str(item).strip() for item in manual_models if str(item).strip())
+        else:
+            manual_model_ids = ()
+        refresh_live = bool(payload.get("refresh") or payload.get("refresh_live") or payload.get("refreshLive"))
 
-        if runtime.config and profile_id:
+        if runtime.config and profile_id and not provider_name:
             profile = runtime.config.providers.profiles.get(profile_id)
             if profile:
-                provider_name = provider_name or profile.provider
-                api_key = api_key or profile.api_key
-                api_base = api_base or profile.api_base or ""
-
-        if runtime.config and provider_name and not (api_key and api_base):
-            legacy = getattr(runtime.config.providers, provider_name, None)
-            if legacy:
-                api_key = api_key or legacy.api_key
-                api_base = api_base or legacy.api_base or ""
+                provider_name = profile.provider
 
         if not provider_name:
             return web.json_response({"ok": False, "error": "provider is required"})
-        if not api_base:
-            api_base = _default_models_api_base(provider_name)
-        models_url = _join_models_url(api_base)
-        if not models_url:
-            return web.json_response({"ok": False, "error": "api_base is required"})
+        if runtime.config is None:
+            return web.json_response({"ok": False, "error": "config is required"})
 
-        headers = {"Accept": "application/json"}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        result = await list_provider_models(
+            runtime.config,
+            provider_id=provider_name,
+            profile_id=profile_id or None,
+            api_key=api_key or None,
+            api_base=api_base or None,
+            manual_model_ids=manual_model_ids,
+            refresh_live=refresh_live,
+        )
+        if not result.ok:
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": result.warning or "no models available",
+                    "models": [],
+                    "sources": result.source_counts,
+                    "warning": result.warning,
+                    "url": result.url,
+                }
+            )
 
-        try:
-            import aiohttp
+        return web.json_response(
+            {
+                "ok": True,
+                "models": [model.id for model in result.models],
+                "model_sources": {model.id: list(model.sources) for model in result.models},
+                "sources": result.source_counts,
+                "warning": result.warning,
+                "url": result.url,
+            }
+        )
 
-            timeout = aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(models_url, headers=headers) as response:
-                    text = await response.text()
-                    if response.status >= 400:
-                        return web.json_response(
-                            {
-                                "ok": False,
-                                "error": f"/models returned HTTP {response.status}",
-                                "status": response.status,
-                            }
-                        )
-                    try:
-                        body = json.loads(text)
-                    except Exception:
-                        return web.json_response({"ok": False, "error": "invalid /models response"})
-        except Exception as exc:
-            return web.json_response({"ok": False, "error": str(exc)})
+    return handler
 
-        models = _extract_model_ids(body)
-        if not models:
-            return web.json_response({"ok": False, "error": "no models found in /models response"})
 
-        return web.json_response({"ok": True, "models": models, "url": models_url})
+def _provider_config_for_status(config: Any, provider_id: str) -> ProviderConfig | None:
+    value = getattr(config.providers, provider_id, None)
+    if value is None:
+        value = (getattr(config.providers, "model_extra", None) or {}).get(provider_id)
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return ProviderConfig.model_validate(value)
+    return value
+
+
+def _credential_state(entry: Any, api_key: str | None, api_key_source: str | None) -> dict[str, Any]:
+    env_vars = list(getattr(entry, "api_key_env_vars", ()) or ())
+    key_required = bool(env_vars and not getattr(entry, "is_local", False) and not getattr(entry, "is_custom", False))
+    if not key_required:
+        state = "not_required"
+    elif api_key_source == "config":
+        state = "configured"
+    elif api_key_source and api_key_source.startswith("env:"):
+        state = "environment"
+    elif api_key:
+        state = "configured"
+    else:
+        state = "missing"
+    return {"state": state, "envVars": env_vars, "required": key_required}
+
+
+def _provider_status(
+    *,
+    api_mode: str | None,
+    credential: dict[str, Any],
+    model_count: int,
+    base_url: str | None,
+    is_custom: bool,
+) -> str:
+    if api_mode and api_mode != ApiMode.OPENAI_CHAT_COMPLETIONS:
+        return "unsupported"
+    if credential["state"] == "missing":
+        return "needs_key"
+    if is_custom and not base_url:
+        return "unavailable"
+    if model_count == 0:
+        return "no_models"
+    return "ready"
+
+
+async def _serialize_provider_status(config: Any, entry: Any) -> dict[str, Any]:
+    resolved = resolve_runtime_provider(config, provider=entry.id)
+    models = await list_provider_models(config, provider_id=entry.id)
+    credential = _credential_state(entry, resolved.api_key, resolved.api_key_source)
+    status = _provider_status(
+        api_mode=entry.api_mode,
+        credential=credential,
+        model_count=len(models.models),
+        base_url=resolved.api_base,
+        is_custom=entry.is_custom,
+    )
+    is_default = config.get_provider_name() == entry.id
+    return {
+        "id": entry.id,
+        "displayName": entry.display_name,
+        "aliases": list(entry.aliases),
+        "categories": [category.value for category in entry.categories],
+        "builtIn": ProviderCategory.BUILT_IN in entry.categories,
+        "local": ProviderCategory.LOCAL in entry.categories,
+        "custom": ProviderCategory.CUSTOM in entry.categories,
+        "status": status,
+        "baseUrl": resolved.api_base,
+        "credential": credential,
+        "models": {
+            "count": len(models.models),
+            "sources": models.source_counts,
+            "warning": models.warning,
+        },
+        "default": {
+            "isDefault": is_default,
+            "model": config.agents.defaults.model if is_default else None,
+        },
+        "apiMode": entry.api_mode.value,
+        "actions": {
+            "models": True,
+            "settings": True,
+            "refresh": entry.supports_model_discovery,
+            "useAsDefault": status in {"ready", "no_models"},
+        },
+    }
+
+
+async def _serialize_custom_provider_status(config: Any, provider_id: str, provider_config: ProviderConfig) -> dict[str, Any]:
+    model_count = 0
+    credential = {
+        "state": "configured" if provider_config.api_key else "not_required",
+        "envVars": [],
+        "required": False,
+    }
+    status = _provider_status(
+        api_mode=ApiMode.OPENAI_CHAT_COMPLETIONS,
+        credential=credential,
+        model_count=model_count,
+        base_url=provider_config.api_base,
+        is_custom=True,
+    )
+    return {
+        "id": provider_id,
+        "displayName": provider_id.replace("_", " ").title(),
+        "aliases": [],
+        "categories": [ProviderCategory.CUSTOM.value],
+        "builtIn": False,
+        "local": False,
+        "custom": True,
+        "status": status,
+        "baseUrl": provider_config.api_base,
+        "credential": credential,
+        "models": {"count": model_count, "sources": {"curated": 0, "profile": 0, "live": 0, "manual": 0}, "warning": None},
+        "default": {"isDefault": config.get_provider_name() == provider_id, "model": None},
+        "apiMode": ApiMode.OPENAI_CHAT_COMPLETIONS.value,
+        "actions": {"models": True, "settings": True, "refresh": bool(provider_config.api_base), "useAsDefault": status in {"ready", "no_models"}},
+    }
+
+
+def _providers_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:
+    async def handler(request: web.Request) -> web.Response:
+        if runtime.config is None:
+            return web.json_response(
+                {"error": "webui control route unavailable", "route": "providers"},
+                status=503,
+            )
+
+        providers = [
+            await _serialize_provider_status(runtime.config, entry)
+            for entry in list_catalog_entries()
+        ]
+        catalog_ids = {entry.id for entry in list_catalog_entries()}
+        for provider_id, value in (getattr(runtime.config.providers, "model_extra", None) or {}).items():
+            if provider_id in catalog_ids:
+                continue
+            provider_config = ProviderConfig.model_validate(value) if isinstance(value, dict) else value
+            providers.append(
+                await _serialize_custom_provider_status(runtime.config, provider_id, provider_config)
+            )
+        return web.json_response({"providers": providers})
 
     return handler
 
@@ -1535,6 +1637,14 @@ def _apply_config_update(obj: Any, updates: dict[str, Any], prefix: str = "") ->
         path = f"{prefix}.{key}" if prefix else key
         current = getattr(obj, key, None)
         if current is None:
+            if obj.__class__.__name__ == "ProvidersConfig" and isinstance(value, dict):
+                parsed = ProviderConfig.model_validate(value)
+                extra = getattr(obj, "__pydantic_extra__", None)
+                if extra is None:
+                    obj.__pydantic_extra__ = {}
+                    extra = obj.__pydantic_extra__
+                extra[key] = parsed
+                updated.append(path)
             continue
         if _is_secret_field(key) and value == _SECRET_MASK:
             continue
@@ -1889,6 +1999,7 @@ def _default_handler(route_key: str, runtime: WebUIControlRuntime, paths: WebUIC
         "validate_skill": _validate_skill_handler,
         "get_config": _get_config_handler,
         "patch_config": _patch_config_handler,
+        "providers": _providers_handler,
         "provider_models": _provider_models_handler,
     }
     factory = factories.get(route_key)
@@ -1912,6 +2023,7 @@ def _route_specs(paths: WebUIControlPaths) -> tuple[_RouteSpec, ...]:
         _RouteSpec("upload_temporary_file", "POST", f"{sessions_path}/{{key}}/temporary-files"),
         _RouteSpec("get_config", "GET", "/api/config"),
         _RouteSpec("patch_config", "PATCH", "/api/config"),
+        _RouteSpec("providers", "GET", "/api/providers"),
         _RouteSpec("provider_models", "POST", "/api/provider-models"),
         _RouteSpec("get_status", "GET", "/api/status"),
         _RouteSpec("get_tools", "GET", "/api/tools"),

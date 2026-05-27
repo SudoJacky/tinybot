@@ -267,3 +267,35 @@ uv run tinybot onboard
 - [AI 服务配置](providers.md)：选择和配置 Provider
 - [工具功能](tools.md)：理解工具权限和安全边界
 - [网页界面](webui.md)：通过浏览器修改配置
+## Catalog-backed providers
+
+Tinybot now accepts provider ids from the backend provider catalog in
+`agents.defaults.provider`, not only the legacy `openai`, `deepseek`, and
+`dashscope` values. Existing configs remain valid.
+
+```toml
+[agents.defaults]
+provider = "openrouter"
+model = "openai/gpt-4o-mini"
+
+[providers.openrouter]
+api_key = "..."
+api_base = "https://openrouter.ai/api/v1"
+```
+
+Named profiles continue to work and can carry model lists, manual model ids,
+model discovery settings, and provider request defaults:
+
+```toml
+[agents.defaults]
+active_profile = "dashscope-coding"
+model = "qwen3-coder-plus"
+
+[providers.profiles.dashscope-coding]
+provider = "dashscope"
+api_key = "..."
+api_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+models = ["qwen3-coder-plus"]
+manual_models = ["custom-qwen-id"]
+supports_model_discovery = true
+```

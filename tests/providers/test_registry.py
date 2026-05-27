@@ -8,6 +8,7 @@ from tinybot.providers.base import (
     ToolCallRequest,
 )
 from tinybot.config.schema import Config
+from tinybot.providers.catalog import find_catalog_entry
 from tinybot.providers.registry import PROVIDERS, ProviderSpec, create_provider, find_by_name
 
 
@@ -52,7 +53,17 @@ class TestProviderRegistry:
     def test_providers_tuple(self):
         """PROVIDERS should be a non-empty tuple."""
         assert isinstance(PROVIDERS, tuple)
-        assert {spec.name for spec in PROVIDERS} == {"openai", "deepseek", "dashscope"}
+        assert {"openai", "deepseek", "dashscope"} <= {spec.name for spec in PROVIDERS}
+
+    def test_provider_specs_are_backed_by_catalog_entries(self):
+        """ProviderSpec callers should be able to read richer catalog metadata."""
+        spec = find_by_name("openrouter")
+
+        assert spec is not None
+        assert spec.catalog is find_catalog_entry("openrouter")
+        assert spec.default_api_base == "https://openrouter.ai/api/v1"
+        assert spec.is_gateway is True
+        assert spec.detect_by_key_prefix == "sk-or-"
 
     def test_find_by_name_exists(self):
         """find_by_name should find existing provider."""

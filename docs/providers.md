@@ -170,3 +170,23 @@ uv run tinybot status
 
 - [快速开始](quickstart.md)：跑通第一次对话
 - [配置说明](config.md)：理解完整配置结构
+## Provider catalog and cards
+
+Provider setup is catalog-backed. The WebUI Providers section requests
+`/api/providers` and renders cards for built-in, local, aggregator, and custom
+providers. Each card shows readiness, credential state, API base, model count,
+default model state, and available actions.
+
+Status meanings:
+
+- `ready`: credentials or local access are available and at least one model is known.
+- `needs_key`: the provider requires an API key and neither config nor env provides it.
+- `no_models`: the provider is configured but has no curated, discovered, profile, or manual models.
+- `unavailable`: a custom/local provider is missing required endpoint details.
+- `unsupported`: the catalog entry uses an API mode Tinybot cannot run yet.
+
+Model lists merge curated catalog models, profile models, live `/models`
+discovery, and manual model ids without duplicates. Discovery failures are
+warnings; curated and manual models stay selectable. Custom, local, and
+aggregator providers can use manual model ids when strict validation cannot
+prove them invalid.
