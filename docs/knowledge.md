@@ -72,6 +72,29 @@
 
 如果文档里有很多准确术语、编号、接口名，关键词很重要。如果用户问法和文档措辞差异大，语义检索更重要。`hybrid` 是两者结合，适合大多数情况。
 
+## 来源证据和知识图谱
+
+新索引会尽量把可解释信息保留下来：文档、片段、原文证据、页码或行号、抽取方式、置信度，以及 claim、relation、conflict、projection 等图谱信号。回答和图谱面板会优先展示原始来源片段；图谱、社区报告和摘要只是辅助理解的派生视图，不应当替代原文证据。
+
+在默认低成本模式下，Tinybot 会优先做混合检索和规则语义抽取。LLM 抽取、entity-guided 二次抽取、证据扩展和 LLM 社区报告都需要在配置中显式开启。
+
+## 高质量模式
+
+如果你需要更完整的可追踪知识图谱，可以分阶段开启：
+
+1. 把 `semanticExtractionMode` 设为 `llm` 或 `hybrid`，让模型生成候选实体、断言和关系。
+2. 把 `llmExtractionStrategy` 设为 `entity_guided`，让模型基于已知实体补充断言和关系。
+3. 开启 `evidenceExpansionEnabled`，并从 `document` 范围开始扩展证据。
+4. 根据成本设置 `evidenceExpansionMaxQueries`、`evidenceExpansionMaxLlmCalls`、`evidenceExpansionMaxTokens`、超时和并发。
+
+LLM 输出不会直接成为正式事实。候选内容必须能回到来源片段并通过验证，才会进入 claim、relation 或 conflict 记录。
+
+## 部分索引和冲突
+
+索引状态会区分检索可用、断言就绪、关系就绪、证据扩展部分完成、图谱就绪、失败和过期。即使图谱还没完成，已完成的检索片段通常仍可用于回答。文档更新后，图谱或社区报告可能被标记为过期，需要重建。
+
+当资料之间有矛盾时，Tinybot 会保留冲突双方和各自来源，而不是自动隐藏其中一边。重要答案建议要求它列出原文证据和冲突说明。
+
 ## 资料整理建议
 
 为了让检索更准确：

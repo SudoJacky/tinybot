@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildKnowledgeClaimInspection,
   buildKnowledgeConflictInspection,
+  buildKnowledgeReadinessView,
   buildKnowledgeProjectionInspection,
   buildKnowledgeRelationInspection,
   buildKnowledgeSourceContext,
@@ -221,3 +222,50 @@ assert.deepEqual(buildKnowledgeSourceContext({
   contextText: "Before. TinyBot supports RAG with source citations. After.",
   hasContext: true,
 });
+
+assert.deepEqual(buildKnowledgeReadinessView({
+  total_documents: 2,
+  total_chunks: 9,
+  indexed_dense: 2,
+  indexed_sparse: 9,
+  entity_count: 4,
+  claim_count: 6,
+  relation_count: 3,
+  community_count: 0,
+  community_report_count: 0,
+  retrieval_ready: true,
+  claims_ready: true,
+  relations_ready: true,
+  graph_ready: false,
+  partial_availability: true,
+  stage_readiness: {
+    dense_indexing: { status: "complete", ready: true },
+    sparse_indexing: { status: "complete", ready: true },
+    claim_extraction: { status: "complete", ready: true },
+    claim_validation: { status: "complete", ready: true },
+    relation_extraction: { status: "complete", ready: true },
+    relation_validation: { status: "complete", ready: true },
+    evidence_expansion: { status: "budget_limited", ready: false, processed: 1, total: 3 },
+    graph_projection: { status: "stale", ready: false, stale: 1 },
+  },
+}).rows.map((row) => [row.id, row.statusKey, row.tone, row.textKey]), [
+  ["retrieval", "knowledge.stageStatusReady", "ready", "knowledge.stageRetrievalReady"],
+  ["claims", "knowledge.stageStatusReady", "ready", "knowledge.stageClaimsReady"],
+  ["relations", "knowledge.stageStatusReady", "ready", "knowledge.stageRelationsReady"],
+  ["expansion", "knowledge.stageStatusBudgetLimited", "warn", "knowledge.stageExpansionBudgetLimited"],
+  ["graph", "knowledge.stageStatusStale", "warn", "knowledge.stageGraphPending"],
+]);
+
+const failedReadiness = buildKnowledgeReadinessView({
+  total_documents: 1,
+  total_chunks: 4,
+  indexed_sparse: 4,
+  retrieval_ready: true,
+  claims_ready: false,
+  stage_details: [
+    { stage: "claim_validation", status: "failed", failed: 1, processed: 2, total: 3 },
+  ],
+});
+assert.equal(failedReadiness.titleKey, "knowledge.healthPartialFailed");
+assert.equal(failedReadiness.partialAvailability, true);
+assert.equal(failedReadiness.rows.find((row) => row.id === "claims").tone, "error");

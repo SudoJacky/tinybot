@@ -167,6 +167,23 @@ def test_knowledge_context_prioritizes_source_snippets_before_derived_claims() -
     assert "TinyBot supports RAG." in formatted
 
 
+def test_session_knowledge_context_degrades_without_traceability_fields() -> None:
+    formatted = ContextBuilder._format_retrieved_knowledge_context(
+        persistent_results=[],
+        session_results=[
+            {
+                "doc_name": "upload.txt",
+                "content": "Temporary upload content is still usable.",
+            }
+        ],
+    )
+
+    assert "[Current session temporary files]" in formatted
+    assert "not persisted" in formatted
+    assert "Temporary upload content is still usable." in formatted
+    assert "Use retrieved knowledge only when it is relevant" in formatted
+
+
 def test_context_builder_injects_recent_context_for_preparation_prompt(tmp_path):
     builder = ContextBuilder(tmp_path)
     evidence = builder.memory.append_conversation_evidence(

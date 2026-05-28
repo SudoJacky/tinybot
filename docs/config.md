@@ -236,6 +236,38 @@ http://127.0.0.1:18790
 | `maxChunks` | 每次最多取回多少片段 |
 | `retrievalMode` | `hybrid` 适合大多数场景 |
 
+默认模式保持低成本：`retrievalMode: "hybrid"` 加 `semanticExtractionMode: "rule"` 会使用关键词、向量和规则语义信号，不会默认调用 LLM 做图谱抽取或证据扩展。
+
+需要更高质量的来源可追踪图谱时，可以显式开启更昂贵的阶段：
+
+```json
+{
+  "knowledge": {
+    "semanticExtractionMode": "llm",
+    "llmExtractionStrategy": "entity_guided",
+    "evidenceExpansionEnabled": true,
+    "evidenceExpansionScope": "document",
+    "evidenceExpansionMaxQueries": 5,
+    "evidenceExpansionMaxLlmCalls": 0,
+    "evidenceExpansionMaxTokens": 0,
+    "evidenceExpansionTimeoutSeconds": 30,
+    "evidenceExpansionConcurrency": 2
+  }
+}
+```
+
+| 配置 | 说明 |
+|------|------|
+| `semanticExtractionMode` | `rule` 免费规则抽取；`llm` 使用模型抽取候选；`hybrid` 合并两者 |
+| `llmExtractionStrategy` | `single_pass` 单次抽取；`entity_guided` 会用已知实体辅助第二步抽取 |
+| `evidenceExpansionEnabled` | 是否启用证据扩展；默认关闭 |
+| `evidenceExpansionScope` | `document`、`collection` 或 `global`，默认只查当前文档 |
+| `evidenceExpansionMaxQueries` | 每个实体或记录最多发起多少扩展查询 |
+| `evidenceExpansionMaxLlmCalls` / `evidenceExpansionMaxTokens` | 扩展阶段的 LLM 调用和 Token 预算，默认都是 0 |
+| `evidenceExpansionTimeoutSeconds` / `evidenceExpansionConcurrency` | 扩展阶段超时和并发上限 |
+
+建议先保持默认低成本模式。只有在需要可检查的 claims、relations、conflicts、GraphRAG 社区报告和原文证据时，再逐步开启 LLM 抽取或证据扩展。
+
 ## 常见问题
 
 ### 配置改坏了怎么办

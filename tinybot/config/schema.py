@@ -419,8 +419,8 @@ class KnowledgeConfig(Base):
     rerank_api_base: str = "https://dashscope.aliyuncs.com/compatible-api/v1"  # OpenAI-compatible base URL
     rerank_top_n: int = Field(default=0, ge=0)  # 0 means use query top_k
     generate_summary: bool = False  # Generate summary for each chunk during indexing
-    semantic_extraction_mode: str = "rule"  # "rule", "llm", or "hybrid"
-    llm_extraction_strategy: str = "single_pass"  # "single_pass" or "entity_guided"
+    semantic_extraction_mode: Literal["rule", "llm", "hybrid"] = "rule"
+    llm_extraction_strategy: Literal["single_pass", "entity_guided"] = "single_pass"
     semantic_llm_max_tokens: int = Field(default=1200, ge=100)  # Max tokens for semantic extraction
     semantic_llm_timeout: float = Field(default=30.0, ge=1.0)  # Timeout for semantic extraction API calls
     semantic_llm_concurrency: int = Field(default=4, ge=1, le=16)  # Parallel chunk LLM extraction workers

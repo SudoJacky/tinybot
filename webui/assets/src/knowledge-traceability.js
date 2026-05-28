@@ -21,6 +21,207 @@ function formatNumber(value) {
   return Number.isFinite(number) ? number.toFixed(number >= 10 ? 0 : 3) : "";
 }
 
+function numberValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function booleanValue(value) {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function stageEntriesFor(stats = {}, stages = []) {
+  const readiness = stats.stage_readiness && typeof stats.stage_readiness === "object"
+    ? stats.stage_readiness
+    : {};
+  const details = asArray(stats.stage_details);
+  const entries = [];
+  for (const stage of stages) {
+    if (readiness[stage]) {
+      entries.push({ stage, ...readiness[stage] });
+    }
+  }
+  for (const detail of details) {
+    if (stages.includes(detail?.stage)) {
+      entries.push(detail);
+    }
+  }
+  return entries;
+}
+
+function summarizeStages(stats = {}, stages = []) {
+  const entries = stageEntriesFor(stats, stages);
+  const statuses = entries.map((entry) => asText(entry.status)).filter(Boolean);
+  const failed = entries.reduce((total, entry) => total + numberValue(entry.failed), 0);
+  const stale = entries.reduce((total, entry) => total + numberValue(entry.stale), 0);
+  const processed = entries.reduce((total, entry) => total + numberValue(entry.processed), 0);
+  const total = entries.reduce((sum, entry) => sum + numberValue(entry.total), 0);
+  const lastError = firstNonEmpty(...entries.map((entry) => entry.last_error));
+
+  let status = entries.length ? "pending" : "not_started";
+  if (failed || statuses.includes("failed") || statuses.includes("partial_failed")) {
+    status = "failed";
+  } else if (stale || statuses.includes("stale")) {
+    status = "stale";
+  } else if (statuses.includes("budget_limited")) {
+    status = "budget_limited";
+  } else if (statuses.includes("partial") || statuses.includes("running")) {
+    status = "partial";
+  } else if (entries.length && statuses.every((item) => item === "complete" || item === "skipped")) {
+    status = statuses.every((item) => item === "skipped") ? "skipped" : "complete";
+  }
+
+  return {
+    status,
+    ready: entries.length ? entries.every((entry) => booleanValue(entry.ready) || ["complete", "skipped"].includes(asText(entry.status))) : false,
+    failed,
+    stale,
+    processed,
+    total,
+    lastError,
+  };
+}
+
+function stageTone(status, ready = false) {
+  if (status === "failed") {
+    return "error";
+  }
+  if (status === "stale" || status === "budget_limited" || status === "partial") {
+    return "warn";
+  }
+  if (ready || status === "complete" || status === "skipped") {
+    return "ready";
+  }
+  return "muted";
+}
+
+function stageStatusKey(status, ready = false) {
+  if (status === "failed") return "knowledge.stageStatusFailed";
+  if (status === "stale") return "knowledge.stageStatusStale";
+  if (status === "budget_limited") return "knowledge.stageStatusBudgetLimited";
+  if (status === "partial") return "knowledge.stageStatusPartial";
+  if (ready || status === "complete" || status === "skipped") return "knowledge.stageStatusReady";
+  return "knowledge.stageStatusPending";
+}
+
+export function buildKnowledgeReadinessView(stats = {}) {
+  const docs = numberValue(stats.total_documents ?? stats.document_count);
+  const chunks = numberValue(stats.total_chunks ?? stats.chunk_count);
+  const entities = numberValue(stats.entity_count);
+  const claims = numberValue(stats.claim_count);
+  const relations = numberValue(stats.relation_count);
+  const communities = numberValue(stats.community_count);
+  const reports = numberValue(stats.community_report_count);
+  const indexedDense = numberValue(stats.indexed_dense);
+  const indexedSparse = numberValue(stats.indexed_sparse);
+  const retrievalStages = summarizeStages(stats, ["dense_indexing", "sparse_indexing"]);
+  const claimStages = summarizeStages(stats, ["claim_extraction", "claim_validation"]);
+  const relationStages = summarizeStages(stats, ["relation_extraction", "relation_validation"]);
+  const expansionStages = summarizeStages(stats, ["evidence_expansion"]);
+  const graphStages = summarizeStages(stats, ["graph_projection", "community_report_projection"]);
+
+  const retrievalReady = booleanValue(stats.retrieval_ready) || indexedDense > 0 || indexedSparse > 0;
+  const claimsReady = booleanValue(stats.claims_ready) || claimStages.ready;
+  const relationsReady = booleanValue(stats.relations_ready) || relationStages.ready;
+  const graphReady = booleanValue(stats.graph_ready) || graphStages.ready;
+  const failedStageCount = numberValue(stats.failed_stage_count)
+    + [retrievalStages, claimStages, relationStages, expansionStages, graphStages].filter((stage) => stage.status === "failed").length;
+  const staleStageCount = numberValue(stats.stale_stage_count)
+    + [retrievalStages, claimStages, relationStages, expansionStages, graphStages].filter((stage) => stage.status === "stale").length;
+  const partialAvailability = booleanValue(stats.partial_availability)
+    || Boolean(retrievalReady && (failedStageCount || staleStageCount || !claimsReady || !relationsReady || !graphReady));
+
+  const checks = [
+    docs > 0,
+    chunks > 0,
+    retrievalReady,
+    claimsReady,
+    relationsReady,
+    expansionStages.ready || expansionStages.status === "skipped",
+    graphReady,
+  ];
+  const score = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  const titleKey = docs <= 0
+    ? "knowledge.healthEmpty"
+    : failedStageCount
+      ? "knowledge.healthPartialFailed"
+      : staleStageCount
+        ? "knowledge.healthStale"
+        : graphReady
+          ? "knowledge.healthReady"
+          : retrievalReady || partialAvailability
+            ? "knowledge.healthSearchable"
+            : "knowledge.healthNeedsSemantic";
+
+  return {
+    score,
+    titleKey,
+    descKey: docs ? "knowledge.healthDescTraceable" : "knowledge.healthDescEmpty",
+    descReplacements: {
+      docs,
+      chunks,
+      entities,
+      claims,
+      relations,
+      communities,
+      reports,
+      failed: failedStageCount,
+      stale: staleStageCount,
+    },
+    partialAvailability,
+    failedStageCount,
+    staleStageCount,
+    rows: [
+      {
+        id: "retrieval",
+        titleKey: "knowledge.stageRetrieval",
+        textKey: retrievalReady ? "knowledge.stageRetrievalReady" : "knowledge.stageRetrievalPending",
+        replacements: { dense: indexedDense, sparse: indexedSparse },
+        statusKey: stageStatusKey(retrievalStages.status, retrievalReady),
+        tone: stageTone(retrievalStages.status, retrievalReady),
+      },
+      {
+        id: "claims",
+        titleKey: "knowledge.stageClaims",
+        textKey: claimsReady ? "knowledge.stageClaimsReady" : "knowledge.stageClaimsPending",
+        replacements: { claims },
+        statusKey: stageStatusKey(claimStages.status, claimsReady),
+        tone: stageTone(claimStages.status, claimsReady),
+      },
+      {
+        id: "relations",
+        titleKey: "knowledge.stageRelations",
+        textKey: relationsReady ? "knowledge.stageRelationsReady" : "knowledge.stageRelationsPending",
+        replacements: { relations },
+        statusKey: stageStatusKey(relationStages.status, relationsReady),
+        tone: stageTone(relationStages.status, relationsReady),
+      },
+      {
+        id: "expansion",
+        titleKey: "knowledge.stageEvidenceExpansion",
+        textKey: expansionStages.status === "budget_limited"
+          ? "knowledge.stageExpansionBudgetLimited"
+          : expansionStages.status === "failed"
+            ? "knowledge.stageExpansionFailed"
+            : expansionStages.ready || expansionStages.status === "skipped"
+              ? "knowledge.stageExpansionReady"
+              : "knowledge.stageExpansionPending",
+        replacements: { processed: expansionStages.processed, total: expansionStages.total },
+        statusKey: stageStatusKey(expansionStages.status, expansionStages.ready),
+        tone: stageTone(expansionStages.status, expansionStages.ready),
+      },
+      {
+        id: "graph",
+        titleKey: "knowledge.stageGraph",
+        textKey: graphReady ? "knowledge.stageGraphReady" : "knowledge.stageGraphPending",
+        replacements: { communities, reports },
+        statusKey: stageStatusKey(graphStages.status, graphReady),
+        tone: stageTone(graphStages.status, graphReady),
+      },
+    ],
+  };
+}
+
 function sourceFromEvidence(item = {}) {
   const nested = item.source && typeof item.source === "object" ? item.source : {};
   return {

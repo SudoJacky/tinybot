@@ -245,6 +245,9 @@ class TestKnowledgeConfigValidation:
     def test_evidence_expansion_defaults_are_disabled_and_budgeted(self):
         config = KnowledgeConfig()
 
+        assert config.semantic_extraction_mode == "rule"
+        assert config.llm_extraction_strategy == "single_pass"
+        assert config.semantic_llm_concurrency == 4
         assert config.evidence_expansion_enabled is False
         assert config.evidence_expansion_scope == "document"
         assert config.evidence_expansion_max_queries == 5
@@ -260,6 +263,20 @@ class TestKnowledgeConfigValidation:
                 evidence_expansion_scope=scope,
             )
             assert config.evidence_expansion_scope == scope
+
+    def test_llm_extraction_strategy_accepts_supported_modes(self):
+        for strategy in ("single_pass", "entity_guided"):
+            config = KnowledgeConfig(
+                semantic_extraction_mode="llm",
+                llm_extraction_strategy=strategy,
+            )
+            assert config.llm_extraction_strategy == strategy
+
+    def test_semantic_extraction_rejects_invalid_mode_and_strategy(self):
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(semantic_extraction_mode="always_llm")
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(llm_extraction_strategy="multi_agent")
 
     def test_evidence_expansion_rejects_invalid_scope(self):
         with pytest.raises(ValidationError) as exc_info:

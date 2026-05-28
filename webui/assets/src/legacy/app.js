@@ -51,6 +51,7 @@ import {
 import {
   buildKnowledgeClaimInspection,
   buildKnowledgeConflictInspection,
+  buildKnowledgeReadinessView,
   buildKnowledgeProjectionInspection,
   buildKnowledgeRelationInspection,
   knowledgeEvidenceRowsForEdge,
@@ -7867,10 +7868,7 @@ function renderKnowledgeOverview() {
     return;
   }
   const stats = state.knowledgeStats || {};
-  const docs = Number(stats.total_documents || 0);
-  const chunks = Number(stats.total_chunks || 0);
-  const entities = Number(stats.entity_count || 0);
-  const relations = Number(stats.relation_count || 0);
+  const readiness = buildKnowledgeReadinessView(stats);
   const communities = Number(stats.community_count || 0);
   const reports = Number(stats.community_report_count || 0);
   const communityLevels = stats.community_count_by_level || stats.communityCountByLevel || {};
@@ -7878,74 +7876,54 @@ function renderKnowledgeOverview() {
     .sort(([left], [right]) => Number(left) - Number(right))
     .map(([level, count]) => t("knowledge.graphLevelCount").replace("{level}", level).replace("{count}", count))
     .join(", ");
-  const indexedDense = Number(stats.indexed_dense || 0);
-  const indexedSparse = Number(stats.indexed_sparse || 0);
-
-  const checks = [
-    docs > 0,
-    chunks > 0,
-    indexedDense > 0 || indexedSparse > 0,
-    entities > 0,
-    relations > 0,
-    communities > 0,
-    reports > 0,
-  ];
-  const score = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  const score = readiness.score;
   if (elements.knowledgeHealthScore) elements.knowledgeHealthScore.textContent = `${score}%`;
   if (elements.knowledgeHealthBar) elements.knowledgeHealthBar.style.width = `${score}%`;
   if (elements.knowledgeHealthTitle) {
-    elements.knowledgeHealthTitle.textContent = score >= 85
-      ? t("knowledge.healthReady")
-      : score >= 55
-        ? t("knowledge.healthSearchable")
-        : docs > 0
-          ? t("knowledge.healthNeedsSemantic")
-          : t("knowledge.healthEmpty");
+    elements.knowledgeHealthTitle.textContent = t(readiness.titleKey);
   }
   if (elements.knowledgeHealthDesc) {
-    elements.knowledgeHealthDesc.textContent = docs
-      ? t("knowledge.healthDesc")
-        .replace("{docs}", docs)
-        .replace("{chunks}", chunks)
-        .replace("{entities}", entities)
-        .replace("{relations}", relations)
-        .replace("{communities}", communities)
-      : t("knowledge.healthDescEmpty");
+    elements.knowledgeHealthDesc.textContent = formatKnowledgeI18n(readiness.descKey, readiness.descReplacements);
   }
 
   if (!elements.knowledgeOverviewInsights) {
     return;
   }
   elements.knowledgeOverviewInsights.textContent = "";
-  const insights = [
-    {
-      title: t("knowledge.insightRetrievalIndex"),
-      text: indexedDense || indexedSparse
-        ? t("knowledge.insightRetrievalReady").replace("{dense}", indexedDense).replace("{sparse}", indexedSparse)
-        : t("knowledge.insightRetrievalEmpty"),
-    },
-    {
-      title: t("knowledge.insightSemanticModel"),
-      text: entities
-        ? t("knowledge.insightSemanticReady").replace("{entities}", entities).replace("{relations}", relations)
-        : t("knowledge.insightSemanticEmpty"),
-    },
-    {
-      title: t("knowledge.insightGraphRagLayer"),
-      text: communities
-        ? t("knowledge.insightGraphRagReady")
-          .replace("{communities}", communities)
-          .replace("{levels}", communityLevelText ? ` (${communityLevelText})` : "")
-          .replace("{reports}", reports)
-        : t("knowledge.insightGraphRagEmpty"),
-    },
-  ];
+  const insights = readiness.rows.map((row) => {
+    const replacements = {
+      ...row.replacements,
+      communities,
+      reports,
+      levels: communityLevelText ? ` (${communityLevelText})` : "",
+    };
+    return {
+      title: t(row.titleKey),
+      status: t(row.statusKey),
+      tone: row.tone,
+      text: formatKnowledgeI18n(row.textKey, replacements),
+    };
+  });
   for (const insight of insights) {
     const item = document.createElement("div");
-    item.className = "knowledge-insight-item";
-    item.innerHTML = `<strong>${escapeHtml(insight.title)}</strong><span>${escapeHtml(insight.text)}</span>`;
+    item.className = `knowledge-insight-item is-${insight.tone || "muted"}`;
+    item.innerHTML = `
+      <div class="knowledge-insight-heading">
+        <strong>${escapeHtml(insight.title)}</strong>
+        <em>${escapeHtml(insight.status)}</em>
+      </div>
+      <span>${escapeHtml(insight.text)}</span>
+    `;
     elements.knowledgeOverviewInsights.append(item);
   }
+}
+
+function formatKnowledgeI18n(key, replacements = {}) {
+  let text = t(key);
+  for (const [name, value] of Object.entries(replacements)) {
+    text = text.split(`{${name}}`).join(String(value ?? ""));
+  }
+  return text;
 }
 
 async function loadKnowledgeDocs() {
