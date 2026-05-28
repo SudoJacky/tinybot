@@ -606,6 +606,31 @@ class KnowledgeConflict:
 
 
 @dataclass
+class KnowledgeEvidenceExpansionReport:
+    """Read-only Evidence Expansion output with source provenance."""
+
+    id: str = ""
+    report_type: str = ""  # support, conflict, candidate_claim, candidate_relation, failure
+    scope: str = "document"
+    status: str = "complete"
+    target_record_id: str = ""
+    target_record_type: str = ""
+    query: str = ""
+    doc_id: str = ""
+    doc_name: str = ""
+    chunk_id: str = ""
+    source: dict[str, Any] = field(default_factory=dict)
+    evidence_text: str = ""
+    candidate: dict[str, Any] = field(default_factory=dict)
+    validation_status: str = ""
+    conflict_record_id: str = ""
+    budget_limited: bool = False
+    budget_limit_reason: str = ""
+    created_at: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class KnowledgeEntity:
     """A canonical entity extracted from knowledge chunks."""
 
@@ -758,6 +783,7 @@ class KnowledgeStore:
         self.conflicts_file = self.knowledge_dir / "conflicts.jsonl"
         self.stage_status_file = self.knowledge_dir / "stage_status.jsonl"
         self.candidate_diagnostics_file = self.knowledge_dir / "candidate_diagnostics.jsonl"
+        self.evidence_expansion_reports_file = self.knowledge_dir / "evidence_expansion_reports.jsonl"
         self.communities_file = self.knowledge_dir / "communities.jsonl"
         self.community_reports_file = self.knowledge_dir / "community_reports.jsonl"
         self.bm25_index_file = self.knowledge_dir / "bm25_index.json"
@@ -1277,14 +1303,21 @@ class KnowledgeStore:
                 )
                 completed_steps += 1
 
-            notify("evidence_expansion", "Evidence expansion is disabled by default", completed_steps)
-            complete_stage(
-                "evidence_expansion",
-                processed=0,
-                stage_total=0,
-                skipped=1,
-                status="skipped",
-            )
+            if getattr(self.config, "evidence_expansion_enabled", False):
+                notify("evidence_expansion", "Expanding source evidence", completed_steps)
+                self.run_evidence_expansion(
+                    doc_id=doc_id,
+                    scope=getattr(self.config, "evidence_expansion_scope", "document"),
+                )
+            else:
+                notify("evidence_expansion", "Evidence expansion is disabled by default", completed_steps)
+                complete_stage(
+                    "evidence_expansion",
+                    processed=0,
+                    stage_total=0,
+                    skipped=1,
+                    status="skipped",
+                )
             completed_steps += 1
 
             notify("graph_projection", "Building graph projections", completed_steps)
@@ -1323,6 +1356,511 @@ class KnowledgeStore:
             asdict(status)
             for status in sorted(statuses, key=lambda item: (item.doc_id, order.get(item.stage, len(order)), item.stage))
         ]
+
+    def read_structured_knowledge(self, *, doc_id: str | None = None) -> dict[str, Any]:
+        """Return a read-only structured snapshot for evidence expansion."""
+        documents = self._read_documents()
+        chunks = self._read_chunks()
+        entities = self._read_entities()
+        mentions = self._read_mentions()
+        claims = self._read_claims()
+        relations = self._read_relations()
+        conflicts = self._read_conflicts()
+        sources = self._read_sources()
+        communities = self._read_communities()
+        community_reports = self._read_community_reports()
+
+        if doc_id is not None:
+            documents = [document for document in documents if document.id == doc_id]
+            chunks = [chunk for chunk in chunks if chunk.doc_id == doc_id]
+            entities = [entity for entity in entities if doc_id in entity.doc_ids]
+            mentions = [mention for mention in mentions if mention.doc_id == doc_id]
+            claims = [claim for claim in claims if claim.doc_id == doc_id]
+            relations = [
+                relation for relation in relations
+                if relation.doc_id == doc_id
+                or any(source.get("doc_id") == doc_id for source in relation.source_refs)
+            ]
+            conflicts = [
+                conflict for conflict in conflicts
+                if doc_id in conflict.doc_ids
+                or any(source.get("doc_id") == doc_id for source in conflict.sources)
+            ]
+            sources = [source for source in sources if source.doc_id == doc_id]
+
+        semantic_text = [
+            {
+                "chunk_id": chunk.id,
+                "doc_id": chunk.doc_id,
+                "parent_id": chunk.parent_id,
+                "chunk_type": chunk.chunk_type,
+                "text": chunk.semantic_text or chunk.context_content or chunk.content,
+                "start_char": chunk.start_char,
+                "end_char": chunk.end_char,
+                "line_start": chunk.line_start,
+                "line_end": chunk.line_end,
+                "page": chunk.page,
+                "section_path": chunk.section_path,
+            }
+            for chunk in chunks
+        ]
+        source_metadata = {
+            document.id: {
+                "id": document.id,
+                "name": document.name,
+                "file_path": document.file_path,
+                "original_path": document.original_path,
+                "source": document.source,
+                "file_type": document.file_type,
+                "category": document.category,
+                "tags": list(document.tags),
+                "metadata": dict(document.metadata),
+                "chunk_count": document.chunk_count,
+                "created_at": document.created_at,
+            }
+            for document in documents
+        }
+        return {
+            "documents": [asdict(document) for document in documents],
+            "chunks": [asdict(chunk) for chunk in chunks],
+            "semantic_text": semantic_text,
+            "entities": [asdict(entity) for entity in entities],
+            "mentions": [asdict(mention) for mention in mentions],
+            "claims": [asdict(claim) for claim in claims],
+            "relations": [asdict(relation) for relation in relations],
+            "conflicts": [asdict(conflict) for conflict in conflicts],
+            "sources": [asdict(source) for source in sources],
+            "projections": {
+                "communities": [asdict(community) for community in communities],
+                "community_reports": [asdict(report) for report in community_reports],
+            },
+            "source_metadata": source_metadata,
+        }
+
+    def run_evidence_expansion(
+        self,
+        *,
+        doc_id: str,
+        scope: str | None = None,
+        record_ids: list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
+        """Run read-only Evidence Expansion for a document or selected records."""
+        source_doc = self.get_document(doc_id)
+        if source_doc is None:
+            raise ValueError(f"Document {doc_id} not found")
+
+        expansion_scope = scope or getattr(self.config, "evidence_expansion_scope", "document")
+        if expansion_scope not in {"document", "collection", "global"}:
+            raise ValueError("Evidence expansion scope must be one of: document, collection, global")
+
+        ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        selected_record_ids = set(record_ids or [])
+        scoped_docs = self._documents_for_evidence_scope(source_doc, expansion_scope)
+        searched_doc_ids = [doc.id for doc in scoped_docs]
+        searchable_chunks = self._chunks_for_evidence_scope(searched_doc_ids)
+        claims = [
+            claim for claim in self._read_claims()
+            if claim.doc_id == doc_id and (not selected_record_ids or claim.id in selected_record_ids)
+        ]
+        relations = [
+            relation for relation in self._read_relations()
+            if relation.doc_id == doc_id and (not selected_record_ids or relation.id in selected_record_ids)
+        ]
+        entities = {entity.id: entity for entity in self._read_entities()}
+        available_entity_names = self._available_entity_names(entities.values())
+        targets = self._build_evidence_expansion_targets(claims, relations, entities)
+        max_queries = max(1, int(getattr(self.config, "evidence_expansion_max_queries", 5) or 5))
+        budget_limited = len(targets) > max_queries
+        executed_targets = targets[:max_queries]
+
+        searches: list[dict[str, Any]] = []
+        reports: list[KnowledgeEvidenceExpansionReport] = []
+        diagnostics: list[KnowledgeCandidate] = []
+        failures = 0
+        last_error = ""
+        for target in executed_targets:
+            try:
+                matches = self._search_evidence_chunks(
+                    query=target["query"],
+                    chunks=searchable_chunks,
+                    source_doc_id=doc_id,
+                    scope=expansion_scope,
+                    entity_terms=target["entity_terms"],
+                )
+            except Exception as exc:
+                failures += 1
+                last_error = str(exc)
+                failure_report = KnowledgeEvidenceExpansionReport(
+                    id=self._evidence_expansion_report_id("failure", target["record_id"], "", last_error),
+                    report_type="failure",
+                    scope=expansion_scope,
+                    status="failed",
+                    target_record_id=target["record_id"],
+                    target_record_type=target["record_type"],
+                    query=target["query"],
+                    created_at=ts,
+                    metadata={"error": last_error},
+                )
+                reports.append(failure_report)
+                searches.append({
+                    "query": target["query"],
+                    "scope": expansion_scope,
+                    "target_record_id": target["record_id"],
+                    "target_record_type": target["record_type"],
+                    "matched_sources": [],
+                    "error": last_error,
+                })
+                continue
+            searches.append({
+                "query": target["query"],
+                "scope": expansion_scope,
+                "target_record_id": target["record_id"],
+                "target_record_type": target["record_type"],
+                "matched_sources": [match["source"] for match in matches],
+            })
+            for match in matches:
+                reports.extend(self._build_evidence_support_reports(target, match, expansion_scope, ts))
+                candidate_reports, candidate_diagnostics = self._build_evidence_candidate_reports(
+                    target=target,
+                    match=match,
+                    scope=expansion_scope,
+                    available_entity_names=available_entity_names,
+                    ts=ts,
+                )
+                reports.extend(candidate_reports)
+                diagnostics.extend(candidate_diagnostics)
+
+        status = "partial_failed" if failures else "budget_limited" if budget_limited else "complete"
+        output_counts = {
+            "reports": len(reports),
+            "support": sum(1 for report in reports if report.report_type == "support"),
+            "conflicts": sum(1 for report in reports if report.report_type == "conflict"),
+            "candidate_claims": sum(1 for report in reports if report.report_type == "candidate_claim"),
+            "candidate_relations": sum(1 for report in reports if report.report_type == "candidate_relation"),
+            "failures": failures,
+        }
+        if reports:
+            self._append_jsonl(self.evidence_expansion_reports_file, reports)
+        self._append_jsonl(
+            self.candidate_diagnostics_file,
+            [candidate for candidate in diagnostics if candidate.validation_status in {"normalized", "rejected"}],
+        )
+        self._record_stage_status(
+            doc_id=doc_id,
+            stage="evidence_expansion",
+            status=status,
+            processed=len(executed_targets),
+            total=len(targets),
+            skipped=max(0, len(targets) - len(executed_targets)),
+            failed=failures,
+            output_counts=output_counts,
+            last_error=last_error,
+            source_version=self._source_version_for_doc(doc_id),
+            metadata={
+                "scope": expansion_scope,
+                "searched_doc_ids": searched_doc_ids,
+                "budget_limited": budget_limited,
+                "budget_limit_reason": "query_limit" if budget_limited else "",
+            },
+        )
+        return {
+            "doc_id": doc_id,
+            "scope": expansion_scope,
+            "status": status,
+            "budget_limited": budget_limited,
+            "budget_limit_reason": "query_limit" if budget_limited else "",
+            "failed": failures,
+            "last_error": last_error,
+            "searched_doc_ids": searched_doc_ids,
+            "searches": searches,
+            "reports": [asdict(report) for report in reports],
+            "output_counts": output_counts,
+            "stage_details": self.get_stage_details(doc_id),
+        }
+
+    def _documents_for_evidence_scope(self, source_doc: KnowledgeDocument, scope: str) -> list[KnowledgeDocument]:
+        documents = self._read_documents()
+        if scope == "document":
+            return [doc for doc in documents if doc.id == source_doc.id]
+        if scope == "collection":
+            source_tags = set(source_doc.tags or [])
+            related = [
+                doc for doc in documents
+                if doc.id == source_doc.id
+                or (
+                    (source_doc.category and doc.category == source_doc.category)
+                    or bool(source_tags & set(doc.tags or []))
+                )
+            ]
+            return related or [source_doc]
+        return documents
+
+    def _chunks_for_evidence_scope(self, doc_ids: list[str]) -> list[KnowledgeChunk]:
+        doc_id_set = set(doc_ids)
+        chunks = [chunk for chunk in self._read_chunks() if chunk.doc_id in doc_id_set]
+        parent_chunks = [chunk for chunk in chunks if chunk.chunk_type == "parent"]
+        return parent_chunks or chunks
+
+    def _build_evidence_expansion_targets(
+        self,
+        claims: list[KnowledgeClaim],
+        relations: list[KnowledgeRelation],
+        entities: dict[str, KnowledgeEntity],
+    ) -> list[dict[str, Any]]:
+        targets: list[dict[str, Any]] = []
+        for claim in claims:
+            names = [
+                entities[entity_id].name
+                for entity_id in claim.entity_ids
+                if entity_id in entities and entities[entity_id].name
+            ]
+            query = " ".join([claim.text, *names]).strip()
+            entity_terms = set(self._semantic_terms(" ".join(names)))
+            if query:
+                targets.append({
+                    "record": claim,
+                    "record_id": claim.id,
+                    "record_type": "claim",
+                    "query": query,
+                    "entity_terms": entity_terms,
+                })
+        for relation in relations:
+            subject = entities.get(relation.subject_entity_id)
+            obj = entities.get(relation.object_entity_id)
+            names = [name for name in [subject.name if subject else "", obj.name if obj else ""] if name]
+            query = " ".join([*names, relation.predicate, relation.description]).strip()
+            entity_terms = set(self._semantic_terms(" ".join(names)))
+            if query:
+                targets.append({
+                    "record": relation,
+                    "record_id": relation.id,
+                    "record_type": "relation",
+                    "query": query,
+                    "entity_terms": entity_terms,
+                })
+        return targets
+
+    def _search_evidence_chunks(
+        self,
+        *,
+        query: str,
+        chunks: list[KnowledgeChunk],
+        source_doc_id: str,
+        scope: str,
+        entity_terms: set[str],
+    ) -> list[dict[str, Any]]:
+        query_terms = self._significant_semantic_terms(query)
+        matches: list[dict[str, Any]] = []
+        for chunk in chunks:
+            text = chunk.semantic_text or chunk.context_content or chunk.content
+            text_terms = self._significant_semantic_terms(text)
+            overlap = query_terms & text_terms
+            if not overlap:
+                continue
+            if scope == "global" and chunk.doc_id != source_doc_id and entity_terms and not (entity_terms & text_terms):
+                continue
+            if len(overlap) < min(2, len(query_terms)):
+                continue
+            evidence_text = self._best_evidence_text(query_terms, text)
+            if not evidence_text:
+                continue
+            source = asdict(self._build_source_evidence(
+                record_id=f"expansion:{query}",
+                doc_id=chunk.doc_id,
+                doc_name=chunk.doc_name,
+                chunk_id=chunk.id,
+                content=text,
+                chunk=self._chunk_record_to_index_dict(chunk),
+                evidence_text=evidence_text,
+                extraction_method="evidence_expansion",
+                confidence=min(0.95, 0.45 + (len(overlap) * 0.1)),
+                ts=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            ))
+            matches.append({
+                "chunk": chunk,
+                "content": text,
+                "source": source,
+                "score": len(overlap),
+                "overlap": sorted(overlap),
+            })
+        matches.sort(key=lambda item: (-item["score"], item["chunk"].doc_id, item["chunk"].chunk_index))
+        return matches[:10]
+
+    def _build_evidence_support_reports(
+        self,
+        target: dict[str, Any],
+        match: dict[str, Any],
+        scope: str,
+        ts: str,
+    ) -> list[KnowledgeEvidenceExpansionReport]:
+        record = target["record"]
+        source = match["source"]
+        report_type = "support"
+        conflict_record_id = ""
+        metadata: dict[str, Any] = {"matched_terms": match["overlap"]}
+        if target["record_type"] == "claim":
+            evidence_claim = KnowledgeClaim(text=source.get("evidence_text", ""), status="TRUE")
+            if self._claim_polarity(record) != self._claim_polarity(evidence_claim):
+                report_type = "conflict"
+                conflict_record_id = record.id
+                metadata["conflict_reason"] = "claim_polarity"
+        return [KnowledgeEvidenceExpansionReport(
+            id=self._evidence_expansion_report_id(report_type, target["record_id"], source.get("chunk_id", ""), source.get("evidence_text", "")),
+            report_type=report_type,
+            scope=scope,
+            status="candidate" if report_type == "conflict" else "complete",
+            target_record_id=target["record_id"],
+            target_record_type=target["record_type"],
+            query=target["query"],
+            doc_id=source.get("doc_id", ""),
+            doc_name=source.get("doc_name", ""),
+            chunk_id=source.get("chunk_id", ""),
+            source=source,
+            evidence_text=source.get("evidence_text", ""),
+            validation_status="validated",
+            conflict_record_id=conflict_record_id,
+            created_at=ts,
+            metadata=metadata,
+        )]
+
+    def _build_evidence_candidate_reports(
+        self,
+        *,
+        target: dict[str, Any],
+        match: dict[str, Any],
+        scope: str,
+        available_entity_names: set[str],
+        ts: str,
+    ) -> tuple[list[KnowledgeEvidenceExpansionReport], list[KnowledgeCandidate]]:
+        source = match["source"]
+        content = match["content"]
+        evidence_text = source.get("evidence_text", "")
+        reports: list[KnowledgeEvidenceExpansionReport] = []
+        diagnostics: list[KnowledgeCandidate] = []
+        entity_names = self._extract_entity_names(evidence_text)
+        claim_candidate = KnowledgeCandidate(
+            id=self._candidate_id("expansion_claim", source.get("chunk_id", ""), evidence_text, 0),
+            candidate_type="claim",
+            doc_id=source.get("doc_id", ""),
+            chunk_id=source.get("chunk_id", ""),
+            text=evidence_text,
+            payload={
+                "source_text": evidence_text,
+                "entity_names": entity_names,
+                "status": "FALSE" if self._text_has_negative_polarity(evidence_text) else "TRUE",
+            },
+            sources=[source],
+            extraction_method="evidence_expansion",
+            confidence=source.get("confidence", 0.5),
+            created_at=ts,
+        )
+        validated_claim = self._validate_semantic_candidate(claim_candidate, content, available_entity_names)
+        diagnostics.append(validated_claim)
+        reports.append(self._candidate_report_from_candidate(
+            report_type="candidate_claim",
+            candidate=validated_claim,
+            target=target,
+            source=source,
+            scope=scope,
+            ts=ts,
+        ))
+
+        for index, relation in enumerate(self._extract_relations(evidence_text), start=1):
+            relation_candidate = KnowledgeCandidate(
+                id=self._candidate_id("expansion_relation", source.get("chunk_id", ""), evidence_text, index),
+                candidate_type="relation",
+                doc_id=source.get("doc_id", ""),
+                chunk_id=source.get("chunk_id", ""),
+                text=evidence_text,
+                payload={
+                    "subject": relation.get("subject", ""),
+                    "predicate": relation.get("predicate", ""),
+                    "object": relation.get("object", ""),
+                    "evidence": evidence_text,
+                },
+                sources=[source],
+                extraction_method="evidence_expansion",
+                confidence=source.get("confidence", 0.5),
+                created_at=ts,
+            )
+            validated_relation = self._validate_semantic_candidate(relation_candidate, content, available_entity_names)
+            diagnostics.append(validated_relation)
+            reports.append(self._candidate_report_from_candidate(
+                report_type="candidate_relation",
+                candidate=validated_relation,
+                target=target,
+                source=source,
+                scope=scope,
+                ts=ts,
+            ))
+        return reports, diagnostics
+
+    def _candidate_report_from_candidate(
+        self,
+        *,
+        report_type: str,
+        candidate: KnowledgeCandidate,
+        target: dict[str, Any],
+        source: dict[str, Any],
+        scope: str,
+        ts: str,
+    ) -> KnowledgeEvidenceExpansionReport:
+        return KnowledgeEvidenceExpansionReport(
+            id=self._evidence_expansion_report_id(report_type, target["record_id"], source.get("chunk_id", ""), candidate.text),
+            report_type=report_type,
+            scope=scope,
+            status="candidate",
+            target_record_id=target["record_id"],
+            target_record_type=target["record_type"],
+            query=target["query"],
+            doc_id=source.get("doc_id", ""),
+            doc_name=source.get("doc_name", ""),
+            chunk_id=source.get("chunk_id", ""),
+            source=source,
+            evidence_text=source.get("evidence_text", ""),
+            candidate=asdict(candidate),
+            validation_status=candidate.validation_status,
+            created_at=ts,
+            metadata={"rejection_reasons": list(candidate.rejection_reasons)},
+        )
+
+    @staticmethod
+    def _available_entity_names(entities: Any) -> set[str]:
+        names: set[str] = set()
+        for entity in entities:
+            if entity.name:
+                names.add(KnowledgeStore._normalize_entity_name(entity.name))
+            for alias in entity.aliases:
+                if alias:
+                    names.add(KnowledgeStore._normalize_entity_name(alias))
+        return names
+
+    @staticmethod
+    def _significant_semantic_terms(text: str) -> set[str]:
+        stop_words = {
+            "the", "and", "for", "with", "that", "this", "from", "into", "onto", "are", "was", "were",
+            "does", "not", "don", "its", "their", "about", "source", "claim",
+        }
+        return {
+            term for term in KnowledgeStore._semantic_terms(text)
+            if len(term) >= 3 and term not in stop_words
+        }
+
+    @staticmethod
+    def _best_evidence_text(query_terms: set[str], text: str) -> str:
+        parts = [part.strip() for part in re.split(r"(?<=[.!?。！？])\s+|\n+", text) if part.strip()]
+        if not parts:
+            return re.sub(r"\s+", " ", text.strip())[:500]
+        scored = sorted(
+            parts,
+            key=lambda part: len(query_terms & KnowledgeStore._significant_semantic_terms(part)),
+            reverse=True,
+        )
+        return re.sub(r"\s+", " ", scored[0].strip())[:500]
+
+    @staticmethod
+    def _text_has_negative_polarity(text: str) -> bool:
+        return bool(re.search(r"\b(does not|do not|did not|is not|are not|was not|were not|never|cannot|can't|doesn't|don't)\b", text.lower()))
 
     def rebuild_stages(
         self,
@@ -1364,13 +1902,9 @@ class KnowledgeStore:
                 self._record_projection_stages(target_doc_id, recomputed_stages)
                 projection_runs += 1
             if "evidence_expansion" in recomputed_stages:
-                source_version = self._source_version_for_doc(target_doc_id)
-                self._record_stage_status(
+                self.run_evidence_expansion(
                     doc_id=target_doc_id,
-                    stage="evidence_expansion",
-                    status="skipped",
-                    skipped=1,
-                    source_version=source_version,
+                    scope=getattr(self.config, "evidence_expansion_scope", "document"),
                 )
 
         return {
@@ -1577,6 +2111,7 @@ class KnowledgeStore:
         output_counts: dict[str, int] | None = None,
         last_error: str = "",
         source_version: str = "",
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         stage_status = KnowledgeStageStatus(
@@ -1590,12 +2125,13 @@ class KnowledgeStore:
             failed=max(0, failed),
             stale=max(0, stale),
             started_at=now,
-            ended_at=now if status in {"complete", "skipped", "failed"} else "",
+            ended_at=now if status in {"complete", "skipped", "failed", "budget_limited", "partial_failed"} else "",
             output_counts=output_counts or {},
             last_error=last_error,
             input_hash=self._stage_input_hash(doc_id, stage, source_version),
             source_version=source_version,
             config_version=self._stage_config_version(stage),
+            metadata=metadata or {},
         )
         statuses = [
             existing
@@ -1619,6 +2155,14 @@ class KnowledgeStore:
             "chunk_size": getattr(self.config, "chunk_size", None),
             "chunk_overlap": getattr(self.config, "chunk_overlap", None),
             "semantic_extraction_mode": getattr(self.config, "semantic_extraction_mode", None),
+            "llm_extraction_strategy": getattr(self.config, "llm_extraction_strategy", None),
+            "evidence_expansion_enabled": getattr(self.config, "evidence_expansion_enabled", None),
+            "evidence_expansion_scope": getattr(self.config, "evidence_expansion_scope", None),
+            "evidence_expansion_max_queries": getattr(self.config, "evidence_expansion_max_queries", None),
+            "evidence_expansion_max_llm_calls": getattr(self.config, "evidence_expansion_max_llm_calls", None),
+            "evidence_expansion_max_tokens": getattr(self.config, "evidence_expansion_max_tokens", None),
+            "evidence_expansion_timeout_seconds": getattr(self.config, "evidence_expansion_timeout_seconds", None),
+            "evidence_expansion_concurrency": getattr(self.config, "evidence_expansion_concurrency", None),
             "graphrag_enabled": getattr(self.config, "graphrag_enabled", None),
             "graphrag_entity_summary_enabled": getattr(self.config, "graphrag_entity_summary_enabled", None),
         }
@@ -6700,6 +7244,9 @@ Chunk:
     def _read_candidate_diagnostics(self) -> list[KnowledgeCandidate]:
         return self._read_jsonl_dataclass(self.candidate_diagnostics_file, KnowledgeCandidate)
 
+    def _read_evidence_expansion_reports(self) -> list[KnowledgeEvidenceExpansionReport]:
+        return self._read_jsonl_dataclass(self.evidence_expansion_reports_file, KnowledgeEvidenceExpansionReport)
+
     def _read_communities(self) -> list[KnowledgeCommunity]:
         return self._read_jsonl_dataclass(self.communities_file, KnowledgeCommunity)
 
@@ -6771,6 +7318,9 @@ Chunk:
     def _write_candidate_diagnostics(self, candidates: list[KnowledgeCandidate]) -> None:
         self._write_jsonl(self.candidate_diagnostics_file, candidates)
 
+    def _write_evidence_expansion_reports(self, reports: list[KnowledgeEvidenceExpansionReport]) -> None:
+        self._write_jsonl(self.evidence_expansion_reports_file, reports)
+
     def _write_communities(self, communities: list[KnowledgeCommunity]) -> None:
         self._write_jsonl(self.communities_file, communities)
 
@@ -6832,6 +7382,11 @@ Chunk:
         left, right = sorted([left_id, right_id])
         value = f"{conflict_type}:{left}:{right}"
         return f"conflict_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _evidence_expansion_report_id(report_type: str, target_id: str, chunk_id: str, evidence_text: str) -> str:
+        value = f"{report_type}:{target_id}:{chunk_id}:{evidence_text}"
+        return f"exp_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
 
     def _build_source_evidence(
         self,

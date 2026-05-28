@@ -259,6 +259,193 @@ def test_rule_semantic_extraction_builds_candidates_before_persistence() -> None
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
+def test_structured_knowledge_snapshot_is_read_only_and_source_traceable() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Expansion Context",
+        content="TinyBot supports RAG. RAG depends on embeddings.",
+        file_type="txt",
+        category="architecture",
+        tags=["rag", "graph"],
+    )
+
+    snapshot = store.read_structured_knowledge(doc_id=doc_id)
+
+    assert [doc["id"] for doc in snapshot["documents"]] == [doc_id]
+    assert snapshot["chunks"]
+    assert all(chunk["doc_id"] == doc_id for chunk in snapshot["chunks"])
+    assert snapshot["semantic_text"]
+    assert snapshot["semantic_text"][0]["text"]
+    assert snapshot["entities"]
+    assert snapshot["mentions"]
+    assert snapshot["claims"]
+    assert snapshot["relations"]
+    assert snapshot["sources"]
+    assert snapshot["projections"]["communities"] or snapshot["projections"]["community_reports"]
+    assert snapshot["source_metadata"][doc_id]["name"] == "Expansion Context"
+    assert snapshot["source_metadata"][doc_id]["category"] == "architecture"
+    assert snapshot["source_metadata"][doc_id]["tags"] == ["rag", "graph"]
+
+    snapshot["documents"][0]["name"] = "Mutated"
+    snapshot["chunks"][0]["content"] = "mutated"
+    snapshot["source_metadata"][doc_id]["name"] = "Mutated"
+
+    assert store.get_document(doc_id).name == "Expansion Context"
+    assert store._read_chunks()[0].content != "mutated"
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_evidence_expansion_defaults_to_document_scope_and_keeps_reports_read_only() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Primary",
+        content="TinyBot supports RAG. RAG requires embeddings.",
+        file_type="txt",
+        category="architecture",
+        tags=["rag"],
+    )
+    other_doc_id = store.add_document(
+        name="Related",
+        content="TinyBot supports RAG in production. RAG does not require embeddings.",
+        file_type="txt",
+        category="architecture",
+        tags=["rag"],
+    )
+
+    result = store.run_evidence_expansion(doc_id=doc_id)
+
+    assert result["scope"] == "document"
+    assert result["searched_doc_ids"] == [doc_id]
+    assert all(match["doc_id"] == doc_id for search in result["searches"] for match in search["matched_sources"])
+    assert any(report["report_type"] == "support" for report in result["reports"])
+    assert not any(report.get("doc_id") == other_doc_id for report in result["reports"])
+    assert store.get_stats()["claim_count"] >= 2
+    assert store._read_evidence_expansion_reports()
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_evidence_expansion_collection_scope_reports_conflicts_and_validated_candidates() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Primary",
+        content="TinyBot supports RAG. RAG requires embeddings.",
+        file_type="txt",
+        category="architecture",
+        tags=["rag"],
+    )
+    related_doc_id = store.add_document(
+        name="Related",
+        content="TinyBot supports RAG in production. RAG does not require embeddings.",
+        file_type="txt",
+        category="architecture",
+        tags=["rag"],
+    )
+    unrelated_doc_id = store.add_document(
+        name="Unrelated",
+        content="TinyBot supports billing workflows.",
+        file_type="txt",
+        category="finance",
+        tags=["billing"],
+    )
+
+    result = store.run_evidence_expansion(doc_id=doc_id, scope="collection")
+
+    assert result["scope"] == "collection"
+    assert set(result["searched_doc_ids"]) == {doc_id, related_doc_id}
+    assert unrelated_doc_id not in result["searched_doc_ids"]
+    assert any(report["report_type"] == "conflict" for report in result["reports"])
+    assert any(
+        report["report_type"] in {"candidate_claim", "candidate_relation"}
+        and report["validation_status"] in {"validated", "normalized"}
+        for report in result["reports"]
+    )
+    assert not any(report.report_type.startswith("formal_") for report in store._read_evidence_expansion_reports())
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_evidence_expansion_global_scope_and_query_budget_are_visible() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=1000,
+            chunk_overlap=0,
+            evidence_expansion_max_queries=1,
+        ),
+    )
+    doc_id = store.add_document(
+        name="Primary",
+        content="TinyBot supports RAG. RAG requires embeddings.",
+        file_type="txt",
+        category="architecture",
+        tags=["rag"],
+    )
+    global_doc_id = store.add_document(
+        name="Global",
+        content="TinyBot supports RAG across workspaces.",
+        file_type="txt",
+        category="operations",
+        tags=["global"],
+    )
+
+    result = store.run_evidence_expansion(doc_id=doc_id, scope="global")
+
+    assert result["scope"] == "global"
+    assert global_doc_id in result["searched_doc_ids"]
+    assert result["status"] == "budget_limited"
+    assert result["budget_limited"] is True
+    assert result["budget_limit_reason"] == "query_limit"
+    stages = {detail["stage"]: detail for detail in result["stage_details"]}
+    assert stages["evidence_expansion"]["status"] == "budget_limited"
+    assert stages["evidence_expansion"]["metadata"]["scope"] == "global"
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_evidence_expansion_preserves_reports_after_partial_search_failure(monkeypatch) -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Primary",
+        content="TinyBot supports RAG. RAG requires embeddings.",
+        file_type="txt",
+    )
+    original_search = store._search_evidence_chunks
+    calls = {"count": 0}
+
+    def flaky_search(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("search backend unavailable")
+        return original_search(**kwargs)
+
+    monkeypatch.setattr(store, "_search_evidence_chunks", flaky_search)
+
+    result = store.run_evidence_expansion(doc_id=doc_id)
+
+    assert result["status"] == "partial_failed"
+    assert any(report["report_type"] == "support" for report in result["reports"])
+    assert any(report["report_type"] == "failure" for report in result["reports"])
+    stages = {detail["stage"]: detail for detail in result["stage_details"]}
+    assert stages["evidence_expansion"]["failed"] == 1
+    assert stages["evidence_expansion"]["last_error"] == "search backend unavailable"
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
 def test_llm_schema_normalization_builds_candidates_before_persistence() -> None:
     workspace = _workspace()
     store = KnowledgeStore(
