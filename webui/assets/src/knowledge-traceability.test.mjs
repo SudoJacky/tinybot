@@ -1,0 +1,115 @@
+import assert from "node:assert/strict";
+
+import {
+  buildKnowledgeClaimInspection,
+  buildKnowledgeRelationInspection,
+  buildKnowledgeSourceContext,
+  knowledgeEvidenceRowsForEdge,
+} from "./knowledge-traceability.js";
+
+const nodes = [
+  { id: "entity:tinybot", label: "TinyBot" },
+  { id: "entity:rag", label: "RAG" },
+];
+
+const edge = {
+  id: "rel:1",
+  source: "entity:tinybot",
+  target: "entity:rag",
+  predicate: "supports",
+  confidence: 0.82,
+  weight: 2,
+  supporting_claim_ids: ["claim:1"],
+  evidence: [
+    {
+      relation_id: "rel:1",
+      claim_id: "claim:1",
+      doc_name: "Architecture Notes",
+      chunk_id: "chunk:7",
+      line_start: 12,
+      line_end: 13,
+      text: "TinyBot supports RAG with source citations.",
+      confidence: 0.91,
+      source: {
+        doc_id: "doc:1",
+        doc_name: "Architecture Notes",
+        chunk_id: "chunk:7",
+        evidence_text: "TinyBot supports RAG with source citations.",
+        start_char: 120,
+        end_char: 168,
+        page: 3,
+        extraction_method: "rule",
+        confidence: 0.91,
+      },
+    },
+  ],
+};
+
+assert.deepEqual(knowledgeEvidenceRowsForEdge(edge, nodes), [
+  {
+    id: "rel:1:claim:1:chunk:7:0",
+    edgeId: "rel:1",
+    sourceNodeId: "entity:tinybot",
+    targetNodeId: "entity:rag",
+    title: "TinyBot -[supports]-> RAG",
+    docName: "Architecture Notes",
+    location: "L12-L13 / p.3 / chunk:7",
+    evidenceText: "TinyBot supports RAG with source citations.",
+    confidenceLabel: "0.910",
+    claimId: "claim:1",
+  },
+]);
+
+assert.deepEqual(buildKnowledgeRelationInspection(edge, nodes), {
+  title: "TinyBot -[supports]-> RAG",
+  predicate: "supports",
+  endpoints: "TinyBot -> RAG",
+  confidenceLabel: "0.820",
+  weightLabel: "2.000",
+  supportingClaimIds: ["claim:1"],
+  evidence: [
+    {
+      title: "Architecture Notes",
+      meta: "L12-L13 / p.3 / chunk:7 / rule / confidence 0.910",
+      text: "TinyBot supports RAG with source citations.",
+      claimId: "claim:1",
+    },
+  ],
+});
+
+assert.deepEqual(buildKnowledgeClaimInspection({
+  id: "claim:1",
+  text: "TinyBot supports RAG.",
+  status: "TRUE",
+  confidence: 0.88,
+  source: {
+    doc_name: "Architecture Notes",
+    chunk_id: "chunk:7",
+    evidence_text: "TinyBot supports RAG with source citations.",
+    page: 3,
+    extraction_method: "llm",
+    confidence: 0.88,
+  },
+}), {
+  id: "claim:1",
+  title: "TinyBot supports RAG.",
+  status: "TRUE",
+  confidenceLabel: "0.880",
+  sourceTitle: "Architecture Notes",
+  sourceMeta: "p.3 / chunk:7 / llm / confidence 0.880",
+  evidenceText: "TinyBot supports RAG with source citations.",
+});
+
+assert.deepEqual(buildKnowledgeSourceContext({
+  doc_name: "Architecture Notes",
+  chunk_id: "chunk:7",
+  page: 3,
+  start_char: 120,
+  end_char: 168,
+  extraction_method: "rule",
+  confidence: 0.91,
+}), {
+  title: "Architecture Notes",
+  location: "p.3 / chars 120-168 / chunk:7",
+  meta: "p.3 / chars 120-168 / chunk:7 / rule / confidence 0.910",
+});

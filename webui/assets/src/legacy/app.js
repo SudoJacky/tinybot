@@ -48,6 +48,11 @@ import {
   shouldRefreshCoworkAgentInspectorForStream,
   upsertChatCoworkSession,
 } from '../cowork-chat.js';
+import {
+  buildKnowledgeClaimInspection,
+  buildKnowledgeRelationInspection,
+  knowledgeEvidenceRowsForEdge,
+} from '../knowledge-traceability.js';
 
 // Legacy application module. The functions below are intentionally kept together
 // for this pass because chat, settings, knowledge, and cowork flows share state
@@ -8651,22 +8656,24 @@ function renderKnowledgeGraphInspector() {
 
   if (selection.edge) {
     const edge = selection.edge;
-    inspector.append(createInspectorTitle(edge.predicate || t("knowledge.relationship"), t("knowledge.relationship")));
+    const nodes = state.knowledgeGraph?.nodes || [];
+    const relation = buildKnowledgeRelationInspection(edge, nodes);
+    inspector.append(createInspectorTitle(relation.title || edge.predicate || t("knowledge.relationship"), t("knowledge.relationship")));
     inspector.append(createInspectorText(edge.description || t("knowledge.noRelationshipDescription")));
     inspector.append(createInspectorMetrics([
-      [t("knowledge.weight"), formatInspectorNumber(edge.weight || edge.count)],
-      [t("knowledge.strength"), formatInspectorNumber(edge.strength || edge.weight || edge.count)],
-      [t("knowledge.evidence"), edge.evidence?.length || 0],
+      [t("knowledge.predicate"), relation.predicate],
+      [t("knowledge.confidence"), relation.confidenceLabel || "-"],
+      [t("knowledge.evidence"), relation.evidence.length],
     ]));
+    inspector.append(createInspectorSection(t("knowledge.endpoints"), [relation.endpoints]));
+    if (relation.supportingClaimIds.length) {
+      inspector.append(createInspectorSection(t("knowledge.supportingClaims"), relation.supportingClaimIds));
+    }
     if (edge.doc_names?.length) {
       inspector.append(createInspectorSection(t("knowledge.sourceDocuments"), edge.doc_names.slice(0, 6)));
     }
-    if (edge.evidence?.length) {
-      const evidence = edge.evidence.slice(0, 4).map((item) => {
-        const where = [item.doc_name, item.line_start ? `L${item.line_start}-${item.line_end || item.line_start}` : ""].filter(Boolean).join(" / ");
-        return `${where ? `${where}: ` : ""}${item.text || ""}`;
-      });
-      inspector.append(createInspectorSection(t("knowledge.evidence"), evidence));
+    if (relation.evidence.length) {
+      inspector.append(createKnowledgeEvidenceSection(t("knowledge.relationEvidence"), relation.evidence));
     }
   }
 }
@@ -8714,6 +8721,28 @@ function createInspectorSection(title, rows) {
     const item = document.createElement("div");
     item.className = "inspector-row";
     item.textContent = row;
+    section.append(item);
+  }
+  return section;
+}
+
+function createKnowledgeEvidenceSection(title, rows) {
+  const section = document.createElement("div");
+  section.className = "inspector-section knowledge-evidence-section";
+  const heading = document.createElement("div");
+  heading.className = "inspector-section-title";
+  heading.textContent = title;
+  section.append(heading);
+  for (const row of rows) {
+    const item = document.createElement("div");
+    item.className = "inspector-row knowledge-evidence-row";
+    const titleNode = document.createElement("strong");
+    titleNode.textContent = row.title || t("knowledge.unknownSource");
+    const meta = document.createElement("span");
+    meta.textContent = [row.meta, row.claimId ? `${t("knowledge.claim")} ${row.claimId}` : ""].filter(Boolean).join(" / ");
+    const text = document.createElement("p");
+    text.textContent = row.text || "";
+    item.append(titleNode, meta, text);
     section.append(item);
   }
   return section;
@@ -9260,32 +9289,32 @@ function distanceToSegment(point, start, end) {
 }
 
 function renderKnowledgeGraphEvidence(nodes, edges) {
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
   const list = document.createElement("div");
   list.className = "graph-evidence-list";
   for (const edge of edges.slice(0, 6)) {
+    const rows = knowledgeEvidenceRowsForEdge(edge, nodes);
+    const rowModel = rows[0] || null;
     const row = document.createElement("div");
     row.className = "graph-evidence-item";
-    row.dataset.edgeId = edge.id || `${edge.source}:${edge.predicate}:${edge.target}`;
+    row.dataset.edgeId = rowModel?.edgeId || edge.id || `${edge.source}:${edge.predicate}:${edge.target}`;
     row.dataset.source = edge.source;
     row.dataset.target = edge.target;
 
     const title = document.createElement("div");
     title.className = "graph-evidence-title";
-    title.textContent = `${nodeMap.get(edge.source)?.label || edge.source} -[${edge.predicate}]-> ${nodeMap.get(edge.target)?.label || edge.target}`;
+    title.textContent = rowModel?.title || `${edge.source} -[${edge.predicate}]-> ${edge.target}`;
 
-    const evidence = edge.evidence?.[0];
     const meta = document.createElement("div");
     meta.className = "graph-evidence-meta";
     const metricText = edge.weight ? `weight ${formatInspectorNumber(edge.weight)}` : "";
-    meta.textContent = evidence
-      ? [evidence.doc_name, evidence.line_start ? `L${evidence.line_start}-${evidence.line_end || evidence.line_start}` : ""].filter(Boolean).join(" · ")
+    meta.textContent = rowModel
+      ? [rowModel.docName, rowModel.location, rowModel.confidenceLabel ? `confidence ${rowModel.confidenceLabel}` : ""].filter(Boolean).join(" · ")
       : "";
     meta.textContent = [meta.textContent, metricText].filter(Boolean).join(" · ");
 
     const text = document.createElement("div");
     text.className = "graph-evidence-text";
-    text.textContent = evidence?.text || "";
+    text.textContent = rowModel?.evidenceText || "";
 
     row.append(title, meta, text);
     list.append(row);
@@ -9972,6 +10001,8 @@ function renderQueryResults(result) {
     content.className = "query-result-content";
     content.textContent = item.content || "";
 
+    const traceability = renderKnowledgeTraceabilityDetails(item);
+
     const debug = document.createElement("details");
     debug.className = "query-result-debug";
     const debugSummary = document.createElement("summary");
@@ -9989,9 +10020,81 @@ function renderQueryResults(result) {
     locate.addEventListener("click", () => highlightKnowledgeQueryResult(item, result.query));
     actions.append(locate);
 
-    resultItem.append(header, meta, why, content, debug, actions);
+    resultItem.append(header, meta, why, content);
+    if (traceability) {
+      resultItem.append(traceability);
+    }
+    resultItem.append(debug, actions);
     elements.queryResults.append(resultItem);
   }
+}
+
+function renderKnowledgeTraceabilityDetails(item) {
+  const claimEvidence = Array.isArray(item.matched_claim_evidence) ? item.matched_claim_evidence : [];
+  const relationEvidence = Array.isArray(item.matched_relation_evidence) ? item.matched_relation_evidence : [];
+  const sourceSnippets = Array.isArray(item.source_snippets) ? item.source_snippets : [];
+  if (!claimEvidence.length && !relationEvidence.length && !sourceSnippets.length) {
+    return null;
+  }
+
+  const details = document.createElement("details");
+  details.className = "knowledge-traceability-details";
+  const summary = document.createElement("summary");
+  summary.textContent = t("knowledge.traceability");
+  details.append(summary);
+
+  if (sourceSnippets.length) {
+    details.append(createKnowledgeEvidenceSection(
+      t("knowledge.sourceEvidence"),
+      sourceSnippets.slice(0, 4).map((snippet) => {
+        const claim = buildKnowledgeClaimInspection({ source: snippet, text: snippet.text || snippet.evidence_text });
+        return {
+          title: claim.sourceTitle,
+          meta: claim.sourceMeta,
+          text: claim.evidenceText,
+          claimId: "",
+        };
+      }),
+    ));
+  }
+
+  if (claimEvidence.length) {
+    details.append(createKnowledgeEvidenceSection(
+      t("knowledge.claimEvidence"),
+      claimEvidence.slice(0, 5).map((claim) => {
+        const view = buildKnowledgeClaimInspection(claim);
+        return {
+          title: view.title,
+          meta: [view.sourceTitle, view.sourceMeta, view.status ? `${t("knowledge.status")} ${view.status}` : ""].filter(Boolean).join(" / "),
+          text: view.evidenceText,
+          claimId: view.id,
+        };
+      }),
+    ));
+  }
+
+  if (relationEvidence.length) {
+    details.append(createKnowledgeEvidenceSection(
+      t("knowledge.relationEvidence"),
+      relationEvidence.slice(0, 5).map((relation) => {
+        const view = buildKnowledgeRelationInspection({
+          ...relation,
+          source: relation.subject_entity_id,
+          target: relation.object_entity_id,
+          evidence: relation.evidence ? relation.evidence : [{ ...relation, text: relation.evidence_text }],
+          supporting_claim_ids: relation.claim_ids,
+        });
+        return {
+          title: view.title,
+          meta: [view.predicate, view.confidenceLabel ? `${t("knowledge.confidence")} ${view.confidenceLabel}` : ""].filter(Boolean).join(" / "),
+          text: view.evidence[0]?.text || relation.evidence_text || "",
+          claimId: view.supportingClaimIds[0] || "",
+        };
+      }),
+    ));
+  }
+
+  return details;
 }
 
 function knowledgeNumericScore(item) {
