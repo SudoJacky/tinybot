@@ -34,6 +34,34 @@ if TYPE_CHECKING:
 
 
 _KNOWLEDGE_COLLECTION_DENSE = "knowledge_dense"
+_KNOWLEDGE_INDEXING_STAGES: tuple[str, ...] = (
+    "chunking",
+    "dense_indexing",
+    "sparse_indexing",
+    "mention_extraction",
+    "entity_canonicalization",
+    "claim_extraction",
+    "claim_validation",
+    "relation_extraction",
+    "relation_validation",
+    "conflict_detection",
+    "evidence_expansion",
+    "graph_projection",
+    "community_report_projection",
+)
+_KNOWLEDGE_SEMANTIC_STAGES: tuple[str, ...] = (
+    "mention_extraction",
+    "entity_canonicalization",
+    "claim_extraction",
+    "claim_validation",
+    "relation_extraction",
+    "relation_validation",
+    "conflict_detection",
+)
+_KNOWLEDGE_PROJECTION_STAGES: tuple[str, ...] = (
+    "graph_projection",
+    "community_report_projection",
+)
 
 
 _CJK_PATTERN = re.compile(r"[一-鿿぀-ゟ゠-ヿ가-힯]")
@@ -496,6 +524,88 @@ class KnowledgeChunk:
 
 
 @dataclass
+class KnowledgeSourceEvidence:
+    """Inspectable source evidence backing a formal knowledge record."""
+
+    id: str = ""
+    doc_id: str = ""
+    doc_name: str = ""
+    chunk_id: str = ""
+    chunk_hash: str = ""
+    evidence_text: str = ""
+    start_char: int = 0
+    end_char: int = 0
+    page: int | None = None
+    extraction_method: str = "rule"
+    confidence: float = 0.5
+    source_version: str = ""
+    source_updated_at: str = ""
+    created_at: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class KnowledgeStageStatus:
+    """Status for one stage in the source-traceable indexing pipeline."""
+
+    id: str = ""
+    stage: str = ""
+    status: str = "pending"
+    doc_id: str = ""
+    processed: int = 0
+    total: int = 0
+    skipped: int = 0
+    failed: int = 0
+    stale: int = 0
+    started_at: str = ""
+    ended_at: str = ""
+    output_counts: dict[str, int] = field(default_factory=dict)
+    last_error: str = ""
+    input_hash: str = ""
+    source_version: str = ""
+    config_version: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class KnowledgeCandidate:
+    """Candidate extraction output awaiting deterministic validation."""
+
+    id: str = ""
+    candidate_type: str = ""  # mention, entity, claim, relation, conflict
+    doc_id: str = ""
+    chunk_id: str = ""
+    text: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    validation_status: str = "pending"
+    rejection_reasons: list[str] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    extraction_method: str = "rule"
+    confidence: float = 0.5
+    created_at: str = ""
+
+
+@dataclass
+class KnowledgeConflict:
+    """Source-backed contradiction between formal claims or relations."""
+
+    id: str = ""
+    conflict_type: str = ""
+    left_record_id: str = ""
+    left_record_type: str = ""
+    right_record_id: str = ""
+    right_record_type: str = ""
+    doc_ids: list[str] = field(default_factory=list)
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    evidence_text: str = ""
+    status: str = "open"
+    confidence: float = 0.5
+    created_at: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class KnowledgeEntity:
     """A canonical entity extracted from knowledge chunks."""
 
@@ -509,6 +619,8 @@ class KnowledgeEntity:
     text_unit_ids: list[str] = field(default_factory=list)
     created_at: str = ""
     confidence: float = 0.5
+    source_refs: list[dict[str, Any]] = field(default_factory=list)
+    mention_count: int = 0
 
 
 @dataclass
@@ -523,6 +635,7 @@ class KnowledgeMention:
     start_char: int = 0
     end_char: int = 0
     confidence: float = 0.5
+    source: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -540,6 +653,9 @@ class KnowledgeClaim:
     start_date: str = ""
     end_date: str = ""
     source_text: str = ""
+    source: dict[str, Any] = field(default_factory=dict)
+    source_refs: list[dict[str, Any]] = field(default_factory=list)
+    validation_status: str = "validated"
 
 
 @dataclass
@@ -558,6 +674,10 @@ class KnowledgeRelation:
     confidence: float = 0.5
     created_at: str = ""
     text_unit_ids: list[str] = field(default_factory=list)
+    source: dict[str, Any] = field(default_factory=dict)
+    source_refs: list[dict[str, Any]] = field(default_factory=list)
+    claim_ids: list[str] = field(default_factory=list)
+    validation_status: str = "validated"
 
 
 @dataclass
@@ -575,6 +695,8 @@ class KnowledgeCommunity:
     text_unit_ids: list[str] = field(default_factory=list)
     period: str = ""
     size: int = 0
+    projection_status: str = "fresh"
+    source_refs: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -595,6 +717,11 @@ class KnowledgeCommunityReport:
     full_content_json: dict[str, Any] = field(default_factory=dict)
     period: str = ""
     size: int = 0
+    projection_type: str = "community_report"
+    projection_status: str = "fresh"
+    supporting_claim_ids: list[str] = field(default_factory=list)
+    supporting_relation_ids: list[str] = field(default_factory=list)
+    source_refs: list[dict[str, Any]] = field(default_factory=list)
 
 
 class KnowledgeStore:
@@ -627,6 +754,10 @@ class KnowledgeStore:
         self.mentions_file = self.knowledge_dir / "mentions.jsonl"
         self.claims_file = self.knowledge_dir / "claims.jsonl"
         self.relations_file = self.knowledge_dir / "relations.jsonl"
+        self.sources_file = self.knowledge_dir / "sources.jsonl"
+        self.conflicts_file = self.knowledge_dir / "conflicts.jsonl"
+        self.stage_status_file = self.knowledge_dir / "stage_status.jsonl"
+        self.candidate_diagnostics_file = self.knowledge_dir / "candidate_diagnostics.jsonl"
         self.communities_file = self.knowledge_dir / "communities.jsonl"
         self.community_reports_file = self.knowledge_dir / "community_reports.jsonl"
         self.bm25_index_file = self.knowledge_dir / "bm25_index.json"
@@ -995,6 +1126,7 @@ class KnowledgeStore:
             "doc_id": doc.id,
             "parent_chunks": len(parent_chunks),
             "child_chunks": len(child_chunks),
+            "stage_details": self.get_stage_details(doc_id),
         }
 
     @staticmethod
@@ -1030,32 +1162,581 @@ class KnowledgeStore:
         tags: list[str],
         progress_callback: Any | None = None,
     ) -> None:
-        total = max(1, len(parent_chunks) + 3)
+        total = len(_KNOWLEDGE_INDEXING_STAGES)
+        source_version = self._source_version_for_chunks(doc_id, parent_chunks + child_chunks)
 
         def notify(stage: str, message: str, processed: int) -> None:
             if progress_callback:
                 progress_callback(stage, message, min(processed, total), total)
 
-        notify("dense", "Indexing retrieval vectors", 0)
-        if self.vector_store is not None:
-            self._index_chunks_dense(doc_id, doc_name, file_path, child_chunks, ts, category, tags)
-        notify("sparse", "Building keyword index", 1)
-        self._index_chunks_sparse(doc_id, doc_name, file_path, child_chunks, ts, category, tags)
-        notify("semantic", "Extracting entities and relationships", 2)
-        self._index_chunks_semantic(
-            doc_id,
-            doc_name,
-            parent_chunks,
-            ts,
-            progress_callback=lambda processed, semantic_total: notify(
-                "semantic",
-                f"Extracting entities and relationships ({processed}/{semantic_total})",
-                2 + processed,
-            ),
-        )
-        notify("graph", "Building communities and graph reports", 2 + len(parent_chunks))
-        self._rebuild_graphrag_communities()
+        def complete_stage(
+            stage: str,
+            *,
+            processed: int,
+            stage_total: int,
+            skipped: int = 0,
+            output_counts: dict[str, int] | None = None,
+            status: str = "complete",
+        ) -> None:
+            self._record_stage_status(
+                doc_id=doc_id,
+                stage=stage,
+                status=status,
+                processed=processed,
+                total=stage_total,
+                skipped=skipped,
+                output_counts=output_counts or {},
+                source_version=source_version,
+            )
+
+        def fail_stage(stage: str, error: Exception) -> None:
+            self._record_stage_status(
+                doc_id=doc_id,
+                stage=stage,
+                status="failed",
+                failed=1,
+                total=1,
+                last_error=str(error),
+                source_version=source_version,
+            )
+
+        completed_steps = 0
+        try:
+            notify("chunking", "Document chunks are prepared", completed_steps)
+            complete_stage(
+                "chunking",
+                processed=len(parent_chunks),
+                stage_total=len(parent_chunks),
+                output_counts={"parent_chunks": len(parent_chunks), "child_chunks": len(child_chunks)},
+            )
+            completed_steps += 1
+
+            notify("dense_indexing", "Indexing retrieval vectors", completed_steps)
+            if self.vector_store is not None:
+                self._index_chunks_dense(doc_id, doc_name, file_path, child_chunks, ts, category, tags)
+                complete_stage(
+                    "dense_indexing",
+                    processed=len(child_chunks),
+                    stage_total=len(child_chunks),
+                    output_counts={"chunks": len(child_chunks)},
+                )
+            else:
+                complete_stage(
+                    "dense_indexing",
+                    processed=0,
+                    stage_total=len(child_chunks),
+                    skipped=len(child_chunks),
+                    status="skipped",
+                )
+            completed_steps += 1
+
+            notify("sparse_indexing", "Building keyword index", completed_steps)
+            self._index_chunks_sparse(doc_id, doc_name, file_path, child_chunks, ts, category, tags)
+            complete_stage(
+                "sparse_indexing",
+                processed=len(child_chunks),
+                stage_total=len(child_chunks),
+                output_counts={"chunks": len(child_chunks)},
+            )
+            completed_steps += 1
+
+            notify("mention_extraction", "Extracting source mentions, claims, and relations", completed_steps)
+            self._index_chunks_semantic(
+                doc_id,
+                doc_name,
+                parent_chunks,
+                ts,
+                progress_callback=lambda processed, semantic_total: notify(
+                    "mention_extraction",
+                    f"Extracting source mentions, claims, and relations ({processed}/{semantic_total})",
+                    completed_steps,
+                ),
+            )
+            semantic_counts = self._semantic_output_counts(doc_id)
+            semantic_stage_outputs = {
+                "mentions": semantic_counts["mentions"],
+                "entities": semantic_counts["entities"],
+                "claims": semantic_counts["claims"],
+                "relations": semantic_counts["relations"],
+                "conflicts": semantic_counts["conflicts"],
+            }
+            for stage in (
+                "mention_extraction",
+                "entity_canonicalization",
+                "claim_extraction",
+                "claim_validation",
+                "relation_extraction",
+                "relation_validation",
+                "conflict_detection",
+            ):
+                complete_stage(
+                    stage,
+                    processed=len(parent_chunks),
+                    stage_total=len(parent_chunks),
+                    output_counts=semantic_stage_outputs,
+                )
+                completed_steps += 1
+
+            notify("evidence_expansion", "Evidence expansion is disabled by default", completed_steps)
+            complete_stage(
+                "evidence_expansion",
+                processed=0,
+                stage_total=0,
+                skipped=1,
+                status="skipped",
+            )
+            completed_steps += 1
+
+            notify("graph_projection", "Building graph projections", completed_steps)
+            self._rebuild_graphrag_communities()
+            projection_counts = self._projection_output_counts(doc_id)
+            complete_stage(
+                "graph_projection",
+                processed=1,
+                stage_total=1,
+                output_counts={"communities": projection_counts["communities"]},
+            )
+            completed_steps += 1
+
+            notify("community_report_projection", "Building community report projections", completed_steps)
+            complete_stage(
+                "community_report_projection",
+                processed=1,
+                stage_total=1,
+                output_counts={"community_reports": projection_counts["community_reports"]},
+            )
+            completed_steps += 1
+        except Exception as exc:
+            current_stage = _KNOWLEDGE_INDEXING_STAGES[min(completed_steps, len(_KNOWLEDGE_INDEXING_STAGES) - 1)]
+            fail_stage(current_stage, exc)
+            raise
+
         notify("completed", "Knowledge graph is ready", total)
+
+    def get_stage_details(self, doc_id: str | None = None) -> list[dict[str, Any]]:
+        """Return persisted stage status details in pipeline order."""
+        order = {stage: index for index, stage in enumerate(_KNOWLEDGE_INDEXING_STAGES)}
+        statuses = self._read_stage_statuses()
+        if doc_id is not None:
+            statuses = [status for status in statuses if status.doc_id == doc_id]
+        return [
+            asdict(status)
+            for status in sorted(statuses, key=lambda item: (item.doc_id, order.get(item.stage, len(order)), item.stage))
+        ]
+
+    def rebuild_stages(
+        self,
+        *,
+        doc_id: str | None = None,
+        stages: list[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
+        """Rebuild selected indexing stages for one document or all documents."""
+        doc_ids = [doc_id] if doc_id else [doc.id for doc in self._read_documents()]
+        missing_doc_ids = [item for item in doc_ids if self.get_document(item) is None]
+        if missing_doc_ids:
+            raise ValueError(f"Document {missing_doc_ids[0]} not found")
+
+        requested_stages = self._normalize_requested_stages(stages)
+        recomputed_stages = self._expand_rebuild_stages(requested_stages)
+        for target_doc_id in doc_ids:
+            self._mark_rebuild_stages_stale(target_doc_id, recomputed_stages)
+
+        bm25_docs = 0
+        semantic_docs = 0
+        projection_runs = 0
+        for target_doc_id in doc_ids:
+            if "chunking" in recomputed_stages:
+                self.index_document(target_doc_id)
+                bm25_docs += 1
+                semantic_docs += 1
+                projection_runs += 1
+                continue
+            if "dense_indexing" in recomputed_stages:
+                self._rebuild_dense_for_doc(target_doc_id)
+            if "sparse_indexing" in recomputed_stages:
+                self._rebuild_sparse_for_doc(target_doc_id)
+                bm25_docs += 1
+            if any(stage in recomputed_stages for stage in _KNOWLEDGE_SEMANTIC_STAGES):
+                self._rebuild_semantic_for_doc(target_doc_id, recomputed_stages)
+                semantic_docs += 1
+            elif any(stage in recomputed_stages for stage in _KNOWLEDGE_PROJECTION_STAGES):
+                self._rebuild_graphrag_communities()
+                self._record_projection_stages(target_doc_id, recomputed_stages)
+                projection_runs += 1
+            if "evidence_expansion" in recomputed_stages:
+                source_version = self._source_version_for_doc(target_doc_id)
+                self._record_stage_status(
+                    doc_id=target_doc_id,
+                    stage="evidence_expansion",
+                    status="skipped",
+                    skipped=1,
+                    source_version=source_version,
+                )
+
+        return {
+            "doc_ids": doc_ids,
+            "requested_stages": requested_stages,
+            "recomputed_stages": recomputed_stages,
+            "bm25_docs": bm25_docs,
+            "semantic_docs": semantic_docs,
+            "projection_runs": projection_runs,
+            "stage_details": self.get_stage_details(doc_id),
+        }
+
+    def _normalize_requested_stages(self, stages: list[str] | tuple[str, ...] | None) -> list[str]:
+        if not stages:
+            return list(_KNOWLEDGE_INDEXING_STAGES)
+        normalized: list[str] = []
+        for stage in stages:
+            if stage == "all":
+                return list(_KNOWLEDGE_INDEXING_STAGES)
+            if stage not in _KNOWLEDGE_INDEXING_STAGES:
+                raise ValueError(
+                    f"Unsupported rebuild stage '{stage}'. "
+                    f"Valid stages: {', '.join(_KNOWLEDGE_INDEXING_STAGES)}"
+                )
+            if stage not in normalized:
+                normalized.append(stage)
+        return normalized
+
+    def _expand_rebuild_stages(self, requested_stages: list[str]) -> list[str]:
+        expanded: list[str] = []
+        for stage in requested_stages:
+            if stage in {"chunking"}:
+                downstream = _KNOWLEDGE_INDEXING_STAGES
+            elif stage in {"dense_indexing", "sparse_indexing", "evidence_expansion"}:
+                downstream = (stage,)
+            elif stage in _KNOWLEDGE_SEMANTIC_STAGES:
+                start = _KNOWLEDGE_SEMANTIC_STAGES.index(stage)
+                downstream = (
+                    *_KNOWLEDGE_SEMANTIC_STAGES[start:],
+                    *_KNOWLEDGE_PROJECTION_STAGES,
+                )
+            elif stage in _KNOWLEDGE_PROJECTION_STAGES:
+                start = _KNOWLEDGE_PROJECTION_STAGES.index(stage)
+                downstream = _KNOWLEDGE_PROJECTION_STAGES[start:]
+            else:
+                downstream = (stage,)
+            for downstream_stage in downstream:
+                if downstream_stage not in expanded:
+                    expanded.append(downstream_stage)
+        return [stage for stage in _KNOWLEDGE_INDEXING_STAGES if stage in expanded]
+
+    def _mark_rebuild_stages_stale(self, doc_id: str, stages: list[str]) -> None:
+        source_version = self._source_version_for_doc(doc_id)
+        for stage in stages:
+            self._record_stage_status(
+                doc_id=doc_id,
+                stage=stage,
+                status="stale",
+                stale=1,
+                source_version=source_version,
+            )
+
+    def _rebuild_dense_for_doc(self, doc_id: str) -> None:
+        doc = self.get_document(doc_id)
+        if doc is None:
+            raise ValueError(f"Document {doc_id} not found")
+        chunks = [chunk for chunk in self._read_chunks() if chunk.doc_id == doc_id and chunk.chunk_type == "child"]
+        source_version = self._source_version_for_doc(doc_id)
+        if self.vector_store is None:
+            self._record_stage_status(
+                doc_id=doc_id,
+                stage="dense_indexing",
+                status="skipped",
+                total=len(chunks),
+                skipped=len(chunks),
+                source_version=source_version,
+            )
+            return
+        self._delete_from_collection(_KNOWLEDGE_COLLECTION_DENSE, doc_id)
+        self._index_chunks_dense(
+            doc_id,
+            doc.name,
+            doc.file_path,
+            [self._chunk_record_to_index_dict(chunk) for chunk in chunks],
+            doc.created_at,
+            doc.category,
+            doc.tags,
+        )
+        self._record_stage_status(
+            doc_id=doc_id,
+            stage="dense_indexing",
+            status="complete",
+            processed=len(chunks),
+            total=len(chunks),
+            output_counts={"chunks": len(chunks)},
+            source_version=source_version,
+        )
+
+    def _rebuild_sparse_for_doc(self, doc_id: str) -> None:
+        doc = self.get_document(doc_id)
+        if doc is None:
+            raise ValueError(f"Document {doc_id} not found")
+        chunks = [chunk for chunk in self._read_chunks() if chunk.doc_id == doc_id and chunk.chunk_type == "child"]
+        self._delete_from_bm25_index(doc_id)
+        self._index_chunks_sparse(
+            doc_id,
+            doc.name,
+            doc.file_path,
+            [self._chunk_record_to_index_dict(chunk) for chunk in chunks],
+            doc.created_at,
+            doc.category,
+            doc.tags,
+        )
+        with self._lock:
+            self._indexed_ids.add(doc_id)
+        self._record_stage_status(
+            doc_id=doc_id,
+            stage="sparse_indexing",
+            status="complete",
+            processed=len(chunks),
+            total=len(chunks),
+            output_counts={"chunks": len(chunks)},
+            source_version=self._source_version_for_doc(doc_id),
+        )
+
+    def _rebuild_semantic_for_doc(self, doc_id: str, recomputed_stages: list[str]) -> None:
+        doc = self.get_document(doc_id)
+        if doc is None:
+            raise ValueError(f"Document {doc_id} not found")
+        parent_chunks = [
+            self._chunk_record_to_index_dict(chunk)
+            for chunk in self._read_chunks()
+            if chunk.doc_id == doc_id and chunk.chunk_type == "parent"
+        ]
+        self._remove_semantic_for_doc(doc_id)
+        self._index_chunks_semantic(doc.id, doc.name, parent_chunks, doc.created_at)
+        self._rebuild_graphrag_communities()
+
+        source_version = self._source_version_for_doc(doc_id)
+        semantic_counts = self._semantic_output_counts(doc_id)
+        semantic_outputs = {
+            "mentions": semantic_counts["mentions"],
+            "entities": semantic_counts["entities"],
+            "claims": semantic_counts["claims"],
+            "relations": semantic_counts["relations"],
+            "conflicts": semantic_counts["conflicts"],
+        }
+        for stage in _KNOWLEDGE_SEMANTIC_STAGES:
+            if stage in recomputed_stages:
+                self._record_stage_status(
+                    doc_id=doc_id,
+                    stage=stage,
+                    status="complete",
+                    processed=len(parent_chunks),
+                    total=len(parent_chunks),
+                    output_counts=semantic_outputs,
+                    source_version=source_version,
+                )
+        self._record_projection_stages(doc_id, recomputed_stages)
+
+    def _record_projection_stages(self, doc_id: str, recomputed_stages: list[str]) -> None:
+        source_version = self._source_version_for_doc(doc_id)
+        projection_counts = self._projection_output_counts(doc_id)
+        if "graph_projection" in recomputed_stages:
+            self._record_stage_status(
+                doc_id=doc_id,
+                stage="graph_projection",
+                status="complete",
+                processed=1,
+                total=1,
+                output_counts={"communities": projection_counts["communities"]},
+                source_version=source_version,
+            )
+        if "community_report_projection" in recomputed_stages:
+            self._record_stage_status(
+                doc_id=doc_id,
+                stage="community_report_projection",
+                status="complete",
+                processed=1,
+                total=1,
+                output_counts={"community_reports": projection_counts["community_reports"]},
+                source_version=source_version,
+            )
+
+    def _source_version_for_doc(self, doc_id: str) -> str:
+        chunks = [
+            self._chunk_record_to_index_dict(chunk)
+            for chunk in self._read_chunks()
+            if chunk.doc_id == doc_id
+        ]
+        return self._source_version_for_chunks(doc_id, chunks)
+
+    def _record_stage_status(
+        self,
+        *,
+        doc_id: str,
+        stage: str,
+        status: str,
+        processed: int = 0,
+        total: int = 0,
+        skipped: int = 0,
+        failed: int = 0,
+        stale: int = 0,
+        output_counts: dict[str, int] | None = None,
+        last_error: str = "",
+        source_version: str = "",
+    ) -> None:
+        now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        stage_status = KnowledgeStageStatus(
+            id=self._stage_status_id(doc_id, stage),
+            stage=stage,
+            status=status,
+            doc_id=doc_id,
+            processed=max(0, processed),
+            total=max(0, total),
+            skipped=max(0, skipped),
+            failed=max(0, failed),
+            stale=max(0, stale),
+            started_at=now,
+            ended_at=now if status in {"complete", "skipped", "failed"} else "",
+            output_counts=output_counts or {},
+            last_error=last_error,
+            input_hash=self._stage_input_hash(doc_id, stage, source_version),
+            source_version=source_version,
+            config_version=self._stage_config_version(stage),
+        )
+        statuses = [
+            existing
+            for existing in self._read_stage_statuses()
+            if existing.id != stage_status.id
+        ]
+        statuses.append(stage_status)
+        self._write_stage_statuses(statuses)
+
+    @staticmethod
+    def _stage_status_id(doc_id: str, stage: str) -> str:
+        return f"stage_{hashlib.sha1(f'{doc_id}:{stage}'.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _stage_input_hash(doc_id: str, stage: str, source_version: str) -> str:
+        return hashlib.sha1(f"{doc_id}:{stage}:{source_version}".encode()).hexdigest()
+
+    def _stage_config_version(self, stage: str) -> str:
+        values = {
+            "stage": stage,
+            "chunk_size": getattr(self.config, "chunk_size", None),
+            "chunk_overlap": getattr(self.config, "chunk_overlap", None),
+            "semantic_extraction_mode": getattr(self.config, "semantic_extraction_mode", None),
+            "graphrag_enabled": getattr(self.config, "graphrag_enabled", None),
+            "graphrag_entity_summary_enabled": getattr(self.config, "graphrag_entity_summary_enabled", None),
+        }
+        return hashlib.sha1(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+    @staticmethod
+    def _source_version_for_chunks(doc_id: str, chunks: list[dict[str, Any]]) -> str:
+        payload = {
+            "doc_id": doc_id,
+            "chunks": [
+                {
+                    "index": chunk.get("index"),
+                    "content": chunk.get("content", ""),
+                    "semantic_text": chunk.get("semantic_text", ""),
+                    "retrieval_text": chunk.get("retrieval_text", ""),
+                    "start_char": chunk.get("start_char", 0),
+                    "end_char": chunk.get("end_char", 0),
+                }
+                for chunk in chunks
+            ],
+        }
+        return hashlib.sha1(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+    def _semantic_output_counts(self, doc_id: str) -> dict[str, int]:
+        return {
+            "mentions": len([mention for mention in self._read_mentions() if mention.doc_id == doc_id]),
+            "entities": len([entity for entity in self._read_entities() if doc_id in entity.doc_ids]),
+            "claims": len([claim for claim in self._read_claims() if claim.doc_id == doc_id]),
+            "relations": len([relation for relation in self._read_relations() if relation.doc_id == doc_id]),
+            "conflicts": len([
+                conflict
+                for conflict in self._read_conflicts()
+                if doc_id in conflict.doc_ids or any(source.get("doc_id") == doc_id for source in conflict.sources)
+            ]),
+        }
+
+    def _projection_output_counts(self, doc_id: str) -> dict[str, int]:
+        doc_claim_ids = {claim.id for claim in self._read_claims() if claim.doc_id == doc_id}
+        communities = [
+            community
+            for community in self._read_communities()
+            if any(text_unit_id.startswith(f"chunk_{doc_id}_") for text_unit_id in community.text_unit_ids)
+        ]
+        reports = [
+            report
+            for report in self._read_community_reports()
+            if any(source.get("doc_id") == doc_id for source in report.source_refs)
+            or any(claim_id in doc_claim_ids for claim_id in report.supporting_claim_ids)
+        ]
+        return {"communities": len(communities), "community_reports": len(reports)}
+
+    def _stage_readiness_payload(
+        self,
+        statuses: list[KnowledgeStageStatus],
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, int]], int, int]:
+        by_stage: dict[str, list[KnowledgeStageStatus]] = {}
+        for status in statuses:
+            by_stage.setdefault(status.stage, []).append(status)
+
+        readiness: dict[str, dict[str, Any]] = {}
+        coverage: dict[str, dict[str, int]] = {}
+        failed_count = 0
+        stale_count = 0
+        for stage in _KNOWLEDGE_INDEXING_STAGES:
+            stage_statuses = by_stage.get(stage, [])
+            if not stage_statuses:
+                continue
+            processed = sum(status.processed for status in stage_statuses)
+            total = sum(status.total for status in stage_statuses)
+            skipped = sum(status.skipped for status in stage_statuses)
+            failed = sum(status.failed for status in stage_statuses)
+            stale = sum(status.stale for status in stage_statuses)
+            output_counts: dict[str, int] = {}
+            for status in stage_statuses:
+                for key, value in status.output_counts.items():
+                    output_counts[key] = output_counts.get(key, 0) + int(value)
+
+            status_values = {status.status for status in stage_statuses}
+            if failed or "failed" in status_values:
+                aggregate_status = "failed"
+            elif stale or "stale" in status_values:
+                aggregate_status = "stale"
+            elif status_values <= {"complete"}:
+                aggregate_status = "complete"
+            elif status_values <= {"skipped"}:
+                aggregate_status = "skipped"
+            elif status_values <= {"complete", "skipped"}:
+                aggregate_status = "complete"
+            else:
+                aggregate_status = "partial"
+
+            if aggregate_status == "failed":
+                failed_count += len([status for status in stage_statuses if status.failed or status.status == "failed"])
+            if aggregate_status == "stale":
+                stale_count += len([status for status in stage_statuses if status.stale or status.status == "stale"])
+
+            coverage[stage] = {
+                "processed": processed,
+                "total": total,
+                "skipped": skipped,
+                "failed": failed,
+                "stale": stale,
+            }
+            readiness[stage] = {
+                "status": aggregate_status,
+                "ready": aggregate_status in {"complete", "skipped"},
+                "processed": processed,
+                "total": total,
+                "skipped": skipped,
+                "failed": failed,
+                "stale": stale,
+                "output_counts": output_counts,
+                "last_error": next(
+                    (status.last_error for status in reversed(stage_statuses) if status.last_error),
+                    "",
+                ),
+            }
+        return readiness, coverage, failed_count, stale_count
 
     def _parse_pdf(self, pdf_content: str | bytes) -> list[dict[str, Any]]:
         """Parse PDF and extract text from each page.
@@ -2159,6 +2840,34 @@ class KnowledgeStore:
         for community in communities:
             key = str(community.level)
             community_count_by_level[key] = community_count_by_level.get(key, 0) + 1
+        stage_statuses = self._read_stage_statuses()
+        stage_readiness, stage_coverage, failed_stage_count, stale_stage_count = self._stage_readiness_payload(stage_statuses)
+        retrieval_ready = (
+            stage_readiness.get("sparse_indexing", {}).get("ready", False)
+            or stage_readiness.get("dense_indexing", {}).get("ready", False)
+        )
+        claims_ready = all(
+            stage_readiness.get(stage, {}).get("ready", False)
+            for stage in ("claim_extraction", "claim_validation")
+        )
+        relations_ready = all(
+            stage_readiness.get(stage, {}).get("ready", False)
+            for stage in ("relation_extraction", "relation_validation")
+        )
+        graph_ready = all(
+            stage_readiness.get(stage, {}).get("ready", False)
+            for stage in _KNOWLEDGE_PROJECTION_STAGES
+        )
+        partial_availability = bool(
+            retrieval_ready
+            and (
+                failed_stage_count
+                or stale_stage_count
+                or not claims_ready
+                or not relations_ready
+                or not graph_ready
+            )
+        )
 
         return {
             "document_count": len(documents),
@@ -2168,6 +2877,10 @@ class KnowledgeStore:
             "entity_count": len(self._read_entities()),
             "claim_count": len(self._read_claims()),
             "relation_count": len(self._read_relations()),
+            "source_count": len(self._read_sources()),
+            "conflict_count": len(self._read_conflicts()),
+            "stage_status_count": len(stage_statuses),
+            "candidate_diagnostic_count": len(self._read_candidate_diagnostics()),
             "community_count": len(communities),
             "community_count_by_level": community_count_by_level,
             "community_report_count": len(self._read_community_reports()),
@@ -2175,6 +2888,16 @@ class KnowledgeStore:
             "categories": categories,
             "indexed_dense": len(self._indexed_ids),
             "indexed_sparse": len(self._bm25_index._chunk_contents),
+            "stage_details": [asdict(status) for status in stage_statuses],
+            "stage_readiness": stage_readiness,
+            "stage_coverage": stage_coverage,
+            "failed_stage_count": failed_stage_count,
+            "stale_stage_count": stale_stage_count,
+            "retrieval_ready": retrieval_ready,
+            "claims_ready": claims_ready,
+            "relations_ready": relations_ready,
+            "graph_ready": graph_ready,
+            "partial_availability": partial_availability,
         }
 
     def get_entity_graph(
@@ -4109,8 +4832,54 @@ class KnowledgeStore:
         if extra_headers:
             headers.update(extra_headers)
 
-        prompt = self._build_semantic_extraction_prompt(content, section_path, doc_name)
+        strategy = self._semantic_llm_strategy()
+        prompt = self._build_semantic_extraction_prompt(content, section_path, doc_name, strategy)
+        first_units = self._call_semantic_extraction_llm(
+            api_base=api_base,
+            headers=headers,
+            model=model,
+            prompt=prompt,
+        )
+        if strategy != "entity_guided" or not first_units:
+            return first_units
+
+        validated_first = self._validate_semantic_units(first_units, content)
+        known_entities = [
+            {
+                "name": entity["name"],
+                "type": entity.get("type", "unknown"),
+                "aliases": entity.get("aliases", []),
+            }
+            for entity in validated_first.get("entities", [])
+        ]
+        if not known_entities:
+            return first_units
+
+        guided_prompt = self._build_entity_guided_semantic_extraction_prompt(
+            content,
+            section_path,
+            doc_name,
+            known_entities,
+        )
+        guided_units = self._call_semantic_extraction_llm(
+            api_base=api_base,
+            headers=headers,
+            model=model,
+            prompt=guided_prompt,
+        )
+        return self._merge_semantic_units(first_units, guided_units or {})
+
+    def _call_semantic_extraction_llm(
+        self,
+        *,
+        api_base: str,
+        headers: dict[str, str],
+        model: str,
+        prompt: str,
+    ) -> dict[str, list[dict[str, Any]]] | None:
         try:
+            import httpx
+
             with httpx.Client(timeout=self.config.semantic_llm_timeout if self.config else 30.0) as client:
                 response = client.post(
                     f"{api_base}/chat/completions",
@@ -4133,20 +4902,27 @@ class KnowledgeStore:
         parsed = self._parse_json_object(raw_content)
         if not parsed:
             return None
-        raw_entities = parsed.get("entities", parsed.get("e", []))
-        raw_claims = parsed.get("claims", parsed.get("covariates", parsed.get("c", [])))
-        raw_relations = parsed.get("relations", parsed.get("relationships", parsed.get("r", [])))
-        return {
-            "entities": raw_entities if isinstance(raw_entities, list) else [],
-            "claims": raw_claims if isinstance(raw_claims, list) else [],
-            "relations": raw_relations if isinstance(raw_relations, list) else [],
-        }
+        return self._normalize_llm_semantic_units(parsed)
+
+    def _semantic_llm_strategy(self) -> str:
+        strategy = str(getattr(self.config, "llm_extraction_strategy", "single_pass") or "single_pass")
+        strategy = strategy.strip().lower().replace("-", "_")
+        if strategy not in {"single_pass", "entity_guided"}:
+            logger.debug("KnowledgeStore: unknown LLM extraction strategy '{}'; using single_pass", strategy)
+            return "single_pass"
+        return strategy
 
     @staticmethod
-    def _build_semantic_extraction_prompt(content: str, section_path: str, doc_name: str) -> str:
+    def _build_semantic_extraction_prompt(
+        content: str,
+        section_path: str,
+        doc_name: str,
+        strategy: str = "single_pass",
+    ) -> str:
         return f"""You are a strict knowledge graph extraction engine.
 Extract one GraphRAG-style subgraph from this text unit.
 Return compact JSON only with entities, relationships, and covariates.
+Strategy: {strategy}
 
 Rules:
 - Entity types: person, organization, product, module, api, file, protocol, algorithm, technology, concept, business_object.
@@ -4187,6 +4963,45 @@ Chunk:
 """
 
     @staticmethod
+    def _build_entity_guided_semantic_extraction_prompt(
+        content: str,
+        section_path: str,
+        doc_name: str,
+        known_entities: list[dict[str, Any]],
+    ) -> str:
+        entities_json = json.dumps(known_entities[:80], ensure_ascii=False)
+        return f"""You are a strict knowledge graph extraction engine.
+Run an entity-guided second pass over this text unit.
+Return compact JSON only with relationships and covariates.
+Strategy: entity_guided
+
+Known entity candidates:
+{entities_json}
+
+Rules:
+- Use only known entity candidate names or aliases as relationship endpoints.
+- Every relationship predicate must be one of: is_a, part_of, contains, depends_on, requires, supports, used_for, causes, precedes, owned_by, located_in, similar_to, contradicts, defined_as.
+- Every relationship and covariate must cite a short exact excerpt from the chunk.
+- Do not synthesize cross-chunk facts.
+- Prefer fewer high-confidence claims and relations.
+
+JSON schema:
+{{
+  "relationships": [
+    {{"source": "TinyBot", "predicate": "supports", "target": "RAG", "evidence": "TinyBot supports RAG.", "confidence": 0.9}}
+  ],
+  "covariates": [
+    {{"subject": "TinyBot", "description": "TinyBot supports RAG.", "source_text": "TinyBot supports RAG.", "confidence": 0.9}}
+  ]
+}}
+
+Document: {doc_name}
+Section: {section_path}
+Chunk:
+{content[:4000]}
+"""
+
+    @staticmethod
     def _parse_json_object(text: str) -> dict[str, Any] | None:
         if not text:
             return None
@@ -4206,6 +5021,97 @@ Chunk:
                 except json.JSONDecodeError:
                     return None
         return data if isinstance(data, dict) else None
+
+    @staticmethod
+    def _normalize_llm_semantic_units(parsed: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+        """Normalize supported LLM graph schemas into the canonical semantic unit shape."""
+
+        def as_list(value: Any) -> list[Any]:
+            return value if isinstance(value, list) else []
+
+        def first_value(raw: dict[str, Any], *keys: str) -> Any:
+            for key in keys:
+                value = raw.get(key)
+                if value not in (None, ""):
+                    return value
+            return ""
+
+        containers: list[dict[str, Any]] = [parsed]
+        for key in ("knowledge_graph", "graph", "subgraph", "kg"):
+            value = parsed.get(key)
+            if isinstance(value, dict):
+                containers.append(value)
+
+        raw_entities: list[Any] = []
+        raw_claims: list[Any] = []
+        raw_relations: list[Any] = []
+        for source in containers:
+            raw_entities.extend(as_list(source.get("entities")))
+            raw_entities.extend(as_list(source.get("e")))
+            raw_entities.extend(as_list(source.get("nodes")))
+            raw_claims.extend(as_list(source.get("claims")))
+            raw_claims.extend(as_list(source.get("covariates")))
+            raw_claims.extend(as_list(source.get("facts")))
+            raw_claims.extend(as_list(source.get("c")))
+            raw_relations.extend(as_list(source.get("relations")))
+            raw_relations.extend(as_list(source.get("relationships")))
+            raw_relations.extend(as_list(source.get("edges")))
+            raw_relations.extend(as_list(source.get("triples")))
+            raw_relations.extend(as_list(source.get("r")))
+
+        entities: list[dict[str, Any]] = []
+        for raw in raw_entities:
+            if isinstance(raw, str):
+                entities.append({"name": raw})
+                continue
+            if not isinstance(raw, dict):
+                continue
+            entities.append({
+                "name": first_value(raw, "title", "name", "n", "label", "id"),
+                "type": first_value(raw, "type", "t", "category", "kind"),
+                "aliases": raw.get("aliases", raw.get("a", [])),
+                "description": first_value(raw, "description", "d", "summary"),
+                "confidence": first_value(raw, "confidence", "c", "score"),
+            })
+
+        claims: list[dict[str, Any]] = []
+        for raw in raw_claims:
+            if isinstance(raw, str):
+                claims.append({"text": raw})
+                continue
+            if not isinstance(raw, dict):
+                continue
+            subject = first_value(raw, "subject", "subject_id", "s")
+            entity_names = raw.get("entity_names", raw.get("entities", []))
+            if subject and not entity_names:
+                entity_names = [subject]
+            claims.append({
+                "text": first_value(raw, "text", "claim", "description", "d", "source_text", "evidence"),
+                "entity_names": entity_names,
+                "confidence": first_value(raw, "confidence", "c", "score"),
+                "status": first_value(raw, "status", "truth_status") or "TRUE",
+                "start_date": first_value(raw, "start_date", "start"),
+                "end_date": first_value(raw, "end_date", "end"),
+                "source_text": first_value(raw, "source_text", "evidence", "text", "claim", "description", "d"),
+            })
+
+        relations: list[dict[str, Any]] = []
+        for raw in raw_relations:
+            if isinstance(raw, list | tuple) and len(raw) >= 3:
+                raw = {"source": raw[0], "predicate": raw[1], "target": raw[2]}
+            if not isinstance(raw, dict):
+                continue
+            relations.append({
+                "subject": first_value(raw, "source", "subject", "s", "from", "head"),
+                "predicate": first_value(raw, "predicate", "p", "relation", "label", "type"),
+                "object": first_value(raw, "target", "object", "o", "to", "tail"),
+                "evidence": first_value(raw, "evidence", "e", "source_text", "text"),
+                "description": first_value(raw, "description", "d"),
+                "weight": first_value(raw, "weight", "strength", "w", "score"),
+                "confidence": first_value(raw, "confidence", "c", "score"),
+            })
+
+        return {"entities": entities, "claims": claims, "relations": relations}
 
     def _merge_semantic_units(
         self,
@@ -4258,13 +5164,18 @@ Chunk:
                 continue
             if not self._entity_has_text_evidence(name, aliases, normalized_content):
                 continue
-            entities.append({
+            normalized_type = self._normalize_entity_type(str(raw.get("type", raw.get("t", ""))))
+            raw_type = str(raw.get("type", raw.get("t", ""))).strip().lower()
+            entity_record = {
                 "name": name,
-                "type": self._normalize_entity_type(str(raw.get("type", raw.get("t", "")))) or self._infer_entity_type(name),
+                "type": normalized_type or self._infer_entity_type(name),
                 "aliases": aliases,
                 "description": re.sub(r"\s+", " ", str(raw.get("description", raw.get("d", ""))).strip())[:500],
                 "confidence": confidence,
-            })
+            }
+            if raw_type and raw_type != entity_record["type"]:
+                entity_record["raw_type"] = raw_type
+            entities.append(entity_record)
             entity_names.add(key)
 
         claims: list[dict[str, Any]] = []
@@ -4318,7 +5229,8 @@ Chunk:
                 continue
             subject = self._clean_entity_name(str(raw.get("source", raw.get("subject", raw.get("s", "")))))
             obj = self._clean_entity_name(str(raw.get("target", raw.get("object", raw.get("o", "")))))
-            predicate = self._normalize_predicate(str(raw.get("predicate", raw.get("p", ""))))
+            raw_predicate = str(raw.get("predicate", raw.get("p", "")))
+            predicate = self._normalize_predicate(raw_predicate)
             evidence = re.sub(r"\s+", " ", str(raw.get("evidence", raw.get("e", ""))).strip())
             if not subject or not obj or not predicate or subject == obj:
                 continue
@@ -4333,7 +5245,7 @@ Chunk:
                 continue
             if not self._entity_has_text_evidence(obj, [], evidence_scope):
                 continue
-            relations.append({
+            relation_record = {
                 "subject": subject,
                 "predicate": predicate,
                 "object": obj,
@@ -4341,7 +5253,10 @@ Chunk:
                 "description": re.sub(r"\s+", " ", str(raw.get("description", raw.get("d", evidence))).strip())[:500],
                 "weight": self._coerce_weight(raw.get("weight", raw.get("strength", raw.get("w"))), 1.0),
                 "confidence": self._coerce_confidence(raw.get("confidence", raw.get("c")), 0.65),
-            })
+            }
+            if raw_predicate and raw_predicate.strip().lower().replace("-", "_").replace(" ", "_") != predicate:
+                relation_record["raw_predicate"] = raw_predicate
+            relations.append(relation_record)
 
         seen_claim_text = {claim["text"] for claim in claims}
         for relation in relations:
@@ -4356,6 +5271,329 @@ Chunk:
             seen_claim_text.add(evidence)
 
         return {"entities": entities, "claims": claims, "relations": relations}
+
+    def _extract_semantic_candidates(
+        self,
+        *,
+        doc_id: str,
+        doc_name: str,
+        chunk_id: str,
+        chunk: dict[str, Any],
+        content: str,
+        semantic_units: dict[str, list[dict[str, Any]]],
+        extraction_method: str,
+        ts: str,
+    ) -> list[KnowledgeCandidate]:
+        """Convert validated extraction units into source-backed candidates."""
+        candidates: list[KnowledgeCandidate] = []
+
+        def build_candidate(
+            candidate_type: str,
+            text: str,
+            payload: dict[str, Any],
+            *,
+            evidence_text: str,
+            confidence: float,
+        ) -> None:
+            clean_text = re.sub(r"\s+", " ", text.strip())
+            if not clean_text:
+                return
+            candidate_id = self._candidate_id(candidate_type, chunk_id, clean_text, len(candidates))
+            source = self._build_source_evidence(
+                record_id=candidate_id,
+                doc_id=doc_id,
+                doc_name=doc_name,
+                chunk_id=chunk_id,
+                content=content,
+                chunk=chunk,
+                evidence_text=evidence_text or clean_text,
+                extraction_method=extraction_method,
+                confidence=confidence,
+                ts=ts,
+            )
+            candidates.append(KnowledgeCandidate(
+                id=candidate_id,
+                candidate_type=candidate_type,
+                doc_id=doc_id,
+                chunk_id=chunk_id,
+                text=clean_text,
+                payload=payload,
+                sources=[asdict(source)],
+                validation_status="pending",
+                extraction_method=extraction_method,
+                confidence=confidence,
+                created_at=ts,
+            ))
+
+        for entity_spec in semantic_units.get("entities", []):
+            name = self._clean_entity_name(str(entity_spec.get("name", "")))
+            if not name:
+                continue
+            mention_text = ""
+            local_start = -1
+            for raw_candidate in [name, *entity_spec.get("aliases", [])]:
+                mention_candidate = self._clean_entity_name(str(raw_candidate))
+                if not mention_candidate:
+                    continue
+                local_start = content.find(mention_candidate)
+                if local_start >= 0:
+                    mention_text = mention_candidate
+                    break
+            if local_start < 0:
+                continue
+            confidence = self._coerce_confidence(entity_spec.get("confidence"), 0.55)
+            start_char = int(chunk.get("start_char", 0) or 0) + local_start
+            payload = {
+                "entity_name": name,
+                "entity_type": entity_spec.get("type"),
+                "raw_entity_type": entity_spec.get("raw_type", ""),
+                "aliases": entity_spec.get("aliases", []),
+                "description": entity_spec.get("description", ""),
+                "local_start": local_start,
+                "start_char": start_char,
+                "end_char": start_char + len(mention_text),
+            }
+            build_candidate(
+                "mention",
+                mention_text,
+                payload,
+                evidence_text=mention_text,
+                confidence=confidence,
+            )
+
+        for claim_spec in semantic_units.get("claims", []):
+            claim_text = re.sub(r"\s+", " ", str(claim_spec.get("text", "")).strip())
+            if not claim_text:
+                continue
+            confidence = self._coerce_confidence(claim_spec.get("confidence"), 0.5)
+            payload = {
+                "text": claim_text,
+                "entity_names": claim_spec.get("entity_names", []),
+                "status": claim_spec.get("status", "TRUE"),
+                "start_date": claim_spec.get("start_date", ""),
+                "end_date": claim_spec.get("end_date", ""),
+                "source_text": claim_spec.get("source_text", claim_text),
+            }
+            build_candidate(
+                "claim",
+                claim_text,
+                payload,
+                evidence_text=payload["source_text"],
+                confidence=confidence,
+            )
+
+        for relation_spec in semantic_units.get("relations", []):
+            subject = self._clean_entity_name(str(relation_spec.get("subject", "")))
+            obj = self._clean_entity_name(str(relation_spec.get("object", "")))
+            predicate = self._normalize_predicate(str(relation_spec.get("predicate", "")))
+            if not subject or not obj or not predicate:
+                continue
+            evidence = re.sub(r"\s+", " ", str(relation_spec.get("evidence", "")).strip())
+            relation_text = evidence or self._format_relation(
+                KnowledgeEntity(name=subject),
+                predicate,
+                KnowledgeEntity(name=obj),
+            )
+            confidence = self._coerce_confidence(relation_spec.get("confidence"), 0.65)
+            payload = {
+                "subject": subject,
+                "predicate": predicate,
+                "raw_predicate": relation_spec.get("raw_predicate", ""),
+                "object": obj,
+                "evidence": evidence,
+                "description": relation_spec.get("description", ""),
+                "weight": relation_spec.get("weight", 1.0),
+            }
+            build_candidate(
+                "relation",
+                relation_text,
+                payload,
+                evidence_text=evidence or relation_text,
+                confidence=confidence,
+            )
+
+        return candidates
+
+    def _validate_semantic_candidate(
+        self,
+        candidate: KnowledgeCandidate,
+        content: str,
+        available_entity_names: set[str],
+    ) -> KnowledgeCandidate:
+        data = asdict(candidate)
+        payload = dict(candidate.payload)
+        reasons: list[str] = []
+        diagnostics: dict[str, Any] = dict(candidate.diagnostics)
+        normalized = False
+        source = candidate.sources[0] if candidate.sources else {}
+        normalized_content = re.sub(r"\s+", " ", content).strip()
+
+        if not source:
+            reasons.append("missing_source_evidence")
+        elif not self._source_evidence_matches_content(source, normalized_content):
+            reasons.append("unsupported_source_evidence")
+
+        if candidate.candidate_type == "mention":
+            name = self._clean_entity_name(str(payload.get("entity_name", "")))
+            if not name or not self._is_meaningful_entity_name(name):
+                reasons.append("invalid_entity_name")
+            if not self._entity_has_text_evidence(name, payload.get("aliases", []), normalized_content):
+                reasons.append("missing_entity_evidence")
+            entity_type = self._normalize_entity_type(str(payload.get("entity_type", "")))
+            raw_entity_type = str(payload.get("raw_entity_type") or payload.get("entity_type", ""))
+            if entity_type != raw_entity_type:
+                payload["raw_entity_type"] = raw_entity_type
+                payload["entity_type"] = entity_type
+                normalized = True
+
+        elif candidate.candidate_type == "claim":
+            source_text = re.sub(r"\s+", " ", str(payload.get("source_text", candidate.text)).strip())
+            if not source_text or not self._normalized_contains(normalized_content, source_text):
+                reasons.append("unsupported_claim_evidence")
+            if len(candidate.text) < 12:
+                reasons.append("claim_too_short")
+
+        elif candidate.candidate_type == "relation":
+            subject = self._clean_entity_name(str(payload.get("subject", "")))
+            obj = self._clean_entity_name(str(payload.get("object", "")))
+            raw_predicate = str(payload.get("raw_predicate") or payload.get("predicate", ""))
+            predicate = self._normalize_predicate(raw_predicate)
+            evidence = re.sub(r"\s+", " ", str(payload.get("evidence", "")).strip())
+            if predicate != raw_predicate:
+                payload["raw_predicate"] = raw_predicate
+                payload["predicate"] = predicate
+                normalized = True
+            if not subject or not obj or subject == obj:
+                reasons.append("invalid_relation_endpoints")
+            if not predicate:
+                reasons.append("invalid_relation_predicate")
+            if not evidence or not self._normalized_contains(normalized_content, evidence):
+                reasons.append("missing_relation_evidence")
+            if candidate.extraction_method == "llm" and subject and self._normalize_entity_name(subject) not in available_entity_names:
+                reasons.append("unmapped_subject_entity")
+            if candidate.extraction_method == "llm" and obj and self._normalize_entity_name(obj) not in available_entity_names:
+                reasons.append("unmapped_object_entity")
+            if predicate and subject and obj and not self._relation_matches_ontology(subject, predicate, obj):
+                reasons.append("relation_ontology_mismatch")
+            if evidence and subject and not self._entity_has_text_evidence(subject, [], evidence):
+                reasons.append("subject_not_in_relation_evidence")
+            if evidence and obj and not self._entity_has_text_evidence(obj, [], evidence):
+                reasons.append("object_not_in_relation_evidence")
+
+        status = "rejected" if reasons else "normalized" if normalized else "validated"
+        if reasons:
+            logger.debug(
+                "KnowledgeStore: rejected {} candidate {}: {}",
+                candidate.candidate_type,
+                candidate.id,
+                ", ".join(reasons),
+            )
+        diagnostics["validated_by"] = "deterministic_candidate_validator"
+        data.update({
+            "payload": payload,
+            "validation_status": status,
+            "rejection_reasons": reasons,
+            "diagnostics": diagnostics,
+        })
+        return KnowledgeCandidate(**data)
+
+    @staticmethod
+    def _normalized_contains(haystack: str, needle: str) -> bool:
+        haystack = re.sub(r"\s+", " ", haystack).strip()
+        needle = re.sub(r"\s+", " ", needle).strip()
+        return bool(needle) and needle in haystack
+
+    def _source_evidence_matches_content(self, source: dict[str, Any], normalized_content: str) -> bool:
+        evidence = re.sub(r"\s+", " ", str(source.get("evidence_text", "")).strip())
+        return self._normalized_contains(normalized_content, evidence)
+
+    def _detect_knowledge_conflicts(
+        self,
+        claims: list[KnowledgeClaim],
+        relations: list[KnowledgeRelation],
+        ts: str,
+    ) -> list[KnowledgeConflict]:
+        conflicts: list[KnowledgeConflict] = []
+        seen: set[str] = set()
+
+        claims_by_signature: dict[tuple[str, tuple[str, ...]], list[KnowledgeClaim]] = {}
+        for claim in claims:
+            signature = self._claim_conflict_signature(claim)
+            if not signature:
+                continue
+            claims_by_signature.setdefault(signature, []).append(claim)
+
+        for grouped_claims in claims_by_signature.values():
+            for left_index, left in enumerate(grouped_claims):
+                for right in grouped_claims[left_index + 1:]:
+                    if self._claim_polarity(left) == self._claim_polarity(right):
+                        continue
+                    conflict_id = self._conflict_id(left.id, right.id, "claim")
+                    if conflict_id in seen:
+                        continue
+                    seen.add(conflict_id)
+                    conflicts.append(KnowledgeConflict(
+                        id=conflict_id,
+                        conflict_type="claim_polarity",
+                        left_record_id=left.id,
+                        left_record_type="claim",
+                        right_record_id=right.id,
+                        right_record_type="claim",
+                        doc_ids=sorted({left.doc_id, right.doc_id}),
+                        sources=[source for source in [left.source, right.source] if source],
+                        evidence_text=" | ".join(filter(None, [left.source_text or left.text, right.source_text or right.text])),
+                        confidence=min(left.confidence, right.confidence),
+                        created_at=ts,
+                        metadata={"left_polarity": self._claim_polarity(left), "right_polarity": self._claim_polarity(right)},
+                    ))
+
+        for relation in relations:
+            if relation.predicate != "contradicts":
+                continue
+            conflict_id = self._conflict_id(relation.subject_entity_id, relation.object_entity_id, "relation")
+            if conflict_id in seen:
+                continue
+            seen.add(conflict_id)
+            conflicts.append(KnowledgeConflict(
+                id=conflict_id,
+                conflict_type="relation_contradiction",
+                left_record_id=relation.subject_entity_id,
+                left_record_type="entity",
+                right_record_id=relation.object_entity_id,
+                right_record_type="entity",
+                doc_ids=[relation.doc_id] if relation.doc_id else [],
+                sources=list(relation.source_refs),
+                evidence_text=relation.description,
+                confidence=relation.confidence,
+                created_at=ts,
+                metadata={"relation_id": relation.id},
+            ))
+        return conflicts
+
+    def _claim_conflict_signature(self, claim: KnowledgeClaim) -> tuple[str, tuple[str, ...]] | None:
+        if not claim.entity_ids:
+            return None
+        text = self._normalize_entity_name(claim.text)
+        text = re.sub(r"\b(does|do|did|is|are|was|were|not|never|no|cannot|can't|doesn't|don't|unsupported|false)\b", " ", text)
+        normalized_terms = []
+        for term in re.findall(r"[a-z0-9_+-]{3,}", text):
+            if term in {"the", "and", "for"}:
+                continue
+            normalized_terms.append(term[:-1] if len(term) > 4 and term.endswith("s") else term)
+        terms = tuple(sorted(set(normalized_terms)))
+        if not terms:
+            return None
+        return (" ".join(terms), tuple(sorted(claim.entity_ids)))
+
+    @staticmethod
+    def _claim_polarity(claim: KnowledgeClaim) -> str:
+        status = claim.status.strip().lower()
+        text = claim.text.lower()
+        if status in {"false", "contradicted", "negated", "unsupported"}:
+            return "negative"
+        if re.search(r"\b(does not|do not|did not|is not|are not|was not|were not|never|cannot|can't|doesn't|don't)\b", text):
+            return "negative"
+        return "positive"
 
     def _index_chunks_semantic(
         self,
@@ -4373,12 +5611,29 @@ Chunk:
         try:
             existing_entities = {entity.id: entity for entity in self._read_entities()}
             existing_claim_ids = {claim.id for claim in self._read_claims()}
-            existing_relation_ids = {relation.id for relation in self._read_relations()}
+            existing_relation_records = self._read_relations()
+            relations_by_id = {relation.id: relation for relation in existing_relation_records}
             existing_mention_ids = {mention.id for mention in self._read_mentions()}
+            existing_source_ids = {source.id for source in self._read_sources()}
+            existing_conflicts = self._read_conflicts()
+            existing_conflict_ids = {conflict.id for conflict in existing_conflicts}
 
             new_claims: list[KnowledgeClaim] = []
             new_relations: list[KnowledgeRelation] = []
             new_mentions: list[KnowledgeMention] = []
+            new_sources: list[KnowledgeSourceEvidence] = []
+            candidate_diagnostics: list[KnowledgeCandidate] = []
+            relations_mutated = False
+
+            def add_candidate_source(candidate: KnowledgeCandidate) -> dict[str, Any]:
+                if not candidate.sources:
+                    return {}
+                source_data = candidate.sources[0]
+                source_id = str(source_data.get("id", ""))
+                if source_id and source_id not in existing_source_ids:
+                    new_sources.append(KnowledgeSourceEvidence(**source_data))
+                    existing_source_ids.add(source_id)
+                return source_data
 
             def extract_chunk_semantic(chunk: dict[str, Any]) -> tuple[str, dict[str, list[dict[str, Any]]]]:
                 content = chunk.get("semantic_text") or chunk.get("context_content") or chunk.get("content", "")
@@ -4410,7 +5665,7 @@ Chunk:
                         id=entity_id,
                         name=clean_name,
                         canonical_name=canonical,
-                        type=entity_type or self._infer_entity_type(clean_name),
+                        type=self._normalize_entity_type(entity_type or "") or self._infer_entity_type(clean_name),
                         aliases=[clean_name, *clean_aliases],
                         doc_ids=[source_doc_id],
                         description=description[:500],
@@ -4464,24 +5719,61 @@ Chunk:
                 if progress_callback and not semantic_units_by_index:
                     progress_callback(chunk_number, total_chunks)
 
-                for entity_spec in semantic_units["entities"]:
-                    mention_text = ""
-                    local_start = -1
-                    for candidate in [entity_spec["name"], *entity_spec.get("aliases", [])]:
-                        candidate = self._clean_entity_name(str(candidate))
-                        if not candidate:
-                            continue
-                        local_start = content.find(candidate)
-                        if local_start >= 0:
-                            mention_text = candidate
-                            break
+                extraction_method = "llm" if mode == "llm" else "hybrid" if mode == "hybrid" else "rule"
+                candidates = self._extract_semantic_candidates(
+                    doc_id=doc_id,
+                    doc_name=doc_name,
+                    chunk_id=chunk_id,
+                    chunk=chunk,
+                    content=content,
+                    semantic_units=semantic_units,
+                    extraction_method=extraction_method,
+                    ts=ts,
+                )
+                available_entity_names = {
+                    self._normalize_entity_name(entity.name)
+                    for entity in existing_entities.values()
+                    if entity.name
+                }
+                for entity in existing_entities.values():
+                    available_entity_names.update(
+                        self._normalize_entity_name(alias)
+                        for alias in entity.aliases
+                        if alias
+                    )
+                for candidate in candidates:
+                    if candidate.candidate_type == "mention":
+                        entity_name = candidate.payload.get("entity_name", "")
+                        if entity_name:
+                            available_entity_names.add(self._normalize_entity_name(str(entity_name)))
+                        for alias in candidate.payload.get("aliases", []):
+                            available_entity_names.add(self._normalize_entity_name(str(alias)))
+                candidates = [
+                    self._validate_semantic_candidate(candidate, content, available_entity_names)
+                    for candidate in candidates
+                ]
+                candidate_diagnostics.extend(
+                    candidate
+                    for candidate in candidates
+                    if candidate.validation_status in {"normalized", "rejected"}
+                )
+                promotable_candidates = [
+                    candidate
+                    for candidate in candidates
+                    if candidate.validation_status in {"validated", "normalized"}
+                ]
+
+                for candidate in [item for item in promotable_candidates if item.candidate_type == "mention"]:
+                    entity_spec = candidate.payload
+                    mention_text = candidate.text
+                    local_start = int(entity_spec.get("local_start", -1))
                     if local_start < 0:
                         continue
                     entity = ensure_entity(
-                        entity_spec["name"],
+                        entity_spec["entity_name"],
                         doc_id,
-                        confidence=entity_spec.get("confidence", 0.55),
-                        entity_type=entity_spec.get("type"),
+                        confidence=candidate.confidence,
+                        entity_type=entity_spec.get("entity_type"),
                         aliases=entity_spec.get("aliases", []),
                         description=entity_spec.get("description", ""),
                         text_unit_id=chunk_id,
@@ -4491,6 +5783,7 @@ Chunk:
                         if mention_id not in existing_mention_ids:
                             start_char = chunk.get("start_char", 0) + local_start
                             end_char = start_char + len(mention_text)
+                            source = add_candidate_source(candidate)
                             new_mentions.append(KnowledgeMention(
                                 id=mention_id,
                                 entity_id=entity.id,
@@ -4500,11 +5793,16 @@ Chunk:
                                 start_char=start_char,
                                 end_char=end_char,
                                 confidence=entity.confidence,
+                                source=source,
                             ))
                             existing_mention_ids.add(mention_id)
+                            if source not in entity.source_refs:
+                                entity.source_refs.append(source)
+                            entity.mention_count = max(entity.mention_count, len(entity.source_refs))
 
-                for claim_index, claim_spec in enumerate(semantic_units["claims"]):
-                    claim_text = claim_spec["text"]
+                for claim_index, candidate in enumerate([item for item in promotable_candidates if item.candidate_type == "claim"]):
+                    claim_spec = candidate.payload
+                    claim_text = candidate.text
                     claim_entity_ids: list[str] = []
                     for entity_name in claim_spec.get("entity_names", []):
                         entity = ensure_entity(entity_name, doc_id, confidence=0.55, text_unit_id=chunk_id)
@@ -4513,22 +5811,28 @@ Chunk:
 
                     claim_id = self._claim_id(chunk_id, claim_index, claim_text)
                     if claim_id not in existing_claim_ids:
+                        confidence = candidate.confidence
+                        source = add_candidate_source(candidate)
                         new_claims.append(KnowledgeClaim(
                             id=claim_id,
                             chunk_id=chunk_id,
                             doc_id=doc_id,
                             text=claim_text,
                             entity_ids=claim_entity_ids,
-                            confidence=claim_spec.get("confidence", 0.5 + min(len(claim_entity_ids), 4) * 0.05),
+                            confidence=confidence,
                             created_at=ts,
                             status=claim_spec.get("status", "TRUE"),
                             start_date=claim_spec.get("start_date", ""),
                             end_date=claim_spec.get("end_date", ""),
                             source_text=claim_spec.get("source_text", claim_text),
+                            source=source,
+                            source_refs=[source],
+                            validation_status="validated",
                         ))
                         existing_claim_ids.add(claim_id)
 
-                for raw_relation in semantic_units["relations"]:
+                for candidate in [item for item in promotable_candidates if item.candidate_type == "relation"]:
+                    raw_relation = candidate.payload
                     subject = ensure_entity(raw_relation["subject"], doc_id, confidence=0.6, text_unit_id=chunk_id)
                     obj = ensure_entity(raw_relation["object"], doc_id, confidence=0.6, text_unit_id=chunk_id)
                     if not subject or not obj or subject.id == obj.id:
@@ -4543,9 +5847,25 @@ Chunk:
                             relation_claim_id = claim.id
                             break
                     relation_id = self._relation_id(subject.id, predicate, obj.id, chunk_id)
-                    if relation_id in existing_relation_ids:
+                    confidence = candidate.confidence
+                    source = add_candidate_source(candidate)
+                    if relation_id in relations_by_id:
+                        relation = relations_by_id[relation_id]
+                        if source and source not in relation.source_refs:
+                            relation.source_refs.append(source)
+                            if not relation.source:
+                                relation.source = source
+                            relations_mutated = True
+                        if relation_claim_id and relation_claim_id not in relation.claim_ids:
+                            relation.claim_ids.append(relation_claim_id)
+                            relations_mutated = True
+                        if chunk_id not in relation.text_unit_ids:
+                            relation.text_unit_ids.append(chunk_id)
+                            relations_mutated = True
+                        relation.confidence = max(relation.confidence, confidence)
+                        relation.weight = max(relation.weight, self._coerce_weight(raw_relation.get("weight"), 1.0))
                         continue
-                    new_relations.append(KnowledgeRelation(
+                    relation = KnowledgeRelation(
                         id=relation_id,
                         subject_entity_id=subject.id,
                         predicate=predicate,
@@ -4555,25 +5875,46 @@ Chunk:
                         claim_id=relation_claim_id,
                         description=raw_relation.get("description") or evidence or self._format_relation(subject, predicate, obj),
                         weight=raw_relation.get("weight", 1.0),
-                        confidence=raw_relation.get("confidence", 0.65),
+                        confidence=confidence,
                         created_at=ts,
                         text_unit_ids=[chunk_id],
-                    ))
-                    existing_relation_ids.add(relation_id)
+                        source=source,
+                        source_refs=[source],
+                        claim_ids=[relation_claim_id] if relation_claim_id else [],
+                        validation_status="validated",
+                    )
+                    new_relations.append(relation)
+                    relations_by_id[relation_id] = relation
 
             if self.config is None or getattr(self.config, "graphrag_entity_summary_enabled", True):
                 self._summarize_entities_and_relationships(existing_entities, new_relations, new_claims)
+            new_conflicts = [
+                conflict
+                for conflict in self._detect_knowledge_conflicts(
+                    self._read_claims() + new_claims,
+                    list(relations_by_id.values()),
+                    ts,
+                )
+                if conflict.id not in existing_conflict_ids
+            ]
             self._write_entities(list(existing_entities.values()))
+            self._append_jsonl(self.sources_file, new_sources)
             self._append_jsonl(self.claims_file, new_claims)
             self._append_jsonl(self.mentions_file, new_mentions)
-            self._append_jsonl(self.relations_file, new_relations)
+            if relations_mutated:
+                self._write_relations(list(relations_by_id.values()))
+            else:
+                self._append_jsonl(self.relations_file, new_relations)
+            self._append_jsonl(self.conflicts_file, new_conflicts)
+            self._append_jsonl(self.candidate_diagnostics_file, candidate_diagnostics)
 
             logger.debug(
-                "KnowledgeStore: semantic index for doc '{}' added {} claims, {} mentions, {} relations",
+                "KnowledgeStore: semantic index for doc '{}' added {} claims, {} mentions, {} relations, {} conflicts",
                 doc_name,
                 len(new_claims),
                 len(new_mentions),
                 len(new_relations),
+                len(new_conflicts),
             )
         except Exception as e:
             logger.warning("KnowledgeStore: semantic indexing failed for doc '{}': {}", doc_name, e)
@@ -5257,12 +6598,32 @@ Chunk:
         claims = [claim for claim in self._read_claims() if claim.doc_id != doc_id]
         mentions = [mention for mention in self._read_mentions() if mention.doc_id != doc_id]
         relations = [relation for relation in self._read_relations() if relation.doc_id != doc_id]
+        sources = [source for source in self._read_sources() if source.doc_id != doc_id]
+        conflicts = [
+            conflict for conflict in self._read_conflicts()
+            if doc_id not in conflict.doc_ids
+            and all(source.get("doc_id") != doc_id for source in conflict.sources)
+        ]
+        candidates = [
+            candidate for candidate in self._read_candidate_diagnostics()
+            if candidate.doc_id != doc_id
+            and all(source.get("doc_id") != doc_id for source in candidate.sources)
+        ]
+        stage_statuses = [status for status in self._read_stage_statuses() if status.doc_id != doc_id]
 
         entities = [
             KnowledgeEntity(
                 **{
                     **asdict(entity),
                     "doc_ids": [item for item in entity.doc_ids if item != doc_id],
+                    "source_refs": [
+                        source for source in entity.source_refs
+                        if source.get("doc_id") != doc_id
+                    ],
+                    "mention_count": len([
+                        source for source in entity.source_refs
+                        if source.get("doc_id") != doc_id
+                    ]),
                 }
             )
             for entity in self._read_entities()
@@ -5272,6 +6633,10 @@ Chunk:
         self._write_claims(claims)
         self._write_mentions(mentions)
         self._write_relations(relations)
+        self._write_sources(sources)
+        self._write_conflicts(conflicts)
+        self._write_candidate_diagnostics(candidates)
+        self._write_stage_statuses(stage_statuses)
         self._write_entities(entities)
         self._rebuild_graphrag_communities()
 
@@ -5322,6 +6687,18 @@ Chunk:
 
     def _read_relations(self) -> list[KnowledgeRelation]:
         return self._read_jsonl_dataclass(self.relations_file, KnowledgeRelation)
+
+    def _read_sources(self) -> list[KnowledgeSourceEvidence]:
+        return self._read_jsonl_dataclass(self.sources_file, KnowledgeSourceEvidence)
+
+    def _read_conflicts(self) -> list[KnowledgeConflict]:
+        return self._read_jsonl_dataclass(self.conflicts_file, KnowledgeConflict)
+
+    def _read_stage_statuses(self) -> list[KnowledgeStageStatus]:
+        return self._read_jsonl_dataclass(self.stage_status_file, KnowledgeStageStatus)
+
+    def _read_candidate_diagnostics(self) -> list[KnowledgeCandidate]:
+        return self._read_jsonl_dataclass(self.candidate_diagnostics_file, KnowledgeCandidate)
 
     def _read_communities(self) -> list[KnowledgeCommunity]:
         return self._read_jsonl_dataclass(self.communities_file, KnowledgeCommunity)
@@ -5382,6 +6759,18 @@ Chunk:
     def _write_relations(self, relations: list[KnowledgeRelation]) -> None:
         self._write_jsonl(self.relations_file, relations)
 
+    def _write_sources(self, sources: list[KnowledgeSourceEvidence]) -> None:
+        self._write_jsonl(self.sources_file, sources)
+
+    def _write_conflicts(self, conflicts: list[KnowledgeConflict]) -> None:
+        self._write_jsonl(self.conflicts_file, conflicts)
+
+    def _write_stage_statuses(self, statuses: list[KnowledgeStageStatus]) -> None:
+        self._write_jsonl(self.stage_status_file, statuses)
+
+    def _write_candidate_diagnostics(self, candidates: list[KnowledgeCandidate]) -> None:
+        self._write_jsonl(self.candidate_diagnostics_file, candidates)
+
     def _write_communities(self, communities: list[KnowledgeCommunity]) -> None:
         self._write_jsonl(self.communities_file, communities)
 
@@ -5427,6 +6816,58 @@ Chunk:
     def _mention_id(entity_id: str, chunk_id: str, start_char: int) -> str:
         value = f"{entity_id}:{chunk_id}:{start_char}"
         return f"mention_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _candidate_id(candidate_type: str, chunk_id: str, text: str, index: int) -> str:
+        value = f"{candidate_type}:{chunk_id}:{index}:{text}"
+        return f"cand_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _source_id(record_id: str, chunk_id: str, evidence_text: str) -> str:
+        value = f"{record_id}:{chunk_id}:{evidence_text}"
+        return f"src_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    @staticmethod
+    def _conflict_id(left_id: str, right_id: str, conflict_type: str) -> str:
+        left, right = sorted([left_id, right_id])
+        value = f"{conflict_type}:{left}:{right}"
+        return f"conflict_{hashlib.sha1(value.encode()).hexdigest()[:12]}"
+
+    def _build_source_evidence(
+        self,
+        *,
+        record_id: str,
+        doc_id: str,
+        doc_name: str,
+        chunk_id: str,
+        content: str,
+        chunk: dict[str, Any],
+        evidence_text: str,
+        extraction_method: str,
+        confidence: float,
+        ts: str,
+    ) -> KnowledgeSourceEvidence:
+        evidence = re.sub(r"\s+", " ", (evidence_text or content).strip())[:1000]
+        local_start = content.find(evidence_text) if evidence_text else -1
+        chunk_start = int(chunk.get("start_char", 0) or 0)
+        start_char = chunk_start + local_start if local_start >= 0 else chunk_start
+        end_char = start_char + len(evidence) if evidence else int(chunk.get("end_char", start_char) or start_char)
+        return KnowledgeSourceEvidence(
+            id=self._source_id(record_id, chunk_id, evidence),
+            doc_id=doc_id,
+            doc_name=doc_name,
+            chunk_id=chunk_id,
+            chunk_hash=hashlib.sha1(content.encode()).hexdigest(),
+            evidence_text=evidence,
+            start_char=start_char,
+            end_char=end_char,
+            page=chunk.get("page"),
+            extraction_method=extraction_method,
+            confidence=confidence,
+            source_version=hashlib.sha1(f"{doc_id}:{chunk_id}:{content}".encode()).hexdigest(),
+            source_updated_at=ts,
+            created_at=ts,
+        )
 
     @staticmethod
     def _normalize_entity_name(name: str) -> str:
@@ -5625,9 +7066,21 @@ Chunk:
     @staticmethod
     def _normalize_entity_type(value: str) -> str:
         value = value.strip().lower()
+        aliases = {
+            "company": "organization",
+            "org": "organization",
+            "place": "location",
+            "repo": "module",
+            "repository": "module",
+            "library": "technology",
+            "service": "module",
+            "object": "business_object",
+        }
+        value = aliases.get(value, value)
         allowed = {
             "person",
             "organization",
+            "location",
             "product",
             "technology",
             "module",
@@ -5637,10 +7090,13 @@ Chunk:
             "algorithm",
             "concept",
             "business_object",
+            "event",
+            "time",
             "proper_noun",
             "acronym",
+            "unknown",
         }
-        return value if value in allowed else ""
+        return value if value in allowed else "unknown"
 
     @staticmethod
     def _normalize_predicate(value: str) -> str:

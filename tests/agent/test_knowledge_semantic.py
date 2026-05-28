@@ -1,10 +1,12 @@
+import json
+from dataclasses import asdict
 from pathlib import Path
 import shutil
 import threading
 import time
 import uuid
 
-from tinybot.agent.knowledge import KnowledgeStore
+from tinybot.agent.knowledge import KnowledgeCandidate, KnowledgeStageStatus, KnowledgeStore
 from tinybot.api.knowledge import _start_rebuild_job
 from tinybot.config.schema import KnowledgeConfig
 
@@ -83,6 +85,251 @@ def test_delete_document_removes_semantic_index_entries() -> None:
     assert stats["entity_count"] == 0
     assert stats["claim_count"] == 0
     assert stats["relation_count"] == 0
+    assert stats["source_count"] == 0
+    assert stats["community_count"] == 0
+    assert stats["community_report_count"] == 0
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_traceability_fields_hydrate_old_semantic_records() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+
+    store.entities_file.write_text(
+        json.dumps({"id": "ent_old", "name": "TinyBot", "canonical_name": "tinybot"}) + "\n",
+        encoding="utf-8",
+    )
+    store.claims_file.write_text(
+        json.dumps({"id": "claim_old", "chunk_id": "chunk_old", "doc_id": "doc_old", "text": "TinyBot supports RAG."})
+        + "\n",
+        encoding="utf-8",
+    )
+    store.relations_file.write_text(
+        json.dumps(
+            {
+                "id": "rel_old",
+                "subject_entity_id": "ent_old",
+                "predicate": "supports",
+                "object_entity_id": "ent_rag",
+                "evidence_chunk_id": "chunk_old",
+                "doc_id": "doc_old",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    entity = store._read_entities()[0]
+    claim = store._read_claims()[0]
+    relation = store._read_relations()[0]
+
+    assert entity.source_refs == []
+    assert entity.mention_count == 0
+    assert claim.source == {}
+    assert claim.source_refs == []
+    assert claim.validation_status == "validated"
+    assert relation.source == {}
+    assert relation.source_refs == []
+    assert relation.claim_ids == []
+    assert relation.validation_status == "validated"
+    assert store._read_sources() == []
+    assert store._read_conflicts() == []
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_semantic_index_persists_source_evidence_sidecar() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Traceable",
+        content="TinyBot supports RAG. RAG requires embeddings.",
+        file_type="txt",
+    )
+
+    sources = store._read_sources()
+    claim = store._read_claims()[0]
+    relation = store._read_relations()[0]
+
+    assert sources
+    assert claim.source["doc_id"] == doc_id
+    assert claim.source["doc_name"] == "Traceable"
+    assert claim.source["chunk_id"].startswith(f"chunk_{doc_id}_")
+    assert claim.source["evidence_text"]
+    assert claim.source["chunk_hash"]
+    assert claim.source["extraction_method"] == "rule"
+    assert claim.source_refs == [claim.source]
+    assert relation.source["doc_id"] == doc_id
+    assert relation.source_refs == [relation.source]
+    assert store.get_stats()["source_count"] == len(sources)
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_stage_status_and_candidate_diagnostics_round_trip() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+
+    status = KnowledgeStageStatus(
+        id="stage_doc_1_chunking",
+        stage="chunking",
+        status="complete",
+        doc_id="doc_1",
+        processed=1,
+        total=1,
+        output_counts={"chunks": 2},
+    )
+    candidate = KnowledgeCandidate(
+        id="cand_1",
+        candidate_type="claim",
+        doc_id="doc_1",
+        chunk_id="chunk_1",
+        text="Unsupported claim",
+        validation_status="rejected",
+        rejection_reasons=["missing_source_evidence"],
+        diagnostics={"validator": "source_substring"},
+    )
+
+    store._write_stage_statuses([status])
+    store._write_candidate_diagnostics([candidate])
+
+    assert store._read_stage_statuses() == [status]
+    assert store._read_candidate_diagnostics() == [candidate]
+    stats = store.get_stats()
+    assert stats["stage_status_count"] == 1
+    assert stats["candidate_diagnostic_count"] == 1
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_rule_semantic_extraction_builds_candidates_before_persistence() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    chunk = {
+        "index": 0,
+        "content": "TinyBot supports RAG.",
+        "semantic_text": "TinyBot supports RAG.",
+        "context_content": "TinyBot supports RAG.",
+        "section_path": "",
+        "start_char": 0,
+        "end_char": len("TinyBot supports RAG."),
+    }
+
+    candidates = store._extract_semantic_candidates(
+        doc_id="doc_candidate",
+        doc_name="Candidates",
+        chunk_id="chunk_doc_candidate_0",
+        chunk=chunk,
+        content="TinyBot supports RAG.",
+        semantic_units=store._extract_semantic_units("TinyBot supports RAG.", "", "Candidates"),
+        extraction_method="rule",
+        ts="2026-05-28T00:00:00+00:00",
+    )
+
+    by_type = {}
+    for candidate in candidates:
+        by_type.setdefault(candidate.candidate_type, []).append(candidate)
+
+    assert {"mention", "claim", "relation"}.issubset(by_type)
+    assert all(candidate.validation_status == "pending" for candidate in candidates)
+    assert all(candidate.extraction_method == "rule" for candidate in candidates)
+    assert all(candidate.sources for candidate in candidates)
+    assert all(candidate.sources[0]["doc_id"] == "doc_candidate" for candidate in candidates)
+    assert all(candidate.sources[0]["chunk_id"] == "chunk_doc_candidate_0" for candidate in candidates)
+    assert any(candidate.payload["entity_name"] == "TinyBot" for candidate in by_type["mention"])
+    assert any(candidate.text == "TinyBot supports RAG." for candidate in by_type["claim"])
+    assert any(
+        candidate.payload["subject"] == "TinyBot"
+        and candidate.payload["predicate"] == "supports"
+        and candidate.payload["object"] == "RAG"
+        for candidate in by_type["relation"]
+    )
+    assert store._read_claims() == []
+    assert store._read_relations() == []
+    assert store._read_mentions() == []
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_llm_schema_normalization_builds_candidates_before_persistence() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    chunk = {
+        "index": 0,
+        "content": "GraphRAG supports community reports.",
+        "semantic_text": "GraphRAG supports community reports.",
+        "context_content": "GraphRAG supports community reports.",
+        "section_path": "",
+        "start_char": 0,
+        "end_char": len("GraphRAG supports community reports."),
+    }
+
+    units = store._normalize_llm_semantic_units(
+        {
+            "graph": {
+                "nodes": [
+                    {"id": "GraphRAG", "label": "GraphRAG", "type": "technology", "confidence": 0.9},
+                    {
+                        "id": "community reports",
+                        "label": "community reports",
+                        "type": "business_object",
+                        "confidence": 0.8,
+                    },
+                ],
+                "edges": [
+                    {
+                        "from": "GraphRAG",
+                        "to": "community reports",
+                        "relation": "supports",
+                        "evidence": "GraphRAG supports community reports.",
+                        "strength": 3.0,
+                        "confidence": 0.9,
+                    }
+                ],
+            },
+            "facts": [
+                {
+                    "subject": "GraphRAG",
+                    "description": "GraphRAG supports community reports.",
+                    "source_text": "GraphRAG supports community reports.",
+                    "confidence": 0.9,
+                }
+            ],
+        }
+    )
+    candidates = store._extract_semantic_candidates(
+        doc_id="doc_llm_candidate",
+        doc_name="LLM Candidates",
+        chunk_id="chunk_doc_llm_candidate_0",
+        chunk=chunk,
+        content="GraphRAG supports community reports.",
+        semantic_units=store._validate_semantic_units(units, "GraphRAG supports community reports."),
+        extraction_method="llm",
+        ts="2026-05-28T00:00:00+00:00",
+    )
+
+    by_type = {}
+    for candidate in candidates:
+        by_type.setdefault(candidate.candidate_type, []).append(candidate)
+
+    assert {"mention", "claim", "relation"}.issubset(by_type)
+    assert all(candidate.extraction_method == "llm" for candidate in candidates)
+    assert any(candidate.payload["predicate"] == "supports" for candidate in by_type["relation"])
+    assert all(candidate.sources[0]["extraction_method"] == "llm" for candidate in candidates)
+    assert store._read_claims() == []
+    assert store._read_relations() == []
+    assert store._read_mentions() == []
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
@@ -139,6 +386,158 @@ def test_deferred_document_indexing_from_persisted_chunks() -> None:
     assert store.get_stats()["relation_count"] >= 1
     assert progress
     assert progress[-1][0] == "completed"
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_document_indexing_records_named_stage_statuses() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    progress: list[tuple[str, int, int]] = []
+
+    doc_id = store.add_document(
+        name="Staged",
+        content="TinyBot supports RAG. RAG depends on embeddings.",
+        file_type="txt",
+        progress_callback=lambda stage, _message, processed, total: progress.append((stage, processed, total)),
+    )
+
+    stages = {status.stage: status for status in store._read_stage_statuses() if status.doc_id == doc_id}
+    expected_stages = {
+        "chunking",
+        "dense_indexing",
+        "sparse_indexing",
+        "mention_extraction",
+        "entity_canonicalization",
+        "claim_extraction",
+        "claim_validation",
+        "relation_extraction",
+        "relation_validation",
+        "conflict_detection",
+        "evidence_expansion",
+        "graph_projection",
+        "community_report_projection",
+    }
+
+    assert expected_stages.issubset(stages)
+    assert stages["chunking"].status == "complete"
+    assert stages["dense_indexing"].status == "skipped"
+    assert stages["sparse_indexing"].status == "complete"
+    assert stages["evidence_expansion"].status == "skipped"
+    assert stages["claim_extraction"].output_counts["claims"] >= 1
+    assert stages["relation_validation"].output_counts["relations"] >= 1
+    assert all(stages[stage].input_hash for stage in expected_stages)
+    assert all(stages[stage].source_version for stage in expected_stages)
+    assert progress[0][0] == "chunking"
+    assert progress[-1][0] == "completed"
+    assert store.index_document(doc_id)["stage_details"]
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_selected_document_rebuild_refreshes_only_target_semantic_records() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    target_doc = store.add_document(
+        name="Target",
+        content="TinyBot supports RAG. RAG depends on embeddings.",
+        file_type="txt",
+    )
+    other_doc = store.add_document(
+        name="Other",
+        content="GraphRAG builds communities. Communities contain claims.",
+        file_type="txt",
+    )
+    store._write_claims([claim for claim in store._read_claims() if claim.doc_id != target_doc])
+    other_claim_ids = {claim.id for claim in store._read_claims() if claim.doc_id == other_doc}
+
+    result = store.rebuild_stages(doc_id=target_doc, stages=["mention_extraction"])
+
+    claims_by_doc = {}
+    for claim in store._read_claims():
+        claims_by_doc.setdefault(claim.doc_id, set()).add(claim.id)
+    assert claims_by_doc[target_doc]
+    assert claims_by_doc[other_doc] == other_claim_ids
+    assert result["doc_ids"] == [target_doc]
+    assert "mention_extraction" in result["recomputed_stages"]
+    assert "graph_projection" in result["recomputed_stages"]
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_selected_stage_rebuild_includes_downstream_stages() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Downstream",
+        content="TinyBot supports RAG. RAG requires embeddings.",
+        file_type="txt",
+    )
+
+    result = store.rebuild_stages(doc_id=doc_id, stages=["claim_extraction"])
+    stage_status = {status.stage: status for status in store._read_stage_statuses() if status.doc_id == doc_id}
+
+    assert result["recomputed_stages"] == [
+        "claim_extraction",
+        "claim_validation",
+        "relation_extraction",
+        "relation_validation",
+        "conflict_detection",
+        "graph_projection",
+        "community_report_projection",
+    ]
+    assert all(stage_status[stage].stale == 0 for stage in result["recomputed_stages"])
+    assert all(stage_status[stage].status in {"complete", "skipped"} for stage in result["recomputed_stages"])
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_stats_report_stage_readiness_and_partial_availability() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Stats",
+        content="TinyBot supports RAG. RAG depends on embeddings.",
+        file_type="txt",
+    )
+    statuses = [
+        KnowledgeStageStatus(
+            **{
+                **asdict(status),
+                "status": "failed",
+                "failed": 1,
+                "last_error": "provider unavailable",
+            }
+        )
+        if status.stage == "claim_extraction"
+        else KnowledgeStageStatus(**{**asdict(status), "status": "stale", "stale": 1})
+        if status.stage == "graph_projection"
+        else status
+        for status in store._read_stage_statuses()
+        if status.doc_id == doc_id
+    ]
+    store._write_stage_statuses(statuses)
+
+    stats = store.get_stats()
+
+    assert stats["retrieval_ready"] is True
+    assert stats["claims_ready"] is False
+    assert stats["relations_ready"] is True
+    assert stats["graph_ready"] is False
+    assert stats["partial_availability"] is True
+    assert stats["failed_stage_count"] == 1
+    assert stats["stale_stage_count"] == 1
+    assert stats["stage_readiness"]["claim_extraction"]["status"] == "failed"
+    assert stats["stage_readiness"]["graph_projection"]["stale"] == 1
+    assert stats["stage_coverage"]["claim_extraction"]["failed"] == 1
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
@@ -445,6 +844,457 @@ def test_llm_semantic_extraction_is_validated(monkeypatch) -> None:
     entity_names = {entity.name for entity in store._read_entities()}
     assert entity_names == {"TinyBot", "RAG"}
     assert store.get_stats()["relation_count"] == 1
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_llm_semantic_extraction_uses_single_pass_strategy(monkeypatch) -> None:
+    workspace = _workspace()
+
+    class Provider:
+        api_key = "test-key"
+        api_base = "https://example.test/v1"
+        extra_headers = {}
+
+    class Defaults:
+        model = "test-model"
+
+    class Agents:
+        defaults = Defaults()
+
+    class ConfigRef:
+        agents = Agents()
+
+        def get_provider(self, model):
+            return Provider()
+
+        def get_api_base(self, model):
+            return "https://example.test/v1"
+
+    prompts: list[str] = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "{"
+                                '"entities": [{"title": "TinyBot", "type": "product", "confidence": 0.9},'
+                                '{"title": "RAG", "type": "technology", "confidence": 0.9}],'
+                                '"relationships": [{"source": "TinyBot", "predicate": "supports", '
+                                '"target": "RAG", "evidence": "TinyBot supports RAG.", "confidence": 0.9}]'
+                                "}"
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            prompts.append(kwargs["json"]["messages"][0]["content"])
+            return FakeResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=1000,
+            chunk_overlap=0,
+            semantic_extraction_mode="llm",
+            llm_extraction_strategy="single_pass",
+        ),
+        config_ref=ConfigRef(),
+    )
+    store.add_document(
+        name="Single pass LLM extraction",
+        content="TinyBot supports RAG.",
+        file_type="txt",
+    )
+
+    assert prompts
+    assert "Strategy: single_pass" in prompts[0]
+    assert store.get_stats()["relation_count"] == 1
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_llm_semantic_extraction_uses_entity_guided_second_pass(monkeypatch) -> None:
+    workspace = _workspace()
+
+    class Provider:
+        api_key = "test-key"
+        api_base = "https://example.test/v1"
+        extra_headers = {}
+
+    class Defaults:
+        model = "test-model"
+
+    class Agents:
+        defaults = Defaults()
+
+    class ConfigRef:
+        agents = Agents()
+
+        def get_provider(self, model):
+            return Provider()
+
+        def get_api_base(self, model):
+            return "https://example.test/v1"
+
+    prompts: list[str] = []
+    responses = [
+        (
+            "{"
+            '"entities": [{"title": "TinyBot", "type": "product", "confidence": 0.9},'
+            '{"title": "RAG", "type": "technology", "confidence": 0.9}]'
+            "}"
+        ),
+        (
+            "{"
+            '"relationships": [{"source": "TinyBot", "predicate": "supports", '
+            '"target": "RAG", "evidence": "TinyBot supports RAG.", "confidence": 0.9}],'
+            '"covariates": [{"subject": "TinyBot", "description": "TinyBot supports RAG.", '
+            '"source_text": "TinyBot supports RAG.", "confidence": 0.9}]'
+            "}"
+        ),
+    ]
+
+    class FakeResponse:
+        def __init__(self, content):
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": self.content}}]}
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            prompts.append(kwargs["json"]["messages"][0]["content"])
+            return FakeResponse(responses[len(prompts) - 1])
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=1000,
+            chunk_overlap=0,
+            semantic_extraction_mode="llm",
+            llm_extraction_strategy="entity_guided",
+        ),
+        config_ref=ConfigRef(),
+    )
+    store.add_document(
+        name="Entity guided LLM extraction",
+        content="TinyBot supports RAG.",
+        file_type="txt",
+    )
+
+    assert len(prompts) == 2
+    assert "Strategy: entity_guided" in prompts[0]
+    assert "Known entity candidates" in prompts[1]
+    assert "TinyBot" in prompts[1]
+    assert store.get_stats()["claim_count"] == 1
+    assert store.get_stats()["relation_count"] == 1
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_llm_candidate_validation_rejects_unsupported_claims(monkeypatch) -> None:
+    workspace = _workspace()
+
+    class Provider:
+        api_key = "test-key"
+        api_base = "https://example.test/v1"
+        extra_headers = {}
+
+    class Defaults:
+        model = "test-model"
+
+    class Agents:
+        defaults = Defaults()
+
+    class ConfigRef:
+        agents = Agents()
+
+        def get_provider(self, model):
+            return Provider()
+
+        def get_api_base(self, model):
+            return "https://example.test/v1"
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "{"
+                                '"entities": [{"title": "TinyBot", "type": "product", "confidence": 0.9},'
+                                '{"title": "RAG", "type": "technology", "confidence": 0.9}],'
+                                '"claims": [{"text": "TinyBot supports GraphQL.", '
+                                '"entity_names": ["TinyBot"], "source_text": "TinyBot supports GraphQL.", "confidence": 0.9}],'
+                                '"relationships": [{"source": "TinyBot", "predicate": "invented", '
+                                '"target": "RAG", "evidence": "TinyBot supports RAG.", "confidence": 0.9}]'
+                                "}"
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=1000,
+            chunk_overlap=0,
+            semantic_extraction_mode="llm",
+        ),
+        config_ref=ConfigRef(),
+    )
+    store.add_document(
+        name="Rejected candidates",
+        content="TinyBot supports RAG.",
+        file_type="txt",
+    )
+
+    diagnostics = store._read_candidate_diagnostics()
+    assert store.get_stats()["claim_count"] == 0
+    assert store.get_stats()["relation_count"] == 0
+    assert any(candidate.validation_status == "rejected" for candidate in diagnostics)
+    assert any("unsupported_claim_evidence" in candidate.rejection_reasons for candidate in diagnostics)
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_llm_candidate_validation_normalizes_types_predicates_and_merges_relation_support(monkeypatch) -> None:
+    workspace = _workspace()
+
+    class Provider:
+        api_key = "test-key"
+        api_base = "https://example.test/v1"
+        extra_headers = {}
+
+    class Defaults:
+        model = "test-model"
+
+    class Agents:
+        defaults = Defaults()
+
+    class ConfigRef:
+        agents = Agents()
+
+        def get_provider(self, model):
+            return Provider()
+
+        def get_api_base(self, model):
+            return "https://example.test/v1"
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "{"
+                                '"entities": [{"title": "TinyBot", "type": "company", "confidence": 0.9},'
+                                '{"title": "RAG", "type": "library", "confidence": 0.9}],'
+                                '"relationships": ['
+                                '{"source": "TinyBot", "predicate": "uses", "target": "RAG", '
+                                '"evidence": "TinyBot uses RAG.", "confidence": 0.9},'
+                                '{"source": "TinyBot", "predicate": "uses", "target": "RAG", '
+                                '"evidence": "TinyBot uses RAG.", "confidence": 0.8}'
+                                "]"
+                                "}"
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=1000,
+            chunk_overlap=0,
+            semantic_extraction_mode="llm",
+        ),
+        config_ref=ConfigRef(),
+    )
+    store.add_document(
+        name="Normalized candidates",
+        content="TinyBot uses RAG.",
+        file_type="txt",
+    )
+
+    entities = {entity.name: entity for entity in store._read_entities()}
+    relations = store._read_relations()
+    diagnostics = store._read_candidate_diagnostics()
+
+    assert entities["TinyBot"].type == "organization"
+    assert entities["RAG"].type == "technology"
+    assert len(relations) == 1
+    assert relations[0].predicate == "used_for"
+    assert len(relations[0].source_refs) == 2
+    assert any(candidate.validation_status == "normalized" for candidate in diagnostics)
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_conflicting_validated_claims_are_preserved_with_conflict_record(monkeypatch) -> None:
+    workspace = _workspace()
+
+    class Provider:
+        api_key = "test-key"
+        api_base = "https://example.test/v1"
+        extra_headers = {}
+
+    class Defaults:
+        model = "test-model"
+
+    class Agents:
+        defaults = Defaults()
+
+    class ConfigRef:
+        agents = Agents()
+
+        def get_provider(self, model):
+            return Provider()
+
+        def get_api_base(self, model):
+            return "https://example.test/v1"
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "{"
+                                '"entities": [{"title": "TinyBot", "type": "product", "confidence": 0.9},'
+                                '{"title": "RAG", "type": "technology", "confidence": 0.9}],'
+                                '"claims": ['
+                                '{"text": "TinyBot supports RAG.", "entity_names": ["TinyBot", "RAG"], '
+                                '"status": "TRUE", "source_text": "TinyBot supports RAG.", "confidence": 0.9},'
+                                '{"text": "TinyBot does not support RAG.", "entity_names": ["TinyBot", "RAG"], '
+                                '"status": "FALSE", "source_text": "TinyBot does not support RAG.", "confidence": 0.9}'
+                                "]"
+                                "}"
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(
+            chunk_size=1000,
+            chunk_overlap=0,
+            semantic_extraction_mode="llm",
+        ),
+        config_ref=ConfigRef(),
+    )
+    store.add_document(
+        name="Conflicting claims",
+        content="TinyBot supports RAG. TinyBot does not support RAG.",
+        file_type="txt",
+    )
+
+    conflicts = store._read_conflicts()
+    assert store.get_stats()["claim_count"] == 2
+    assert len(conflicts) == 1
+    assert conflicts[0].conflict_type == "claim_polarity"
+    assert len(conflicts[0].sources) == 2
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
@@ -767,4 +1617,6 @@ def test_rebuild_job_runs_in_background() -> None:
     assert jobs[job["id"]]["stage"] == "completed"
     assert jobs[job["id"]]["processed"] == jobs[job["id"]]["total"]
     assert "semantic" in jobs[job["id"]]["result"]
+    assert jobs[job["id"]]["stage_details"]
+    assert any(detail["stage"] == "community_report_projection" for detail in jobs[job["id"]]["stage_details"])
     shutil.rmtree(workspace.parent, ignore_errors=True)

@@ -47,6 +47,7 @@ def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
         "created_at": job.get("created_at", ""),
         "updated_at": job.get("updated_at", ""),
         "completed_at": job.get("completed_at", ""),
+        "stage_details": job.get("stage_details", []),
     }
     if "result" in job:
         snapshot["result"] = job.get("result", {})
@@ -83,6 +84,7 @@ def _start_index_job(
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
         "completed_at": "",
+        "stage_details": [],
     }
     with lock:
         jobs[job_id] = job
@@ -99,6 +101,7 @@ def _start_index_job(
                 "processed": processed,
                 "total": max(1, total),
                 "updated_at": _now_iso(),
+                "stage_details": knowledge_store.get_stage_details(doc_id),
             })
             if stage == "completed":
                 current["completed_at"] = current["updated_at"]
@@ -148,6 +151,7 @@ def _start_rebuild_job(
         "updated_at": _now_iso(),
         "completed_at": "",
         "result": {},
+        "stage_details": [],
     }
     with lock:
         jobs[job_id] = job
@@ -164,6 +168,7 @@ def _start_rebuild_job(
                 "processed": processed,
                 "total": max(1, total or current.get("total", 1)),
                 "updated_at": _now_iso(),
+                "stage_details": knowledge_store.get_stage_details(),
             })
             if stage == "completed":
                 current["completed_at"] = current["updated_at"]
@@ -190,6 +195,7 @@ def _start_rebuild_job(
                 current = jobs.get(job_id)
                 if current:
                     current["result"] = result
+                    current["stage_details"] = knowledge_store.get_stage_details()
             update("completed", "Knowledge index rebuild is complete", job["total"], job["total"])
         except Exception as e:
             logger.exception("Knowledge rebuild job {} failed", job_id)
