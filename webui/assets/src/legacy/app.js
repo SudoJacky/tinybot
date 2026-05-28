@@ -51,6 +51,7 @@ import {
 import {
   buildKnowledgeClaimInspection,
   buildKnowledgeConflictInspection,
+  buildKnowledgeProjectionInspection,
   buildKnowledgeRelationInspection,
   knowledgeEvidenceRowsForEdge,
 } from '../knowledge-traceability.js';
@@ -8410,7 +8411,14 @@ function normalizeGraphRagIndex(index) {
       community_level: community?.level ?? null,
       community_parent: community?.parent ?? null,
       community_report_id: report?.id || "",
+      community_report_title: report?.title || "",
       community_report_summary: report?.summary || "",
+      community_report_type: report?.projection_type || "",
+      community_report_status: report?.projection_status || "",
+      community_report_rank: report?.rank ?? null,
+      community_report_supporting_claim_ids: report?.supporting_claim_ids || [],
+      community_report_supporting_relation_ids: report?.supporting_relation_ids || [],
+      community_report_source_refs: report?.source_refs || [],
       score: (entity.degree || 0) + (entity.frequency || 0),
     };
     entityByName.set(node.label, node);
@@ -8649,6 +8657,35 @@ function renderKnowledgeGraphInspector() {
     if (node.community_title) {
       inspector.append(createInspectorSection(t("knowledge.community"), [node.community_title]));
     }
+    if (node.community_report_id || node.community_report_summary) {
+      const projection = buildKnowledgeProjectionInspection({
+        id: node.community_report_id,
+        title: node.community_report_title || node.community_title,
+        summary: node.community_report_summary,
+        projection_type: node.community_report_type || "community_report",
+        projection_status: node.community_report_status,
+        community: node.community_id,
+        rank: node.community_report_rank,
+        supporting_claim_ids: node.community_report_supporting_claim_ids,
+        supporting_relation_ids: node.community_report_supporting_relation_ids,
+        source_refs: node.community_report_source_refs,
+      });
+      inspector.append(createInspectorSection(t("knowledge.projection"), [t("knowledge.derivedProjection")]));
+      inspector.append(createInspectorMetrics([
+        [t("knowledge.projectionType"), projection.type],
+        [t("knowledge.status"), projection.status || "-"],
+        [t("knowledge.rankLabel"), projection.rankLabel || "-"],
+      ]));
+      if (projection.supportingClaimIds.length) {
+        inspector.append(createInspectorSection(t("knowledge.supportingClaims"), projection.supportingClaimIds));
+      }
+      if (projection.supportingRelationIds.length) {
+        inspector.append(createInspectorSection(t("knowledge.supportingRelations"), projection.supportingRelationIds));
+      }
+      if (projection.sources.length) {
+        inspector.append(createKnowledgeEvidenceSection(t("knowledge.projectionSources"), projection.sources));
+      }
+    }
     if (node.doc_names?.length) {
       inspector.append(createInspectorSection(t("knowledge.sourceDocuments"), node.doc_names.slice(0, 6)));
     }
@@ -8750,6 +8787,16 @@ function createKnowledgeEvidenceSection(title, rows) {
     const text = document.createElement("p");
     text.textContent = row.text || "";
     item.append(titleNode, meta, text);
+    if (row.contextText) {
+      const context = document.createElement("details");
+      context.className = "knowledge-source-context";
+      const summary = document.createElement("summary");
+      summary.textContent = t("knowledge.sourceContext");
+      const body = document.createElement("p");
+      body.textContent = row.contextText;
+      context.append(summary, body);
+      item.append(context);
+    }
     section.append(item);
   }
   return section;
@@ -8768,6 +8815,7 @@ function knowledgeConflictEvidenceRows(conflicts) {
         side.sourceMeta,
       ].filter(Boolean).join(" / "),
       text: side.evidenceText,
+      contextText: side.contextText,
       claimId: "",
     }));
   });

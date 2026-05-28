@@ -31,6 +31,15 @@ function sourceFromEvidence(item = {}) {
     doc_id: firstNonEmpty(nested.doc_id, item.doc_id),
     chunk_id: firstNonEmpty(nested.chunk_id, item.chunk_id),
     confidence: nested.confidence ?? item.confidence,
+    context_text: firstNonEmpty(
+      nested.context_text,
+      nested.surrounding_text,
+      nested.chunk_text,
+      item.context_text,
+      item.surrounding_text,
+      item.chunk_text,
+      item.source_context,
+    ),
   };
 }
 
@@ -59,11 +68,16 @@ export function buildKnowledgeSourceContext(source = {}) {
     metaParts.push(`confidence ${confidence}`);
   }
 
-  return {
+  const result = {
     title: firstNonEmpty(normalized.doc_name, normalized.doc_id, "Unknown source"),
     location: locationParts.join(" / "),
     meta: metaParts.join(" / "),
   };
+  if (normalized.context_text) {
+    result.contextText = normalized.context_text;
+    result.hasContext = true;
+  }
+  return result;
 }
 
 function nodeLabel(nodes = [], nodeId = "") {
@@ -113,12 +127,16 @@ export function buildKnowledgeRelationInspection(edge = {}, nodes = []) {
     evidence: asArray(edge.evidence || edge.source_refs).map((item) => {
       const sourceEvidence = sourceFromEvidence(item);
       const context = buildKnowledgeSourceContext(sourceEvidence);
-      return {
+      const row = {
         title: context.title,
         meta: context.meta,
         text: firstNonEmpty(sourceEvidence.evidence_text, item.text),
         claimId: firstNonEmpty(item.claim_id),
       };
+      if (context.contextText) {
+        row.contextText = context.contextText;
+      }
+      return row;
     }),
   };
 }
@@ -126,7 +144,7 @@ export function buildKnowledgeRelationInspection(edge = {}, nodes = []) {
 export function buildKnowledgeClaimInspection(claim = {}) {
   const source = sourceFromEvidence(claim.source || claim);
   const context = buildKnowledgeSourceContext(source);
-  return {
+  const result = {
     id: firstNonEmpty(claim.id),
     title: firstNonEmpty(claim.text, claim.evidence_text, source.evidence_text, "Claim"),
     status: firstNonEmpty(claim.status),
@@ -135,12 +153,16 @@ export function buildKnowledgeClaimInspection(claim = {}) {
     sourceMeta: context.meta,
     evidenceText: firstNonEmpty(source.evidence_text, claim.text),
   };
+  if (context.contextText) {
+    result.sourceContextText = context.contextText;
+  }
+  return result;
 }
 
 function conflictSide(label, recordType, recordId, source = {}) {
   const normalized = sourceFromEvidence(source);
   const context = buildKnowledgeSourceContext(normalized);
-  return {
+  const result = {
     label: `${label} ${recordType || "record"} ${recordId || ""}`.trim(),
     recordId: firstNonEmpty(recordId),
     recordType: firstNonEmpty(recordType),
@@ -148,6 +170,10 @@ function conflictSide(label, recordType, recordId, source = {}) {
     sourceMeta: context.meta,
     evidenceText: firstNonEmpty(normalized.evidence_text, source.text),
   };
+  if (context.contextText) {
+    result.contextText = context.contextText;
+  }
+  return result;
 }
 
 export function buildKnowledgeConflictInspection(conflict = {}) {
@@ -166,5 +192,41 @@ export function buildKnowledgeConflictInspection(conflict = {}) {
       conflictSide("Left", leftType, leftId, sources[0] || conflict.left_source || {}),
       conflictSide("Right", rightType, rightId, sources[1] || conflict.right_source || {}),
     ],
+  };
+}
+
+function sourceRowsForProjection(projection = {}) {
+  return asArray(projection.source_refs || projection.sources || projection.evidence || projection.supporting_sources)
+    .map((item) => {
+      const source = sourceFromEvidence(item);
+      const context = buildKnowledgeSourceContext(source);
+      const row = {
+        title: context.title,
+        meta: context.meta,
+        text: firstNonEmpty(source.evidence_text, item.text),
+        claimId: firstNonEmpty(item.claim_id),
+      };
+      if (context.contextText) {
+        row.contextText = context.contextText;
+      }
+      return row;
+    });
+}
+
+export function buildKnowledgeProjectionInspection(projection = {}) {
+  const type = firstNonEmpty(projection.projection_type, projection.type, "projection");
+  const community = projection.community ?? projection.community_id;
+  return {
+    id: firstNonEmpty(projection.id),
+    title: firstNonEmpty(projection.title, projection.name, projection.summary, type),
+    summary: firstNonEmpty(projection.summary, projection.full_content, projection.description),
+    type,
+    status: firstNonEmpty(projection.projection_status, projection.status),
+    derivedLabel: "Derived projection",
+    communityLabel: community == null || community === "" ? "" : `Community ${community}`,
+    rankLabel: formatNumber(projection.rank ?? projection.rating),
+    supportingClaimIds: asArray(projection.supporting_claim_ids || projection.claim_ids).map(asText).filter(Boolean),
+    supportingRelationIds: asArray(projection.supporting_relation_ids || projection.relation_ids).map(asText).filter(Boolean),
+    sources: sourceRowsForProjection(projection),
   };
 }

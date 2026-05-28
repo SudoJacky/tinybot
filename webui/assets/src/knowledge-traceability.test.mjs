@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildKnowledgeClaimInspection,
   buildKnowledgeConflictInspection,
+  buildKnowledgeProjectionInspection,
   buildKnowledgeRelationInspection,
   buildKnowledgeSourceContext,
   knowledgeEvidenceRowsForEdge,
@@ -164,4 +165,59 @@ assert.deepEqual(buildKnowledgeConflictInspection({
       evidenceText: "The GraphRAG projection is stale.",
     },
   ],
+});
+
+assert.deepEqual(buildKnowledgeProjectionInspection({
+  id: "report:1",
+  title: "Retrieval architecture",
+  summary: "Derived from source-backed claims and relationships.",
+  projection_type: "community_report",
+  projection_status: "fresh",
+  community: 3,
+  rank: 0.92,
+  supporting_claim_ids: ["claim:1", "claim:2"],
+  supporting_relation_ids: ["rel:1"],
+  source_refs: [
+    {
+      doc_name: "Architecture Notes",
+      chunk_id: "chunk:7",
+      evidence_text: "TinyBot supports RAG with source citations.",
+      context_text: "Before. TinyBot supports RAG with source citations. After.",
+      extraction_method: "llm",
+      confidence: 0.88,
+    },
+  ],
+}), {
+  id: "report:1",
+  title: "Retrieval architecture",
+  summary: "Derived from source-backed claims and relationships.",
+  type: "community_report",
+  status: "fresh",
+  derivedLabel: "Derived projection",
+  communityLabel: "Community 3",
+  rankLabel: "0.920",
+  supportingClaimIds: ["claim:1", "claim:2"],
+  supportingRelationIds: ["rel:1"],
+  sources: [
+    {
+      title: "Architecture Notes",
+      meta: "chunk:7 / llm / confidence 0.880",
+      text: "TinyBot supports RAG with source citations.",
+      contextText: "Before. TinyBot supports RAG with source citations. After.",
+      claimId: "",
+    },
+  ],
+});
+
+assert.deepEqual(buildKnowledgeSourceContext({
+  doc_name: "Architecture Notes",
+  chunk_id: "chunk:7",
+  evidence_text: "TinyBot supports RAG with source citations.",
+  surrounding_text: "Before. TinyBot supports RAG with source citations. After.",
+}), {
+  title: "Architecture Notes",
+  location: "chunk:7",
+  meta: "chunk:7",
+  contextText: "Before. TinyBot supports RAG with source citations. After.",
+  hasContext: true,
 });
