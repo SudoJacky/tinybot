@@ -776,6 +776,46 @@ class ContextBuilder:
                 semantic_parts.append("Claims: " + " | ".join(matched_claims[:3]))
             if matched_child_snippets := result.get("matched_child_snippets", []):
                 semantic_parts.append("Matched snippets: " + " | ".join(matched_child_snippets[:2]))
+            if source_snippets := result.get("source_snippets", []):
+                snippets = [
+                    str(item.get("text") or item.get("evidence_text") or "").strip()
+                    for item in source_snippets
+                    if isinstance(item, dict) and str(item.get("text") or item.get("evidence_text") or "").strip()
+                ][:3]
+                if snippets:
+                    semantic_parts.append("Source snippets: " + " | ".join(snippets))
+            if claim_evidence := result.get("matched_claim_evidence", []):
+                claims = [
+                    str(item.get("text") or item.get("source", {}).get("evidence_text") or "").strip()
+                    for item in claim_evidence
+                    if isinstance(item, dict) and str(item.get("text") or item.get("source", {}).get("evidence_text") or "").strip()
+                ][:3]
+                if claims:
+                    semantic_parts.append("Claim evidence: " + " | ".join(claims))
+            if relation_evidence := result.get("matched_relation_evidence", []):
+                relations = [
+                    str(item.get("evidence_text") or item.get("predicate") or "").strip()
+                    for item in relation_evidence
+                    if isinstance(item, dict) and str(item.get("evidence_text") or item.get("predicate") or "").strip()
+                ][:3]
+                if relations:
+                    semantic_parts.append("Relation evidence: " + " | ".join(relations))
+            if conflicts := result.get("conflict_metadata", []):
+                conflict_labels = [
+                    str(item.get("evidence_text") or item.get("conflict_type") or "").strip()
+                    for item in conflicts
+                    if isinstance(item, dict) and str(item.get("evidence_text") or item.get("conflict_type") or "").strip()
+                ][:2]
+                if conflict_labels:
+                    semantic_parts.append("Conflicts: " + " | ".join(conflict_labels))
+            if projections := result.get("projection_metadata", []):
+                projection_labels = [
+                    str(item.get("title") or item.get("id") or item.get("projection_type") or "").strip()
+                    for item in projections
+                    if isinstance(item, dict) and str(item.get("title") or item.get("id") or item.get("projection_type") or "").strip()
+                ][:3]
+                if projection_labels:
+                    semantic_parts.append("Derived projections: " + " | ".join(projection_labels))
 
             semantic_block = "\n" + "\n".join(semantic_parts) if semantic_parts else ""
             meta_str = " | ".join(meta_parts)

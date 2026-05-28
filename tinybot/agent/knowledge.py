@@ -2619,7 +2619,7 @@ class KnowledgeStore:
                 total_batches,
             )
 
-            for i, chunk in enumerate(batch):
+            for chunk in batch:
                 content = chunk.get("context_content") or chunk["content"]
                 if len(content) < 50:
                     # Skip very short chunks
@@ -2713,6 +2713,7 @@ class KnowledgeStore:
 
         results = self._maybe_rerank(query_text, results, candidate_k)
         results = self._expand_results_to_parent_chunks(results, top_k)
+        results = self._add_query_traceability(results)
 
         logger.debug(
             "KnowledgeStore: query returned {} results (mode={})",
@@ -3002,6 +3003,205 @@ class KnowledgeStore:
             return dict(value.__dict__)
         return {}
 
+    @staticmethod
+    def _dedupe_dicts(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for value in values:
+            if not value:
+                continue
+            key = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(value)
+        return deduped
+
+    @staticmethod
+    def _source_payload_from_chunk(
+        chunk: KnowledgeChunk,
+        *,
+        evidence_text: str | None = None,
+        extraction_method: str = "retrieval",
+        confidence: float = 0.5,
+    ) -> dict[str, Any]:
+        text = evidence_text if evidence_text is not None else (chunk.context_content or chunk.content)
+        return {
+            "doc_id": chunk.doc_id,
+            "doc_name": chunk.doc_name,
+            "chunk_id": chunk.id,
+            "chunk_hash": hashlib.sha1((chunk.context_content or chunk.content).encode()).hexdigest(),
+            "evidence_text": text,
+            "start_char": chunk.start_char,
+            "end_char": chunk.end_char,
+            "line_start": chunk.line_start,
+            "line_end": chunk.line_end,
+            "page": chunk.page,
+            "section_path": chunk.section_path,
+            "extraction_method": extraction_method,
+            "confidence": confidence,
+        }
+
+    @staticmethod
+    def _score_metadata(result: dict[str, Any]) -> dict[str, Any]:
+        score_fields = [
+            "rerank_score",
+            "semantic_fusion_score",
+            "semantic_score",
+            "rrf_score",
+            "bm25_score",
+            "distance",
+        ]
+        score = next((result.get(field) for field in score_fields if result.get(field) is not None), None)
+        return {
+            "score": score,
+            "confidence": result.get("confidence") or score,
+            "score_fields": {
+                field: result.get(field)
+                for field in score_fields
+                if result.get(field) is not None
+            },
+        }
+
+    def _add_query_traceability(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not results:
+            return []
+
+        chunks = {chunk.id: chunk for chunk in self._read_chunks()}
+        claims = self._read_claims()
+        relations = self._read_relations()
+        conflicts = self._read_conflicts()
+        reports = self._read_community_reports()
+        communities = self._read_communities()
+
+        claims_by_id = {claim.id: claim for claim in claims}
+        reports_by_title = {report.title: report for report in reports}
+        communities_by_number = {community.community: community for community in communities}
+
+        enriched: list[dict[str, Any]] = []
+        for result in results:
+            item = dict(result)
+            chunk_id = str(item.get("id") or "")
+            chunk = chunks.get(chunk_id)
+            doc_id = str(item.get("doc_id") or (chunk.doc_id if chunk else ""))
+            method = item.get("method") or "+".join(item.get("matched_methods") or []) or "retrieval"
+            item["retrieval_method"] = method
+            item["score_metadata"] = self._score_metadata(item)
+
+            snippet_text = item.get("content") or (chunk.context_content if chunk else "") or (chunk.content if chunk else "")
+            if chunk:
+                source = self._source_payload_from_chunk(
+                    chunk,
+                    evidence_text=str(snippet_text),
+                    extraction_method=str(method),
+                    confidence=float(item["score_metadata"].get("confidence") or 0.5),
+                )
+            else:
+                source = {
+                    "doc_id": doc_id,
+                    "doc_name": item.get("doc_name", ""),
+                    "chunk_id": chunk_id,
+                    "evidence_text": str(snippet_text),
+                    "extraction_method": str(method),
+                    "confidence": item["score_metadata"].get("confidence"),
+                }
+            item["source_snippets"] = item.get("source_snippets") or [{
+                **source,
+                "text": str(snippet_text),
+            }]
+
+            matched_claim_texts = set(item.get("matched_claims") or [])
+            chunk_claims = [
+                claim
+                for claim in claims
+                if claim.chunk_id == chunk_id
+                and (not matched_claim_texts or claim.text in matched_claim_texts)
+            ][:5]
+            item["matched_claim_evidence"] = item.get("matched_claim_evidence") or [
+                {
+                    "id": claim.id,
+                    "text": claim.text,
+                    "status": claim.status,
+                    "confidence": claim.confidence,
+                    "source": claim.source,
+                    "source_refs": claim.source_refs,
+                    "entity_ids": claim.entity_ids,
+                }
+                for claim in chunk_claims
+            ]
+
+            matched_relation_texts = set(item.get("matched_relations") or [])
+            chunk_relations = [
+                relation
+                for relation in relations
+                if relation.evidence_chunk_id == chunk_id
+                and (
+                    not matched_relation_texts
+                    or relation.description in matched_relation_texts
+                    or self._relation_evidence_text(relation, claims_by_id, chunks) in matched_relation_texts
+                )
+            ][:5]
+            item["matched_relation_evidence"] = item.get("matched_relation_evidence") or [
+                {
+                    "id": relation.id,
+                    "predicate": relation.predicate,
+                    "subject_entity_id": relation.subject_entity_id,
+                    "object_entity_id": relation.object_entity_id,
+                    "confidence": relation.confidence,
+                    "weight": relation.weight,
+                    "claim_ids": relation.claim_ids or ([relation.claim_id] if relation.claim_id else []),
+                    "source": relation.source,
+                    "source_refs": relation.source_refs,
+                    "evidence_text": relation.description or self._relation_evidence_text(relation, claims_by_id, chunks),
+                }
+                for relation in chunk_relations
+            ]
+
+            claim_ids = {claim["id"] for claim in item["matched_claim_evidence"]}
+            relation_ids = {relation["id"] for relation in item["matched_relation_evidence"]}
+            item["conflict_metadata"] = item.get("conflict_metadata") or [
+                {
+                    "id": conflict.id,
+                    "conflict_type": conflict.conflict_type,
+                    "left_record_id": conflict.left_record_id,
+                    "left_record_type": conflict.left_record_type,
+                    "right_record_id": conflict.right_record_id,
+                    "right_record_type": conflict.right_record_type,
+                    "sources": conflict.sources,
+                    "evidence_text": conflict.evidence_text,
+                    "confidence": conflict.confidence,
+                    "status": conflict.status,
+                }
+                for conflict in conflicts
+                if (
+                    conflict.left_record_id in claim_ids
+                    or conflict.right_record_id in claim_ids
+                    or conflict.left_record_id in relation_ids
+                    or conflict.right_record_id in relation_ids
+                )
+            ]
+
+            matched_communities = item.get("matched_communities") or []
+            projections: list[dict[str, Any]] = []
+            for label in matched_communities:
+                report = reports_by_title.get(label)
+                if report:
+                    community = communities_by_number.get(report.community)
+                    projections.append({
+                        "id": report.id,
+                        "title": report.title,
+                        "projection_type": report.projection_type,
+                        "projection_status": report.projection_status,
+                        "is_derived": True,
+                        "supporting_claim_ids": report.supporting_claim_ids,
+                        "supporting_relation_ids": report.supporting_relation_ids,
+                        "source_refs": report.source_refs,
+                        "community_id": community.id if community else "",
+                    })
+            item["projection_metadata"] = item.get("projection_metadata") or projections
+            enriched.append(item)
+        return enriched
+
     def _rrf_fusion(
         self,
         dense_results: list[dict[str, Any]],
@@ -3215,7 +3415,7 @@ class KnowledgeStore:
         metadatas = results.get("metadatas", [[]])[0]
 
         out: list[dict[str, Any]] = []
-        for chunk_id, doc, dist, meta in zip(ids, documents, distances, metadatas):
+        for chunk_id, doc, dist, meta in zip(ids, documents, distances, metadatas, strict=False):
             if not doc:
                 continue
 
@@ -3512,7 +3712,9 @@ class KnowledgeStore:
                     "confidence_total": 0.0,
                     "weight": 0.0,
                     "relation_ids": [],
+                    "supporting_claim_ids": [],
                     "doc_ids": [],
+                    "source_refs": [],
                     "evidence": [],
                 },
             )
@@ -3523,8 +3725,16 @@ class KnowledgeStore:
             group["weight"] = group.get("weight", 0.0) + relation_strength
             group["strength"] = group.get("strength", 0.0) + relation_strength
             group["relation_ids"].append(relation.id)
+            for claim_id in [relation.claim_id, *relation.claim_ids]:
+                if claim_id and claim_id not in group["supporting_claim_ids"]:
+                    group["supporting_claim_ids"].append(claim_id)
             if relation.doc_id and relation.doc_id not in group["doc_ids"]:
                 group["doc_ids"].append(relation.doc_id)
+            group["source_refs"] = self._dedupe_dicts([
+                *group.get("source_refs", []),
+                relation.source,
+                *relation.source_refs,
+            ])
             if len(group["evidence"]) < 4:
                 claim = claims.get(relation.claim_id)
                 chunk = chunks.get(relation.evidence_chunk_id)
@@ -3545,6 +3755,8 @@ class KnowledgeStore:
                     "section_path": chunk.section_path if chunk else "",
                     "text": evidence_text,
                     "confidence": relation.confidence,
+                    "source": claim.source if claim and claim.source else relation.source,
+                    "source_refs": relation.source_refs,
                 })
             node_scores[relation.subject_entity_id] = node_scores.get(relation.subject_entity_id, 0.0) + 2.0
             node_scores[relation.object_entity_id] = node_scores.get(relation.object_entity_id, 0.0) + 2.0
@@ -3621,6 +3833,16 @@ class KnowledgeStore:
                 "aliases": entity.aliases,
                 "description": entity.description,
                 "doc_ids": entity.doc_ids,
+                "source_refs": entity.source_refs,
+                "source_metadata": [
+                    {
+                        "doc_id": item,
+                        "doc_name": documents[item].name,
+                        "file_path": documents[item].file_path,
+                    }
+                    for item in entity.doc_ids
+                    if item in documents
+                ],
                 "doc_names": [
                     documents[item].name
                     for item in entity.doc_ids
@@ -3753,12 +3975,33 @@ class KnowledgeStore:
                     "strength": 0.0,
                     "text_unit_ids": set(),
                     "relation_ids": [],
+                    "supporting_claim_ids": [],
+                    "source_refs": [],
+                    "evidence": [],
                     "confidence": 0.0,
                 },
             )
             evidence = relation.description or self._relation_evidence_text(relation, claims_by_id, chunks_by_id)
             if evidence and evidence not in group["description_parts"]:
                 group["description_parts"].append(evidence)
+            for claim_id in [relation.claim_id, *relation.claim_ids]:
+                if claim_id and claim_id not in group["supporting_claim_ids"]:
+                    group["supporting_claim_ids"].append(claim_id)
+            group["source_refs"] = self._dedupe_dicts([
+                *group.get("source_refs", []),
+                relation.source,
+                *relation.source_refs,
+            ])
+            if len(group["evidence"]) < 4:
+                claim = claims_by_id.get(relation.claim_id)
+                group["evidence"].append({
+                    "relation_id": relation.id,
+                    "claim_id": relation.claim_id,
+                    "text": evidence,
+                    "source": claim.source if claim and claim.source else relation.source,
+                    "source_refs": relation.source_refs,
+                    "confidence": relation.confidence,
+                })
             group["weight"] += relation.weight or relation.confidence or 1.0
             group["strength"] += relation.weight or relation.confidence or 1.0
             group["confidence"] = max(group["confidence"], relation.confidence)
@@ -3796,6 +4039,9 @@ class KnowledgeStore:
                 "combined_degree": entity_degrees.get(source_id, 0) + entity_degrees.get(target_id, 0),
                 "text_unit_ids": sorted(group["text_unit_ids"]),
                 "relation_ids": group["relation_ids"],
+                "supporting_claim_ids": group["supporting_claim_ids"],
+                "source_refs": group["source_refs"],
+                "evidence": group["evidence"],
                 "confidence": group["confidence"],
             })
 
@@ -3821,6 +4067,7 @@ class KnowledgeStore:
                 "degree": entity_degrees.get(entity.id, 0),
                 "aliases": entity.aliases,
                 "doc_ids": [item for item in entity.doc_ids if item in document_ids],
+                "source_refs": entity.source_refs,
                 "confidence": entity.confidence,
             })
 
@@ -3856,6 +4103,8 @@ class KnowledgeStore:
                     "end_date": claim.end_date,
                     "time_bound": {"start_date": claim.start_date, "end_date": claim.end_date},
                     "source_text": claim.source_text or claim.text,
+                    "source": claim.source,
+                    "source_refs": claim.source_refs,
                     "text_unit_id": claim.chunk_id,
                     "confidence": claim.confidence,
                 })
@@ -3888,6 +4137,7 @@ class KnowledgeStore:
             for report in self._read_community_reports()
             if report.community in community_ids
         ] if include_reports else []
+        all_relations_by_id = {relation.id: relation for relation in self._read_relations()}
         community_rows = [
             {
                 "id": community.id,
@@ -3905,6 +4155,17 @@ class KnowledgeStore:
                 "text_unit_ids": [text_unit_id for text_unit_id in community.text_unit_ids if text_unit_id in chunk_ids],
                 "period": community.period,
                 "size": community.size,
+                "projection_type": "community",
+                "projection_status": community.projection_status,
+                "is_derived": True,
+                "source_refs": self._dedupe_dicts([
+                    *community.source_refs,
+                    *[
+                        source
+                        for relation_id in community.relationship_ids
+                        for source in all_relations_by_id.get(relation_id, KnowledgeRelation()).source_refs
+                    ],
+                ]),
             }
             for community in communities
         ]
@@ -3924,6 +4185,12 @@ class KnowledgeStore:
                 "full_content_json": report.full_content_json,
                 "period": report.period,
                 "size": report.size,
+                "projection_type": report.projection_type,
+                "projection_status": report.projection_status,
+                "is_derived": True,
+                "supporting_claim_ids": report.supporting_claim_ids,
+                "supporting_relation_ids": report.supporting_relation_ids,
+                "source_refs": report.source_refs,
             }
             for report in reports
         ]
@@ -4321,6 +4588,18 @@ class KnowledgeStore:
             + len(community.entity_ids) * 0.1,
             6,
         )
+        supporting_claim_ids = sorted({
+            claim_id
+            for relation in relations
+            for claim_id in [relation.claim_id, *relation.claim_ids]
+            if claim_id
+        })
+        source_refs = self._dedupe_dicts([
+            source
+            for relation in relations
+            for source in [relation.source, *relation.source_refs]
+            if source
+        ])
         return KnowledgeCommunityReport(
             id=f"crep_{hashlib.sha1(community.id.encode()).hexdigest()[:12]}",
             community=community.community,
@@ -4339,9 +4618,13 @@ class KnowledgeStore:
                 "findings": findings,
                 "entity_ids": community.entity_ids,
                 "relationship_ids": community.relationship_ids,
+                "source_refs": source_refs,
             },
             period=ts,
             size=community.size,
+            supporting_claim_ids=supporting_claim_ids,
+            supporting_relation_ids=[relation.id for relation in relations],
+            source_refs=source_refs,
         )
 
     def _build_community_report_llm(
@@ -4394,8 +4677,8 @@ class KnowledgeStore:
             f"Community title: {community.title}\n"
             f"Entities: {', '.join(entity.name for entity in entities[:20])}\n"
             f"Relationships:\n" + "\n".join(relation_lines) + "\n"
-            f"Claims:\n" + "\n".join(claim_lines[:20]) + "\n"
-            f"Text snippets:\n" + "\n---\n".join(snippet_lines)
+            "Claims:\n" + "\n".join(claim_lines[:20]) + "\n"
+            "Text snippets:\n" + "\n---\n".join(snippet_lines)
         )
         api_base = provider_config.api_base or self.config_ref.get_api_base(model) or "https://api.openai.com/v1"
         headers = {"Authorization": f"Bearer {provider_config.api_key}", "Content-Type": "application/json"}
@@ -4443,6 +4726,19 @@ class KnowledgeStore:
             "entity_ids": community.entity_ids,
             "relationship_ids": community.relationship_ids,
         }
+        supporting_claim_ids = sorted({
+            claim_id
+            for relation in relations
+            for claim_id in [relation.claim_id, *relation.claim_ids]
+            if claim_id
+        })
+        source_refs = self._dedupe_dicts([
+            source
+            for relation in relations
+            for source in [relation.source, *relation.source_refs]
+            if source
+        ])
+        full_content_json["source_refs"] = source_refs
         return KnowledgeCommunityReport(
             id=f"crep_{hashlib.sha1(community.id.encode()).hexdigest()[:12]}",
             community=community.community,
@@ -4461,6 +4757,9 @@ class KnowledgeStore:
             full_content_json=full_content_json,
             period=community.period,
             size=community.size,
+            supporting_claim_ids=supporting_claim_ids,
+            supporting_relation_ids=[relation.id for relation in relations],
+            source_refs=source_refs,
         )
 
     def _community_full_content(
@@ -5195,28 +5494,28 @@ class KnowledgeStore:
             current_len = 0
             child_index = 0
 
-            def emit_current() -> None:
+            def emit_current(parent_snapshot: dict[str, Any] = parent, parent_content: str = content) -> None:
                 nonlocal current, current_len, next_index, child_index
                 if not current:
                     return
                 start = current[0]["start"]
                 end = current[-1]["end"]
-                child_content = content[start:end].strip()
+                child_content = parent_content[start:end].strip()
                 if child_content:
                     children.append({
                         "content": child_content,
                         "index": next_index,
-                        "parent_index": parent["index"],
+                        "parent_index": parent_snapshot["index"],
                         "child_index": child_index,
                         "chunk_type": "child",
-                        "summary": parent.get("summary", ""),
-                        "start_char": parent["start_char"] + start,
-                        "end_char": parent["start_char"] + end,
-                        "line_start": parent.get("line_start", 1),
-                        "line_end": parent.get("line_end", 1),
-                        "page": parent.get("page"),
-                        "section_path": parent.get("section_path", ""),
-                        "block_type": parent.get("block_type", "text"),
+                        "summary": parent_snapshot.get("summary", ""),
+                        "start_char": parent_snapshot["start_char"] + start,
+                        "end_char": parent_snapshot["start_char"] + end,
+                        "line_start": parent_snapshot.get("line_start", 1),
+                        "line_end": parent_snapshot.get("line_end", 1),
+                        "page": parent_snapshot.get("page"),
+                        "section_path": parent_snapshot.get("section_path", ""),
+                        "block_type": parent_snapshot.get("block_type", "text"),
                     })
                     next_index += 1
                     child_index += 1

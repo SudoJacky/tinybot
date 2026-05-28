@@ -749,8 +749,42 @@ def test_entity_graph_returns_grouped_edges_with_evidence() -> None:
     assert graph["stats"]["edge_count"] >= 1
     assert any(node["label"] == "TinyBot" for node in graph["nodes"])
     assert all(edge["source"] and edge["target"] for edge in graph["edges"])
+    assert any(node["source_refs"] for node in graph["nodes"])
     assert graph["edges"][0]["evidence"]
     assert graph["edges"][0]["evidence"][0]["doc_name"] == "Graph"
+    assert graph["edges"][0]["source_refs"]
+    assert graph["edges"][0]["supporting_claim_ids"]
+    assert graph["edges"][0]["evidence"][0]["source"]["doc_id"] == doc_id
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_query_results_include_source_traceability_payloads() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    doc_id = store.add_document(
+        name="Traceable Query",
+        content="TinyBot supports RAG. RAG requires embeddings.",
+        file_type="txt",
+    )
+
+    results = store.query("What does TinyBot support?", mode="hybrid", top_k=1)
+
+    assert results
+    result = results[0]
+    assert result["retrieval_method"]
+    assert result["score_metadata"]["score"] is not None
+    assert result["source_snippets"][0]["doc_id"] == doc_id
+    assert result["source_snippets"][0]["doc_name"] == "Traceable Query"
+    assert "TinyBot supports RAG" in result["source_snippets"][0]["text"]
+    assert result["matched_claim_evidence"]
+    assert result["matched_claim_evidence"][0]["source"]["doc_id"] == doc_id
+    assert result["matched_relation_evidence"]
+    assert result["matched_relation_evidence"][0]["source_refs"]
+    assert result["conflict_metadata"] == []
+    assert "projection_metadata" in result
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
@@ -784,6 +818,7 @@ def test_graphrag_index_exports_aggregated_knowledge_model_tables() -> None:
     assert tinybot["degree"] >= 1
     assert tinybot["text_unit_ids"]
     assert tinybot["description"]
+    assert tinybot["source_refs"]
 
     supports_edges = [
         relationship
@@ -798,12 +833,21 @@ def test_graphrag_index_exports_aggregated_knowledge_model_tables() -> None:
     assert supports_edges[0]["combined_degree"] >= 2
     assert supports_edges[0]["text_unit_ids"]
     assert "TinyBot supports RAG" in supports_edges[0]["description"]
+    assert supports_edges[0]["evidence"]
+    assert supports_edges[0]["source_refs"]
+    assert supports_edges[0]["supporting_claim_ids"]
 
     text_unit = index["text_units"][0]
     assert text_unit["document_id"] == doc_id
     assert text_unit["entity_ids"]
     assert text_unit["relationship_ids"]
     assert text_unit["covariate_ids"]
+    assert index["covariates"][0]["source"]["doc_id"] == doc_id
+    assert index["communities"][0]["projection_type"] == "community"
+    assert index["communities"][0]["source_refs"]
+    assert index["community_reports"][0]["projection_type"] == "community_report"
+    assert index["community_reports"][0]["supporting_relation_ids"]
+    assert index["community_reports"][0]["source_refs"]
     assert index["community_reports"][0]["rank"] > 0
     assert "relationship weight" in index["community_reports"][0]["rating_explanation"]
     shutil.rmtree(workspace.parent, ignore_errors=True)
