@@ -468,6 +468,7 @@ export default {
     "knowledge.sourceEvidence": "Source evidence",
     "knowledge.claimEvidence": "Claim evidence",
     "knowledge.relationEvidence": "Relation evidence",
+    "knowledge.conflictEvidence": "Conflict evidence",
     "knowledge.rank": "rank {rank}",
     "knowledge.childCount": "{count} child",
     "knowledge.parentCommunity": "parent {id}",

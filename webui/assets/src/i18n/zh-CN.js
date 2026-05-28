@@ -458,6 +458,7 @@ export default {
     "knowledge.sourceEvidence": "来源证据",
     "knowledge.claimEvidence": "断言证据",
     "knowledge.relationEvidence": "关系证据",
+    "knowledge.conflictEvidence": "冲突证据",
     "knowledge.rank": "排名 {rank}",
     "knowledge.childCount": "{count} 个子社区",
     "knowledge.parentCommunity": "父社区 {id}",

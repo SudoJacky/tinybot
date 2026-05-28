@@ -136,3 +136,35 @@ export function buildKnowledgeClaimInspection(claim = {}) {
     evidenceText: firstNonEmpty(source.evidence_text, claim.text),
   };
 }
+
+function conflictSide(label, recordType, recordId, source = {}) {
+  const normalized = sourceFromEvidence(source);
+  const context = buildKnowledgeSourceContext(normalized);
+  return {
+    label: `${label} ${recordType || "record"} ${recordId || ""}`.trim(),
+    recordId: firstNonEmpty(recordId),
+    recordType: firstNonEmpty(recordType),
+    sourceTitle: context.title,
+    sourceMeta: context.meta,
+    evidenceText: firstNonEmpty(normalized.evidence_text, source.text),
+  };
+}
+
+export function buildKnowledgeConflictInspection(conflict = {}) {
+  const sources = asArray(conflict.sources);
+  const leftType = firstNonEmpty(conflict.left_record_type, "record");
+  const leftId = firstNonEmpty(conflict.left_record_id);
+  const rightType = firstNonEmpty(conflict.right_record_type, "record");
+  const rightId = firstNonEmpty(conflict.right_record_id);
+  return {
+    id: firstNonEmpty(conflict.id),
+    title: `${leftType} ${leftId || "left"} conflicts with ${rightType} ${rightId || "right"}`,
+    type: firstNonEmpty(conflict.conflict_type),
+    status: firstNonEmpty(conflict.status),
+    confidenceLabel: formatNumber(conflict.confidence),
+    sides: [
+      conflictSide("Left", leftType, leftId, sources[0] || conflict.left_source || {}),
+      conflictSide("Right", rightType, rightId, sources[1] || conflict.right_source || {}),
+    ],
+  };
+}

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   buildKnowledgeClaimInspection,
+  buildKnowledgeConflictInspection,
   buildKnowledgeRelationInspection,
   buildKnowledgeSourceContext,
   knowledgeEvidenceRowsForEdge,
@@ -112,4 +113,55 @@ assert.deepEqual(buildKnowledgeSourceContext({
   title: "Architecture Notes",
   location: "p.3 / chars 120-168 / chunk:7",
   meta: "p.3 / chars 120-168 / chunk:7 / rule / confidence 0.910",
+});
+
+assert.deepEqual(buildKnowledgeConflictInspection({
+  id: "conflict:1",
+  conflict_type: "claim_polarity",
+  left_record_id: "claim:left",
+  left_record_type: "claim",
+  right_record_id: "claim:right",
+  right_record_type: "claim",
+  status: "open",
+  confidence: 0.77,
+  sources: [
+    {
+      doc_name: "Release Notes",
+      chunk_id: "chunk:left",
+      evidence_text: "The GraphRAG projection is ready.",
+      extraction_method: "llm",
+      confidence: 0.81,
+    },
+    {
+      doc_name: "Incident Notes",
+      chunk_id: "chunk:right",
+      evidence_text: "The GraphRAG projection is stale.",
+      extraction_method: "rule",
+      confidence: 0.73,
+    },
+  ],
+}), {
+  id: "conflict:1",
+  title: "claim claim:left conflicts with claim claim:right",
+  type: "claim_polarity",
+  status: "open",
+  confidenceLabel: "0.770",
+  sides: [
+    {
+      label: "Left claim claim:left",
+      recordId: "claim:left",
+      recordType: "claim",
+      sourceTitle: "Release Notes",
+      sourceMeta: "chunk:left / llm / confidence 0.810",
+      evidenceText: "The GraphRAG projection is ready.",
+    },
+    {
+      label: "Right claim claim:right",
+      recordId: "claim:right",
+      recordType: "claim",
+      sourceTitle: "Incident Notes",
+      sourceMeta: "chunk:right / rule / confidence 0.730",
+      evidenceText: "The GraphRAG projection is stale.",
+    },
+  ],
 });

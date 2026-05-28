@@ -50,6 +50,7 @@ import {
 } from '../cowork-chat.js';
 import {
   buildKnowledgeClaimInspection,
+  buildKnowledgeConflictInspection,
   buildKnowledgeRelationInspection,
   knowledgeEvidenceRowsForEdge,
 } from '../knowledge-traceability.js';
@@ -8675,6 +8676,12 @@ function renderKnowledgeGraphInspector() {
     if (relation.evidence.length) {
       inspector.append(createKnowledgeEvidenceSection(t("knowledge.relationEvidence"), relation.evidence));
     }
+    if (Array.isArray(edge.conflict_metadata) && edge.conflict_metadata.length) {
+      inspector.append(createKnowledgeEvidenceSection(
+        t("knowledge.conflictEvidence"),
+        knowledgeConflictEvidenceRows(edge.conflict_metadata),
+      ));
+    }
   }
 }
 
@@ -8746,6 +8753,24 @@ function createKnowledgeEvidenceSection(title, rows) {
     section.append(item);
   }
   return section;
+}
+
+function knowledgeConflictEvidenceRows(conflicts) {
+  return (Array.isArray(conflicts) ? conflicts : []).flatMap((conflict) => {
+    const view = buildKnowledgeConflictInspection(conflict);
+    return view.sides.map((side) => ({
+      title: side.sourceTitle,
+      meta: [
+        side.label,
+        view.type,
+        view.status ? `${t("knowledge.status")} ${view.status}` : "",
+        view.confidenceLabel ? `${t("knowledge.confidence")} ${view.confidenceLabel}` : "",
+        side.sourceMeta,
+      ].filter(Boolean).join(" / "),
+      text: side.evidenceText,
+      claimId: "",
+    }));
+  });
 }
 
 function formatInspectorNumber(value) {
@@ -10032,8 +10057,9 @@ function renderQueryResults(result) {
 function renderKnowledgeTraceabilityDetails(item) {
   const claimEvidence = Array.isArray(item.matched_claim_evidence) ? item.matched_claim_evidence : [];
   const relationEvidence = Array.isArray(item.matched_relation_evidence) ? item.matched_relation_evidence : [];
+  const conflictMetadata = Array.isArray(item.conflict_metadata) ? item.conflict_metadata : [];
   const sourceSnippets = Array.isArray(item.source_snippets) ? item.source_snippets : [];
-  if (!claimEvidence.length && !relationEvidence.length && !sourceSnippets.length) {
+  if (!claimEvidence.length && !relationEvidence.length && !conflictMetadata.length && !sourceSnippets.length) {
     return null;
   }
 
@@ -10091,6 +10117,13 @@ function renderKnowledgeTraceabilityDetails(item) {
           claimId: view.supportingClaimIds[0] || "",
         };
       }),
+    ));
+  }
+
+  if (conflictMetadata.length) {
+    details.append(createKnowledgeEvidenceSection(
+      t("knowledge.conflictEvidence"),
+      knowledgeConflictEvidenceRows(conflictMetadata.slice(0, 5)),
     ));
   }
 
