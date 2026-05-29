@@ -36,6 +36,13 @@ APP_RUNTIME_KEY = "tinybot_webui_control_runtime"
 APP_PATHS_KEY = "tinybot_webui_control_paths"
 _TASK_PLAN_ID_RE = re.compile(r"\*\*Plan ID:\*\*\s*([A-Za-z0-9_-]+)")
 _SECRET_MASK = "********"
+DESKTOP_ALLOWED_ORIGINS = {
+    "http://127.0.0.1:1420",
+    "http://localhost:1420",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+}
 DEFAULT_WORKSPACE_FILES: Mapping[str, Path] = {
     "AGENTS.md": Path("AGENTS.md"),
     "SOUL.md": Path("SOUL.md"),
@@ -318,6 +325,32 @@ def _authorize(handler: Handler, runtime: WebUIControlRuntime) -> Handler:
         return await handler(request)
 
     return wrapped
+
+
+def _cors_origin(request: web.Request) -> str | None:
+    origin = request.headers.get("Origin", "")
+    if not origin or origin not in DESKTOP_ALLOWED_ORIGINS:
+        return None
+    return origin
+
+
+def _add_desktop_cors_headers(request: web.Request, response: web.StreamResponse) -> web.StreamResponse:
+    origin = _cors_origin(request)
+    if origin is None:
+        return response
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Vary"] = "Origin"
+    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, PUT, DELETE, OPTIONS"
+    return response
+
+
+@web.middleware
+async def desktop_cors_middleware(request: web.Request, handler: Handler) -> web.StreamResponse:
+    if request.method == "OPTIONS" and _cors_origin(request) is not None:
+        return _add_desktop_cors_headers(request, web.Response(status=204))
+    response = await handler(request)
+    return _add_desktop_cors_headers(request, response)
 
 
 def _bootstrap_handler(runtime: WebUIControlRuntime, paths: WebUIControlPaths) -> Handler:

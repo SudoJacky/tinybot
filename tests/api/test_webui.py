@@ -13,6 +13,7 @@ from tinybot.api.webui import (
     WebUIControlPaths,
     WebUIControlRuntime,
     _attach_cowork_listener,
+    desktop_cors_middleware,
     register_webui_control_routes,
 )
 from tinybot.agent.forms import AgentUiFormRegistry
@@ -106,6 +107,42 @@ async def test_webui_control_bootstrap_and_refresh_are_standalone():
         refreshed = await response.json()
         assert refreshed["token"] == payload["token"]
         assert refreshed["token_ttl_s"] == 123
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_webui_control_routes_allow_desktop_origins_for_native_fetch():
+    token_manager = WebTokenManager(ttl_s=300)
+    app = web.Application(middlewares=[desktop_cors_middleware])
+    register_webui_control_routes(app, WebUIControlRuntime(token_manager=token_manager))
+    client = await _client(app)
+    try:
+        response = await client.options(
+            "/webui/bootstrap",
+            headers={
+                "Origin": "http://localhost:1420",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization",
+            },
+        )
+        assert response.status == 204
+        assert response.headers["Access-Control-Allow-Origin"] == "http://localhost:1420"
+        assert "Authorization" in response.headers["Access-Control-Allow-Headers"]
+
+        response = await client.get(
+            "/webui/bootstrap",
+            headers={"Origin": "http://tauri.localhost"},
+        )
+        assert response.status == 200
+        assert response.headers["Access-Control-Allow-Origin"] == "http://tauri.localhost"
+
+        response = await client.get(
+            "/webui/bootstrap",
+            headers={"Origin": "https://example.invalid"},
+        )
+        assert response.status == 200
+        assert "Access-Control-Allow-Origin" not in response.headers
     finally:
         await client.close()
 
