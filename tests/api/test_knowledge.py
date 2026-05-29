@@ -127,3 +127,22 @@ def test_job_snapshot_exposes_partial_readiness_summary() -> None:
     assert snapshot["failed_stage_count"] == 0
     assert snapshot["graph_ready"] is False
     assert snapshot["partial_availability"] is True
+
+
+def test_job_snapshot_requires_both_graph_projection_stages() -> None:
+    snapshot = _job_snapshot(
+        {
+            "id": "kjob_2",
+            "status": "running",
+            "stage": "graph_projection",
+            "processed": 1,
+            "total": 2,
+            "stage_details": [
+                {"stage": "sparse_indexing", "status": "complete", "failed": 0, "stale": 0},
+                {"stage": "graph_projection", "status": "complete", "failed": 0, "stale": 0},
+            ],
+        }
+    )
+
+    assert snapshot["graph_ready"] is False
+    assert snapshot["partial_availability"] is True

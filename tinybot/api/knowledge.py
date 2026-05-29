@@ -56,7 +56,7 @@ def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
     )
     graph_ready = job.get(
         "graph_ready",
-        bool({"graph_projection", "community_report_projection"} & completed_stages)
+        {"graph_projection", "community_report_projection"} <= completed_stages
         and stale_stage_count == 0
         and failed_stage_count == 0,
     )

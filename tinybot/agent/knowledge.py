@@ -3070,6 +3070,7 @@ class KnowledgeStore:
         chunks = {chunk.id: chunk for chunk in self._read_chunks()}
         claims = self._read_claims()
         relations = self._read_relations()
+        entities = {entity.id: entity for entity in self._read_entities()}
         conflicts = self._read_conflicts()
         reports = self._read_community_reports()
         communities = self._read_communities()
@@ -3131,14 +3132,27 @@ class KnowledgeStore:
             ]
 
             matched_relation_texts = set(item.get("matched_relations") or [])
+            matched_relation_ids = set(item.get("matched_relation_ids") or [])
             chunk_relations = [
                 relation
                 for relation in relations
                 if relation.evidence_chunk_id == chunk_id
                 and (
-                    not matched_relation_texts
-                    or relation.description in matched_relation_texts
-                    or self._relation_evidence_text(relation, claims_by_id, chunks) in matched_relation_texts
+                    (matched_relation_ids and relation.id in matched_relation_ids)
+                    or (
+                        not matched_relation_ids
+                        and (
+                            not matched_relation_texts
+                            or relation.description in matched_relation_texts
+                            or self._relation_evidence_text(relation, claims_by_id, chunks) in matched_relation_texts
+                            or self._format_relation(
+                                entities.get(relation.subject_entity_id),
+                                relation.predicate,
+                                entities.get(relation.object_entity_id),
+                            )
+                            in matched_relation_texts
+                        )
+                    )
                 )
             ][:5]
             item["matched_relation_evidence"] = item.get("matched_relation_evidence") or [
@@ -4827,6 +4841,21 @@ class KnowledgeStore:
         documents = self._read_documents()
         with self._lock:
             self._indexed_ids = {d.id for d in documents}
+        indexed_by_doc: dict[str, int] = {}
+        for chunk in chunks:
+            if chunk.chunk_type == "child" and (chunk.retrieval_text or chunk.context_content or chunk.content):
+                indexed_by_doc[chunk.doc_id] = indexed_by_doc.get(chunk.doc_id, 0) + 1
+        for doc in documents:
+            child_total = len([chunk for chunk in chunks if chunk.doc_id == doc.id and chunk.chunk_type == "child"])
+            self._record_stage_status(
+                doc_id=doc.id,
+                stage="sparse_indexing",
+                status="complete",
+                processed=indexed_by_doc.get(doc.id, 0),
+                total=child_total,
+                output_counts={"chunks": indexed_by_doc.get(doc.id, 0)},
+                source_version=self._source_version_for_doc(doc.id),
+            )
 
         logger.info(
             "KnowledgeStore: BM25 index rebuilt ({} chunks indexed, {} terms)",
@@ -4866,8 +4895,29 @@ class KnowledgeStore:
             doc_name = doc.name if doc else doc_id
             ts = doc.created_at if doc else datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             self._index_chunks_semantic(doc_id, doc_name, chunks, ts)
+            source_version = self._source_version_for_doc(doc_id)
+            semantic_counts = self._semantic_output_counts(doc_id)
+            semantic_outputs = {
+                "mentions": semantic_counts["mentions"],
+                "entities": semantic_counts["entities"],
+                "claims": semantic_counts["claims"],
+                "relations": semantic_counts["relations"],
+                "conflicts": semantic_counts["conflicts"],
+            }
+            for stage in _KNOWLEDGE_SEMANTIC_STAGES:
+                self._record_stage_status(
+                    doc_id=doc_id,
+                    stage=stage,
+                    status="complete",
+                    processed=len(chunks),
+                    total=len(chunks),
+                    output_counts=semantic_outputs,
+                    source_version=source_version,
+                )
 
         self._rebuild_graphrag_communities()
+        for doc_id in chunks_by_doc:
+            self._record_projection_stages(doc_id, list(_KNOWLEDGE_PROJECTION_STAGES))
 
         return {
             "entities": len(self._read_entities()),
@@ -6761,6 +6811,7 @@ Chunk:
             )
         except Exception as e:
             logger.warning("KnowledgeStore: semantic indexing failed for doc '{}': {}", doc_name, e)
+            raise
 
     def _summarize_entities_and_relationships(
         self,
@@ -7370,6 +7421,7 @@ Chunk:
                 len(chunks),
                 e,
             )
+            raise
 
     def _index_chunks_sparse(
         self,
@@ -7398,6 +7450,7 @@ Chunk:
             )
         except Exception as e:
             logger.warning("KnowledgeStore: sparse indexing failed: {}", e)
+            raise
 
     def _delete_from_collection(self, collection_name: str, doc_id: str) -> None:
         """Delete all chunks for a document from a collection."""

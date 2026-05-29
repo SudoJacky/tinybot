@@ -123,11 +123,27 @@ export function buildKnowledgeReadinessView(stats = {}) {
   const retrievalReady = booleanValue(stats.retrieval_ready) || indexedDense > 0 || indexedSparse > 0;
   const claimsReady = booleanValue(stats.claims_ready) || claimStages.ready;
   const relationsReady = booleanValue(stats.relations_ready) || relationStages.ready;
-  const graphReady = booleanValue(stats.graph_ready) || graphStages.ready;
-  const failedStageCount = numberValue(stats.failed_stage_count)
-    + [retrievalStages, claimStages, relationStages, expansionStages, graphStages].filter((stage) => stage.status === "failed").length;
-  const staleStageCount = numberValue(stats.stale_stage_count)
-    + [retrievalStages, claimStages, relationStages, expansionStages, graphStages].filter((stage) => stage.status === "stale").length;
+  const hasGraphReady = stats.graph_ready !== undefined && stats.graph_ready !== null;
+  const graphReady = hasGraphReady ? booleanValue(stats.graph_ready) : graphStages.ready;
+  const hasFailedStageCount = stats.failed_stage_count !== undefined
+    && stats.failed_stage_count !== null
+    && Number.isFinite(Number(stats.failed_stage_count));
+  const hasStaleStageCount = stats.stale_stage_count !== undefined
+    && stats.stale_stage_count !== null
+    && Number.isFinite(Number(stats.stale_stage_count));
+  const derivedFailedStageCount = [retrievalStages, claimStages, relationStages, expansionStages, graphStages]
+    .filter((stage) => stage.status === "failed").length;
+  const derivedStaleStageCount = [retrievalStages, claimStages, relationStages, expansionStages, graphStages]
+    .filter((stage) => stage.status === "stale").length;
+  const failedStageCount = hasFailedStageCount
+    ? numberValue(stats.failed_stage_count)
+    : derivedFailedStageCount;
+  const staleStageCount = hasStaleStageCount
+    ? numberValue(stats.stale_stage_count)
+    : derivedStaleStageCount;
+  const graphStatus = graphReady || ["failed", "stale", "budget_limited", "partial"].includes(graphStages.status)
+    ? graphStages.status
+    : "pending";
   const partialAvailability = booleanValue(stats.partial_availability)
     || Boolean(retrievalReady && (failedStageCount || staleStageCount || !claimsReady || !relationsReady || !graphReady));
 
@@ -215,8 +231,8 @@ export function buildKnowledgeReadinessView(stats = {}) {
         titleKey: "knowledge.stageGraph",
         textKey: graphReady ? "knowledge.stageGraphReady" : "knowledge.stageGraphPending",
         replacements: { communities, reports },
-        statusKey: stageStatusKey(graphStages.status, graphReady),
-        tone: stageTone(graphStages.status, graphReady),
+        statusKey: stageStatusKey(graphStatus, graphReady),
+        tone: stageTone(graphStatus, graphReady),
       },
     ],
   };

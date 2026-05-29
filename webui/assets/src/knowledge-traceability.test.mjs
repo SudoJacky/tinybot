@@ -269,3 +269,33 @@ const failedReadiness = buildKnowledgeReadinessView({
 assert.equal(failedReadiness.titleKey, "knowledge.healthPartialFailed");
 assert.equal(failedReadiness.partialAvailability, true);
 assert.equal(failedReadiness.rows.find((row) => row.id === "claims").tone, "error");
+
+const aggregateReadiness = buildKnowledgeReadinessView({
+  total_documents: 1,
+  total_chunks: 4,
+  indexed_sparse: 4,
+  retrieval_ready: true,
+  failed_stage_count: 1,
+  stale_stage_count: 1,
+  stage_readiness: {
+    claim_validation: { status: "failed", failed: 1, ready: false },
+    graph_projection: { status: "stale", stale: 1, ready: false },
+  },
+});
+assert.equal(aggregateReadiness.failedStageCount, 1);
+assert.equal(aggregateReadiness.staleStageCount, 1);
+
+const partialGraphReadiness = buildKnowledgeReadinessView({
+  total_documents: 1,
+  total_chunks: 4,
+  indexed_sparse: 4,
+  retrieval_ready: true,
+  claims_ready: true,
+  relations_ready: true,
+  graph_ready: false,
+  stage_readiness: {
+    graph_projection: { status: "complete", ready: true },
+  },
+});
+assert.equal(partialGraphReadiness.rows.find((row) => row.id === "graph").tone, "muted");
+assert.equal(partialGraphReadiness.titleKey, "knowledge.healthSearchable");

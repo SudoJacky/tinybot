@@ -6,7 +6,16 @@ import threading
 import time
 import uuid
 
-from tinybot.agent.knowledge import KnowledgeCandidate, KnowledgeStageStatus, KnowledgeStore
+import pytest
+
+from tinybot.agent.knowledge import (
+    KnowledgeCandidate,
+    KnowledgeChunk,
+    KnowledgeEntity,
+    KnowledgeRelation,
+    KnowledgeStageStatus,
+    KnowledgeStore,
+)
 from tinybot.api.knowledge import _start_rebuild_job
 from tinybot.config.schema import KnowledgeConfig
 
@@ -535,12 +544,62 @@ def test_rebuild_semantic_index_from_existing_chunks() -> None:
     store._write_mentions([])
     store._write_claims([])
     store._write_relations([])
+    store._write_stage_statuses([])
 
     stats = store.rebuild_semantic_index()
 
     assert stats["entities"] >= 2
     assert stats["claims"] >= 2
     assert stats["relations"] >= 1
+    readiness = store.get_stats()["stage_readiness"]
+    assert readiness["mention_extraction"]["ready"] is True
+    assert readiness["claim_extraction"]["ready"] is True
+    assert readiness["relation_extraction"]["ready"] is True
+    assert readiness["graph_projection"]["ready"] is True
+    assert readiness["community_report_projection"]["ready"] is True
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_index_chunk_failures_are_fatal(monkeypatch) -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    chunk = {
+        "index": 0,
+        "content": "TinyBot supports RAG.",
+        "start_char": 0,
+        "end_char": 21,
+        "line_start": 1,
+        "line_end": 1,
+    }
+
+    class FailingCollection:
+        def upsert(self, **_kwargs):
+            raise RuntimeError("dense unavailable")
+
+    class FailingVectorStore:
+        def _get_or_create_collection(self, _name):
+            return FailingCollection()
+
+    store.vector_store = FailingVectorStore()
+    with pytest.raises(RuntimeError, match="dense unavailable"):
+        store._index_chunks_dense("doc_fail", "Failing", "", [chunk], "2026-05-29T00:00:00", "", [])
+
+    def fail_save(_path):
+        raise RuntimeError("bm25 save failed")
+
+    monkeypatch.setattr(store._bm25_index, "save", fail_save)
+    with pytest.raises(RuntimeError, match="bm25 save failed"):
+        store._index_chunks_sparse("doc_fail", "Failing", "", [chunk], "2026-05-29T00:00:00", "", [])
+
+    def fail_write_entities(_entities):
+        raise RuntimeError("semantic write failed")
+
+    monkeypatch.setattr(store, "_write_entities", fail_write_entities)
+    with pytest.raises(RuntimeError, match="semantic write failed"):
+        store._index_chunks_semantic("doc_fail", "Failing", [chunk], "2026-05-29T00:00:00")
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
@@ -785,6 +844,57 @@ def test_query_results_include_source_traceability_payloads() -> None:
     assert result["matched_relation_evidence"][0]["source_refs"]
     assert result["conflict_metadata"] == []
     assert "projection_metadata" in result
+    shutil.rmtree(workspace.parent, ignore_errors=True)
+
+
+def test_semantic_query_hydrates_relation_evidence_from_formatted_match() -> None:
+    workspace = _workspace()
+    store = KnowledgeStore(
+        workspace,
+        config=KnowledgeConfig(chunk_size=1000, chunk_overlap=0),
+    )
+    chunk_id = "chunk_doc_rel_0"
+    store._write_chunks(
+        [
+            KnowledgeChunk(
+                id=chunk_id,
+                doc_id="doc_rel",
+                parent_id=chunk_id,
+                chunk_type="parent",
+                content="TinyBot supports RAG with source citations.",
+                context_content="TinyBot supports RAG with source citations.",
+                chunk_index=0,
+                doc_name="Relations",
+            )
+        ]
+    )
+    store._write_entities(
+        [
+            KnowledgeEntity(id="ent_tinybot", name="TinyBot", canonical_name="tinybot", text_unit_ids=[chunk_id]),
+            KnowledgeEntity(id="ent_rag", name="RAG", canonical_name="rag", text_unit_ids=[chunk_id]),
+        ]
+    )
+    store._write_relations(
+        [
+            KnowledgeRelation(
+                id="rel_supports",
+                subject_entity_id="ent_tinybot",
+                predicate="supports",
+                object_entity_id="ent_rag",
+                evidence_chunk_id=chunk_id,
+                doc_id="doc_rel",
+                description="A different description from the formatted relation label.",
+                source_refs=[{"doc_id": "doc_rel", "chunk_id": chunk_id}],
+            )
+        ]
+    )
+
+    results = store.query("TinyBot", mode="semantic", top_k=1)
+
+    assert results
+    assert results[0]["matched_relations"] == ["TinyBot -[supports]-> RAG"]
+    assert results[0]["matched_relation_evidence"]
+    assert results[0]["matched_relation_evidence"][0]["id"] == "rel_supports"
     shutil.rmtree(workspace.parent, ignore_errors=True)
 
 
