@@ -287,3 +287,42 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_shutdown_stops_shell_owned_gateway_child() {
+        let child = spawn_long_running_child();
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            child: Some(child),
+            logs: VecDeque::with_capacity(200),
+            last_error: None,
+            keep_background: false,
+        }));
+
+        stop_owned_gateway(&shared, false).expect("shell-owned gateway child should stop");
+
+        let runtime = lock_runtime(&shared);
+        assert!(runtime.child.is_none());
+        assert!(runtime.logs.iter().any(|line| line == "stopped shell-owned gateway"));
+    }
+
+    #[cfg(target_os = "windows")]
+    fn spawn_long_running_child() -> Child {
+        Command::new("cmd")
+            .args(["/C", "ping", "-n", "30", "127.0.0.1", ">", "NUL"])
+            .creation_flags(0x08000000)
+            .spawn()
+            .expect("test child process should start")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn spawn_long_running_child() -> Child {
+        Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .spawn()
+            .expect("test child process should start")
+    }
+}

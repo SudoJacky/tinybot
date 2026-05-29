@@ -1,47 +1,101 @@
-# WebUI Migration Inventory
+# Desktop WebUI Parity Inventory
 
-This inventory tracks the staged migration from the gateway-hosted WebUI to desktop-native modules. The existing WebUI remains the behavior reference until each module has explicit parity coverage.
+This document is the phase-1 routing artifact for `mirror-webui-in-desktop-app`.
+The desktop app hosts the root WebUI; it does not maintain a second desktop-only
+copy of the WebUI screens. Keep this inventory current when a root WebUI module
+adds a route, modal, static asset, or gateway contract that the desktop shell
+must preserve.
 
-| Area | Existing source of truth | Desktop status | Blockers | Parity notes |
-| --- | --- | --- | --- | --- |
-| Startup and global state | `webui/assets/src/main.js`, `webui/assets/src/state.js`, `webui/assets/src/legacy/app.js` | Parity path | Full manual side-by-side workflow pass is still pending. | Desktop now starts with a bootstrap gate, detects or starts the local gateway through existing Tauri commands, injects the WebUI shell, and then loads the existing WebUI entry module. |
-| Protocol, API, and WebSocket | `tinybot/api/webui.py`, `tinybot/channels/websocket.py`, `webui/assets/src/legacy/app.js` | Parity path | Full manual side-by-side workflow pass is still pending. | Desktop installs a focused fetch/WebSocket bridge for `/webui/*`, `/api/*`, `/v1/knowledge/*`, and `/ws`, leaving static, docs, third-party, and unrelated requests on the desktop origin. Adapter tests cover gateway rewrites, token refresh, request semantics, non-gateway requests, and WebSocket query preservation. |
-| Sessions and chat | `webui/assets/src/legacy/app.js`, `/api/sessions`, `/ws` | Started | Agent UI forms, tool progress details, approvals, files, and cowork inserts still depend on hosted WebUI or later native slices. | Native desktop now loads sessions and message history, sends messages over the shared WebSocket client, handles deltas, stream completion, and interrupt state. Tests compare the same gateway payload shapes used by the hosted WebUI. |
-| Agent UI and browser frames | `webui/assets/src/agent-ui-events.js`, `webui/assets/src/agent-ui-event-fixtures.js`, `webui/assets/src/legacy/app.js` | Started | Tool progress details, approvals, and richer message insertions still depend on hosted WebUI or later native slices. | Desktop has a native Agent UI compatibility reducer, renders browser frames/snapshots and form requests, submits/cancels forms through existing routes, and uses parity fixtures based on the WebUI event fixture shapes. |
-| Tools, skills, settings, and providers | `webui/assets/src/provider-cards.js`, `webui/assets/src/legacy/app.js`, `/api/config`, `/api/tools`, `/api/skills` | Started | Editing advanced config and skill CRUD still depend on hosted WebUI. | Native desktop loads settings overview, provider cards, tools, and skills from existing gateway routes; Hosted WebUI remains the fallback for mutation-heavy flows. |
-| Knowledge | `webui/assets/src/knowledge-traceability.js`, `tinybot/api/knowledge.py`, `/v1/knowledge/*` | Started | Graph, query, and traceability details remain in hosted WebUI until their native slice is migrated. | Native desktop loads knowledge stats and document overview before graph and traceability. |
-| Workspace files | `webui/assets/src/legacy/app.js`, `/api/workspace/files` | Started | Uploads, temporary session files, and richer conflict UI remain in hosted WebUI. | Native desktop lists editable workspace files, loads file content, and saves through the existing version-aware PUT route. |
-| Cowork | `webui/assets/src/cowork-chat.js`, `tinybot/api/cowork.py`, `/api/cowork/*` | Started | Full graph, mailbox, trace, and agent activity panels remain in hosted WebUI. | Native desktop lists Cowork sessions and loads the existing summary endpoint as the first native Cowork slice. |
-| i18n, theme, help, and docs | `webui/assets/src/i18n/*`, `webui/docs/*`, `webui/assets/docs.js` | Parity path | Full manual docs navigation pass is still pending. | Desktop exposes repository `webui/docs` at `/docs/*` through Vite dev/preview/build and loads the same i18n modules through `/assets/src/i18n/*`. |
-| Styles | `webui/assets/styles.css`, `webui/assets/styles/*` | Parity path | Full visual comparison is still pending. | Desktop exposes repository `webui/assets` at `/assets/*`, injects WebUI stylesheet links from `webui/index.html`, and bundles Markdown/highlight dependencies locally instead of using CDN links. |
+## Root WebUI Source Inventory
 
-## Desktop WebUI Parity Path
-
-- `apps/desktop/index.html` is now a compact startup shell only. It no longer loads the simplified desktop-native dashboard by default.
-- `apps/desktop/src/desktopBootstrap.ts` waits for `/webui/bootstrap`, starts the gateway through existing Tauri runtime commands when needed, installs render globals and gateway routing, injects the existing WebUI shell, and imports `/assets/src/main.js`.
-- `apps/desktop/src/main.ts` and the native preview modules remain available as fallback/reference code during migration, but they are not on the default desktop route.
-- `apps/desktop/src/desktopGatewayBridge.ts` rewrites only known gateway control-plane HTTP paths and `/ws` WebSocket URLs to `http://127.0.0.1:18790` / `ws://127.0.0.1:18790`. The WebSocket rewrite handles both relative `/ws?...` and the absolute `ws://<desktop-host>/ws?...` URLs produced by the existing WebUI `websocketUrl()` helper.
-- `apps/desktop/vite.config.ts` exposes `webui/assets` and `webui/docs` at WebUI-compatible public paths in development, preview, and production builds.
-- Intentional difference: the desktop shell shows a small recoverable startup error with retry before WebUI initialization when the gateway cannot be reached. The gateway-hosted WebUI does not need this preflight state because it is served by the gateway itself.
-
-## Source Of Truth Strategy
-
-The desktop migration should keep copying behavior from these existing WebUI files before introducing desktop-native replacements:
-
-| Desktop concern | WebUI source to mirror | Current desktop approach |
+| Surface | Source of truth | Desktop parity contract |
 | --- | --- | --- |
-| Shell DOM, IDs, modals, control structure | `webui/index.html` | Imported as raw HTML and injected after gateway readiness. |
-| Startup order, i18n, global app init | `webui/assets/src/main.js` | Loaded directly from `/assets/src/main.js` after desktop adapters are installed. |
-| Chat, sessions, approvals, temporary files, settings, skills, knowledge, workspace, browser, Cowork | `webui/assets/src/legacy/app.js` | Runs unchanged against the desktop origin; bridge routes its gateway requests and WebSocket to the local gateway. |
-| Agent UI event reduction/rendering | `webui/assets/src/agent-ui-events.js` | Served through `/assets/src/agent-ui-events.js` and consumed by existing WebUI imports. |
-| Cowork chat state/render helpers | `webui/assets/src/cowork-chat.js` | Served through `/assets/src/cowork-chat.js` and consumed by existing WebUI imports. |
-| Knowledge traceability helpers | `webui/assets/src/knowledge-traceability.js` | Served through `/assets/src/knowledge-traceability.js` and consumed by existing WebUI imports. |
+| HTML shell and page metadata | `webui/index.html` | Install the root body, `lang`, `data-theme`, local stylesheet links, and local icon links before importing `/assets/src/main.js`. |
+| App startup and state | `webui/assets/src/main.js`, `webui/assets/src/state.js`, `webui/assets/src/legacy/app.js` | Import the root WebUI entrypoint after desktop gateway and render globals are installed. |
+| Styles and image assets | `webui/assets/styles.css`, `webui/assets/styles/**`, `webui/assets/logo*.svg`, `webui/assets/social-preview.svg` | Serve and bundle `/assets/**` from root `webui/assets`; leave those requests on the desktop static origin. |
+| Docs pages | `webui/docs/index.html`, `cli.html`, `config.html`, `gateway.html`, `knowledge.html`, `providers.html`, `quickstart.html`, `skills.html`, `tasks.html`, `tools.html`, `webui.html` | Serve and bundle `/docs` plus `/docs/**` from root `webui/docs`; leave docs requests on the desktop static origin. |
+| i18n dictionaries | `webui/assets/src/i18n/en-US.js`, `webui/assets/src/i18n/zh-CN.js`, `webui/assets/src/i18n/index.js` | Load the same dictionaries through `/assets/src/i18n/**` and verify language switching updates static and dynamic labels. |
+| Shared WebUI helpers | `agent-ui-events.js`, `cowork-chat.js`, `knowledge-traceability.js`, `provider-cards.js`, `utils/**` | Serve helper modules through `/assets/src/**`; exclude root WebUI `*.test.*` files from desktop build output. |
 
-This keeps functional parity work concentrated in a narrow desktop adapter instead of maintaining a second desktop-native implementation of mature WebUI workflows.
+## Root WebUI Routes and Entry Points
+
+| Module | Root entry points | Gateway/API families |
+| --- | --- | --- |
+| Chat and sessions | session list, new chat, composer, message list, status/usage, run-chain inspector, `/cowork` deep link | `/webui/bootstrap`, `/webui/refresh-token`, `/ws`, `/api/sessions/**`, `/api/status` |
+| Approvals and Agent UI forms | approval panel, approval list, form request rendering, submit/cancel continuation | `/api/approvals/**`, `/api/agent-ui/forms/**` |
+| Temporary session files | temporary file upload button, file strip, persistent RAG toggle | `/api/sessions/{session_key}/temporary-files`, session metadata/message routes |
+| Knowledge | knowledge sidebar panel, knowledge modal, document detail modal, graph/GraphRAG tabs, traceability inspector | `/v1/knowledge/stats`, `/documents`, `/documents/upload`, `/jobs/**`, `/graphrag`, `/graph`, `/query`, `/rebuild-index` |
+| Workspace files | workspace panel and modal, file list, load, dirty state, save | `/api/workspace/files/**` |
+| Tools | tools sidebar panel, tools modal, tool detail modal, config hint | `/api/tools`, `/api/config` |
+| Skills | skills sidebar panel, skills modal, skill detail modal, create/edit/delete/validate flows | `/api/skills/**` |
+| Config and providers | settings modal, grouped config sections, provider catalog/settings/model discovery | `/api/config`, `/api/providers`, `/api/provider-models` |
+| Cowork console | sidebar sessions, Cowork modal/page, graph, focus strip, tabs, filters, branch/task/work-unit controls | `/api/cowork/sessions/**`, `/api/cowork/blueprints/**`, branch, task, summary, and action endpoints |
+| Docs, help, language, theme | docs link, page help, help tour, language toggle, theme toggle, highlight theme links | static `/docs/**`, static `/assets/**`, local storage-backed preferences |
+
+## Desktop Shell Inventory
+
+| Concern | Current implementation | Existing coverage |
+| --- | --- | --- |
+| Startup shell | `apps/desktop/index.html` is a compact diagnostics shell with retry. | Manual Tauri smoke still pending. |
+| Root WebUI injection | `apps/desktop/src/desktopBootstrap.ts` fetches `/webui/bootstrap`, starts/attaches gateway when possible, installs bridge/render globals, injects `webui/index.html`, then imports `/assets/src/main.js`. | `desktopWebUiShell.test.ts` covers `lang`, `data-theme`, local head assets, script exclusion, and body replacement. |
+| Gateway lifecycle | `apps/desktop/src-tauri/src/lib.rs` checks `127.0.0.1:18790`, starts `uv run tinybot gateway`, tracks shell/external ownership, and stops only shell-owned gateways on explicit stop. | `desktopGatewayStartup.test.ts`, `desktopStartupView.test.ts`, `cargo test`, and `cargo check` cover startup decisions, diagnostics, retry wiring, and shell-owned child shutdown. |
+| HTTP bridge | `apps/desktop/src/desktopGatewayBridge.ts` rewrites `/webui/**`, `/api/**`, and `/v1/knowledge/**` to `http://127.0.0.1:18790`. | `desktopGatewayBridge.test.ts` covers known path rewrites, request semantics, auth refresh, and non-gateway requests. |
+| WebSocket bridge | `desktopGatewayBridge.ts` rewrites same-page `/ws` URLs to `ws://127.0.0.1:18790/ws` with query preservation. | `desktopGatewayBridge.test.ts` covers relative, absolute desktop-origin, local Vite-origin, and external socket URLs. |
+| Static WebUI serving | `apps/desktop/vite.config.ts` serves `/assets`, `/docs`, `/docs/*.html`, and root docs extensionless routes from root `webui` in dev/preview and emits those files during build. | `viteStaticPlugin.test.ts`, `npm run build`, and build-output probes cover route resolution, docs local assets, and emitted assets. |
+| WebUI test exclusion | `vite.config.ts` skips root WebUI `*.test.js`, `*.test.cjs`, and `*.test.mjs` files when emitting assets. | `viteStaticPlugin.test.ts` plus build-output probes cover source test exclusion. |
+| Desktop-native fallback modules | `apps/desktop/src/main.ts`, `nativeChat.ts`, `agentUiEvents.ts`, gateway clients | Kept as fallback/reference; the default route is the injected root WebUI. Existing tests cover native reducers and gateway clients. |
+
+## Existing Automated Checks
+
+| Check | Current target |
+| --- | --- |
+| `npm test` from `apps/desktop` | Runs `vitest` over `src/**/*.test.ts`. |
+| `apps/desktop/src/desktopGatewayBridge.test.ts` | Gateway HTTP/WebSocket rewriting for `/webui/**`, `/api/**`, `/api/cowork/**`, `/v1/knowledge/**`, tools/skills module endpoints, static/docs/icon exclusions, request semantics, and auth refresh preservation. |
+| `apps/desktop/src/desktopGatewayStartup.test.ts` | External attach, no-Tauri recoverable failure, Tauri external status attach, shell-owned start, bootstrap wait, and startup timeout diagnostics. |
+| `apps/desktop/src/desktopStartupView.test.ts` | Startup status text, recoverable diagnostics visibility, retry hiding, and retry click binding. |
+| `apps/desktop/src/desktopWebUiShell.test.ts` | Root WebUI shell metadata, local head asset, and script-free body installation before entrypoint import. |
+| `apps/desktop/src/viteStaticPlugin.test.ts` | Static `/assets/**`, `/docs`, `/docs/*.html`, extensionless docs page resolution, docs local asset bundle coverage, traversal rejection, content types, and root WebUI test-file exclusion. |
+| `webui/assets/src/app-startup.test.mjs` | Root WebUI entrypoint starts immediately when dynamically imported after `DOMContentLoaded`, which is required by the desktop bootstrap sequence. |
+| `apps/desktop/src/gateway.test.ts` | Gateway config, bootstrap/status clients, shared route clients, WebSocket frames. |
+| `apps/desktop/src/gatewayStatusView.test.ts` | Gateway status view mapping for external/reachable and partial health states. |
+| `apps/desktop/src/nativeChat.test.ts` | Desktop fallback chat/session reducers and streaming state. |
+| `apps/desktop/src/agentUiEvents.test.ts` | Desktop fallback Agent UI event normalization and form lifecycle. |
+
+## Verification Evidence
+
+| Command | Evidence |
+| --- | --- |
+| `npm test` from `apps/desktop` | Passed with 9 test files and 36 tests, covering desktop gateway startup, startup diagnostics/retry, gateway bridge, tools/skills bridge endpoints, WebUI shell install, static asset/docs routing, gateway clients, status view, native chat reducers, and Agent UI fallback events. |
+| `node webui/assets/src/app-startup.test.mjs` | Passed; covers the root WebUI entrypoint helper used when the desktop shell imports the WebUI after `DOMContentLoaded`. |
+| Browser smoke at `http://localhost:1420` with gateway on `127.0.0.1:18790` | Passed for the reported startup issue: WebSocket opened to `ws://127.0.0.1:18790/ws`, received `ready`, status loaded provider/model/channel, and New Chat sent `new_chat` then received `chat_created`. |
+| `npm run build` from `apps/desktop` | Passed; emitted root WebUI assets/docs including `dist/assets/src/main.js`, `dist/docs/index.html`, and extensionless docs routes such as `dist/docs/quickstart`, with root WebUI source test files excluded. |
+| `cargo check` from `apps/desktop/src-tauri` | Passed for `tinybot-desktop` dev profile. |
+| `cargo test` from `apps/desktop/src-tauri` | Passed with the shell-owned gateway child shutdown unit test. |
+| `npm run tauri -- info` from `apps/desktop` | Passed; reported WebView2 `148.0.3967.83`, MSVC Visual Studio Community 2026, Rust/Cargo `1.96.0`, Node `24.14.0`, npm `11.9.0`, Tauri `2.11.2`, and frontend dist/dev URL readiness. |
+| `openspec validate mirror-webui-in-desktop-app --strict` | Passed for the current OpenSpec artifacts. |
+
+## Module Parity Checklist
+
+| Module | Automated check | Manual desktop workflow | Current blocker / status |
+| --- | --- | --- | --- |
+| Shell metadata and root DOM | `desktopWebUiShell.test.ts`; `webui/assets/src/app-startup.test.mjs`; `npm test`; `npm run build`. | Launch Tauri, confirm root WebUI body replaces startup shell after gateway readiness. | Automated shell installation and dynamic entrypoint startup coverage present; manual Tauri smoke pending. |
+| Static assets and docs | `viteStaticPlugin.test.ts`, `npm test`, `npm run build`, and probes for `dist/assets/src/main.js`, `dist/docs/index.html`, extensionless `dist/docs/<page>` routes, local docs styles/assets, and absent `dist/assets/src/*.test.*` files. | Open docs link and inspect local styles/icons in desktop. | Automated package coverage for `/docs` and each root docs page is present; manual desktop docs navigation pending. |
+| Gateway bridge | `desktopGatewayBridge.test.ts`; `npm test`. | Send chat/config/knowledge requests from desktop and confirm gateway receives original path/query/body semantics. | Automated adapter coverage present; runtime smoke pending. |
+| Gateway lifecycle | `desktopGatewayStartup.test.ts`, `desktopStartupView.test.ts`, `cargo test`, `cargo check`; `npm test`. | Test external gateway attach, shell-owned startup, retry diagnostics, explicit stop, and close behavior in a real Tauri window. | Automated lifecycle coverage present; manual Tauri smoke pending. |
+| Chat and sessions | Existing fallback reducer tests; root WebUI runtime parity still manual. | List sessions, create/select/delete/clear, send message, stream deltas, interrupt, inspect status/usage. | Pending desktop runtime pass. |
+| Run chain and inspector | No desktop-specific adapter expected unless bridge gaps appear. | Open reasoning/tool/browser/citation/reference items and compare inspector detail to browser WebUI. | Pending desktop runtime pass. |
+| Approvals and Agent UI forms | `agentUiEvents.test.ts` covers fallback reducer only. | Trigger approval and schema form flows, then submit/cancel/retry through root WebUI. | Pending desktop runtime pass. |
+| Temporary files and RAG toggle | No desktop-specific adapter expected unless file input gaps appear. | Upload/list/clear temporary files and toggle persistent RAG for a session. | Pending desktop runtime pass. |
+| Knowledge and traceability | Root helper tests remain under `webui/assets/src`; desktop bridge covers `/v1/knowledge/**`. | Open stats/docs, upload/delete/rebuild, query, graph, GraphRAG, and traceability inspector. | Pending desktop runtime pass. |
+| Workspace files | Gateway client fallback tests cover route shape only. | List/load/edit/save files, verify dirty state and protected path errors. | Pending desktop runtime pass. |
+| Tools and skills | `desktopGatewayBridge.test.ts` covers `/api/tools`, `/api/skills`, and skill validate request rewriting with method/header/body preservation; gateway route fallback tests cover list/detail shapes. | Open tools/skills modals, create/edit/delete/validate skills, inspect tool schema rendering. | Focused bridge coverage present; desktop runtime UI pass pending. |
+| Config and providers | Gateway route fallback tests cover shared route construction only. | Open/save config, validate masked secrets, provider catalog, profiles, model refresh, and selectors. | Pending desktop runtime pass. |
+| Cowork console | No desktop-specific adapter expected unless bridge gaps appear. | Open Cowork modal/page, create/run/control sessions, inspect graph, trace, tasks, mailbox, outputs, branches, and work units. | Pending desktop runtime pass. |
+| Help, language, and theme | No desktop-specific adapter expected unless static asset gaps appear. | Exercise sidebar collapse, modal close/navigation, help tour, language toggle, theme/highlight persistence. | Pending desktop runtime pass. |
 
 ## Update Rules
 
-- Mark a module `Started` when a desktop-native route, client, fixture, or view begins replacing hosted WebUI behavior.
-- Mark a module `Parity` only after it has been compared against the existing WebUI for the same gateway responses.
-- Keep blockers concrete and remove them when resolved.
-- Document intentional behavior differences before removing hosted fallback access.
+- Keep root WebUI as the source of truth unless an OpenSpec task explicitly calls for a desktop adapter.
+- Mark a module complete only when the task evidence names both automated checks and the manual desktop workflow.
+- If desktop cannot reproduce a root WebUI behavior, keep the module incomplete and document the exact missing behavior here.
+- Update this inventory before marking OpenSpec checklist items complete for parity-critical modules.

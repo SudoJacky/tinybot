@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, "../..");
@@ -37,11 +36,17 @@ export default defineConfig(async () => ({
   },
 }));
 
+type WebuiStaticAssetRoot = {
+  route: "/assets" | "/docs";
+  dir: string;
+};
+
+type WebuiStaticBundleFile = {
+  fileName: string;
+  sourcePath: string;
+};
+
 function webuiStaticPlugin(root: string): Plugin {
-  const assetRoots = [
-    { route: "/assets", dir: path.join(root, "assets") },
-    { route: "/docs", dir: path.join(root, "docs") },
-  ];
   return {
     name: "tinybot-webui-static",
     configureServer(server) {
@@ -59,24 +64,45 @@ function webuiStaticPlugin(root: string): Plugin {
       });
     },
     generateBundle() {
-      for (const assetRoot of assetRoots) {
-        for (const file of walkFiles(assetRoot.dir)) {
-          if (isSourceTestFile(file)) {
-            continue;
-          }
-          const relative = path.relative(assetRoot.dir, file).replaceAll(path.sep, "/");
-          this.emitFile({
-            type: "asset",
-            fileName: `${assetRoot.route.slice(1)}/${relative}`,
-            source: fs.readFileSync(file),
-          });
-        }
+      for (const file of collectWebuiStaticBundleFiles(root)) {
+        this.emitFile({
+          type: "asset",
+          fileName: file.fileName,
+          source: fs.readFileSync(file.sourcePath),
+        });
       }
     },
   };
 }
 
-function isSourceTestFile(file: string): boolean {
+function webuiStaticAssetRoots(root: string): WebuiStaticAssetRoot[] {
+  return [
+    { route: "/assets", dir: path.join(root, "assets") },
+    { route: "/docs", dir: path.join(root, "docs") },
+  ];
+}
+
+export function collectWebuiStaticBundleFiles(root: string): WebuiStaticBundleFile[] {
+  const files: WebuiStaticBundleFile[] = [];
+  for (const assetRoot of webuiStaticAssetRoots(root)) {
+    for (const file of walkFiles(assetRoot.dir)) {
+      if (isSourceTestFile(file)) {
+        continue;
+      }
+      const relative = path.relative(assetRoot.dir, file).split(path.sep).join("/");
+      const routePrefix = assetRoot.route.slice(1);
+      files.push({ fileName: `${routePrefix}/${relative}`, sourcePath: file });
+
+      if (assetRoot.route === "/docs" && relative !== "index.html" && path.extname(file).toLowerCase() === ".html") {
+        const routeName = relative.slice(0, -".html".length);
+        files.push({ fileName: `docs/${routeName}`, sourcePath: file });
+      }
+    }
+  }
+  return files.sort((left, right) => left.fileName.localeCompare(right.fileName));
+}
+
+export function isSourceTestFile(file: string): boolean {
   return /\.test\.[cm]?js$/i.test(file) || /\.test\.mjs$/i.test(file);
 }
 
@@ -100,19 +126,42 @@ function serveWebuiStatic(
   return true;
 }
 
-function resolveWebuiStaticFile(root: string, pathname: string): string | null {
-  if (pathname === "/docs") {
+export function resolveWebuiStaticFile(root: string, pathname: string): string | null {
+  if (pathname.split("/").includes("..")) {
+    return null;
+  }
+  if (pathname === "/docs" || pathname === "/docs/") {
     return path.join(root, "docs", "index.html");
+  }
+  if (pathname.startsWith("/docs/")) {
+    const candidate = resolveStaticRoute(root, pathname);
+    if (candidate) {
+      return candidate;
+    }
+    return resolveStaticRoute(root, `${pathname}.html`);
   }
   for (const prefix of ["/assets/", "/docs/"]) {
     if (pathname.startsWith(prefix)) {
-      const candidate = path.resolve(root, pathname.slice(1));
-      if (candidate.startsWith(root) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      const candidate = resolveStaticRoute(root, pathname);
+      if (candidate) {
         return candidate;
       }
     }
   }
   return null;
+}
+
+function resolveStaticRoute(root: string, pathname: string): string | null {
+  const candidate = path.resolve(root, pathname.slice(1));
+  if (isInsideRoot(root, candidate) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+    return candidate;
+  }
+  return null;
+}
+
+function isInsideRoot(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function walkFiles(dir: string): string[] {
@@ -125,7 +174,7 @@ function walkFiles(dir: string): string[] {
   });
 }
 
-function contentType(file: string): string {
+export function contentType(file: string): string {
   const extension = path.extname(file).toLowerCase();
   const types: Record<string, string> = {
     ".css": "text/css; charset=utf-8",
