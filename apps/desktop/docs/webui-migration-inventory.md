@@ -38,6 +38,7 @@ must preserve.
 | --- | --- | --- |
 | Startup shell | `apps/desktop/index.html` is a compact diagnostics shell with retry. | Manual Tauri smoke still pending. |
 | Root WebUI injection | `apps/desktop/src/desktopBootstrap.ts` fetches `/webui/bootstrap`, starts/attaches gateway when possible, installs bridge/render globals, injects `webui/index.html`, then imports `/assets/src/main.js`. | `desktopWebUiShell.test.ts` covers `lang`, `data-theme`, local head assets, script exclusion, and body replacement. |
+| Custom desktop frame | `apps/desktop/src/desktopWindowFrame.ts` installs a Tauri-only custom draggable title bar and window controls after native decorations are disabled. | `desktopWindowFrame.test.ts` covers frame/style installation and minimize, maximize, close, and drag action wiring. |
 | Gateway lifecycle | `apps/desktop/src-tauri/src/lib.rs` checks `127.0.0.1:18790`, starts `uv run tinybot gateway`, tracks shell/external ownership, and stops only shell-owned gateways on explicit stop. | `desktopGatewayStartup.test.ts`, `desktopStartupView.test.ts`, `cargo test`, and `cargo check` cover startup decisions, diagnostics, retry wiring, and shell-owned child shutdown. |
 | HTTP bridge | `apps/desktop/src/desktopGatewayBridge.ts` rewrites `/webui/**`, `/api/**`, and `/v1/knowledge/**` to `http://127.0.0.1:18790`. | `desktopGatewayBridge.test.ts` covers known path rewrites, request semantics, auth refresh, and non-gateway requests. |
 | WebSocket bridge | `desktopGatewayBridge.ts` rewrites same-page `/ws` URLs to `ws://127.0.0.1:18790/ws` with query preservation. | `desktopGatewayBridge.test.ts` covers relative, absolute desktop-origin, local Vite-origin, and external socket URLs. |
@@ -53,9 +54,11 @@ must preserve.
 | `apps/desktop/src/desktopGatewayBridge.test.ts` | Gateway HTTP/WebSocket rewriting for `/webui/**`, `/api/**`, `/api/cowork/**`, `/v1/knowledge/**`, tools/skills module endpoints, static/docs/icon exclusions, request semantics, and auth refresh preservation. |
 | `apps/desktop/src/desktopGatewayStartup.test.ts` | External attach, no-Tauri recoverable failure, Tauri external status attach, shell-owned start, bootstrap wait, and startup timeout diagnostics. |
 | `apps/desktop/src/desktopStartupView.test.ts` | Startup status text, recoverable diagnostics visibility, retry hiding, and retry click binding. |
+| `apps/desktop/src/desktopWindowFrame.test.ts` | Tauri-only custom titlebar rendering, desktop frame style installation, and window control/drag action wiring. |
 | `apps/desktop/src/desktopWebUiShell.test.ts` | Root WebUI shell metadata, local head asset, and script-free body installation before entrypoint import. |
 | `apps/desktop/src/viteStaticPlugin.test.ts` | Static `/assets/**`, `/docs`, `/docs/*.html`, extensionless docs page resolution, docs local asset bundle coverage, traversal rejection, content types, and root WebUI test-file exclusion. |
 | `webui/assets/src/app-startup.test.mjs` | Root WebUI entrypoint starts immediately when dynamically imported after `DOMContentLoaded`, which is required by the desktop bootstrap sequence. |
+| `webui/assets/src/feature-tour-positioning.test.mjs` | Help tour target focusing avoids page scrolling when the current target is already visible or oversized but intersecting the viewport. |
 | `apps/desktop/src/gateway.test.ts` | Gateway config, bootstrap/status clients, shared route clients, WebSocket frames. |
 | `apps/desktop/src/gatewayStatusView.test.ts` | Gateway status view mapping for external/reachable and partial health states. |
 | `apps/desktop/src/nativeChat.test.ts` | Desktop fallback chat/session reducers and streaming state. |
@@ -67,7 +70,9 @@ must preserve.
 | --- | --- |
 | `npm test` from `apps/desktop` | Passed with 9 test files and 36 tests, covering desktop gateway startup, startup diagnostics/retry, gateway bridge, tools/skills bridge endpoints, WebUI shell install, static asset/docs routing, gateway clients, status view, native chat reducers, and Agent UI fallback events. |
 | `node webui/assets/src/app-startup.test.mjs` | Passed; covers the root WebUI entrypoint helper used when the desktop shell imports the WebUI after `DOMContentLoaded`. |
+| `node webui/assets/src/feature-tour-positioning.test.mjs` | Passed; covers the help tour regression where visible or oversized targets must not shift the page. |
 | Browser smoke at `http://localhost:1420` with gateway on `127.0.0.1:18790` | Passed for the reported startup issue: WebSocket opened to `ws://127.0.0.1:18790/ws`, received `ready`, status loaded provider/model/channel, and New Chat sent `new_chat` then received `chat_created`. |
+| Browser smoke at `http://127.0.0.1:1420` with gateway on `127.0.0.1:18790` | Passed for help-tour positioning after CSS readiness: opening the tour and moving from step 1 to step 2 kept `scrollX=0`, `scrollY=0`, `bodyTop=0`, and stable `.shell` top/left geometry. |
 | `npm run build` from `apps/desktop` | Passed; emitted root WebUI assets/docs including `dist/assets/src/main.js`, `dist/docs/index.html`, and extensionless docs routes such as `dist/docs/quickstart`, with root WebUI source test files excluded. |
 | `cargo check` from `apps/desktop/src-tauri` | Passed for `tinybot-desktop` dev profile. |
 | `cargo test` from `apps/desktop/src-tauri` | Passed with the shell-owned gateway child shutdown unit test. |
@@ -91,7 +96,7 @@ must preserve.
 | Tools and skills | `desktopGatewayBridge.test.ts` covers `/api/tools`, `/api/skills`, and skill validate request rewriting with method/header/body preservation; gateway route fallback tests cover list/detail shapes. | Open tools/skills modals, create/edit/delete/validate skills, inspect tool schema rendering. | Focused bridge coverage present; desktop runtime UI pass pending. |
 | Config and providers | Gateway route fallback tests cover shared route construction only. | Open/save config, validate masked secrets, provider catalog, profiles, model refresh, and selectors. | Pending desktop runtime pass. |
 | Cowork console | No desktop-specific adapter expected unless bridge gaps appear. | Open Cowork modal/page, create/run/control sessions, inspect graph, trace, tasks, mailbox, outputs, branches, and work units. | Pending desktop runtime pass. |
-| Help, language, and theme | No desktop-specific adapter expected unless static asset gaps appear. | Exercise sidebar collapse, modal close/navigation, help tour, language toggle, theme/highlight persistence. | Pending desktop runtime pass. |
+| Help, language, and theme | `webui/assets/src/feature-tour-positioning.test.mjs` covers help-tour no-scroll focusing; browser smoke covers stable geometry for opening the tour and advancing to step 2. | Exercise sidebar collapse, modal close/navigation, full help tour, language toggle, theme/highlight persistence. | Help-tour initial positioning regression covered; full desktop runtime pass for the rest remains pending. |
 
 ## Update Rules
 
