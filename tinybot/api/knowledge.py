@@ -34,6 +34,36 @@ def _now_iso() -> str:
 
 
 def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    stage_details = job.get("stage_details", [])
+    failed_stage_count = job.get(
+        "failed_stage_count",
+        sum(1 for detail in stage_details if int(detail.get("failed", 0) or 0) > 0 or detail.get("status") == "failed"),
+    )
+    stale_stage_count = job.get(
+        "stale_stage_count",
+        sum(1 for detail in stage_details if int(detail.get("stale", 0) or 0) > 0 or detail.get("status") == "stale"),
+    )
+    completed_stages = {
+        str(detail.get("stage", ""))
+        for detail in stage_details
+        if detail.get("status") in {"complete", "completed"}
+        and int(detail.get("failed", 0) or 0) == 0
+        and int(detail.get("stale", 0) or 0) == 0
+    }
+    retrieval_ready = job.get(
+        "retrieval_ready",
+        bool({"dense_indexing", "sparse_indexing"} & completed_stages),
+    )
+    graph_ready = job.get(
+        "graph_ready",
+        {"graph_projection", "community_report_projection"} <= completed_stages
+        and stale_stage_count == 0
+        and failed_stage_count == 0,
+    )
+    partial_availability = job.get(
+        "partial_availability",
+        bool(retrieval_ready and (failed_stage_count or stale_stage_count or not graph_ready)),
+    )
     snapshot = {
         "id": job.get("id", ""),
         "doc_id": job.get("doc_id", ""),
@@ -47,6 +77,12 @@ def _job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
         "created_at": job.get("created_at", ""),
         "updated_at": job.get("updated_at", ""),
         "completed_at": job.get("completed_at", ""),
+        "stage_details": stage_details,
+        "failed_stage_count": failed_stage_count,
+        "stale_stage_count": stale_stage_count,
+        "retrieval_ready": retrieval_ready,
+        "graph_ready": graph_ready,
+        "partial_availability": partial_availability,
     }
     if "result" in job:
         snapshot["result"] = job.get("result", {})
@@ -83,6 +119,7 @@ def _start_index_job(
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
         "completed_at": "",
+        "stage_details": [],
     }
     with lock:
         jobs[job_id] = job
@@ -99,6 +136,7 @@ def _start_index_job(
                 "processed": processed,
                 "total": max(1, total),
                 "updated_at": _now_iso(),
+                "stage_details": knowledge_store.get_stage_details(doc_id),
             })
             if stage == "completed":
                 current["completed_at"] = current["updated_at"]
@@ -148,6 +186,7 @@ def _start_rebuild_job(
         "updated_at": _now_iso(),
         "completed_at": "",
         "result": {},
+        "stage_details": [],
     }
     with lock:
         jobs[job_id] = job
@@ -164,6 +203,7 @@ def _start_rebuild_job(
                 "processed": processed,
                 "total": max(1, total or current.get("total", 1)),
                 "updated_at": _now_iso(),
+                "stage_details": knowledge_store.get_stage_details(),
             })
             if stage == "completed":
                 current["completed_at"] = current["updated_at"]
@@ -190,6 +230,7 @@ def _start_rebuild_job(
                 current = jobs.get(job_id)
                 if current:
                     current["result"] = result
+                    current["stage_details"] = knowledge_store.get_stage_details()
             update("completed", "Knowledge index rebuild is complete", job["total"], job["total"])
         except Exception as e:
             logger.exception("Knowledge rebuild job {} failed", job_id)
@@ -575,11 +616,18 @@ async def handle_query_knowledge(request: web.Request) -> web.Response:
                     "dense_contribution": r.get("dense_contribution"),
                     "sparse_contribution": r.get("sparse_contribution"),
                     "method": r.get("method"),
+                    "retrieval_method": r.get("retrieval_method") or r.get("method"),
+                    "score_metadata": r.get("score_metadata", {}),
+                    "source_snippets": r.get("source_snippets", []),
                     "matched_methods": r.get("matched_methods", []),
                     "matched_entities": r.get("matched_entities", []),
                     "matched_claims": r.get("matched_claims", []),
+                    "matched_claim_evidence": r.get("matched_claim_evidence", []),
                     "matched_relations": r.get("matched_relations", []),
+                    "matched_relation_evidence": r.get("matched_relation_evidence", []),
                     "matched_communities": r.get("matched_communities", []),
+                    "conflict_metadata": r.get("conflict_metadata", []),
+                    "projection_metadata": r.get("projection_metadata", []),
                 }
                 for r in results
             ],
@@ -616,6 +664,16 @@ async def handle_knowledge_stats(request: web.Request) -> web.Response:
             "community_count": stats.get("community_count", 0),
             "community_count_by_level": stats.get("community_count_by_level", {}),
             "community_report_count": stats.get("community_report_count", 0),
+            "stage_details": stats.get("stage_details", []),
+            "stage_readiness": stats.get("stage_readiness", {}),
+            "stage_coverage": stats.get("stage_coverage", {}),
+            "failed_stage_count": stats.get("failed_stage_count", 0),
+            "stale_stage_count": stats.get("stale_stage_count", 0),
+            "retrieval_ready": stats.get("retrieval_ready", False),
+            "claims_ready": stats.get("claims_ready", False),
+            "relations_ready": stats.get("relations_ready", False),
+            "graph_ready": stats.get("graph_ready", False),
+            "partial_availability": stats.get("partial_availability", False),
         })
     except Exception as e:
         logger.exception("Error getting stats")

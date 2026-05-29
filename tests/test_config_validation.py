@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from tinybot.config.schema import (
     AgentDefaults,
     EmbeddingConfig,
+    KnowledgeConfig,
     MCPServerConfig,
     DreamConfig,
 )
@@ -236,3 +237,63 @@ class TestDreamConfigValidation:
         """Test Dream with cron override."""
         config = DreamConfig(cron="0 2 * * *")
         assert config.cron == "0 2 * * *"
+
+
+class TestKnowledgeConfigValidation:
+    """Tests for knowledge indexing configuration."""
+
+    def test_evidence_expansion_defaults_are_disabled_and_budgeted(self):
+        config = KnowledgeConfig()
+
+        assert config.semantic_extraction_mode == "rule"
+        assert config.llm_extraction_strategy == "single_pass"
+        assert config.semantic_llm_concurrency == 4
+        assert config.evidence_expansion_enabled is False
+        assert config.evidence_expansion_scope == "document"
+        assert config.evidence_expansion_max_queries == 5
+        assert config.evidence_expansion_max_llm_calls == 0
+        assert config.evidence_expansion_max_tokens == 0
+        assert config.evidence_expansion_timeout_seconds == 30.0
+        assert config.evidence_expansion_concurrency == 2
+
+    def test_evidence_expansion_accepts_supported_scopes(self):
+        for scope in ("document", "collection", "global"):
+            config = KnowledgeConfig(
+                evidence_expansion_enabled=True,
+                evidence_expansion_scope=scope,
+            )
+            assert config.evidence_expansion_scope == scope
+
+    def test_llm_extraction_strategy_accepts_supported_modes(self):
+        for strategy in ("single_pass", "entity_guided"):
+            config = KnowledgeConfig(
+                semantic_extraction_mode="llm",
+                llm_extraction_strategy=strategy,
+            )
+            assert config.llm_extraction_strategy == strategy
+
+    def test_semantic_extraction_rejects_invalid_mode_and_strategy(self):
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(semantic_extraction_mode="always_llm")
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(llm_extraction_strategy="multi_agent")
+
+    def test_evidence_expansion_rejects_invalid_scope(self):
+        with pytest.raises(ValidationError) as exc_info:
+            KnowledgeConfig(evidence_expansion_scope="workspace")
+
+        assert "document" in str(exc_info.value)
+        assert "collection" in str(exc_info.value)
+        assert "global" in str(exc_info.value)
+
+    def test_evidence_expansion_rejects_invalid_budgets(self):
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(evidence_expansion_max_queries=0)
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(evidence_expansion_max_llm_calls=-1)
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(evidence_expansion_max_tokens=-1)
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(evidence_expansion_timeout_seconds=0)
+        with pytest.raises(ValidationError):
+            KnowledgeConfig(evidence_expansion_concurrency=0)

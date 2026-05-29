@@ -154,8 +154,53 @@
   background: var(--bg-subtle);
 }
 
+.knowledge-insight-item.is-ready {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border-subtle));
+}
+
+.knowledge-insight-item.is-warn {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--border-subtle));
+}
+
+.knowledge-insight-item.is-error {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border-subtle));
+}
+
+.knowledge-insight-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .knowledge-insight-item strong {
   font-size: 13px;
+}
+
+.knowledge-insight-item em {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.knowledge-insight-item.is-ready em {
+  border-color: color-mix(in srgb, var(--success) 44%, var(--border-subtle));
+  color: var(--success);
+}
+
+.knowledge-insight-item.is-warn em {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--border-subtle));
+  color: var(--warning);
+}
+
+.knowledge-insight-item.is-error em {
+  border-color: color-mix(in srgb, var(--danger) 44%, var(--border-subtle));
+  color: var(--danger);
 }
 
 .knowledge-insight-item span {
@@ -416,6 +461,44 @@
   line-height: 1.45;
 }
 
+.knowledge-evidence-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.knowledge-evidence-row strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.knowledge-evidence-row span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.knowledge-evidence-row p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.knowledge-source-context {
+  margin-top: 4px;
+}
+
+.knowledge-source-context summary {
+  cursor: pointer;
+  color: var(--accent-color);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.knowledge-source-context p {
+  margin-top: 6px;
+}
+
 .graph-canvas {
   position: relative;
   min-height: 420px;
@@ -611,6 +694,26 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.knowledge-traceability-details {
+  margin-top: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.knowledge-traceability-details summary {
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.knowledge-traceability-details .inspector-section {
+  margin: 0 10px 10px;
+  background: var(--panel-strong);
 }
 
 /* Docs list panel */

@@ -45,6 +45,15 @@ Gateway handlers are allowed to be WebUI-shaped. Their response payloads can inc
 
 Knowledge responses should be explainable: include source document, retrieval method, confidence or score where available, and enough metadata for the WebUI to explain why an item matched.
 
+Traceability fields are additive API contracts:
+
+- Query results may include `source_snippets`, `matched_claims`, `matched_claim_evidence`, `matched_relations`, `matched_relation_evidence`, `conflict_metadata`, `projection_metadata`, `retrieval_method`, and score metadata.
+- Stats responses include `stage_details`, `stage_readiness`, `stage_coverage`, `failed_stage_count`, `stale_stage_count`, `retrieval_ready`, `claims_ready`, `relations_ready`, `graph_ready`, and `partial_availability`.
+- Graph responses expose evidence-aware node and edge payloads, including source references, relation evidence, supporting claim ids, conflict metadata, and projection/community report source references where available.
+- Job snapshots preserve legacy `status`, `stage`, `message`, `processed`, `total`, and `result` fields while adding stage detail and readiness summaries.
+
+Missing traceability should degrade to empty arrays or partial readiness, not a failed route. Older WebUI and client consumers must continue to find the pre-existing fields.
+
 ## Cowork API
 
 `tinybot/api/cowork.py` registers the dedicated `/api/cowork/*` routes. This is the most stateful API surface in the project.

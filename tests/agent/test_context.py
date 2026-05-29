@@ -134,6 +134,56 @@ def test_context_builder_keeps_memory_experience_and_knowledge_paths_separate(tm
     assert "[MEMORY RECALL]" not in knowledge_section
 
 
+def test_knowledge_context_prioritizes_source_snippets_before_derived_claims() -> None:
+    formatted = ContextBuilder._format_knowledge_results(
+        [
+            {
+                "doc_name": "traceable.md",
+                "content": "Derived projection summary should not be first.",
+                "source_snippets": [
+                    {
+                        "text": "TinyBot supports RAG.",
+                        "doc_name": "traceable.md",
+                        "line_start": 4,
+                        "line_end": 4,
+                    }
+                ],
+                "matched_claim_evidence": [
+                    {
+                        "text": "TinyBot supports RAG.",
+                        "source": {"doc_name": "traceable.md", "line_start": 4, "line_end": 4},
+                    }
+                ],
+                "projection_metadata": [{"title": "TinyBot / RAG", "projection_type": "community_report"}],
+                "matched_claims": ["TinyBot supports RAG."],
+            }
+        ]
+    )
+
+    source_index = formatted.index("Source snippets:")
+    claim_index = formatted.index("Claim evidence:")
+    projection_index = formatted.index("Derived projections:")
+    assert source_index < claim_index < projection_index
+    assert "TinyBot supports RAG." in formatted
+
+
+def test_session_knowledge_context_degrades_without_traceability_fields() -> None:
+    formatted = ContextBuilder._format_retrieved_knowledge_context(
+        persistent_results=[],
+        session_results=[
+            {
+                "doc_name": "upload.txt",
+                "content": "Temporary upload content is still usable.",
+            }
+        ],
+    )
+
+    assert "[Current session temporary files]" in formatted
+    assert "not persisted" in formatted
+    assert "Temporary upload content is still usable." in formatted
+    assert "Use retrieved knowledge only when it is relevant" in formatted
+
+
 def test_context_builder_injects_recent_context_for_preparation_prompt(tmp_path):
     builder = ContextBuilder(tmp_path)
     evidence = builder.memory.append_conversation_evidence(

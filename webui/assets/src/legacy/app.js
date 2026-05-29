@@ -48,6 +48,14 @@ import {
   shouldRefreshCoworkAgentInspectorForStream,
   upsertChatCoworkSession,
 } from '../cowork-chat.js';
+import {
+  buildKnowledgeClaimInspection,
+  buildKnowledgeConflictInspection,
+  buildKnowledgeReadinessView,
+  buildKnowledgeProjectionInspection,
+  buildKnowledgeRelationInspection,
+  knowledgeEvidenceRowsForEdge,
+} from '../knowledge-traceability.js';
 
 // Legacy application module. The functions below are intentionally kept together
 // for this pass because chat, settings, knowledge, and cowork flows share state
@@ -7860,10 +7868,7 @@ function renderKnowledgeOverview() {
     return;
   }
   const stats = state.knowledgeStats || {};
-  const docs = Number(stats.total_documents || 0);
-  const chunks = Number(stats.total_chunks || 0);
-  const entities = Number(stats.entity_count || 0);
-  const relations = Number(stats.relation_count || 0);
+  const readiness = buildKnowledgeReadinessView(stats);
   const communities = Number(stats.community_count || 0);
   const reports = Number(stats.community_report_count || 0);
   const communityLevels = stats.community_count_by_level || stats.communityCountByLevel || {};
@@ -7871,74 +7876,54 @@ function renderKnowledgeOverview() {
     .sort(([left], [right]) => Number(left) - Number(right))
     .map(([level, count]) => t("knowledge.graphLevelCount").replace("{level}", level).replace("{count}", count))
     .join(", ");
-  const indexedDense = Number(stats.indexed_dense || 0);
-  const indexedSparse = Number(stats.indexed_sparse || 0);
-
-  const checks = [
-    docs > 0,
-    chunks > 0,
-    indexedDense > 0 || indexedSparse > 0,
-    entities > 0,
-    relations > 0,
-    communities > 0,
-    reports > 0,
-  ];
-  const score = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  const score = readiness.score;
   if (elements.knowledgeHealthScore) elements.knowledgeHealthScore.textContent = `${score}%`;
   if (elements.knowledgeHealthBar) elements.knowledgeHealthBar.style.width = `${score}%`;
   if (elements.knowledgeHealthTitle) {
-    elements.knowledgeHealthTitle.textContent = score >= 85
-      ? t("knowledge.healthReady")
-      : score >= 55
-        ? t("knowledge.healthSearchable")
-        : docs > 0
-          ? t("knowledge.healthNeedsSemantic")
-          : t("knowledge.healthEmpty");
+    elements.knowledgeHealthTitle.textContent = t(readiness.titleKey);
   }
   if (elements.knowledgeHealthDesc) {
-    elements.knowledgeHealthDesc.textContent = docs
-      ? t("knowledge.healthDesc")
-        .replace("{docs}", docs)
-        .replace("{chunks}", chunks)
-        .replace("{entities}", entities)
-        .replace("{relations}", relations)
-        .replace("{communities}", communities)
-      : t("knowledge.healthDescEmpty");
+    elements.knowledgeHealthDesc.textContent = formatKnowledgeI18n(readiness.descKey, readiness.descReplacements);
   }
 
   if (!elements.knowledgeOverviewInsights) {
     return;
   }
   elements.knowledgeOverviewInsights.textContent = "";
-  const insights = [
-    {
-      title: t("knowledge.insightRetrievalIndex"),
-      text: indexedDense || indexedSparse
-        ? t("knowledge.insightRetrievalReady").replace("{dense}", indexedDense).replace("{sparse}", indexedSparse)
-        : t("knowledge.insightRetrievalEmpty"),
-    },
-    {
-      title: t("knowledge.insightSemanticModel"),
-      text: entities
-        ? t("knowledge.insightSemanticReady").replace("{entities}", entities).replace("{relations}", relations)
-        : t("knowledge.insightSemanticEmpty"),
-    },
-    {
-      title: t("knowledge.insightGraphRagLayer"),
-      text: communities
-        ? t("knowledge.insightGraphRagReady")
-          .replace("{communities}", communities)
-          .replace("{levels}", communityLevelText ? ` (${communityLevelText})` : "")
-          .replace("{reports}", reports)
-        : t("knowledge.insightGraphRagEmpty"),
-    },
-  ];
+  const insights = readiness.rows.map((row) => {
+    const replacements = {
+      ...row.replacements,
+      communities,
+      reports,
+      levels: communityLevelText ? ` (${communityLevelText})` : "",
+    };
+    return {
+      title: t(row.titleKey),
+      status: t(row.statusKey),
+      tone: row.tone,
+      text: formatKnowledgeI18n(row.textKey, replacements),
+    };
+  });
   for (const insight of insights) {
     const item = document.createElement("div");
-    item.className = "knowledge-insight-item";
-    item.innerHTML = `<strong>${escapeHtml(insight.title)}</strong><span>${escapeHtml(insight.text)}</span>`;
+    item.className = `knowledge-insight-item is-${insight.tone || "muted"}`;
+    item.innerHTML = `
+      <div class="knowledge-insight-heading">
+        <strong>${escapeHtml(insight.title)}</strong>
+        <em>${escapeHtml(insight.status)}</em>
+      </div>
+      <span>${escapeHtml(insight.text)}</span>
+    `;
     elements.knowledgeOverviewInsights.append(item);
   }
+}
+
+function formatKnowledgeI18n(key, replacements = {}) {
+  let text = t(key);
+  for (const [name, value] of Object.entries(replacements)) {
+    text = text.split(`{${name}}`).join(String(value ?? ""));
+  }
+  return text;
 }
 
 async function loadKnowledgeDocs() {
@@ -8404,7 +8389,14 @@ function normalizeGraphRagIndex(index) {
       community_level: community?.level ?? null,
       community_parent: community?.parent ?? null,
       community_report_id: report?.id || "",
+      community_report_title: report?.title || "",
       community_report_summary: report?.summary || "",
+      community_report_type: report?.projection_type || "",
+      community_report_status: report?.projection_status || "",
+      community_report_rank: report?.rank ?? null,
+      community_report_supporting_claim_ids: report?.supporting_claim_ids || [],
+      community_report_supporting_relation_ids: report?.supporting_relation_ids || [],
+      community_report_source_refs: report?.source_refs || [],
       score: (entity.degree || 0) + (entity.frequency || 0),
     };
     entityByName.set(node.label, node);
@@ -8643,6 +8635,35 @@ function renderKnowledgeGraphInspector() {
     if (node.community_title) {
       inspector.append(createInspectorSection(t("knowledge.community"), [node.community_title]));
     }
+    if (node.community_report_id || node.community_report_summary) {
+      const projection = buildKnowledgeProjectionInspection({
+        id: node.community_report_id,
+        title: node.community_report_title || node.community_title,
+        summary: node.community_report_summary,
+        projection_type: node.community_report_type || "community_report",
+        projection_status: node.community_report_status,
+        community: node.community_id,
+        rank: node.community_report_rank,
+        supporting_claim_ids: node.community_report_supporting_claim_ids,
+        supporting_relation_ids: node.community_report_supporting_relation_ids,
+        source_refs: node.community_report_source_refs,
+      });
+      inspector.append(createInspectorSection(t("knowledge.projection"), [t("knowledge.derivedProjection")]));
+      inspector.append(createInspectorMetrics([
+        [t("knowledge.projectionType"), projection.type],
+        [t("knowledge.status"), projection.status || "-"],
+        [t("knowledge.rankLabel"), projection.rankLabel || "-"],
+      ]));
+      if (projection.supportingClaimIds.length) {
+        inspector.append(createInspectorSection(t("knowledge.supportingClaims"), projection.supportingClaimIds));
+      }
+      if (projection.supportingRelationIds.length) {
+        inspector.append(createInspectorSection(t("knowledge.supportingRelations"), projection.supportingRelationIds));
+      }
+      if (projection.sources.length) {
+        inspector.append(createKnowledgeEvidenceSection(t("knowledge.projectionSources"), projection.sources));
+      }
+    }
     if (node.doc_names?.length) {
       inspector.append(createInspectorSection(t("knowledge.sourceDocuments"), node.doc_names.slice(0, 6)));
     }
@@ -8651,22 +8672,30 @@ function renderKnowledgeGraphInspector() {
 
   if (selection.edge) {
     const edge = selection.edge;
-    inspector.append(createInspectorTitle(edge.predicate || t("knowledge.relationship"), t("knowledge.relationship")));
+    const nodes = state.knowledgeGraph?.nodes || [];
+    const relation = buildKnowledgeRelationInspection(edge, nodes);
+    inspector.append(createInspectorTitle(relation.title || edge.predicate || t("knowledge.relationship"), t("knowledge.relationship")));
     inspector.append(createInspectorText(edge.description || t("knowledge.noRelationshipDescription")));
     inspector.append(createInspectorMetrics([
-      [t("knowledge.weight"), formatInspectorNumber(edge.weight || edge.count)],
-      [t("knowledge.strength"), formatInspectorNumber(edge.strength || edge.weight || edge.count)],
-      [t("knowledge.evidence"), edge.evidence?.length || 0],
+      [t("knowledge.predicate"), relation.predicate],
+      [t("knowledge.confidence"), relation.confidenceLabel || "-"],
+      [t("knowledge.evidence"), relation.evidence.length],
     ]));
+    inspector.append(createInspectorSection(t("knowledge.endpoints"), [relation.endpoints]));
+    if (relation.supportingClaimIds.length) {
+      inspector.append(createInspectorSection(t("knowledge.supportingClaims"), relation.supportingClaimIds));
+    }
     if (edge.doc_names?.length) {
       inspector.append(createInspectorSection(t("knowledge.sourceDocuments"), edge.doc_names.slice(0, 6)));
     }
-    if (edge.evidence?.length) {
-      const evidence = edge.evidence.slice(0, 4).map((item) => {
-        const where = [item.doc_name, item.line_start ? `L${item.line_start}-${item.line_end || item.line_start}` : ""].filter(Boolean).join(" / ");
-        return `${where ? `${where}: ` : ""}${item.text || ""}`;
-      });
-      inspector.append(createInspectorSection(t("knowledge.evidence"), evidence));
+    if (relation.evidence.length) {
+      inspector.append(createKnowledgeEvidenceSection(t("knowledge.relationEvidence"), relation.evidence));
+    }
+    if (Array.isArray(edge.conflict_metadata) && edge.conflict_metadata.length) {
+      inspector.append(createKnowledgeEvidenceSection(
+        t("knowledge.conflictEvidence"),
+        knowledgeConflictEvidenceRows(edge.conflict_metadata),
+      ));
     }
   }
 }
@@ -8717,6 +8746,57 @@ function createInspectorSection(title, rows) {
     section.append(item);
   }
   return section;
+}
+
+function createKnowledgeEvidenceSection(title, rows) {
+  const section = document.createElement("div");
+  section.className = "inspector-section knowledge-evidence-section";
+  const heading = document.createElement("div");
+  heading.className = "inspector-section-title";
+  heading.textContent = title;
+  section.append(heading);
+  for (const row of rows) {
+    const item = document.createElement("div");
+    item.className = "inspector-row knowledge-evidence-row";
+    const titleNode = document.createElement("strong");
+    titleNode.textContent = row.title || t("knowledge.unknownSource");
+    const meta = document.createElement("span");
+    meta.textContent = [row.meta, row.claimId ? `${t("knowledge.claim")} ${row.claimId}` : ""].filter(Boolean).join(" / ");
+    const text = document.createElement("p");
+    text.textContent = row.text || "";
+    item.append(titleNode, meta, text);
+    if (row.contextText) {
+      const context = document.createElement("details");
+      context.className = "knowledge-source-context";
+      const summary = document.createElement("summary");
+      summary.textContent = t("knowledge.sourceContext");
+      const body = document.createElement("p");
+      body.textContent = row.contextText;
+      context.append(summary, body);
+      item.append(context);
+    }
+    section.append(item);
+  }
+  return section;
+}
+
+function knowledgeConflictEvidenceRows(conflicts) {
+  return (Array.isArray(conflicts) ? conflicts : []).flatMap((conflict) => {
+    const view = buildKnowledgeConflictInspection(conflict);
+    return view.sides.map((side) => ({
+      title: side.sourceTitle,
+      meta: [
+        side.label,
+        view.type,
+        view.status ? `${t("knowledge.status")} ${view.status}` : "",
+        view.confidenceLabel ? `${t("knowledge.confidence")} ${view.confidenceLabel}` : "",
+        side.sourceMeta,
+      ].filter(Boolean).join(" / "),
+      text: side.evidenceText,
+      contextText: side.contextText,
+      claimId: "",
+    }));
+  });
 }
 
 function formatInspectorNumber(value) {
@@ -9260,32 +9340,32 @@ function distanceToSegment(point, start, end) {
 }
 
 function renderKnowledgeGraphEvidence(nodes, edges) {
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
   const list = document.createElement("div");
   list.className = "graph-evidence-list";
   for (const edge of edges.slice(0, 6)) {
+    const rows = knowledgeEvidenceRowsForEdge(edge, nodes);
+    const rowModel = rows[0] || null;
     const row = document.createElement("div");
     row.className = "graph-evidence-item";
-    row.dataset.edgeId = edge.id || `${edge.source}:${edge.predicate}:${edge.target}`;
+    row.dataset.edgeId = rowModel?.edgeId || edge.id || `${edge.source}:${edge.predicate}:${edge.target}`;
     row.dataset.source = edge.source;
     row.dataset.target = edge.target;
 
     const title = document.createElement("div");
     title.className = "graph-evidence-title";
-    title.textContent = `${nodeMap.get(edge.source)?.label || edge.source} -[${edge.predicate}]-> ${nodeMap.get(edge.target)?.label || edge.target}`;
+    title.textContent = rowModel?.title || `${edge.source} -[${edge.predicate}]-> ${edge.target}`;
 
-    const evidence = edge.evidence?.[0];
     const meta = document.createElement("div");
     meta.className = "graph-evidence-meta";
     const metricText = edge.weight ? `weight ${formatInspectorNumber(edge.weight)}` : "";
-    meta.textContent = evidence
-      ? [evidence.doc_name, evidence.line_start ? `L${evidence.line_start}-${evidence.line_end || evidence.line_start}` : ""].filter(Boolean).join(" · ")
+    meta.textContent = rowModel
+      ? [rowModel.docName, rowModel.location, rowModel.confidenceLabel ? `confidence ${rowModel.confidenceLabel}` : ""].filter(Boolean).join(" · ")
       : "";
     meta.textContent = [meta.textContent, metricText].filter(Boolean).join(" · ");
 
     const text = document.createElement("div");
     text.className = "graph-evidence-text";
-    text.textContent = evidence?.text || "";
+    text.textContent = rowModel?.evidenceText || "";
 
     row.append(title, meta, text);
     list.append(row);
@@ -9972,6 +10052,8 @@ function renderQueryResults(result) {
     content.className = "query-result-content";
     content.textContent = item.content || "";
 
+    const traceability = renderKnowledgeTraceabilityDetails(item);
+
     const debug = document.createElement("details");
     debug.className = "query-result-debug";
     const debugSummary = document.createElement("summary");
@@ -9989,9 +10071,89 @@ function renderQueryResults(result) {
     locate.addEventListener("click", () => highlightKnowledgeQueryResult(item, result.query));
     actions.append(locate);
 
-    resultItem.append(header, meta, why, content, debug, actions);
+    resultItem.append(header, meta, why, content);
+    if (traceability) {
+      resultItem.append(traceability);
+    }
+    resultItem.append(debug, actions);
     elements.queryResults.append(resultItem);
   }
+}
+
+function renderKnowledgeTraceabilityDetails(item) {
+  const claimEvidence = Array.isArray(item.matched_claim_evidence) ? item.matched_claim_evidence : [];
+  const relationEvidence = Array.isArray(item.matched_relation_evidence) ? item.matched_relation_evidence : [];
+  const conflictMetadata = Array.isArray(item.conflict_metadata) ? item.conflict_metadata : [];
+  const sourceSnippets = Array.isArray(item.source_snippets) ? item.source_snippets : [];
+  if (!claimEvidence.length && !relationEvidence.length && !conflictMetadata.length && !sourceSnippets.length) {
+    return null;
+  }
+
+  const details = document.createElement("details");
+  details.className = "knowledge-traceability-details";
+  const summary = document.createElement("summary");
+  summary.textContent = t("knowledge.traceability");
+  details.append(summary);
+
+  if (sourceSnippets.length) {
+    details.append(createKnowledgeEvidenceSection(
+      t("knowledge.sourceEvidence"),
+      sourceSnippets.slice(0, 4).map((snippet) => {
+        const claim = buildKnowledgeClaimInspection({ source: snippet, text: snippet.text || snippet.evidence_text });
+        return {
+          title: claim.sourceTitle,
+          meta: claim.sourceMeta,
+          text: claim.evidenceText,
+          claimId: "",
+        };
+      }),
+    ));
+  }
+
+  if (claimEvidence.length) {
+    details.append(createKnowledgeEvidenceSection(
+      t("knowledge.claimEvidence"),
+      claimEvidence.slice(0, 5).map((claim) => {
+        const view = buildKnowledgeClaimInspection(claim);
+        return {
+          title: view.title,
+          meta: [view.sourceTitle, view.sourceMeta, view.status ? `${t("knowledge.status")} ${view.status}` : ""].filter(Boolean).join(" / "),
+          text: view.evidenceText,
+          claimId: view.id,
+        };
+      }),
+    ));
+  }
+
+  if (relationEvidence.length) {
+    details.append(createKnowledgeEvidenceSection(
+      t("knowledge.relationEvidence"),
+      relationEvidence.slice(0, 5).map((relation) => {
+        const view = buildKnowledgeRelationInspection({
+          ...relation,
+          source: relation.subject_entity_id,
+          target: relation.object_entity_id,
+          evidence: relation.evidence ? relation.evidence : [{ ...relation, text: relation.evidence_text }],
+          supporting_claim_ids: relation.claim_ids,
+        });
+        return {
+          title: view.title,
+          meta: [view.predicate, view.confidenceLabel ? `${t("knowledge.confidence")} ${view.confidenceLabel}` : ""].filter(Boolean).join(" / "),
+          text: view.evidence[0]?.text || relation.evidence_text || "",
+          claimId: view.supportingClaimIds[0] || "",
+        };
+      }),
+    ));
+  }
+
+  if (conflictMetadata.length) {
+    details.append(createKnowledgeEvidenceSection(
+      t("knowledge.conflictEvidence"),
+      knowledgeConflictEvidenceRows(conflictMetadata.slice(0, 5)),
+    ));
+  }
+
+  return details;
 }
 
 function knowledgeNumericScore(item) {

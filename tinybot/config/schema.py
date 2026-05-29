@@ -419,10 +419,18 @@ class KnowledgeConfig(Base):
     rerank_api_base: str = "https://dashscope.aliyuncs.com/compatible-api/v1"  # OpenAI-compatible base URL
     rerank_top_n: int = Field(default=0, ge=0)  # 0 means use query top_k
     generate_summary: bool = False  # Generate summary for each chunk during indexing
-    semantic_extraction_mode: str = "rule"  # "rule", "llm", or "hybrid"
+    semantic_extraction_mode: Literal["rule", "llm", "hybrid"] = "rule"
+    llm_extraction_strategy: Literal["single_pass", "entity_guided"] = "single_pass"
     semantic_llm_max_tokens: int = Field(default=1200, ge=100)  # Max tokens for semantic extraction
     semantic_llm_timeout: float = Field(default=30.0, ge=1.0)  # Timeout for semantic extraction API calls
     semantic_llm_concurrency: int = Field(default=4, ge=1, le=16)  # Parallel chunk LLM extraction workers
+    evidence_expansion_enabled: bool = False  # Read-only support/conflict search is opt-in
+    evidence_expansion_scope: Literal["document", "collection", "global"] = "document"
+    evidence_expansion_max_queries: int = Field(default=5, ge=1)  # Search query budget per record/entity
+    evidence_expansion_max_llm_calls: int = Field(default=0, ge=0)  # 0 keeps expansion non-LLM by default
+    evidence_expansion_max_tokens: int = Field(default=0, ge=0)  # LLM token budget when expansion uses an LLM
+    evidence_expansion_timeout_seconds: float = Field(default=30.0, ge=1.0)
+    evidence_expansion_concurrency: int = Field(default=2, ge=1, le=16)
     graphrag_enabled: bool = True  # Build GraphRAG-style communities and reports
     graphrag_max_community_size: int = Field(default=12, ge=2)  # Soft cap when forming local graph communities
     graphrag_local_depth: int = Field(default=1, ge=0, le=3)  # Entity-neighborhood expansion depth for local search
