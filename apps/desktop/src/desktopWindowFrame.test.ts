@@ -1,5 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
-import { installDesktopWindowFrame } from "./desktopWindowFrame";
+import {
+  installDesktopWindowFrame,
+  resolveDesktopRuntimeStatusView,
+  setDesktopWindowRuntimeStatus,
+} from "./desktopWindowFrame";
 
 class FakeElement {
   public className = "";
@@ -99,6 +103,10 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
   if (action) {
     return element.getAttribute("data-window-action") === action[1];
   }
+  const menuCommand = selector.match(/^\[data-desktop-menu-command="(.+)"\]$/);
+  if (menuCommand) {
+    return element.getAttribute("data-desktop-menu-command") === menuCommand[1];
+  }
   return false;
 }
 
@@ -121,6 +129,9 @@ describe("desktop window frame", () => {
     expect(frame?.getAttribute("data-tauri-drag-region")).toBe("");
     expect(targetDocument.body.classList.values.has("desktop-custom-frame")).toBe(true);
     expect(targetDocument.head.querySelector("#desktop-window-frame-style")).toBeTruthy();
+    expect(targetDocument.body.querySelector('[data-window-action="minimize"]')?.textContent).toBe("−");
+    expect(targetDocument.body.querySelector('[data-window-action="maximize"]')?.textContent).toBe("□");
+    expect(targetDocument.body.querySelector('[data-window-action="close"]')?.textContent).toBe("×");
 
     targetDocument.body.querySelector('[data-window-action="minimize"]')?.click();
     targetDocument.body.querySelector('[data-window-action="maximize"]')?.click();
@@ -131,5 +142,86 @@ describe("desktop window frame", () => {
     expect(currentWindow.toggleMaximize).toHaveBeenCalledTimes(1);
     expect(currentWindow.close).toHaveBeenCalledTimes(1);
     expect(currentWindow.startDragging).toHaveBeenCalledTimes(1);
+  });
+
+  test("maps runtime ownership to a compact desktop status view", () => {
+    expect(
+      resolveDesktopRuntimeStatusView({
+        state: "running",
+        owner: "shell",
+        http_ok: true,
+        gateway_http: "http://127.0.0.1:18790",
+        gateway_ws: "ws://127.0.0.1:18790/ws",
+        command: "uv run tinybot gateway",
+        repo_root: "D:/Code/py/tinybot",
+        logs: [],
+        last_error: null,
+      }),
+    ).toEqual({
+      tone: "ok",
+      label: "Gateway: Shell",
+      detail: "Running on http://127.0.0.1:18790",
+    });
+
+    expect(resolveDesktopRuntimeStatusView(null)).toEqual({
+      tone: "ok",
+      label: "Gateway: External",
+      detail: "Connected to an existing Tinybot gateway",
+    });
+  });
+
+  test("updates the installed frame runtime status without replacing window controls", () => {
+    const targetDocument = new FakeDocument();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+    });
+
+    setDesktopWindowRuntimeStatus(
+      {
+        state: "starting",
+        owner: "shell",
+        http_ok: false,
+        gateway_http: "http://127.0.0.1:18790",
+        gateway_ws: "ws://127.0.0.1:18790/ws",
+        command: "uv run tinybot gateway",
+        repo_root: "D:/Code/py/tinybot",
+        logs: [],
+        last_error: null,
+      },
+      targetDocument as unknown as Document,
+    );
+
+    const status = targetDocument.getElementById("desktop-runtime-status");
+    expect(status?.textContent).toBe("Gateway: Starting");
+    expect(status?.getAttribute("title")).toBe("Starting shell gateway at http://127.0.0.1:18790");
+    expect(status?.getAttribute("data-runtime-tone")).toBe("pending");
+    expect(targetDocument.body.querySelector('[data-window-action="close"]')).toBeTruthy();
+  });
+
+  test("renders desktop application menu entries inside the custom app chrome", () => {
+    const targetDocument = new FakeDocument();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+    });
+
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="new-chat"]')?.textContent).toBe("New Chat");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')?.textContent).toBe("Command Palette");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')?.textContent).toBe("Gateway Status");
   });
 });

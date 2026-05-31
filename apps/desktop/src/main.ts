@@ -14,25 +14,35 @@ import {
   type AgentUiFormField,
 } from "./agentUiEvents";
 import {
-  createGatewaySocketMessage,
   flushGatewaySocketQueue,
   openGatewaySocket,
   sendGatewaySocketJson,
   type NormalizedGatewayEvent,
 } from "./gatewayWebSocketClient";
 import { resolveGatewayStatusView } from "./gatewayStatusView";
+import { createDesktopChatSessionController } from "./desktopChatSessionController";
+import { type NativeChatMessage } from "./nativeChat";
 import {
-  activateChat,
-  appendUserMessage,
-  applyChatEvent,
-  createNativeChatState,
-  normalizeMessagesPayload,
-  normalizeSessionsPayload,
-  setMessages,
-  setSessions,
-  sessionKeyForChat,
-  type NativeChatMessage,
-} from "./nativeChat";
+  buildDesktopSecretField,
+  buildDesktopSettingsFormState,
+  validateDesktopSettingsForm,
+  type DesktopProviderCatalogItem,
+} from "./desktopSettingsProviders";
+import {
+  buildDesktopKnowledgeDocumentRows,
+  buildDesktopKnowledgeReadinessView,
+} from "./desktopKnowledgeTraceability";
+import {
+  buildDesktopSkillRows,
+  buildDesktopToolRows,
+  buildDesktopToolsConfigHint,
+} from "./desktopToolsSkills";
+import {
+  buildDesktopCoworkCockpitView,
+  buildDesktopCoworkSessionRows,
+} from "./desktopCowork";
+import { buildDesktopGatewayRuntimeRows } from "./desktopGatewayRuntimeControls";
+import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 
 type DesktopStatus = {
   app_name: string;
@@ -41,27 +51,21 @@ type DesktopStatus = {
   browser_mode: string;
 };
 
-type GatewayRuntimeStatus = {
-  state: "running" | "starting" | "offline";
-  owner: "shell" | "external" | "none";
-  http_ok: boolean;
-  gateway_http: string;
-  gateway_ws: string;
-  command: string;
-  repo_root: string;
-  logs: string[];
-  last_error: string | null;
-};
-
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
-const chatState = createNativeChatState();
+const chatController = createDesktopChatSessionController({
+  api: {
+    listSessions: () => gatewayApi.sessions.list(),
+    loadMessages: (sessionKey) => gatewayApi.sessions.messages(sessionKey),
+  },
+  sendSocketMessage: (message) => sendSocketMessage(message),
+});
+const chatState = chatController.state;
 const agentUiState = createAgentUiEventState();
 
 let lastHealth: GatewayHealth | null = null;
 let lastRuntimeStatus: GatewayRuntimeStatus | null = null;
 let gatewaySocket: WebSocket | null = null;
-let pendingMessage: string | null = null;
 const pendingSocketMessages: unknown[] = [];
 let activeWorkspaceFile: { path: string; updatedAt: string | null } | null = null;
 
@@ -194,13 +198,8 @@ function renderGatewayRuntime(status: GatewayRuntimeStatus) {
   text("gateway-ws", status.gateway_ws);
   text("gateway-owner", ownerLabel(status.owner));
   text("gateway-command", status.command);
-  const lines = [
-    `Runtime state: ${status.state}`,
-    `Owner: ${ownerLabel(status.owner)}`,
-    `Repo: ${status.repo_root}`,
-    ...(status.last_error ? [`Last error: ${status.last_error}`] : []),
-    ...status.logs.slice(-12),
-  ];
+  const lines = buildDesktopGatewayRuntimeRows(status, gatewayConfig.httpBaseUrl)
+    .map((row) => `${row.label}: ${row.value}`);
   log(lines.join("\n"));
 }
 
@@ -286,25 +285,18 @@ async function loadSessions() {
     return;
   }
   try {
-    const sessions = normalizeSessionsPayload(await gatewayApi.sessions.list());
-    setSessions(chatState, sessions);
-    if (!chatState.activeSessionKey && sessions[0]) {
-      await selectSession(sessions[0].key, sessions[0].chatId);
-    }
+    const sessionCount = await chatController.loadSessions();
     renderChat();
-    renderChatStatus(sessions.length ? "Sessions loaded from gateway." : "No sessions yet.");
+    renderChatStatus(sessionCount ? "Sessions loaded from gateway." : "No sessions yet.");
   } catch (error) {
     renderChatStatus(`Failed to load sessions: ${String(error)}`);
   }
 }
 
 async function selectSession(sessionKey: string, chatId: string) {
-  activateChat(chatState, chatId);
   try {
-    const payload = await gatewayApi.sessions.messages(sessionKey);
-    setMessages(chatState, sessionKey, normalizeMessagesPayload(payload));
     ensureChatSocket();
-    sendSocketMessage(createGatewaySocketMessage.attach(chatId));
+    await chatController.selectSession(sessionKey, chatId);
     renderChat();
   } catch (error) {
     renderChatStatus(`Failed to load messages: ${String(error)}`);
@@ -313,7 +305,7 @@ async function selectSession(sessionKey: string, chatId: string) {
 
 function startNewChat() {
   ensureChatSocket();
-  sendSocketMessage(createGatewaySocketMessage.newChat());
+  chatController.startNewChat();
   renderChatStatus("Creating chat session.");
 }
 
@@ -325,30 +317,24 @@ function submitChatMessage(event: Event) {
     return;
   }
   ensureChatSocket();
-  if (!chatState.activeChatId) {
-    pendingMessage = content;
-    sendSocketMessage(createGatewaySocketMessage.newChat());
+  const result = chatController.submitMessage(content, true);
+  if (result.status === "creating") {
     renderChatStatus("Creating chat session before sending.");
     return;
   }
-  sendActiveChatMessage(content);
+  if (result.status === "sent") {
+    renderChatStatus("Message sent.");
+    renderChat();
+  }
   if (input) {
     input.value = "";
   }
 }
 
-function sendActiveChatMessage(content: string) {
-  appendUserMessage(chatState, content);
-  sendSocketMessage(createGatewaySocketMessage.message(chatState.activeChatId, content, true));
-  renderChatStatus("Message sent.");
-  renderChat();
-}
-
 function interruptActiveChat() {
-  if (!chatState.activeChatId) {
+  if (!chatController.interruptActiveChat()) {
     return;
   }
-  sendSocketMessage(createGatewaySocketMessage.interrupt(chatState.activeChatId));
   renderChatStatus("Interrupt requested.");
 }
 
@@ -378,44 +364,26 @@ function ensureChatSocket() {
 
 async function handleChatEvent(event: NormalizedGatewayEvent) {
   const handledAgentUi = applyAgentUiFrame(event.raw);
-  applyChatEvent(chatState, event);
+  let pendingMessageSent = false;
+  try {
+    const result = await chatController.handleGatewayEvent(event);
+    pendingMessageSent = result.pendingMessageSent;
+  } catch (error) {
+    renderChatStatus(`Failed to refresh messages: ${String(error)}`);
+  }
   if (handledAgentUi) {
     renderAgentUiSurfaces();
   }
-  if (event.kind === "chat.created") {
-    renderChat();
-    await loadSessions();
-    if (pendingMessage) {
-      const content = pendingMessage;
-      pendingMessage = null;
-      sendActiveChatMessage(content);
-      const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
-      if (input) {
-        input.value = "";
-      }
+  if (pendingMessageSent) {
+    const input = document.querySelector<HTMLTextAreaElement>("#chat-input");
+    if (input) {
+      input.value = "";
     }
-    return;
-  }
-  if (event.kind === "attached") {
-    await loadMessagesForChat(event.chatId);
   }
   if (event.kind === "error") {
     renderChatStatus(event.message);
   }
   renderChat();
-}
-
-async function loadMessagesForChat(chatId: string) {
-  const sessionKey = sessionKeyForChat(chatId);
-  if (!sessionKey) {
-    return;
-  }
-  try {
-    const payload = await gatewayApi.sessions.messages(sessionKey);
-    setMessages(chatState, sessionKey, normalizeMessagesPayload(payload));
-  } catch (error) {
-    renderChatStatus(`Failed to refresh messages: ${String(error)}`);
-  }
 }
 
 function sendSocketMessage(message: unknown) {
@@ -589,36 +557,54 @@ async function loadSettingsModules() {
       gatewayApi.skills.list(),
     ]);
     const providers = arrayFromPayload(providersPayload, "providers");
-    const tools = arrayFromPayload(toolsPayload, "tools");
-    const skills = arrayFromPayload(skillsPayload, "skills");
+    const providerCatalog = providers.map(toDesktopProviderCatalogItem);
+    const settingsState = buildDesktopSettingsFormState(config, providerCatalog);
+    const validationErrors = validateDesktopSettingsForm(settingsState);
+    const providerSecret = buildDesktopSecretField(settingsState.providerEditor.apiKey);
+    const toolRows = buildDesktopToolRows(toolsPayload, config);
+    const toolConfigHint = buildDesktopToolsConfigHint(config);
+    const skillRows = buildDesktopSkillRows(skillsPayload, config);
     renderRows(
       "native-provider-list",
       providers.map((provider) => ({
         title: stringValue(provider.displayName) || stringValue(provider.id),
-        meta: [stringValue(provider.status), boolLabel(provider.default, "Default")].filter(Boolean).join(" | "),
+        meta: [
+          stringValue(provider.status),
+          boolLabel(provider.default, "Default"),
+          providerSecret.empty ? "" : "API key configured",
+        ].filter(Boolean).join(" | "),
       })),
     );
     renderRows(
       "native-tool-list",
-      tools.map((tool) => ({
-        title: stringValue(tool.name),
-        meta: stringValue(tool.description),
+      toolRows.map((tool) => ({
+        title: tool.displayName || tool.name,
+        meta: [tool.description, tool.meta, tool.configHint, tool.riskHint].filter(Boolean).join(" | "),
       })),
     );
     renderRows(
       "native-skill-list",
-      skills.map((skill) => ({
-        title: stringValue(skill.name),
-        meta: [stringValue(skill.source), boolLabel(skill.enabled, "Enabled"), boolLabel(skill.available === false, "Unavailable")]
-          .filter(Boolean)
-          .join(" | "),
+      skillRows.map((skill) => ({
+        title: skill.name,
+        meta: skill.meta,
       })),
     );
-    const defaultModel = nestedString(config, ["agents", "defaults", "model"]);
-    text("settings-status", defaultModel ? `Loaded native settings overview. Default model: ${defaultModel}.` : "Loaded native settings overview.");
+    const defaultModel = settingsState.agent.model;
+    const validationText = validationErrors.length ? ` ${validationErrors.length} setting warning(s).` : "";
+    const toolsText = toolConfigHint.show ? ` ${toolConfigHint.disabledToolGroups.join(", ")} tools disabled.` : "";
+    text("settings-status", defaultModel ? `Loaded native settings overview. Default model: ${defaultModel}.${validationText}${toolsText}` : `Loaded native settings overview.${validationText}${toolsText}`);
   } catch (error) {
     text("settings-status", `Failed to load settings overview: ${String(error)}`);
   }
+}
+
+function toDesktopProviderCatalogItem(provider: Record<string, unknown>): DesktopProviderCatalogItem {
+  return {
+    id: stringValue(provider.id),
+    displayName: stringValue(provider.displayName),
+    baseUrl: stringValue(provider.baseUrl),
+    status: stringValue(provider.status),
+  };
 }
 
 async function loadKnowledgeModules() {
@@ -628,22 +614,29 @@ async function loadKnowledgeModules() {
       gatewayApi.knowledge.documents(),
     ]);
     const stats = isRecord(statsPayload) ? statsPayload : {};
+    const readiness = buildDesktopKnowledgeReadinessView(stats);
     renderRows(
       "native-knowledge-stats",
-      Object.entries(stats).slice(0, 8).map(([key, value]) => ({
-        title: readableKey(key),
-        meta: String(value),
-      })),
+      [
+        {
+          title: "Readiness",
+          meta: `${readiness.score}% / ${readiness.titleKey}`,
+        },
+        ...readiness.rows.map((row) => ({
+          title: readableKey(row.id),
+          meta: [row.tone, row.statusKey].join(" / "),
+        })),
+      ],
     );
-    const documents = arrayFromPayload(documentsPayload, "items", "documents");
+    const documents = buildDesktopKnowledgeDocumentRows(documentsPayload);
     renderRows(
       "native-knowledge-documents",
       documents.map((document) => ({
-        title: stringValue(document.title) || stringValue(document.path) || stringValue(document.id),
-        meta: [stringValue(document.category), stringValue(document.updated_at), stringValue(document.status)].filter(Boolean).join(" | "),
+        title: document.title,
+        meta: document.meta,
       })),
     );
-    text("knowledge-status", `Loaded ${documents.length} document(s). Graph and traceability stay in Hosted WebUI until their native slice is migrated.`);
+    text("knowledge-status", `Loaded ${documents.length} document(s). Knowledge readiness ${readiness.score}%. Graph and traceability panes remain pending.`);
   } catch (error) {
     text("knowledge-status", `Failed to load knowledge overview: ${String(error)}`);
   }
@@ -719,14 +712,14 @@ async function saveActiveWorkspaceFile() {
 async function loadCoworkSessions() {
   try {
     const payload = await gatewayApi.cowork.sessions();
-    const sessions = arrayFromPayload(payload, "items", "sessions");
+    const sessions = buildDesktopCoworkSessionRows(payload);
     renderRows(
       "native-cowork-session-list",
       sessions.map((session) => ({
-        title: stringValue(session.title) || stringValue(session.goal) || stringValue(session.id),
-        meta: [stringValue(session.status), stringValue(session.updated_at)].filter(Boolean).join(" | "),
+        title: session.title,
+        meta: session.meta,
         action: "cowork-session",
-        value: stringValue(session.id),
+        value: session.id,
       })),
     );
     text("cowork-status", `Loaded ${sessions.length} Cowork session(s). Full graph, mailbox, trace, and activity panels remain in Hosted WebUI.`);
@@ -742,10 +735,12 @@ async function handleCoworkSessionClick(event: Event) {
     return;
   }
   try {
-    const payload = await gatewayApi.cowork.summary(sessionId);
+    const payload = await gatewayApi.cowork.session(sessionId);
+    const session = isRecord(payload) && isRecord(payload.session) ? payload.session : payload;
+    const view = buildDesktopCoworkCockpitView(session);
     const summary = document.querySelector<HTMLElement>("#native-cowork-summary");
     if (summary) {
-      summary.textContent = formatSummaryPayload(payload);
+      summary.textContent = formatCoworkCockpitSummary(view);
     }
     text("cowork-status", `Loaded summary for ${sessionId}.`);
   } catch (error) {
@@ -806,34 +801,22 @@ function arrayFromPayload(payload: unknown, ...keys: string[]): Record<string, u
   return [];
 }
 
-function formatSummaryPayload(payload: unknown): string {
-  if (typeof payload === "string") {
-    return payload;
-  }
-  if (!isRecord(payload)) {
-    return "No summary available.";
-  }
-  const summary = stringValue(payload.summary) || stringValue(payload.text) || stringValue(payload.markdown);
-  return summary || JSON.stringify(payload, null, 2);
-}
-
 function boolLabel(value: unknown, label: string): string {
   return value === true ? label : "";
 }
 
-function nestedString(value: unknown, path: string[]): string {
-  let current = value;
-  for (const key of path) {
-    if (!isRecord(current)) {
-      return "";
-    }
-    current = current[key];
-  }
-  return stringValue(current);
-}
-
 function readableKey(value: string): string {
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatCoworkCockpitSummary(view: ReturnType<typeof buildDesktopCoworkCockpitView>): string {
+  return [
+    `${view.header.title} (${view.header.status})`,
+    view.header.goal,
+    `${view.agents.length} agent(s), ${view.tasks.length} task(s), ${view.mailbox.length} mailbox record(s), ${view.artifacts.length} artifact(s)`,
+    view.graph.caption,
+    view.taskCenterItems[0]?.detail ?? "",
+  ].filter(Boolean).join("\n");
 }
 
 function applyAgentUiFrame(frame: Record<string, unknown>): boolean {

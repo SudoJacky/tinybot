@@ -18,7 +18,7 @@ function status(owner: GatewayRuntimeStatus["owner"], state: GatewayRuntimeStatu
 
 describe("desktop gateway startup", () => {
   test("attaches to an already reachable external gateway without invoking Tauri commands", async () => {
-    const fetchFn = vi.fn(async () => new Response("{}", { status: 200 }));
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ token: "token-1" }), { status: 200 }));
     const invoke = vi.fn();
 
     const result = await ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
@@ -33,6 +33,18 @@ describe("desktop gateway startup", () => {
       expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
     );
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  test("does not treat an incompatible 2xx bootstrap response as a Tinybot gateway", async () => {
+    const fetchFn = vi.fn(async () => new Response("<html>not tinybot</html>", { status: 200 }));
+
+    await expect(
+      ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
+        fetchFn,
+        invoke: vi.fn(),
+        hasTauriRuntime: () => false,
+      }),
+    ).rejects.toThrow("bootstrap response is not valid JSON");
   });
 
   test("keeps startup diagnostics recoverable when gateway is offline outside Tauri", async () => {
@@ -82,7 +94,7 @@ describe("desktop gateway startup", () => {
     const fetchFn = vi
       .fn()
       .mockResolvedValueOnce(new Response("{}", { status: 503 }))
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "token-1" }), { status: 200 }));
 
     const result = await ensureGatewayReady(DEFAULT_GATEWAY_CONFIG, {
       fetchFn,

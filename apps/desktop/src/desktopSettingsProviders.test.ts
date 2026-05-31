@@ -1,0 +1,224 @@
+import { describe, expect, test } from "vitest";
+import {
+  applyDesktopProviderModels,
+  buildDesktopProviderModelRequest,
+  buildDesktopSecretField,
+  buildDesktopSettingsFormState,
+  createDesktopSettingsPatch,
+  findDesktopProfileIdForProvider,
+  getDesktopProviderProfileConfig,
+  parseDesktopProviderModelList,
+  resolveDesktopSecretValue,
+  validateDesktopSettingsForm,
+} from "./desktopSettingsProviders";
+
+describe("desktop settings and provider helpers", () => {
+  test("normalizes config and provider profiles for desktop panes", () => {
+    const state = buildDesktopSettingsFormState(
+      {
+        agents: {
+          defaults: {
+            model: "gpt-4.1",
+            active_profile: "work",
+            provider: "openai",
+            temperature: 0,
+            embedding: {
+              provider: "dashscope",
+              model_name: "text-embedding-v3",
+              api_key: "embed-key",
+            },
+          },
+        },
+        providers: {
+          profiles: {
+            work: {
+              provider: "openai",
+              api_key: "sk-live",
+              api_base: "https://api.openai.com/v1",
+              models: ["gpt-4.1", "gpt-4.1-mini"],
+              supports_model_discovery: false,
+            },
+          },
+        },
+        tools: {
+          mcp_servers: {
+            docs: { command: "docs-mcp" },
+          },
+        },
+      },
+      [{ id: "openai", displayName: "OpenAI" }],
+    );
+
+    expect(state.agent.model).toBe("gpt-4.1");
+    expect(state.agent.provider).toBe("openai");
+    expect(state.agent.temperature).toBe(0);
+    expect(state.embedding.modelName).toBe("text-embedding-v3");
+    expect(state.providerEditor).toMatchObject({
+      selectedProvider: "openai",
+      profileId: "work",
+      apiKey: "sk-live",
+      apiBase: "https://api.openai.com/v1",
+      modelsText: "gpt-4.1\ngpt-4.1-mini",
+      supportsModelDiscovery: false,
+    });
+    expect(state.tools.mcpServersText).toContain("docs-mcp");
+  });
+
+  test("builds the same config PATCH shape as the root WebUI settings form", () => {
+    const state = buildDesktopSettingsFormState(
+      {
+        agents: {
+          defaults: {
+            model: "deepseek-chat",
+            active_profile: "legacy",
+            provider: "auto",
+          },
+        },
+        providers: {
+          profiles: {
+            legacy: { provider: "deepseek", api_key: "old" },
+          },
+        },
+      },
+      [{ id: "deepseek" }],
+    );
+    state.providerEditor.profileId = "prod";
+    state.providerEditor.selectedProvider = "deepseek";
+    state.providerEditor.apiKey = "new-key";
+    state.providerEditor.apiBase = "https://api.deepseek.com";
+    state.providerEditor.modelsText = "deepseek-chat\ndeepseek-reasoner";
+    state.tools.mcpServersText = "{\"search\":{\"command\":\"search-mcp\"}}";
+
+    const patch = createDesktopSettingsPatch(
+      state,
+      {
+        providers: {
+          profiles: {
+            legacy: { provider: "deepseek", api_key: "old" },
+          },
+        },
+      },
+      [{ id: "deepseek" }],
+    );
+
+    expect(patch).toMatchObject({
+      agents: {
+        defaults: {
+          model: "deepseek-chat",
+          active_profile: "prod",
+          provider: "auto",
+          embedding: {
+            api_key: "",
+          },
+        },
+      },
+      providers: {
+        deepseek: {
+          api_key: "new-key",
+          api_base: "https://api.deepseek.com",
+        },
+      },
+      tools: {
+        mcp_servers: {
+          search: { command: "search-mcp" },
+        },
+      },
+    });
+    expect((patch.providers as Record<string, unknown>).profiles).toMatchObject({
+      legacy: { provider: "deepseek", api_key: "old" },
+      prod: {
+        provider: "deepseek",
+        api_key: "new-key",
+        api_base: "https://api.deepseek.com",
+        models: ["deepseek-chat", "deepseek-reasoner"],
+        supports_model_discovery: true,
+      },
+    });
+  });
+
+  test("validates desktop settings fields with root WebUI validation semantics", () => {
+    const state = buildDesktopSettingsFormState({});
+    state.agent.model = "";
+    state.agent.timezone = "Shanghai";
+    state.gateway.port = 70000;
+    state.tools.mcpServersText = "[]";
+    state.providerEditor.apiBase = "not a url";
+    state.embedding.apiBase = "https://embedding.example/v1";
+    state.knowledge.rerankApiBase = "bad-url";
+
+    expect(validateDesktopSettingsForm(state)).toEqual([
+      { field: "model", errorKey: "modelEmpty" },
+      { field: "timezone", errorKey: "timezoneError" },
+      { field: "gatewayPort", errorKey: "portRange" },
+      { field: "mcpServers", errorKey: "jsonObjectError" },
+      { field: "providerApiBase", errorKey: "urlError" },
+      { field: "rerankApiBase", errorKey: "urlError" },
+    ]);
+  });
+
+  test("builds provider model discovery requests and applies model results", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { provider: "openai", active_profile: "work" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+          },
+        },
+      },
+    }, [{ id: "openai" }]);
+
+    expect(buildDesktopProviderModelRequest(state)).toEqual({
+      provider: "openai",
+      profile: "work",
+      api_key: "sk-live",
+      api_base: "https://api.openai.com/v1",
+      refresh: true,
+    });
+
+    const applied = applyDesktopProviderModels(state, {
+      ok: true,
+      models: ["gpt-4.1", "gpt-4.1", "gpt-4.1-mini"],
+      warning: "cached",
+    });
+
+    expect(applied.status).toBe("loaded");
+    expect(applied.models).toEqual(["gpt-4.1", "gpt-4.1-mini"]);
+    expect(applied.state.providerEditor.modelsText).toBe("gpt-4.1\ngpt-4.1-mini");
+    expect(applied.state.agent.model).toBe("gpt-4.1");
+    expect(applied.message).toBe("cached");
+  });
+
+  test("preserves masked secrets and parses provider profiles like the root helper", () => {
+    expect(buildDesktopSecretField("sk-live")).toEqual({
+      value: "sk-live",
+      displayValue: "********",
+      masked: true,
+      empty: false,
+    });
+    expect(resolveDesktopSecretValue("********", "sk-live")).toBe("sk-live");
+    expect(resolveDesktopSecretValue("replacement", "sk-live")).toBe("replacement");
+    expect(parseDesktopProviderModelList("a,b\na\n c ")).toEqual(["a", "b", "c"]);
+    expect(findDesktopProfileIdForProvider({ profiles: { work: { provider: "openai" } } }, "openai")).toBe("work");
+    expect(
+      getDesktopProviderProfileConfig(
+        {
+          openai: {
+            api_key: "legacy-key",
+            api_base: "https://legacy.example/v1",
+            models: ["legacy-model"],
+          },
+        },
+        "",
+        "openai",
+      ),
+    ).toMatchObject({
+      provider: "openai",
+      apiKey: "legacy-key",
+      apiBase: "https://legacy.example/v1",
+      models: ["legacy-model"],
+    });
+  });
+});

@@ -145,6 +145,8 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     sessions: {
       list: () => request("/api/sessions"),
       messages: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/messages`),
+      uploadTemporaryFile: (key: string, body: FormData) =>
+        request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
       delete: (key: string) => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
       patch: (key: string, body: unknown) =>
         request(`/api/sessions/${encodePathSegment(key)}`, jsonRequest("PATCH", body)),
@@ -163,6 +165,11 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     skills: {
       list: () => request("/api/skills"),
       detail: (name: string) => request(`/api/skills/${encodePathSegment(name)}`),
+      create: (body: unknown) => request("/api/skills", jsonRequest("POST", body)),
+      update: (name: string, body: unknown) =>
+        request(`/api/skills/${encodePathSegment(name)}`, jsonRequest("PATCH", body)),
+      delete: (name: string) => request(`/api/skills/${encodePathSegment(name)}`, { method: "DELETE" }),
+      validate: (name: string) => request(`/api/skills/${encodePathSegment(name)}/validate`, { method: "POST" }),
     },
     agentUi: {
       submitForm: (formId: string, body: unknown) =>
@@ -172,6 +179,10 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     },
     knowledge: {
       documents: () => request("/v1/knowledge/documents"),
+      uploadDocument: (body: FormData) => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
+      job: (jobId: string) => request(`/v1/knowledge/jobs/${encodePathSegment(jobId)}`),
+      rebuildIndex: (type: string = "all") =>
+        request(`/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`, { method: "POST" }),
       stats: () => request("/v1/knowledge/stats"),
       graph: () => request("/v1/knowledge/graph"),
       query: (body: unknown) => request("/v1/knowledge/query", jsonRequest("POST", body)),
@@ -183,10 +194,45 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         request(`/api/workspace/files/${encodePathSegment(path)}`, jsonRequest("PUT", body)),
     },
     cowork: {
-      sessions: () => request("/api/cowork/sessions"),
+      sessions: (options: { includeCompleted?: boolean; originChatId?: string } = {}) => {
+        const params = new URLSearchParams();
+        if (options.includeCompleted) {
+          params.set("include_completed", "true");
+        }
+        if (options.originChatId) {
+          params.set("origin_chat_id", options.originChatId);
+        }
+        return request(`/api/cowork/sessions${params.toString() ? `?${params}` : ""}`);
+      },
       session: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}`),
       summary: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/summary`),
       graph: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/graph`),
+      agentActivity: (sessionId: string, agentId: string) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/agents/${encodePathSegment(agentId)}/activity`),
+      observation: (sessionId: string, detailRef: string) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/observations/${encodePathSegment(detailRef)}`),
+      create: (body: unknown) => request("/api/cowork/sessions", jsonRequest("POST", body)),
+      run: (sessionId: string, body: unknown) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/run`, jsonRequest("POST", body)),
+      action: (sessionId: string, action: "pause" | "resume" | "emergency-stop") =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/${action}`, { method: "POST" }),
+      delete: (sessionId: string) => request(`/api/cowork/sessions/${encodePathSegment(sessionId)}`, { method: "DELETE" }),
+      message: (sessionId: string, body: unknown) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/messages`, jsonRequest("POST", body)),
+      addTask: (sessionId: string, body: unknown) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks`, jsonRequest("POST", body)),
+      taskAction: (sessionId: string, taskId: string, action: "assign" | "retry" | "review", body: unknown = {}) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/tasks/${encodePathSegment(taskId)}/${action}`, jsonRequest("POST", body)),
+      workUnitAction: (sessionId: string, workUnitId: string, action: "retry" | "skip" | "cancel", body: unknown = {}) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/work-units/${encodePathSegment(workUnitId)}/${action}`, jsonRequest("POST", body)),
+      selectBranch: (sessionId: string, branchId: string) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/select`, { method: "POST" }),
+      selectBranchResult: (sessionId: string, branchId: string, body: unknown) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branches/${encodePathSegment(branchId)}/result/select-final`, jsonRequest("POST", body)),
+      mergeBranchResults: (sessionId: string, body: unknown) =>
+        request(`/api/cowork/sessions/${encodePathSegment(sessionId)}/branch-results/merge`, jsonRequest("POST", body)),
+      validateBlueprint: (body: unknown, options: { preview?: boolean } = {}) =>
+        request(`/api/cowork/blueprints/${options.preview ? "preview" : "validate"}`, jsonRequest("POST", body)),
     },
   };
 }
@@ -279,6 +325,13 @@ function jsonRequest(method: string, body: unknown): RequestInit {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+  };
+}
+
+function formRequest(method: string, body: FormData): RequestInit {
+  return {
+    method,
+    body,
   };
 }
 

@@ -1,3 +1,6 @@
+import { DESKTOP_MENU_COMMANDS } from "./desktopCommandNavigation";
+import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
+
 export interface DesktopWindowHandle {
   minimize(): Promise<void>;
   toggleMaximize(): Promise<void>;
@@ -11,7 +14,14 @@ interface InstallDesktopWindowFrameOptions {
 }
 
 const FRAME_ID = "desktop-window-frame";
+const RUNTIME_STATUS_ID = "desktop-runtime-status";
 const STYLE_ID = "desktop-window-frame-style";
+
+export interface DesktopRuntimeStatusView {
+  tone: "ok" | "pending" | "warn";
+  label: string;
+  detail: string;
+}
 
 export function installDesktopWindowFrame({
   targetDocument = document,
@@ -37,6 +47,18 @@ export function installDesktopWindowFrame({
   title.setAttribute("data-tauri-drag-region", "");
   title.textContent = "Tinybot";
 
+  const appMenu = createApplicationMenu(targetDocument);
+
+  const runtimeStatus = targetDocument.createElement("div");
+  runtimeStatus.id = RUNTIME_STATUS_ID;
+  runtimeStatus.setAttribute("id", RUNTIME_STATUS_ID);
+  runtimeStatus.className = "desktop-runtime-status";
+  runtimeStatus.setAttribute("data-tauri-drag-region", "");
+  runtimeStatus.setAttribute("aria-live", "polite");
+  runtimeStatus.setAttribute("data-runtime-tone", "pending");
+  runtimeStatus.textContent = "Gateway: Starting";
+  runtimeStatus.setAttribute("title", "Waiting for Tinybot gateway readiness");
+
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-window-controls";
 
@@ -46,7 +68,7 @@ export function installDesktopWindowFrame({
     createWindowButton(targetDocument, "close", "Close", "×", () => currentWindow.close()),
   );
 
-  frame.append(title, controls);
+  frame.append(title, appMenu, runtimeStatus, controls);
   frame.addEventListener("pointerdown", () => {
     void currentWindow.startDragging().catch(logWindowFrameError);
   });
@@ -55,6 +77,84 @@ export function installDesktopWindowFrame({
   });
 
   targetDocument.body.prepend(frame);
+}
+
+function createApplicationMenu(targetDocument: Document): HTMLElement {
+  const menu = targetDocument.createElement("nav");
+  menu.className = "desktop-application-menu";
+  menu.setAttribute("aria-label", "Desktop application menu");
+
+  for (const command of DESKTOP_MENU_COMMANDS) {
+    const button = targetDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-application-menu-item";
+    button.setAttribute("data-desktop-menu-command", command.id);
+    button.textContent = command.label;
+    button.addEventListener("pointerdown", (event) => event.stopPropagation());
+    button.addEventListener("dblclick", (event) => event.stopPropagation());
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: command.id } }));
+    });
+    menu.append(button);
+  }
+
+  return menu;
+}
+
+export function setDesktopWindowRuntimeStatus(
+  status: GatewayRuntimeStatus | null,
+  targetDocument: Document = document,
+): void {
+  const statusElement = targetDocument.getElementById(RUNTIME_STATUS_ID);
+  if (!statusElement) {
+    return;
+  }
+
+  const view = resolveDesktopRuntimeStatusView(status);
+  statusElement.textContent = view.label;
+  statusElement.setAttribute("title", view.detail);
+  statusElement.setAttribute("data-runtime-tone", view.tone);
+}
+
+export function resolveDesktopRuntimeStatusView(status: GatewayRuntimeStatus | null): DesktopRuntimeStatusView {
+  if (!status) {
+    return {
+      tone: "ok",
+      label: "Gateway: External",
+      detail: "Connected to an existing Tinybot gateway",
+    };
+  }
+
+  if (status.state === "running" && status.owner === "shell" && status.http_ok) {
+    return {
+      tone: "ok",
+      label: "Gateway: Shell",
+      detail: `Running on ${status.gateway_http}`,
+    };
+  }
+
+  if (status.state === "running" && status.owner === "external" && status.http_ok) {
+    return {
+      tone: "ok",
+      label: "Gateway: External",
+      detail: `Connected to ${status.gateway_http}`,
+    };
+  }
+
+  if (status.state === "starting") {
+    return {
+      tone: "pending",
+      label: "Gateway: Starting",
+      detail: `Starting ${status.owner === "shell" ? "shell" : "external"} gateway at ${status.gateway_http}`,
+    };
+  }
+
+  return {
+    tone: "warn",
+    label: "Gateway: Offline",
+    detail: status.last_error || `Gateway is not ready at ${status.gateway_http}`,
+  };
 }
 
 function createWindowButton(
@@ -124,6 +224,69 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      min-width: 0;
+      margin-left: 12px;
+      overflow: hidden;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-item {
+      flex: 0 1 auto;
+      max-width: 130px;
+      min-width: 0;
+      height: 26px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 4px;
+      overflow: hidden;
+      background: transparent;
+      color: var(--text, #24211d);
+      font: 600 11px/1 var(--font-sans, system-ui, sans-serif);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: default;
+    }
+
+    body.desktop-custom-frame .desktop-application-menu-item:hover,
+    body.desktop-custom-frame .desktop-application-menu-item:focus-visible {
+      background: color-mix(in srgb, var(--text, #24211d) 10%, transparent);
+      outline: none;
+    }
+
+    body.desktop-custom-frame .desktop-runtime-status {
+      min-width: 0;
+      max-width: min(38vw, 340px);
+      overflow: hidden;
+      margin-left: 14px;
+      padding: 4px 9px;
+      border: 1px solid color-mix(in srgb, var(--border, #dedbd3) 88%, transparent);
+      border-radius: 999px;
+      color: var(--text-muted, #6f685d);
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="ok"] {
+      border-color: color-mix(in srgb, #1f8f4d 40%, var(--border, #dedbd3));
+      color: #1f6f3f;
+    }
+
+    body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="pending"] {
+      border-color: color-mix(in srgb, #9a6a00 38%, var(--border, #dedbd3));
+      color: #7a5600;
+    }
+
+    body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="warn"] {
+      border-color: color-mix(in srgb, #b42318 40%, var(--border, #dedbd3));
+      color: #9b1c14;
     }
 
     body.desktop-custom-frame .desktop-window-controls {

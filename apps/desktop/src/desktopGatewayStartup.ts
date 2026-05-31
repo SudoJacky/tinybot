@@ -1,15 +1,20 @@
 import type { GatewayConfig } from "./gatewayConfig";
 
 export type GatewayRuntimeStatus = {
-  state: "running" | "starting" | "offline";
+  state: "running" | "starting" | "offline" | "failed";
   owner: "shell" | "external" | "none";
   http_ok: boolean;
   gateway_http: string;
   gateway_ws: string;
   command: string;
+  port?: number | string | null;
   repo_root: string;
   logs: string[];
   last_error: string | null;
+  exit_policy?: "stop_on_exit" | "keep_running" | string | null;
+  bootstrap_status?: "ready" | "offline" | "incompatible" | "bootstrap_error" | string | null;
+  response_class?: string | null;
+  recovery_hint?: string | null;
 };
 
 type BootstrapResult = { ok: true } | { ok: false; error: string };
@@ -81,6 +86,16 @@ async function fetchBootstrap(config: GatewayConfig, deps: GatewayStartupDeps): 
     });
     if (!response.ok) {
       return { ok: false, error: `HTTP ${response.status}` };
+    }
+    const text = await response.text();
+    let payload: { token?: unknown };
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      return { ok: false, error: "bootstrap response is not valid JSON" };
+    }
+    if (typeof payload?.token !== "string" || !payload.token) {
+      return { ok: false, error: "bootstrap response missing token" };
     }
     return { ok: true };
   } catch (error) {

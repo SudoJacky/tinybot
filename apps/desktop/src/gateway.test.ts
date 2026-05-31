@@ -100,18 +100,108 @@ describe("gateway HTTP client", () => {
 
     await client.sessions.list();
     await client.sessions.messages("WebSocket:chat-1");
+    const temporaryForm = new FormData();
+    temporaryForm.append("file", new File(["temporary"], "temporary.txt", { type: "text/plain" }));
+    await client.sessions.uploadTemporaryFile("WebSocket:chat-1", temporaryForm);
     await client.knowledge.documents();
+    const knowledgeForm = new FormData();
+    knowledgeForm.append("file", new File(["knowledge"], "knowledge.md", { type: "text/markdown" }));
+    await client.knowledge.uploadDocument(knowledgeForm);
+    await client.knowledge.job("kjob/1");
+    await client.knowledge.rebuildIndex("all");
     await client.workspace.file("docs/readme.md");
+    await client.workspace.putFile("docs/readme.md", {
+      content: "# Readme\n",
+      expected_updated_at: "2026-05-31T10:00:00+00:00",
+    });
     await client.cowork.summary("cowork-1");
+    await client.skills.create({ name: "planner" });
+    await client.skills.update("planner/phase", { content: "# Updated" });
+    await client.skills.validate("planner/phase");
+    await client.skills.delete("planner/phase");
+    await client.cowork.sessions({ includeCompleted: true, originChatId: "chat/1" });
+    await client.cowork.create({ goal: "Ship desktop" });
+    await client.cowork.run("cowork/1", { run_until_idle: true });
+    await client.cowork.action("cowork/1", "pause");
+    await client.cowork.message("cowork/1", { content: "Continue", recipient_ids: [] });
+    await client.cowork.taskAction("cowork/1", "task/1", "assign", { assigned_agent_id: "agent-1" });
+    await client.cowork.workUnitAction("cowork/1", "wu/1", "retry", { reason: "retry" });
+    await client.cowork.selectBranch("cowork/1", "branch/1");
+    await client.cowork.selectBranchResult("cowork/1", "branch/1", { result_id: "result-1" });
+    await client.cowork.mergeBranchResults("cowork/1", { branch_ids: ["a", "b"] });
+    await client.cowork.validateBlueprint({ blueprint: {} }, { preview: true });
 
     expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
       "http://127.0.0.1:18790/webui/bootstrap",
       "http://127.0.0.1:18790/api/sessions",
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/messages",
+      "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/v1/knowledge/documents",
+      "http://127.0.0.1:18790/v1/knowledge/documents/upload?async_index=true",
+      "http://127.0.0.1:18790/v1/knowledge/jobs/kjob%2F1",
+      "http://127.0.0.1:18790/v1/knowledge/rebuild-index?type=all&async_index=true",
+      "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/api/cowork/sessions/cowork-1/summary",
+      "http://127.0.0.1:18790/api/skills",
+      "http://127.0.0.1:18790/api/skills/planner%2Fphase",
+      "http://127.0.0.1:18790/api/skills/planner%2Fphase/validate",
+      "http://127.0.0.1:18790/api/skills/planner%2Fphase",
+      "http://127.0.0.1:18790/api/cowork/sessions?include_completed=true&origin_chat_id=chat%2F1",
+      "http://127.0.0.1:18790/api/cowork/sessions",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/run",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/pause",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/messages",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/tasks/task%2F1/assign",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/work-units/wu%2F1/retry",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/branches/branch%2F1/select",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/branches/branch%2F1/result/select-final",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/branch-results/merge",
+      "http://127.0.0.1:18790/api/cowork/blueprints/preview",
     ]);
+    expect(fetchFn.mock.calls[3][1]).toMatchObject({
+      method: "POST",
+      body: temporaryForm,
+    });
+    expect(fetchFn.mock.calls[5][1]).toMatchObject({
+      method: "POST",
+      body: knowledgeForm,
+    });
+    expect((fetchFn.mock.calls[3][1] as RequestInit).headers).not.toMatchObject({
+      "Content-Type": expect.any(String),
+    });
+    expect((fetchFn.mock.calls[5][1] as RequestInit).headers).not.toMatchObject({
+      "Content-Type": expect.any(String),
+    });
+    expect(fetchFn.mock.calls[9][1]).toMatchObject({
+      method: "PUT",
+      headers: expect.objectContaining({
+        Authorization: "Bearer token-1",
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({
+        content: "# Readme\n",
+        expected_updated_at: "2026-05-31T10:00:00+00:00",
+      }),
+    });
+    expect(fetchFn.mock.calls[12][1]).toMatchObject({
+      method: "PATCH",
+      headers: expect.objectContaining({
+        Authorization: "Bearer token-1",
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({ content: "# Updated" }),
+    });
+    expect(fetchFn.mock.calls[13][1]).toMatchObject({ method: "POST" });
+    expect(fetchFn.mock.calls[14][1]).toMatchObject({ method: "DELETE" });
+    expect(fetchFn.mock.calls[16][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ goal: "Ship desktop" }),
+    });
+    expect(fetchFn.mock.calls[25][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ blueprint: {} }),
+    });
     for (const call of fetchFn.mock.calls.slice(1)) {
       expect((call[1] as RequestInit).headers).toMatchObject({
         Authorization: "Bearer token-1",

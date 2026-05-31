@@ -1,7 +1,7 @@
 import type { GatewayHealth } from "./gatewayHttpClient";
 
 export type GatewayRuntimeSnapshot = {
-  state: "running" | "starting" | "offline";
+  state: "running" | "starting" | "offline" | "failed";
   owner: "shell" | "external" | "none";
   http_ok: boolean;
 };
