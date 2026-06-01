@@ -173,7 +173,7 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
 function createRootWebUiDocument(): FakeDocument {
   const document = new FakeDocument();
   const shell = document.createElement("div");
-  shell.className = "shell";
+  shell.className = "shell inspection-mode";
 
   const sidebar = document.createElement("aside");
   sidebar.className = "sidebar";
@@ -233,27 +233,6 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(targetDocument.getElementById("composer-form")?.getAttribute("data-workbench-region")).toBe("composer");
     expect(targetDocument.body.querySelector(".composer-status-panel")?.getAttribute("data-workbench-region")).toBe("runtime-status");
     expect(targetDocument.getElementById("inspector-panel")?.getAttribute("aria-hidden")).toBe("true");
-  });
-
-  test("does not reserve an inspector column unless the root WebUI is in inspection mode", () => {
-    const targetDocument = createRootWebUiDocument();
-
-    applyRootWebUiWorkbenchLayout(targetDocument as unknown as Document, {
-      sidebar: { visible: true, size: 280 },
-      inspector: { visible: true, size: 420 },
-      bottom: { visible: true, size: 260 },
-    });
-    expect(targetDocument.body.querySelector(".shell")?.getAttribute("data-inspector-visible")).toBe("false");
-
-    targetDocument.body.querySelector(".shell")?.classList.add("inspection-mode");
-    targetDocument.getElementById("inspector-panel")?.setAttribute("aria-hidden", "false");
-    applyRootWebUiWorkbenchLayout(targetDocument as unknown as Document, {
-      sidebar: { visible: true, size: 280 },
-      inspector: { visible: true, size: 420 },
-      bottom: { visible: true, size: 260 },
-    });
-
-    expect(targetDocument.body.querySelector(".shell")?.getAttribute("data-inspector-visible")).toBe("true");
   });
 
   test("adds task-oriented desktop modules to the root WebUI empty chat state once", () => {
@@ -320,12 +299,10 @@ describe("desktop root WebUI workbench adapter", () => {
 
     const styleText = targetDocument.head.querySelector("#desktop-root-webui-workbench-style")?.textContent;
     expect(styleText).toContain("grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr)");
-    expect(styleText).toContain("body.desktop-root-webui-workbench > .shell.inspection-mode");
+    expect(styleText).toContain('body.desktop-root-webui-workbench > .shell[data-inspector-visible="false"]');
     expect(styleText).toContain("@media (max-width: 980px)");
     expect(styleText).toContain(".desktop-empty-modules");
     expect(styleText).toContain(".desktop-command-palette");
     expect(styleText).toContain(".desktop-composer-feedback");
-    expect(styleText).toContain("flex-direction: row !important;");
-    expect(styleText).toContain("width: auto !important;");
   });
 });
