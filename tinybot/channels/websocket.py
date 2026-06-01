@@ -15,7 +15,7 @@ from typing import Any
 from loguru import logger
 
 from tinybot.agent.forms import AgentUiFormRegistry
-from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, register_webui_control_routes
+from tinybot.api.webui import WebUIControlPaths, WebUIControlRuntime, desktop_cors_middleware, register_webui_control_routes
 from tinybot.bus.events import OutboundMessage
 from tinybot.bus.queue import MessageBus
 from tinybot.channels.base import BaseChannel
@@ -371,7 +371,7 @@ class WebSocketChannel(BaseChannel):
         )
 
     def _build_app(self) -> web.Application:
-        app = web.Application()
+        app = web.Application(middlewares=[desktop_cors_middleware])
         self._webui_control_runtime = WebUIControlRuntime(
             token_manager=self.token_manager,
             workspace=self.workspace,

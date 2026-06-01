@@ -56,6 +56,7 @@ import {
   buildKnowledgeRelationInspection,
   knowledgeEvidenceRowsForEdge,
 } from '../knowledge-traceability.js';
+import { focusTourTarget } from '../feature-tour-positioning.js';
 
 // Legacy application module. The functions below are intentionally kept together
 // for this pass because chat, settings, knowledge, and cowork flows share state
@@ -13031,8 +13032,12 @@ function renderFeatureTour() {
     }
     state.activeTourIndex += 1;
     const next = targets[state.activeTourIndex];
-    next.element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
-    window.setTimeout(renderFeatureTour, 180);
+    const scrolled = focusTourTarget(next.element);
+    if (scrolled) {
+      window.setTimeout(renderFeatureTour, 180);
+    } else {
+      renderFeatureTour();
+    }
   });
 }
 
@@ -13042,7 +13047,7 @@ function startFeatureTour(index = 0) {
     return;
   }
   state.activeTourIndex = clamp(index, 0, targets.length - 1);
-  targets[state.activeTourIndex].element.scrollIntoView({ block: "center", inline: "center" });
+  focusTourTarget(targets[state.activeTourIndex].element);
   createHelpOverlay("tour");
   renderFeatureTour();
   registerHelpOverlayRefresh(renderFeatureTour);
