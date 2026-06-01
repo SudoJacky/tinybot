@@ -286,8 +286,23 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       min-width: 0;
     }
 
-    body.desktop-root-webui-workbench .composer-status-panel {
+    body.desktop-root-webui-workbench .composer-meta-left {
+      display: flex;
+      flex: 1 1 auto;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      align-items: center;
       min-width: 0;
+    }
+
+    body.desktop-root-webui-workbench .composer-status-panel {
+      flex: 0 1 auto;
+      min-width: 0;
+      margin: 0;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      box-shadow: none;
     }
 
     body.desktop-root-webui-workbench .composer-status-panel .panel-header {
@@ -295,7 +310,7 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
     }
 
     body.desktop-root-webui-workbench .system-status {
-      display: flex;
+      display: flex !important;
       flex-wrap: wrap;
       gap: 6px 10px;
       align-items: center;
@@ -304,10 +319,12 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
 
     body.desktop-root-webui-workbench .composer-status-panel .status-item {
       display: inline-flex;
+      flex: 0 1 auto;
       align-items: center;
       gap: 5px;
       min-width: 0;
       min-height: 22px;
+      width: auto;
       border: 0;
       border-radius: 4px;
       padding: 0;
@@ -316,6 +333,14 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       font-size: 11px;
       line-height: 1.2;
       cursor: default;
+    }
+
+    body.desktop-root-webui-workbench .composer-status-panel .status-label,
+    body.desktop-root-webui-workbench .composer-status-panel .status-value,
+    body.desktop-root-webui-workbench .composer-status-panel .usage-display {
+      width: auto;
+      min-width: 0;
+      white-space: nowrap;
     }
 
     body.desktop-root-webui-workbench .composer-status-panel .status-item:focus-visible {
