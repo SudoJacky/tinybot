@@ -160,6 +160,7 @@ export function applyRootWebUiWorkbenchLayout(targetDocument: Document, layout: 
   const inspector = targetDocument.getElementById("inspector-panel");
   const composer = targetDocument.getElementById("composer-form");
   const statusPanel = targetDocument.body.querySelector<HTMLElement>(".composer-status-panel");
+  const inspectorVisible = shell.classList.contains("inspection-mode") && inspector?.getAttribute("aria-hidden") !== "true";
 
   sidebar?.setAttribute("data-workbench-region", "sidebar");
   chatPanel?.setAttribute("data-workbench-region", "main");
@@ -167,6 +168,7 @@ export function applyRootWebUiWorkbenchLayout(targetDocument: Document, layout: 
   inspector?.setAttribute("data-workbench-region", "inspector");
   composer?.setAttribute("data-workbench-region", "composer");
   statusPanel?.setAttribute("data-workbench-region", "runtime-status");
+  shell.setAttribute("data-inspector-visible", String(inspectorVisible));
 
   if (!layout.sidebar.visible) {
     shell.classList.add("sidebar-collapsed");
@@ -222,18 +224,22 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
   style.setAttribute("id", STYLE_ID);
   style.textContent = `
     body.desktop-root-webui-workbench > .shell {
-      grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr) minmax(0, var(--desktop-inspector-size, 360px));
+      grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr) 0;
       background: var(--panel, #faf9f5);
       box-shadow: none;
     }
 
-    body.desktop-root-webui-workbench > .shell[data-inspector-visible="false"]:not(.inspection-mode) {
-      grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr) 0;
+    body.desktop-root-webui-workbench > .shell.inspection-mode {
+      grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(440px, 1fr) minmax(320px, var(--desktop-inspector-size, 360px));
     }
 
     body.desktop-root-webui-workbench > .shell[data-sidebar-visible="false"],
     body.desktop-root-webui-workbench > .shell.sidebar-collapsed {
       grid-template-columns: 68px minmax(0, 1fr) 0;
+    }
+
+    body.desktop-root-webui-workbench > .shell.sidebar-collapsed.inspection-mode {
+      grid-template-columns: 68px minmax(440px, 1fr) minmax(320px, var(--desktop-inspector-size, 360px));
     }
 
     body.desktop-root-webui-workbench .sidebar,
@@ -296,8 +302,11 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
     }
 
     body.desktop-root-webui-workbench .composer-status-panel {
+      display: block !important;
       flex: 0 1 auto;
+      width: auto !important;
       min-width: 0;
+      max-width: 100%;
       margin: 0;
       border: 0;
       padding: 0;
@@ -311,6 +320,7 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
 
     body.desktop-root-webui-workbench .system-status {
       display: flex !important;
+      flex-direction: row !important;
       flex-wrap: wrap;
       grid-template-columns: none !important;
       gap: 6px 10px;
@@ -343,8 +353,12 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
     body.desktop-root-webui-workbench .composer-status-panel .status-label,
     body.desktop-root-webui-workbench .composer-status-panel .status-value,
     body.desktop-root-webui-workbench .composer-status-panel .usage-display {
-      width: auto;
+      display: inline-flex !important;
+      width: auto !important;
       min-width: 0;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
       white-space: nowrap;
     }
 
