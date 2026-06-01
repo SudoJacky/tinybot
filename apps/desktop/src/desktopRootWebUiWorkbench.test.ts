@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { applyRootWebUiWorkbenchLayout, ensureDesktopRootWebUiWorkbenchStyle, upgradeDesktopRootWebUiEmptyState } from "./desktopRootWebUiWorkbench";
+import {
+  applyRootWebUiWorkbenchLayout,
+  ensureDesktopRootWebUiWorkbenchStyle,
+  installRootWebUiCommandPaletteSurface,
+  upgradeDesktopRootWebUiEmptyState,
+} from "./desktopRootWebUiWorkbench";
 
 class FakeClassList {
   constructor(private readonly element: FakeElement) {}
@@ -190,6 +195,18 @@ describe("desktop root WebUI workbench adapter", () => {
     ]);
   });
 
+  test("mounts a command palette surface for the hosted root WebUI shell", () => {
+    const targetDocument = new FakeDocument();
+
+    installRootWebUiCommandPaletteSurface(targetDocument as unknown as Document);
+    installRootWebUiCommandPaletteSurface(targetDocument as unknown as Document);
+
+    expect(targetDocument.body.querySelectorAll("#desktop-command-palette")).toHaveLength(1);
+    expect(targetDocument.getElementById("desktop-command-palette")?.getAttribute("role")).toBe("dialog");
+    expect(targetDocument.getElementById("desktop-command-palette-input")?.getAttribute("aria-label")).toBe("Search commands and workbench data");
+    expect(targetDocument.getElementById("desktop-command-palette-results")?.getAttribute("aria-live")).toBe("polite");
+  });
+
   test("declares root WebUI desktop fallback and narrow-window layout rules", () => {
     const targetDocument = new FakeDocument();
 
@@ -200,5 +217,6 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(styleText).toContain('body.desktop-root-webui-workbench > .shell[data-inspector-visible="false"]');
     expect(styleText).toContain("@media (max-width: 980px)");
     expect(styleText).toContain(".desktop-empty-modules");
+    expect(styleText).toContain(".desktop-command-palette");
   });
 });

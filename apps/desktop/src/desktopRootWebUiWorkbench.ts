@@ -20,10 +20,61 @@ export function installDesktopRootWebUiWorkbenchAdapter({
   viewportWidth = targetDocument.defaultView?.innerWidth ?? Number.POSITIVE_INFINITY,
 }: InstallDesktopRootWebUiWorkbenchOptions = {}): void {
   ensureDesktopRootWebUiWorkbenchStyle(targetDocument);
+  installRootWebUiCommandPaletteSurface(targetDocument);
   const layout = loadWorkbenchLayout({ storage, viewportWidth });
   applyRootWebUiWorkbenchLayout(targetDocument, layout);
   installRootWebUiPanelPersistence(targetDocument, storage, viewportWidth);
   installEmptyStateObserver(targetDocument);
+}
+
+export function installRootWebUiCommandPaletteSurface(targetDocument: Document): void {
+  if (targetDocument.getElementById("desktop-command-palette")) {
+    return;
+  }
+
+  const palette = targetDocument.createElement("div");
+  palette.id = "desktop-command-palette";
+  palette.setAttribute("id", "desktop-command-palette");
+  palette.className = "desktop-command-palette";
+  palette.setAttribute("role", "dialog");
+  palette.setAttribute("aria-modal", "true");
+  palette.setAttribute("aria-label", "Command palette");
+  palette.hidden = true;
+
+  const header = targetDocument.createElement("div");
+  header.className = "desktop-command-palette-header";
+
+  const input = targetDocument.createElement("input");
+  input.id = "desktop-command-palette-input";
+  input.setAttribute("id", "desktop-command-palette-input");
+  input.className = "desktop-command-palette-input";
+  input.type = "search";
+  input.setAttribute("aria-label", "Search commands and workbench data");
+  input.setAttribute("placeholder", "Search commands, sessions, files, tools...");
+
+  const close = targetDocument.createElement("button");
+  close.id = "desktop-command-palette-close";
+  close.setAttribute("id", "desktop-command-palette-close");
+  close.className = "desktop-command-palette-close";
+  close.type = "button";
+  close.textContent = "Close";
+
+  header.append(input, close);
+
+  const status = targetDocument.createElement("p");
+  status.id = "desktop-command-palette-status";
+  status.setAttribute("id", "desktop-command-palette-status");
+  status.className = "desktop-command-palette-status";
+  status.textContent = "Type to search.";
+
+  const results = targetDocument.createElement("div");
+  results.id = "desktop-command-palette-results";
+  results.setAttribute("id", "desktop-command-palette-results");
+  results.className = "desktop-command-palette-results";
+  results.setAttribute("aria-live", "polite");
+
+  palette.append(header, status, results);
+  targetDocument.body.append(palette);
 }
 
 export function applyRootWebUiWorkbenchLayout(targetDocument: Document, layout: WorkbenchLayoutState): void {
@@ -179,6 +230,113 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
     }
 
     body.desktop-root-webui-workbench .desktop-empty-module span {
+      color: var(--text-muted, #6c6a64);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette {
+      position: fixed;
+      top: calc(var(--desktop-window-frame-height, 34px) + 18px);
+      left: 50%;
+      z-index: 1500;
+      display: grid;
+      gap: 10px;
+      width: min(680px, calc(100vw - 48px));
+      max-height: min(620px, calc(100vh - var(--desktop-window-frame-height, 34px) - 44px));
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--panel, #faf9f5);
+      box-shadow: 0 18px 48px rgba(20, 20, 19, 0.18);
+      transform: translateX(-50%);
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette[hidden] {
+      display: none;
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-input {
+      min-width: 0;
+      min-height: 36px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 13px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-close {
+      min-height: 36px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: var(--panel-strong, #efe9de);
+      color: var(--text, #141413);
+      font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-status {
+      margin: 0;
+      overflow: hidden;
+      color: var(--text-muted, #6c6a64);
+      font-size: 11px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-results {
+      display: grid;
+      gap: 6px;
+      max-height: min(430px, 58vh);
+      min-width: 0;
+      overflow: auto;
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-result {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+      min-height: 42px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      padding: 7px 9px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      text-align: left;
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-result[aria-selected="true"],
+    body.desktop-root-webui-workbench .desktop-command-palette-result:focus-visible,
+    body.desktop-root-webui-workbench .desktop-command-palette-input:focus-visible,
+    body.desktop-root-webui-workbench .desktop-command-palette-close:focus-visible {
+      outline: 2px solid var(--primary, #cc785c);
+      outline-offset: 2px;
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-result strong,
+    body.desktop-root-webui-workbench .desktop-command-palette-result span,
+    body.desktop-root-webui-workbench .desktop-command-palette-empty {
+      min-width: 0;
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-root-webui-workbench .desktop-command-palette-result span,
+    body.desktop-root-webui-workbench .desktop-command-palette-empty {
       color: var(--text-muted, #6c6a64);
       font-size: 11px;
       line-height: 1.35;

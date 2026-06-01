@@ -196,6 +196,10 @@ async function bootDesktopWebUi(): Promise<void> {
     }
     installWebUiShell(webUiHtml);
     installDesktopRootWebUiWorkbenchAdapter();
+    installDesktopCommandPalette({
+      gatewayOrigin: gatewayConfig.httpBaseUrl,
+      loadData: loadNativeCommandPaletteData,
+    });
     installRootWebUiDesktopAdapters();
     installTauriNavigation();
     installTauriWindowFrame(status);

@@ -3,6 +3,7 @@ import {
   activateDesktopCommandPaletteResult,
   buildDesktopCommandPaletteResults,
   createDesktopCommandPaletteState,
+  openDesktopCommandPalette,
 } from "./desktopCommandPalette";
 
 describe("desktop command palette", () => {
@@ -108,6 +109,20 @@ describe("desktop command palette", () => {
       "Skills",
       "Cowork sessions",
     ]);
+  });
+
+  test("opens with an optional initial query for keyboard-first session search", () => {
+    const events: unknown[] = [];
+    const targetDocument = {
+      dispatchEvent: (event: Event) => {
+        events.push((event as CustomEvent).detail);
+        return true;
+      },
+    };
+
+    openDesktopCommandPalette(targetDocument as unknown as Document, "session");
+
+    expect(events).toEqual([{ query: "session" }]);
   });
 
   test("activates quick-search results by navigating and focusing matching entities", () => {
