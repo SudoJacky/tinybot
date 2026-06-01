@@ -79,26 +79,26 @@ describe("desktop workbench gate", () => {
     });
   });
 
-  test("uses native workbench as the desktop startup default while preserving root fallback", () => {
+  test("uses root WebUI as the desktop startup default while preserving an explicit native escape hatch", () => {
     expect(
       resolveDesktopWorkbenchStartupMode({
         location: { search: "" },
         storage: storageWith(null),
       }),
     ).toEqual({
-      mode: "native-workbench",
-      requestedMode: "native-workbench",
+      mode: "root-webui",
+      requestedMode: "root-webui",
       source: "default",
     });
 
     expect(
       resolveDesktopWorkbenchStartupMode({
-        location: { search: "?desktop-workbench=root" },
+        location: { search: "?desktop-workbench=native" },
         storage: storageWith(null),
       }),
     ).toEqual({
-      mode: "root-webui",
-      requestedMode: "root-webui",
+      mode: "native-workbench",
+      requestedMode: "native-workbench",
       source: "query",
     });
   });

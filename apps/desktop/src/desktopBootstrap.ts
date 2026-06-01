@@ -77,6 +77,9 @@ import {
   type DesktopPickedUploadFile,
   type DesktopUploadKind,
 } from "./desktopFileUpload";
+import { installDesktopWebUiCommandBridge } from "./desktopWebUiCommandBridge";
+import { installDesktopWebUiFilePickerBridge } from "./desktopWebUiFilePickerBridge";
+import { installDesktopWebUiNotificationBridge } from "./desktopWebUiNotificationBridge";
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
@@ -191,6 +194,7 @@ async function bootDesktopWebUi(): Promise<void> {
       return;
     }
     installWebUiShell(webUiHtml);
+    installRootWebUiDesktopAdapters();
     installTauriNavigation();
     installTauriWindowFrame(status);
     await import(/* @vite-ignore */ WEBUI_ENTRY);
@@ -856,6 +860,29 @@ function installNativeFileUploadActions(): void {
     onKnowledgeTaskUpdated: updateNativeKnowledgeTask,
     uploadSessionTemporaryFile: (sessionKey, form) => gatewayApi.sessions.uploadTemporaryFile(sessionKey, form),
     uploadWorkspaceFile: (path, body) => gatewayApi.workspace.putFile(path, body),
+  });
+}
+
+function installRootWebUiDesktopAdapters(): void {
+  if (!hasTauriRuntime()) {
+    return;
+  }
+  installDesktopWebUiCommandBridge({
+    listenToMenuCommand: (handler) =>
+      listen<{ id: string }>("desktop-menu-command", (event) => {
+        handler(event.payload.id);
+      }),
+  });
+  installDesktopWebUiFilePickerBridge({
+    pickFile: (kind: DesktopUploadKind) =>
+      invoke<DesktopPickedUploadFile | null>("pick_upload_file", {
+        options: desktopUploadPickerOptions(kind),
+      }),
+  });
+  installDesktopWebUiNotificationBridge({
+    isFocused: () => document.hasFocus(),
+    canNotify: nativeOsNotifications.canNotify,
+    notify: nativeOsNotifications.notify,
   });
 }
 
