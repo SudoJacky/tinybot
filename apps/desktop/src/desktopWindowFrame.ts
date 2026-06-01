@@ -1,4 +1,4 @@
-import { DESKTOP_MENU_COMMANDS } from "./desktopCommandNavigation";
+import { DESKTOP_CHROME_COMMANDS } from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 
 export interface DesktopWindowHandle {
@@ -14,6 +14,7 @@ interface InstallDesktopWindowFrameOptions {
 }
 
 const FRAME_ID = "desktop-window-frame";
+const CONTEXT_ID = "desktop-window-context";
 const RUNTIME_STATUS_ID = "desktop-runtime-status";
 const STYLE_ID = "desktop-window-frame-style";
 
@@ -31,6 +32,7 @@ export function installDesktopWindowFrame({
   targetDocument.body.classList.add("desktop-custom-frame");
 
   if (targetDocument.getElementById(FRAME_ID)) {
+    setDesktopWindowContext(targetDocument);
     return;
   }
 
@@ -47,17 +49,44 @@ export function installDesktopWindowFrame({
   title.setAttribute("data-tauri-drag-region", "");
   title.textContent = "Tinybot";
 
+  const context = targetDocument.createElement("div");
+  context.id = CONTEXT_ID;
+  context.setAttribute("id", CONTEXT_ID);
+  context.className = "desktop-window-context";
+  context.setAttribute("data-tauri-drag-region", "");
+  context.textContent = resolveDesktopWindowContextLabel(targetDocument);
+
+  const titleGroup = targetDocument.createElement("div");
+  titleGroup.className = "desktop-window-title-group";
+  titleGroup.setAttribute("data-tauri-drag-region", "");
+  titleGroup.append(title, context);
+
   const appMenu = createApplicationMenu(targetDocument);
 
   const runtimeStatus = targetDocument.createElement("div");
   runtimeStatus.id = RUNTIME_STATUS_ID;
   runtimeStatus.setAttribute("id", RUNTIME_STATUS_ID);
   runtimeStatus.className = "desktop-runtime-status";
-  runtimeStatus.setAttribute("data-tauri-drag-region", "");
+  runtimeStatus.setAttribute("role", "button");
+  runtimeStatus.setAttribute("tabindex", "0");
+  runtimeStatus.setAttribute("data-desktop-runtime-command", "refresh-gateway-status");
   runtimeStatus.setAttribute("aria-live", "polite");
   runtimeStatus.setAttribute("data-runtime-tone", "pending");
   runtimeStatus.textContent = "Gateway: Starting";
   runtimeStatus.setAttribute("title", "Waiting for Tinybot gateway readiness");
+  runtimeStatus.addEventListener("pointerdown", (event) => event.stopPropagation());
+  runtimeStatus.addEventListener("dblclick", (event) => event.stopPropagation());
+  runtimeStatus.addEventListener("click", (event) => {
+    event.stopPropagation();
+    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: "refresh-gateway-status" } }));
+  });
+  runtimeStatus.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: "refresh-gateway-status" } }));
+  });
 
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-window-controls";
@@ -68,7 +97,7 @@ export function installDesktopWindowFrame({
     createWindowButton(targetDocument, "close", "Close", "×", () => currentWindow.close()),
   );
 
-  frame.append(title, appMenu, runtimeStatus, controls);
+  frame.append(titleGroup, appMenu, runtimeStatus, controls);
   frame.addEventListener("pointerdown", () => {
     void currentWindow.startDragging().catch(logWindowFrameError);
   });
@@ -79,17 +108,37 @@ export function installDesktopWindowFrame({
   targetDocument.body.prepend(frame);
 }
 
+function setDesktopWindowContext(targetDocument: Document): void {
+  const context = targetDocument.getElementById(CONTEXT_ID);
+  if (context) {
+    context.textContent = resolveDesktopWindowContextLabel(targetDocument);
+  }
+}
+
+function resolveDesktopWindowContextLabel(targetDocument: Document): string {
+  const mode = targetDocument.documentElement?.dataset?.desktopWorkbenchMode;
+  if (mode === "native-workbench") {
+    return "Native workbench";
+  }
+  if (mode === "root-webui") {
+    return "WebUI shell";
+  }
+  return "Starting";
+}
+
 function createApplicationMenu(targetDocument: Document): HTMLElement {
   const menu = targetDocument.createElement("nav");
   menu.className = "desktop-application-menu";
   menu.setAttribute("aria-label", "Desktop application menu");
 
-  for (const command of DESKTOP_MENU_COMMANDS) {
+  for (const command of DESKTOP_CHROME_COMMANDS) {
     const button = targetDocument.createElement("button");
     button.type = "button";
     button.className = "desktop-application-menu-item";
     button.setAttribute("data-desktop-menu-command", command.id);
-    button.textContent = command.label;
+    button.setAttribute("aria-label", `${command.label} (${command.shortcut})`);
+    button.title = `${command.label} (${command.shortcut})`;
+    button.textContent = command.chromeLabel ?? command.label;
     button.addEventListener("pointerdown", (event) => event.stopPropagation());
     button.addEventListener("dblclick", (event) => event.stopPropagation());
     button.addEventListener("click", (event) => {
@@ -228,15 +277,38 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       -webkit-user-select: none;
     }
 
-    body.desktop-custom-frame .desktop-window-title {
+    body.desktop-custom-frame .desktop-window-title-group {
+      display: grid;
+      grid-template-columns: auto auto;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    body.desktop-custom-frame .desktop-window-title,
+    body.desktop-custom-frame .desktop-window-context {
       min-width: 0;
       overflow: hidden;
-      color: var(--text-muted, #6c6a64);
       font-size: 12px;
-      font-weight: 600;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    body.desktop-custom-frame .desktop-window-title {
+      color: var(--text, #141413);
+      font-weight: 700;
+    }
+
+    body.desktop-custom-frame .desktop-window-context {
+      color: var(--text-muted, #6c6a64);
+      font-weight: 500;
+    }
+
+    body.desktop-custom-frame .desktop-window-context::before {
+      content: "/";
+      padding-right: 8px;
+      color: var(--text-muted, #6c6a64);
     }
 
     body.desktop-custom-frame .desktop-application-menu {
@@ -250,7 +322,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame .desktop-application-menu-item {
       flex: 0 1 auto;
-      max-width: 130px;
+      max-width: 82px;
       min-width: 0;
       height: 26px;
       padding: 0 8px;
@@ -286,6 +358,13 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
+      cursor: default;
+    }
+
+    body.desktop-custom-frame .desktop-runtime-status:focus-visible {
+      outline: 2px solid var(--primary, #cc785c);
+      outline-offset: 1px;
+      box-shadow: 0 0 0 4px var(--focus-ring, rgba(204, 120, 92, 0.28));
     }
 
     body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="ok"] {

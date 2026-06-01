@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  DESKTOP_CHROME_COMMANDS,
   DESKTOP_MENU_COMMANDS,
   installDesktopMenuCommandRouting,
   resolveDesktopShortcutCommand,
@@ -114,6 +115,27 @@ describe("desktop command navigation", () => {
       "Ctrl+B",
       "Ctrl+Shift+P",
       "Ctrl+Shift+G",
+    ]);
+    expect(DESKTOP_CHROME_COMMANDS.map((command) => command.id)).toEqual([
+      "new-chat",
+      "stop-generation",
+      "search-sessions",
+      "open-command-palette",
+    ]);
+    expect(DESKTOP_CHROME_COMMANDS.map((command) => command.chromeLabel)).toEqual([
+      "New",
+      "Stop",
+      "Search",
+      "Command",
+    ]);
+    expect(DESKTOP_MENU_COMMANDS.filter((command) => command.chromeGroup === "secondary").map((command) => command.id)).toEqual([
+      "open-settings",
+      "open-docs",
+      "open-shortcut-help",
+      "open-page-help",
+      "toggle-theme",
+      "toggle-sidebar",
+      "refresh-gateway-status",
     ]);
   });
 

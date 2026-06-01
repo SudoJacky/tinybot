@@ -25,6 +25,8 @@ export type DesktopCommandAction =
 export interface DesktopMenuCommand {
   id: DesktopMenuCommandId;
   label: string;
+  chromeLabel?: string;
+  chromeGroup: "primary" | "secondary";
   shortcut: string;
 }
 
@@ -47,18 +49,22 @@ export interface InstallDesktopMenuCommandRoutingOptions {
 }
 
 export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
-  { id: "new-chat", label: "New Chat", shortcut: "Ctrl+N" },
-  { id: "stop-generation", label: "Stop Generation", shortcut: "Ctrl+." },
-  { id: "search-sessions", label: "Search Sessions", shortcut: "Ctrl+F" },
-  { id: "open-settings", label: "Settings", shortcut: "Ctrl+," },
-  { id: "open-docs", label: "Documentation", shortcut: "F1" },
-  { id: "open-shortcut-help", label: "Shortcut Help", shortcut: "Ctrl+/" },
-  { id: "open-page-help", label: "Page Help", shortcut: "Ctrl+Shift+/" },
-  { id: "toggle-theme", label: "Toggle Theme", shortcut: "Ctrl+Shift+T" },
-  { id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+B" },
-  { id: "open-command-palette", label: "Command Palette", shortcut: "Ctrl+Shift+P" },
-  { id: "refresh-gateway-status", label: "Gateway Status", shortcut: "Ctrl+Shift+G" },
+  { id: "new-chat", label: "New Chat", chromeLabel: "New", chromeGroup: "primary", shortcut: "Ctrl+N" },
+  { id: "stop-generation", label: "Stop Generation", chromeLabel: "Stop", chromeGroup: "primary", shortcut: "Ctrl+." },
+  { id: "search-sessions", label: "Search Sessions", chromeLabel: "Search", chromeGroup: "primary", shortcut: "Ctrl+F" },
+  { id: "open-settings", label: "Settings", chromeGroup: "secondary", shortcut: "Ctrl+," },
+  { id: "open-docs", label: "Documentation", chromeGroup: "secondary", shortcut: "F1" },
+  { id: "open-shortcut-help", label: "Shortcut Help", chromeGroup: "secondary", shortcut: "Ctrl+/" },
+  { id: "open-page-help", label: "Page Help", chromeGroup: "secondary", shortcut: "Ctrl+Shift+/" },
+  { id: "toggle-theme", label: "Toggle Theme", chromeGroup: "secondary", shortcut: "Ctrl+Shift+T" },
+  { id: "toggle-sidebar", label: "Toggle Sidebar", chromeGroup: "secondary", shortcut: "Ctrl+B" },
+  { id: "open-command-palette", label: "Command Palette", chromeLabel: "Command", chromeGroup: "primary", shortcut: "Ctrl+Shift+P" },
+  { id: "refresh-gateway-status", label: "Gateway Status", chromeGroup: "secondary", shortcut: "Ctrl+Shift+G" },
 ];
+
+export const DESKTOP_CHROME_COMMANDS: DesktopMenuCommand[] = DESKTOP_MENU_COMMANDS.filter(
+  (command) => command.chromeGroup === "primary",
+);
 
 interface DesktopShortcutLike {
   key: string;
