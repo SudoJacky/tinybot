@@ -1,0 +1,204 @@
+import { describe, expect, test } from "vitest";
+import { applyRootWebUiWorkbenchLayout, ensureDesktopRootWebUiWorkbenchStyle, upgradeDesktopRootWebUiEmptyState } from "./desktopRootWebUiWorkbench";
+
+class FakeClassList {
+  constructor(private readonly element: FakeElement) {}
+
+  add(value: string): void {
+    const values = new Set(this.element.className.split(/\s+/).filter(Boolean));
+    values.add(value);
+    this.element.className = [...values].join(" ");
+  }
+
+  remove(value: string): void {
+    const values = new Set(this.element.className.split(/\s+/).filter(Boolean));
+    values.delete(value);
+    this.element.className = [...values].join(" ");
+  }
+
+  contains(value: string): boolean {
+    return this.element.className.split(/\s+/).includes(value);
+  }
+}
+
+class FakeElement {
+  public id = "";
+  public className = "";
+  public children: FakeElement[] = [];
+  public attributes = new Map<string, string>();
+  private ownTextContent = "";
+  public classList = new FakeClassList(this);
+  public style = {
+    values: new Map<string, string>(),
+    setProperty: (name: string, value: string) => {
+      this.style.values.set(name, value);
+    },
+  };
+
+  constructor(public readonly tagName: string) {}
+
+  set textContent(value: string) {
+    this.ownTextContent = value;
+  }
+
+  get textContent(): string {
+    return `${this.ownTextContent}${this.children.map((child) => child.textContent).join("")}`;
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+    if (name === "id") {
+      this.id = value;
+    }
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+
+  append(...children: FakeElement[]): void {
+    this.children.push(...children);
+  }
+
+  insertBefore(node: FakeElement, child: FakeElement | null): void {
+    if (!child) {
+      this.children.push(node);
+      return;
+    }
+    const index = this.children.indexOf(child);
+    if (index === -1) {
+      this.children.push(node);
+      return;
+    }
+    this.children.splice(index, 0, node);
+  }
+
+  querySelector(selector: string): FakeElement | null {
+    if (matchesSelector(this, selector)) {
+      return this;
+    }
+    for (const child of this.children) {
+      const match = child.querySelector(selector);
+      if (match) {
+        return match;
+      }
+    }
+    return null;
+  }
+
+  querySelectorAll(selector: string): FakeElement[] {
+    const matches: FakeElement[] = matchesSelector(this, selector) ? [this] : [];
+    for (const child of this.children) {
+      matches.push(...child.querySelectorAll(selector));
+    }
+    return matches;
+  }
+}
+
+class FakeDocument {
+  public body = new FakeElement("body");
+  public head = new FakeElement("head");
+
+  createElement(tagName: string): FakeElement {
+    return new FakeElement(tagName);
+  }
+
+  getElementById(id: string): FakeElement | null {
+    return this.body.querySelector(`#${id}`) ?? this.head.querySelector(`#${id}`);
+  }
+}
+
+function matchesSelector(element: FakeElement, selector: string): boolean {
+  if (selector.startsWith("#")) {
+    return element.id === selector.slice(1) || element.getAttribute("id") === selector.slice(1);
+  }
+  if (selector.startsWith(".")) {
+    return element.className.split(/\s+/).includes(selector.slice(1));
+  }
+  return false;
+}
+
+function createRootWebUiDocument(): FakeDocument {
+  const document = new FakeDocument();
+  const shell = document.createElement("div");
+  shell.className = "shell inspection-mode";
+
+  const sidebar = document.createElement("aside");
+  sidebar.className = "sidebar";
+  const chat = document.createElement("section");
+  chat.className = "chat-panel";
+  const messageList = document.createElement("section");
+  messageList.setAttribute("id", "message-list");
+  const composer = document.createElement("form");
+  composer.setAttribute("id", "composer-form");
+  const status = document.createElement("section");
+  status.className = "composer-status-panel";
+  composer.append(status);
+  chat.append(messageList, composer);
+  const inspector = document.createElement("aside");
+  inspector.setAttribute("id", "inspector-panel");
+
+  shell.append(sidebar, chat, inspector);
+  document.body.append(shell);
+  return document;
+}
+
+describe("desktop root WebUI workbench adapter", () => {
+  test("marks the hosted root WebUI as a persistent desktop workbench", () => {
+    const targetDocument = createRootWebUiDocument();
+
+    applyRootWebUiWorkbenchLayout(targetDocument as unknown as Document, {
+      sidebar: { visible: false, size: 280 },
+      inspector: { visible: false, size: 420 },
+      bottom: { visible: true, size: 260 },
+    });
+
+    const shell = targetDocument.body.querySelector(".shell");
+    expect(targetDocument.body.classList.contains("desktop-root-webui-workbench")).toBe(true);
+    expect(shell?.getAttribute("data-desktop-workbench")).toBe("root-webui");
+    expect(shell?.getAttribute("data-sidebar-visible")).toBe("false");
+    expect(shell?.getAttribute("data-inspector-visible")).toBe("false");
+    expect(shell?.style.values.get("--desktop-sidebar-size")).toBe("280px");
+    expect(shell?.style.values.get("--desktop-inspector-size")).toBe("420px");
+    expect(targetDocument.body.querySelector(".sidebar")?.getAttribute("data-workbench-region")).toBe("sidebar");
+    expect(targetDocument.getElementById("message-list")?.getAttribute("data-workbench-region")).toBe("conversation");
+    expect(targetDocument.getElementById("composer-form")?.getAttribute("data-workbench-region")).toBe("composer");
+    expect(targetDocument.body.querySelector(".composer-status-panel")?.getAttribute("data-workbench-region")).toBe("runtime-status");
+    expect(targetDocument.getElementById("inspector-panel")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  test("adds task-oriented desktop modules to the root WebUI empty chat state once", () => {
+    const targetDocument = new FakeDocument();
+    const empty = targetDocument.createElement("div");
+    empty.className = "empty-state empty-chat";
+    const title = targetDocument.createElement("div");
+    title.className = "empty-chat-title";
+    const actions = targetDocument.createElement("div");
+    actions.className = "empty-chat-actions";
+    empty.append(title, actions);
+
+    expect(upgradeDesktopRootWebUiEmptyState(empty as unknown as HTMLElement, targetDocument as unknown as Document)).toBe(true);
+    expect(upgradeDesktopRootWebUiEmptyState(empty as unknown as HTMLElement, targetDocument as unknown as Document)).toBe(false);
+
+    expect(empty.getAttribute("data-desktop-empty-state")).toBe("true");
+    expect(empty.querySelectorAll(".desktop-empty-modules")).toHaveLength(1);
+    expect(empty.querySelectorAll(".desktop-empty-module").map((node) => node.textContent)).toEqual([
+      "Recent sessionsUse Search to resume a conversation.",
+      "Files and resourcesAttach a session file or open Workspace.",
+      "Background tasksCheck streaming, cowork, uploads, and approvals.",
+      "Gateway healthUse the gateway chip for diagnostics.",
+    ]);
+  });
+
+  test("declares root WebUI desktop fallback and narrow-window layout rules", () => {
+    const targetDocument = new FakeDocument();
+
+    ensureDesktopRootWebUiWorkbenchStyle(targetDocument as unknown as Document);
+
+    const styleText = targetDocument.head.querySelector("#desktop-root-webui-workbench-style")?.textContent;
+    expect(styleText).toContain("grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr)");
+    expect(styleText).toContain('body.desktop-root-webui-workbench > .shell[data-inspector-visible="false"]');
+    expect(styleText).toContain("@media (max-width: 980px)");
+    expect(styleText).toContain(".desktop-empty-modules");
+  });
+});

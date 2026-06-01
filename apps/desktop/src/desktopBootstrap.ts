@@ -65,6 +65,7 @@ import {
 } from "./desktopWorkbenchShell";
 import { installDesktopWorkspaceFileActions } from "./desktopWorkspaceFiles";
 import { buildDesktopWorkspaceFileRows } from "./desktopWorkspaceFiles";
+import { installDesktopRootWebUiWorkbenchAdapter } from "./desktopRootWebUiWorkbench";
 import { installWebUiShell } from "./desktopWebUiShell";
 import { resolveDesktopWorkbenchStartupMode } from "./desktopWorkbenchGate";
 import { installDesktopWindowFrame, setDesktopWindowRuntimeStatus } from "./desktopWindowFrame";
@@ -194,6 +195,7 @@ async function bootDesktopWebUi(): Promise<void> {
       return;
     }
     installWebUiShell(webUiHtml);
+    installDesktopRootWebUiWorkbenchAdapter();
     installRootWebUiDesktopAdapters();
     installTauriNavigation();
     installTauriWindowFrame(status);
