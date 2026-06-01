@@ -85,6 +85,8 @@ class FakeHead extends FakeElement {
 class FakeDocument {
   public body = new FakeBody();
   public head = new FakeHead();
+  public documentElement = { dataset: {} as Record<string, string> };
+  public dispatched: string[] = [];
 
   createElement(tagName: string): FakeElement {
     return new FakeElement(tagName);
@@ -92,6 +94,11 @@ class FakeDocument {
 
   getElementById(id: string): FakeElement | null {
     return this.body.querySelector(`#${id}`) ?? this.head.querySelector(`#${id}`);
+  }
+
+  dispatchEvent(event: Event): boolean {
+    this.dispatched.push(event.type);
+    return true;
   }
 }
 
@@ -106,6 +113,10 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
   const menuCommand = selector.match(/^\[data-desktop-menu-command="(.+)"\]$/);
   if (menuCommand) {
     return element.getAttribute("data-desktop-menu-command") === menuCommand[1];
+  }
+  const runtimeCommand = selector.match(/^\[data-desktop-runtime-command="(.+)"\]$/);
+  if (runtimeCommand) {
+    return element.getAttribute("data-desktop-runtime-command") === runtimeCommand[1];
   }
   return false;
 }
@@ -206,7 +217,7 @@ describe("desktop window frame", () => {
     expect(targetDocument.body.querySelector('[data-window-action="close"]')).toBeTruthy();
   });
 
-  test("renders desktop application menu entries inside the custom app chrome", () => {
+  test("renders only primary desktop commands inside the compact app chrome", () => {
     const targetDocument = new FakeDocument();
     const currentWindow = {
       minimize: vi.fn(async () => {}),
@@ -220,8 +231,84 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="new-chat"]')?.textContent).toBe("New Chat");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')?.textContent).toBe("Command Palette");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')?.textContent).toBe("Gateway Status");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="new-chat"]')?.textContent).toBe("New");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="search-sessions"]')?.textContent).toBe("Search");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="stop-generation"]')?.textContent).toBe("Stop");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')?.textContent).toBe("Command");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-docs"]')).toBeNull();
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')).toBeNull();
+  });
+
+  test("routes runtime status clicks through the gateway status command", () => {
+    const targetDocument = new FakeDocument();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+    });
+
+    const runtimeStatus = targetDocument.body.querySelector('[data-desktop-runtime-command="refresh-gateway-status"]');
+    expect(runtimeStatus?.getAttribute("role")).toBe("button");
+    expect(runtimeStatus?.getAttribute("tabindex")).toBe("0");
+
+    runtimeStatus?.click();
+
+    expect(targetDocument.dispatched).toContain("desktop-menu-command");
+    expect(currentWindow.startDragging).not.toHaveBeenCalled();
+  });
+
+  test("shows the current desktop surface context in app chrome", () => {
+    const targetDocument = new FakeDocument();
+    targetDocument.documentElement.dataset.desktopWorkbenchMode = "root-webui";
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+    });
+
+    expect(targetDocument.body.querySelector("#desktop-window-context")?.textContent).toBe("WebUI shell");
+
+    targetDocument.documentElement.dataset.desktopWorkbenchMode = "native-workbench";
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+    });
+
+    expect(targetDocument.body.querySelector("#desktop-window-context")?.textContent).toBe("Native workbench");
+  });
+
+  test("declares DESIGN.md shell chrome tokens for the custom frame", () => {
+    const targetDocument = new FakeDocument();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-window-frame-style")?.textContent;
+    expect(styleText).toContain("--bg: #faf9f5;");
+    expect(styleText).toContain("--panel-strong: #efe9de;");
+    expect(styleText).toContain("--primary: #cc785c;");
+    expect(styleText).toContain("--success: #5db872;");
+    expect(styleText).toContain("--border: #e6dfd8;");
+    expect(styleText).toContain("outline: 2px solid var(--primary, #cc785c);");
   });
 });

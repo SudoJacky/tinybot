@@ -16,6 +16,7 @@ class FakeStatus {
 class FakeWebUiDocument {
   public documentElement = { dataset: {} as Record<string, string> };
   public listeners = new Map<string, Array<(event: Event) => unknown>>();
+  public dispatched: string[] = [];
   public readonly nodes: Record<string, unknown> = {
     "#new-chat-button": new FakeButton(),
     "#settings-button": new FakeButton(),
@@ -30,6 +31,7 @@ class FakeWebUiDocument {
   }
 
   dispatchEvent(event: Event): boolean {
+    this.dispatched.push(event.type);
     for (const listener of this.listeners.get(event.type) ?? []) {
       listener(event);
     }
@@ -113,6 +115,47 @@ describe("desktop WebUI command bridge", () => {
     expect((document.nodes["[data-desktop-route-status]"] as FakeStatus).textContent).toBe(
       "Stop generation is unavailable in the WebUI shell.",
     );
+  });
+
+  test("opens the desktop command palette and session search inside the WebUI shell", () => {
+    const document = new FakeWebUiDocument();
+    const paletteQueries: unknown[] = [];
+    document.addEventListener("tinybot:open-command-palette", (event) => {
+      paletteQueries.push((event as CustomEvent).detail?.query);
+    });
+
+    installDesktopWebUiCommandBridge({
+      targetDocument: document as unknown as Document,
+      targetWindow: fakeWindow(),
+      listenToMenuCommand: () => undefined,
+    });
+
+    document.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: "open-command-palette" } }));
+    document.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: "search-sessions" } }));
+
+    expect(paletteQueries).toEqual(["", "session"]);
+    expect(document.documentElement.dataset.desktopCommandFeedback).toBe("Session search opened");
+  });
+
+  test("records context targets for root WebUI context navigation", () => {
+    const document = new FakeWebUiDocument();
+    installDesktopWebUiCommandBridge({
+      targetDocument: document as unknown as Document,
+      targetWindow: fakeWindow(),
+      listenToMenuCommand: () => undefined,
+    });
+
+    document.dispatchEvent({
+      type: "contextmenu",
+      target: {
+        closest: () => ({
+          dataset: { sessionKey: "WebSocket:chat-1" },
+          classList: { contains: () => false },
+        }),
+      },
+    } as unknown as Event);
+
+    expect(document.documentElement.dataset.desktopContextMenuTarget).toBe("session:WebSocket:chat-1");
   });
 });
 

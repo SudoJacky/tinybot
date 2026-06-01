@@ -127,8 +127,8 @@ export function buildDesktopCommandPaletteResults(
     .slice(0, limit);
 }
 
-export function openDesktopCommandPalette(targetDocument: Document = document): void {
-  targetDocument.dispatchEvent(new CustomEvent(OPEN_PALETTE_EVENT));
+export function openDesktopCommandPalette(targetDocument: Document = document, query = ""): void {
+  targetDocument.dispatchEvent(new CustomEvent(OPEN_PALETTE_EVENT, { detail: { query } }));
 }
 
 export function activateDesktopCommandPaletteResult(
@@ -170,32 +170,62 @@ export function installDesktopCommandPalette({
   const paletteInput = input;
 
   let state = createDesktopCommandPaletteState();
+  let previousFocus: HTMLElement | null = null;
   renderPalette(targetDocument, state, "");
 
-  targetDocument.addEventListener(OPEN_PALETTE_EVENT, () => {
+  targetDocument.addEventListener(OPEN_PALETTE_EVENT, (event) => {
+    const activeElement = targetDocument.activeElement;
+    previousFocus = activeElement && "focus" in activeElement ? activeElement as HTMLElement : null;
+    const query = (event as CustomEvent<{ query?: unknown }>).detail?.query;
+    if (typeof query === "string") {
+      paletteInput.value = query;
+      renderPalette(targetDocument, state, query);
+    }
     palette.hidden = false;
     paletteInput.focus();
     void refreshPaletteData();
   });
   paletteInput.addEventListener("input", () => renderPalette(targetDocument, state, paletteInput.value));
   results?.addEventListener("click", (event) => {
-    const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-palette-result-id]") : null;
+    const eventTarget = event.target as { closest?: (selector: string) => HTMLElement | null } | null;
+    const target = typeof eventTarget?.closest === "function" ? eventTarget.closest("[data-palette-result-id]") : null;
     const result = state.results.find((item) => item.id === target?.dataset.paletteResultId);
     if (!result) {
       return;
     }
     activateDesktopCommandPaletteResult(result, { gatewayOrigin, targetDocument, targetWindow });
-    palette.hidden = true;
+    closePalette();
   });
   close?.addEventListener("click", () => {
-    palette.hidden = true;
+    closePalette();
   });
   targetDocument.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !palette.hidden) {
-      palette.hidden = true;
+      closePalette();
+      event.preventDefault();
+      return;
+    }
+    if (event.key === "Enter" && !palette.hidden && targetDocument.activeElement === paletteInput) {
+      const [firstResult] = buildDesktopCommandPaletteResults(state, paletteInput.value, 1);
+      if (firstResult) {
+        activateDesktopCommandPaletteResult(firstResult, { gatewayOrigin, targetDocument, targetWindow });
+        closePalette();
+      }
+      event.preventDefault();
+      return;
+    }
+    if (event.key === "ArrowDown" && !palette.hidden && targetDocument.activeElement === paletteInput) {
+      const firstButton = results?.querySelector<HTMLElement>("[data-palette-result-id]");
+      firstButton?.focus();
       event.preventDefault();
     }
   });
+
+  function closePalette(): void {
+    palette!.hidden = true;
+    previousFocus?.focus();
+    previousFocus = null;
+  }
 
   async function refreshPaletteData(): Promise<void> {
     setPaletteStatus(targetDocument, "Loading command palette data.");
@@ -287,8 +317,8 @@ function renderPalette(targetDocument: Document, state: DesktopCommandPaletteSta
     empty.textContent = "No command palette matches.";
     results.append(empty);
   } else {
-    for (const match of matches) {
-      results.append(createResultButton(targetDocument, match));
+    for (const [index, match] of matches.entries()) {
+      results.append(createResultButton(targetDocument, match, index === 0));
     }
   }
   const loaded = state.groups.filter((group) => group.loaded).map((group) => `${group.label} ${group.count}`).join(" / ");
@@ -296,10 +326,11 @@ function renderPalette(targetDocument: Document, state: DesktopCommandPaletteSta
   setPaletteStatus(targetDocument, query ? `${matches.length} result(s). ${loaded}` : `Type to search. ${loaded}${unloaded ? `. Not loaded: ${unloaded}.` : "."}`);
 }
 
-function createResultButton(targetDocument: Document, result: DesktopCommandPaletteResult): HTMLElement {
+function createResultButton(targetDocument: Document, result: DesktopCommandPaletteResult, selected: boolean): HTMLElement {
   const button = targetDocument.createElement("button");
   button.type = "button";
   button.className = "desktop-command-palette-result";
+  button.setAttribute("aria-selected", String(selected));
   button.setAttribute("data-palette-result-id", result.id);
   button.setAttribute("data-palette-module", result.destination.module);
   if (result.destination.commandId) {

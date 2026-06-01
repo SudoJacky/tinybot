@@ -2,6 +2,7 @@ import {
   resolveDesktopShortcutCommand,
   type DesktopMenuCommandId,
 } from "./desktopCommandNavigation";
+import { openDesktopCommandPalette } from "./desktopCommandPalette";
 
 export interface DesktopWebUiCommandBridgeOptions {
   listenToMenuCommand: (handler: (id: string) => void) => void | Promise<unknown>;
@@ -38,6 +39,9 @@ export function installDesktopWebUiCommandBridge({
       routeDesktopWebUiCommand(id, targetDocument, targetWindow);
     }
   });
+  targetDocument.addEventListener("contextmenu", (event) => {
+    recordDesktopWebUiContextTarget(event, targetDocument);
+  });
 
   void listenToMenuCommand((id) => {
     routeDesktopWebUiCommand(id, targetDocument, targetWindow);
@@ -47,6 +51,16 @@ export function installDesktopWebUiCommandBridge({
 function routeDesktopWebUiCommand(id: string, targetDocument: Document, targetWindow: Window): void {
   if (id === "open-docs") {
     targetWindow.location.assign(new URL("/docs", targetWindow.location.origin).href);
+    return;
+  }
+  if (id === "open-command-palette") {
+    openDesktopCommandPalette(targetDocument);
+    setCommandFeedback(targetDocument, "Command palette opened");
+    return;
+  }
+  if (id === "search-sessions") {
+    openDesktopCommandPalette(targetDocument, "session");
+    setCommandFeedback(targetDocument, "Session search opened");
     return;
   }
 
@@ -84,15 +98,59 @@ function commandUnavailableFeedback(id: string): string {
     return "Stop generation is unavailable in the WebUI shell.";
   }
   if (id === "search-sessions") {
-    return "Session search is not available in the WebUI shell.";
+    return "Session search opened";
   }
   if (id === "open-command-palette") {
-    return "Command palette is not available in the WebUI shell.";
+    return "Command palette opened";
   }
   if (id === "refresh-gateway-status") {
     return "Gateway status refresh is handled by WebUI status polling.";
   }
   return `Unknown desktop command: ${id}`;
+}
+
+function recordDesktopWebUiContextTarget(event: Event, targetDocument: Document): void {
+  const target = event.target as HTMLElement | null;
+  const closest = typeof target?.closest === "function"
+    ? target.closest<HTMLElement>("[data-session-key], .session-item, .workspace-panel, .knowledge-panel, .tools-panel, .cowork-panel, .message, .composer, .inspector-panel")
+    : null;
+  if (!closest) {
+    return;
+  }
+
+  targetDocument.documentElement.dataset.desktopContextMenuTarget = contextTargetName(closest);
+  targetDocument.documentElement.dataset.desktopContextMenuAt = new Date(0).toISOString();
+}
+
+function contextTargetName(target: HTMLElement): string {
+  if (target.dataset.sessionKey) {
+    return `session:${target.dataset.sessionKey}`;
+  }
+  if (target.classList.contains("session-item")) {
+    return "session";
+  }
+  if (target.classList.contains("workspace-panel")) {
+    return "workspace";
+  }
+  if (target.classList.contains("knowledge-panel")) {
+    return "knowledge";
+  }
+  if (target.classList.contains("tools-panel")) {
+    return "tools";
+  }
+  if (target.classList.contains("cowork-panel")) {
+    return "cowork";
+  }
+  if (target.classList.contains("message")) {
+    return "message";
+  }
+  if (target.classList.contains("composer")) {
+    return "composer";
+  }
+  if (target.classList.contains("inspector-panel")) {
+    return "inspector";
+  }
+  return "root";
 }
 
 function setCommandFeedback(targetDocument: Document, message: string): void {

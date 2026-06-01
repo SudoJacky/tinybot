@@ -1521,6 +1521,41 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain(".desktop-workspace-editor:focus-visible");
   });
 
+  test("declares DESIGN.md-aligned desktop surface tokens", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent;
+    expect(styleText).toContain("--bg: #faf9f5;");
+    expect(styleText).toContain("--panel-strong: #efe9de;");
+    expect(styleText).toContain("--primary: #cc785c;");
+    expect(styleText).toContain("--surface-dark: #181715;");
+    expect(styleText).toContain("--border: #e6dfd8;");
+    expect(styleText).toContain('--font-display: "Tiempos Headline"');
+  });
+
+  test("uses dark product surfaces for runtime diagnostics", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent;
+    expect(styleText).toContain(".desktop-gateway-runtime");
+    expect(styleText).toContain("background: var(--surface-dark, #181715);");
+    expect(styleText).toContain(".desktop-task-center-diagnostics:not(:empty)");
+    expect(styleText).toContain(".desktop-run-chain-detail");
+    expect(styleText).toContain("background: var(--surface-dark-soft, #1f1e1b);");
+  });
+
   test("styles the task center as a constrained keyboard-accessible bottom surface", () => {
     const targetDocument = new FakeDocument();
 
