@@ -312,6 +312,7 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
     body.desktop-root-webui-workbench .system-status {
       display: flex !important;
       flex-wrap: wrap;
+      grid-template-columns: none !important;
       gap: 6px 10px;
       align-items: center;
       min-width: 0;
@@ -324,7 +325,7 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       gap: 5px;
       min-width: 0;
       min-height: 22px;
-      width: auto;
+      width: auto !important;
       border: 0;
       border-radius: 4px;
       padding: 0;
@@ -333,6 +334,10 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       font-size: 11px;
       line-height: 1.2;
       cursor: default;
+    }
+
+    body.desktop-root-webui-workbench .composer-status-panel .usage-item {
+      grid-column: auto !important;
     }
 
     body.desktop-root-webui-workbench .composer-status-panel .status-label,
