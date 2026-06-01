@@ -6,6 +6,8 @@ export type DesktopMenuCommandId =
   | "search-sessions"
   | "open-settings"
   | "open-docs"
+  | "open-shortcut-help"
+  | "open-page-help"
   | "toggle-theme"
   | "toggle-sidebar"
   | "open-command-palette"
@@ -16,7 +18,9 @@ export type DesktopCommandAction =
   | "open-session-search"
   | "set-theme"
   | "set-sidebar-visible"
-  | "open-command-palette";
+  | "open-command-palette"
+  | "open-shortcut-help"
+  | "open-page-help";
 
 export interface DesktopMenuCommand {
   id: DesktopMenuCommandId;
@@ -48,6 +52,8 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
   { id: "search-sessions", label: "Search Sessions", shortcut: "Ctrl+F" },
   { id: "open-settings", label: "Settings", shortcut: "Ctrl+," },
   { id: "open-docs", label: "Documentation", shortcut: "F1" },
+  { id: "open-shortcut-help", label: "Shortcut Help", shortcut: "Ctrl+/" },
+  { id: "open-page-help", label: "Page Help", shortcut: "Ctrl+Shift+/" },
   { id: "toggle-theme", label: "Toggle Theme", shortcut: "Ctrl+Shift+T" },
   { id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+B" },
   { id: "open-command-palette", label: "Command Palette", shortcut: "Ctrl+Shift+P" },
@@ -76,6 +82,10 @@ export function routeDesktopMenuCommand(id: string, context: DesktopMenuCommandC
       return { kind: "navigate", href: "/settings" };
     case "open-docs":
       return { kind: "navigate", href: "/docs" };
+    case "open-shortcut-help":
+      return { kind: "action", action: "open-shortcut-help" };
+    case "open-page-help":
+      return { kind: "action", action: "open-page-help" };
     case "toggle-theme":
       return { kind: "action", action: "set-theme", value: context.theme === "dark" ? "light" : "dark" };
     case "toggle-sidebar":
@@ -130,6 +140,12 @@ export function resolveDesktopShortcutCommand(event: DesktopShortcutLike): Deskt
   }
   if (!commandModifier) {
     return null;
+  }
+  if (!shift && (key === "/" || key === "?")) {
+    return "open-shortcut-help";
+  }
+  if (shift && (key === "/" || key === "?")) {
+    return "open-page-help";
   }
   if (!shift && key === "n") {
     return "new-chat";
@@ -236,6 +252,16 @@ function applyCommandAction(result: Extract<DesktopMenuCommandResult, { kind: "a
     setCommandFeedback(targetDocument, "Command palette opened");
     return;
   }
+  if (result.action === "open-shortcut-help") {
+    targetDocument.dispatchEvent(new CustomEvent("tinybot:open-shortcut-help"));
+    setCommandFeedback(targetDocument, "Shortcut help opened");
+    return;
+  }
+  if (result.action === "open-page-help") {
+    targetDocument.dispatchEvent(new CustomEvent("tinybot:open-page-help"));
+    setCommandFeedback(targetDocument, "Page help opened");
+    return;
+  }
   setCommandFeedback(targetDocument, commandActionFeedback(result.action));
 }
 
@@ -248,6 +274,12 @@ function commandActionFeedback(action: DesktopCommandAction): string {
   }
   if (action === "open-command-palette") {
     return "Command palette requested";
+  }
+  if (action === "open-shortcut-help") {
+    return "Shortcut help requested";
+  }
+  if (action === "open-page-help") {
+    return "Page help requested";
   }
   return "Command routed";
 }

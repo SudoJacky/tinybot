@@ -396,6 +396,10 @@ function commandKeywords(id: DesktopMenuCommandId): string[] {
   switch (id) {
     case "open-docs":
       return ["desktop", "docs", "help", "documentation"];
+    case "open-shortcut-help":
+      return ["desktop", "help", "shortcuts", "keyboard"];
+    case "open-page-help":
+      return ["desktop", "help", "tour", "page", "regions"];
     case "open-command-palette":
       return ["palette", "quick search"];
     case "refresh-gateway-status":

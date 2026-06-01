@@ -116,6 +116,41 @@ export interface DesktopSecretField {
   empty: boolean;
 }
 
+export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed";
+
+export interface DesktopSettingsPaneField {
+  id: string;
+  label: string;
+  value: string;
+  state: "normal" | "invalid";
+}
+
+export interface DesktopSettingsPaneGroup {
+  id: "agent" | "provider" | "knowledge" | "tools" | "gateway" | "channels";
+  label: string;
+  fields: DesktopSettingsPaneField[];
+}
+
+export interface DesktopSettingsPaneModel {
+  dirty: boolean;
+  validationErrors: DesktopSettingsValidationError[];
+  save: {
+    status: DesktopSettingsSaveStatus;
+    message: string;
+    canSave: boolean;
+  };
+  groups: DesktopSettingsPaneGroup[];
+  providerCatalog: Array<{ id: string; label: string; status: string }>;
+  providerEditor: {
+    selectedProvider: string;
+    profileId: string;
+    apiKey: DesktopSecretField;
+    apiBase: string | null;
+    models: string[];
+    canDiscoverModels: boolean;
+  };
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 const MASKED_SECRET = "********";
@@ -219,6 +254,21 @@ export function buildDesktopSettingsFormState(
       supportsModelDiscovery: pick(providerProfile, "supportsModelDiscovery", "supports_model_discovery") !== false,
     },
   };
+}
+
+export function buildDesktopProviderCatalogItems(payload: unknown): DesktopProviderCatalogItem[] {
+  const payloadRecord = asRecord(payload);
+  const providers: unknown[] = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payloadRecord.providers)
+      ? payloadRecord.providers
+      : [];
+  return providers.filter((provider): provider is UnknownRecord => provider !== null && typeof provider === "object" && !Array.isArray(provider)).map((provider) => ({
+    id: stringValue(provider.id),
+    displayName: stringValue(pick(provider, "displayName", "display_name")),
+    baseUrl: stringValue(pick(provider, "baseUrl", "base_url")),
+    status: stringValue(provider.status),
+  }));
 }
 
 export function createDesktopSettingsPatch(
@@ -352,6 +402,45 @@ export function validateDesktopSettingsForm(state: DesktopSettingsFormState): De
     errors.push({ field: "rerankApiBase", errorKey: "urlError" });
   }
   return errors;
+}
+
+export function buildDesktopSettingsPaneModel(
+  state: DesktopSettingsFormState,
+  options: {
+    lastSavedState?: DesktopSettingsFormState | null;
+    providerCatalog?: DesktopProviderCatalogItem[];
+    saveStatus?: DesktopSettingsSaveStatus;
+    saveError?: string | null;
+  } = {},
+): DesktopSettingsPaneModel {
+  const validationErrors = validateDesktopSettingsForm(state);
+  const dirty = options.lastSavedState
+    ? JSON.stringify(createDesktopSettingsPatch(state)) !== JSON.stringify(createDesktopSettingsPatch(options.lastSavedState))
+    : false;
+  const saveStatus = options.saveStatus ?? "idle";
+  return {
+    dirty,
+    validationErrors,
+    save: {
+      status: saveStatus,
+      message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty),
+      canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
+    },
+    groups: buildDesktopSettingsPaneGroups(state, validationErrors),
+    providerCatalog: (options.providerCatalog ?? []).map((provider) => ({
+      id: stringValue(provider.id),
+      label: stringValue(provider.displayName) || stringValue(provider.id),
+      status: stringValue(provider.status) || "unknown",
+    })).filter((provider) => provider.id),
+    providerEditor: {
+      selectedProvider: state.providerEditor.selectedProvider,
+      profileId: state.providerEditor.profileId,
+      apiKey: buildDesktopSecretField(state.providerEditor.apiKey),
+      apiBase: state.providerEditor.apiBase,
+      models: parseDesktopProviderModelList(state.providerEditor.modelsText),
+      canDiscoverModels: state.providerEditor.supportsModelDiscovery,
+    },
+  };
 }
 
 export function buildDesktopProviderModelRequest(
@@ -516,6 +605,98 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     channels: { ...state.channels },
     providerEditor: { ...state.providerEditor },
   };
+}
+
+function buildDesktopSettingsPaneGroups(
+  state: DesktopSettingsFormState,
+  validationErrors: DesktopSettingsValidationError[],
+): DesktopSettingsPaneGroup[] {
+  const invalidFields = new Set(validationErrors.map((error) => error.field));
+  const field = (id: string, label: string, value: unknown, validationField?: DesktopSettingsValidationField): DesktopSettingsPaneField => ({
+    id,
+    label,
+    value: formatDesktopSettingsFieldValue(value),
+    state: validationField && invalidFields.has(validationField) ? "invalid" : "normal",
+  });
+  return [
+    {
+      id: "agent",
+      label: "Agent",
+      fields: [
+        field("model", "Model", state.agent.model, "model"),
+        field("provider", "Provider", state.agent.provider),
+        field("activeProfile", "Profile", state.agent.activeProfile),
+        field("timezone", "Timezone", state.agent.timezone, "timezone"),
+      ],
+    },
+    {
+      id: "provider",
+      label: "Provider",
+      fields: [
+        field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider),
+        field("profileId", "Profile ID", state.providerEditor.profileId),
+        field("apiBase", "API base", state.providerEditor.apiBase, "providerApiBase"),
+        field("models", "Models", parseDesktopProviderModelList(state.providerEditor.modelsText).join(", ")),
+      ],
+    },
+    {
+      id: "knowledge",
+      label: "Knowledge",
+      fields: [
+        field("enabled", "Enabled", state.knowledge.enabled),
+        field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode),
+        field("maxChunks", "Max chunks", state.knowledge.maxChunks),
+        field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, "rerankApiBase"),
+      ],
+    },
+    {
+      id: "tools",
+      label: "Tools",
+      fields: [
+        field("webEnable", "Web tools", state.tools.webEnable),
+        field("execEnable", "Exec tools", state.tools.execEnable),
+        field("mcpServers", "MCP servers", state.tools.mcpServersText ? "Configured" : "None", "mcpServers"),
+      ],
+    },
+    {
+      id: "gateway",
+      label: "Gateway",
+      fields: [
+        field("host", "Host", state.gateway.host),
+        field("port", "Port", state.gateway.port, "gatewayPort"),
+        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled),
+      ],
+    },
+    {
+      id: "channels",
+      label: "Channels",
+      fields: [
+        field("sendProgress", "Progress events", state.channels.sendProgress),
+        field("sendToolHints", "Tool hints", state.channels.sendToolHints),
+        field("sendMaxRetries", "Max retries", state.channels.sendMaxRetries),
+      ],
+    },
+  ];
+}
+
+function formatDesktopSettingsSaveMessage(status: DesktopSettingsSaveStatus, dirty: boolean): string {
+  if (status === "saving") {
+    return "Saving settings";
+  }
+  if (status === "saved") {
+    return "Settings saved";
+  }
+  return dirty ? "Unsaved changes" : "No changes";
+}
+
+function formatDesktopSettingsFieldValue(value: unknown): string {
+  if (value === true) {
+    return "Enabled";
+  }
+  if (value === false) {
+    return "Disabled";
+  }
+  return stringValue(value);
 }
 
 function pick(record: UnknownRecord, ...keys: string[]): unknown {

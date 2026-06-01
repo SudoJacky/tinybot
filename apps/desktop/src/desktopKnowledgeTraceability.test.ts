@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   buildDesktopKnowledgeDocumentRows,
   buildDesktopKnowledgeGraphView,
+  buildDesktopKnowledgePaneModel,
   buildDesktopKnowledgeQueryRequest,
   buildDesktopKnowledgeQueryResultRows,
   buildDesktopKnowledgeReadinessView,
@@ -269,5 +270,179 @@ describe("desktop knowledge and traceability helpers", () => {
       evidence: [{ title: "Architecture", text: "Desktop uses graph projections." }],
     });
     expect(inspection.rows).toContainEqual({ label: "Endpoints", value: "Desktop -> Graph" });
+  });
+
+  test("normalizes GraphRAG index tables into graph, reports, claims, and evidence", () => {
+    const graph = buildDesktopKnowledgeGraphView({
+      object: "graphrag_index",
+      documents: [{ id: "doc-1", title: "Desktop UX" }],
+      text_units: [{ id: "tu-1", document_id: "doc-1", text: "Desktop uses traceable evidence.", covariate_ids: ["claim-1"] }],
+      entities: [
+        { id: "entity-1", title: "Desktop", type: "concept" },
+        { id: "entity-2", title: "Evidence", type: "concept" },
+      ],
+      relationships: [
+        {
+          id: "rel-1",
+          source: "Desktop",
+          target: "Evidence",
+          predicate: "uses",
+          confidence: 0.8,
+          text_unit_ids: ["tu-1"],
+        },
+      ],
+      covariates: [{ id: "claim-1", text: "Desktop uses traceable evidence.", source: { doc_name: "Desktop UX" } }],
+      communities: [{ community: 0, title: "Desktop cluster", summary: "Traceability cluster" }],
+      community_reports: [{ id: "report-1", community: 0, title: "Desktop report", summary: "Report summary" }],
+    });
+    const pane = buildDesktopKnowledgePaneModel({
+      graphPayload: {
+        object: "graphrag_index",
+        documents: [{ id: "doc-1", title: "Desktop UX" }],
+        text_units: [{ id: "tu-1", document_id: "doc-1", text: "Desktop uses traceable evidence.", covariate_ids: ["claim-1"] }],
+        entities: [
+          { id: "entity-1", title: "Desktop", type: "concept" },
+          { id: "entity-2", title: "Evidence", type: "concept" },
+        ],
+        relationships: [
+          {
+            id: "rel-1",
+            source: "Desktop",
+            target: "Evidence",
+            predicate: "uses",
+            confidence: 0.8,
+            text_unit_ids: ["tu-1"],
+          },
+        ],
+        covariates: [{ id: "claim-1", text: "Desktop uses traceable evidence.", source: { doc_name: "Desktop UX" } }],
+        communities: [{ community: 0, title: "Desktop cluster", summary: "Traceability cluster" }],
+        community_reports: [{ id: "report-1", community: 0, title: "Desktop report", summary: "Report summary" }],
+      },
+    });
+
+    expect(graph.nodes.map((node) => node.label)).toEqual(["Desktop", "Evidence"]);
+    expect(graph.edges[0]).toMatchObject({
+      id: "rel-1",
+      title: "Desktop -[uses]-> Evidence",
+      sourceId: "entity-1",
+      targetId: "entity-2",
+      evidenceCount: 1,
+    });
+    expect(graph.evidenceRows[0]).toMatchObject({
+      edgeId: "rel-1",
+      docName: "Desktop UX",
+      evidenceText: "Desktop uses traceable evidence.",
+      claimId: "claim-1",
+    });
+    expect(pane.graph).toMatchObject({
+      summary: "2 nodes / 1 edge / 1 evidence",
+      communities: [{ id: "0", title: "Desktop cluster", text: "Traceability cluster" }],
+      reports: [{ id: "report-1", title: "Desktop report", text: "Report summary" }],
+      claims: [{ id: "claim-1", title: "Desktop uses traceable evidence." }],
+    });
+  });
+
+  test("builds a desktop knowledge pane model with documents, query, graph, and traceability summaries", () => {
+    const pane = buildDesktopKnowledgePaneModel({
+      statsPayload: {
+        total_documents: 2,
+        total_chunks: 18,
+        indexed_dense: 18,
+        indexed_sparse: 18,
+        claim_count: 3,
+        relation_count: 2,
+        community_count: 1,
+        community_report_count: 1,
+        claims_ready: true,
+        relations_ready: true,
+        graph_ready: true,
+        stage_readiness: {
+          evidence_expansion: { stage: "evidence_expansion", status: "complete", ready: true, processed: 3, total: 3 },
+        },
+      },
+      config: {
+        knowledge: {
+          enabled: true,
+          retrieval_mode: "hybrid",
+          max_chunks: 6,
+          graphrag_report_llm_enabled: false,
+        },
+      },
+      documentsPayload: {
+        documents: [
+          { id: "doc-1", title: "Desktop UX", path: "docs/desktop.md", tags: ["desktop"], chunk_count: 10, status: "indexed" },
+          { id: "doc-2", title: "Gateway", path: "docs/gateway.md", chunk_count: 8, status: "indexed" },
+        ],
+      },
+      selectedDocumentId: "doc-1",
+      queryDraft: { query: "desktop graph", mode: "local", topK: 4 },
+      queryResultPayload: {
+        data: [
+          {
+            doc_id: "doc-1",
+            doc_name: "Desktop UX",
+            content: "Desktop panes expose graph evidence.",
+            semantic_fusion_score: 0.67,
+            matched_entities: ["Desktop"],
+            matched_relations: ["Desktop->Evidence"],
+            matched_communities: ["community-1"],
+            matched_claim_evidence: [
+              { id: "claim-1", text: "Desktop panes expose graph evidence.", source: { doc_name: "Desktop UX" } },
+            ],
+          },
+        ],
+      },
+      graphPayload: {
+        nodes: [
+          { id: "desktop", label: "Desktop", type: "entity" },
+          { id: "evidence", label: "Evidence", type: "entity" },
+        ],
+        edges: [
+          {
+            id: "edge-1",
+            source: "desktop",
+            target: "evidence",
+            predicate: "exposes",
+            evidence: [{ id: "ev-1", doc_name: "Desktop UX", evidence_text: "Desktop panes expose graph evidence." }],
+          },
+        ],
+        communities: [{ id: "community-1", title: "Desktop cluster", summary: "Desktop evidence cluster" }],
+        reports: [{ id: "report-1", title: "Desktop report", summary: "Report summary" }],
+        claims: [{ id: "claim-1", text: "Desktop panes expose graph evidence.", source: { doc_name: "Desktop UX" } }],
+        conflicts: [{ id: "conflict-1", conflict_type: "contradiction", sources: [{ doc_name: "Desktop UX" }, { doc_name: "Gateway" }] }],
+      },
+    });
+
+    expect(pane.status).toBe("2 docs / readiness 100% / graph 2 nodes / 1 edge");
+    expect(pane.configHints).toEqual([
+      "Knowledge enabled",
+      "Retrieval hybrid",
+      "Max chunks 6",
+      "GraphRAG reports use deterministic summaries",
+    ]);
+    expect(pane.selectedDocument).toMatchObject({
+      id: "doc-1",
+      title: "Desktop UX",
+      detail: "docs/desktop.md / indexed / 10 chunks",
+    });
+    expect(pane.query).toMatchObject({
+      draft: { query: "desktop graph", mode: "local", topK: 4 },
+      request: { query: "desktop graph", mode: "local", top_k: 4 },
+      results: { summary: { count: 1, docs: ["Desktop UX"], lowConfidence: false } },
+    });
+    expect(pane.graph).toMatchObject({
+      summary: "2 nodes / 1 edge / 1 evidence",
+      communities: [{ id: "community-1", title: "Desktop cluster", meta: "community", text: "Desktop evidence cluster" }],
+      reports: [{ id: "report-1", title: "Desktop report", meta: "report", text: "Report summary" }],
+      claims: [{ id: "claim-1", title: "Desktop panes expose graph evidence." }],
+      conflicts: [{ id: "conflict-1", title: "record left conflicts with record right" }],
+    });
+    expect(pane.actions).toEqual({
+      upload: true,
+      deleteDocument: true,
+      rebuild: true,
+      query: true,
+      refreshGraph: true,
+    });
   });
 });

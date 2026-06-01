@@ -31,6 +31,8 @@ export interface DesktopCoworkAttention {
   taskIssues: number;
   workUnitIssues: number;
   agentIssues: number;
+  approvals: number;
+  interventions: number;
   tone: "attention" | "complete" | "normal";
   label: string;
 }
@@ -69,9 +71,37 @@ export interface DesktopCoworkCockpitView {
   artifacts: DesktopCoworkArtifactRow[];
   workUnits: DesktopCoworkWorkUnitRow[];
   graph: DesktopCoworkGraphView;
+  observabilityPanels: DesktopCoworkObservabilityPanel[];
   inspector: DesktopCoworkInspectorView;
   taskCenterItems: DesktopCoworkTaskCenterItem[];
   raw: UnknownRecord;
+}
+
+export type DesktopCoworkObservabilityPanelId =
+  | "graph"
+  | "focus"
+  | "metrics"
+  | "architecture"
+  | "swarm"
+  | "workUnits"
+  | "taskDag"
+  | "agents"
+  | "tasks"
+  | "mailbox"
+  | "threads"
+  | "trace"
+  | "artifacts"
+  | "outputs"
+  | "finalDraft"
+  | "blockers"
+  | "evaluations"
+  | "status";
+
+export interface DesktopCoworkObservabilityPanel {
+  id: DesktopCoworkObservabilityPanelId;
+  label: string;
+  summary: string;
+  rows: Array<{ label: string; value: string }>;
 }
 
 export interface DesktopCoworkAgentRow {
@@ -243,7 +273,9 @@ type UnknownRecord = Record<string, unknown>;
 const ACTIVE_SESSION_STATUSES = new Set(["active", "running", "paused", "blocked"]);
 const DONE_TASK_STATUSES = new Set(["completed", "done", "reviewed", "accepted"]);
 const ACTIVE_WORK_STATUSES = new Set(["active", "running", "working", "in_progress"]);
-const ATTENTION_STATUSES = new Set(["blocked", "failed", "error", "needs_revision", "expired"]);
+const ATTENTION_STATUSES = new Set(["blocked", "failed", "error", "needs_revision", "expired", "requires_approval", "approval_required", "approval-needed", "needs_intervention", "needs-intervention", "intervention-needed", "intervention_needed"]);
+const APPROVAL_SESSION_STATUSES = new Set(["requires_approval", "approval_required", "approval-needed", "requires-approval"]);
+const INTERVENTION_SESSION_STATUSES = new Set(["needs_intervention", "needs-intervention", "intervention-needed", "intervention_needed"]);
 const PENDING_REPLY_STATUSES = new Set(["delivered", "read", "pending"]);
 const COWORK_CANCELABLE_STATUSES = new Set(["active", "running"]);
 const COWORK_RETRYABLE_STATUSES = new Set(["failed", "error"]);
@@ -270,6 +302,8 @@ export function buildDesktopCoworkCockpitView(
   const branches = buildBranchRows(session);
   const artifacts = buildArtifactRows(session);
   const workUnits = buildWorkUnitRows(session);
+  const graph = buildDesktopCoworkGraphView(session);
+  const taskCenterItems = buildDesktopCoworkTaskCenterItems(session);
   return {
     header: {
       id: row.id,
@@ -287,9 +321,22 @@ export function buildDesktopCoworkCockpitView(
     branches,
     artifacts,
     workUnits,
-    graph: buildDesktopCoworkGraphView(session),
+    graph,
+    observabilityPanels: buildDesktopCoworkObservabilityPanels(session, {
+      row,
+      agents,
+      tasks,
+      mailbox,
+      threads,
+      trace,
+      branches,
+      artifacts,
+      workUnits,
+      graph,
+      taskCenterItems,
+    }),
     inspector: buildDesktopCoworkInspectorView(session, selection),
-    taskCenterItems: buildDesktopCoworkTaskCenterItems(session),
+    taskCenterItems,
     raw: session,
   };
 }
@@ -310,7 +357,7 @@ export function buildDesktopCoworkTaskOperation(value: unknown): DesktopTaskSour
     title: row.title,
     status,
     detail: row.attention.label,
-    progress,
+    ...(progress ? { progress } : {}),
     canonical: { module: "cowork", entityId: row.id, href: "/cowork" },
     diagnostics: stringValue(session.error) || stringValue(session.last_error),
     retryable: COWORK_RETRYABLE_STATUSES.has(status.toLowerCase()),
@@ -694,6 +741,139 @@ function buildDesktopCoworkTaskCenterItems(session: UnknownRecord): DesktopCowor
   }];
 }
 
+function buildDesktopCoworkObservabilityPanels(
+  session: UnknownRecord,
+  projection: {
+    row: DesktopCoworkSessionRow;
+    agents: DesktopCoworkAgentRow[];
+    tasks: DesktopCoworkTaskRow[];
+    mailbox: DesktopCoworkMailboxRow[];
+    threads: DesktopCoworkThreadRow[];
+    trace: DesktopCoworkTraceRow[];
+    branches: DesktopCoworkBranchRow[];
+    artifacts: DesktopCoworkArtifactRow[];
+    workUnits: DesktopCoworkWorkUnitRow[];
+    graph: DesktopCoworkGraphView;
+    taskCenterItems: DesktopCoworkTaskCenterItem[];
+  },
+): DesktopCoworkObservabilityPanel[] {
+  const decision = asRecord(session.completion_decision);
+  const architecture = asRecord(session.architecture_projection);
+  const swarmPlan = asRecord(session.swarm_plan);
+  const taskDag = asRecord(session.task_dag);
+  const outputs = arrayValue(session.outputs).filter(isRecord);
+  const blockers = [
+    ...arrayValue(decision.blocked),
+    ...arrayValue(decision.review_blockers),
+    ...arrayValue(decision.fanout_blockers),
+    ...arrayValue(decision.disagreements),
+  ].filter(isRecord);
+  const evaluations = arrayValue(session.evaluation_results).filter(isRecord);
+  const finalDraft = coworkFinalOutput(session);
+  const metrics = arrayValue(session.run_metrics).filter(isRecord);
+
+  return [
+    panel("graph", "Graph", projection.graph.caption, [
+      ...projection.graph.nodes.map((node) => ({ label: "Node", value: [node.label, node.kind, node.status].filter(Boolean).join(" / ") })),
+      ...projection.graph.edges.map((edge) => ({ label: "Edge", value: `${edge.source} -> ${edge.target}${edge.label ? ` / ${edge.label}` : ""}` })),
+    ]),
+    panel("focus", "Focus strip", `${projection.row.activeAgentCount}/${projection.row.agentCount} active agents`, [
+      ...projection.agents.map((agent) => ({ label: agent.label, value: [agent.status, agent.roleOrTask, agent.attention.label].filter(Boolean).join(" / ") })),
+      { label: "Attention", value: projection.row.attention.label },
+    ]),
+    panel("metrics", "Run metrics", `${metrics.length} metric${metrics.length === 1 ? "" : "s"}`, metrics.map((metric, index) => ({
+      label: stringValue(metric.label) || stringValue(metric.name) || stringValue(metric.key) || `Metric ${index + 1}`,
+      value: firstNonEmpty(stringValue(metric.value), stringValue(metric.count), stringValue(metric.status), stringifyPayload(metric)),
+    }))),
+    panel("architecture", "Architecture projection", firstNonEmpty(stringValue(architecture.summary), projection.row.workflow), [
+      { label: "Projection", value: firstNonEmpty(stringValue(architecture.summary), projection.row.workflow) },
+      ...arrayValue(architecture.sections).filter(isRecord).map((section) => ({
+        label: stringValue(section.title) || stringValue(section.name) || "Section",
+        value: [stringValue(section.status), stringValue(section.summary), stringValue(section.description)].filter(Boolean).join(" / "),
+      })),
+    ]),
+    panel("swarm", "Swarm plan", firstNonEmpty(stringValue(swarmPlan.summary), `${projection.workUnits.length} work unit(s)`), [
+      { label: "Plan", value: firstNonEmpty(stringValue(swarmPlan.summary), stringifyPayload(pick(swarmPlan, "strategy", "goal", "mode"))) },
+      ...projection.branches.map((branch) => ({ label: "Branch", value: `${branch.title}: ${branch.meta}` })),
+    ]),
+    panel("workUnits", "Work units", `${projection.workUnits.length} work unit(s)`, projection.workUnits.map((unit) => ({
+      label: unit.id || unit.title,
+      value: [unit.title, unit.status, unit.assignedAgentId, unit.resultText].filter(Boolean).join(" / "),
+    }))),
+    panel("taskDag", "Task DAG", `${arrayValue(taskDag.nodes).length} nodes / ${arrayValue(taskDag.edges).length} edges`, [
+      ...arrayValue(taskDag.nodes).filter(isRecord).map((node) => ({
+        label: "Node",
+        value: firstNonEmpty(stringValue(node.label), stringValue(node.title), stringValue(node.id)),
+      })),
+      ...arrayValue(taskDag.edges).filter(isRecord).map((edge) => ({
+        label: "Edge",
+        value: `${stringValue(edge.source)} -> ${stringValue(edge.target)}${stringValue(edge.label) ? ` / ${edge.label}` : ""}`,
+      })),
+    ]),
+    panel("agents", "Agents", `${projection.agents.length} agent(s)`, projection.agents.map((agent) => ({
+      label: agent.label,
+      value: agent.meta || agent.status,
+    }))),
+    panel("tasks", "Tasks", `${projection.tasks.length} task(s)`, projection.tasks.map((task) => ({
+      label: task.title,
+      value: [task.status, task.meta, task.resultText].filter(Boolean).join(" / "),
+    }))),
+    panel("mailbox", "Mailbox", `${projection.mailbox.length} message(s)`, projection.mailbox.map((item) => ({
+      label: item.route,
+      value: [item.status, item.content, item.meta].filter(Boolean).join(" / "),
+    }))),
+    panel("threads", "Threads", `${projection.threads.length} thread(s)`, projection.threads.map((thread) => ({
+      label: thread.topic,
+      value: thread.meta,
+    }))),
+    panel("trace", "Trace", `${projection.trace.length} span(s)`, projection.trace.map((span) => ({
+      label: span.stage || span.action,
+      value: [span.action, span.status, span.detail, span.at].filter(Boolean).join(" / "),
+    }))),
+    panel("artifacts", "Artifacts", `${projection.artifacts.length} artifact(s)`, projection.artifacts.map((artifact) => ({
+      label: artifact.title,
+      value: [artifact.kind, artifact.location, artifact.status].filter(Boolean).join(" / "),
+    }))),
+    panel("outputs", "Outputs", `${outputs.length} output(s)`, outputs.map((output, index) => ({
+      label: stringValue(output.title) || stringValue(output.id) || `Output ${index + 1}`,
+      value: firstNonEmpty(stringValue(output.content), stringValue(output.summary), stringifyPayload(output)),
+    }))),
+    panel("finalDraft", "Final draft", finalDraft ? "Final draft ready" : "No final draft", [
+      { label: "Draft", value: finalDraft || "No final draft" },
+    ]),
+    panel("blockers", "Blockers", `${blockers.length} blocker${blockers.length === 1 ? "" : "s"}`, blockers.map((blocker, index) => ({
+      label: stringValue(blocker.id) || stringValue(blocker.request_type) || `Blocker ${index + 1}`,
+      value: firstNonEmpty(stringValue(blocker.content), stringValue(blocker.summary), stringValue(blocker.reason), stringifyPayload(blocker)),
+    }))),
+    panel("evaluations", "Evaluations", `${evaluations.length} evaluation(s)`, evaluations.map((evaluation, index) => ({
+      label: stringValue(evaluation.id) || stringValue(evaluation.name) || `Evaluation ${index + 1}`,
+      value: [
+        stringValue(evaluation.status),
+        numberValue(evaluation.score) === null ? "" : `score ${numberValue(evaluation.score)}`,
+        stringValue(evaluation.summary),
+      ].filter(Boolean).join(" / "),
+    }))),
+    panel("status", "Status feed", `${projection.taskCenterItems.length} status item(s)`, [
+      { label: "Session", value: `${projection.row.status} / ${projection.row.meta}` },
+      ...projection.taskCenterItems.map((item) => ({ label: item.title, value: `${item.status} / ${item.detail}` })),
+    ]),
+  ];
+}
+
+function panel(
+  id: DesktopCoworkObservabilityPanelId,
+  label: string,
+  summary: string,
+  rows: Array<{ label: string; value: string }>,
+): DesktopCoworkObservabilityPanel {
+  return {
+    id,
+    label,
+    summary,
+    rows: rows.filter((row) => row.value),
+  };
+}
+
 function summarizeCoworkTasks(session: UnknownRecord): DesktopCoworkTaskProgress {
   const tasks = arrayValue(session.tasks).filter(isRecord);
   return {
@@ -717,6 +897,18 @@ function summarizeCoworkAttention(session: UnknownRecord): DesktopCoworkAttentio
     .filter((unit) => isRecord(unit) && ATTENTION_STATUSES.has(stringValue(unit.status).toLowerCase()));
   const agentIssues = arrayValue(session.agents)
     .filter((agent) => isRecord(agent) && ATTENTION_STATUSES.has((stringValue(agent.status) || stringValue(agent.lifecycle_status)).toLowerCase()));
+  const sessionStatus = stringValue(session.status).toLowerCase();
+  const approvals = [
+    ...arrayValue(session.pending_approvals),
+    ...arrayValue(session.approval_requests),
+    ...arrayValue(session.approvals),
+  ].filter((record) => !isRecord(record) || !["completed", "approved", "rejected", "canceled", "cancelled"].includes(stringValue(record.status).toLowerCase()));
+  const interventions = [
+    ...arrayValue(session.pending_interventions),
+    ...arrayValue(session.intervention_requests),
+    ...arrayValue(session.interventions),
+    ...arrayValue(session.human_interventions),
+  ].filter((record) => !isRecord(record) || !["completed", "resolved", "canceled", "cancelled"].includes(stringValue(record.status).toLowerCase()));
   const pendingReplies = arrayValue(session.mailbox).filter((record) => {
     if (!isRecord(record) || record.requires_reply !== true) {
       return false;
@@ -724,7 +916,14 @@ function summarizeCoworkAttention(session: UnknownRecord): DesktopCoworkAttentio
     const status = stringValue(record.status).toLowerCase();
     return !status || PENDING_REPLY_STATUSES.has(status);
   });
-  const total = blockers.length + taskIssues.length + workUnitIssues.length + agentIssues.length + pendingReplies.length;
+  const explicitAttention = blockers.length + taskIssues.length + workUnitIssues.length + agentIssues.length + approvals.length + interventions.length + pendingReplies.length;
+  if (!explicitAttention && APPROVAL_SESSION_STATUSES.has(sessionStatus)) {
+    approvals.push(sessionStatus);
+  }
+  if (!explicitAttention && !approvals.length && INTERVENTION_SESSION_STATUSES.has(sessionStatus)) {
+    interventions.push(sessionStatus);
+  }
+  const total = blockers.length + taskIssues.length + workUnitIssues.length + agentIssues.length + approvals.length + interventions.length + pendingReplies.length;
   const finalOutput = coworkFinalOutput(session);
   return {
     total,
@@ -733,9 +932,15 @@ function summarizeCoworkAttention(session: UnknownRecord): DesktopCoworkAttentio
     taskIssues: taskIssues.length,
     workUnitIssues: workUnitIssues.length,
     agentIssues: agentIssues.length,
+    approvals: approvals.length,
+    interventions: interventions.length,
     tone: total ? "attention" : finalOutput ? "complete" : "normal",
     label: blockers.length
       ? `${blockers.length} blocker${blockers.length === 1 ? "" : "s"}`
+      : approvals.length
+        ? `${approvals.length} approval${approvals.length === 1 ? "" : "s"} needed`
+        : interventions.length
+          ? `${interventions.length} intervention${interventions.length === 1 ? "" : "s"} needed`
       : pendingReplies.length
         ? `${pendingReplies.length} ${pendingReplies.length === 1 ? "reply" : "replies"} needed`
         : total
@@ -901,6 +1106,10 @@ function stringifyPayload(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function firstNonEmpty(...values: string[]): string {
+  return values.find((value) => value.trim()) ?? "";
 }
 
 function arrayFromPayload(payload: unknown, ...keys: string[]): UnknownRecord[] {

@@ -1,13 +1,20 @@
 import { describe, expect, test } from "vitest";
+import { buildDesktopCoworkCockpitView, buildDesktopCoworkSessionRows } from "./desktopCowork";
+import { buildDesktopKnowledgePaneModel } from "./desktopKnowledgeTraceability";
+import { buildDesktopRunChainItems } from "./desktopRunChainInspector";
+import { buildDesktopSettingsFormState, buildDesktopSettingsPaneModel } from "./desktopSettingsProviders";
 import { buildDesktopTaskCenterItems } from "./desktopTaskCenter";
+import { buildDesktopToolsSkillsPaneModel } from "./desktopToolsSkills";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
-import { installDesktopWorkbenchShell, updateDesktopTaskCenterItems } from "./desktopWorkbenchShell";
+import { installDesktopWorkbenchShell, updateDesktopSettingsPane, updateDesktopTaskCenterItems, updateDesktopToolsSkillsPane } from "./desktopWorkbenchShell";
 
 class FakeElement {
   public id = "";
   public className = "";
   public children: FakeElement[] = [];
   public attributes = new Map<string, string>();
+  public value = "";
+  public checked = false;
   private listeners = new Map<string, ((event: unknown) => void)[]>();
   private ownTextContent = "";
   public style = {
@@ -55,6 +62,20 @@ class FakeElement {
 
   click(): void {
     this.dispatchEvent({ type: "click" });
+  }
+
+  getBoundingClientRect(): DOMRect {
+    return {
+      width: 160,
+      height: 40,
+      left: 0,
+      top: 0,
+      right: 160,
+      bottom: 40,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    };
   }
 
   replaceChildren(...children: FakeElement[]): void {
@@ -108,9 +129,21 @@ class FakeHead extends FakeElement {
 class FakeDocument {
   public body = new FakeBody();
   public head = new FakeHead();
+  public listeners = new Map<string, ((event: unknown) => void)[]>();
 
   createElement(tagName: string): FakeElement {
     return new FakeElement(tagName);
+  }
+
+  addEventListener(type: string, listener: (event: unknown) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  dispatchEvent(event: { type: string } & Record<string, unknown>): boolean {
+    for (const listener of this.listeners.get(event.type) ?? []) {
+      listener(event);
+    }
+    return true;
   }
 
   getElementById(id: string): FakeElement | null {
@@ -237,6 +270,42 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-command-palette-status")?.textContent).toContain("Type to search");
   });
 
+  test("renders desktop docs, shortcut help, page help, and tour targets in persistent panes", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: {
+        ...createDefaultWorkbenchLayout(),
+        bottom: { visible: true, size: 260 },
+      },
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const help = targetDocument.body.querySelector(".desktop-help-pane");
+    expect(help?.getAttribute("aria-label")).toBe("Desktop help");
+    expect(help?.querySelector('[data-desktop-help-action="docs"]')?.getAttribute("href")).toBe("/docs");
+    expect(help?.querySelectorAll(".desktop-help-action").map((node) => node.textContent)).toEqual([
+      "Open docs",
+      "Shortcut help",
+      "Page help",
+      "Help tour",
+    ]);
+
+    help?.querySelector('[data-desktop-help-action="shortcut-help"]')?.click();
+    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Shortcut Help");
+    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Ctrl+Shift+P: Command palette");
+
+    targetDocument.dispatchEvent({ type: "tinybot:open-page-help" });
+    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Page help");
+
+    help?.querySelector('[data-desktop-help-action="help-tour"]')?.click();
+    const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
+    expect(inspector?.textContent).toContain("Desktop help tour");
+    expect(inspector?.textContent).toContain("Step 1: Activity rail");
+    expect(inspector?.textContent).toContain("Inspector - Review run-chain, task, gateway, file, and help details");
+  });
+
   test("marks compact activity controls with predictable focus order and accessible labels", () => {
     const targetDocument = new FakeDocument();
 
@@ -289,6 +358,53 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("false");
     expect(controls[1].getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("renders a persistent run-chain inspector pane with selectable details", () => {
+    const targetDocument = new FakeDocument();
+    const runChainItems = buildDesktopRunChainItems([
+      {
+        role: "assistant",
+        message_id: "m-plan",
+        reasoning_content: "Inspect the active context without moving the chat scroll.",
+      },
+      {
+        role: "assistant",
+        message_id: "m-context",
+        citations: [
+          {
+            id: "cite-1",
+            title: "Spec citation",
+            url: "https://example.test/spec",
+            snippet: "Selected spec evidence",
+          },
+        ],
+      },
+    ]);
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      runChainItems,
+      selectedRunChainItemKey: "m-context:citation:cite-1",
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-run-chain-inspector");
+    expect(pane?.getAttribute("aria-label")).toBe("Run-chain inspector");
+    expect(pane?.textContent).toContain("Completed | 2 items | planning");
+    expect(pane?.querySelectorAll(".desktop-run-chain-item").map((row) => row.getAttribute("data-desktop-run-chain-item"))).toEqual([
+      "m-plan:planning",
+      "m-context:citation:cite-1",
+    ]);
+    expect(pane?.querySelector('[data-desktop-run-chain-item="m-context:citation:cite-1"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(pane?.querySelector(".desktop-run-chain-detail")?.textContent).toContain("Spec citation");
+    expect(pane?.querySelector(".desktop-run-chain-detail")?.textContent).toContain("URL: https://example.test/spec");
+
+    pane?.querySelector('[data-desktop-run-chain-item="m-plan:planning"]')?.click();
+    expect(pane?.querySelector('[data-desktop-run-chain-item="m-plan:planning"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(pane?.querySelector(".desktop-run-chain-detail")?.textContent).toContain("Thinking: Inspect the active context");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session");
   });
 
   test("renders native file upload actions for knowledge and session files", () => {
@@ -453,6 +569,694 @@ describe("desktop workbench shell", () => {
     ]);
   });
 
+  test("renders grouped settings and providers pane state in the desktop workbench", () => {
+    const targetDocument = new FakeDocument();
+    const settingsActions: string[] = [];
+    const settingsPane = buildDesktopSettingsPaneModel(
+      {
+        agent: {
+          workspace: "~/.tinybot/workspace",
+          model: "",
+          activeProfile: "work",
+          provider: "openai",
+          temperature: 0.1,
+          maxTokens: 8192,
+          contextWindowTokens: 65536,
+          maxToolIterations: 200,
+          reasoningEffort: null,
+          timezone: "Shanghai",
+        },
+        embedding: {
+          provider: "openai",
+          modelName: "text-embedding-3-small",
+          apiKey: "",
+          apiBase: null,
+        },
+        knowledge: {
+          enabled: true,
+          autoRetrieve: true,
+          maxChunks: 5,
+          chunkSize: 500,
+          chunkOverlap: 100,
+          retrievalMode: "hybrid",
+          rerankEnabled: false,
+          rerankModel: "qwen3-rerank",
+          rerankApiKey: null,
+          rerankApiKeyEnvVar: "DASHSCOPE_API_KEY",
+          rerankApiBase: "https://dashscope.aliyuncs.com/compatible-api/v1",
+          rerankTopN: 0,
+          generateSummary: false,
+          semanticExtractionMode: "rule",
+          semanticLlmMaxTokens: 1200,
+          semanticLlmTimeout: 30,
+          graphRagCommunityAlgorithm: "greedy",
+          graphRagCommunityLevel: 0,
+          graphRagReportLlmEnabled: false,
+          graphRagReportMaxTokens: 1200,
+          graphRagEntitySummaryEnabled: true,
+        },
+        tools: {
+          webEnable: true,
+          webProxy: null,
+          searchProvider: "duckduckgo",
+          execEnable: false,
+          execTimeout: 60,
+          mcpServersText: "",
+          restrictToWorkspace: true,
+        },
+        gateway: {
+          host: "0.0.0.0",
+          port: 18790,
+          heartbeatEnabled: true,
+          heartbeatIntervalS: 1800,
+        },
+        channels: {
+          sendProgress: true,
+          sendToolHints: true,
+          sendMaxRetries: 3,
+        },
+        providerEditor: {
+          selectedProvider: "openai",
+          profileId: "work",
+          apiKey: "sk-live",
+          apiBase: "https://api.openai.com/v1",
+          modelsText: "gpt-4.1\ngpt-4.1-mini",
+          supportsModelDiscovery: true,
+        },
+      },
+      {
+        lastSavedState: null,
+        saveStatus: "failed",
+        saveError: "HTTP 400",
+        providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      },
+    );
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      settingsPane,
+      settingsActions: {
+        onSettingsAction: ({ action }) => settingsActions.push(action),
+      },
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-settings-pane");
+    expect(pane?.getAttribute("aria-label")).toBe("Settings and providers");
+    expect(pane?.textContent).toContain("Settings");
+    expect(pane?.textContent).toContain("Save: HTTP 400");
+    expect(pane?.textContent).toContain("Validation: model, timezone");
+    expect(pane?.textContent).toContain("Agent");
+    expect(pane?.textContent).toContain("Model: ");
+    expect(pane?.textContent).toContain("Provider profile: work");
+    expect(pane?.textContent).toContain("API key: ********");
+    expect(pane?.textContent).toContain("Catalog: OpenAI (ready)");
+    expect(pane?.textContent).toContain("Models: gpt-4.1, gpt-4.1-mini");
+    expect(pane?.querySelector('[data-desktop-settings-action="save"]')?.getAttribute("disabled")).toBe("true");
+    expect(pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.textContent).toBe("Refresh models");
+    pane?.querySelector('[data-desktop-settings-action="save"]')?.click();
+    pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.click();
+    expect(settingsActions).toEqual(["save", "discoverModels"]);
+  });
+
+  test("updates the installed settings pane without rebuilding the workbench", () => {
+    const targetDocument = new FakeDocument();
+    const firstPane = buildDesktopSettingsPaneModel(buildDesktopSettingsFormState({}), {
+      saveStatus: "idle",
+    });
+    const nextState = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work" } },
+      providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: ["gpt-4.1"] } } },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+    const nextPane = buildDesktopSettingsPaneModel(nextState, {
+      lastSavedState: nextState,
+      saveStatus: "saved",
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      settingsPane: firstPane,
+    });
+    updateDesktopSettingsPane(targetDocument as unknown as Document, nextPane);
+
+    const pane = targetDocument.body.querySelector(".desktop-settings-pane");
+    expect(pane?.textContent).toContain("Save: Settings saved");
+    expect(pane?.textContent).toContain("Provider profile: work");
+    expect(pane?.textContent).toContain("Catalog: OpenAI (ready)");
+  });
+
+  test("renders tools and skills list-detail pane in the desktop workbench", () => {
+    const targetDocument = new FakeDocument();
+    const toolSkillActions: string[] = [];
+    const edits: string[] = [];
+    const toolsSkillsPane = buildDesktopToolsSkillsPaneModel({
+      toolsPayload: {
+        tools: [
+          {
+            name: "exec",
+            description: "Run a command",
+            parameters: {
+              type: "object",
+              required: ["command"],
+              properties: {
+                command: { type: "string", description: "Command to run" },
+              },
+            },
+          },
+        ],
+      },
+      skillsPayload: {
+        skills: [
+          { name: "planner", source: "workspace", available: true, always: true },
+        ],
+      },
+      config: { tools: { exec: { enable: false } }, skills: { enabled: ["*"] } },
+      selectedToolName: "exec",
+      selectedSkillName: "planner",
+      selectedSkillDetail: {
+        name: "planner",
+        content: "# Planner",
+        tinybot_meta: { description: "Plan work", always: true },
+      },
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      toolsSkillsPane,
+      toolsSkillsActions: {
+        onToolsSkillsAction: ({ action, field, value }) => {
+          toolSkillActions.push(action);
+          if (field) {
+            edits.push(`${field}:${String(value)}`);
+          }
+        },
+      },
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-tools-skills-pane");
+    expect(pane?.getAttribute("aria-label")).toBe("Tools and skills");
+    expect(pane?.textContent).toContain("Tools and skills");
+    expect(pane?.textContent).toContain("1 tool / 1 skill");
+    expect(pane?.textContent).toContain("Command: disabled / 1 parameters");
+    expect(pane?.textContent).toContain("Tool detail: Command");
+    expect(pane?.textContent).toContain("Config: execDisabled");
+    expect(pane?.textContent).toContain("command: string required - Command to run");
+    expect(pane?.textContent).toContain("planner: workspace / always");
+    expect(pane?.textContent).toContain("Skill detail: planner");
+    expect(pane?.textContent).toContain("Source: workspace");
+    expect(pane?.textContent).toContain("Always load: Enabled");
+    expect(pane?.textContent).toContain("Save state: No changes");
+    expect(pane?.textContent).toContain("Validation: idle");
+
+    const description = pane?.querySelector('[data-desktop-skill-editor-field="description"]');
+    description!.value = "Plan better";
+    description?.dispatchEvent({ type: "input", target: description });
+    const always = pane?.querySelector('[data-desktop-skill-editor-field="always"]');
+    always!.checked = false;
+    always?.dispatchEvent({ type: "change", target: always });
+
+    pane?.querySelector('[data-desktop-tools-skills-action="validateSkill"]')?.click();
+    pane?.querySelector('[data-desktop-tools-skills-action="saveSkill"]')?.click();
+    pane?.querySelector('[data-desktop-tools-skills-action="deleteSkill"]')?.click();
+    pane?.querySelector('[data-desktop-tools-skills-action="toggleAlways"]')?.click();
+    expect(toolSkillActions).toEqual(["editSkill", "editSkill", "validateSkill", "saveSkill", "deleteSkill", "toggleAlways"]);
+    expect(edits).toEqual(["description:Plan better", "always:false"]);
+  });
+
+  test("updates the installed tools and skills pane without rebuilding the workbench", () => {
+    const targetDocument = new FakeDocument();
+    const firstPane = buildDesktopToolsSkillsPaneModel({});
+    const nextPane = buildDesktopToolsSkillsPaneModel({
+      toolsPayload: { tools: [{ name: "read_file", description: "Read files" }] },
+      skillsPayload: { skills: [{ name: "reviewer", source: "builtin", available: true }] },
+      selectedToolName: "read_file",
+      selectedSkillName: "reviewer",
+      selectedSkillDetail: { name: "reviewer", content: "# Reviewer", metadata: { description: "Review work" } },
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      toolsSkillsPane: firstPane,
+    });
+    updateDesktopToolsSkillsPane(targetDocument as unknown as Document, nextPane);
+
+    const pane = targetDocument.body.querySelector(".desktop-tools-skills-pane");
+    expect(pane?.textContent).toContain("1 tool / 1 skill");
+    expect(pane?.textContent).toContain("Read file: no parameters");
+    expect(pane?.textContent).toContain("reviewer: builtin / enabled");
+  });
+
+  test("renders knowledge pane with document detail, query, graph, and traceability actions", () => {
+    const targetDocument = new FakeDocument();
+    const actionEvents: string[] = [];
+    const knowledgePane = buildDesktopKnowledgePaneModel({
+      statsPayload: {
+        total_documents: 1,
+        total_chunks: 4,
+        indexed_dense: 4,
+        indexed_sparse: 4,
+        claims_ready: true,
+        relations_ready: true,
+        graph_ready: true,
+        stage_readiness: {
+          evidence_expansion: { stage: "evidence_expansion", status: "complete", ready: true },
+        },
+      },
+      config: { knowledge: { enabled: true, retrieval_mode: "hybrid", max_chunks: 5 } },
+      documentsPayload: { documents: [{ id: "doc-1", title: "Desktop UX", path: "docs/desktop.md", chunk_count: 4, status: "indexed" }] },
+      selectedDocumentId: "doc-1",
+      queryDraft: { query: "desktop", mode: "hybrid", topK: 5 },
+      queryResultPayload: { data: [{ doc_id: "doc-1", doc_name: "Desktop UX", content: "Desktop knowledge pane", score: 0.7 }] },
+      graphPayload: {
+        nodes: [{ id: "desktop", label: "Desktop" }],
+        edges: [],
+        communities: [{ id: "c1", title: "Desktop cluster", summary: "Cluster summary" }],
+        reports: [{ id: "r1", title: "Desktop report", summary: "Report summary" }],
+        claims: [{ id: "claim-1", text: "Desktop knowledge pane", source: { doc_name: "Desktop UX" } }],
+      },
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      knowledgePane,
+      knowledgeActions: {
+        onKnowledgeAction: ({ action }) => actionEvents.push(action),
+      },
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-knowledge-pane");
+    expect(pane?.getAttribute("aria-label")).toBe("Knowledge workbench");
+    expect(pane?.textContent).toContain("Knowledge");
+    expect(pane?.textContent).toContain("1 doc / readiness 100% / graph 1 nodes / 0 edges");
+    expect(pane?.textContent).toContain("Knowledge enabled");
+    expect(pane?.textContent).toContain("Desktop UX: indexed / 4 chunks");
+    expect(pane?.textContent).toContain("Document detail: Desktop UX");
+    expect(pane?.textContent).toContain("docs/desktop.md / indexed / 4 chunks");
+    expect(pane?.textContent).toContain("Query: desktop");
+    expect(pane?.textContent).toContain("Results: 1");
+    expect(pane?.textContent).toContain("Graph: 1 nodes / 0 edges / 0 evidence");
+    expect(pane?.textContent).toContain("Community: Desktop cluster");
+    expect(pane?.textContent).toContain("Report: Desktop report");
+    expect(pane?.textContent).toContain("Claim: Desktop knowledge pane");
+
+    pane?.querySelector('[data-desktop-knowledge-action="runQuery"]')?.click();
+    pane?.querySelector('[data-desktop-knowledge-action="refreshGraph"]')?.click();
+    pane?.querySelector('[data-desktop-knowledge-action="rebuildIndex"]')?.click();
+    pane?.querySelector('[data-desktop-knowledge-action="deleteDocument"]')?.click();
+    expect(actionEvents).toEqual(["runQuery", "refreshGraph", "rebuildIndex", "deleteDocument"]);
+  });
+
+  test("renders a desktop Cowork cockpit with session list, graph, inspector, actions, and task feed", () => {
+    const targetDocument = new FakeDocument();
+    const actionEvents: Array<{ action: string; sessionId: string; goal: string; message: string }> = [];
+    const session = {
+      id: "cowork-1",
+      title: "Desktop migration",
+      goal: "Move Cowork into a desktop cockpit",
+      status: "blocked",
+      architecture: "adaptive_starter",
+      updated_at: "2026-05-31T09:00:00Z",
+      agents: [
+        { id: "agent-1", name: "Planner", role: "architect", status: "running", current_task_id: "task-1" },
+      ],
+      tasks: [
+        { id: "task-1", title: "Map cockpit layout", status: "in_progress", assigned_agent_id: "agent-1" },
+      ],
+      mailbox: [
+        { id: "mail-1", sender_id: "agent-1", recipient_ids: ["reviewer"], status: "delivered", content: "Need layout review.", requires_reply: true },
+      ],
+      graph: {
+        nodes: [{ id: "agent-1", label: "Planner", kind: "agent" }, { id: "task-1", label: "Map cockpit layout", kind: "task" }],
+        edges: [{ id: "edge-1", source: "agent-1", target: "task-1", kind: "owns" }],
+      },
+      completion_decision: { blocked: [{ id: "mail-1", content: "Need layout review." }] },
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      coworkPane: {
+        sessionRows: buildDesktopCoworkSessionRows({ sessions: [session] }),
+        cockpitView: buildDesktopCoworkCockpitView(session, { selected: { type: "task", id: "task-1" } }),
+      },
+      coworkActions: {
+        onCoworkAction: (event) => {
+          actionEvents.push({
+            action: event.action,
+            sessionId: event.sessionId ?? "",
+            goal: event.goal ?? "",
+            message: event.message ?? "",
+          });
+        },
+      },
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
+    const goal = pane?.querySelector('[data-desktop-cowork-input="goal"]');
+    const message = pane?.querySelector('[data-desktop-cowork-input="message"]');
+    if (goal) {
+      goal.value = "Create a desktop run";
+    }
+    if (message) {
+      message.value = "Continue with the next unit";
+    }
+    expect(pane?.getAttribute("aria-label")).toBe("Cowork cockpit");
+    expect(pane?.textContent).toContain("Desktop migration");
+    expect(pane?.textContent).toContain("Move Cowork into a desktop cockpit");
+    expect(pane?.textContent).toContain("blocked / Adaptive Starter / 1 agent / 0/1 tasks");
+    expect(pane?.querySelectorAll(".desktop-cowork-session-row").map((row) => row.getAttribute("data-desktop-cowork-session"))).toEqual(["cowork-1"]);
+    expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("2 nodes / 1 edge");
+    expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("Planner");
+    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Map cockpit layout");
+    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Owner: agent-1");
+    pane?.querySelector('[data-desktop-cowork-entity="agent-1"]')?.click();
+    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Selected: Planner");
+    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Status: running");
+    expect(pane?.querySelectorAll(".desktop-cowork-action").map((row) => row.getAttribute("data-desktop-cowork-action"))).toEqual([
+      "blueprintValidate",
+      "blueprintPreview",
+      "create",
+      "run",
+      "pause",
+      "resume",
+      "emergencyStop",
+      "delete",
+      "message",
+      "summary",
+      "addTask",
+    ]);
+    for (const action of ["create", "run", "pause", "resume", "emergencyStop", "delete", "message", "summary"]) {
+      pane?.querySelector(`[data-desktop-cowork-action="${action}"]`)?.click();
+    }
+    expect(actionEvents).toEqual([
+      { action: "createSession", sessionId: "", goal: "Create a desktop run", message: "" },
+      { action: "runSession", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "pauseSession", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "resumeSession", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "emergencyStopSession", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "deleteSession", sessionId: "cowork-1", goal: "", message: "" },
+      { action: "sendMessage", sessionId: "cowork-1", goal: "", message: "Continue with the next unit" },
+      { action: "loadSummary", sessionId: "cowork-1", goal: "", message: "" },
+    ]);
+    expect(pane?.querySelector(".desktop-cowork-task-feed")?.textContent).toContain("1 blocker");
+  });
+
+  test("routes Cowork blueprint validate and preview actions from the cockpit", () => {
+    const targetDocument = new FakeDocument();
+    const actionEvents: Array<{ action: string; blueprintText: string; preview: boolean }> = [];
+    const session = {
+      id: "cowork-1",
+      title: "Desktop migration",
+      goal: "Move Cowork into a desktop cockpit",
+      status: "running",
+      architecture: "adaptive_starter",
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      coworkPane: {
+        sessionRows: buildDesktopCoworkSessionRows({ sessions: [session] }),
+        cockpitView: buildDesktopCoworkCockpitView(session),
+        blueprintDiagnostics: "Valid / 1 warning(s)",
+      },
+      coworkActions: {
+        onCoworkAction: (event) => {
+          actionEvents.push({
+            action: event.action,
+            blueprintText: event.blueprintText ?? "",
+            preview: event.preview === true,
+          });
+        },
+      },
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
+    const blueprint = pane?.querySelector('[data-desktop-cowork-input="blueprint"]');
+    if (blueprint) {
+      blueprint.value = "{\"agents\":[]}";
+    }
+
+    expect(pane?.textContent).toContain("Blueprint: Valid / 1 warning(s)");
+    pane?.querySelector('[data-desktop-cowork-action="blueprintValidate"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-action="blueprintPreview"]')?.click();
+
+    expect(actionEvents).toEqual([
+      { action: "validateBlueprint", blueprintText: "{\"agents\":[]}", preview: false },
+      { action: "validateBlueprint", blueprintText: "{\"agents\":[]}", preview: true },
+    ]);
+  });
+
+  test("renders Cowork observability tabs and preserves selected inspector while switching panels", () => {
+    const targetDocument = new FakeDocument();
+    const session = {
+      id: "cowork-1",
+      title: "Desktop migration",
+      goal: "Move Cowork into a desktop cockpit",
+      status: "blocked",
+      architecture: "adaptive_starter",
+      agents: [{ id: "agent-1", name: "Planner", status: "running", current_task_title: "Map helpers" }],
+      tasks: [{ id: "task-1", title: "Map helpers", status: "in_progress", assigned_agent_id: "agent-1" }],
+      mailbox: [{ id: "mail-1", sender_id: "agent-1", recipient_ids: ["reviewer"], status: "delivered", content: "Need review", requires_reply: true }],
+      trace: [{ id: "trace-1", stage: "task", action: "assign", status: "completed", detail: "Assigned task" }],
+      artifact_index: [{ id: "artifact-1", kind: "file", path_or_url: "docs/plan.md", summary: "Plan" }],
+      run_metrics: [{ label: "Round efficiency", value: "82%" }],
+      architecture_projection: { summary: "Adaptive starter projection" },
+      swarm_plan: { summary: "Planner swarm", work_units: [{ id: "wu-1", title: "Extract projections", status: "ready" }] },
+      task_dag: { nodes: [{ id: "task-1", label: "Map helpers" }], edges: [] },
+      outputs: [{ id: "output-1", title: "Draft output", content: "Desktop adaptation notes" }],
+      final_draft: "Ship the desktop Cowork cockpit.",
+      evaluation_results: [{ id: "eval-1", status: "passed", summary: "Coverage OK" }],
+      completion_decision: { blocked: [{ id: "blocker-1", content: "Need endpoint parity." }] },
+      graph: {
+        nodes: [{ id: "agent-1", label: "Planner", kind: "agent" }],
+        edges: [],
+      },
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      coworkPane: {
+        sessionRows: buildDesktopCoworkSessionRows({ sessions: [session] }),
+        cockpitView: buildDesktopCoworkCockpitView(session, { selected: { type: "agent", id: "agent-1" } }),
+      },
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
+    expect(pane?.querySelectorAll(".desktop-cowork-observability-tab").map((row) => row.getAttribute("data-desktop-cowork-panel"))).toEqual([
+      "graph",
+      "focus",
+      "metrics",
+      "architecture",
+      "swarm",
+      "workUnits",
+      "taskDag",
+      "agents",
+      "tasks",
+      "mailbox",
+      "threads",
+      "trace",
+      "artifacts",
+      "outputs",
+      "finalDraft",
+      "blockers",
+      "evaluations",
+      "status",
+    ]);
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Graph");
+
+    pane?.querySelector('[data-desktop-cowork-panel="metrics"]')?.click();
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Round efficiency: 82%");
+    expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Selected: Planner");
+
+    pane?.querySelector('[data-desktop-cowork-panel="finalDraft"]')?.click();
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Ship the desktop Cowork cockpit.");
+  });
+
+  test("constrains large Cowork sessions with bounded rendering and observability filtering", () => {
+    const targetDocument = new FakeDocument();
+    const session = {
+      id: "cowork-large",
+      title: "Large desktop migration",
+      status: "running",
+      agents: Array.from({ length: 40 }, (_, index) => ({
+        id: `agent-${index + 1}`,
+        name: `Agent ${index + 1}`,
+        status: index % 2 === 0 ? "running" : "idle",
+      })),
+      tasks: Array.from({ length: 70 }, (_, index) => ({
+        id: `task-${index + 1}`,
+        title: `Task ${index + 1}`,
+        status: index % 3 === 0 ? "completed" : "in_progress",
+      })),
+      trace: Array.from({ length: 80 }, (_, index) => ({
+        id: `trace-${index + 1}`,
+        stage: `Trace span ${index + 1}`,
+        action: "step",
+        status: "completed",
+      })),
+      artifact_index: Array.from({ length: 45 }, (_, index) => ({
+        id: `artifact-${index + 1}`,
+        kind: "file",
+        path_or_url: `docs/artifact-${index + 1}.md`,
+      })),
+      graph: {
+        nodes: Array.from({ length: 60 }, (_, index) => ({
+          id: `task-${index + 1}`,
+          label: `Task ${index + 1}`,
+          kind: "task",
+        })),
+        edges: Array.from({ length: 40 }, (_, index) => ({
+          source: `task-${index + 1}`,
+          target: `task-${index + 2}`,
+          label: "depends",
+        })),
+      },
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      coworkPane: {
+        sessionRows: buildDesktopCoworkSessionRows({ sessions: [session] }),
+        cockpitView: buildDesktopCoworkCockpitView(session),
+      },
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
+    expect(pane?.querySelectorAll(".desktop-cowork-graph-node")).toHaveLength(24);
+    expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("Showing 24 of 60 nodes");
+    expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("Showing 12 of 40 edges");
+
+    pane?.querySelector('[data-desktop-cowork-panel="tasks"]')?.click();
+    expect(pane?.querySelectorAll(".desktop-cowork-observability-row")).toHaveLength(24);
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Showing 24 of 70 rows");
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).not.toContain("Task 25");
+
+    pane?.querySelector('[data-desktop-cowork-panel="trace"]')?.click();
+    expect(pane?.querySelectorAll(".desktop-cowork-observability-row")).toHaveLength(24);
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Showing 24 of 80 rows");
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).not.toContain("Trace span 25");
+
+    const filter = pane?.querySelector('[data-desktop-cowork-filter="observability"]');
+    if (filter) {
+      filter.value = "Trace span 70";
+      filter.dispatchEvent({ type: "input", target: filter });
+    }
+
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Showing 1 of 1 matching rows (80 total)");
+    expect(pane?.querySelector(".desktop-cowork-observability-panel")?.textContent).toContain("Trace span 70");
+  });
+
+  test("routes Cowork task, work-unit, and branch operations from desktop controls", () => {
+    const targetDocument = new FakeDocument();
+    const actionEvents: Array<Record<string, unknown>> = [];
+    const session = {
+      id: "cowork-1",
+      title: "Desktop migration",
+      status: "blocked",
+      agents: [{ id: "agent-1", name: "Planner" }, { id: "agent-2", name: "Reviewer" }],
+      tasks: [{ id: "task-1", title: "Map helpers", status: "failed", assigned_agent_id: "agent-1" }],
+      branch_results: [{ branch_id: "branch-a", result_id: "result-a", summary: "Use helpers" }, { branch_id: "branch-b", result_id: "result-b", summary: "Use controllers" }],
+      swarm_plan: {
+        work_units: [{ id: "wu-1", title: "Extract projections", status: "failed", assigned_agent_id: "agent-1" }],
+      },
+      graph: {
+        nodes: [
+          { id: "task-1", label: "Map helpers", kind: "task" },
+          { id: "wu-1", label: "Extract projections", kind: "workUnit" },
+          { id: "branch-a", label: "Use helpers", kind: "branch" },
+        ],
+        edges: [],
+      },
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      coworkPane: {
+        sessionRows: buildDesktopCoworkSessionRows({ sessions: [session] }),
+        cockpitView: buildDesktopCoworkCockpitView(session, { selected: { type: "task", id: "task-1" } }),
+      },
+      coworkActions: {
+        onCoworkAction: (event) => {
+          const record: Record<string, unknown> = {
+            action: event.action,
+            sessionId: event.sessionId,
+            taskId: event.taskId,
+            taskAction: event.taskAction,
+            workUnitId: event.workUnitId,
+            workUnitAction: event.workUnitAction,
+            branchId: event.branchId,
+            resultId: event.resultId,
+            branchIds: event.branchIds,
+            title: event.taskTitle,
+            assignedAgentId: event.assignedAgentId,
+          };
+          for (const key of Object.keys(record)) {
+            if (record[key] === undefined) {
+              delete record[key];
+            }
+          }
+          actionEvents.push(record);
+        },
+      },
+    });
+
+    const pane = targetDocument.body.querySelector(".desktop-cowork-cockpit");
+    const taskTitle = pane?.querySelector('[data-desktop-cowork-input="taskTitle"]');
+    const taskAgents = pane?.querySelectorAll('[data-desktop-cowork-input="assignedAgentId"]') ?? [];
+    if (taskTitle) {
+      taskTitle.value = "Write migration notes";
+    }
+    for (const taskAgent of taskAgents) {
+      taskAgent.value = "agent-2";
+    }
+    pane?.querySelector('[data-desktop-cowork-action="addTask"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="assignTask"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="retryTask"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="reviewTask"]')?.click();
+
+    pane?.querySelector('[data-desktop-cowork-entity="wu-1"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="retryWorkUnit"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="skipWorkUnit"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="cancelWorkUnit"]')?.click();
+
+    pane?.querySelector('[data-desktop-cowork-entity="branch-a"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="selectBranch"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="selectBranchResult"]')?.click();
+    pane?.querySelector('[data-desktop-cowork-entity-action="mergeBranchResults"]')?.click();
+
+    expect(actionEvents).toEqual([
+      { action: "addTask", sessionId: "cowork-1", title: "Write migration notes", assignedAgentId: "agent-2" },
+      { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "assign", assignedAgentId: "agent-2" },
+      { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "retry" },
+      { action: "task", sessionId: "cowork-1", taskId: "task-1", taskAction: "review" },
+      { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "retry" },
+      { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "skip" },
+      { action: "workUnit", sessionId: "cowork-1", workUnitId: "wu-1", workUnitAction: "cancel" },
+      { action: "selectBranch", sessionId: "cowork-1", branchId: "branch-a" },
+      { action: "selectBranchResult", sessionId: "cowork-1", branchId: "branch-a", resultId: "result-a" },
+      { action: "mergeBranchResults", sessionId: "cowork-1", branchIds: ["branch-a", "branch-b"] },
+    ]);
+  });
+
   test("handles ownership-aware gateway runtime actions", () => {
     const targetDocument = new FakeDocument();
     const actionEvents: string[] = [];
@@ -490,16 +1294,18 @@ describe("desktop workbench shell", () => {
     expect(runtime?.querySelectorAll(".desktop-gateway-action").map((action) => action.getAttribute("data-desktop-gateway-action"))).toEqual([
       "stop",
       "restart",
+      "keepRunningOnExit",
       "copyDiagnostics",
       "openLogs",
     ]);
 
     runtime?.querySelector('[data-desktop-gateway-action="stop"]')?.click();
     runtime?.querySelector('[data-desktop-gateway-action="restart"]')?.click();
+    runtime?.querySelector('[data-desktop-gateway-action="keepRunningOnExit"]')?.click();
     runtime?.querySelector('[data-desktop-gateway-action="copyDiagnostics"]')?.click();
     runtime?.querySelector('[data-desktop-gateway-action="openLogs"]')?.click();
 
-    expect(actionEvents).toEqual(["stop", "restart"]);
+    expect(actionEvents).toEqual(["stop", "restart", "keepRunningOnExit"]);
     expect(copied[0]).toContain("Command: uv run tinybot gateway");
     expect(copied[0]).toContain("stdout: ready");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Gateway Logs");
@@ -622,7 +1428,10 @@ describe("desktop workbench shell", () => {
     });
 
     expect(targetDocument.getElementById("desktop-workspace-recent-files")?.getAttribute("aria-label")).toBe("Recent workspace files");
+    expect(targetDocument.getElementById("desktop-workspace-status")?.textContent).toContain("0 files");
     expect(targetDocument.getElementById("desktop-workspace-active-path")?.textContent).toContain("No workspace file selected");
+    expect(targetDocument.getElementById("desktop-workspace-updated-at")?.textContent).toContain("No timestamp");
+    expect(targetDocument.getElementById("desktop-workspace-detail")?.textContent).toContain("No workspace file selected");
     expect(targetDocument.getElementById("desktop-workspace-editor")?.getAttribute("aria-label")).toBe("Workspace file editor");
     expect(targetDocument.getElementById("desktop-workspace-save")?.getAttribute("disabled")).toBe("");
     expect(targetDocument.getElementById("desktop-workspace-reveal")?.getAttribute("disabled")).toBe("");
@@ -706,6 +1515,7 @@ describe("desktop workbench shell", () => {
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent;
     expect(styleText).toContain(".desktop-panel-control:focus-visible");
     expect(styleText).toContain(".desktop-file-action:focus-visible");
+    expect(styleText).toContain(".desktop-help-action:focus-visible");
     expect(styleText).toContain(".desktop-session-upload-key:focus-visible");
     expect(styleText).toContain(".desktop-workspace-file-row:focus-visible");
     expect(styleText).toContain(".desktop-workspace-editor:focus-visible");

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   applyDesktopProviderModels,
+  buildDesktopProviderCatalogItems,
+  buildDesktopSettingsPaneModel,
   buildDesktopProviderModelRequest,
   buildDesktopSecretField,
   buildDesktopSettingsFormState,
@@ -191,6 +193,24 @@ describe("desktop settings and provider helpers", () => {
     expect(applied.message).toBe("cached");
   });
 
+  test("normalizes provider catalog payloads for workbench settings panes", () => {
+    expect(buildDesktopProviderCatalogItems({
+      providers: [
+        { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready" },
+        { id: "deepseek", display_name: "DeepSeek", base_url: "https://api.deepseek.com", status: "available" },
+        null,
+      ],
+    })).toEqual([
+      { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready" },
+      { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", status: "available" },
+    ]);
+    expect(buildDesktopProviderCatalogItems([
+      { id: "local", display_name: "Local" },
+    ])).toEqual([
+      { id: "local", displayName: "Local", baseUrl: "", status: "" },
+    ]);
+  });
+
   test("preserves masked secrets and parses provider profiles like the root helper", () => {
     expect(buildDesktopSecretField("sk-live")).toEqual({
       value: "sk-live",
@@ -219,6 +239,63 @@ describe("desktop settings and provider helpers", () => {
       apiKey: "legacy-key",
       apiBase: "https://legacy.example/v1",
       models: ["legacy-model"],
+    });
+  });
+
+  test("builds grouped pane state with dirty, validation, and failed-save draft recovery", () => {
+    const savedState = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work", timezone: "Asia/Shanghai" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1"],
+          },
+        },
+      },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+    const draftState = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "", provider: "openai", active_profile: "work", timezone: "Shanghai" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-live",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1", "gpt-4.1-mini"],
+          },
+        },
+      },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(draftState, {
+      lastSavedState: savedState,
+      providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      saveStatus: "failed",
+      saveError: "HTTP 400",
+    });
+
+    expect(pane.dirty).toBe(true);
+    expect(pane.save).toEqual({
+      status: "failed",
+      message: "HTTP 400",
+      canSave: false,
+    });
+    expect(pane.validationErrors.map((error) => error.field)).toEqual(["model", "timezone"]);
+    expect(pane.groups.map((group) => group.id)).toEqual(["agent", "provider", "knowledge", "tools", "gateway", "channels"]);
+    expect(pane.groups.find((group) => group.id === "agent")?.fields).toEqual(expect.arrayContaining([
+      { id: "model", label: "Model", value: "", state: "invalid" },
+      { id: "timezone", label: "Timezone", value: "Shanghai", state: "invalid" },
+    ]));
+    expect(pane.providerCatalog).toEqual([{ id: "openai", label: "OpenAI", status: "ready" }]);
+    expect(pane.providerEditor).toMatchObject({
+      profileId: "work",
+      selectedProvider: "openai",
+      apiKey: { displayValue: "********", masked: true },
+      models: ["gpt-4.1", "gpt-4.1-mini"],
+      canDiscoverModels: true,
     });
   });
 });

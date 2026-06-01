@@ -158,6 +158,84 @@ describe("desktop run-chain inspector helpers", () => {
     ]);
   });
 
+  test("projects citations, references, memory, artifacts, and files into inspectable items", () => {
+    const items = buildDesktopRunChainItems([
+      {
+        role: "assistant",
+        message_id: "m-context",
+        citations: [
+          {
+            id: "cite-1",
+            title: "Spec citation",
+            url: "https://example.test/spec",
+            snippet: "Quoted spec",
+          },
+        ],
+        references: [
+          {
+            id: "ref-1",
+            title: "Reference note",
+            source: "docs/design.md",
+            content: "Reference content",
+          },
+        ],
+        memory_references: [
+          {
+            view_file: "memory/MEMORY.md",
+            view_line: 12,
+            note_id: "note-1",
+            content: "Remember workspace context",
+            scope: "workspace",
+          },
+        ],
+        artifacts: [
+          {
+            id: "artifact-1",
+            title: "Trace artifact",
+            path: "outputs/trace.json",
+            content: "{\"ok\":true}",
+          },
+        ],
+        file_references: [
+          {
+            path: "apps/desktop/src/desktopBootstrap.ts",
+            line: 42,
+            content: "bootDesktopWebUi()",
+          },
+        ],
+      },
+    ]);
+
+    expect(items.map((item) => item.kind)).toEqual(["citation", "reference", "memory", "artifact", "file"]);
+    expect(items.map((item) => item.title)).toEqual([
+      "Citation | Spec citation",
+      "Reference | Reference note",
+      "Memory | memory/MEMORY.md",
+      "Artifact | Trace artifact",
+      "File | apps/desktop/src/desktopBootstrap.ts",
+    ]);
+    expect(items[0]).toMatchObject({
+      key: "m-context:citation:cite-1",
+      preview: "Quoted spec",
+      detailTitle: "Spec citation",
+      detailSubtitle: "Citation detail",
+      detailSections: [
+        { type: "text", label: "URL", text: "https://example.test/spec" },
+        { type: "text", label: "Snippet", text: "Quoted spec" },
+      ],
+    });
+    expect(items[2]).toMatchObject({
+      key: "m-context:memory:memory/MEMORY.md:12:note-1",
+      preview: "Remember workspace context",
+      detailTitle: "memory/MEMORY.md",
+      detailSubtitle: "Line 12",
+    });
+    expect(items[4].detailSections).toEqual([
+      { type: "text", label: "Location", text: "apps/desktop/src/desktopBootstrap.ts:42" },
+      { type: "text", label: "Content", text: "bootDesktopWebUi()" },
+    ]);
+  });
+
   test("builds inspector views and memory reference source metadata for stable right-pane mounting", () => {
     const [item] = buildDesktopRunChainItems([
       {

@@ -73,6 +73,11 @@ struct GatewayRuntimeStatus {
     recovery_hint: Option<String>,
 }
 
+#[derive(Deserialize, Serialize)]
+struct GatewayExitPolicyPreference {
+    keep_running: bool,
+}
+
 #[derive(Clone, Debug)]
 enum GatewayBootstrapProbe {
     Ready,
@@ -229,6 +234,20 @@ const DESKTOP_MENU_ITEM_DESCRIPTORS: &[DesktopMenuItemDescriptor] = &[
         checked: false,
     },
     DesktopMenuItemDescriptor {
+        id: "open-shortcut-help",
+        label: "Shortcut Help",
+        accelerator: Some("Ctrl+/"),
+        enabled: true,
+        checked: false,
+    },
+    DesktopMenuItemDescriptor {
+        id: "open-page-help",
+        label: "Page Help",
+        accelerator: Some("Ctrl+Shift+/"),
+        enabled: true,
+        checked: false,
+    },
+    DesktopMenuItemDescriptor {
         id: "toggle-theme",
         label: "Toggle Theme",
         accelerator: Some("Ctrl+Shift+T"),
@@ -322,6 +341,27 @@ fn start_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus
 #[tauri::command]
 fn stop_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus, String> {
     stop_owned_gateway(state.inner(), true)?;
+    Ok(current_status(state.inner()))
+}
+
+#[tauri::command]
+fn set_gateway_keep_running(
+    keep_running: bool,
+    state: State<'_, SharedGateway>,
+) -> Result<GatewayRuntimeStatus, String> {
+    persist_gateway_exit_policy(&gateway_exit_policy_preference_path(), keep_running)?;
+    {
+        let mut runtime = lock_runtime(state.inner());
+        runtime.keep_background = keep_running;
+        append_log(
+            &mut runtime,
+            if keep_running {
+                "configured shell-owned gateway to keep running after desktop exits"
+            } else {
+                "configured shell-owned gateway to stop when desktop exits"
+            },
+        );
+    }
     Ok(current_status(state.inner()))
 }
 
@@ -577,6 +617,37 @@ fn write_export_file(path: &Path, contents: &str) -> Result<(), String> {
     std::fs::write(path, contents).map_err(|error| format!("failed to write export file: {error}"))
 }
 
+fn gateway_exit_policy_preference_path() -> PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .or_else(|| std::env::var_os("APPDATA"))
+        .or_else(|| std::env::var_os("XDG_CONFIG_HOME"))
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("Tinybot")
+        .join("Desktop")
+        .join("gateway-exit-policy.json")
+}
+
+fn load_gateway_exit_policy(path: &Path) -> bool {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<GatewayExitPolicyPreference>(&contents).ok())
+        .map(|preference| preference.keep_running)
+        .unwrap_or(false)
+}
+
+fn persist_gateway_exit_policy(path: &Path, keep_running: bool) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create gateway preference directory: {error}"))?;
+    }
+    let contents = serde_json::to_string_pretty(&GatewayExitPolicyPreference { keep_running })
+        .map_err(|error| format!("failed to encode gateway preference: {error}"))?;
+    std::fs::write(path, contents)
+        .map_err(|error| format!("failed to persist gateway preference: {error}"))
+}
+
 fn safe_export_file_name(default_path: &str) -> String {
     default_path
         .replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "-")
@@ -800,7 +871,10 @@ fn repo_root() -> PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let gateway_state = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let gateway_state = Arc::new(Mutex::new(GatewayRuntime {
+        keep_background: load_gateway_exit_policy(&gateway_exit_policy_preference_path()),
+        ..GatewayRuntime::default()
+    }));
     let close_state = gateway_state.clone();
 
     tauri::Builder::default()
@@ -816,6 +890,7 @@ pub fn run() {
             gateway_status,
             start_gateway,
             stop_gateway,
+            set_gateway_keep_running,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -874,6 +949,25 @@ mod tests {
 
         assert_eq!(status.port, 18790);
         assert_eq!(status.exit_policy, "keep_running");
+    }
+
+    #[test]
+    fn gateway_exit_policy_preference_persists_across_runtime_restart() {
+        let path = std::env::temp_dir().join(format!(
+            "tinybot-desktop-gateway-exit-policy-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        persist_gateway_exit_policy(&path, true).expect("preference should persist");
+
+        assert!(load_gateway_exit_policy(&path));
+
+        persist_gateway_exit_policy(&path, false).expect("preference should update");
+
+        assert!(!load_gateway_exit_policy(&path));
+
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -974,6 +1068,8 @@ mod tests {
                 "search-sessions",
                 "open-settings",
                 "open-docs",
+                "open-shortcut-help",
+                "open-page-help",
                 "toggle-theme",
                 "toggle-sidebar",
                 "open-command-palette",
@@ -997,6 +1093,8 @@ mod tests {
                 Some("Ctrl+F"),
                 Some("Ctrl+,"),
                 Some("F1"),
+                Some("Ctrl+/"),
+                Some("Ctrl+Shift+/"),
                 Some("Ctrl+Shift+T"),
                 Some("Ctrl+B"),
                 Some("Ctrl+Shift+P"),

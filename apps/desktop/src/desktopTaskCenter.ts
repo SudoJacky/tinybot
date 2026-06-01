@@ -78,7 +78,7 @@ export interface DesktopTaskCenterItem {
 }
 
 const ACTIVE_STATUSES = new Set(["active", "running", "streaming", "indexing", "starting", "refreshing", "saving", "uploading", "exporting", "pending"]);
-const BLOCKED_STATUSES = new Set(["blocked", "waiting", "requires_approval", "approval_required", "paused", "intervention-needed", "intervention_needed"]);
+const BLOCKED_STATUSES = new Set(["blocked", "waiting", "requires_approval", "approval_required", "requires-approval", "approval-needed", "paused", "intervention-needed", "intervention_needed", "needs_intervention", "needs-intervention"]);
 const FAILED_STATUSES = new Set(["failed", "error", "conflict", "rejected", "timeout"]);
 const COMPLETED_STATUSES = new Set(["completed", "complete", "done", "success", "succeeded", "saved", "indexed"]);
 const CANCELED_STATUSES = new Set(["canceled", "cancelled", "aborted", "stopped"]);

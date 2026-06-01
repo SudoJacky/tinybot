@@ -180,11 +180,13 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     knowledge: {
       documents: () => request("/v1/knowledge/documents"),
       uploadDocument: (body: FormData) => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
+      deleteDocument: (documentId: string) => request(`/v1/knowledge/documents/${encodePathSegment(documentId)}`, { method: "DELETE" }),
       job: (jobId: string) => request(`/v1/knowledge/jobs/${encodePathSegment(jobId)}`),
       rebuildIndex: (type: string = "all") =>
         request(`/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`, { method: "POST" }),
       stats: () => request("/v1/knowledge/stats"),
       graph: () => request("/v1/knowledge/graph"),
+      graphrag: () => request("/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true"),
       query: (body: unknown) => request("/v1/knowledge/query", jsonRequest("POST", body)),
     },
     workspace: {

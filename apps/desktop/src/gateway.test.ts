@@ -107,8 +107,13 @@ describe("gateway HTTP client", () => {
     const knowledgeForm = new FormData();
     knowledgeForm.append("file", new File(["knowledge"], "knowledge.md", { type: "text/markdown" }));
     await client.knowledge.uploadDocument(knowledgeForm);
+    await client.knowledge.deleteDocument("docs/knowledge.md");
     await client.knowledge.job("kjob/1");
     await client.knowledge.rebuildIndex("all");
+    await client.knowledge.stats();
+    await client.knowledge.graph();
+    await client.knowledge.graphrag();
+    await client.knowledge.query({ query: "desktop", mode: "hybrid", top_k: 5 });
     await client.workspace.file("docs/readme.md");
     await client.workspace.putFile("docs/readme.md", {
       content: "# Readme\n",
@@ -123,6 +128,9 @@ describe("gateway HTTP client", () => {
     await client.cowork.create({ goal: "Ship desktop" });
     await client.cowork.run("cowork/1", { run_until_idle: true });
     await client.cowork.action("cowork/1", "pause");
+    await client.cowork.action("cowork/1", "resume");
+    await client.cowork.action("cowork/1", "emergency-stop");
+    await client.cowork.delete("cowork/1");
     await client.cowork.message("cowork/1", { content: "Continue", recipient_ids: [] });
     await client.cowork.taskAction("cowork/1", "task/1", "assign", { assigned_agent_id: "agent-1" });
     await client.cowork.workUnitAction("cowork/1", "wu/1", "retry", { reason: "retry" });
@@ -138,8 +146,13 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/v1/knowledge/documents",
       "http://127.0.0.1:18790/v1/knowledge/documents/upload?async_index=true",
+      "http://127.0.0.1:18790/v1/knowledge/documents/docs%2Fknowledge.md",
       "http://127.0.0.1:18790/v1/knowledge/jobs/kjob%2F1",
       "http://127.0.0.1:18790/v1/knowledge/rebuild-index?type=all&async_index=true",
+      "http://127.0.0.1:18790/v1/knowledge/stats",
+      "http://127.0.0.1:18790/v1/knowledge/graph",
+      "http://127.0.0.1:18790/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true",
+      "http://127.0.0.1:18790/v1/knowledge/query",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/api/cowork/sessions/cowork-1/summary",
@@ -151,6 +164,9 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/api/cowork/sessions",
       "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/run",
       "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/pause",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/resume",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/emergency-stop",
+      "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1",
       "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/messages",
       "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/tasks/task%2F1/assign",
       "http://127.0.0.1:18790/api/cowork/sessions/cowork%2F1/work-units/wu%2F1/retry",
@@ -173,7 +189,18 @@ describe("gateway HTTP client", () => {
     expect((fetchFn.mock.calls[5][1] as RequestInit).headers).not.toMatchObject({
       "Content-Type": expect.any(String),
     });
-    expect(fetchFn.mock.calls[9][1]).toMatchObject({
+    expect(fetchFn.mock.calls[6][1]).toMatchObject({
+      method: "DELETE",
+    });
+    expect(fetchFn.mock.calls[12][1]).toMatchObject({
+      method: "POST",
+      headers: expect.objectContaining({
+        Authorization: "Bearer token-1",
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({ query: "desktop", mode: "hybrid", top_k: 5 }),
+    });
+    expect(fetchFn.mock.calls[14][1]).toMatchObject({
       method: "PUT",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -184,7 +211,7 @@ describe("gateway HTTP client", () => {
         expected_updated_at: "2026-05-31T10:00:00+00:00",
       }),
     });
-    expect(fetchFn.mock.calls[12][1]).toMatchObject({
+    expect(fetchFn.mock.calls[17][1]).toMatchObject({
       method: "PATCH",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -192,13 +219,13 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ content: "# Updated" }),
     });
-    expect(fetchFn.mock.calls[13][1]).toMatchObject({ method: "POST" });
-    expect(fetchFn.mock.calls[14][1]).toMatchObject({ method: "DELETE" });
-    expect(fetchFn.mock.calls[16][1]).toMatchObject({
+    expect(fetchFn.mock.calls[18][1]).toMatchObject({ method: "POST" });
+    expect(fetchFn.mock.calls[19][1]).toMatchObject({ method: "DELETE" });
+    expect(fetchFn.mock.calls[21][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ goal: "Ship desktop" }),
     });
-    expect(fetchFn.mock.calls[25][1]).toMatchObject({
+    expect(fetchFn.mock.calls[33][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ blueprint: {} }),
     });

@@ -12,7 +12,7 @@ export type DesktopInspectorSection =
 
 export interface DesktopRunChainItem {
   key: string;
-  kind: "planning" | "tool" | "browser";
+  kind: "planning" | "tool" | "browser" | "citation" | "reference" | "memory" | "artifact" | "file";
   title: string;
   preview: string;
   status: "running" | "completed" | "failed";
@@ -63,9 +63,20 @@ const DEFAULT_LABELS = {
   browserRawOutput: "Raw output",
   browserUrlUnavailable: "URL unavailable",
   completed: "Completed",
+  artifact: "Artifact",
+  artifactDetail: "Artifact detail",
+  citation: "Citation",
+  citationDetail: "Citation detail",
+  content: "Content",
   failed: "Needs attention",
+  file: "File",
+  fileDetail: "File detail",
   inspectorEmpty: "No saved detail.",
   lineLabel: "Line {line}",
+  location: "Location",
+  memory: "Memory",
+  memoryDetail: "Memory reference",
+  metadata: "Metadata",
   noArguments: "No arguments",
   planning: "Planning",
   planningLower: "planning",
@@ -77,7 +88,12 @@ const DEFAULT_LABELS = {
   toolDetail: "Tool detail",
   toolDetailAndResponse: "Tool detail and response",
   toolResponse: "Response",
+  reference: "Reference",
+  referenceDetail: "Reference detail",
   running: "Running",
+  snippet: "Snippet",
+  source: "Source",
+  url: "URL",
 } as const;
 
 export function buildDesktopRunChainItems(messages: unknown[]): DesktopRunChainItem[] {
@@ -103,6 +119,8 @@ export function buildDesktopRunChainItems(messages: unknown[]): DesktopRunChainI
         detailSections: [{ type: "text", label: "Thinking", text: reasoningText }],
       });
     }
+
+    appendContextRunChainItems(items, message, index);
 
     if (hasToolCalls(message)) {
       const toolCalls = getToolCalls(message);
@@ -144,6 +162,113 @@ export function buildDesktopRunChainItems(messages: unknown[]): DesktopRunChainI
     }
   }
   return items;
+}
+
+function appendContextRunChainItems(items: DesktopRunChainItem[], message: MessageRecord, messageIndex: number): void {
+  const messageKey = stringValue(message.message_id) || `message-${messageIndex}`;
+
+  getContextRecords(message, ["citations", "citation_metadata", "source_citations"]).forEach((record, index) => {
+    const id = contextRecordId(record, index);
+    const title = firstNonEmpty(record.title, record.name, record.label, record.url, record.source, `Citation ${index + 1}`);
+    const url = firstNonEmpty(record.url, record.href, record.source_url);
+    const snippet = firstNonEmpty(record.snippet, record.text, record.content, record.quote, record.summary);
+    items.push({
+      key: `${messageKey}:citation:${id}`,
+      kind: "citation",
+      title: `${DEFAULT_LABELS.citation} | ${title}`,
+      preview: compactText(snippet || url || title, 120),
+      status: "completed",
+      inspectable: true,
+      detailTitle: title,
+      detailSubtitle: DEFAULT_LABELS.citationDetail,
+      detailSections: textSections([
+        [DEFAULT_LABELS.url, url],
+        [DEFAULT_LABELS.snippet, snippet],
+      ]),
+    });
+  });
+
+  getContextRecords(message, ["references", "reference_metadata"]).forEach((record, index) => {
+    const id = contextRecordId(record, index);
+    const title = firstNonEmpty(record.title, record.name, record.label, record.source, record.path, `Reference ${index + 1}`);
+    const source = firstNonEmpty(record.source, record.path, record.url, record.file);
+    const content = firstNonEmpty(record.content, record.text, record.snippet, record.summary);
+    items.push({
+      key: `${messageKey}:reference:${id}`,
+      kind: "reference",
+      title: `${DEFAULT_LABELS.reference} | ${title}`,
+      preview: compactText(content || source || title, 120),
+      status: "completed",
+      inspectable: true,
+      detailTitle: title,
+      detailSubtitle: DEFAULT_LABELS.referenceDetail,
+      detailSections: textSections([
+        [DEFAULT_LABELS.source, source],
+        [DEFAULT_LABELS.content, content],
+      ]),
+    });
+  });
+
+  getContextRecords(message, ["memory_references", "memoryReferences", "matched_memory", "memory"]).forEach((record, index) => {
+    const view = buildDesktopMemoryReferenceView(record);
+    items.push({
+      key: `${messageKey}:memory:${view.key || index}`,
+      kind: "memory",
+      title: `${DEFAULT_LABELS.memory} | ${view.file}`,
+      preview: compactText(view.content || view.metadata.join(" / ") || view.locationLabel, 120),
+      status: "completed",
+      inspectable: true,
+      detailTitle: view.file,
+      detailSubtitle: view.locationLabel,
+      detailSections: textSections([
+        [DEFAULT_LABELS.location, `${view.file}${view.line ? `:${view.line}` : ""}`],
+        [DEFAULT_LABELS.content, view.content],
+        [DEFAULT_LABELS.metadata, view.metadata.join(" / ")],
+      ]),
+    });
+  });
+
+  getContextRecords(message, ["artifacts", "artifact_references", "artifact_index"]).forEach((record, index) => {
+    const id = contextRecordId(record, index);
+    const title = firstNonEmpty(record.title, record.name, record.id, record.path, `Artifact ${index + 1}`);
+    const path = firstNonEmpty(record.path, record.file, record.uri, record.url);
+    const content = firstNonEmpty(record.content, record.text, record.summary, record.description);
+    items.push({
+      key: `${messageKey}:artifact:${id}`,
+      kind: "artifact",
+      title: `${DEFAULT_LABELS.artifact} | ${title}`,
+      preview: compactText(content || path || title, 120),
+      status: "completed",
+      inspectable: true,
+      detailTitle: title,
+      detailSubtitle: DEFAULT_LABELS.artifactDetail,
+      detailSections: textSections([
+        [DEFAULT_LABELS.location, path],
+        [DEFAULT_LABELS.content, content],
+      ]),
+    });
+  });
+
+  getContextRecords(message, ["file_references", "fileReferences", "files"]).forEach((record, index) => {
+    const path = firstNonEmpty(record.path, record.file, record.filename, record.name, `File ${index + 1}`);
+    const line = numberOrNull(record.line ?? record.view_line ?? record.start_line);
+    const content = firstNonEmpty(record.content, record.text, record.snippet, record.summary);
+    const location = `${path}${line ? `:${line}` : ""}`;
+    items.push({
+      key: `${messageKey}:file:${location}`,
+      kind: "file",
+      title: `${DEFAULT_LABELS.file} | ${path}`,
+      preview: compactText(content || location, 120),
+      status: "completed",
+      inspectable: true,
+      detailTitle: path,
+      detailSubtitle: DEFAULT_LABELS.fileDetail,
+      detailSections: textSections([
+        [DEFAULT_LABELS.location, location],
+        [DEFAULT_LABELS.content, content],
+      ]),
+    });
+  });
 }
 
 export function createDesktopRunChainInspectorView(item: DesktopRunChainItem | null | undefined): DesktopInspectorView {
@@ -259,6 +384,41 @@ function createToolRunChainItem({
       ...(responseText ? [{ type: "text" as const, label: DEFAULT_LABELS.toolResponse, text: responseText }] : []),
     ],
   };
+}
+
+function getContextRecords(message: MessageRecord, fieldNames: string[]): MessageRecord[] {
+  for (const fieldName of fieldNames) {
+    const value = message[fieldName];
+    if (Array.isArray(value)) {
+      return value.filter(isRecord);
+    }
+    if (isRecord(value)) {
+      return [value];
+    }
+  }
+  return [];
+}
+
+function contextRecordId(record: MessageRecord, index: number): string {
+  return firstNonEmpty(record.id, record.citation_id, record.reference_id, record.note_id, record.evidence_id, record.path, record.url, String(index + 1));
+}
+
+function firstNonEmpty(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return "";
+}
+
+function textSections(rows: Array<[string, string]>): DesktopInspectorSection[] {
+  return rows
+    .filter(([, text]) => text.trim().length > 0)
+    .map(([label, text]) => ({ type: "text" as const, label, text }));
 }
 
 function buildBrowserActivity(name: string, args: unknown, argsText: string, responseText = ""): DesktopBrowserActivity | null {

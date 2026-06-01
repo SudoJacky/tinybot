@@ -82,6 +82,8 @@ describe("desktop command navigation", () => {
       "search-sessions",
       "open-settings",
       "open-docs",
+      "open-shortcut-help",
+      "open-page-help",
       "toggle-theme",
       "toggle-sidebar",
       "open-command-palette",
@@ -93,6 +95,8 @@ describe("desktop command navigation", () => {
       "Search Sessions",
       "Settings",
       "Documentation",
+      "Shortcut Help",
+      "Page Help",
       "Toggle Theme",
       "Toggle Sidebar",
       "Command Palette",
@@ -104,6 +108,8 @@ describe("desktop command navigation", () => {
       "Ctrl+F",
       "Ctrl+,",
       "F1",
+      "Ctrl+/",
+      "Ctrl+Shift+/",
       "Ctrl+Shift+T",
       "Ctrl+B",
       "Ctrl+Shift+P",
@@ -122,6 +128,8 @@ describe("desktop command navigation", () => {
     expect(routeDesktopMenuCommand("search-sessions", context)).toMatchObject({ kind: "action", action: "open-session-search" });
     expect(routeDesktopMenuCommand("open-settings", context)).toMatchObject({ kind: "navigate", href: "/settings" });
     expect(routeDesktopMenuCommand("open-docs", context)).toMatchObject({ kind: "navigate", href: "/docs" });
+    expect(routeDesktopMenuCommand("open-shortcut-help", context)).toMatchObject({ kind: "action", action: "open-shortcut-help" });
+    expect(routeDesktopMenuCommand("open-page-help", context)).toMatchObject({ kind: "action", action: "open-page-help" });
     expect(routeDesktopMenuCommand("toggle-theme", context)).toMatchObject({ kind: "action", action: "set-theme", value: "dark" });
     expect(routeDesktopMenuCommand("toggle-sidebar", context)).toMatchObject({ kind: "action", action: "set-sidebar-visible", value: false });
     expect(routeDesktopMenuCommand("open-command-palette", context)).toMatchObject({ kind: "action", action: "open-command-palette" });
@@ -142,6 +150,8 @@ describe("desktop command navigation", () => {
     expect(resolveDesktopShortcutCommand({ key: "f", ctrlKey: true })).toBe("search-sessions");
     expect(resolveDesktopShortcutCommand({ key: ",", ctrlKey: true })).toBe("open-settings");
     expect(resolveDesktopShortcutCommand({ key: "F1" })).toBe("open-docs");
+    expect(resolveDesktopShortcutCommand({ key: "/", ctrlKey: true })).toBe("open-shortcut-help");
+    expect(resolveDesktopShortcutCommand({ key: "?", ctrlKey: true, shiftKey: true })).toBe("open-page-help");
     expect(resolveDesktopShortcutCommand({ key: "T", ctrlKey: true, shiftKey: true })).toBe("toggle-theme");
     expect(resolveDesktopShortcutCommand({ key: "b", ctrlKey: true })).toBe("toggle-sidebar");
     expect(resolveDesktopShortcutCommand({ key: "P", ctrlKey: true, shiftKey: true })).toBe("open-command-palette");
@@ -194,5 +204,21 @@ describe("desktop command navigation", () => {
       "Stop generation is unavailable without an active response.",
     );
     expect(targetDocument.status.textContent).toBe("Stop generation is unavailable without an active response.");
+
+    targetDocument.dispatchEvent({
+      type: "keydown",
+      key: "/",
+      ctrlKey: true,
+      preventDefault: () => undefined,
+    } as unknown as Event);
+    targetDocument.dispatchEvent({
+      type: "keydown",
+      key: "?",
+      ctrlKey: true,
+      shiftKey: true,
+      preventDefault: () => undefined,
+    } as unknown as Event);
+    expect(targetDocument.dispatched).toContain("tinybot:open-shortcut-help");
+    expect(targetDocument.dispatched).toContain("tinybot:open-page-help");
   });
 });

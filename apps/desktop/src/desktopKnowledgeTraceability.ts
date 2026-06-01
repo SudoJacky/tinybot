@@ -137,6 +137,59 @@ export interface DesktopKnowledgeInspection {
   evidence: Array<{ title: string; meta: string; text: string; claimId?: string; contextText?: string }>;
 }
 
+export interface DesktopKnowledgePaneInput {
+  statsPayload?: unknown;
+  config?: unknown;
+  documentsPayload?: unknown;
+  selectedDocumentId?: string | null;
+  queryDraft?: Partial<DesktopKnowledgeQueryRequestInput>;
+  queryResultPayload?: unknown;
+  graphPayload?: unknown;
+}
+
+export interface DesktopKnowledgePaneDocument extends DesktopKnowledgeDocumentRow {
+  detail: string;
+}
+
+export interface DesktopKnowledgePaneReferenceRow {
+  id: string;
+  title: string;
+  meta: string;
+  text: string;
+}
+
+export interface DesktopKnowledgePaneGraph {
+  view: DesktopKnowledgeGraphView;
+  summary: string;
+  communities: DesktopKnowledgePaneReferenceRow[];
+  reports: DesktopKnowledgePaneReferenceRow[];
+  claims: DesktopKnowledgePaneReferenceRow[];
+  relations: DesktopKnowledgePaneReferenceRow[];
+  conflicts: DesktopKnowledgePaneReferenceRow[];
+  evidence: DesktopKnowledgeEvidenceRow[];
+}
+
+export interface DesktopKnowledgePaneModel {
+  status: string;
+  readiness: DesktopKnowledgeReadinessView;
+  configHints: string[];
+  documentRows: DesktopKnowledgeDocumentRow[];
+  selectedDocument: DesktopKnowledgePaneDocument | null;
+  query: {
+    draft: Required<DesktopKnowledgeQueryRequestInput>;
+    request: DesktopKnowledgeQueryRequest;
+    results: DesktopKnowledgeQueryResultView;
+  };
+  graph: DesktopKnowledgePaneGraph;
+  actions: {
+    upload: boolean;
+    deleteDocument: boolean;
+    rebuild: boolean;
+    query: boolean;
+    refreshGraph: boolean;
+  };
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 function asText(value: unknown): string {
@@ -159,6 +212,28 @@ function asRecord(value: unknown): UnknownRecord {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeKnowledgeQueryDraft(input: Partial<DesktopKnowledgeQueryRequestInput> = {}): Required<DesktopKnowledgeQueryRequestInput> {
+  return {
+    query: asText(input.query),
+    mode: asText(input.mode) || "hybrid",
+    topK: numberValue(input.topK) > 0 ? Math.trunc(numberValue(input.topK)) : 5,
+  };
+}
+
+function buildKnowledgeConfigHints(configInput: unknown): string[] {
+  const knowledge = asRecord(asRecord(configInput).knowledge);
+  const enabled = knowledge.enabled !== false;
+  const retrievalMode = firstNonEmpty(knowledge.retrieval_mode, knowledge.retrievalMode, "hybrid");
+  const maxChunks = numberValue(knowledge.max_chunks ?? knowledge.maxChunks) || 5;
+  const reportLlm = knowledge.graphrag_report_llm_enabled === true || knowledge.graphRagReportLlmEnabled === true;
+  return [
+    enabled ? "Knowledge enabled" : "Knowledge disabled",
+    `Retrieval ${retrievalMode}`,
+    `Max chunks ${maxChunks}`,
+    reportLlm ? "GraphRAG reports use LLM summaries" : "GraphRAG reports use deterministic summaries",
+  ];
 }
 
 function numberValue(value: unknown): number {
@@ -352,6 +427,45 @@ export function buildDesktopKnowledgeReadinessView(statsInput: unknown = {}): De
         tone: stageTone(graphStatus, graphReady),
       },
     ],
+  };
+}
+
+export function buildDesktopKnowledgePaneModel(input: DesktopKnowledgePaneInput = {}): DesktopKnowledgePaneModel {
+  const readiness = buildDesktopKnowledgeReadinessView(input.statsPayload);
+  const documentRows = buildDesktopKnowledgeDocumentRows(input.documentsPayload);
+  const selectedDocumentRow = documentRows.find((document) => document.id === input.selectedDocumentId) ?? documentRows[0] ?? null;
+  const graphPayload = normalizeKnowledgeGraphPayload(input.graphPayload);
+  const graphView = buildDesktopKnowledgeGraphView(graphPayload);
+  const queryDraft = normalizeKnowledgeQueryDraft(input.queryDraft);
+  const request = buildDesktopKnowledgeQueryRequest(queryDraft);
+  const edgeLabel = graphView.edges.length === 1 ? "edge" : "edges";
+
+  return {
+    status: `${documentRows.length} ${documentRows.length === 1 ? "doc" : "docs"} / readiness ${readiness.score}% / graph ${graphView.nodes.length} nodes / ${graphView.edges.length} ${edgeLabel}`,
+    readiness,
+    configHints: buildKnowledgeConfigHints(input.config),
+    documentRows,
+    selectedDocument: selectedDocumentRow
+      ? {
+          ...selectedDocumentRow,
+          detail: [selectedDocumentRow.path, selectedDocumentRow.status, selectedDocumentRow.chunkCount ? `${selectedDocumentRow.chunkCount} chunks` : ""]
+            .filter(Boolean)
+            .join(" / "),
+        }
+      : null,
+    query: {
+      draft: queryDraft,
+      request,
+      results: buildDesktopKnowledgeQueryResultRows(input.queryResultPayload, { query: request.query }),
+    },
+    graph: buildDesktopKnowledgePaneGraph(graphPayload, graphView, edgeLabel),
+    actions: {
+      upload: true,
+      deleteDocument: Boolean(selectedDocumentRow),
+      rebuild: true,
+      query: Boolean(request.query),
+      refreshGraph: true,
+    },
   };
 }
 
@@ -605,7 +719,7 @@ function buildTraceabilitySections(item: UnknownRecord): DesktopKnowledgeTraceab
 }
 
 export function buildDesktopKnowledgeGraphView(graphInput: unknown): DesktopKnowledgeGraphView {
-  const graph = asRecord(graphInput);
+  const graph = asRecord(normalizeKnowledgeGraphPayload(graphInput));
   const nodes = asArray(graph.nodes).map(asRecord).map((node) => ({
     id: firstNonEmpty(node.id),
     label: firstNonEmpty(node.label, node.canonical_name, node.title, node.id),
@@ -632,6 +746,144 @@ export function buildDesktopKnowledgeGraphView(graphInput: unknown): DesktopKnow
     edges,
     evidenceRows: asArray(graph.edges).map(asRecord).flatMap((edge) => knowledgeEvidenceRowsForEdge(edge, nodes.map((node) => node.raw))),
   };
+}
+
+function normalizeKnowledgeGraphPayload(graphInput: unknown): UnknownRecord {
+  const graph = asRecord(graphInput);
+  if (graph.object !== "graphrag_index") {
+    return graph;
+  }
+  const documents = new Map(asArray(graph.documents).map(asRecord).map((document) => [
+    firstNonEmpty(document.id),
+    document,
+  ]));
+  const textUnits = new Map(asArray(graph.text_units).map(asRecord).map((unit) => [
+    firstNonEmpty(unit.id),
+    unit,
+  ]));
+  const claims = new Map(asArray(graph.covariates).map(asRecord).map((claim) => [
+    firstNonEmpty(claim.id),
+    claim,
+  ]));
+  const entities = asArray(graph.entities).map(asRecord);
+  const entityNodes = entities.map((entity) => ({
+    ...entity,
+    id: firstNonEmpty(entity.id, entity.title),
+    label: firstNonEmpty(entity.title, entity.label, entity.id),
+    canonical_name: firstNonEmpty(entity.title, entity.canonical_name, entity.id),
+    type: firstNonEmpty(entity.type, "concept"),
+  }));
+  const entityByLabel = new Map<string, UnknownRecord>();
+  for (const entity of entityNodes) {
+    entityByLabel.set(firstNonEmpty(entity.id), entity);
+    entityByLabel.set(firstNonEmpty(entity.label), entity);
+    entityByLabel.set(firstNonEmpty(entity.canonical_name), entity);
+  }
+  const edges = asArray(graph.relationships).map(asRecord).map((relationship) => {
+    const source = entityByLabel.get(firstNonEmpty(relationship.source));
+    const target = entityByLabel.get(firstNonEmpty(relationship.target));
+    const evidence = asArray(relationship.text_unit_ids).map(asText).filter(Boolean).map((textUnitId) => {
+      const textUnit = textUnits.get(textUnitId) ?? {};
+      const document = documents.get(firstNonEmpty(textUnit.document_id)) ?? {};
+      const claimId = asArray(textUnit.covariate_ids).map(asText).filter(Boolean)[0] || "";
+      const claim = claims.get(claimId) ?? {};
+      return {
+        relation_id: firstNonEmpty(relationship.id),
+        claim_id: claimId,
+        chunk_id: textUnitId,
+        doc_id: firstNonEmpty(textUnit.document_id),
+        doc_name: firstNonEmpty(document.title, textUnit.document_id),
+        line_start: textUnit.line_start,
+        line_end: textUnit.line_end,
+        page: textUnit.page,
+        section_path: textUnit.section_path,
+        text: firstNonEmpty(claim.source_text, claim.description, claim.text, relationship.description, textUnit.text),
+        confidence: relationship.confidence,
+      };
+    });
+    return {
+      ...relationship,
+      id: firstNonEmpty(relationship.id, `${source?.id || relationship.source}:${relationship.predicate}:${target?.id || relationship.target}`),
+      source: firstNonEmpty(source?.id, relationship.source),
+      target: firstNonEmpty(target?.id, relationship.target),
+      predicate: firstNonEmpty(relationship.predicate, "related_to"),
+      confidence: relationship.confidence,
+      confidence_avg: relationship.confidence,
+      weight: relationship.weight,
+      evidence,
+    };
+  });
+  return {
+    ...graph,
+    nodes: entityNodes,
+    edges,
+    reports: asArray(graph.community_reports),
+    claims: asArray(graph.covariates),
+  };
+}
+
+function buildDesktopKnowledgePaneGraph(
+  graphPayload: unknown,
+  view: DesktopKnowledgeGraphView,
+  edgeLabel: string,
+): DesktopKnowledgePaneGraph {
+  return {
+    view,
+    summary: `${view.nodes.length} nodes / ${view.edges.length} ${edgeLabel} / ${view.evidenceRows.length} evidence`,
+    communities: buildKnowledgeReferenceRows(graphPayload, "communities", "community"),
+    reports: buildKnowledgeReferenceRows(graphPayload, "reports", "report"),
+    claims: buildKnowledgeClaimReferenceRows(graphPayload),
+    relations: view.edges.map((edge) => ({
+      id: edge.id,
+      title: edge.title,
+      meta: [edge.predicate, edge.confidenceLabel ? `confidence ${edge.confidenceLabel}` : "", `${edge.evidenceCount} evidence`]
+        .filter(Boolean)
+        .join(" / "),
+      text: firstNonEmpty(edge.raw.description, edge.raw.summary),
+    })),
+    conflicts: buildKnowledgeConflictReferenceRows(graphPayload),
+    evidence: view.evidenceRows,
+  };
+}
+
+function buildKnowledgeReferenceRows(
+  payload: unknown,
+  key: "communities" | "reports",
+  fallbackMeta: string,
+): DesktopKnowledgePaneReferenceRow[] {
+  return asArray(asRecord(payload)[key]).map(asRecord).map((item, index) => {
+    const id = firstNonEmpty(item.id, item.community_id, item.community, `${fallbackMeta}:${index}`);
+    return {
+      id,
+      title: firstNonEmpty(item.title, item.name, item.label, id),
+      meta: firstNonEmpty(item.type, item.kind, fallbackMeta),
+      text: firstNonEmpty(item.summary, item.description, item.text),
+    };
+  });
+}
+
+function buildKnowledgeClaimReferenceRows(payload: unknown): DesktopKnowledgePaneReferenceRow[] {
+  return asArray(asRecord(payload).claims).map(asRecord).map((claim, index) => {
+    const inspection = buildDesktopKnowledgeTraceabilityInspection({ kind: "claim", value: claim });
+    return {
+      id: inspection.id || `claim:${index}`,
+      title: inspection.title,
+      meta: inspection.rows.map((row) => `${row.label} ${row.value}`).join(" / "),
+      text: inspection.evidence[0]?.text || "",
+    };
+  });
+}
+
+function buildKnowledgeConflictReferenceRows(payload: unknown): DesktopKnowledgePaneReferenceRow[] {
+  return asArray(asRecord(payload).conflicts).map(asRecord).map((conflict, index) => {
+    const inspection = buildDesktopKnowledgeTraceabilityInspection({ kind: "conflict", value: conflict });
+    return {
+      id: inspection.id || `conflict:${index}`,
+      title: inspection.title,
+      meta: inspection.rows.map((row) => `${row.label} ${row.value}`).join(" / "),
+      text: inspection.evidence.map((item) => item.text).filter(Boolean).join("\n"),
+    };
+  });
 }
 
 export function buildDesktopKnowledgeTraceabilityInspection(input: DesktopKnowledgeInspectionInput): DesktopKnowledgeInspection {

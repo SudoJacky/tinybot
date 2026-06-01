@@ -50,7 +50,7 @@ describe("desktop command palette", () => {
             agentCount: 2,
             activeAgentCount: 1,
             taskProgress: { total: 3, completed: 1, failed: 0, blocked: 0 },
-            attention: { total: 0, blockers: 0, pendingReplies: 0, taskIssues: 0, workUnitIssues: 0, agentIssues: 0, tone: "normal", label: "On track" },
+            attention: { total: 0, blockers: 0, pendingReplies: 0, taskIssues: 0, workUnitIssues: 0, agentIssues: 0, approvals: 0, interventions: 0, tone: "normal", label: "On track" },
             finalOutput: "",
             updatedAt: "2026-05-31T11:00:00Z",
             meta: "running / Hybrid",
@@ -63,6 +63,8 @@ describe("desktop command palette", () => {
     const shellResults = buildDesktopCommandPaletteResults(state, "desktop");
     expect(shellResults.map((result) => `${result.group}:${result.title}`)).toEqual([
       "Commands:Documentation",
+      "Commands:Shortcut Help",
+      "Commands:Page Help",
       "Sessions:Plan desktop shell",
       "Workspace files:docs/desktop-shell.md",
       "Knowledge documents:Desktop UX Notes",
@@ -70,6 +72,8 @@ describe("desktop command palette", () => {
       "Cowork sessions:Ship desktop command palette",
     ]);
     expect(shellResults.map((result) => result.groupId)).toEqual([
+      "commands",
+      "commands",
       "commands",
       "sessions",
       "workspaceFiles",

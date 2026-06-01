@@ -1,6 +1,9 @@
 export type DesktopToolConfigHint = "webDisabled" | "execDisabled" | "";
 export type DesktopToolRiskHint = "modifyFiles" | "background" | "";
 export type DesktopSkillStatus = "enabled" | "disabled" | "always" | "unavailable";
+export type DesktopSkillEditorMode = "create" | "edit";
+export type DesktopSkillEditorField = "name" | "description" | "content" | "always";
+export type DesktopSkillSaveStatus = "idle" | "saving" | "saved" | "failed";
 
 export interface DesktopToolSchemaField {
   name: string;
@@ -60,6 +63,68 @@ export interface DesktopSkillDetailView {
   };
 }
 
+export interface DesktopSkillValidationState {
+  state: "idle" | "valid" | "invalid";
+  message: string;
+}
+
+export interface DesktopSkillDraft {
+  name: string;
+  description: string;
+  content: string;
+  always: boolean;
+}
+
+export interface DesktopSkillEditorState {
+  mode: DesktopSkillEditorMode;
+  draft: DesktopSkillDraft;
+  lastSaved: DesktopSkillDraft;
+  dirty: boolean;
+  canSave: boolean;
+  saveStatus: DesktopSkillSaveStatus;
+  saveMessage: string;
+  validation: DesktopSkillValidationState;
+}
+
+export interface DesktopSkillEditorInput {
+  mode?: DesktopSkillEditorMode;
+  draft?: Partial<DesktopSkillFormInput>;
+  lastSaved?: Partial<DesktopSkillFormInput>;
+  saveStatus?: DesktopSkillSaveStatus;
+  saveError?: string;
+  validation?: DesktopSkillValidationState;
+}
+
+export interface DesktopSkillPaneDetailView extends DesktopSkillDetailView {
+  available: boolean;
+  editor: DesktopSkillEditorState;
+  actions: {
+    create: boolean;
+    save: boolean;
+    delete: boolean;
+    validate: boolean;
+    toggleAlways: boolean;
+  };
+}
+
+export interface DesktopToolsSkillsPaneModel {
+  status: string;
+  toolRows: DesktopToolRow[];
+  skillRows: DesktopSkillRow[];
+  selectedTool: DesktopToolDetailView | null;
+  selectedSkill: DesktopSkillPaneDetailView | null;
+}
+
+export interface DesktopToolsSkillsPaneInput {
+  toolsPayload?: unknown;
+  skillsPayload?: unknown;
+  config?: unknown;
+  selectedToolName?: string | null;
+  selectedSkillName?: string | null;
+  selectedSkillDetail?: unknown;
+  skillEditor?: DesktopSkillEditorInput;
+}
+
 export interface DesktopSkillFormInput {
   name?: string;
   description?: string;
@@ -110,6 +175,58 @@ export function buildDesktopToolsConfigHint(config: unknown = {}): DesktopToolsC
   };
 }
 
+export function buildDesktopToolsSkillsPaneModel(input: DesktopToolsSkillsPaneInput = {}): DesktopToolsSkillsPaneModel {
+  const config = input.config ?? {};
+  const toolRows = buildDesktopToolRows(input.toolsPayload ?? {}, config);
+  const skillRows = buildDesktopSkillRows(input.skillsPayload ?? {}, config);
+  const selectedToolRow = toolRows.find((tool) => tool.name === input.selectedToolName) ?? toolRows[0] ?? null;
+  const selectedSkillRow = skillRows.find((skill) => skill.name === input.selectedSkillName) ?? skillRows[0] ?? null;
+  const selectedTool = selectedToolRow ? buildDesktopToolDetailView(selectedToolRow.raw, config) : null;
+  const selectedSkill = input.skillEditor?.mode === "create"
+    ? buildDesktopSkillPaneDetailView(null, { name: "", source: "workspace", available: true }, input.skillEditor)
+    : selectedSkillRow
+      ? buildDesktopSkillPaneDetailView(input.selectedSkillDetail ?? selectedSkillRow.raw, selectedSkillRow.raw, input.skillEditor)
+      : null;
+  return {
+    status: `${toolRows.length} ${toolRows.length === 1 ? "tool" : "tools"} / ${skillRows.length} ${skillRows.length === 1 ? "skill" : "skills"}`,
+    toolRows,
+    skillRows,
+    selectedTool,
+    selectedSkill,
+  };
+}
+
+export function updateDesktopSkillEditorDraft(
+  pane: DesktopToolsSkillsPaneModel,
+  field: DesktopSkillEditorField,
+  value: string | boolean,
+): DesktopToolsSkillsPaneModel {
+  if (!pane.selectedSkill) {
+    return pane;
+  }
+  const previous = pane.selectedSkill.editor;
+  const draft = normalizeDesktopSkillDraft({
+    ...previous.draft,
+    [field]: field === "always" ? value === true : stringValue(value),
+  });
+  const editor = buildDesktopSkillEditorStateFromDraft(previous.mode, draft, previous.lastSaved, {
+    saveStatus: "idle",
+    validation: { state: "idle", message: "" },
+  });
+  return {
+    ...pane,
+    selectedSkill: {
+      ...pane.selectedSkill,
+      name: previous.mode === "create" ? "" : draft.name,
+      description: draft.description,
+      content: draft.content,
+      always: draft.always,
+      editor,
+      actions: desktopSkillPaneActions(pane.selectedSkill.available, pane.selectedSkill.deletable, editor),
+    },
+  };
+}
+
 export function buildDesktopToolSchemaFields(schema: unknown): DesktopToolSchemaField[] {
   const root = asRecord(schema);
   const required = new Set(arrayValue(root.required).map((item) => stringValue(item)).filter(Boolean));
@@ -153,6 +270,97 @@ export function buildDesktopSkillDetailView(detail: unknown, listItem: unknown =
       state: "idle",
       message: "",
     },
+  };
+}
+
+function buildDesktopSkillPaneDetailView(
+  detail: unknown,
+  listItem: unknown,
+  editorInput: DesktopSkillEditorInput = {},
+): DesktopSkillPaneDetailView {
+  const row = asRecord(listItem);
+  const mode = editorInput.mode ?? "edit";
+  const view = mode === "create"
+    ? createDesktopSkillDraftDetailView(editorInput)
+    : buildDesktopSkillDetailView(detail, row);
+  const editor = buildDesktopSkillEditorState(view, editorInput);
+  return {
+    ...view,
+    available: row.available !== false,
+    description: editor.draft.description,
+    content: editor.draft.content,
+    always: editor.draft.always,
+    source: mode === "create" ? "workspace" : view.source,
+    deletable: mode === "create" ? false : view.deletable,
+    nameEditable: mode === "create",
+    validation: editor.validation,
+    editor,
+    actions: desktopSkillPaneActions(row.available !== false, mode === "create" ? false : view.deletable, editor),
+  };
+}
+
+function createDesktopSkillDraftDetailView(editorInput: DesktopSkillEditorInput): DesktopSkillDetailView {
+  const draft = normalizeDesktopSkillDraft(editorInput.draft ?? {});
+  return {
+    name: "",
+    description: draft.description,
+    always: draft.always,
+    content: draft.content,
+    source: "workspace",
+    deletable: false,
+    nameEditable: true,
+    validation: editorInput.validation ?? { state: "idle", message: "" },
+  };
+}
+
+function buildDesktopSkillEditorState(
+  detail: DesktopSkillDetailView,
+  input: DesktopSkillEditorInput = {},
+): DesktopSkillEditorState {
+  const mode = input.mode ?? "edit";
+  const detailDraft = normalizeDesktopSkillDraft({
+    name: detail.name,
+    description: detail.description,
+    content: detail.content,
+    always: detail.always,
+  });
+  const lastSaved = normalizeDesktopSkillDraft({ ...detailDraft, ...(input.lastSaved ?? {}) });
+  const draft = normalizeDesktopSkillDraft({ ...detailDraft, ...(input.draft ?? {}) });
+  return buildDesktopSkillEditorStateFromDraft(mode, draft, lastSaved, input);
+}
+
+function buildDesktopSkillEditorStateFromDraft(
+  mode: DesktopSkillEditorMode,
+  draft: DesktopSkillDraft,
+  lastSaved: DesktopSkillDraft,
+  input: Pick<DesktopSkillEditorInput, "saveStatus" | "saveError" | "validation"> = {},
+): DesktopSkillEditorState {
+  const dirty = !desktopSkillDraftsEqual(draft, lastSaved);
+  const saveStatus = input.saveStatus ?? "idle";
+  return {
+    mode,
+    draft,
+    lastSaved,
+    dirty,
+    canSave: dirty && draft.name.trim().length > 0,
+    saveStatus,
+    saveMessage: desktopSkillSaveMessage(saveStatus, dirty, input.saveError),
+    validation: input.validation ?? { state: "idle", message: "" },
+  };
+}
+
+function desktopSkillPaneActions(
+  available: boolean,
+  deletable: boolean,
+  editor: DesktopSkillEditorState,
+): DesktopSkillPaneDetailView["actions"] {
+  const existing = editor.mode === "edit";
+  return {
+    create: true,
+    save: available && editor.draft.name.trim().length > 0,
+    delete: existing && deletable,
+    validate: existing && available,
+    toggleAlways: existing && available,
   };
 }
 
@@ -315,6 +523,35 @@ function arrayFromPayload(payload: unknown, ...keys: string[]): UnknownRecord[] 
 
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeDesktopSkillDraft(value: Partial<DesktopSkillFormInput>): DesktopSkillDraft {
+  return {
+    name: stringValue(value.name).trim(),
+    description: stringValue(value.description),
+    content: stringValue(value.content),
+    always: value.always === true,
+  };
+}
+
+function desktopSkillDraftsEqual(left: DesktopSkillDraft, right: DesktopSkillDraft): boolean {
+  return left.name === right.name
+    && left.description === right.description
+    && left.content === right.content
+    && left.always === right.always;
+}
+
+function desktopSkillSaveMessage(status: DesktopSkillSaveStatus, dirty: boolean, error?: string): string {
+  if (status === "saving") {
+    return "Saving skill";
+  }
+  if (status === "saved") {
+    return "Skill saved";
+  }
+  if (status === "failed") {
+    return error || "Skill save failed";
+  }
+  return dirty ? "Unsaved changes" : "No changes";
 }
 
 function pick(record: UnknownRecord, ...keys: string[]): unknown {

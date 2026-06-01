@@ -5,7 +5,27 @@ import {
   buildDesktopGatewayRuntimeRows,
   type DesktopGatewayRuntimeActionId,
 } from "./desktopGatewayRuntimeControls";
-import { createDesktopRunChainInspectorView, type DesktopInspectorView } from "./desktopRunChainInspector";
+import {
+  buildDesktopPageHelpText,
+  buildDesktopShortcutHelpText,
+  resolveDesktopVisibleHelpTargets,
+} from "./desktopHelp";
+import {
+  buildDesktopCoworkCockpitView,
+  type DesktopCoworkCockpitView,
+  type DesktopCoworkActionInput,
+  type DesktopCoworkSelectionType,
+  type DesktopCoworkSessionRow,
+} from "./desktopCowork";
+import type { DesktopKnowledgePaneModel } from "./desktopKnowledgeTraceability";
+import type { DesktopSettingsPaneModel } from "./desktopSettingsProviders";
+import type { DesktopSkillEditorField, DesktopToolsSkillsPaneModel } from "./desktopToolsSkills";
+import {
+  buildDesktopRunChainSummary,
+  createDesktopRunChainInspectorView,
+  type DesktopInspectorView,
+  type DesktopRunChainItem,
+} from "./desktopRunChainInspector";
 import type { DesktopTaskActionId, DesktopTaskCenterAction, DesktopTaskCenterItem } from "./desktopTaskCenter";
 import type { WorkbenchLayoutState, WorkbenchPanelId, WorkbenchPanelState } from "./desktopWorkbenchLayout";
 import { loadWorkbenchLayout } from "./desktopWorkbenchLayout";
@@ -31,18 +51,117 @@ interface DesktopGatewayRuntimeActionOptions {
   copyText?: (text: string) => void | Promise<void>;
 }
 
+export type DesktopSettingsActionId = "save" | "discoverModels";
+
+export interface DesktopSettingsActionEvent {
+  action: DesktopSettingsActionId;
+  pane: DesktopSettingsPaneModel;
+}
+
+interface DesktopSettingsActionOptions {
+  onSettingsAction?: (event: DesktopSettingsActionEvent) => void;
+}
+
+export type DesktopKnowledgeActionId = "runQuery" | "refreshGraph" | "rebuildIndex" | "deleteDocument" | "uploadDocument";
+
+export interface DesktopKnowledgeActionEvent {
+  action: DesktopKnowledgeActionId;
+  pane: DesktopKnowledgePaneModel;
+}
+
+interface DesktopKnowledgeActionOptions {
+  onKnowledgeAction?: (event: DesktopKnowledgeActionEvent) => void;
+}
+
+export type DesktopToolsSkillsActionId = "createSkill" | "editSkill" | "saveSkill" | "deleteSkill" | "validateSkill" | "toggleAlways";
+
+export interface DesktopToolsSkillsActionEvent {
+  action: DesktopToolsSkillsActionId;
+  pane: DesktopToolsSkillsPaneModel;
+  field?: DesktopSkillEditorField;
+  value?: string | boolean;
+}
+
+interface DesktopToolsSkillsActionOptions {
+  onToolsSkillsAction?: (event: DesktopToolsSkillsActionEvent) => void;
+}
+
+export type DesktopCoworkActionId = Extract<
+  DesktopCoworkActionInput["action"],
+  | "createSession"
+  | "runSession"
+  | "pauseSession"
+  | "resumeSession"
+  | "emergencyStopSession"
+  | "deleteSession"
+  | "sendMessage"
+  | "loadSummary"
+  | "validateBlueprint"
+  | "addTask"
+  | "task"
+  | "workUnit"
+  | "selectBranch"
+  | "selectBranchResult"
+  | "mergeBranchResults"
+>;
+
+export interface DesktopCoworkActionEvent {
+  action: DesktopCoworkActionId;
+  pane: DesktopCoworkPaneModel;
+  sessionId?: string;
+  goal?: string;
+  message?: string;
+  blueprintText?: string;
+  preview?: boolean;
+  taskTitle?: string;
+  assignedAgentId?: string;
+  taskId?: string;
+  taskAction?: Extract<DesktopCoworkActionInput, { action: "task" }>["taskAction"];
+  workUnitId?: string;
+  workUnitAction?: Extract<DesktopCoworkActionInput, { action: "workUnit" }>["workUnitAction"];
+  branchId?: string;
+  resultId?: string;
+  branchIds?: string[];
+}
+
+interface DesktopCoworkActionOptions {
+  onCoworkAction?: (event: DesktopCoworkActionEvent) => void;
+}
+
 interface InstallDesktopWorkbenchShellOptions {
   targetDocument?: Document;
   layout?: WorkbenchLayoutState;
   runtimeStatus?: GatewayRuntimeStatus | null;
   taskCenterItems?: DesktopTaskCenterItem[];
   gatewayHttp: string;
+  settingsPane?: DesktopSettingsPaneModel | null;
+  settingsActions?: DesktopSettingsActionOptions;
+  knowledgePane?: DesktopKnowledgePaneModel | null;
+  knowledgeActions?: DesktopKnowledgeActionOptions;
+  toolsSkillsPane?: DesktopToolsSkillsPaneModel | null;
+  toolsSkillsActions?: DesktopToolsSkillsActionOptions;
+  coworkPane?: DesktopCoworkPaneModel | null;
+  coworkActions?: DesktopCoworkActionOptions;
+  runChainItems?: DesktopRunChainItem[];
+  selectedRunChainItemKey?: string | null;
   taskActions?: DesktopTaskCenterActionOptions;
   gatewayActions?: DesktopGatewayRuntimeActionOptions;
 }
 
+export interface DesktopCoworkPaneModel {
+  sessionRows: DesktopCoworkSessionRow[];
+  cockpitView?: DesktopCoworkCockpitView | null;
+  actionStatus?: string;
+  summaryText?: string;
+  blueprintDiagnostics?: string;
+}
+
 const SHELL_ID = "desktop-workbench-shell";
 const STYLE_ID = "desktop-workbench-shell-style";
+const COWORK_GRAPH_NODE_LIMIT = 24;
+const COWORK_GRAPH_EDGE_LIMIT = 12;
+const COWORK_OBSERVABILITY_ROW_LIMIT = 24;
+const COWORK_TASK_FEED_LIMIT = 20;
 type DesktopPanelControlId = "sidebar" | "inspector" | "bottom";
 
 export function installDesktopWorkbenchShell({
@@ -51,12 +170,23 @@ export function installDesktopWorkbenchShell({
   runtimeStatus = null,
   taskCenterItems = [],
   gatewayHttp,
+  settingsPane = null,
+  settingsActions = {},
+  knowledgePane = null,
+  knowledgeActions = {},
+  toolsSkillsPane = null,
+  toolsSkillsActions = {},
+  coworkPane = null,
+  coworkActions = {},
+  runChainItems = [],
+  selectedRunChainItemKey = null,
   taskActions = {},
   gatewayActions = {},
 }: InstallDesktopWorkbenchShellOptions): void {
   ensureDesktopWorkbenchShellStyle(targetDocument);
   targetDocument.body.classList.add("desktop-native-workbench");
-  targetDocument.body.replaceChildren(createWorkbenchShell(targetDocument, layout, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions));
+  targetDocument.body.replaceChildren(createWorkbenchShell(targetDocument, layout, runtimeStatus, gatewayHttp, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, runChainItems, selectedRunChainItemKey, taskActions, gatewayActions));
+  installDesktopHelpEventRouting(targetDocument);
 }
 
 export function updateDesktopTaskCenterItems(
@@ -86,12 +216,74 @@ export function updateDesktopGatewayRuntimeStatus(
   runtime.replaceChildren(...Array.from(next.children));
 }
 
+export function updateDesktopSettingsPane(
+  targetDocument: Document = document,
+  settingsPane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions = {},
+): void {
+  const pane = targetDocument.querySelector<HTMLElement>(".desktop-settings-pane");
+  if (!pane) {
+    return;
+  }
+  const next = createSettingsProvidersPane(targetDocument, settingsPane, settingsActions);
+  pane.replaceChildren(...Array.from(next.children));
+}
+
+export function updateDesktopKnowledgePane(
+  targetDocument: Document = document,
+  knowledgePane: DesktopKnowledgePaneModel,
+  knowledgeActions: DesktopKnowledgeActionOptions = {},
+): void {
+  const pane = targetDocument.querySelector<HTMLElement>(".desktop-knowledge-pane");
+  if (!pane) {
+    return;
+  }
+  const next = createKnowledgePane(targetDocument, knowledgePane, knowledgeActions);
+  pane.replaceChildren(...Array.from(next.children));
+}
+
+export function updateDesktopToolsSkillsPane(
+  targetDocument: Document = document,
+  toolsSkillsPane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions = {},
+): void {
+  const pane = targetDocument.querySelector<HTMLElement>(".desktop-tools-skills-pane");
+  if (!pane) {
+    return;
+  }
+  const next = createToolsSkillsPane(targetDocument, toolsSkillsPane, toolsSkillsActions);
+  pane.replaceChildren(...Array.from(next.children));
+}
+
+export function updateDesktopCoworkPane(
+  targetDocument: Document = document,
+  coworkPane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions = {},
+): void {
+  const pane = targetDocument.querySelector<HTMLElement>(".desktop-cowork-cockpit");
+  if (!pane) {
+    return;
+  }
+  const next = createCoworkCockpitPane(targetDocument, coworkPane, coworkActions);
+  pane.replaceChildren(...Array.from(next.children));
+}
+
 function createWorkbenchShell(
   targetDocument: Document,
   layout: WorkbenchLayoutState,
   runtimeStatus: GatewayRuntimeStatus | null,
   gatewayHttp: string,
   taskCenterItems: DesktopTaskCenterItem[],
+  settingsPane: DesktopSettingsPaneModel | null,
+  settingsActions: DesktopSettingsActionOptions,
+  knowledgePane: DesktopKnowledgePaneModel | null,
+  knowledgeActions: DesktopKnowledgeActionOptions,
+  toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+  coworkPane: DesktopCoworkPaneModel | null,
+  coworkActions: DesktopCoworkActionOptions,
+  runChainItems: DesktopRunChainItem[],
+  selectedRunChainItemKey: string | null,
   taskActions: DesktopTaskCenterActionOptions,
   gatewayActions: DesktopGatewayRuntimeActionOptions,
 ): HTMLElement {
@@ -108,8 +300,8 @@ function createWorkbenchShell(
   shell.append(
     createActivityRail(targetDocument),
     createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument)),
-    createMainRegion(targetDocument, gatewayHttp, layout),
-    createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument)),
+    createMainRegion(targetDocument, gatewayHttp, layout, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions),
+    createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, selectedRunChainItemKey)),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
 
@@ -154,7 +346,19 @@ function createSidebar(targetDocument: Document): HTMLElement {
   return sidebar;
 }
 
-function createMainRegion(targetDocument: Document, gatewayHttp: string, layout: WorkbenchLayoutState): HTMLElement {
+function createMainRegion(
+  targetDocument: Document,
+  gatewayHttp: string,
+  layout: WorkbenchLayoutState,
+  settingsPane: DesktopSettingsPaneModel | null,
+  settingsActions: DesktopSettingsActionOptions,
+  knowledgePane: DesktopKnowledgePaneModel | null,
+  knowledgeActions: DesktopKnowledgeActionOptions,
+  toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+  coworkPane: DesktopCoworkPaneModel | null,
+  coworkActions: DesktopCoworkActionOptions,
+): HTMLElement {
   const main = targetDocument.createElement("section");
   main.className = "desktop-workbench-main";
   main.setAttribute("data-workbench-region", "main");
@@ -169,7 +373,12 @@ function createMainRegion(targetDocument: Document, gatewayHttp: string, layout:
     createPanelControls(targetDocument, layout),
     createCommandPalette(targetDocument),
     createFileActions(targetDocument),
+    createDesktopHelpSurface(targetDocument),
     createWorkspaceFilesSurface(targetDocument),
+    ...(settingsPane ? [createSettingsProvidersPane(targetDocument, settingsPane, settingsActions)] : []),
+    ...(knowledgePane ? [createKnowledgePane(targetDocument, knowledgePane, knowledgeActions)] : []),
+    ...(toolsSkillsPane ? [createToolsSkillsPane(targetDocument, toolsSkillsPane, toolsSkillsActions)] : []),
+    ...(coworkPane ? [createCoworkCockpitPane(targetDocument, coworkPane, coworkActions)] : []),
   );
 
   const status = targetDocument.createElement("div");
@@ -179,6 +388,859 @@ function createMainRegion(targetDocument: Document, gatewayHttp: string, layout:
 
   main.append(empty, status);
   return main;
+}
+
+function createToolsSkillsPane(
+  targetDocument: Document,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions = {},
+): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section desktop-tools-skills-pane";
+  section.setAttribute("aria-label", "Tools and skills");
+  section.append(createText(targetDocument, "h2", "Tools and skills"), createText(targetDocument, "p", pane.status));
+
+  const tools = targetDocument.createElement("section");
+  tools.className = "desktop-tools-list";
+  tools.append(createText(targetDocument, "h2", "Tools"));
+  for (const tool of pane.toolRows) {
+    tools.append(createText(targetDocument, "p", `${tool.displayName}: ${tool.meta}`));
+  }
+  section.append(tools);
+
+  if (pane.selectedTool) {
+    const detail = targetDocument.createElement("section");
+    detail.className = "desktop-tool-detail";
+    detail.append(
+      createText(targetDocument, "h2", `Tool detail: ${pane.selectedTool.title}`),
+      createText(targetDocument, "p", pane.selectedTool.description),
+      createText(targetDocument, "p", `Config: ${pane.selectedTool.configHint || "ready"}`),
+    );
+    const fields = pane.selectedTool.schemaFields.length
+      ? pane.selectedTool.schemaFields
+      : [{ name: "parameters", type: "none", required: false, description: pane.selectedTool.emptySchemaText, defaultValue: "", enumValues: [] }];
+    for (const field of fields) {
+      detail.append(createText(
+        targetDocument,
+        "p",
+        `${field.name}: ${field.type}${field.required ? " required" : ""}${field.description ? ` - ${field.description}` : ""}`,
+      ));
+    }
+    section.append(detail);
+  }
+
+  const skills = targetDocument.createElement("section");
+  skills.className = "desktop-skills-list";
+  skills.append(createText(targetDocument, "h2", "Skills"));
+  for (const skill of pane.skillRows) {
+    skills.append(createText(targetDocument, "p", `${skill.name}: ${skill.meta}`));
+  }
+  section.append(skills);
+
+  if (pane.selectedSkill) {
+    const detail = targetDocument.createElement("section");
+    detail.className = "desktop-skill-detail";
+    detail.append(
+      createText(targetDocument, "h2", `Skill detail: ${pane.selectedSkill.name}`),
+      createText(targetDocument, "p", pane.selectedSkill.description),
+      createText(targetDocument, "p", `Source: ${pane.selectedSkill.source}`),
+      createText(targetDocument, "p", `Always load: ${pane.selectedSkill.always ? "Enabled" : "Disabled"}`),
+      createText(targetDocument, "p", `Save state: ${pane.selectedSkill.editor.saveMessage}`),
+      createText(
+        targetDocument,
+        "p",
+        `Validation: ${pane.selectedSkill.editor.validation.message || pane.selectedSkill.editor.validation.state}`,
+      ),
+      createDesktopSkillEditor(targetDocument, pane, toolsSkillsActions),
+    );
+    const actions: Array<[DesktopToolsSkillsActionId, string, boolean]> = [
+      ["createSkill", "Create skill", pane.selectedSkill.actions.create],
+      ["saveSkill", "Save skill", pane.selectedSkill.actions.save],
+      ["validateSkill", "Validate skill", pane.selectedSkill.actions.validate],
+      ["deleteSkill", "Delete skill", pane.selectedSkill.actions.delete],
+      ["toggleAlways", "Toggle always-load", pane.selectedSkill.actions.toggleAlways],
+    ];
+    const actionRow = targetDocument.createElement("div");
+    actionRow.className = "desktop-tools-skills-actions";
+    for (const [action, label, enabled] of actions) {
+      const button = targetDocument.createElement("button");
+      button.setAttribute("type", "button");
+      button.setAttribute("data-desktop-tools-skills-action", action);
+      if (!enabled) {
+        button.setAttribute("disabled", "true");
+      }
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        toolsSkillsActions.onToolsSkillsAction?.({ action, pane });
+      });
+      actionRow.append(button);
+    }
+    detail.append(actionRow);
+    section.append(detail);
+  }
+  return section;
+}
+
+function createKnowledgePane(
+  targetDocument: Document,
+  pane: DesktopKnowledgePaneModel,
+  knowledgeActions: DesktopKnowledgeActionOptions = {},
+): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section desktop-knowledge-pane";
+  section.setAttribute("aria-label", "Knowledge workbench");
+  section.append(createText(targetDocument, "h2", "Knowledge"), createText(targetDocument, "p", pane.status));
+
+  const actions: Array<[DesktopKnowledgeActionId, string, boolean]> = [
+    ["uploadDocument", "Upload document", pane.actions.upload],
+    ["runQuery", "Run query", pane.actions.query],
+    ["refreshGraph", "Refresh graph", pane.actions.refreshGraph],
+    ["rebuildIndex", "Rebuild index", pane.actions.rebuild],
+    ["deleteDocument", "Delete document", pane.actions.deleteDocument],
+  ];
+  const actionRow = targetDocument.createElement("div");
+  actionRow.className = "desktop-knowledge-actions";
+  for (const [action, label, enabled] of actions) {
+    const button = targetDocument.createElement("button");
+    button.setAttribute("type", "button");
+    button.setAttribute("data-desktop-knowledge-action", action);
+    if (!enabled) {
+      button.setAttribute("disabled", "true");
+    }
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      knowledgeActions.onKnowledgeAction?.({ action, pane });
+    });
+    actionRow.append(button);
+  }
+  section.append(actionRow);
+
+  const readiness = targetDocument.createElement("section");
+  readiness.className = "desktop-knowledge-readiness";
+  readiness.append(createText(targetDocument, "h2", "Readiness"));
+  for (const hint of pane.configHints) {
+    readiness.append(createText(targetDocument, "p", hint));
+  }
+  for (const row of pane.readiness.rows) {
+    readiness.append(createText(targetDocument, "p", `${row.id}: ${row.tone}`));
+  }
+  section.append(readiness);
+
+  const documents = targetDocument.createElement("section");
+  documents.className = "desktop-knowledge-documents";
+  documents.append(createText(targetDocument, "h2", "Documents"));
+  for (const document of pane.documentRows) {
+    documents.append(createText(targetDocument, "p", `${document.title}: ${document.meta}`));
+  }
+  section.append(documents);
+
+  if (pane.selectedDocument) {
+    const detail = targetDocument.createElement("section");
+    detail.className = "desktop-knowledge-document-detail";
+    detail.append(
+      createText(targetDocument, "h2", `Document detail: ${pane.selectedDocument.title}`),
+      createText(targetDocument, "p", pane.selectedDocument.detail),
+      createText(targetDocument, "p", `Tags: ${pane.selectedDocument.tags.join(", ") || "none"}`),
+    );
+    section.append(detail);
+  }
+
+  const query = targetDocument.createElement("section");
+  query.className = "desktop-knowledge-query";
+  query.append(
+    createText(targetDocument, "h2", `Query: ${pane.query.draft.query || "empty"}`),
+    createText(targetDocument, "p", `Mode: ${pane.query.draft.mode} / top ${pane.query.draft.topK}`),
+    createText(targetDocument, "p", `Results: ${pane.query.results.summary.count}`),
+  );
+  for (const row of pane.query.results.rows.slice(0, 4)) {
+    query.append(createText(targetDocument, "p", `${row.docName}: ${row.content}`));
+  }
+  section.append(query);
+
+  const graph = targetDocument.createElement("section");
+  graph.className = "desktop-knowledge-graph";
+  graph.append(createText(targetDocument, "h2", `Graph: ${pane.graph.summary}`));
+  appendKnowledgeReferenceRows(targetDocument, graph, "Community", pane.graph.communities);
+  appendKnowledgeReferenceRows(targetDocument, graph, "Report", pane.graph.reports);
+  appendKnowledgeReferenceRows(targetDocument, graph, "Claim", pane.graph.claims);
+  appendKnowledgeReferenceRows(targetDocument, graph, "Relation", pane.graph.relations);
+  appendKnowledgeReferenceRows(targetDocument, graph, "Conflict", pane.graph.conflicts);
+  for (const evidence of pane.graph.evidence.slice(0, 4)) {
+    graph.append(createText(targetDocument, "p", `Evidence: ${evidence.title} / ${evidence.docName}`));
+  }
+  section.append(graph);
+
+  return section;
+}
+
+function createCoworkCockpitPane(
+  targetDocument: Document,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions = {},
+): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section desktop-cowork-cockpit";
+  section.setAttribute("aria-label", "Cowork cockpit");
+  section.append(createText(targetDocument, "h2", "Cowork"));
+
+  const sessions = targetDocument.createElement("section");
+  sessions.className = "desktop-cowork-sessions";
+  sessions.append(createText(targetDocument, "h2", "Sessions"));
+  if (!pane.sessionRows.length) {
+    sessions.append(createText(targetDocument, "p", "No Cowork sessions loaded."));
+  }
+  for (const session of pane.sessionRows) {
+    const row = targetDocument.createElement("button");
+    row.type = "button";
+    row.className = "desktop-cowork-session-row";
+    row.setAttribute("data-desktop-cowork-session", session.id);
+    row.textContent = `${session.title}: ${session.meta}`;
+    sessions.append(row);
+  }
+  section.append(sessions);
+  section.append(createCoworkActionControls(targetDocument, pane, coworkActions));
+
+  if (!pane.cockpitView) {
+    section.append(createText(targetDocument, "p", "Select a Cowork session to open the cockpit."));
+    return section;
+  }
+
+  const view = pane.cockpitView;
+  const header = targetDocument.createElement("section");
+  header.className = "desktop-cowork-header";
+  header.append(
+    createText(targetDocument, "h2", view.header.title),
+    createText(targetDocument, "p", view.header.goal || "No goal provided."),
+    createText(targetDocument, "p", `${view.header.status} / ${view.header.workflow}${view.header.updatedAt ? ` / ${view.header.updatedAt}` : ""}`),
+  );
+  section.append(header);
+
+  const inspector = createCoworkInspectorPane(targetDocument, view, pane, coworkActions);
+  section.append(createCoworkGraphPane(targetDocument, view, inspector, pane, coworkActions));
+  section.append(createCoworkObservabilityPane(targetDocument, view));
+  section.append(inspector);
+  section.append(createCoworkTaskFeed(targetDocument, view));
+
+  return section;
+}
+
+function createCoworkActionControls(
+  targetDocument: Document,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): HTMLElement {
+  const actions = targetDocument.createElement("section");
+  actions.className = "desktop-cowork-actions";
+  actions.setAttribute("aria-label", "Cowork actions");
+
+  const goal = targetDocument.createElement("textarea");
+  goal.className = "desktop-cowork-action-input";
+  goal.setAttribute("aria-label", "Cowork goal");
+  goal.setAttribute("data-desktop-cowork-input", "goal");
+  (goal as HTMLTextAreaElement).value = "";
+
+  const message = targetDocument.createElement("textarea");
+  message.className = "desktop-cowork-action-input";
+  message.setAttribute("aria-label", "Cowork message");
+  message.setAttribute("data-desktop-cowork-input", "message");
+  (message as HTMLTextAreaElement).value = "";
+
+  const blueprint = targetDocument.createElement("textarea");
+  blueprint.className = "desktop-cowork-action-input desktop-cowork-blueprint-input";
+  blueprint.setAttribute("aria-label", "Cowork blueprint JSON");
+  blueprint.setAttribute("data-desktop-cowork-input", "blueprint");
+  (blueprint as HTMLTextAreaElement).value = "";
+
+  const taskTitle = targetDocument.createElement("input");
+  taskTitle.className = "desktop-cowork-action-input";
+  taskTitle.setAttribute("aria-label", "Cowork task title");
+  taskTitle.setAttribute("data-desktop-cowork-input", "taskTitle");
+  (taskTitle as HTMLInputElement).value = "";
+
+  const assignedAgentId = targetDocument.createElement("input");
+  assignedAgentId.className = "desktop-cowork-action-input";
+  assignedAgentId.setAttribute("aria-label", "Cowork assigned agent id");
+  assignedAgentId.setAttribute("data-desktop-cowork-input", "assignedAgentId");
+  (assignedAgentId as HTMLInputElement).value = pane.cockpitView?.agents[0]?.id ?? "";
+
+  const sessionId = pane.cockpitView?.header.id ?? "";
+  const rows: Array<[string, string, DesktopCoworkActionId, boolean]> = [
+    ["create", "Create session", "createSession", true],
+    ["run", "Run", "runSession", Boolean(sessionId)],
+    ["pause", "Pause", "pauseSession", Boolean(sessionId)],
+    ["resume", "Resume", "resumeSession", Boolean(sessionId)],
+    ["emergencyStop", "Emergency stop", "emergencyStopSession", Boolean(sessionId)],
+    ["delete", "Delete", "deleteSession", Boolean(sessionId)],
+    ["message", "Message", "sendMessage", Boolean(sessionId)],
+    ["summary", "Summary", "loadSummary", Boolean(sessionId)],
+  ];
+  actions.append(goal, message, blueprint, taskTitle, assignedAgentId);
+  if (pane.actionStatus) {
+    const status = createText(targetDocument, "p", pane.actionStatus);
+    status.className = "desktop-cowork-action-status";
+    actions.append(status);
+  }
+  if (pane.summaryText) {
+    const summary = createText(targetDocument, "p", `Summary: ${pane.summaryText}`);
+    summary.className = "desktop-cowork-action-summary";
+    actions.append(summary);
+  }
+  if (pane.blueprintDiagnostics) {
+    const diagnostics = createText(targetDocument, "p", `Blueprint: ${pane.blueprintDiagnostics}`);
+    diagnostics.className = "desktop-cowork-blueprint-diagnostics";
+    actions.append(diagnostics);
+  }
+  for (const [action, label, preview] of [
+    ["blueprintValidate", "Validate blueprint", false],
+    ["blueprintPreview", "Preview blueprint", true],
+  ] as const) {
+    const button = targetDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-cowork-action";
+    button.setAttribute("data-desktop-cowork-action", action);
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      coworkActions.onCoworkAction?.({
+        action: "validateBlueprint",
+        pane,
+        blueprintText: (blueprint as HTMLTextAreaElement).value.trim(),
+        preview,
+      });
+    });
+    actions.append(button);
+  }
+  for (const [action, label, eventAction, enabled] of rows) {
+    const button = targetDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-cowork-action";
+    button.setAttribute("data-desktop-cowork-action", action);
+    if (!enabled) {
+      button.setAttribute("disabled", "true");
+    }
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      if (!enabled) {
+        return;
+      }
+      coworkActions.onCoworkAction?.({
+        action: eventAction,
+        pane,
+        sessionId: eventAction === "createSession" ? undefined : sessionId || undefined,
+        goal: eventAction === "createSession" ? (goal as HTMLTextAreaElement).value.trim() : undefined,
+        message: eventAction === "sendMessage" ? (message as HTMLTextAreaElement).value.trim() : undefined,
+      });
+    });
+    actions.append(button);
+  }
+  const addTask = targetDocument.createElement("button");
+  addTask.type = "button";
+  addTask.className = "desktop-cowork-action";
+  addTask.setAttribute("data-desktop-cowork-action", "addTask");
+  if (!sessionId) {
+    addTask.setAttribute("disabled", "true");
+  }
+  addTask.textContent = "Add task";
+  addTask.addEventListener("click", () => {
+    if (!sessionId) {
+      return;
+    }
+    coworkActions.onCoworkAction?.({
+      action: "addTask",
+      pane,
+      sessionId,
+      taskTitle: (taskTitle as HTMLInputElement).value.trim(),
+      assignedAgentId: (assignedAgentId as HTMLInputElement).value.trim(),
+    });
+  });
+  actions.append(addTask);
+  return actions;
+}
+
+function createCoworkGraphPane(
+  targetDocument: Document,
+  view: DesktopCoworkCockpitView,
+  inspector: HTMLElement,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): HTMLElement {
+  const graph = targetDocument.createElement("section");
+  graph.className = "desktop-cowork-graph";
+  graph.append(createText(targetDocument, "h2", "Graph"), createText(targetDocument, "p", view.graph.caption));
+  const visibleNodes = view.graph.nodes.slice(0, COWORK_GRAPH_NODE_LIMIT);
+  for (const node of visibleNodes) {
+    const row = targetDocument.createElement("button");
+    row.type = "button";
+    row.className = "desktop-cowork-graph-node";
+    row.setAttribute("data-desktop-cowork-entity", node.id);
+    row.setAttribute("data-desktop-cowork-kind", node.kind);
+    row.textContent = `${node.label}: ${node.kind}${node.status ? ` / ${node.status}` : ""}`;
+    row.addEventListener("click", () => {
+      const type = coworkSelectionTypeForKind(node.kind);
+      if (!type) {
+        return;
+      }
+      const selectedView = buildDesktopCoworkCockpitView(view.raw, {
+        selected: { type, id: node.id },
+      });
+      const selectedInspector = createCoworkInspectorPane(targetDocument, selectedView, pane, coworkActions);
+      inspector.replaceChildren(...Array.from(selectedInspector.children));
+      for (const graphNode of Array.from(graph.querySelectorAll(".desktop-cowork-graph-node"))) {
+        graphNode.setAttribute(
+          "aria-selected",
+          graphNode.getAttribute("data-desktop-cowork-entity") === node.id ? "true" : "false",
+        );
+      }
+      setRouteStatus(targetDocument, `Inspecting Cowork ${node.label}`);
+    });
+    graph.append(row);
+  }
+  graph.append(createCoworkLimitStatus(targetDocument, visibleNodes.length, view.graph.nodes.length, "node", "nodes"));
+  const visibleEdges = view.graph.edges.slice(0, COWORK_GRAPH_EDGE_LIMIT);
+  for (const edge of visibleEdges) {
+    graph.append(createText(targetDocument, "p", `${edge.source} -> ${edge.target}${edge.label ? ` / ${edge.label}` : ""}`));
+  }
+  graph.append(createCoworkLimitStatus(targetDocument, visibleEdges.length, view.graph.edges.length, "edge", "edges"));
+  return graph;
+}
+
+function coworkSelectionTypeForKind(kind: string): DesktopCoworkSelectionType {
+  const value = kind.toLowerCase();
+  if (value.includes("agent")) {
+    return "agent";
+  }
+  if (value.includes("task")) {
+    return "task";
+  }
+  if (value.includes("mail")) {
+    return "mailbox";
+  }
+  if (value.includes("thread")) {
+    return "thread";
+  }
+  if (value.includes("trace")) {
+    return "trace";
+  }
+  if (value.includes("artifact")) {
+    return "artifact";
+  }
+  if (value.includes("work") || value.includes("unit")) {
+    return "workUnit";
+  }
+  if (value.includes("branch")) {
+    return "branch";
+  }
+  return "";
+}
+
+function createCoworkObservabilityPane(targetDocument: Document, view: DesktopCoworkCockpitView): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-cowork-observability";
+  section.setAttribute("aria-label", "Cowork observability");
+
+  const tabs = targetDocument.createElement("div");
+  tabs.className = "desktop-cowork-observability-tabs";
+  tabs.setAttribute("role", "tablist");
+
+  const panelHost = targetDocument.createElement("section");
+  panelHost.className = "desktop-cowork-observability-panel";
+
+  const filter = targetDocument.createElement("input");
+  filter.className = "desktop-cowork-observability-filter";
+  filter.setAttribute("type", "search");
+  filter.setAttribute("aria-label", "Filter Cowork observability rows");
+  filter.setAttribute("placeholder", "Filter current panel");
+  filter.setAttribute("data-desktop-cowork-filter", "observability");
+
+  const renderPanel = (panelId: string): void => {
+    const selectedPanel = view.observabilityPanels.find((panel) => panel.id === panelId) ?? view.observabilityPanels[0];
+    if (!selectedPanel) {
+      panelHost.replaceChildren(createText(targetDocument, "p", "No Cowork observability data."));
+      return;
+    }
+    for (const tab of Array.from(tabs.children)) {
+      tab.setAttribute("aria-selected", tab.getAttribute("data-desktop-cowork-panel") === selectedPanel.id ? "true" : "false");
+    }
+    const query = (filter as HTMLInputElement).value.trim().toLowerCase();
+    const matchedRows = query
+      ? selectedPanel.rows.filter((row) => `${row.label} ${row.value}`.toLowerCase().includes(query))
+      : selectedPanel.rows;
+    const visibleRows = matchedRows.slice(0, COWORK_OBSERVABILITY_ROW_LIMIT);
+    const content = targetDocument.createElement("section");
+    content.append(createText(targetDocument, "h2", selectedPanel.label), createText(targetDocument, "p", selectedPanel.summary));
+    content.append(createCoworkFilteredLimitStatus(targetDocument, visibleRows.length, matchedRows.length, selectedPanel.rows.length, "row", "rows", Boolean(query)));
+    for (const row of visibleRows) {
+      content.append(createCoworkDataRow(targetDocument, "desktop-cowork-observability-row", `${row.label}: ${row.value}`));
+    }
+    panelHost.replaceChildren(...Array.from(content.children));
+    setRouteStatus(targetDocument, `Viewing Cowork ${selectedPanel.label}`);
+  };
+
+  for (const [index, panel] of view.observabilityPanels.entries()) {
+    const tab = targetDocument.createElement("button");
+    tab.type = "button";
+    tab.className = "desktop-cowork-observability-tab";
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("data-desktop-cowork-panel", panel.id);
+    tab.setAttribute("aria-selected", index === 0 ? "true" : "false");
+    tab.textContent = panel.label;
+    tab.addEventListener("click", () => {
+      renderPanel(panel.id);
+    });
+    tabs.append(tab);
+  }
+  filter.addEventListener("input", () => {
+    const selectedPanelId = Array.from(tabs.children).find((tab) => tab.getAttribute("aria-selected") === "true")?.getAttribute("data-desktop-cowork-panel") ?? "";
+    renderPanel(selectedPanelId);
+  });
+  section.append(createText(targetDocument, "h2", "Observability"), tabs, filter, panelHost);
+  renderPanel(view.observabilityPanels[0]?.id ?? "");
+  return section;
+}
+
+function createCoworkInspectorPane(
+  targetDocument: Document,
+  view: DesktopCoworkCockpitView,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): HTMLElement {
+  const inspector = targetDocument.createElement("section");
+  inspector.className = "desktop-cowork-inspector";
+  inspector.append(
+    createText(targetDocument, "h2", `Selected: ${view.inspector.title}`),
+    createText(targetDocument, "p", view.inspector.body || `${view.inspector.type || "entity"} ${view.inspector.id || ""}`.trim()),
+  );
+  for (const row of view.inspector.rows) {
+    inspector.append(createText(targetDocument, "p", `${row.label}: ${row.value}`));
+  }
+  if (view.inspector.payloadText) {
+    inspector.append(createText(targetDocument, "p", `Payload: ${view.inspector.payloadText}`));
+  }
+  appendCoworkSelectedActions(targetDocument, inspector, view, pane, coworkActions);
+  return inspector;
+}
+
+function appendCoworkSelectedActions(
+  targetDocument: Document,
+  inspector: HTMLElement,
+  view: DesktopCoworkCockpitView,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  const sessionId = view.header.id;
+  const type = view.inspector.type;
+  const id = view.inspector.id;
+  if (!sessionId || !type || !id) {
+    return;
+  }
+  const actions = targetDocument.createElement("div");
+  actions.className = "desktop-cowork-selected-actions";
+
+  if (type === "task") {
+    const agent = targetDocument.createElement("input");
+    agent.className = "desktop-cowork-action-input";
+    agent.setAttribute("aria-label", "Assign task to agent");
+    agent.setAttribute("data-desktop-cowork-input", "assignedAgentId");
+    (agent as HTMLInputElement).value = view.agents[0]?.id ?? "";
+    actions.append(agent);
+    for (const [action, label, taskAction] of [
+      ["assignTask", "Assign", "assign"],
+      ["retryTask", "Retry", "retry"],
+      ["reviewTask", "Review", "review"],
+    ] as const) {
+      const button = createCoworkSelectedActionButton(targetDocument, action, label);
+      button.addEventListener("click", () => {
+        coworkActions.onCoworkAction?.({
+          action: "task",
+          pane,
+          sessionId,
+          taskId: id,
+          taskAction,
+          assignedAgentId: taskAction === "assign" ? (agent as HTMLInputElement).value.trim() : undefined,
+        });
+      });
+      actions.append(button);
+    }
+  } else if (type === "workUnit") {
+    for (const [action, label, workUnitAction] of [
+      ["retryWorkUnit", "Retry", "retry"],
+      ["skipWorkUnit", "Skip", "skip"],
+      ["cancelWorkUnit", "Cancel", "cancel"],
+    ] as const) {
+      const button = createCoworkSelectedActionButton(targetDocument, action, label);
+      button.addEventListener("click", () => {
+        coworkActions.onCoworkAction?.({
+          action: "workUnit",
+          pane,
+          sessionId,
+          workUnitId: id,
+          workUnitAction,
+        });
+      });
+      actions.append(button);
+    }
+  } else if (type === "branch") {
+    const branch = view.branches.find((item) => item.branchId === id || item.resultId === id);
+    for (const [action, label] of [
+      ["selectBranch", "Select branch"],
+      ["selectBranchResult", "Set final"],
+      ["mergeBranchResults", "Merge results"],
+    ] as const) {
+      const button = createCoworkSelectedActionButton(targetDocument, action, label);
+      button.addEventListener("click", () => {
+        if (action === "mergeBranchResults") {
+          coworkActions.onCoworkAction?.({
+            action,
+            pane,
+            sessionId,
+            branchIds: view.branches.map((item) => item.branchId).filter(Boolean),
+          });
+          return;
+        }
+        coworkActions.onCoworkAction?.({
+          action,
+          pane,
+          sessionId,
+          branchId: branch?.branchId || id,
+          resultId: action === "selectBranchResult" ? branch?.resultId : undefined,
+        });
+      });
+      actions.append(button);
+    }
+  }
+
+  if (actions.children.length) {
+    inspector.append(actions);
+  }
+}
+
+function createCoworkSelectedActionButton(targetDocument: Document, action: string, label: string): HTMLButtonElement {
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-cowork-action";
+  button.setAttribute("data-desktop-cowork-entity-action", action);
+  button.textContent = label;
+  return button as HTMLButtonElement;
+}
+
+function createCoworkTaskFeed(targetDocument: Document, view: DesktopCoworkCockpitView): HTMLElement {
+  const feed = targetDocument.createElement("section");
+  feed.className = "desktop-cowork-task-feed";
+  feed.append(createText(targetDocument, "h2", "Task feed"));
+  const visibleItems = view.taskCenterItems.slice(0, COWORK_TASK_FEED_LIMIT);
+  for (const item of visibleItems) {
+    feed.append(createCoworkDataRow(targetDocument, "desktop-cowork-task-feed-row", `${item.title}: ${item.status} / ${item.detail}`));
+  }
+  feed.append(createCoworkLimitStatus(targetDocument, visibleItems.length, view.taskCenterItems.length, "task status item", "task status items"));
+  feed.append(createText(targetDocument, "p", `${view.agents.length} agents / ${view.tasks.length} tasks / ${view.mailbox.length} mailbox / ${view.artifacts.length} artifacts`));
+  return feed;
+}
+
+function createCoworkDataRow(targetDocument: Document, className: string, text: string): HTMLElement {
+  const row = createText(targetDocument, "p", text);
+  row.className = className;
+  return row;
+}
+
+function createCoworkLimitStatus(targetDocument: Document, visible: number, total: number, singular: string, plural: string): HTMLElement {
+  const noun = total === 1 ? singular : plural;
+  const status = createText(targetDocument, "p", `Showing ${visible} of ${total} ${noun}`);
+  status.className = "desktop-cowork-limit-status";
+  return status;
+}
+
+function createCoworkFilteredLimitStatus(
+  targetDocument: Document,
+  visible: number,
+  matched: number,
+  total: number,
+  singular: string,
+  plural: string,
+  filtered: boolean,
+): HTMLElement {
+  if (!filtered) {
+    return createCoworkLimitStatus(targetDocument, visible, total, singular, plural);
+  }
+  const noun = plural || singular;
+  const status = createText(targetDocument, "p", `Showing ${visible} of ${matched} matching ${noun} (${total} total)`);
+  status.className = "desktop-cowork-limit-status";
+  return status;
+}
+
+function appendKnowledgeReferenceRows(
+  targetDocument: Document,
+  section: HTMLElement,
+  label: string,
+  rows: Array<{ title: string; meta: string; text: string }>,
+): void {
+  for (const row of rows.slice(0, 4)) {
+    section.append(createText(targetDocument, "p", `${label}: ${row.title}${row.text ? ` - ${row.text}` : ""}`));
+  }
+}
+
+function createDesktopSkillEditor(
+  targetDocument: Document,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): HTMLElement {
+  const detail = pane.selectedSkill;
+  const editor = targetDocument.createElement("div");
+  editor.className = "desktop-skill-editor";
+  if (!detail) {
+    return editor;
+  }
+
+  editor.append(
+    createDesktopSkillInput(targetDocument, "name", "Skill name", detail.editor.draft.name, !detail.nameEditable, pane, toolsSkillsActions),
+    createDesktopSkillInput(targetDocument, "description", "Description", detail.editor.draft.description, false, pane, toolsSkillsActions),
+    createDesktopSkillCheckbox(targetDocument, "always", "Always load", detail.editor.draft.always, pane, toolsSkillsActions),
+    createDesktopSkillTextArea(targetDocument, "content", "Skill content", detail.editor.draft.content, pane, toolsSkillsActions),
+  );
+  return editor;
+}
+
+function createDesktopSkillInput(
+  targetDocument: Document,
+  field: Extract<DesktopSkillEditorField, "name" | "description">,
+  label: string,
+  value: string,
+  disabled: boolean,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): HTMLElement {
+  const input = targetDocument.createElement("input");
+  input.className = "desktop-skill-editor-field";
+  input.setAttribute("aria-label", label);
+  input.setAttribute("data-desktop-skill-editor-field", field);
+  input.setAttribute("value", value);
+  if (disabled) {
+    input.setAttribute("disabled", "true");
+  }
+  (input as HTMLInputElement).value = value;
+  input.addEventListener("input", (event) => {
+    toolsSkillsActions.onToolsSkillsAction?.({
+      action: "editSkill",
+      pane,
+      field,
+      value: String((event.target as HTMLInputElement | null)?.value ?? ""),
+    });
+  });
+  return input;
+}
+
+function createDesktopSkillCheckbox(
+  targetDocument: Document,
+  field: Extract<DesktopSkillEditorField, "always">,
+  label: string,
+  checked: boolean,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): HTMLElement {
+  const input = targetDocument.createElement("input");
+  input.className = "desktop-skill-editor-field";
+  input.setAttribute("type", "checkbox");
+  input.setAttribute("aria-label", label);
+  input.setAttribute("data-desktop-skill-editor-field", field);
+  if (checked) {
+    input.setAttribute("checked", "true");
+  }
+  (input as HTMLInputElement).checked = checked;
+  input.addEventListener("change", (event) => {
+    toolsSkillsActions.onToolsSkillsAction?.({
+      action: "editSkill",
+      pane,
+      field,
+      value: (event.target as HTMLInputElement | null)?.checked === true,
+    });
+  });
+  return input;
+}
+
+function createDesktopSkillTextArea(
+  targetDocument: Document,
+  field: Extract<DesktopSkillEditorField, "content">,
+  label: string,
+  value: string,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): HTMLElement {
+  const textarea = targetDocument.createElement("textarea");
+  textarea.className = "desktop-skill-editor-field desktop-skill-editor-content";
+  textarea.setAttribute("aria-label", label);
+  textarea.setAttribute("data-desktop-skill-editor-field", field);
+  (textarea as HTMLTextAreaElement).value = value;
+  textarea.addEventListener("input", (event) => {
+    toolsSkillsActions.onToolsSkillsAction?.({
+      action: "editSkill",
+      pane,
+      field,
+      value: String((event.target as HTMLTextAreaElement | null)?.value ?? ""),
+    });
+  });
+  return textarea;
+}
+
+function createSettingsProvidersPane(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions = {},
+): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section desktop-settings-pane";
+  section.setAttribute("aria-label", "Settings and providers");
+  section.append(
+    createText(targetDocument, "h2", "Settings"),
+    createText(targetDocument, "p", `Save: ${pane.save.message}`),
+    createText(targetDocument, "p", pane.validationErrors.length ? `Validation: ${pane.validationErrors.map((error) => error.field).join(", ")}` : "Validation: ready"),
+  );
+
+  const actions = targetDocument.createElement("div");
+  actions.className = "desktop-settings-actions";
+  const save = targetDocument.createElement("button");
+  save.setAttribute("type", "button");
+  save.setAttribute("data-desktop-settings-action", "save");
+  if (!pane.save.canSave) {
+    save.setAttribute("disabled", "true");
+  }
+  save.textContent = pane.save.status === "saving" ? "Saving" : "Save settings";
+  save.addEventListener("click", () => {
+    settingsActions.onSettingsAction?.({ action: "save", pane });
+  });
+  const discover = targetDocument.createElement("button");
+  discover.setAttribute("type", "button");
+  discover.setAttribute("data-desktop-settings-action", "discoverModels");
+  if (!pane.providerEditor.canDiscoverModels) {
+    discover.setAttribute("disabled", "true");
+  }
+  discover.textContent = "Refresh models";
+  discover.addEventListener("click", () => {
+    settingsActions.onSettingsAction?.({ action: "discoverModels", pane });
+  });
+  actions.append(save, discover);
+  section.append(actions);
+
+  for (const group of pane.groups) {
+    const groupSection = targetDocument.createElement("section");
+    groupSection.className = "desktop-settings-group";
+    groupSection.setAttribute("data-desktop-settings-group", group.id);
+    groupSection.append(createText(targetDocument, "h2", group.label));
+    for (const field of group.fields) {
+      const row = targetDocument.createElement("p");
+      row.className = "desktop-settings-field";
+      row.setAttribute("data-desktop-settings-field", field.id);
+      row.setAttribute("data-state", field.state);
+      row.textContent = `${field.label}: ${field.value}`;
+      groupSection.append(row);
+    }
+    section.append(groupSection);
+  }
+
+  section.append(
+    createText(targetDocument, "p", `Provider profile: ${pane.providerEditor.profileId || "default"}`),
+    createText(targetDocument, "p", `API key: ${pane.providerEditor.apiKey.displayValue || "Not configured"}`),
+    createText(targetDocument, "p", `Catalog: ${pane.providerCatalog.map((provider) => `${provider.label} (${provider.status})`).join(", ") || "No providers loaded"}`),
+    createText(targetDocument, "p", `Models: ${pane.providerEditor.models.join(", ") || "No models loaded"}`),
+  );
+  return section;
 }
 
 function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutState): HTMLElement {
@@ -308,11 +1370,70 @@ function createCommandPalette(targetDocument: Document): HTMLElement {
   return palette;
 }
 
-function createInspector(targetDocument: Document): HTMLElement {
+function createInspector(
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[] = [],
+  selectedRunChainItemKey: string | null = null,
+): HTMLElement {
   const inspector = targetDocument.createElement("aside");
   inspector.className = "desktop-inspector-content";
-  inspector.append(renderInspectorView(targetDocument, createDesktopRunChainInspectorView(null)));
+  inspector.append(
+    runChainItems.length
+      ? createRunChainInspectorPane(targetDocument, runChainItems, selectedRunChainItemKey)
+      : renderInspectorView(targetDocument, createDesktopRunChainInspectorView(null)),
+  );
   return inspector;
+}
+
+function createRunChainInspectorPane(
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[],
+  selectedRunChainItemKey: string | null,
+): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section desktop-run-chain-inspector";
+  section.setAttribute("aria-label", "Run-chain inspector");
+  section.append(createText(targetDocument, "h2", "Run-chain inspector"));
+  section.append(createText(targetDocument, "p", buildDesktopRunChainSummary(runChainItems)));
+
+  const list = targetDocument.createElement("div");
+  list.className = "desktop-run-chain-list";
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "Run-chain items");
+
+  const detail = targetDocument.createElement("section");
+  detail.className = "desktop-run-chain-detail";
+
+  const selectedItem = runChainItems.find((item) => item.key === selectedRunChainItemKey && item.inspectable)
+    ?? runChainItems.find((item) => item.inspectable)
+    ?? runChainItems[0];
+
+  const renderSelectedDetail = (item: DesktopRunChainItem): void => {
+    for (const row of Array.from(list.children)) {
+      row.setAttribute("aria-selected", row.getAttribute("data-desktop-run-chain-item") === item.key ? "true" : "false");
+    }
+    detail.replaceChildren(renderInspectorView(targetDocument, createDesktopRunChainInspectorView(item)));
+    setRouteStatus(targetDocument, `Inspecting ${item.title}`);
+  };
+
+  for (const item of runChainItems) {
+    const row = targetDocument.createElement("button");
+    row.type = "button";
+    row.className = "desktop-run-chain-item";
+    row.setAttribute("role", "option");
+    row.setAttribute("data-desktop-run-chain-item", item.key);
+    row.setAttribute("data-desktop-run-chain-kind", item.kind);
+    row.setAttribute("aria-selected", item.key === selectedItem.key ? "true" : "false");
+    row.textContent = `${item.title}: ${item.preview}`;
+    row.addEventListener("click", () => {
+      renderSelectedDetail(item);
+    });
+    list.append(row);
+  }
+
+  detail.append(renderInspectorView(targetDocument, createDesktopRunChainInspectorView(selectedItem)));
+  section.append(list, detail);
+  return section;
 }
 
 function createBottomRegion(
@@ -680,10 +1801,98 @@ function createFileActions(targetDocument: Document): HTMLElement {
   return section;
 }
 
+function createDesktopHelpSurface(targetDocument: Document): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-help-pane";
+  section.setAttribute("aria-label", "Desktop help");
+  section.append(createText(targetDocument, "h2", "Help"));
+
+  const docs = createWorkbenchLink(targetDocument, "Open docs", "/docs", "desktop-help-action");
+  docs.setAttribute("data-desktop-help-action", "docs");
+
+  const shortcuts = targetDocument.createElement("button");
+  shortcuts.setAttribute("type", "button");
+  shortcuts.className = "desktop-help-action";
+  shortcuts.setAttribute("data-desktop-help-action", "shortcut-help");
+  shortcuts.textContent = "Shortcut help";
+  shortcuts.addEventListener("click", () => {
+    renderDesktopShortcutHelp(targetDocument);
+  });
+
+  const pageHelp = targetDocument.createElement("button");
+  pageHelp.setAttribute("type", "button");
+  pageHelp.className = "desktop-help-action";
+  pageHelp.setAttribute("data-desktop-help-action", "page-help");
+  pageHelp.textContent = "Page help";
+  pageHelp.addEventListener("click", () => {
+    renderDesktopPageHelp(targetDocument, "Page help");
+  });
+
+  const tour = targetDocument.createElement("button");
+  tour.setAttribute("type", "button");
+  tour.className = "desktop-help-action";
+  tour.setAttribute("data-desktop-help-action", "help-tour");
+  tour.textContent = "Help tour";
+  tour.addEventListener("click", () => {
+    renderDesktopPageHelp(targetDocument, "Desktop help tour");
+  });
+
+  section.append(docs, shortcuts, pageHelp, tour);
+  return section;
+}
+
+function installDesktopHelpEventRouting(targetDocument: Document): void {
+  targetDocument.addEventListener("tinybot:open-shortcut-help", () => {
+    renderDesktopShortcutHelp(targetDocument);
+  });
+  targetDocument.addEventListener("tinybot:open-page-help", () => {
+    renderDesktopPageHelp(targetDocument, "Page help");
+  });
+  targetDocument.addEventListener("tinybot:open-help-tour", () => {
+    renderDesktopPageHelp(targetDocument, "Desktop help tour");
+  });
+}
+
+function renderDesktopShortcutHelp(targetDocument: Document): void {
+  const inspector = targetDocument.querySelector<HTMLElement>('[data-workbench-region="inspector"]');
+  if (!inspector) {
+    return;
+  }
+  inspector.replaceChildren(renderInspectorView(targetDocument, {
+    title: "Shortcut Help",
+    subtitle: "Current desktop command bindings",
+    emptyText: "",
+    sections: buildDesktopShortcutHelpText().map((row) => ({ type: "text" as const, label: "Shortcut", text: row })),
+  }));
+  setRouteStatus(targetDocument, "Opened shortcut help");
+}
+
+function renderDesktopPageHelp(targetDocument: Document, title: string): void {
+  const inspector = targetDocument.querySelector<HTMLElement>('[data-workbench-region="inspector"]');
+  if (!inspector) {
+    return;
+  }
+  const targets = buildDesktopPageHelpText(resolveDesktopVisibleHelpTargets(targetDocument));
+  inspector.replaceChildren(renderInspectorView(targetDocument, {
+    title,
+    subtitle: "Desktop workbench regions",
+    emptyText: "",
+    sections: targets.length
+      ? targets.map((row) => ({ type: "text" as const, label: "Target", text: row }))
+      : [{ type: "text" as const, label: "Target", text: "No visible desktop help targets." }],
+  }));
+  setRouteStatus(targetDocument, `Opened ${title.toLowerCase()}`);
+}
+
 function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workspace-files";
   section.append(createText(targetDocument, "h2", "Workspace files"));
+
+  const status = targetDocument.createElement("p");
+  status.setAttribute("id", "desktop-workspace-status");
+  status.setAttribute("class", "desktop-workspace-status");
+  status.textContent = "0 files";
 
   const recent = targetDocument.createElement("div");
   recent.setAttribute("id", "desktop-workspace-recent-files");
@@ -694,6 +1903,16 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   activePath.setAttribute("id", "desktop-workspace-active-path");
   activePath.setAttribute("class", "desktop-workspace-active-path");
   activePath.textContent = "No workspace file selected.";
+
+  const updatedAt = targetDocument.createElement("p");
+  updatedAt.setAttribute("id", "desktop-workspace-updated-at");
+  updatedAt.setAttribute("class", "desktop-workspace-updated-at");
+  updatedAt.textContent = "No timestamp";
+
+  const detail = targetDocument.createElement("p");
+  detail.setAttribute("id", "desktop-workspace-detail");
+  detail.setAttribute("class", "desktop-workspace-detail");
+  detail.textContent = "No workspace file selected.";
 
   const editor = targetDocument.createElement("textarea");
   editor.setAttribute("id", "desktop-workspace-editor");
@@ -735,7 +1954,7 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   actions.setAttribute("class", "desktop-workspace-actions");
   actions.append(save, reveal, exportButton);
 
-  section.append(activePath, recent, editor, actions, saveState, error);
+  section.append(status, activePath, updatedAt, recent, detail, editor, actions, saveState, error);
   return section;
 }
 
@@ -766,7 +1985,11 @@ function renderInspectorView(targetDocument: Document, view: DesktopInspectorVie
 
   for (const item of view.sections) {
     const row = targetDocument.createElement("p");
-    row.textContent = item.type === "browserActivity" ? item.activity.title || item.activity.url : item.text;
+    if (item.type === "browserActivity") {
+      row.textContent = `${item.activity.actionLabel}: ${[item.activity.title, item.activity.url].filter(Boolean).join(" | ")}`;
+    } else {
+      row.textContent = `${item.label}: ${item.text}`;
+    }
     section.append(row);
   }
   return section;
@@ -1076,6 +2299,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-panel-control:focus-visible,
     body.desktop-native-workbench .desktop-file-action:focus-visible,
+    body.desktop-native-workbench .desktop-help-action:focus-visible,
+    body.desktop-native-workbench .desktop-cowork-session-row:focus-visible,
+    body.desktop-native-workbench .desktop-cowork-action:focus-visible,
+    body.desktop-native-workbench .desktop-cowork-observability-tab:focus-visible,
+    body.desktop-native-workbench .desktop-cowork-graph-node:focus-visible,
     body.desktop-native-workbench .desktop-task-action:focus-visible,
     body.desktop-native-workbench .desktop-session-upload-key:focus-visible,
     body.desktop-native-workbench .desktop-workspace-file-row:focus-visible,
@@ -1109,6 +2337,33 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: var(--panel, #ffffff);
       color: var(--text, #24211d);
       font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-help-pane {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-help-pane h2 {
+      flex: 1 0 100%;
+    }
+
+    body.desktop-native-workbench .desktop-help-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      border: 1px solid var(--border, #dedbd3);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: var(--panel, #ffffff);
+      color: var(--text, #24211d);
+      font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      text-decoration: none;
       cursor: pointer;
     }
 
@@ -1354,6 +2609,187 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       line-height: 1.2;
       text-transform: uppercase;
       letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-cockpit {
+      grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) minmax(180px, 260px);
+      align-items: start;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-cockpit > h2 {
+      grid-column: 1 / -1;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-sessions,
+    body.desktop-native-workbench .desktop-cowork-header,
+    body.desktop-native-workbench .desktop-cowork-actions,
+    body.desktop-native-workbench .desktop-cowork-graph,
+    body.desktop-native-workbench .desktop-cowork-observability,
+    body.desktop-native-workbench .desktop-cowork-inspector,
+    body.desktop-native-workbench .desktop-cowork-task-feed {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-sessions,
+    body.desktop-native-workbench .desktop-cowork-actions {
+      grid-column: 1;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-header,
+    body.desktop-native-workbench .desktop-cowork-graph,
+    body.desktop-native-workbench .desktop-cowork-observability {
+      grid-column: 2;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-inspector,
+    body.desktop-native-workbench .desktop-cowork-task-feed {
+      grid-column: 3;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-session-row,
+    body.desktop-native-workbench .desktop-cowork-action,
+    body.desktop-native-workbench .desktop-cowork-observability-tab,
+    body.desktop-native-workbench .desktop-cowork-graph-node {
+      min-width: 0;
+      min-height: 30px;
+      border: 1px solid var(--border, #dedbd3);
+      border-radius: 6px;
+      padding: 0 8px;
+      overflow: hidden;
+      background: var(--panel, #ffffff);
+      color: var(--text, #24211d);
+      font: 600 11px/1.25 var(--font-sans, system-ui, sans-serif);
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-observability-tabs {
+      display: flex;
+      gap: 6px;
+      min-width: 0;
+      overflow: auto;
+      padding-bottom: 2px;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-observability-tab {
+      flex: 0 0 auto;
+      max-width: 140px;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-observability-tab[aria-selected="true"] {
+      border-color: var(--accent, #5c6bc0);
+      background: var(--panel-strong, #ffffff);
+    }
+
+    body.desktop-native-workbench .desktop-cowork-observability-filter {
+      min-width: 0;
+      width: 100%;
+      min-height: 30px;
+      border: 1px solid var(--border, #dedbd3);
+      border-radius: 6px;
+      padding: 0 8px;
+      background: var(--panel, #ffffff);
+      color: var(--text, #24211d);
+      font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-observability-panel {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      max-height: min(320px, 40vh);
+      overflow: auto;
+      border: 1px solid var(--border, #dedbd3);
+      border-radius: 6px;
+      padding: 8px;
+      background: var(--panel, #ffffff);
+    }
+
+    body.desktop-native-workbench .desktop-cowork-observability-panel p {
+      min-width: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+      font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-cowork-limit-status {
+      color: var(--muted, #6b655c);
+      font-size: 11px;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-action-input {
+      min-width: 0;
+      width: 100%;
+      min-height: 58px;
+      resize: vertical;
+      border: 1px solid var(--border, #dedbd3);
+      border-radius: 6px;
+      padding: 7px 8px;
+      background: var(--panel, #ffffff);
+      color: var(--text, #24211d);
+      font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-cowork-action-status,
+    body.desktop-native-workbench .desktop-cowork-action-summary,
+    body.desktop-native-workbench .desktop-cowork-blueprint-diagnostics {
+      min-width: 0;
+      margin: 0;
+      overflow: hidden;
+      color: var(--muted, #6b655c);
+      font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
+      text-overflow: ellipsis;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-inspector {
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      min-height: 0;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-list {
+      display: grid;
+      gap: 6px;
+      min-height: 0;
+      max-height: min(320px, 42vh);
+      overflow: auto;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-item {
+      min-width: 0;
+      min-height: 32px;
+      border: 1px solid var(--border, #dedbd3);
+      border-radius: 6px;
+      padding: 6px 8px;
+      overflow: hidden;
+      background: var(--panel, #ffffff);
+      color: var(--text, #24211d);
+      font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-item[aria-selected="true"] {
+      border-color: var(--accent, #5c6bc0);
+      background: var(--panel-strong, #ffffff);
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-item:focus-visible {
+      outline: 2px solid var(--accent, #5c6bc0);
+      outline-offset: 2px;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-detail {
+      min-width: 0;
+      overflow: auto;
     }
 
     body.desktop-native-workbench .desktop-status-strip {

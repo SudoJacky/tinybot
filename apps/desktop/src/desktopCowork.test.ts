@@ -96,7 +96,23 @@ describe("desktop Cowork helpers", () => {
       nodes: [{ id: "agent-1", label: "Planner", kind: "agent" }, { id: "task-1", label: "Map helpers", kind: "task" }],
       edges: [{ id: "edge-1", source: "agent-1", target: "task-1", kind: "owns" }],
     },
+    run_metrics: [
+      { label: "Round efficiency", value: "82%" },
+      { label: "Agent calls", value: 7 },
+    ],
+    architecture_projection: {
+      summary: "Adaptive starter projection",
+      sections: [{ title: "Planner lane", status: "ready", summary: "Maps helper extraction" }],
+    },
+    task_dag: {
+      nodes: [{ id: "task-1", label: "Map helpers" }, { id: "task-2", label: "Review blocker" }],
+      edges: [{ source: "task-1", target: "task-2", label: "blocks" }],
+    },
+    outputs: [{ id: "output-1", title: "Draft output", content: "Desktop adaptation notes" }],
+    final_draft: "Ship the desktop Cowork cockpit.",
+    evaluation_results: [{ id: "eval-1", status: "passed", score: 0.91, summary: "Coverage OK" }],
     swarm_plan: {
+      summary: "Planner/reviewer swarm",
       work_units: [
         { id: "wu-1", title: "Extract projections", status: "failed", assigned_agent_id: "agent-1", result: { answer: "partial" } },
       ],
@@ -177,6 +193,45 @@ describe("desktop Cowork helpers", () => {
       tone: "attention",
       destination: { module: "cowork", sessionId: "cowork-1" },
     });
+  });
+
+  test("builds Cowork observability panels for graph, focus, metrics, work, outputs, and evaluations", () => {
+    const view = buildDesktopCoworkCockpitView(session);
+
+    expect(view.observabilityPanels.map((panel) => panel.id)).toEqual([
+      "graph",
+      "focus",
+      "metrics",
+      "architecture",
+      "swarm",
+      "workUnits",
+      "taskDag",
+      "agents",
+      "tasks",
+      "mailbox",
+      "threads",
+      "trace",
+      "artifacts",
+      "outputs",
+      "finalDraft",
+      "blockers",
+      "evaluations",
+      "status",
+    ]);
+    expect(view.observabilityPanels.find((panel) => panel.id === "metrics")?.rows).toContainEqual({
+      label: "Round efficiency",
+      value: "82%",
+    });
+    expect(view.observabilityPanels.find((panel) => panel.id === "architecture")?.rows[0]?.value).toContain("Adaptive starter projection");
+    expect(view.observabilityPanels.find((panel) => panel.id === "workUnits")?.rows[0]?.value).toContain("Extract projections");
+    expect(view.observabilityPanels.find((panel) => panel.id === "taskDag")?.rows).toContainEqual({
+      label: "Edge",
+      value: "task-1 -> task-2 / blocks",
+    });
+    expect(view.observabilityPanels.find((panel) => panel.id === "outputs")?.rows[0]?.value).toContain("Desktop adaptation notes");
+    expect(view.observabilityPanels.find((panel) => panel.id === "finalDraft")?.rows[0]?.value).toBe("Ship the desktop Cowork cockpit.");
+    expect(view.observabilityPanels.find((panel) => panel.id === "blockers")?.rows[0]?.value).toContain("Need endpoint parity.");
+    expect(view.observabilityPanels.find((panel) => panel.id === "evaluations")?.rows[0]?.value).toContain("Coverage OK");
   });
 
   test("projects Cowork run states into global task center operations", () => {
@@ -274,6 +329,43 @@ describe("desktop Cowork helpers", () => {
       ["cowork:failed", "failed", "danger", "retry,open,inspect,copyDiagnostics,dismiss"],
       ["cowork:running", "active", "normal", "cancel,open,inspect"],
       ["cowork:done", "completed", "complete", "open,dismiss"],
+    ]);
+  });
+
+  test("projects Cowork approval and intervention variants into attention task-center states", () => {
+    const operations = buildDesktopCoworkTaskOperations({
+      sessions: [
+        {
+          id: "approval",
+          title: "Approval required",
+          status: "requires_approval",
+          pending_approvals: [{ id: "approval-1", summary: "Approve final merge" }],
+        },
+        {
+          id: "approval-hyphen",
+          title: "Human approval",
+          status: "approval-needed",
+          approval_requests: [{ id: "approval-2", reason: "Confirm tool use" }],
+        },
+        {
+          id: "needs-intervention",
+          title: "Needs intervention",
+          status: "needs_intervention",
+          interventions: [{ id: "intervention-1", reason: "Resolve branch disagreement" }],
+        },
+      ],
+    });
+
+    expect(operations.map((operation) => [operation.id, operation.status, operation.detail])).toEqual([
+      ["cowork:approval", "requires_approval", "1 approval needed"],
+      ["cowork:approval-hyphen", "approval-needed", "1 approval needed"],
+      ["cowork:needs-intervention", "needs_intervention", "1 intervention needed"],
+    ]);
+
+    expect(buildDesktopTaskCenterItems({ coworkRuns: operations }).map((item) => [item.id, item.state, item.tone, item.actions.map((action) => action.id).join(",")])).toEqual([
+      ["cowork:approval", "blocked", "attention", "open,inspect"],
+      ["cowork:approval-hyphen", "blocked", "attention", "open,inspect"],
+      ["cowork:needs-intervention", "blocked", "attention", "open,inspect"],
     ]);
   });
 

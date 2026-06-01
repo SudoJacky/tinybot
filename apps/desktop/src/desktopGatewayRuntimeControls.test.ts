@@ -56,6 +56,7 @@ describe("desktop gateway runtime controls", () => {
     expect(buildDesktopGatewayRuntimeActions({ ...baseStatus, owner: "shell" }).map((action) => action.id)).toEqual([
       "stop",
       "restart",
+      "keepRunningOnExit",
       "copyDiagnostics",
       "openLogs",
     ]);
@@ -104,6 +105,41 @@ describe("desktop gateway runtime controls", () => {
     });
 
     expect(commands).toEqual(["stop_gateway", "start_gateway"]);
+  });
+
+  test("toggles shell-owned gateway exit policy through a persisted runtime command", async () => {
+    const status: GatewayRuntimeStatus = {
+      state: "running",
+      owner: "shell",
+      http_ok: true,
+      gateway_http: "http://127.0.0.1:18790",
+      gateway_ws: "ws://127.0.0.1:18790/ws",
+      command: "uv run tinybot gateway",
+      port: 18790,
+      repo_root: "D:/Code/py/tinybot",
+      logs: [],
+      last_error: null,
+      exit_policy: "stop_on_exit",
+    };
+    const calls: Array<{ command: string; payload?: unknown }> = [];
+
+    await runDesktopGatewayRuntimeCommand("keepRunningOnExit", status, {
+      runCommand: async (command, payload) => {
+        calls.push({ command, payload });
+        return { ...status, exit_policy: "keep_running" };
+      },
+    });
+    await runDesktopGatewayRuntimeCommand("stopOnExit", { ...status, exit_policy: "keep_running" }, {
+      runCommand: async (command, payload) => {
+        calls.push({ command, payload });
+        return { ...status, exit_policy: "stop_on_exit" };
+      },
+    });
+
+    expect(calls).toEqual([
+      { command: "set_gateway_keep_running", payload: { keep_running: true } },
+      { command: "set_gateway_keep_running", payload: { keep_running: false } },
+    ]);
   });
 
   test("explains incompatible bootstrap responses with recovery guidance", () => {

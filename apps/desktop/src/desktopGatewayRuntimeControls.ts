@@ -10,6 +10,8 @@ export type DesktopGatewayRuntimeActionId =
   | "stop"
   | "restart"
   | "retry"
+  | "keepRunningOnExit"
+  | "stopOnExit"
   | "copyDiagnostics"
   | "openLogs";
 
@@ -18,10 +20,15 @@ export interface DesktopGatewayRuntimeAction {
   label: string;
 }
 
-export type DesktopGatewayRuntimeCommand = "start_gateway" | "stop_gateway";
+export type DesktopGatewayRuntimeCommand = "start_gateway" | "stop_gateway" | "set_gateway_keep_running";
+
+export type DesktopGatewayRuntimeCommandPayload = { keep_running: boolean };
 
 export interface DesktopGatewayRuntimeCommandDeps {
-  runCommand: (command: DesktopGatewayRuntimeCommand) => Promise<GatewayRuntimeStatus>;
+  runCommand: (
+    command: DesktopGatewayRuntimeCommand,
+    payload?: DesktopGatewayRuntimeCommandPayload,
+  ) => Promise<GatewayRuntimeStatus>;
 }
 
 const ACTION_LABELS: Record<DesktopGatewayRuntimeActionId, string> = {
@@ -29,6 +36,8 @@ const ACTION_LABELS: Record<DesktopGatewayRuntimeActionId, string> = {
   stop: "Stop",
   restart: "Restart",
   retry: "Retry",
+  keepRunningOnExit: "Keep running on exit",
+  stopOnExit: "Stop on exit",
   copyDiagnostics: "Copy diagnostics",
   openLogs: "Open logs",
 };
@@ -61,6 +70,7 @@ export function buildDesktopGatewayRuntimeActions(status: GatewayRuntimeStatus |
     if (state === "running") {
       actions.push("restart");
     }
+    actions.push(status?.exit_policy === "keep_running" ? "stopOnExit" : "keepRunningOnExit");
   } else if (owner === "none" || state === "offline" || state === "failed") {
     actions.push("start", "retry");
   }
@@ -91,6 +101,12 @@ export async function runDesktopGatewayRuntimeCommand(
   if (action === "restart" && status?.owner === "shell") {
     await deps.runCommand("stop_gateway");
     return deps.runCommand("start_gateway");
+  }
+  if (action === "keepRunningOnExit" && status?.owner === "shell") {
+    return deps.runCommand("set_gateway_keep_running", { keep_running: true });
+  }
+  if (action === "stopOnExit" && status?.owner === "shell") {
+    return deps.runCommand("set_gateway_keep_running", { keep_running: false });
   }
   return null;
 }

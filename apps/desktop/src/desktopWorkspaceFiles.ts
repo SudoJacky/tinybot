@@ -464,7 +464,17 @@ function renderWorkspaceState(
     );
   }
 
+  const fileLabel = state.files.length === 1 ? "file" : "files";
+  setText(targetDocument, "#desktop-workspace-status", `${state.files.length} ${fileLabel}`);
   setText(targetDocument, "#desktop-workspace-active-path", state.activePath ? `Active path: ${state.activePath}` : "No workspace file selected.");
+  setText(targetDocument, "#desktop-workspace-updated-at", state.activeUpdatedAt ? `Updated: ${state.activeUpdatedAt}` : "No timestamp");
+  setText(
+    targetDocument,
+    "#desktop-workspace-detail",
+    state.activePath
+      ? `Workspace detail: ${state.activePath} / ${workspaceSaveStateText(state)}`
+      : "No workspace file selected.",
+  );
   setText(targetDocument, "#desktop-workspace-save-state", workspaceSaveStateText(state));
   setText(targetDocument, "#desktop-workspace-error", state.error ?? "");
 

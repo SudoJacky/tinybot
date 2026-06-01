@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildDesktopToolsSkillsPaneModel,
+  updateDesktopSkillEditorDraft,
   buildDesktopSkillCreateRequest,
   buildDesktopSkillDeleteRequest,
   buildDesktopSkillDetailView,
@@ -161,6 +163,157 @@ describe("desktop tools and skills helpers", () => {
     expect(buildDesktopSkillValidateRequest("planner/phase")).toEqual({
       method: "POST",
       path: "/api/skills/planner%2Fphase/validate",
+    });
+  });
+
+  test("builds a desktop tools and skills pane model with selected detail actions", () => {
+    const pane = buildDesktopToolsSkillsPaneModel({
+      toolsPayload: {
+        tools: [
+          {
+            name: "exec",
+            description: "Run a command",
+            parameters: {
+              type: "object",
+              required: ["command"],
+              properties: {
+                command: { type: "string", description: "Command to run" },
+              },
+            },
+          },
+        ],
+      },
+      skillsPayload: {
+        skills: [
+          { name: "planner", source: "workspace", available: true, always: true },
+          { name: "reviewer", source: "builtin", available: true },
+        ],
+      },
+      config: {
+        tools: { exec: { enable: false }, web: { enable: true } },
+        skills: { enabled: ["reviewer"] },
+      },
+      selectedToolName: "exec",
+      selectedSkillName: "planner",
+      selectedSkillDetail: {
+        name: "planner",
+        content: "# Planner",
+        tinybot_meta: { description: "Plan work", always: true },
+      },
+    });
+
+    expect(pane.toolRows.map((row) => [row.name, row.configHint, row.meta])).toEqual([
+      ["exec", "execDisabled", "disabled / 1 parameters"],
+    ]);
+    expect(pane.selectedTool).toMatchObject({
+      name: "exec",
+      title: "Command",
+      configHint: "execDisabled",
+      schemaFields: [
+        {
+          name: "command",
+          type: "string",
+          required: true,
+          description: "Command to run",
+          defaultValue: "",
+          enumValues: [],
+        },
+      ],
+    });
+    expect(pane.skillRows.map((row) => [row.name, row.status, row.source, row.deletable])).toEqual([
+      ["planner", "always", "workspace", true],
+      ["reviewer", "enabled", "builtin", false],
+    ]);
+    expect(pane.selectedSkill).toMatchObject({
+      name: "planner",
+      description: "Plan work",
+      source: "workspace",
+      always: true,
+      deletable: true,
+      actions: {
+        create: true,
+        save: true,
+        delete: true,
+        validate: true,
+        toggleAlways: true,
+      },
+    });
+    expect(pane.status).toBe("1 tool / 2 skills");
+  });
+
+  test("projects skill editor dirty, create, save, and validation state", () => {
+    const pane = buildDesktopToolsSkillsPaneModel({
+      skillsPayload: {
+        skills: [{ name: "planner", source: "workspace", available: true }],
+      },
+      selectedSkillName: "planner",
+      selectedSkillDetail: {
+        name: "planner",
+        content: "# Planner",
+        tinybot_meta: { description: "Plan work", always: false },
+      },
+      skillEditor: {
+        saveStatus: "failed",
+        saveError: "HTTP 400",
+        validation: { state: "invalid", message: "Missing frontmatter" },
+      },
+    });
+
+    expect(pane.selectedSkill?.editor).toMatchObject({
+      mode: "edit",
+      dirty: false,
+      canSave: false,
+      saveStatus: "failed",
+      saveMessage: "HTTP 400",
+      validation: { state: "invalid", message: "Missing frontmatter" },
+      draft: {
+        name: "planner",
+        description: "Plan work",
+        content: "# Planner",
+        always: false,
+      },
+    });
+    expect(pane.selectedSkill?.actions.save).toBe(true);
+
+    const dirtyPane = updateDesktopSkillEditorDraft(pane, "description", "Plan better");
+    expect(dirtyPane.selectedSkill?.editor).toMatchObject({
+      dirty: true,
+      canSave: true,
+      saveStatus: "idle",
+      saveMessage: "Unsaved changes",
+      draft: { description: "Plan better" },
+    });
+    expect(dirtyPane.selectedSkill?.actions.save).toBe(true);
+
+    const createPane = updateDesktopSkillEditorDraft(
+      buildDesktopToolsSkillsPaneModel({
+        skillsPayload: { skills: [{ name: "planner", source: "workspace", available: true }] },
+        skillEditor: { mode: "create" },
+      }),
+      "name",
+      "reviewer",
+    );
+    const createPaneWithContent = updateDesktopSkillEditorDraft(createPane, "content", "# Reviewer");
+    expect(createPaneWithContent.selectedSkill).toMatchObject({
+      name: "",
+      nameEditable: true,
+      source: "workspace",
+      editor: {
+        mode: "create",
+        dirty: true,
+        canSave: true,
+        draft: {
+          name: "reviewer",
+          content: "# Reviewer",
+        },
+      },
+      actions: {
+        create: true,
+        save: true,
+        delete: false,
+        validate: false,
+        toggleAlways: false,
+      },
     });
   });
 });

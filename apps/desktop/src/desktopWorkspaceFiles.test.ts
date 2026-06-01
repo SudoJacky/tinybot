@@ -137,8 +137,11 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
 function createWorkspaceShell(targetDocument: FakeDocument): void {
   const root = targetDocument.createElement("section");
   for (const id of [
+    "desktop-workspace-status",
     "desktop-workspace-recent-files",
     "desktop-workspace-active-path",
+    "desktop-workspace-updated-at",
+    "desktop-workspace-detail",
     "desktop-workspace-save-state",
     "desktop-workspace-error",
   ]) {
@@ -292,7 +295,10 @@ describe("desktop workspace file adapter", () => {
 
     button?.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(targetDocument.getElementById("desktop-workspace-status")?.textContent).toContain("1 file");
     expect(targetDocument.getElementById("desktop-workspace-active-path")?.textContent).toContain("AGENTS.md");
+    expect(targetDocument.getElementById("desktop-workspace-updated-at")?.textContent).toContain("2026-05-31T10:00:00+00:00");
+    expect(targetDocument.getElementById("desktop-workspace-detail")?.textContent).toContain("AGENTS.md");
     expect(targetDocument.getElementById("desktop-workspace-reveal")?.disabled).toBe(false);
     targetDocument.getElementById("desktop-workspace-reveal")?.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -323,6 +329,7 @@ describe("desktop workspace file adapter", () => {
       },
     });
     expect(targetDocument.getElementById("desktop-workspace-error")?.textContent).toContain("not editable");
+    expect(targetDocument.getElementById("desktop-workspace-detail")?.textContent).toContain("Protected path blocked");
     expect((targetDocument.getElementById("desktop-workspace-editor") as FakeElement).value).toBe("# Rules\n\nUse uv.\n");
     expect(fileTaskUpdates.map((operation) => [operation.id, operation.status, operation.title, operation.diagnostics])).toEqual([
       ["file:workspace:AGENTS.md:export", "exporting", "Export AGENTS.md", ""],
