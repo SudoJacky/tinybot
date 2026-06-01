@@ -1,6 +1,6 @@
 # Tinybot Desktop
 
-Lightweight desktop host for Tinybot. The desktop app uses Tauri and the platform WebView, keeps the existing Python gateway as the first runtime backend, and does not bundle Chromium by default. Browser automation remains an optional external capability backed by installed Chrome, Edge, Chromium, or a bridge service.
+Desktop host for Tinybot's WebUI. The desktop app uses Tauri and the platform WebView, keeps the existing Python gateway as the runtime backend, and presents the same WebUI surface users see in the browser. Desktop-specific code is limited to startup, gateway readiness, the window frame, OS notifications, native file picking, and external link handling.
 
 ## Prerequisites
 
@@ -70,20 +70,30 @@ npm run tauri build
 - Desktop shell: `src-tauri/`
 - Runtime endpoint: `http://127.0.0.1:18790`
 - WebSocket endpoint: `ws://127.0.0.1:18790/ws`
-- Hosted WebUI fallback: `http://127.0.0.1:18790`
+- Primary UI source: repository `webui/index.html` plus `webui/assets`
 - Browser mode: external browser only
 
 ## Launch Flow
 
 1. Open the desktop app.
-2. The local runtime status view appears even when the gateway is offline.
-3. If an external gateway is already running, the app connects to it and labels it `External`.
-4. If no gateway is running, use `Start Gateway` to launch a shell-owned gateway with `uv run tinybot gateway`.
-5. When the gateway is ready, open `Hosted WebUI` to load the existing gateway-served WebUI inside the desktop shell.
-6. Use `Chat` for the first native desktop slice: session selection, message history, send, streaming deltas, stream end state, and interrupt.
+2. A compact startup state waits for the local gateway to become ready.
+3. If an external gateway is already running, the app attaches to it and treats it as externally owned.
+4. If no gateway is running inside Tauri, the app starts a shell-owned gateway with `uv run tinybot gateway`.
+5. When `/webui/bootstrap` is ready, the desktop window installs the WebUI shell and imports the existing WebUI entry module.
+6. Use the desktop app the same way as the browser WebUI: chat, sessions, approvals, temporary files, settings, providers, tools, skills, knowledge, workspace files, browser frames, Cowork, language toggle, and theme toggle all remain WebUI-owned surfaces.
 
 The app stops only shell-owned gateway processes on exit. Externally owned gateway processes are left running.
 
+## Desktop Adapters
+
+The desktop route keeps WebUI behavior as the source of truth and layers native capabilities around it:
+
+- gateway HTTP and WebSocket requests are routed to the local gateway;
+- menu and keyboard commands click existing WebUI controls;
+- native file picking feeds the WebUI's upload inputs;
+- OS notifications observe existing WebUI approval and task progress surfaces;
+- external links open through the operating system.
+
 ## External Browser Policy
 
-The desktop package does not bundle Chromium. The app UI uses the platform WebView. Browser automation, browser snapshots, and browser bridge status are treated as optional gateway-provided capabilities and should not block runtime status, hosted WebUI, or native chat work.
+The desktop package does not bundle Chromium. The app UI uses the platform WebView. Browser automation, browser snapshots, and browser bridge status are treated as optional gateway-provided capabilities and should not block gateway startup or the WebUI shell.
