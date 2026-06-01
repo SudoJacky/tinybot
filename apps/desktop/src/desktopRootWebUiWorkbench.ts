@@ -23,8 +23,69 @@ export function installDesktopRootWebUiWorkbenchAdapter({
   installRootWebUiCommandPaletteSurface(targetDocument);
   const layout = loadWorkbenchLayout({ storage, viewportWidth });
   applyRootWebUiWorkbenchLayout(targetDocument, layout);
+  installRootWebUiComposerRuntime(targetDocument);
   installRootWebUiPanelPersistence(targetDocument, storage, viewportWidth);
   installEmptyStateObserver(targetDocument);
+}
+
+export function installRootWebUiComposerRuntime(targetDocument: Document): void {
+  const composer = targetDocument.getElementById("composer-form");
+  if (!composer || composer.getAttribute("data-desktop-composer") === "true") {
+    return;
+  }
+
+  composer.setAttribute("data-desktop-composer", "true");
+  composer.classList.add("desktop-composer-runtime");
+  targetDocument.body.querySelector<HTMLElement>(".composer-row")?.setAttribute("data-workbench-region", "message-entry");
+  targetDocument.getElementById("temporary-file-button")?.setAttribute("data-desktop-drop-target", "session-temporary-file");
+  targetDocument.getElementById("send-button")?.setAttribute("data-desktop-composer-action", "send");
+
+  const feedback = targetDocument.createElement("p");
+  feedback.id = "desktop-composer-feedback";
+  feedback.setAttribute("id", "desktop-composer-feedback");
+  feedback.className = "desktop-composer-feedback";
+  feedback.setAttribute("aria-live", "polite");
+  feedback.hidden = true;
+  targetDocument.body.querySelector<HTMLElement>(".composer-row")?.after(feedback);
+
+  for (const item of targetDocument.body.querySelectorAll<HTMLElement>(".composer-status-panel .status-item")) {
+    item.setAttribute("role", "button");
+    item.setAttribute("tabindex", "0");
+    item.setAttribute("data-desktop-runtime-chip", runtimeChipName(item));
+    item.addEventListener("click", () => {
+      setComposerFeedback(feedback, `${runtimeChipName(item)} status selected.`);
+    });
+    item.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      setComposerFeedback(feedback, `${runtimeChipName(item)} status selected.`);
+    });
+  }
+
+  composer.addEventListener("submit", () => {
+    const input = targetDocument.getElementById("composer-input") as HTMLTextAreaElement | null;
+    if (!input?.value.trim()) {
+      setComposerFeedback(feedback, "Enter a message or attach a file before sending.");
+    } else {
+      feedback.hidden = true;
+      feedback.textContent = "";
+    }
+  });
+
+  for (const eventName of ["dragenter", "dragover"]) {
+    composer.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      composer.classList.add("is-desktop-drop-hover");
+      setComposerFeedback(feedback, "Drop a file to attach it to this session.");
+    });
+  }
+  for (const eventName of ["dragleave", "drop"]) {
+    composer.addEventListener(eventName, () => {
+      composer.classList.remove("is-desktop-drop-hover");
+    });
+  }
 }
 
 export function installRootWebUiCommandPaletteSurface(targetDocument: Document): void {
@@ -192,9 +253,91 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       background: color-mix(in srgb, var(--panel, #faf9f5) 92%, transparent);
     }
 
+    body.desktop-root-webui-workbench .composer.desktop-composer-runtime {
+      display: grid;
+      gap: 8px;
+      padding: 14px 22px 12px;
+    }
+
+    body.desktop-root-webui-workbench .composer-row {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) 54px;
+      gap: 10px;
+      align-items: stretch;
+      min-width: 0;
+    }
+
+    body.desktop-root-webui-workbench .composer-file,
+    body.desktop-root-webui-workbench .composer-send {
+      width: auto;
+      min-width: 0;
+      min-height: 42px;
+      border-radius: 6px;
+    }
+
+    body.desktop-root-webui-workbench .composer-input {
+      min-height: 42px;
+      max-height: 156px;
+      border-radius: 6px;
+    }
+
     body.desktop-root-webui-workbench .composer-meta {
       align-items: center;
       min-width: 0;
+    }
+
+    body.desktop-root-webui-workbench .composer-status-panel {
+      min-width: 0;
+    }
+
+    body.desktop-root-webui-workbench .composer-status-panel .panel-header {
+      display: none;
+    }
+
+    body.desktop-root-webui-workbench .system-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 10px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    body.desktop-root-webui-workbench .composer-status-panel .status-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      min-height: 22px;
+      border: 0;
+      border-radius: 4px;
+      padding: 0;
+      background: transparent;
+      color: var(--text-muted, #6c6a64);
+      font-size: 11px;
+      line-height: 1.2;
+      cursor: default;
+    }
+
+    body.desktop-root-webui-workbench .composer-status-panel .status-item:focus-visible {
+      outline: 2px solid var(--primary, #cc785c);
+      outline-offset: 2px;
+    }
+
+    body.desktop-root-webui-workbench .desktop-composer-feedback {
+      margin: 0;
+      color: var(--danger, #c64545);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    body.desktop-root-webui-workbench .desktop-composer-feedback[hidden] {
+      display: none;
+    }
+
+    body.desktop-root-webui-workbench .composer.is-desktop-drop-hover .composer-row {
+      outline: 2px solid var(--primary, #cc785c);
+      outline-offset: 3px;
+      border-radius: 8px;
     }
 
     body.desktop-root-webui-workbench .desktop-empty-modules {
@@ -422,4 +565,13 @@ function installEmptyStateObserver(targetDocument: Document): void {
 
   const observer = new observerConstructor(upgrade);
   observer.observe(messageList, { childList: true });
+}
+
+function runtimeChipName(item: HTMLElement): string {
+  return item.querySelector(".status-label")?.textContent?.trim() || "Runtime";
+}
+
+function setComposerFeedback(feedback: HTMLElement, message: string): void {
+  feedback.hidden = false;
+  feedback.textContent = message;
 }

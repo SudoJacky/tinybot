@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   applyRootWebUiWorkbenchLayout,
   ensureDesktopRootWebUiWorkbenchStyle,
+  installRootWebUiComposerRuntime,
   installRootWebUiCommandPaletteSurface,
   upgradeDesktopRootWebUiEmptyState,
 } from "./desktopRootWebUiWorkbench";
@@ -33,6 +34,10 @@ class FakeElement {
   public attributes = new Map<string, string>();
   private ownTextContent = "";
   public classList = new FakeClassList(this);
+  public hidden = false;
+  public value = "";
+  public parent: FakeElement | null = null;
+  private listeners = new Map<string, Array<(event: Record<string, unknown>) => void>>();
   public style = {
     values: new Map<string, string>(),
     setProperty: (name: string, value: string) => {
@@ -62,10 +67,14 @@ class FakeElement {
   }
 
   append(...children: FakeElement[]): void {
+    for (const child of children) {
+      child.parent = this;
+    }
     this.children.push(...children);
   }
 
   insertBefore(node: FakeElement, child: FakeElement | null): void {
+    node.parent = this;
     if (!child) {
       this.children.push(node);
       return;
@@ -76,6 +85,26 @@ class FakeElement {
       return;
     }
     this.children.splice(index, 0, node);
+  }
+
+  after(node: FakeElement): void {
+    if (!this.parent) {
+      return;
+    }
+    node.parent = this.parent;
+    const index = this.parent.children.indexOf(this);
+    this.parent.children.splice(index + 1, 0, node);
+  }
+
+  addEventListener(type: string, listener: (event: Record<string, unknown>) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  dispatchEvent(event: Record<string, unknown> & { type: string }): boolean {
+    for (const listener of this.listeners.get(event.type) ?? []) {
+      listener(event);
+    }
+    return true;
   }
 
   querySelector(selector: string): FakeElement | null {
@@ -114,6 +143,24 @@ class FakeDocument {
 }
 
 function matchesSelector(element: FakeElement, selector: string): boolean {
+  if (selector.includes(" ")) {
+    const parts = selector.split(/\s+/);
+    const last = parts[parts.length - 1];
+    if (!last || !matchesSelector(element, last)) {
+      return false;
+    }
+    let parent = element.parent;
+    for (let index = parts.length - 2; index >= 0; index -= 1) {
+      while (parent && !matchesSelector(parent, parts[index])) {
+        parent = parent.parent;
+      }
+      if (!parent) {
+        return false;
+      }
+      parent = parent.parent;
+    }
+    return true;
+  }
   if (selector.startsWith("#")) {
     return element.id === selector.slice(1) || element.getAttribute("id") === selector.slice(1);
   }
@@ -136,9 +183,25 @@ function createRootWebUiDocument(): FakeDocument {
   messageList.setAttribute("id", "message-list");
   const composer = document.createElement("form");
   composer.setAttribute("id", "composer-form");
+  const composerRow = document.createElement("div");
+  composerRow.className = "composer-row";
+  const fileButton = document.createElement("button");
+  fileButton.setAttribute("id", "temporary-file-button");
+  const input = document.createElement("textarea");
+  input.setAttribute("id", "composer-input");
+  const sendButton = document.createElement("button");
+  sendButton.setAttribute("id", "send-button");
   const status = document.createElement("section");
   status.className = "composer-status-panel";
-  composer.append(status);
+  const statusItem = document.createElement("div");
+  statusItem.className = "status-item";
+  const statusLabel = document.createElement("span");
+  statusLabel.className = "status-label";
+  statusLabel.textContent = "Provider";
+  statusItem.append(statusLabel);
+  status.append(statusItem);
+  composerRow.append(fileButton, input, sendButton);
+  composer.append(composerRow, status);
   chat.append(messageList, composer);
   const inspector = document.createElement("aside");
   inspector.setAttribute("id", "inspector-panel");
@@ -207,6 +270,28 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(targetDocument.getElementById("desktop-command-palette-results")?.getAttribute("aria-live")).toBe("polite");
   });
 
+  test("upgrades the hosted WebUI composer with runtime chips and blocked-send feedback", () => {
+    const targetDocument = createRootWebUiDocument();
+
+    installRootWebUiComposerRuntime(targetDocument as unknown as Document);
+
+    const composer = targetDocument.getElementById("composer-form");
+    const feedback = targetDocument.getElementById("desktop-composer-feedback");
+    expect(composer?.getAttribute("data-desktop-composer")).toBe("true");
+    expect(targetDocument.body.querySelector(".composer-row")?.getAttribute("data-workbench-region")).toBe("message-entry");
+    expect(targetDocument.getElementById("temporary-file-button")?.getAttribute("data-desktop-drop-target")).toBe("session-temporary-file");
+    expect(targetDocument.getElementById("send-button")?.getAttribute("data-desktop-composer-action")).toBe("send");
+    expect(targetDocument.body.querySelector(".status-item")?.getAttribute("data-desktop-runtime-chip")).toBe("Provider");
+    expect(targetDocument.body.querySelector(".status-item")?.getAttribute("role")).toBe("button");
+
+    composer?.dispatchEvent({ type: "submit" });
+    expect(feedback?.hidden).toBe(false);
+    expect(feedback?.textContent).toContain("Enter a message");
+
+    composer?.dispatchEvent({ type: "dragover", preventDefault: () => undefined });
+    expect(composer?.classList.contains("is-desktop-drop-hover")).toBe(true);
+  });
+
   test("declares root WebUI desktop fallback and narrow-window layout rules", () => {
     const targetDocument = new FakeDocument();
 
@@ -218,5 +303,6 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(styleText).toContain("@media (max-width: 980px)");
     expect(styleText).toContain(".desktop-empty-modules");
     expect(styleText).toContain(".desktop-command-palette");
+    expect(styleText).toContain(".desktop-composer-feedback");
   });
 });
