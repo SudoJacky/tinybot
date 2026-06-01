@@ -224,4 +224,27 @@ describe("desktop window frame", () => {
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')?.textContent).toBe("Command Palette");
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')?.textContent).toBe("Gateway Status");
   });
+
+  test("declares DESIGN.md shell chrome tokens for the custom frame", () => {
+    const targetDocument = new FakeDocument();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-window-frame-style")?.textContent;
+    expect(styleText).toContain("--bg: #faf9f5;");
+    expect(styleText).toContain("--panel-strong: #efe9de;");
+    expect(styleText).toContain("--primary: #cc785c;");
+    expect(styleText).toContain("--success: #5db872;");
+    expect(styleText).toContain("--border: #e6dfd8;");
+    expect(styleText).toContain("outline: 2px solid var(--primary, #cc785c);");
+  });
 });

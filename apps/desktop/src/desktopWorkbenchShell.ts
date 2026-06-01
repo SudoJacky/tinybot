@@ -2027,12 +2027,44 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
   const style = targetDocument.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
+    :root {
+      --font-display: "Tiempos Headline", "Cormorant Garamond", "EB Garamond", Garamond, "Times New Roman", serif;
+      --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      --bg: #faf9f5;
+      --bg-subtle: #f5f0e8;
+      --panel: #faf9f5;
+      --panel-strong: #efe9de;
+      --surface-cream-strong: #e8e0d2;
+      --surface-dark: #181715;
+      --surface-dark-elevated: #252320;
+      --surface-dark-soft: #1f1e1b;
+      --text: #141413;
+      --text-strong: #252523;
+      --text-muted: #6c6a64;
+      --muted: #8e8b82;
+      --border: #e6dfd8;
+      --border-soft: #ebe6df;
+      --primary: #cc785c;
+      --primary-active: #a9583e;
+      --accent: #cc785c;
+      --accent-teal: #5db8a6;
+      --success: #5db872;
+      --warning: #d4a017;
+      --danger: #c64545;
+      --on-dark: #faf9f5;
+      --on-dark-soft: #a09d96;
+      --focus-ring: rgba(204, 120, 92, 0.28);
+      --shadow-soft: 0 1px 3px rgba(20, 20, 19, 0.08);
+    }
+
     body.desktop-native-workbench {
       margin: 0;
       min-height: 100vh;
       overflow: hidden;
-      background: var(--bg, #f7f7f4);
-      color: var(--text, #24211d);
+      background: var(--bg, #faf9f5);
+      color: var(--text, #141413);
+      font-family: var(--font-sans, system-ui, sans-serif);
     }
 
     body.desktop-native-workbench .desktop-workbench-shell,
@@ -2046,8 +2078,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       grid-template-columns: 52px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(420px, 1fr) minmax(280px, var(--desktop-inspector-size, 360px));
       grid-template-rows: minmax(0, 1fr) auto;
-      border-top: 1px solid var(--border, #dedbd3);
-      background: var(--bg, #f7f7f4);
+      border-top: 1px solid var(--border, #e6dfd8);
+      background: var(--bg, #faf9f5);
     }
 
     body.desktop-native-workbench .desktop-workbench-shell[data-inspector-visible="false"] {
@@ -2069,8 +2101,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       flex-direction: column;
       gap: 6px;
       padding: 10px 6px;
-      border-right: 1px solid var(--border, #dedbd3);
-      background: var(--panel-strong, #ffffff);
+      border-right: 1px solid var(--border, #e6dfd8);
+      background: var(--surface-dark, #181715);
     }
 
     body.desktop-native-workbench .desktop-activity-button,
@@ -2079,10 +2111,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: center;
       min-height: 36px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
       text-decoration: none;
       cursor: pointer;
@@ -2095,8 +2127,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      border-right: 1px solid var(--border, #dedbd3);
-      background: var(--panel, #ffffff);
+      border-right: 1px solid var(--border, #e6dfd8);
+      background: var(--panel, #faf9f5);
     }
 
     body.desktop-native-workbench .desktop-workbench-sidebar {
@@ -2121,7 +2153,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-template-rows: minmax(0, 1fr) auto;
       padding: 14px;
       overflow: auto;
-      background: var(--bg-subtle, #f2f0ea);
+      background: var(--bg-subtle, #f5f0e8);
     }
 
     body.desktop-native-workbench .desktop-empty-session {
@@ -2130,6 +2162,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       gap: 12px;
       max-width: 720px;
       min-width: 0;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 12px;
+      padding: 18px;
+      background: var(--panel-strong, #efe9de);
     }
 
     body.desktop-native-workbench .desktop-empty-session > * {
@@ -2138,14 +2174,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-empty-session h1 {
       margin: 0;
-      font-size: 20px;
+      color: var(--text, #141413);
+      font-family: var(--font-display, Georgia, serif);
+      font-size: 24px;
+      font-weight: 500;
       line-height: 1.2;
+      letter-spacing: -0.01em;
     }
 
     body.desktop-native-workbench .desktop-empty-session p,
     body.desktop-native-workbench .desktop-workbench-section p {
       margin: 0;
-      color: var(--text-muted, #6f685d);
+      color: var(--text-muted, #6c6a64);
       font-size: 12px;
       line-height: 1.45;
       overflow-wrap: anywhere;
@@ -2154,7 +2194,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workbench-link {
       min-width: 0;
       overflow: hidden;
-      color: var(--text, #24211d);
+      color: var(--text, #141413);
       font-size: 12px;
       line-height: 1.3;
       text-decoration: none;
@@ -2165,14 +2205,21 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workbench-link:focus-visible,
     body.desktop-native-workbench .desktop-activity-button:focus-visible,
     body.desktop-native-workbench .desktop-quick-action:focus-visible {
-      outline: 2px solid var(--accent, #5c6bc0);
+      outline: 2px solid var(--primary, #cc785c);
       outline-offset: 2px;
+      box-shadow: 0 0 0 4px var(--focus-ring, rgba(204, 120, 92, 0.28));
     }
 
     body.desktop-native-workbench .desktop-quick-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+    }
+
+    body.desktop-native-workbench .desktop-quick-actions .desktop-quick-action:first-child {
+      border-color: var(--primary, #cc785c);
+      background: var(--primary, #cc785c);
+      color: #ffffff;
     }
 
     body.desktop-native-workbench .desktop-panel-controls {
@@ -2184,28 +2231,28 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-panel-control {
       min-height: 32px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 10px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
       cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-panel-control[aria-pressed="true"] {
-      border-color: var(--accent, #5c6bc0);
-      background: var(--panel-strong, #ffffff);
+      border-color: var(--primary, #cc785c);
+      background: var(--panel-strong, #efe9de);
     }
 
     body.desktop-native-workbench .desktop-command-palette {
       display: grid;
       gap: 8px;
       width: min(680px, 100%);
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 10px;
-      background: var(--panel, #ffffff);
+      background: var(--panel, #faf9f5);
       box-shadow: 0 12px 30px rgba(20, 18, 15, 0.16);
     }
 
@@ -2229,10 +2276,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-command-palette-close,
     body.desktop-native-workbench .desktop-command-palette-result {
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 12px/1.2 var(--font-sans, system-ui, sans-serif);
       cursor: pointer;
     }
@@ -2246,10 +2293,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 100%;
       min-width: 0;
       min-height: 34px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 10px;
-      color: var(--text, #24211d);
+      color: var(--text, #141413);
       font: 13px/1.2 var(--font-sans, system-ui, sans-serif);
     }
 
@@ -2285,7 +2332,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-command-palette-result span,
     body.desktop-native-workbench .desktop-command-palette-status,
     body.desktop-native-workbench .desktop-command-palette-empty {
-      color: var(--text-muted, #6f685d);
+      color: var(--text-muted, #6c6a64);
       font-size: 11px;
       line-height: 1.35;
     }
@@ -2293,7 +2340,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-command-palette-close:focus-visible,
     body.desktop-native-workbench .desktop-command-palette-input:focus-visible,
     body.desktop-native-workbench .desktop-command-palette-result:focus-visible {
-      outline: 2px solid var(--accent, #5c6bc0);
+      outline: 2px solid var(--primary, #cc785c);
       outline-offset: 2px;
     }
 
@@ -2308,7 +2355,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-session-upload-key:focus-visible,
     body.desktop-native-workbench .desktop-workspace-file-row:focus-visible,
     body.desktop-native-workbench .desktop-workspace-editor:focus-visible {
-      outline: 2px solid var(--accent, #5c6bc0);
+      outline: 2px solid var(--primary, #cc785c);
       outline-offset: 2px;
     }
 
@@ -2332,10 +2379,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-file-action {
       min-height: 34px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
       cursor: pointer;
     }
@@ -2357,11 +2404,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: center;
       min-height: 32px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 10px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
       text-decoration: none;
       cursor: pointer;
@@ -2369,16 +2416,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-file-action.is-desktop-drop-hover,
     body.desktop-native-workbench .desktop-file-action[data-desktop-drop-target]:focus-visible {
-      outline: 2px solid var(--accent, #5c6bc0);
+      outline: 2px solid var(--primary, #cc785c);
       outline-offset: 2px;
-      background: var(--panel-strong, #ffffff);
+      background: var(--panel-strong, #efe9de);
     }
 
     body.desktop-native-workbench .desktop-session-upload-key {
       min-width: 0;
       width: min(220px, 100%);
       min-height: 34px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 10px;
       font: 12px/1.2 var(--font-sans, system-ui, sans-serif);
@@ -2410,12 +2457,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workspace-file-row {
       min-width: 0;
       min-height: 28px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 8px;
       overflow: hidden;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 12px/1.2 var(--font-sans, system-ui, sans-serif);
       text-align: left;
       text-overflow: ellipsis;
@@ -2433,7 +2480,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       width: 100%;
       min-height: 138px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 8px;
       resize: vertical;
@@ -2441,7 +2488,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workspace-error {
-      color: var(--danger, #a33a2f);
+      color: var(--danger, #c64545);
     }
 
     body.desktop-native-workbench .desktop-bottom-content {
@@ -2460,7 +2507,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 0;
       padding: 12px;
-      border-right: 1px solid var(--border, #dedbd3);
+      border-right: 1px solid var(--border, #e6dfd8);
     }
 
     body.desktop-native-workbench .desktop-task-center h2,
@@ -2480,7 +2527,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-task-center-empty,
     body.desktop-native-workbench .desktop-task-center-detail,
     body.desktop-native-workbench .desktop-task-center-diagnostics {
-      color: var(--text-muted, #6f685d);
+      color: var(--text-muted, #6c6a64);
       font-size: 11px;
       line-height: 1.35;
       overflow-wrap: anywhere;
@@ -2498,22 +2545,30 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       gap: 6px;
       min-width: 0;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 8px;
-      background: var(--panel-strong, #ffffff);
+      background: var(--panel-strong, #efe9de);
     }
 
     body.desktop-native-workbench .desktop-task-center-item[data-desktop-task-state="failed"] {
-      border-color: var(--danger, #a33a2f);
+      border-color: var(--danger, #c64545);
     }
 
     body.desktop-native-workbench .desktop-task-center-item[data-desktop-task-state="blocked"] {
-      border-color: var(--warning, #a76a00);
+      border-color: var(--warning, #d4a017);
     }
 
     body.desktop-native-workbench .desktop-task-center-item[data-desktop-task-state="completed"] {
       opacity: 0.82;
+    }
+
+    body.desktop-native-workbench .desktop-task-center-diagnostics:not(:empty) {
+      border-radius: 6px;
+      padding: 6px 8px;
+      background: var(--surface-dark-soft, #1f1e1b);
+      color: var(--on-dark-soft, #a09d96);
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace);
     }
 
     body.desktop-native-workbench .desktop-task-center-item-heading {
@@ -2533,10 +2588,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-task-state-badge {
       flex: 0 0 auto;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 2px 6px;
-      color: var(--text-muted, #6f685d);
+      color: var(--text-muted, #6c6a64);
       font-size: 10px;
       line-height: 1.2;
       text-transform: uppercase;
@@ -2554,11 +2609,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: center;
       min-height: 28px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 8px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 600 11px/1.2 var(--font-sans, system-ui, sans-serif);
       text-decoration: none;
       cursor: pointer;
@@ -2567,9 +2622,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-gateway-runtime {
       min-width: 0;
       overflow: auto;
+      background: var(--surface-dark, #181715);
+      color: var(--on-dark, #faf9f5);
+    }
+
+    body.desktop-native-workbench .desktop-gateway-runtime h2 {
+      color: var(--on-dark, #faf9f5);
     }
 
     body.desktop-native-workbench .desktop-gateway-runtime-row {
+      color: var(--on-dark-soft, #a09d96);
       white-space: pre-wrap;
     }
 
@@ -2582,17 +2644,17 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-gateway-action {
       min-height: 28px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--surface-dark-elevated, #252320);
       border-radius: 6px;
       padding: 0 8px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--surface-dark-elevated, #252320);
+      color: var(--on-dark, #faf9f5);
       font: 600 11px/1.2 var(--font-sans, system-ui, sans-serif);
       cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-gateway-action:focus-visible {
-      outline: 2px solid var(--accent, #5c6bc0);
+      outline: 2px solid var(--primary, #cc785c);
       outline-offset: 2px;
     }
 
@@ -2600,7 +2662,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       gap: 8px;
       padding: 12px;
-      border-bottom: 1px solid var(--border, #dedbd3);
+      border-bottom: 1px solid var(--border, #e6dfd8);
     }
 
     body.desktop-native-workbench .desktop-workbench-section h2 {
@@ -2655,12 +2717,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-cowork-graph-node {
       min-width: 0;
       min-height: 30px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 8px;
       overflow: hidden;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 600 11px/1.25 var(--font-sans, system-ui, sans-serif);
       text-align: left;
       text-overflow: ellipsis;
@@ -2682,19 +2744,19 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-cowork-observability-tab[aria-selected="true"] {
-      border-color: var(--accent, #5c6bc0);
-      background: var(--panel-strong, #ffffff);
+      border-color: var(--primary, #cc785c);
+      background: var(--panel-strong, #efe9de);
     }
 
     body.desktop-native-workbench .desktop-cowork-observability-filter {
       min-width: 0;
       width: 100%;
       min-height: 30px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 8px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
       letter-spacing: 0;
     }
@@ -2705,10 +2767,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       max-height: min(320px, 40vh);
       overflow: auto;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 8px;
-      background: var(--panel, #ffffff);
+      background: var(--panel, #faf9f5);
     }
 
     body.desktop-native-workbench .desktop-cowork-observability-panel p {
@@ -2728,11 +2790,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 100%;
       min-height: 58px;
       resize: vertical;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 7px 8px;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
       letter-spacing: 0;
     }
@@ -2764,12 +2826,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-run-chain-item {
       min-width: 0;
       min-height: 32px;
-      border: 1px solid var(--border, #dedbd3);
+      border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 6px 8px;
       overflow: hidden;
-      background: var(--panel, #ffffff);
-      color: var(--text, #24211d);
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
       font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
       text-align: left;
       text-overflow: ellipsis;
@@ -2778,24 +2840,33 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-run-chain-item[aria-selected="true"] {
-      border-color: var(--accent, #5c6bc0);
-      background: var(--panel-strong, #ffffff);
+      border-color: var(--primary, #cc785c);
+      background: var(--panel-strong, #efe9de);
     }
 
     body.desktop-native-workbench .desktop-run-chain-item:focus-visible {
-      outline: 2px solid var(--accent, #5c6bc0);
+      outline: 2px solid var(--primary, #cc785c);
       outline-offset: 2px;
     }
 
     body.desktop-native-workbench .desktop-run-chain-detail {
       min-width: 0;
       overflow: auto;
+      border-radius: 6px;
+      padding: 8px;
+      background: var(--surface-dark-soft, #1f1e1b);
+      color: var(--on-dark, #faf9f5);
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-detail p {
+      color: var(--on-dark-soft, #a09d96);
+      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace);
     }
 
     body.desktop-native-workbench .desktop-status-strip {
       overflow: hidden;
       padding: 8px 0 0;
-      color: var(--text-muted, #6f685d);
+      color: var(--text-muted, #6c6a64);
       font-size: 11px;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -2805,7 +2876,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-column: 2 / span 3;
       width: auto;
       height: var(--desktop-bottom-size, var(--region-size));
-      border-top: 1px solid var(--border, #dedbd3);
+      border-top: 1px solid var(--border, #e6dfd8);
     }
 
     @media (max-width: 760px) {

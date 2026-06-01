@@ -1,12 +1,33 @@
 :root {
+  --color-canvas: #faf9f5;
+  --color-surface-soft: #f5f0e8;
+  --color-surface-card: #efe9de;
+  --color-surface-strong: #e8e0d2;
+  --color-surface-dark: #181715;
+  --color-surface-dark-elevated: #252320;
+  --color-surface-dark-soft: #1f1e1b;
+  --color-primary: #cc785c;
+  --color-primary-active: #a9583e;
+  --color-accent-teal: #5db8a6;
+  --color-success: #5db872;
+  --color-warning: #d4a017;
+  --color-error: #c64545;
+  --color-hairline: #e6dfd8;
+  --color-hairline-soft: #ebe6df;
+  --color-ink: #141413;
+  --color-body: #3d3d3a;
+  --color-muted: #6c6a64;
+  --color-muted-soft: #8e8b82;
+  --font-display: "Tiempos Headline", "Cormorant Garamond", "EB Garamond", Garamond, "Times New Roman", serif;
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+    var(--font-sans);
   font-size: 16px;
   line-height: 1.5;
   font-weight: 400;
-  color: #1f2933;
-  background: #f4f6f8;
+  color: var(--color-ink);
+  background: var(--color-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -22,6 +43,7 @@ body {
   margin: 0;
   min-width: 720px;
   min-height: 100vh;
+  background: var(--color-canvas);
 }
 
 button {
@@ -35,8 +57,8 @@ button {
 }
 
 .sidebar {
-  background: #101820;
-  color: #f8fafc;
+  background: var(--color-surface-dark);
+  color: var(--color-canvas);
   padding: 20px 16px;
   display: flex;
   flex-direction: column;
@@ -55,8 +77,8 @@ button {
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #f2c94c;
-  color: #101820;
+  background: var(--color-primary);
+  color: #ffffff;
   font-weight: 800;
 }
 
@@ -75,7 +97,7 @@ button {
 }
 
 .brand p {
-  color: #a8b3bd;
+  color: #a09d96;
   font-size: 13px;
 }
 
@@ -89,20 +111,20 @@ button {
   border: 0;
   border-radius: 8px;
   padding: 10px 12px;
-  color: #d6dde4;
+  color: #d8d2c9;
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
 
 .nav-item.active {
-  color: #101820;
-  background: #f8fafc;
+  color: var(--color-ink);
+  background: var(--color-canvas);
   font-weight: 700;
 }
 
 .nav-item:disabled {
-  color: #687684;
+  color: #807a70;
   cursor: default;
 }
 
@@ -126,33 +148,40 @@ button {
 }
 
 .topbar h2 {
+  font-family: var(--font-display);
   font-size: 24px;
   letter-spacing: 0;
+  font-weight: 500;
 }
 
 .topbar p {
-  color: #64748b;
+  color: var(--color-muted);
   margin-top: 2px;
 }
 
 .button {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
   padding: 9px 14px;
-  background: #fff;
-  color: #1f2933;
+  background: var(--color-canvas);
+  color: var(--color-ink);
   cursor: pointer;
 }
 
 .button.primary {
   color: #fff;
-  background: #2563eb;
-  border-color: #2563eb;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.button.primary:hover {
+  background: var(--color-primary-active);
+  border-color: var(--color-primary-active);
 }
 
 .button:disabled {
-  color: #94a3b8;
-  background: #f8fafc;
+  color: var(--color-muted-soft);
+  background: var(--color-surface-soft);
   cursor: not-allowed;
 }
 
@@ -171,9 +200,9 @@ button {
 
 .status-panel,
 .activity-panel {
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-canvas);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
@@ -203,19 +232,19 @@ button {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: #94a3b8;
+  background: var(--color-muted-soft);
 }
 
 .status-dot.ok {
-  background: #16a34a;
+  background: var(--color-success);
 }
 
 .status-dot.warn {
-  background: #f97316;
+  background: var(--color-warning);
 }
 
 .status-dot.idle {
-  background: #94a3b8;
+  background: var(--color-muted-soft);
 }
 
 dl {
@@ -231,14 +260,14 @@ dl div {
 }
 
 dt {
-  color: #64748b;
+  color: var(--color-muted);
 }
 
 dd {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-  color: #111827;
+  color: var(--color-ink);
 }
 
 .activity-panel {
@@ -256,15 +285,15 @@ dd {
 
 .hosted-summary p {
   margin: 4px 0 0;
-  color: #64748b;
+  color: var(--color-muted);
 }
 
 .hosted-shell {
   min-height: 0;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
   overflow: hidden;
-  background: #fff;
+  background: var(--color-canvas);
 }
 
 .hosted-shell iframe {
@@ -272,7 +301,7 @@ dd {
   height: calc(100vh - 132px);
   min-height: 560px;
   border: 0;
-  background: #fff;
+  background: var(--color-canvas);
 }
 
 .hosted-offline {
@@ -291,7 +320,7 @@ dd {
 
 .hosted-offline p {
   max-width: 520px;
-  color: #64748b;
+  color: var(--color-muted);
 }
 
 .native-chat-shell {
@@ -304,9 +333,9 @@ dd {
 .native-sessions,
 .native-chat-main {
   min-height: 0;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-canvas);
   overflow: hidden;
 }
 
@@ -318,7 +347,7 @@ dd {
 .native-panel-heading,
 .native-chat-header {
   padding: 16px 18px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--color-hairline-soft);
 }
 
 .native-panel-heading h3,
@@ -333,7 +362,7 @@ dd {
 }
 
 .native-chat-header p {
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 13px;
 }
 
@@ -351,13 +380,13 @@ dd {
   display: grid;
   gap: 4px;
   background: transparent;
-  color: #1f2933;
+  color: var(--color-ink);
   text-align: left;
   cursor: pointer;
 }
 
 .session-row.active {
-  background: #eaf1ff;
+  background: var(--color-surface-card);
 }
 
 .session-row strong {
@@ -369,7 +398,7 @@ dd {
 .session-row span,
 .empty-list,
 .empty-chat {
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 13px;
 }
 
@@ -394,11 +423,11 @@ dd {
 }
 
 .native-agent-ui-surfaces {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--color-hairline-soft);
   padding: 14px 20px;
   display: grid;
   gap: 12px;
-  background: #fbfdff;
+  background: var(--color-surface-soft);
 }
 
 .native-agent-ui-surfaces[hidden] {
@@ -422,12 +451,12 @@ dd {
 .native-message-content {
   border-radius: 8px;
   padding: 11px 13px;
-  background: #f1f5f9;
-  color: #111827;
+  background: var(--color-surface-card);
+  color: var(--color-ink);
 }
 
 .native-message.user .native-message-content {
-  background: #2563eb;
+  background: var(--color-primary);
   color: #fff;
 }
 
@@ -438,17 +467,17 @@ dd {
 
 .native-reasoning {
   margin-bottom: 8px !important;
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 13px;
 }
 
 .native-message-meta {
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 12px;
 }
 
 .chat-composer {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--color-hairline-soft);
   padding: 14px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -460,17 +489,17 @@ dd {
   resize: vertical;
   min-height: 72px;
   max-height: 180px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
   padding: 10px 12px;
   font: inherit;
 }
 
 .agent-ui-form-card {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
   padding: 14px;
-  background: #fff;
+  background: var(--color-canvas);
   display: grid;
   gap: 12px;
 }
@@ -493,18 +522,18 @@ dd {
 
 .agent-ui-form-status,
 .status-pill {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-hairline);
   border-radius: 999px;
   padding: 3px 8px;
-  color: #475569;
-  background: #f8fafc;
+  color: var(--color-muted);
+  background: var(--color-surface-soft);
   font-size: 12px;
 }
 
 .agent-ui-form-description,
 .agent-ui-form-help,
 .agent-ui-form-error {
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 13px;
 }
 
@@ -522,7 +551,7 @@ dd {
 .agent-ui-form-field textarea,
 .agent-ui-form-field select {
   width: 100%;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
   padding: 9px 10px;
   font: inherit;
@@ -548,7 +577,7 @@ dd {
 }
 
 .agent-ui-form-error {
-  color: #b42318;
+  color: var(--color-error);
 }
 
 .agent-ui-form-actions {
@@ -559,10 +588,10 @@ dd {
 
 .browser-observation-shell {
   min-height: 0;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
   overflow: hidden;
-  background: #fff;
+  background: var(--color-canvas);
   display: grid;
   place-items: center;
 }
@@ -584,14 +613,14 @@ dd {
 
 .browser-observation-empty p,
 .browser-observation-command {
-  color: #64748b;
+  color: var(--color-muted);
 }
 
 .browser-observation-image {
   width: 100%;
   max-height: calc(100vh - 180px);
   object-fit: contain;
-  background: #0f172a;
+  background: var(--color-surface-dark);
 }
 
 .browser-observation-command {
@@ -607,9 +636,9 @@ dd {
 
 .module-panel {
   min-height: 0;
-  border: 1px solid #d9e2ec;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-canvas);
   padding: 16px;
   display: grid;
   align-content: start;
@@ -633,19 +662,19 @@ dd {
 }
 
 .module-row {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-hairline-soft);
   border-radius: 8px;
   padding: 10px;
   display: grid;
   gap: 4px;
-  background: #fbfdff;
+  background: var(--color-surface-soft);
 }
 
 .module-row button {
   border: 0;
   padding: 0;
   background: transparent;
-  color: #1f2933;
+  color: var(--color-ink);
   text-align: left;
   cursor: pointer;
 }
@@ -657,7 +686,7 @@ dd {
 .module-row span,
 .module-actions,
 .module-empty {
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 13px;
 }
 
@@ -671,10 +700,10 @@ dd {
 .workspace-editor {
   width: 100%;
   min-height: 420px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-hairline);
   border-radius: 8px;
   padding: 12px;
-  font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font: 13px/1.5 var(--font-mono);
   resize: vertical;
 }
 
@@ -693,11 +722,11 @@ dd {
 
 .activity-header {
   padding: 16px 18px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--color-hairline-soft);
 }
 
 .activity-header span {
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 13px;
 }
 
@@ -706,8 +735,8 @@ pre {
   padding: 18px;
   min-height: 0;
   overflow: auto;
-  color: #dbeafe;
-  background: #111827;
+  color: #faf9f5;
+  background: var(--color-surface-dark);
   font-size: 13px;
   line-height: 1.45;
 }

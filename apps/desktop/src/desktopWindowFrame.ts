@@ -191,6 +191,19 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
   style.textContent = `
     :root {
       --desktop-window-frame-height: 34px;
+      --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --bg: #faf9f5;
+      --bg-subtle: #f5f0e8;
+      --panel: #faf9f5;
+      --panel-strong: #efe9de;
+      --text: #141413;
+      --text-muted: #6c6a64;
+      --border: #e6dfd8;
+      --primary: #cc785c;
+      --success: #5db872;
+      --warning: #d4a017;
+      --danger: #c64545;
+      --focus-ring: rgba(204, 120, 92, 0.28);
     }
 
     body.desktop-custom-frame {
@@ -208,9 +221,9 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       justify-content: space-between;
       height: var(--desktop-window-frame-height);
       padding: 0 6px 0 14px;
-      border-bottom: 1px solid var(--border, #dedbd3);
-      background: color-mix(in srgb, var(--panel-strong, #ffffff) 92%, var(--bg-subtle, #f6f4ef));
-      color: var(--text, #24211d);
+      border-bottom: 1px solid var(--border, #e6dfd8);
+      background: color-mix(in srgb, var(--panel-strong, #efe9de) 92%, var(--bg-subtle, #f5f0e8));
+      color: var(--text, #141413);
       user-select: none;
       -webkit-user-select: none;
     }
@@ -218,7 +231,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     body.desktop-custom-frame .desktop-window-title {
       min-width: 0;
       overflow: hidden;
-      color: var(--text-muted, #6f685d);
+      color: var(--text-muted, #6c6a64);
       font-size: 12px;
       font-weight: 600;
       line-height: 1;
@@ -245,7 +258,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       border-radius: 4px;
       overflow: hidden;
       background: transparent;
-      color: var(--text, #24211d);
+      color: var(--text, #141413);
       font: 600 11px/1 var(--font-sans, system-ui, sans-serif);
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -254,8 +267,9 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame .desktop-application-menu-item:hover,
     body.desktop-custom-frame .desktop-application-menu-item:focus-visible {
-      background: color-mix(in srgb, var(--text, #24211d) 10%, transparent);
-      outline: none;
+      background: color-mix(in srgb, var(--primary, #cc785c) 12%, transparent);
+      outline: 2px solid var(--primary, #cc785c);
+      outline-offset: 1px;
     }
 
     body.desktop-custom-frame .desktop-runtime-status {
@@ -264,9 +278,9 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       overflow: hidden;
       margin-left: 14px;
       padding: 4px 9px;
-      border: 1px solid color-mix(in srgb, var(--border, #dedbd3) 88%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 88%, transparent);
       border-radius: 999px;
-      color: var(--text-muted, #6f685d);
+      color: var(--text-muted, #6c6a64);
       font-size: 11px;
       font-weight: 600;
       line-height: 1;
@@ -275,18 +289,18 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     }
 
     body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="ok"] {
-      border-color: color-mix(in srgb, #1f8f4d 40%, var(--border, #dedbd3));
-      color: #1f6f3f;
+      border-color: color-mix(in srgb, var(--success, #5db872) 44%, var(--border, #e6dfd8));
+      color: #2f7b45;
     }
 
     body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="pending"] {
-      border-color: color-mix(in srgb, #9a6a00 38%, var(--border, #dedbd3));
-      color: #7a5600;
+      border-color: color-mix(in srgb, var(--warning, #d4a017) 44%, var(--border, #e6dfd8));
+      color: #7c5a09;
     }
 
     body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="warn"] {
-      border-color: color-mix(in srgb, #b42318 40%, var(--border, #dedbd3));
-      color: #9b1c14;
+      border-color: color-mix(in srgb, var(--danger, #c64545) 44%, var(--border, #e6dfd8));
+      color: #9a3030;
     }
 
     body.desktop-custom-frame .desktop-window-controls {
@@ -305,13 +319,13 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       border: 0;
       border-radius: 4px;
       background: transparent;
-      color: var(--text, #24211d);
+      color: var(--text, #141413);
       font: 16px/1 var(--font-sans, system-ui, sans-serif);
       cursor: default;
     }
 
     body.desktop-custom-frame .desktop-window-button:hover {
-      background: color-mix(in srgb, var(--text, #24211d) 10%, transparent);
+      background: color-mix(in srgb, var(--primary, #cc785c) 12%, transparent);
     }
 
     body.desktop-custom-frame .desktop-window-button-close:hover {
