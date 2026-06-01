@@ -79,6 +79,7 @@ import {
 } from "./desktopFileUpload";
 import { installDesktopWebUiCommandBridge } from "./desktopWebUiCommandBridge";
 import { installDesktopWebUiFilePickerBridge } from "./desktopWebUiFilePickerBridge";
+import { installDesktopWebUiNotificationBridge } from "./desktopWebUiNotificationBridge";
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
@@ -877,6 +878,11 @@ function installRootWebUiDesktopAdapters(): void {
       invoke<DesktopPickedUploadFile | null>("pick_upload_file", {
         options: desktopUploadPickerOptions(kind),
       }),
+  });
+  installDesktopWebUiNotificationBridge({
+    isFocused: () => document.hasFocus(),
+    canNotify: nativeOsNotifications.canNotify,
+    notify: nativeOsNotifications.notify,
   });
 }
 
