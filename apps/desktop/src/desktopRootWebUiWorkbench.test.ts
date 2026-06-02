@@ -370,10 +370,8 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(styleText).toContain(".desktop-empty-state-compact");
     expect(styleText).toContain(".desktop-empty-hints");
     expect(styleText).toContain(".desktop-command-palette");
-    expect(styleText).toContain(".desktop-composer-feedback");
-    expect(styleText).toContain("body.desktop-root-webui-workbench .composer-status-panel .system-status");
-    expect(styleText).toContain("grid-auto-flow: column");
-    expect(styleText).toContain("grid-auto-columns: max-content");
+    expect(styleText).not.toContain(".desktop-composer-feedback");
+    expect(styleText).not.toContain("body.desktop-root-webui-workbench .composer-status-panel .system-status");
     expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .sidebar");
     expect(styleText).toContain("grid-column: 1");
     expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .chat-panel");

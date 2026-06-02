@@ -8,6 +8,10 @@ import {
   applyRootWebUiShellLayout,
   ensureDesktopRootWebUiShellLayoutStyle,
 } from "./desktopShellLayout";
+import {
+  ensureDesktopComposerSurfaceStyle,
+  installRootWebUiComposerRuntime,
+} from "./desktopComposerSurface";
 import { upgradeDesktopRootWebUiEmptyState } from "./desktopEmptyState";
 import {
   buildRootWebUiSidebarModel,
@@ -27,6 +31,7 @@ export function installDesktopRootWebUiWorkbenchAdapter({
   viewportWidth = targetDocument.defaultView?.innerWidth ?? Number.POSITIVE_INFINITY,
 }: InstallDesktopRootWebUiWorkbenchOptions = {}): void {
   ensureDesktopRootWebUiShellLayoutStyle(targetDocument);
+  ensureDesktopComposerSurfaceStyle(targetDocument);
   installRootWebUiCommandPaletteSurface(targetDocument);
   const layout = loadWorkbenchLayout({ storage, viewportWidth });
   applyRootWebUiShellLayout(targetDocument, layout);
@@ -40,67 +45,11 @@ export {
   applyRootWebUiShellLayout as applyRootWebUiWorkbenchLayout,
   ensureDesktopRootWebUiShellLayoutStyle as ensureDesktopRootWebUiWorkbenchStyle,
 } from "./desktopShellLayout";
+export {
+  ensureDesktopComposerSurfaceStyle,
+  installRootWebUiComposerRuntime,
+} from "./desktopComposerSurface";
 export { upgradeDesktopRootWebUiEmptyState } from "./desktopEmptyState";
-
-export function installRootWebUiComposerRuntime(targetDocument: Document): void {
-  const composer = targetDocument.getElementById("composer-form");
-  if (!composer || composer.getAttribute("data-desktop-composer") === "true") {
-    return;
-  }
-
-  composer.setAttribute("data-desktop-composer", "true");
-  composer.classList.add("desktop-composer-runtime");
-  targetDocument.body.querySelector<HTMLElement>(".composer-row")?.setAttribute("data-workbench-region", "message-entry");
-  targetDocument.getElementById("temporary-file-button")?.setAttribute("data-desktop-drop-target", "session-temporary-file");
-  targetDocument.getElementById("send-button")?.setAttribute("data-desktop-composer-action", "send");
-
-  const feedback = targetDocument.createElement("p");
-  feedback.id = "desktop-composer-feedback";
-  feedback.setAttribute("id", "desktop-composer-feedback");
-  feedback.className = "desktop-composer-feedback";
-  feedback.setAttribute("aria-live", "polite");
-  feedback.hidden = true;
-  targetDocument.body.querySelector<HTMLElement>(".composer-row")?.after(feedback);
-
-  for (const item of targetDocument.body.querySelectorAll<HTMLElement>(".composer-status-panel .status-item")) {
-    item.setAttribute("role", "button");
-    item.setAttribute("tabindex", "0");
-    item.setAttribute("data-desktop-runtime-chip", runtimeChipName(item));
-    item.addEventListener("click", () => {
-      setComposerFeedback(feedback, `${runtimeChipName(item)} status selected.`);
-    });
-    item.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-      event.preventDefault();
-      setComposerFeedback(feedback, `${runtimeChipName(item)} status selected.`);
-    });
-  }
-
-  composer.addEventListener("submit", () => {
-    const input = targetDocument.getElementById("composer-input") as HTMLTextAreaElement | null;
-    if (!input?.value.trim()) {
-      setComposerFeedback(feedback, "Enter a message or attach a file before sending.");
-    } else {
-      feedback.hidden = true;
-      feedback.textContent = "";
-    }
-  });
-
-  for (const eventName of ["dragenter", "dragover"]) {
-    composer.addEventListener(eventName, (event) => {
-      event.preventDefault();
-      composer.classList.add("is-desktop-drop-hover");
-      setComposerFeedback(feedback, "Drop a file to attach it to this session.");
-    });
-  }
-  for (const eventName of ["dragleave", "drop"]) {
-    composer.addEventListener(eventName, () => {
-      composer.classList.remove("is-desktop-drop-hover");
-    });
-  }
-}
 
 export function installRootWebUiCommandPaletteSurface(targetDocument: Document): void {
   if (targetDocument.getElementById("desktop-command-palette")) {
@@ -284,13 +233,4 @@ function installEmptyStateObserver(targetDocument: Document): void {
 
   const observer = new observerConstructor(upgrade);
   observer.observe(messageList, { childList: true });
-}
-
-function runtimeChipName(item: HTMLElement): string {
-  return item.querySelector(".status-label")?.textContent?.trim() || "Runtime";
-}
-
-function setComposerFeedback(feedback: HTMLElement, message: string): void {
-  feedback.hidden = false;
-  feedback.textContent = message;
 }
