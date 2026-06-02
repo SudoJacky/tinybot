@@ -323,5 +323,10 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(styleText).toContain("body.desktop-root-webui-workbench .composer-status-panel .system-status");
     expect(styleText).toContain("grid-auto-flow: column");
     expect(styleText).toContain("grid-auto-columns: max-content");
+    expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .sidebar");
+    expect(styleText).toContain("grid-column: 1");
+    expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .chat-panel");
+    expect(styleText).toContain("grid-column: 2");
+    expect(styleText).toContain("order: 0");
   });
 });

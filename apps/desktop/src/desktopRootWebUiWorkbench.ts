@@ -529,9 +529,29 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       body.desktop-root-webui-workbench > .shell,
       body.desktop-root-webui-workbench > .shell.inspection-mode {
         grid-template-columns: 68px minmax(0, 1fr) 0;
+        grid-template-rows: minmax(0, 1fr);
+        height: calc(100vh - var(--desktop-window-frame-height, 34px));
+        min-height: 0;
+      }
+
+      body.desktop-root-webui-workbench > .shell .sidebar {
+        order: 0;
+        grid-column: 1;
+        grid-row: 1;
+        max-height: none;
+      }
+
+      body.desktop-root-webui-workbench > .shell .chat-panel {
+        order: 0;
+        grid-column: 2;
+        grid-row: 1;
+        min-height: 0;
+        height: auto;
       }
 
       body.desktop-root-webui-workbench .inspector-panel {
+        grid-column: 3;
+        grid-row: 1;
         display: none;
       }
 
