@@ -711,6 +711,76 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Review desktop release in Work Lens");
   });
 
+  test("routes Chat module run selection into the right-side Work Lens", () => {
+    const targetDocument = new FakeDocument();
+    const items = buildDesktopTaskCenterItems({
+      chatStreams: [
+        {
+          id: "chat:stream:chat-1",
+          title: "Streaming response",
+          status: "streaming",
+          detail: "Generating answer",
+          progress: { percent: 42 },
+          canonical: { module: "chat", entityId: "chat-1", href: "/chat/chat-1" },
+          cancelable: true,
+        },
+      ],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      taskCenterItems: items,
+    });
+
+    targetDocument.body.querySelector('[data-desktop-module-work="chat:stream:chat-1"]')?.click();
+
+    const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
+    const lens = inspector?.querySelector(".desktop-work-lens");
+    expect(lens?.getAttribute("data-desktop-work-lens-kind")).toBe("chatRun");
+    expect(lens?.textContent).toContain("Streaming response");
+    expect(lens?.textContent).toContain("Progress: 42%");
+    expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Streaming response in Work Lens");
+  });
+
+  test("routes Knowledge module job selection into the right-side Work Lens", () => {
+    const targetDocument = new FakeDocument();
+    const items = buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-1:index",
+          title: "Index Desktop UX Notes",
+          status: "failed",
+          detail: "Embedding provider returned 429",
+          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+          retryable: true,
+          diagnostics: "HTTP 429",
+        },
+      ],
+    });
+    const knowledgePane = buildDesktopKnowledgePaneModel({
+      documentsPayload: { documents: [{ id: "doc-1", title: "Desktop UX Notes", path: "docs/desktop.md", chunk_count: 4, status: "stale" }] },
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      taskCenterItems: items,
+      knowledgePane,
+    });
+
+    targetDocument.body.querySelector('[data-desktop-module-work="knowledge:doc-1:index"]')?.click();
+
+    const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
+    const lens = inspector?.querySelector(".desktop-work-lens");
+    expect(lens?.getAttribute("data-desktop-work-lens-kind")).toBe("knowledgeJob");
+    expect(lens?.textContent).toContain("Index Desktop UX Notes");
+    expect(lens?.textContent).toContain("Embedding provider returned 429");
+    expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Index Desktop UX Notes in Work Lens");
+  });
+
   test("keeps Work Lens available in the main region when the inspector is hidden", () => {
     const targetDocument = new FakeDocument();
     const items = buildDesktopTaskCenterItems({
@@ -1892,6 +1962,21 @@ describe("desktop workbench shell", () => {
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent;
     expect(styleText).toContain("overflow-wrap: anywhere;");
     expect(styleText).toContain("min-width: 0;");
+  });
+
+  test("styles module running-work rows as compact selectable desktop controls", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent;
+    expect(styleText).toContain(".desktop-module-work-row");
+    expect(styleText).toContain("min-height: 34px;");
+    expect(styleText).toContain("overflow-wrap: anywhere;");
   });
 
   test("declares visible focus states for workbench controls", () => {
