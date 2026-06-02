@@ -8,6 +8,7 @@ import {
   applyRootWebUiShellLayout,
   ensureDesktopRootWebUiShellLayoutStyle,
 } from "./desktopShellLayout";
+import { upgradeDesktopRootWebUiEmptyState } from "./desktopEmptyState";
 import {
   buildRootWebUiSidebarModel,
   buildRootWebUiWorkspaceContext,
@@ -39,6 +40,7 @@ export {
   applyRootWebUiShellLayout as applyRootWebUiWorkbenchLayout,
   ensureDesktopRootWebUiShellLayoutStyle as ensureDesktopRootWebUiWorkbenchStyle,
 } from "./desktopShellLayout";
+export { upgradeDesktopRootWebUiEmptyState } from "./desktopEmptyState";
 
 export function installRootWebUiComposerRuntime(targetDocument: Document): void {
   const composer = targetDocument.getElementById("composer-form");
@@ -168,39 +170,6 @@ export function installRootWebUiDesktopAppSidebar(targetDocument: Document): voi
     }),
     targetDocument,
   );
-}
-
-export function upgradeDesktopRootWebUiEmptyState(emptyChat: HTMLElement, targetDocument: Document): boolean {
-  if (emptyChat.getAttribute("data-desktop-empty-state") === "true") {
-    return false;
-  }
-
-  emptyChat.setAttribute("data-desktop-empty-state", "true");
-  const modules = targetDocument.createElement("div");
-  modules.className = "desktop-empty-modules";
-  modules.setAttribute("aria-label", "Desktop workbench starting points");
-
-  for (const [title, detail] of [
-    ["Recent sessions", "Use Search to resume a conversation."],
-    ["Files and resources", "Attach a session file or open Workspace."],
-    ["Background tasks", "Check streaming, cowork, uploads, and approvals."],
-    ["Gateway health", "Use the gateway chip for diagnostics."],
-  ]) {
-    const item = targetDocument.createElement("article");
-    item.className = "desktop-empty-module";
-
-    const heading = targetDocument.createElement("strong");
-    heading.textContent = title;
-    const copy = targetDocument.createElement("span");
-    copy.textContent = detail;
-
-    item.append(heading, copy);
-    modules.append(item);
-  }
-
-  const actions = emptyChat.querySelector<HTMLElement>(".empty-chat-actions");
-  emptyChat.insertBefore(modules, actions ?? null);
-  return true;
 }
 
 function installRootWebUiPanelPersistence(

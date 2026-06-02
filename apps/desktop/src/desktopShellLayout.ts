@@ -28,13 +28,19 @@ export function applyRootWebUiShellLayout(targetDocument: Document, layout: Work
   const inspector = targetDocument.getElementById("inspector-panel");
   const composer = targetDocument.getElementById("composer-form");
   const statusPanel = targetDocument.body.querySelector<HTMLElement>(".composer-status-panel");
+  const workspaceHeader =
+    targetDocument.body.querySelector<HTMLElement>(".chat-header") ??
+    targetDocument.body.querySelector<HTMLElement>(".session-header") ??
+    targetDocument.body.querySelector<HTMLElement>("[data-desktop-workspace-header]");
 
   markShellRegion(sidebar, "sidebar", "sidebar");
   markShellRegion(chatPanel, "main", "workspace");
+  markShellRegion(workspaceHeader, "workspace-header", "workspace-header");
   markShellRegion(messageList, "conversation", "message-list");
   markShellRegion(inspector, "inspector", "inspector");
   markShellRegion(composer, "composer", "composer");
   markShellRegion(statusPanel, "runtime-status", "runtime-status");
+  workspaceHeader?.classList.add("desktop-workspace-header");
 
   if (!layout.sidebar.visible) {
     shell.classList.add("sidebar-collapsed");
@@ -199,6 +205,50 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
       scrollbar-gutter: stable;
     }
 
+    body.desktop-root-webui-workbench .chat-header,
+    body.desktop-root-webui-workbench .session-header,
+    body.desktop-root-webui-workbench [data-desktop-workspace-header] {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      border-bottom: 1px solid var(--border, #e6dfd8);
+      padding: 14px 24px 12px;
+      background: var(--panel, #faf9f5);
+    }
+
+    body.desktop-root-webui-workbench .desktop-workspace-header {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      border-bottom: 1px solid var(--border, #e6dfd8);
+      padding: 14px 24px 12px;
+      background: var(--panel, #faf9f5);
+    }
+
+    body.desktop-root-webui-workbench .chat-header h1,
+    body.desktop-root-webui-workbench .session-header h1,
+    body.desktop-root-webui-workbench .desktop-workspace-header h1 {
+      margin: 0;
+      color: var(--text, #141413);
+      font-size: 22px;
+      font-weight: 500;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    body.desktop-root-webui-workbench .chat-header p,
+    body.desktop-root-webui-workbench .session-header p,
+    body.desktop-root-webui-workbench .desktop-workspace-header p {
+      margin: 0;
+      overflow: hidden;
+      color: var(--text-muted, #6c6a64);
+      font-size: 11px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
     body.desktop-root-webui-workbench .composer {
       border-top: 1px solid var(--border, #e6dfd8);
       background: color-mix(in srgb, var(--panel, #faf9f5) 92%, transparent);
@@ -330,42 +380,75 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
       border-radius: 8px;
     }
 
-    body.desktop-root-webui-workbench .desktop-empty-modules {
+    body.desktop-root-webui-workbench .desktop-empty-state-compact {
       display: grid;
-      grid-template-columns: repeat(2, minmax(180px, 1fr));
-      gap: 8px;
-      width: min(760px, 100%);
-      margin: 12px auto 2px;
+      gap: 12px;
+      width: min(720px, calc(100% - 48px));
       min-width: 0;
+      margin: 36px auto;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
+      box-shadow: none;
     }
 
-    body.desktop-root-webui-workbench .desktop-empty-module {
+    body.desktop-root-webui-workbench .desktop-empty-hints {
       display: grid;
-      gap: 5px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 18px;
       min-width: 0;
-      border: 1px solid var(--border, #e6dfd8);
-      border-radius: 6px;
-      padding: 10px 12px;
-      background: color-mix(in srgb, var(--panel-strong, #efe9de) 72%, transparent);
+      margin: 0;
+    }
+
+    body.desktop-root-webui-workbench .desktop-empty-hint {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+      border-left: 1px solid var(--border, #e6dfd8);
+      padding: 0 0 0 10px;
+      background: transparent;
       text-align: left;
     }
 
-    body.desktop-root-webui-workbench .desktop-empty-module strong,
-    body.desktop-root-webui-workbench .desktop-empty-module span {
+    body.desktop-root-webui-workbench .desktop-empty-hint strong,
+    body.desktop-root-webui-workbench .desktop-empty-hint span {
       min-width: 0;
       overflow-wrap: anywhere;
     }
 
-    body.desktop-root-webui-workbench .desktop-empty-module strong {
+    body.desktop-root-webui-workbench .desktop-empty-hint strong {
       color: var(--text, #141413);
       font-size: 12px;
       line-height: 1.25;
     }
 
-    body.desktop-root-webui-workbench .desktop-empty-module span {
+    body.desktop-root-webui-workbench .desktop-empty-hint span {
       color: var(--text-muted, #6c6a64);
       font-size: 11px;
       line-height: 1.35;
+    }
+
+    body.desktop-root-webui-workbench .desktop-empty-command-hints {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      min-width: 0;
+      margin: 0;
+    }
+
+    body.desktop-root-webui-workbench .desktop-empty-command-hints button,
+    body.desktop-root-webui-workbench .desktop-empty-command-hints .empty-chat-action {
+      min-width: 0;
+      min-height: 30px;
+      border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 70%, transparent);
+      border-radius: 6px;
+      padding: 6px 10px;
+      background: transparent;
+      color: var(--text, #141413);
+      font: 500 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      box-shadow: none;
     }
 
     body.desktop-root-webui-workbench .desktop-command-palette {
@@ -497,7 +580,7 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
         display: none;
       }
 
-      body.desktop-root-webui-workbench .desktop-empty-modules {
+      body.desktop-root-webui-workbench .desktop-empty-hints {
         grid-template-columns: minmax(0, 1fr);
       }
     }
