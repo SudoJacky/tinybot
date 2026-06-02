@@ -508,6 +508,9 @@ export function buildDesktopKnowledgeTaskOperation(payload: unknown): DesktopTas
   const message = firstNonEmpty(job.message, root.message);
   const processed = numberValue(job.processed ?? job.completed);
   const total = numberValue(job.total);
+  const sourceTitle = firstNonEmpty(job.source_title, job.doc_name, job.document_name, root.source_title, root.doc_name, root.document_name, name, docId);
+  const sourceDetail = firstNonEmpty(job.source_path, job.path, job.file_path, root.source_path, root.path, root.file_path, stage);
+  const diagnostics = firstNonEmpty(job.error, root.error);
   return {
     id: `knowledge:${id}`,
     title: knowledgeTaskTitle(name),
@@ -515,7 +518,25 @@ export function buildDesktopKnowledgeTaskOperation(payload: unknown): DesktopTas
     detail: [message, stage].filter(Boolean).join(" / "),
     progress: total ? { completed: processed, total } : undefined,
     canonical: { module: "knowledge", entityId: docId || id, href: "/knowledge" },
-    diagnostics: firstNonEmpty(job.error, root.error),
+    diagnostics,
+    relatedResources: sourceTitle ? [
+      {
+        kind: "evidence",
+        id: `knowledge-source:${docId || id}`,
+        title: sourceTitle,
+        detail: sourceDetail,
+        route: { module: "knowledge", entityId: docId || id, href: "/knowledge" },
+      },
+    ] : [],
+    outputs: diagnostics ? [
+      {
+        kind: "diagnostic",
+        id: `knowledge-diagnostic:${id}`,
+        title: "Knowledge diagnostics",
+        detail: diagnostics,
+        route: { module: "knowledge", entityId: docId || id, href: "/knowledge" },
+      },
+    ] : [],
     retryable: false,
     updatedAt: firstNonEmpty(job.updated_at, job.updatedAt, root.updated_at, root.updatedAt),
   };

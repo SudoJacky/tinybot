@@ -208,6 +208,16 @@ describe("desktop file upload adapters", () => {
         progress: { completed: 0, total: 1 },
         canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
         diagnostics: "",
+        relatedResources: [
+          {
+            kind: "evidence",
+            id: "knowledge-source:doc-1",
+            title: "notes.md",
+            detail: "queued",
+            route: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+          },
+        ],
+        outputs: [],
         retryable: false,
         updatedAt: "",
       },
