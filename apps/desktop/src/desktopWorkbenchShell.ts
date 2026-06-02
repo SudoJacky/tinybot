@@ -27,10 +27,11 @@ import {
   type DesktopRunChainItem,
 } from "./desktopRunChainInspector";
 import type { DesktopTaskActionId, DesktopTaskCenterAction, DesktopTaskCenterItem } from "./desktopTaskCenter";
-import type {
+import {
+  buildDesktopWorkLensProjection,
   DesktopWorkLensActionId,
-  DesktopWorkLensProjection,
-  DesktopWorkLensRelatedResource,
+  type DesktopWorkLensProjection,
+  type DesktopWorkLensRelatedResource,
 } from "./desktopWorkLens";
 import type { WorkbenchLayoutState, WorkbenchPanelId, WorkbenchPanelState } from "./desktopWorkbenchLayout";
 import { loadWorkbenchLayout } from "./desktopWorkbenchLayout";
@@ -1784,8 +1785,8 @@ function handleTaskAction(
   }
   taskActions.onTaskAction?.({ action, item });
   if (action === "inspect") {
-    renderTaskInspector(targetDocument, item);
-    setRouteStatus(targetDocument, `Inspecting ${item.title}`);
+    const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+    setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
   } else if (action === "copyDiagnostics" && item.diagnostics) {
     void copyTaskDiagnostics(item.diagnostics, taskActions.copyText);
     setRouteStatus(targetDocument, `Copied diagnostics for ${item.title}`);
@@ -1815,6 +1816,20 @@ function renderTaskInspector(targetDocument: Document, item: DesktopTaskCenterIt
       ...(item.diagnostics ? [{ type: "text" as const, label: "Diagnostics", text: item.diagnostics }] : []),
     ],
   }));
+}
+
+function renderTaskWorkLens(targetDocument: Document, item: DesktopTaskCenterItem): boolean {
+  const inspector = targetDocument.querySelector<HTMLElement>('[data-workbench-region="inspector"]');
+  if (!inspector) {
+    return false;
+  }
+  const projection = buildDesktopWorkLensProjection({ task: item });
+  if (projection.mode !== "ready") {
+    renderTaskInspector(targetDocument, item);
+    return false;
+  }
+  inspector.replaceChildren(createWorkLensPane(targetDocument, projection, {}));
+  return true;
 }
 
 async function copyTaskDiagnostics(text: string, copyText?: (text: string) => void | Promise<void>): Promise<void> {

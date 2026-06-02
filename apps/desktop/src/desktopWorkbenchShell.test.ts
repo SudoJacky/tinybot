@@ -572,6 +572,40 @@ describe("desktop workbench shell", () => {
     expect(copied).toEqual(["HTTP 429"]);
   });
 
+  test("routes Task Center inspect selection into the right-side Work Lens", () => {
+    const targetDocument = new FakeDocument();
+    const items = buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-1:index",
+          title: "Index Desktop UX Notes",
+          status: "failed",
+          detail: "Embedding provider returned 429",
+          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+          retryable: true,
+          diagnostics: "HTTP 429",
+        },
+      ],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      taskCenterItems: items,
+    });
+
+    targetDocument.body.querySelector('[data-desktop-task-action="inspect"]')?.click();
+
+    const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
+    const lens = inspector?.querySelector(".desktop-work-lens");
+    expect(lens?.getAttribute("data-desktop-work-lens-kind")).toBe("knowledgeJob");
+    expect(lens?.textContent).toContain("Index Desktop UX Notes");
+    expect(lens?.textContent).toContain("Embedding provider returned 429");
+    expect(lens?.textContent).toContain("What can I do next?");
+    expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Index Desktop UX Notes in Work Lens");
+  });
+
   test("renders native file upload actions for knowledge and session files", () => {
     const targetDocument = new FakeDocument();
 
