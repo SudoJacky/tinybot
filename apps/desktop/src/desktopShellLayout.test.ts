@@ -182,8 +182,14 @@ describe("desktop shell layout", () => {
 
     const styleText = targetDocument.head.querySelector("#desktop-root-webui-workbench-style")?.textContent ?? "";
     expect(styleText).toContain("body.desktop-root-webui-workbench > .shell");
+    expect(styleText).toContain("body.desktop-root-webui-workbench > .shell {");
+    expect(styleText).toContain("border: 0;");
+    expect(styleText).toContain("border-radius: 0;");
     expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .sidebar");
     expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .chat-panel");
+    expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .chat-panel {");
+    expect(styleText).toContain("border: 1px solid var(--border, #e6dfd8);");
+    expect(styleText).toContain("border-radius: 12px;");
     expect(styleText).toContain("body.desktop-root-webui-workbench [data-desktop-shell-region=\"workspace\"]");
     expect(styleText).toContain("order: 0");
     expect(styleText).toContain("grid-column: 1");

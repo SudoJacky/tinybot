@@ -65,7 +65,9 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
     body.desktop-root-webui-workbench > .shell {
       --desktop-sidebar-rail-size: 68px;
       grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr) minmax(0, var(--desktop-inspector-size, 360px));
-      background: var(--panel, #faf9f5);
+      border: 0;
+      border-radius: 0;
+      background: transparent;
       box-shadow: none;
     }
 
@@ -100,6 +102,10 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
       border-radius: 0;
       background: var(--panel-strong, #efe9de);
       box-shadow: none;
+    }
+
+    body.desktop-root-webui-workbench .desktop-webui-command-proxies {
+      display: none !important;
     }
 
     body.desktop-root-webui-workbench .desktop-app-sidebar-content {
@@ -206,6 +212,13 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
       grid-column: 2 !important;
       grid-row: 1;
       min-width: 0;
+    }
+
+    body.desktop-root-webui-workbench > .shell .chat-panel {
+      overflow: hidden;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 12px;
+      background: var(--panel, #faf9f5);
     }
 
     body.desktop-root-webui-workbench > .shell .inspector-panel {
