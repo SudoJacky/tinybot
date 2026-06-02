@@ -27,6 +27,11 @@ import {
   type DesktopRunChainItem,
 } from "./desktopRunChainInspector";
 import type { DesktopTaskActionId, DesktopTaskCenterAction, DesktopTaskCenterItem } from "./desktopTaskCenter";
+import type {
+  DesktopWorkLensActionId,
+  DesktopWorkLensProjection,
+  DesktopWorkLensRelatedResource,
+} from "./desktopWorkLens";
 import type { WorkbenchLayoutState, WorkbenchPanelId, WorkbenchPanelState } from "./desktopWorkbenchLayout";
 import { loadWorkbenchLayout } from "./desktopWorkbenchLayout";
 import {
@@ -53,6 +58,16 @@ export interface DesktopGatewayRuntimeActionEvent {
 
 interface DesktopGatewayRuntimeActionOptions {
   onGatewayRuntimeAction?: (event: DesktopGatewayRuntimeActionEvent) => void;
+  copyText?: (text: string) => void | Promise<void>;
+}
+
+export interface DesktopWorkLensActionEvent {
+  action: DesktopWorkLensActionId;
+  workLens: DesktopWorkLensProjection;
+}
+
+interface DesktopWorkLensActionOptions {
+  onWorkLensAction?: (event: DesktopWorkLensActionEvent) => void;
   copyText?: (text: string) => void | Promise<void>;
 }
 
@@ -149,6 +164,8 @@ interface InstallDesktopWorkbenchShellOptions {
   coworkActions?: DesktopCoworkActionOptions;
   runChainItems?: DesktopRunChainItem[];
   selectedRunChainItemKey?: string | null;
+  workLens?: DesktopWorkLensProjection | null;
+  workLensActions?: DesktopWorkLensActionOptions;
   taskActions?: DesktopTaskCenterActionOptions;
   gatewayActions?: DesktopGatewayRuntimeActionOptions;
 }
@@ -185,12 +202,14 @@ export function installDesktopWorkbenchShell({
   coworkActions = {},
   runChainItems = [],
   selectedRunChainItemKey = null,
+  workLens = null,
+  workLensActions = {},
   taskActions = {},
   gatewayActions = {},
 }: InstallDesktopWorkbenchShellOptions): void {
   ensureDesktopWorkbenchShellStyle(targetDocument);
   targetDocument.body.classList.add("desktop-native-workbench");
-  targetDocument.body.replaceChildren(createWorkbenchShell(targetDocument, layout, runtimeStatus, gatewayHttp, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, runChainItems, selectedRunChainItemKey, taskActions, gatewayActions));
+  targetDocument.body.replaceChildren(createWorkbenchShell(targetDocument, layout, runtimeStatus, gatewayHttp, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, runChainItems, selectedRunChainItemKey, workLens, workLensActions, taskActions, gatewayActions));
   installDesktopHelpEventRouting(targetDocument);
 }
 
@@ -289,6 +308,8 @@ function createWorkbenchShell(
   coworkActions: DesktopCoworkActionOptions,
   runChainItems: DesktopRunChainItem[],
   selectedRunChainItemKey: string | null,
+  workLens: DesktopWorkLensProjection | null,
+  workLensActions: DesktopWorkLensActionOptions,
   taskActions: DesktopTaskCenterActionOptions,
   gatewayActions: DesktopGatewayRuntimeActionOptions,
 ): HTMLElement {
@@ -306,7 +327,7 @@ function createWorkbenchShell(
     createActivityRail(targetDocument),
     createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument)),
     createMainRegion(targetDocument, gatewayHttp, layout, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions),
-    createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, selectedRunChainItemKey)),
+    createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions)),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
 
@@ -1377,15 +1398,107 @@ function createInspector(
   targetDocument: Document,
   runChainItems: DesktopRunChainItem[] = [],
   selectedRunChainItemKey: string | null = null,
+  workLens: DesktopWorkLensProjection | null = null,
+  workLensActions: DesktopWorkLensActionOptions = {},
 ): HTMLElement {
   const inspector = targetDocument.createElement("aside");
   inspector.className = "desktop-inspector-content";
   inspector.append(
-    runChainItems.length
+    workLens
+      ? createWorkLensPane(targetDocument, workLens, workLensActions)
+      : runChainItems.length
       ? createRunChainInspectorPane(targetDocument, runChainItems, selectedRunChainItemKey)
       : renderInspectorView(targetDocument, createDesktopRunChainInspectorView(null)),
   );
   return inspector;
+}
+
+function createWorkLensPane(
+  targetDocument: Document,
+  workLens: DesktopWorkLensProjection,
+  workLensActions: DesktopWorkLensActionOptions,
+): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section desktop-work-lens";
+  section.setAttribute("aria-label", "Work Lens");
+  section.setAttribute("data-desktop-work-lens-mode", workLens.mode);
+  section.setAttribute("data-desktop-work-lens-kind", workLens.kind);
+  section.append(createText(targetDocument, "h2", "Work Lens"));
+  section.append(createText(targetDocument, "p", workLens.title));
+
+  if (workLens.fallbackReason) {
+    section.append(createText(targetDocument, "p", workLens.fallbackReason));
+  }
+
+  for (const lensSection of workLens.sections) {
+    const group = targetDocument.createElement("section");
+    group.className = "desktop-work-lens-section";
+    group.setAttribute("data-desktop-work-lens-section", lensSection.id);
+    group.append(createText(targetDocument, "h2", lensSection.title));
+    for (const row of lensSection.rows) {
+      group.append(createText(targetDocument, "p", `${row.label}: ${row.value}`));
+    }
+    section.append(group);
+  }
+
+  if (workLens.relatedResources.length) {
+    section.append(createWorkLensResourceList(targetDocument, "Related resources", workLens.relatedResources));
+  }
+  if (workLens.outputs.length) {
+    section.append(createWorkLensResourceList(targetDocument, "Outputs", workLens.outputs));
+  }
+
+  if (workLens.nextActions.length) {
+    const actions = targetDocument.createElement("div");
+    actions.className = "desktop-work-lens-actions";
+    actions.setAttribute("aria-label", `${workLens.title} next actions`);
+    for (const action of workLens.nextActions) {
+      const element = action.route?.href
+        ? createWorkbenchLink(targetDocument, action.label, action.route.href, "desktop-work-lens-action")
+        : targetDocument.createElement("button");
+      element.setAttribute("data-desktop-work-lens-action", action.id);
+      if (!action.route?.href) {
+        element.className = "desktop-work-lens-action";
+        element.setAttribute("type", "button");
+        element.textContent = action.label;
+        element.addEventListener("click", (event) => {
+          event.preventDefault?.();
+          workLensActions.onWorkLensAction?.({ action: action.id, workLens });
+          if (action.id === "copyDiagnostics" && action.diagnosticText) {
+            void copyTaskDiagnostics(action.diagnosticText, workLensActions.copyText);
+          }
+        });
+      }
+      actions.append(element);
+    }
+    section.append(actions);
+  }
+
+  return section;
+}
+
+function createWorkLensResourceList(
+  targetDocument: Document,
+  title: string,
+  resources: DesktopWorkLensRelatedResource[],
+): HTMLElement {
+  const list = targetDocument.createElement("section");
+  list.className = "desktop-work-lens-resources";
+  list.append(createText(targetDocument, "h2", title));
+  for (const resource of resources) {
+    const element = resource.route.href
+      ? createWorkbenchLink(targetDocument, `${resource.title}: ${resource.detail}`.replace(/: $/, ""), resource.route.href, "desktop-work-lens-resource")
+      : targetDocument.createElement("button");
+    element.setAttribute("data-desktop-work-lens-resource", resource.id);
+    element.setAttribute("data-desktop-work-lens-resource-kind", resource.kind);
+    if (!resource.route.href) {
+      element.className = "desktop-work-lens-resource";
+      element.setAttribute("type", "button");
+      element.textContent = `${resource.title}: ${resource.detail}`.replace(/: $/, "");
+    }
+    list.append(element);
+  }
+  return list;
 }
 
 function createRunChainInspectorPane(
