@@ -606,6 +606,46 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Index Desktop UX Notes in Work Lens");
   });
 
+  test("routes Cowork session selection into the right-side Work Lens", () => {
+    const targetDocument = new FakeDocument();
+    const session = {
+      id: "cowork-1",
+      title: "Review desktop release",
+      goal: "Ship the desktop Work Lens",
+      status: "intervention-needed",
+      architecture: "adaptive_starter",
+      updated_at: "2026-06-01T09:00:00Z",
+      tasks: [
+        { id: "task-1", title: "Review migration notes", status: "blocked" },
+        { id: "task-2", title: "Publish release draft", status: "completed" },
+      ],
+      artifacts: [{ id: "artifact-1", title: "Release draft", path: "docs/release.md" }],
+      completion_decision: { blocked: [{ id: "blocker-1", content: "Operator approval required." }] },
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      coworkPane: {
+        sessionRows: buildDesktopCoworkSessionRows({ sessions: [session] }),
+        cockpitView: buildDesktopCoworkCockpitView(session),
+      },
+    });
+
+    targetDocument.body.querySelector('[data-desktop-cowork-session="cowork-1"]')?.click();
+
+    const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
+    const lens = inspector?.querySelector(".desktop-work-lens");
+    expect(lens?.getAttribute("data-desktop-work-lens-kind")).toBe("coworkRun");
+    expect(lens?.textContent).toContain("Review desktop release");
+    expect(lens?.textContent).toContain("Reason: 1 blocker");
+    expect(lens?.textContent).toContain("Progress: 1/2");
+    expect(lens?.textContent).toContain("What did it use?");
+    expect(lens?.textContent).toContain("What changed?");
+    expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Review desktop release in Work Lens");
+  });
+
   test("renders native file upload actions for knowledge and session files", () => {
     const targetDocument = new FakeDocument();
 
