@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   buildDesktopCommandEntriesFromSidebar,
+  buildNativeWorkbenchSidebarModel,
   buildRootWebUiRuntimeChips,
   buildRootWebUiSidebarModel,
   buildRootWebUiWorkspaceContext,
@@ -104,5 +105,45 @@ describe("desktop shared shell models", () => {
     expect(entries.find((entry) => entry.href === "/tools")?.keywords).toEqual(
       expect.arrayContaining(["tools", "actions", "tinybot"]),
     );
+  });
+
+  test("builds native workbench sidebar groups from the shared desktop model shape", () => {
+    const model = buildNativeWorkbenchSidebarModel();
+
+    expect(model.mode).toBe("native-workbench");
+    expect(model.groups.map((group) => group.id)).toEqual(["actions", "workspace", "footer"]);
+    expect(model.groups[0].items.map((item) => item.commandId)).toEqual([
+      "new-chat",
+      "search-sessions",
+      "open-command-palette",
+    ]);
+    expect(model.groups[1].items.map((item) => [item.label, item.href])).toEqual([
+      ["Workspace", "/workspace"],
+      ["Knowledge", "/knowledge"],
+      ["Tools", "/tools"],
+      ["Automations", "/cowork"],
+      ["Docs", "/docs"],
+      ["Tinybot repo", "https://github.com/SudoJacky/tinybot"],
+    ]);
+    expect(model.groups[2].items.map((item) => item.commandId)).toEqual([
+      "open-settings",
+      "refresh-gateway-status",
+      "open-docs",
+    ]);
+  });
+
+  test("keeps root and native command entries aligned for core desktop destinations", () => {
+    const rootEntries = buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel());
+    const nativeEntries = buildDesktopCommandEntriesFromSidebar(buildNativeWorkbenchSidebarModel());
+    const rootLookup = new Map(rootEntries.map((entry) => [entry.title, entry]));
+    const nativeLookup = new Map(nativeEntries.map((entry) => [entry.title, entry]));
+
+    for (const title of ["New Chat", "Search Sessions", "Command Palette", "Tools", "Automations", "Settings", "Gateway Status", "Documentation"]) {
+      expect(nativeLookup.get(title)).toMatchObject({
+        title,
+        commandId: rootLookup.get(title)?.commandId,
+        href: rootLookup.get(title)?.href,
+      });
+    }
   });
 });

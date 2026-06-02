@@ -7,6 +7,7 @@ import {
 } from "./desktopCommandPalette";
 import {
   buildDesktopCommandEntriesFromSidebar,
+  buildNativeWorkbenchSidebarModel,
   buildRootWebUiSidebarModel,
 } from "./desktopSharedModels";
 
@@ -37,6 +38,24 @@ describe("desktop command palette", () => {
       title: "Gateway Status",
       destination: { module: "command", commandId: "refresh-gateway-status" },
     });
+  });
+
+  test("keeps root and native shared entries searchable for the same core destinations", () => {
+    const rootState = createDesktopCommandPaletteState({
+      desktopCommands: buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel()),
+    });
+    const nativeState = createDesktopCommandPaletteState({
+      desktopCommands: buildDesktopCommandEntriesFromSidebar(buildNativeWorkbenchSidebarModel()),
+    });
+
+    for (const query of ["tools", "automations", "settings", "runtime diagnostics"]) {
+      const rootResult = buildDesktopCommandPaletteResults(rootState, query)[0];
+      const nativeResult = buildDesktopCommandPaletteResults(nativeState, query)[0];
+      expect(nativeResult).toMatchObject({
+        title: rootResult.title,
+        destination: rootResult.destination,
+      });
+    }
   });
 
   test("groups searchable commands and loaded workbench data", () => {

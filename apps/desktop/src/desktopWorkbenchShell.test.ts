@@ -249,10 +249,37 @@ describe("desktop workbench shell", () => {
       "/workspace",
       "/knowledge",
       "/tools",
+      "/cowork",
       "/docs",
       "https://github.com/SudoJacky/tinybot",
+      null,
+      null,
+      null,
     ]);
     expect(targetDocument.body.querySelector(".desktop-status-strip")?.getAttribute("data-desktop-route-status")).toBe("");
+  });
+
+  test("renders native sidebar navigation from shared desktop item metadata", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    expect(targetDocument.body.querySelectorAll(".desktop-workbench-link")
+      .filter((node) => node.getAttribute("href") !== null)
+      .map((node) => node.getAttribute("data-sidebar-item-id"))).toEqual([
+      "link:workspace",
+      "link:knowledge",
+      "link:tools",
+      "link:automations",
+      "link:docs",
+      "link:repo",
+    ]);
+    expect(targetDocument.body.querySelector('[data-sidebar-command="open-settings"]')?.textContent).toBe("Settings");
+    expect(targetDocument.body.querySelector('[data-sidebar-command="refresh-gateway-status"]')?.textContent).toBe("Gateway Status");
   });
 
   test("renders a keyboard-accessible command palette surface", () => {
