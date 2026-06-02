@@ -1459,17 +1459,24 @@ function createWorkLensPane(
   section.setAttribute("data-desktop-work-lens-mode", workLens.mode);
   section.setAttribute("data-desktop-work-lens-kind", workLens.kind);
   section.setAttribute("data-desktop-work-lens-placement", placement);
+  if (workLens.fallbackReason) {
+    section.setAttribute("data-desktop-work-lens-fallback-reason", workLens.fallbackReason);
+  }
   section.append(createText(targetDocument, "h2", "Work Lens"));
   section.append(createText(targetDocument, "p", workLens.title));
 
   if (workLens.fallbackReason) {
-    section.append(createText(targetDocument, "p", workLens.fallbackReason));
+    const fallback = createText(targetDocument, "p", workLens.fallbackReason);
+    fallback.setAttribute("data-desktop-work-lens-fallback", workLens.fallbackReason);
+    fallback.setAttribute("aria-label", `Work Lens fallback: ${workLens.fallbackReason}`);
+    section.append(fallback);
   }
 
   for (const lensSection of workLens.sections) {
     const group = targetDocument.createElement("section");
     group.className = "desktop-work-lens-section";
     group.setAttribute("data-desktop-work-lens-section", lensSection.id);
+    group.setAttribute("aria-label", `Work Lens section: ${lensSection.id}`);
     group.append(createText(targetDocument, "h2", lensSection.title));
     for (const row of lensSection.rows) {
       group.append(createText(targetDocument, "p", `${row.label}: ${row.value}`));
@@ -1493,6 +1500,7 @@ function createWorkLensPane(
         ? createWorkbenchLink(targetDocument, action.label, action.route.href, "desktop-work-lens-action")
         : targetDocument.createElement("button");
       element.setAttribute("data-desktop-work-lens-action", action.id);
+      element.setAttribute("aria-label", `Work Lens action: ${action.id} ${workLens.title}`);
       if (!action.route?.href) {
         element.className = "desktop-work-lens-action";
         element.setAttribute("type", "button");
@@ -1527,6 +1535,7 @@ function createWorkLensResourceList(
       : targetDocument.createElement("button");
     element.setAttribute("data-desktop-work-lens-resource", resource.id);
     element.setAttribute("data-desktop-work-lens-resource-kind", resource.kind);
+    element.setAttribute("aria-label", `Work Lens resource: ${resource.kind} ${resource.title}`);
     if (!resource.route.href) {
       element.className = "desktop-work-lens-resource";
       element.setAttribute("type", "button");

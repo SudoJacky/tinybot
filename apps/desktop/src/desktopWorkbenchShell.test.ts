@@ -499,6 +499,71 @@ describe("desktop workbench shell", () => {
     expect(lens?.querySelector('[data-desktop-work-lens-resource="evidence:doc-1"]')?.getAttribute("href")).toBe("/knowledge");
   });
 
+  test("adds stable accessible names for Work Lens sections, resources, actions, and fallbacks", () => {
+    const targetDocument = new FakeDocument();
+    const [task] = buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-1:index",
+          title: "Index Desktop UX Notes",
+          status: "failed",
+          detail: "Embedding provider returned 429",
+          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+          retryable: true,
+          diagnostics: "HTTP 429",
+        },
+      ],
+    });
+    const workLens = buildDesktopWorkLensProjection({
+      task,
+      resources: [
+        {
+          kind: "evidence",
+          id: "evidence:doc-1",
+          title: "Desktop UX evidence",
+          detail: "Claim evidence",
+          route: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+        },
+      ],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      workLens,
+    });
+
+    const lens = targetDocument.body.querySelector(".desktop-work-lens");
+    expect(lens?.querySelector('[data-desktop-work-lens-section="happening"]')?.getAttribute("aria-label")).toBe("Work Lens section: happening");
+    expect(lens?.querySelector('[data-desktop-work-lens-section="next"]')?.getAttribute("aria-label")).toBe("Work Lens section: next");
+    expect(lens?.querySelector('[data-desktop-work-lens-resource="evidence:doc-1"]')?.getAttribute("aria-label")).toBe("Work Lens resource: evidence Desktop UX evidence");
+    expect(lens?.querySelector('[data-desktop-work-lens-action="retry"]')?.getAttribute("aria-label")).toBe("Work Lens action: retry Index Desktop UX Notes");
+    expect(lens?.querySelector('[data-desktop-work-lens-action="open"]')?.getAttribute("aria-label")).toBe("Work Lens action: open Index Desktop UX Notes");
+
+    const [unsupported] = buildDesktopTaskCenterItems({
+      providerRefreshes: [
+        {
+          id: "provider:openai:models",
+          title: "Refresh OpenAI models",
+          status: "completed",
+          detail: "24 models loaded",
+          canonical: { module: "settings", entityId: "openai", href: "/settings" },
+        },
+      ],
+    });
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      workLens: buildDesktopWorkLensProjection({ task: unsupported }),
+    });
+
+    const fallback = targetDocument.body.querySelector(".desktop-work-lens");
+    expect(fallback?.getAttribute("data-desktop-work-lens-fallback-reason")).toBe("unsupported-source");
+    expect(fallback?.querySelector('[data-desktop-work-lens-fallback="unsupported-source"]')?.getAttribute("aria-label")).toBe("Work Lens fallback: unsupported-source");
+  });
+
   test("renders Work Lens fallback without replacing source module access", () => {
     const targetDocument = new FakeDocument();
     const [task] = buildDesktopTaskCenterItems({
