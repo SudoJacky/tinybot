@@ -320,5 +320,8 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(styleText).toContain(".desktop-empty-modules");
     expect(styleText).toContain(".desktop-command-palette");
     expect(styleText).toContain(".desktop-composer-feedback");
+    expect(styleText).toContain("body.desktop-root-webui-workbench .composer-status-panel .system-status");
+    expect(styleText).toContain("grid-auto-flow: column");
+    expect(styleText).toContain("grid-auto-columns: max-content");
   });
 });
