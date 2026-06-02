@@ -5,6 +5,7 @@ import { buildDesktopRunChainItems } from "./desktopRunChainInspector";
 import { buildDesktopSettingsFormState, buildDesktopSettingsPaneModel } from "./desktopSettingsProviders";
 import { buildDesktopTaskCenterItems } from "./desktopTaskCenter";
 import { buildDesktopToolsSkillsPaneModel } from "./desktopToolsSkills";
+import { buildDesktopWorkLensProjection } from "./desktopWorkLens";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
 import { installDesktopWorkbenchShell, updateDesktopSettingsPane, updateDesktopTaskCenterItems, updateDesktopToolsSkillsPane } from "./desktopWorkbenchShell";
 
@@ -432,6 +433,143 @@ describe("desktop workbench shell", () => {
     expect(pane?.querySelector('[data-desktop-run-chain-item="m-plan:planning"]')?.getAttribute("aria-selected")).toBe("true");
     expect(pane?.querySelector(".desktop-run-chain-detail")?.textContent).toContain("Thinking: Inspect the active context");
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session");
+  });
+
+  test("renders a right-side Work Lens before generic inspector detail for running work", () => {
+    const targetDocument = new FakeDocument();
+    const [task] = buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-1:index",
+          title: "Index Desktop UX Notes",
+          status: "failed",
+          detail: "Embedding provider returned 429",
+          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+          retryable: true,
+          diagnostics: "HTTP 429",
+        },
+      ],
+    });
+    const workLens = buildDesktopWorkLensProjection({
+      task,
+      resources: [
+        {
+          kind: "evidence",
+          id: "evidence:doc-1",
+          title: "Desktop UX evidence",
+          detail: "Claim evidence",
+          route: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+        },
+      ],
+      outputs: [
+        {
+          kind: "diagnostic",
+          id: "diagnostic:doc-1",
+          title: "Failure diagnostics",
+          detail: "HTTP 429",
+          route: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+        },
+      ],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      workLens,
+    });
+
+    const inspector = targetDocument.body.querySelector('[data-workbench-region="inspector"]');
+    const lens = inspector?.querySelector(".desktop-work-lens");
+    expect(lens?.getAttribute("aria-label")).toBe("Work Lens");
+    expect(lens?.getAttribute("data-desktop-work-lens-mode")).toBe("ready");
+    expect(lens?.textContent).toContain("Index Desktop UX Notes");
+    expect(lens?.textContent).toContain("What is happening?");
+    expect(lens?.textContent).toContain("Embedding provider returned 429");
+    expect(lens?.textContent).toContain("What did it use?");
+    expect(lens?.textContent).toContain("Desktop UX evidence");
+    expect(lens?.textContent).toContain("What changed?");
+    expect(lens?.textContent).toContain("Failure diagnostics");
+    expect(lens?.querySelectorAll("[data-desktop-work-lens-action]").map((node) => node.getAttribute("data-desktop-work-lens-action"))).toEqual([
+      "retry",
+      "open",
+      "inspect",
+      "copyDiagnostics",
+    ]);
+    expect(lens?.querySelector('[data-desktop-work-lens-resource="evidence:doc-1"]')?.getAttribute("href")).toBe("/knowledge");
+  });
+
+  test("renders Work Lens fallback without replacing source module access", () => {
+    const targetDocument = new FakeDocument();
+    const [task] = buildDesktopTaskCenterItems({
+      providerRefreshes: [
+        {
+          id: "provider:openai:models",
+          title: "Refresh OpenAI models",
+          status: "completed",
+          detail: "24 models loaded",
+          canonical: { module: "settings", entityId: "openai", href: "/settings" },
+        },
+      ],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      workLens: buildDesktopWorkLensProjection({ task }),
+    });
+
+    const lens = targetDocument.body.querySelector(".desktop-work-lens");
+    expect(lens?.getAttribute("data-desktop-work-lens-mode")).toBe("fallback");
+    expect(lens?.textContent).toContain("Refresh OpenAI models");
+    expect(lens?.textContent).toContain("unsupported-source");
+    expect(lens?.querySelector('[data-desktop-work-lens-action="open"]')?.getAttribute("href")).toBe("/settings");
+  });
+
+  test("dispatches bounded Work Lens actions without falling back to generic task actions", () => {
+    const targetDocument = new FakeDocument();
+    const events: string[] = [];
+    const copied: string[] = [];
+    const [task] = buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-1:index",
+          title: "Index Desktop UX Notes",
+          status: "failed",
+          detail: "Embedding provider returned 429",
+          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+          retryable: true,
+          diagnostics: "HTTP 429",
+        },
+      ],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      workLens: buildDesktopWorkLensProjection({ task }),
+      workLensActions: {
+        onWorkLensAction: ({ action, workLens }) => events.push(`${action}:${workLens.id}`),
+        copyText: (text) => {
+          copied.push(text);
+        },
+      },
+      taskActions: {
+        onTaskAction: ({ action }) => events.push(`task:${action}`),
+      },
+    });
+
+    targetDocument.body.querySelector('[data-desktop-work-lens-action="retry"]')?.click();
+    targetDocument.body.querySelector('[data-desktop-work-lens-action="copyDiagnostics"]')?.click();
+    targetDocument.body.querySelector('[data-desktop-work-lens-action="open"]')?.click();
+
+    expect(events).toEqual([
+      "retry:knowledge:doc-1:index",
+      "copyDiagnostics:knowledge:doc-1:index",
+    ]);
+    expect(copied).toEqual(["HTTP 429"]);
   });
 
   test("renders native file upload actions for knowledge and session files", () => {
