@@ -29,6 +29,11 @@ import {
 import type { DesktopTaskActionId, DesktopTaskCenterAction, DesktopTaskCenterItem } from "./desktopTaskCenter";
 import type { WorkbenchLayoutState, WorkbenchPanelId, WorkbenchPanelState } from "./desktopWorkbenchLayout";
 import { loadWorkbenchLayout } from "./desktopWorkbenchLayout";
+import {
+  buildNativeWorkbenchSidebarModel,
+  type DesktopSidebarGroup,
+  type DesktopSidebarItem,
+} from "./desktopSharedModels";
 
 export interface DesktopTaskCenterActionEvent {
   action: DesktopTaskActionId;
@@ -331,17 +336,15 @@ function createActivityRail(targetDocument: Document): HTMLElement {
 }
 
 function createSidebar(targetDocument: Document): HTMLElement {
+  const model = buildNativeWorkbenchSidebarModel();
+  const workspaceGroup = model.groups.find((group) => group.id === "workspace");
+  const footerGroup = model.groups.find((group) => group.id === "footer");
   const sidebar = targetDocument.createElement("div");
   sidebar.className = "desktop-sidebar-content";
   sidebar.append(
     createSection(targetDocument, "Sessions", ["No active session", "Recent sessions will appear here"]),
-    createLinkSection(targetDocument, "Resources", [
-      ["Workspace", "/workspace"],
-      ["Knowledge", "/knowledge"],
-      ["Tools and skills", "/tools"],
-      ["Docs", "/docs"],
-      ["Tinybot repo", "https://github.com/SudoJacky/tinybot"],
-    ]),
+    createSharedSidebarLinkSection(targetDocument, workspaceGroup),
+    createSharedSidebarCommandSection(targetDocument, footerGroup),
   );
   return sidebar;
 }
@@ -1995,14 +1998,65 @@ function renderInspectorView(targetDocument: Document, view: DesktopInspectorVie
   return section;
 }
 
-function createLinkSection(targetDocument: Document, title: string, rows: [string, string][]): HTMLElement {
+function createSharedSidebarLinkSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section";
-  section.append(createText(targetDocument, "h2", title));
-  for (const [label, href] of rows) {
-    section.append(createWorkbenchLink(targetDocument, label, href, "desktop-workbench-link"));
+  section.append(createText(targetDocument, "h2", group?.label ?? "Resources"));
+  for (const item of group?.items ?? []) {
+    if (item.kind === "link" && item.href) {
+      section.append(createSharedWorkbenchLink(targetDocument, item));
+    }
   }
   return section;
+}
+
+function createSharedSidebarCommandSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section";
+  section.append(createText(targetDocument, "h2", group?.label ?? "System"));
+  for (const item of group?.items ?? []) {
+    if (item.kind === "command" && item.commandId) {
+      section.append(createSharedSidebarCommandButton(targetDocument, item));
+    }
+  }
+  return section;
+}
+
+function createSharedWorkbenchLink(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
+  const link = createWorkbenchLink(targetDocument, item.label, item.href ?? "#", "desktop-workbench-link");
+  applySharedSidebarItemAttributes(link, item);
+  return link;
+}
+
+function createSharedSidebarCommandButton(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
+  const button = targetDocument.createElement("button");
+  button.className = "desktop-workbench-link";
+  button.setAttribute("type", "button");
+  button.textContent = item.label;
+  applySharedSidebarItemAttributes(button, item);
+  button.addEventListener("click", () => {
+    if (!item.commandId) {
+      return;
+    }
+    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", {
+      detail: { id: item.commandId, source: "native-sidebar" },
+    }));
+  });
+  return button;
+}
+
+function applySharedSidebarItemAttributes(element: HTMLElement, item: DesktopSidebarItem): void {
+  element.setAttribute("data-sidebar-item-id", item.id);
+  element.setAttribute("data-sidebar-item-kind", item.kind);
+  if (item.href) {
+    element.setAttribute("data-sidebar-href", item.href);
+  }
+  if (item.commandId) {
+    element.setAttribute("data-sidebar-command", item.commandId);
+  }
+  if (item.icon) {
+    element.setAttribute("data-sidebar-icon", item.icon);
+  }
 }
 
 function createWorkbenchLink(targetDocument: Document, label: string, href: string, className: string): HTMLElement {

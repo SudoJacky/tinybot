@@ -78,6 +78,10 @@ export interface RootWebUiRuntimeChipOptions {
   tokenUsage?: string | null;
 }
 
+export interface NativeWorkbenchSidebarModelOptions {
+  workspace?: DesktopWorkspaceContext;
+}
+
 const ROOT_WEBUI_ACTION_COMMANDS: DesktopMenuCommandId[] = [
   "new-chat",
   "search-sessions",
@@ -131,6 +135,45 @@ export function buildRootWebUiSidebarModel({
         items: sidebarItemsFromCommands(ROOT_WEBUI_FOOTER_COMMANDS),
       },
     ],
+  };
+}
+
+export function buildNativeWorkbenchSidebarModel({
+  workspace = buildNativeWorkbenchWorkspaceContext(),
+}: NativeWorkbenchSidebarModelOptions = {}): DesktopSidebarModel {
+  return {
+    mode: "native-workbench",
+    workspace,
+    groups: [
+      {
+        id: "actions",
+        items: sidebarItemsFromCommands(ROOT_WEBUI_ACTION_COMMANDS),
+      },
+      {
+        id: "workspace",
+        label: "Resources",
+        items: [
+          { id: "link:workspace", kind: "link", label: "Workspace", href: "/workspace", icon: "files" },
+          { id: "link:knowledge", kind: "link", label: "Knowledge", href: "/knowledge", icon: "knowledge" },
+          { id: "link:tools", kind: "link", label: "Tools", href: "/tools", icon: "tools" },
+          { id: "link:automations", kind: "link", label: "Automations", href: "/cowork", icon: "automation" },
+          { id: "link:docs", kind: "link", label: "Docs", href: "/docs", icon: "docs" },
+          { id: "link:repo", kind: "link", label: "Tinybot repo", href: "https://github.com/SudoJacky/tinybot", icon: "repo" },
+        ],
+      },
+      {
+        id: "footer",
+        items: sidebarItemsFromCommands(ROOT_WEBUI_FOOTER_COMMANDS),
+      },
+    ],
+  };
+}
+
+function buildNativeWorkbenchWorkspaceContext(): DesktopWorkspaceContext {
+  return {
+    id: "native-workbench",
+    label: "tinybot",
+    mode: "native-workbench",
   };
 }
 

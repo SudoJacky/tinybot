@@ -83,6 +83,7 @@ import { installDesktopWebUiFilePickerBridge } from "./desktopWebUiFilePickerBri
 import { installDesktopWebUiNotificationBridge } from "./desktopWebUiNotificationBridge";
 import {
   buildDesktopCommandEntriesFromSidebar,
+  buildNativeWorkbenchSidebarModel,
   buildRootWebUiSidebarModel,
 } from "./desktopSharedModels";
 
@@ -825,12 +826,17 @@ function updateNativeSettingsPane(
 function installNativeCommandPalette(): void {
   installDesktopCommandPalette({
     gatewayOrigin: gatewayConfig.httpBaseUrl,
+    desktopCommands: buildNativeWorkbenchDesktopCommands(),
     loadData: loadNativeCommandPaletteData,
   });
 }
 
 function buildRootWebUiDesktopCommands(): ReturnType<typeof buildDesktopCommandEntriesFromSidebar> {
   return buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel());
+}
+
+function buildNativeWorkbenchDesktopCommands(): ReturnType<typeof buildDesktopCommandEntriesFromSidebar> {
+  return buildDesktopCommandEntriesFromSidebar(buildNativeWorkbenchSidebarModel());
 }
 
 async function loadRootWebUiCommandPaletteData(): Promise<DesktopCommandPaletteInput> {
@@ -852,6 +858,7 @@ async function loadNativeCommandPaletteData(): Promise<DesktopCommandPaletteInpu
   ]);
   replaceNativeCoworkTasks(coworkSessions);
   return {
+    desktopCommands: buildNativeWorkbenchDesktopCommands(),
     sessions: { loaded: true, rows: normalizeSessionsPayload(sessions) },
     workspaceFiles: { loaded: true, rows: buildDesktopWorkspaceFileRows(workspaceFiles) },
     knowledgeDocuments: { loaded: true, rows: buildDesktopKnowledgeDocumentRows(knowledgeDocuments) },
