@@ -237,6 +237,57 @@ export function ensureDesktopComposerSurfaceStyle(targetDocument: Document): voi
       font-size: 11px;
       line-height: 1.3;
     }
+
+    @media (max-width: 980px) and (min-width: 721px) {
+      body.desktop-root-webui-workbench .composer.desktop-composer-surface {
+        padding: 12px 16px 10px;
+      }
+
+      body.desktop-root-webui-workbench [data-desktop-composer-region="controls"] {
+        grid-template-columns: 38px minmax(0, 1fr) 48px;
+        gap: 8px;
+      }
+
+      body.desktop-root-webui-workbench [data-desktop-composer-action="stop"] {
+        grid-column: 2 / 3;
+        min-height: 32px;
+      }
+
+      body.desktop-root-webui-workbench [data-desktop-composer-region="runtime-status"],
+      body.desktop-root-webui-workbench .desktop-composer-feedback {
+        width: min(960px, 100%);
+      }
+    }
+
+    @media (max-width: 720px) {
+      body.desktop-root-webui-workbench .composer.desktop-composer-surface {
+        padding: 10px 12px 10px;
+      }
+
+      body.desktop-root-webui-workbench [data-desktop-composer-region="controls"] {
+        grid-template-columns: 36px minmax(0, 1fr);
+        gap: 7px;
+      }
+
+      body.desktop-root-webui-workbench [data-desktop-composer-action="send"] {
+        grid-column: 2 / 3;
+        min-height: 34px;
+      }
+
+      body.desktop-root-webui-workbench [data-desktop-composer-action="stop"] {
+        grid-column: 2 / 3;
+        min-height: 32px;
+      }
+
+      body.desktop-root-webui-workbench [data-desktop-composer-region="runtime-status"] {
+        width: min(960px, 100%);
+        overflow-x: auto;
+      }
+
+      body.desktop-root-webui-workbench .desktop-composer-feedback {
+        width: min(960px, 100%);
+      }
+    }
   `;
   targetDocument.head.append(style);
 }

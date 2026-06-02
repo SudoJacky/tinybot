@@ -63,6 +63,7 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
   style.setAttribute("id", STYLE_ID);
   style.textContent = `
     body.desktop-root-webui-workbench > .shell {
+      --desktop-sidebar-rail-size: 68px;
       grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr) minmax(0, var(--desktop-inspector-size, 360px));
       background: var(--panel, #faf9f5);
       box-shadow: none;
@@ -158,6 +159,19 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
       text-decoration: none;
     }
 
+    body.desktop-root-webui-workbench .desktop-app-sidebar-item[data-sidebar-icon]::before {
+      content: attr(data-sidebar-icon);
+      display: none;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text-muted, #6c6a64);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
     body.desktop-root-webui-workbench .desktop-app-sidebar-item[data-active="true"],
     body.desktop-root-webui-workbench .desktop-app-sidebar-item:hover,
     body.desktop-root-webui-workbench .desktop-app-sidebar-item:focus-visible {
@@ -181,22 +195,22 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
     }
 
     body.desktop-root-webui-workbench > .shell .sidebar {
-      order: 0;
-      grid-column: 1;
+      order: 0 !important;
+      grid-column: 1 !important;
       grid-row: 1;
     }
 
     body.desktop-root-webui-workbench > .shell .chat-panel,
     body.desktop-root-webui-workbench [data-desktop-shell-region="workspace"] {
-      order: 0;
-      grid-column: 2;
+      order: 0 !important;
+      grid-column: 2 !important;
       grid-row: 1;
       min-width: 0;
     }
 
     body.desktop-root-webui-workbench > .shell .inspector-panel {
-      order: 0;
-      grid-column: 3;
+      order: 0 !important;
+      grid-column: 3 !important;
       grid-row: 1;
     }
 
@@ -427,26 +441,187 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
       line-height: 1.35;
     }
 
-    @media (max-width: 980px) {
+    @media (min-width: 1181px) {
       body.desktop-root-webui-workbench > .shell,
       body.desktop-root-webui-workbench > .shell.inspection-mode {
-        grid-template-columns: 68px minmax(0, 1fr) 0;
+        grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr) minmax(0, var(--desktop-inspector-size, 360px));
+        grid-template-rows: minmax(0, 1fr);
+      }
+
+      body.desktop-root-webui-workbench > .shell[data-inspector-visible="false"]:not(.inspection-mode) {
+        grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr) 0;
+      }
+    }
+
+    @media (max-width: 1180px) and (min-width: 981px) {
+      body.desktop-root-webui-workbench > .shell,
+      body.desktop-root-webui-workbench > .shell.inspection-mode {
+        grid-template-columns: minmax(220px, var(--desktop-sidebar-size, 248px)) minmax(0, 1fr) 0;
         grid-template-rows: minmax(0, 1fr);
         height: calc(100vh - var(--desktop-window-frame-height, 34px));
         min-height: 0;
       }
 
       body.desktop-root-webui-workbench > .shell .sidebar {
+        order: 0 !important;
+        grid-column: 1 !important;
+        grid-row: 1;
         max-height: none;
       }
 
-      body.desktop-root-webui-workbench > .shell .chat-panel {
+      body.desktop-root-webui-workbench > .shell .chat-panel,
+      body.desktop-root-webui-workbench [data-desktop-shell-region="workspace"] {
+        order: 0 !important;
+        grid-column: 2 !important;
+        grid-row: 1;
+        min-width: 0;
         min-height: 0;
         height: auto;
       }
 
       body.desktop-root-webui-workbench .inspector-panel {
         display: none;
+      }
+    }
+
+    @media (max-width: 980px) and (min-width: 721px) {
+      body.desktop-root-webui-workbench > .shell,
+      body.desktop-root-webui-workbench > .shell.inspection-mode {
+        grid-template-columns: var(--desktop-sidebar-rail-size, 68px) minmax(0, 1fr) 0;
+        grid-template-rows: minmax(0, 1fr);
+        height: calc(100vh - var(--desktop-window-frame-height, 34px));
+        min-height: 0;
+      }
+
+      body.desktop-root-webui-workbench > .shell .sidebar {
+        order: 0 !important;
+        grid-column: 1 !important;
+        grid-row: 1;
+        max-height: none;
+      }
+
+      body.desktop-root-webui-workbench > .shell .chat-panel {
+        order: 0 !important;
+        grid-column: 2 !important;
+        grid-row: 1;
+        min-height: 0;
+        height: auto;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-content {
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        padding: 10px 8px;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-group-label,
+      body.desktop-root-webui-workbench .desktop-app-sidebar-item-meta {
+        display: none;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-item {
+        grid-template-columns: minmax(0, 1fr);
+        justify-items: center;
+        position: relative;
+        min-height: 36px;
+        padding: 7px 6px;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-item[data-sidebar-icon]::before {
+        display: block;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-item-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      body.desktop-root-webui-workbench .inspector-panel {
+        display: none;
+      }
+
+      body.desktop-root-webui-workbench .desktop-empty-hints {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 720px) {
+      body.desktop-root-webui-workbench > .shell,
+      body.desktop-root-webui-workbench > .shell.inspection-mode {
+        grid-template-columns: 56px minmax(0, 1fr) 0;
+        grid-template-rows: minmax(0, 1fr);
+        height: calc(100vh - var(--desktop-window-frame-height, 34px));
+        min-width: 0;
+        min-height: 0;
+      }
+
+      body.desktop-root-webui-workbench > .shell .sidebar {
+        order: 0 !important;
+        grid-column: 1 !important;
+        grid-row: 1;
+        max-height: none;
+      }
+
+      body.desktop-root-webui-workbench > .shell .chat-panel,
+      body.desktop-root-webui-workbench [data-desktop-shell-region="workspace"] {
+        order: 0 !important;
+        grid-column: 2 !important;
+        grid-row: 1;
+        min-width: 0;
+        min-height: 0;
+        height: auto;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-content {
+        gap: 8px;
+        padding: 8px 6px;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-group-label,
+      body.desktop-root-webui-workbench .desktop-app-sidebar-item-meta {
+        display: none;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-item {
+        grid-template-columns: minmax(0, 1fr);
+        justify-items: center;
+        position: relative;
+        min-height: 34px;
+        padding: 6px 4px;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-item[data-sidebar-icon]::before {
+        display: block;
+      }
+
+      body.desktop-root-webui-workbench .desktop-app-sidebar-item-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      body.desktop-root-webui-workbench .inspector-panel {
+        display: none;
+      }
+
+      body.desktop-root-webui-workbench .chat-header,
+      body.desktop-root-webui-workbench .session-header,
+      body.desktop-root-webui-workbench .desktop-workspace-header {
+        padding: 12px 14px 10px;
+      }
+
+      body.desktop-root-webui-workbench .desktop-empty-state-compact {
+        width: min(100%, calc(100% - 24px));
+        margin: 24px auto;
       }
 
       body.desktop-root-webui-workbench .desktop-empty-hints {
