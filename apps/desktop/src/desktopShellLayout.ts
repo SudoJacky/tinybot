@@ -84,6 +84,96 @@ export function ensureDesktopRootWebUiShellLayoutStyle(targetDocument: Document)
       display: none;
     }
 
+    body.desktop-root-webui-workbench .desktop-app-sidebar {
+      display: flex;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border-right: 1px solid var(--border, #e6dfd8);
+      border-radius: 0;
+      background: var(--panel-strong, #efe9de);
+      box-shadow: none;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-content {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      width: 100%;
+      min-width: 0;
+      min-height: 0;
+      padding: 12px 10px;
+      overflow: hidden;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-group {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-group[data-sidebar-group="workspace"] {
+      overflow: hidden;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-group-label {
+      margin: 0;
+      overflow: hidden;
+      color: var(--text-muted, #6c6a64);
+      font-size: 11px;
+      line-height: 1.25;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-list {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      overflow: auto;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      min-height: 32px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 6px 8px;
+      background: transparent;
+      color: var(--text, #141413);
+      font: 500 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      text-align: left;
+      text-decoration: none;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-item[data-active="true"],
+    body.desktop-root-webui-workbench .desktop-app-sidebar-item:hover,
+    body.desktop-root-webui-workbench .desktop-app-sidebar-item:focus-visible {
+      border-color: var(--border, #e6dfd8);
+      background: var(--panel, #faf9f5);
+      outline: none;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-item-label,
+    body.desktop-root-webui-workbench .desktop-app-sidebar-item-meta {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-root-webui-workbench .desktop-app-sidebar-item-meta {
+      color: var(--text-muted, #6c6a64);
+      font-size: 11px;
+      font-weight: 500;
+    }
+
     body.desktop-root-webui-workbench > .shell .sidebar {
       order: 0;
       grid-column: 1;
