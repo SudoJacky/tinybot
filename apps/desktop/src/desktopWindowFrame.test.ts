@@ -231,11 +231,15 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="new-chat"]')?.textContent).toBe("New");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="search-sessions"]')?.textContent).toBe("Search");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="stop-generation"]')?.textContent).toBe("Stop");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')?.textContent).toBe("Command");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-docs"]')).toBeNull();
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="new-chat"]')).toBeNull();
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="search-sessions"]')).toBeNull();
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="stop-generation"]')).toBeNull();
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')).toBeNull();
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-settings"]')?.textContent).toBe("Settings");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-docs"]')?.textContent).toBe("Documentation");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-shortcut-help"]')?.textContent).toBe("Shortcut Help");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-page-help"]')?.textContent).toBe("Page Help");
+    expect(targetDocument.body.querySelector('[data-desktop-menu-command="toggle-theme"]')?.textContent).toBe("Toggle Theme");
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')).toBeNull();
   });
 

@@ -62,9 +62,17 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
   { id: "refresh-gateway-status", label: "Gateway Status", chromeGroup: "secondary", shortcut: "Ctrl+Shift+G" },
 ];
 
-export const DESKTOP_CHROME_COMMANDS: DesktopMenuCommand[] = DESKTOP_MENU_COMMANDS.filter(
-  (command) => command.chromeGroup === "primary",
-);
+const DESKTOP_CHROME_COMMAND_IDS: DesktopMenuCommandId[] = [
+  "open-settings",
+  "open-docs",
+  "open-shortcut-help",
+  "open-page-help",
+  "toggle-theme",
+];
+
+export const DESKTOP_CHROME_COMMANDS: DesktopMenuCommand[] = DESKTOP_CHROME_COMMAND_IDS
+  .map((id) => DESKTOP_MENU_COMMANDS.find((command) => command.id === id))
+  .filter((command): command is DesktopMenuCommand => Boolean(command));
 
 interface DesktopShortcutLike {
   key: string;

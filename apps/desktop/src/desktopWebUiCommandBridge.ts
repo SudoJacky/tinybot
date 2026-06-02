@@ -12,6 +12,7 @@ export interface DesktopWebUiCommandBridgeOptions {
 
 const WEBUI_COMMAND_BUTTONS: Partial<Record<DesktopMenuCommandId, string>> = {
   "new-chat": "#new-chat-button",
+  "stop-generation": "#stop-generation-button",
   "open-settings": "#settings-button",
   "toggle-theme": "#theme-toggle",
   "toggle-sidebar": "#sidebar-collapse-button",
@@ -79,6 +80,8 @@ function commandFeedback(id: string): string {
   switch (id) {
     case "new-chat":
       return "New chat requested";
+    case "stop-generation":
+      return "Stop generation requested";
     case "open-settings":
       return "Settings opened";
     case "toggle-theme":

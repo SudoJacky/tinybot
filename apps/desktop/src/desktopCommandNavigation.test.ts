@@ -117,16 +117,18 @@ describe("desktop command navigation", () => {
       "Ctrl+Shift+G",
     ]);
     expect(DESKTOP_CHROME_COMMANDS.map((command) => command.id)).toEqual([
-      "new-chat",
-      "stop-generation",
-      "search-sessions",
-      "open-command-palette",
+      "open-settings",
+      "open-docs",
+      "open-shortcut-help",
+      "open-page-help",
+      "toggle-theme",
     ]);
     expect(DESKTOP_CHROME_COMMANDS.map((command) => command.chromeLabel)).toEqual([
-      "New",
-      "Stop",
-      "Search",
-      "Command",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
     ]);
     expect(DESKTOP_MENU_COMMANDS.filter((command) => command.chromeGroup === "secondary").map((command) => command.id)).toEqual([
       "open-settings",
