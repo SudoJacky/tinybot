@@ -81,6 +81,10 @@ import {
 import { installDesktopWebUiCommandBridge } from "./desktopWebUiCommandBridge";
 import { installDesktopWebUiFilePickerBridge } from "./desktopWebUiFilePickerBridge";
 import { installDesktopWebUiNotificationBridge } from "./desktopWebUiNotificationBridge";
+import {
+  buildDesktopCommandEntriesFromSidebar,
+  buildRootWebUiSidebarModel,
+} from "./desktopSharedModels";
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
@@ -198,7 +202,8 @@ async function bootDesktopWebUi(): Promise<void> {
     installDesktopRootWebUiWorkbenchAdapter();
     installDesktopCommandPalette({
       gatewayOrigin: gatewayConfig.httpBaseUrl,
-      loadData: loadNativeCommandPaletteData,
+      desktopCommands: buildRootWebUiDesktopCommands(),
+      loadData: loadRootWebUiCommandPaletteData,
     });
     installRootWebUiDesktopAdapters();
     installTauriNavigation();
@@ -822,6 +827,17 @@ function installNativeCommandPalette(): void {
     gatewayOrigin: gatewayConfig.httpBaseUrl,
     loadData: loadNativeCommandPaletteData,
   });
+}
+
+function buildRootWebUiDesktopCommands(): ReturnType<typeof buildDesktopCommandEntriesFromSidebar> {
+  return buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel());
+}
+
+async function loadRootWebUiCommandPaletteData(): Promise<DesktopCommandPaletteInput> {
+  return {
+    ...await loadNativeCommandPaletteData(),
+    desktopCommands: buildRootWebUiDesktopCommands(),
+  };
 }
 
 async function loadNativeCommandPaletteData(): Promise<DesktopCommandPaletteInput> {

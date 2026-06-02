@@ -34,6 +34,7 @@ class FakeElement {
   public classList = new FakeClassList(this);
   public parent: FakeElement | null = null;
   private ownTextContent = "";
+  private eventListeners = new Map<string, Array<(event: Event) => void>>();
 
   constructor(public readonly tagName: string) {}
 
@@ -70,6 +71,23 @@ class FakeElement {
     this.children = [...children];
   }
 
+  addEventListener(type: string, listener: (event: Event) => void): void {
+    const listeners = this.eventListeners.get(type) ?? [];
+    listeners.push(listener);
+    this.eventListeners.set(type, listeners);
+  }
+
+  dispatchEvent(event: Event): boolean {
+    for (const listener of this.eventListeners.get(event.type) ?? []) {
+      listener(event);
+    }
+    return true;
+  }
+
+  click(): void {
+    this.dispatchEvent(new Event("click"));
+  }
+
   querySelector(selector: string): FakeElement | null {
     if (matchesSelector(this, selector)) {
       return this;
@@ -94,9 +112,15 @@ class FakeElement {
 
 class FakeDocument {
   public body = new FakeElement("body");
+  public events: Array<{ type: string; detail: unknown }> = [];
 
   createElement(tagName: string): FakeElement {
     return new FakeElement(tagName);
+  }
+
+  dispatchEvent(event: Event): boolean {
+    this.events.push({ type: event.type, detail: (event as CustomEvent).detail });
+    return true;
   }
 }
 
@@ -178,5 +202,22 @@ describe("desktop app sidebar", () => {
     expect(activeSession?.getAttribute("data-active")).toBe("true");
     expect(activeSession?.textContent).toContain("Desktop shell planning");
     expect(activeSession?.textContent).toContain("2 min");
+  });
+
+  test("dispatches sidebar commands through the desktop menu command event path", () => {
+    const targetDocument = new FakeDocument();
+    const host = targetDocument.createElement("aside");
+    const model = buildRootWebUiSidebarModel({ sessions: sidebarItems() });
+
+    renderDesktopAppSidebar(host as unknown as HTMLElement, model, targetDocument as unknown as Document);
+
+    host.querySelector('[data-sidebar-command="new-chat"]')?.click();
+
+    expect(targetDocument.events).toEqual([
+      {
+        type: "desktop-menu-command",
+        detail: { id: "new-chat", source: "desktop-sidebar" },
+      },
+    ]);
   });
 });

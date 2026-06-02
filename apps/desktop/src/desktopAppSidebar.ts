@@ -64,6 +64,14 @@ function createSidebarItem(targetDocument: Document, item: DesktopSidebarItem): 
 
   if (item.commandId) {
     element.setAttribute("data-sidebar-command", item.commandId);
+    element.addEventListener("click", () => {
+      if (item.disabled) {
+        return;
+      }
+      targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", {
+        detail: { id: item.commandId, source: "desktop-sidebar" },
+      }));
+    });
   }
   if (item.active) {
     element.setAttribute("data-active", "true");

@@ -5,8 +5,40 @@ import {
   createDesktopCommandPaletteState,
   openDesktopCommandPalette,
 } from "./desktopCommandPalette";
+import {
+  buildDesktopCommandEntriesFromSidebar,
+  buildRootWebUiSidebarModel,
+} from "./desktopSharedModels";
 
 describe("desktop command palette", () => {
+  test("adapts shared desktop entries into root command search destinations", () => {
+    const desktopCommands = buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel());
+    const state = createDesktopCommandPaletteState({
+      desktopCommands,
+    });
+
+    expect(buildDesktopCommandPaletteResults(state, "automations")[0]).toMatchObject({
+      group: "Actions",
+      title: "Automations",
+      destination: { module: "cowork", href: "/cowork" },
+    });
+    expect(buildDesktopCommandPaletteResults(state, "tools")[0]).toMatchObject({
+      group: "Actions",
+      title: "Tools",
+      destination: { module: "tools", href: "/tools" },
+    });
+    expect(buildDesktopCommandPaletteResults(state, "settings")[0]).toMatchObject({
+      group: "System",
+      title: "Settings",
+      destination: { module: "command", commandId: "open-settings" },
+    });
+    expect(buildDesktopCommandPaletteResults(state, "runtime diagnostics")[0]).toMatchObject({
+      group: "System",
+      title: "Gateway Status",
+      destination: { module: "command", commandId: "refresh-gateway-status" },
+    });
+  });
+
   test("groups searchable commands and loaded workbench data", () => {
     const state = createDesktopCommandPaletteState({
       sessions: {
