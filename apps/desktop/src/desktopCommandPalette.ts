@@ -1,5 +1,6 @@
 import { DESKTOP_MENU_COMMANDS, type DesktopMenuCommandId } from "./desktopCommandNavigation";
 import { resolveDesktopNavigationTarget } from "./desktopNavigation";
+import type { DesktopCommandEntry } from "./desktopSharedModels";
 import type { NativeChatSession } from "./nativeChat";
 import type { DesktopCoworkSessionRow } from "./desktopCowork";
 import type { DesktopKnowledgeDocumentRow } from "./desktopKnowledgeTraceability";
@@ -54,6 +55,7 @@ export interface DesktopCommandPaletteState {
 }
 
 export interface DesktopCommandPaletteInput {
+  desktopCommands?: DesktopCommandEntry[];
   sessions?: LoadedRows<NativeChatSession>;
   workspaceFiles?: LoadedRows<DesktopWorkspaceFileRow>;
   knowledgeDocuments?: LoadedRows<DesktopKnowledgeDocumentRow>;
@@ -66,6 +68,7 @@ export interface InstallDesktopCommandPaletteOptions {
   gatewayOrigin?: string;
   targetDocument?: Document;
   targetWindow?: Window;
+  desktopCommands?: DesktopCommandEntry[];
   loadData?: () => Promise<DesktopCommandPaletteInput>;
 }
 
@@ -83,15 +86,7 @@ interface LoadedRows<T> {
 const OPEN_PALETTE_EVENT = "tinybot:open-command-palette";
 
 export function createDesktopCommandPaletteState(input: DesktopCommandPaletteInput = {}): DesktopCommandPaletteState {
-  const commandResults = DESKTOP_MENU_COMMANDS.map((command) => ({
-    id: `command:${command.id}`,
-    groupId: "commands" as const,
-    group: "Commands",
-    title: command.label,
-    secondary: command.shortcut,
-    keywords: ["command", command.id, command.shortcut, ...commandKeywords(command.id)],
-    destination: { module: "command" as const, commandId: command.id },
-  }));
+  const commandResults = commandResultsFromInput(input.desktopCommands);
   const resultGroups: Array<[DesktopCommandPaletteGroupId, string, LoadedRows<unknown>, DesktopCommandPaletteResult[]]> = [
     ["commands", "Commands", { loaded: true, rows: DESKTOP_MENU_COMMANDS }, commandResults],
     ["sessions", "Sessions", input.sessions ?? unloaded(), sessionResults(input.sessions?.rows ?? [])],
@@ -158,6 +153,7 @@ export function installDesktopCommandPalette({
   gatewayOrigin = "",
   targetDocument = document,
   targetWindow = window,
+  desktopCommands = [],
   loadData = async () => ({}),
 }: InstallDesktopCommandPaletteOptions = {}): void {
   const palette = targetDocument.querySelector<HTMLElement>("#desktop-command-palette");
@@ -169,7 +165,7 @@ export function installDesktopCommandPalette({
   }
   const paletteInput = input;
 
-  let state = createDesktopCommandPaletteState();
+  let state = createDesktopCommandPaletteState({ desktopCommands });
   let previousFocus: HTMLElement | null = null;
   renderPalette(targetDocument, state, "");
 
@@ -230,14 +226,87 @@ export function installDesktopCommandPalette({
   async function refreshPaletteData(): Promise<void> {
     setPaletteStatus(targetDocument, "Loading command palette data.");
     try {
-      state = createDesktopCommandPaletteState(await loadData());
+      const loadedData = await loadData();
+      state = createDesktopCommandPaletteState({
+        ...loadedData,
+        desktopCommands: loadedData.desktopCommands ?? desktopCommands,
+      });
       renderPalette(targetDocument, state, paletteInput.value);
     } catch (error) {
-      state = createDesktopCommandPaletteState();
+      state = createDesktopCommandPaletteState({ desktopCommands });
       renderPalette(targetDocument, state, paletteInput.value);
       setPaletteStatus(targetDocument, `Command palette data unavailable: ${stringifyError(error)}`);
     }
   }
+}
+
+function commandResultsFromInput(desktopCommands: DesktopCommandEntry[] | undefined): DesktopCommandPaletteResult[] {
+  if (!desktopCommands?.length) {
+    return menuCommandResults(DESKTOP_MENU_COMMANDS);
+  }
+
+  const representedCommands = new Set(desktopCommands.map((entry) => entry.commandId).filter(Boolean));
+  return [
+    ...desktopCommands.map(desktopCommandEntryResult),
+    ...menuCommandResults(DESKTOP_MENU_COMMANDS.filter((command) => !representedCommands.has(command.id))),
+  ];
+}
+
+function menuCommandResults(commands: typeof DESKTOP_MENU_COMMANDS): DesktopCommandPaletteResult[] {
+  return commands.map((command) => ({
+    id: `command:${command.id}`,
+    groupId: "commands",
+    group: "Commands",
+    title: command.label,
+    secondary: command.shortcut,
+    keywords: ["command", command.id, command.shortcut, ...commandKeywords(command.id)],
+    destination: { module: "command", commandId: command.id },
+  }));
+}
+
+function desktopCommandEntryResult(entry: DesktopCommandEntry): DesktopCommandPaletteResult {
+  return {
+    id: entry.id,
+    groupId: "commands",
+    group: entry.group,
+    title: entry.title,
+    secondary: entry.href ?? entry.commandId ?? "",
+    keywords: [...entry.keywords, entry.commandId ? commandKeywords(entry.commandId).join(" ") : ""],
+    destination: desktopCommandEntryDestination(entry),
+  };
+}
+
+function desktopCommandEntryDestination(entry: DesktopCommandEntry): DesktopCommandPaletteDestination {
+  if (entry.commandId) {
+    return { module: "command", commandId: entry.commandId };
+  }
+  if (entry.href) {
+    return { module: moduleForDesktopCommandHref(entry.href), href: entry.href };
+  }
+  if (entry.id.startsWith("sidebar:session:")) {
+    const entityId = entry.id.replace(/^sidebar:session:/, "");
+    return { module: "sessions", entityId, href: `/chat/${entityId}` };
+  }
+  return { module: "command" };
+}
+
+function moduleForDesktopCommandHref(href: string): DesktopCommandPaletteDestinationModule {
+  if (href.startsWith("/tools")) {
+    return "tools";
+  }
+  if (href.startsWith("/cowork")) {
+    return "cowork";
+  }
+  if (href.startsWith("/workspace")) {
+    return "workspace";
+  }
+  if (href.startsWith("/knowledge")) {
+    return "knowledge";
+  }
+  if (href.startsWith("/chat")) {
+    return "sessions";
+  }
+  return "command";
 }
 
 function routePaletteNavigation(
@@ -434,7 +503,7 @@ function commandKeywords(id: DesktopMenuCommandId): string[] {
     case "open-command-palette":
       return ["palette", "quick search"];
     case "refresh-gateway-status":
-      return ["gateway", "runtime", "status"];
+      return ["gateway", "runtime", "diagnostics", "status"];
     case "search-sessions":
       return ["session", "search"];
     case "open-settings":
