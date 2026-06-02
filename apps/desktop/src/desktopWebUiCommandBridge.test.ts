@@ -117,6 +117,25 @@ describe("desktop WebUI command bridge", () => {
     );
   });
 
+  test("routes stop generation only when the WebUI exposes a stop control", () => {
+    const document = new FakeWebUiDocument();
+    document.nodes["#stop-generation-button"] = new FakeButton();
+    const handlers: Array<(id: string) => void> = [];
+
+    installDesktopWebUiCommandBridge({
+      targetDocument: document as unknown as Document,
+      targetWindow: fakeWindow(),
+      listenToMenuCommand: (nextHandler) => {
+        handlers.push(nextHandler);
+      },
+    });
+
+    handlers[0]("stop-generation");
+
+    expect((document.nodes["#stop-generation-button"] as FakeButton).clicks).toBe(1);
+    expect(document.documentElement.dataset.desktopCommandFeedback).toBe("Stop generation requested");
+  });
+
   test("opens the desktop command palette and session search inside the WebUI shell", () => {
     const document = new FakeWebUiDocument();
     const paletteQueries: unknown[] = [];
