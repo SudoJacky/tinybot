@@ -198,4 +198,27 @@ describe("desktop shell layout", () => {
     expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-workspace-header");
     expect(styleText).not.toContain(".desktop-empty-module");
   });
+
+  test("declares desktop-owned responsive placement across shell breakpoints", () => {
+    const targetDocument = new FakeDocument();
+
+    ensureDesktopRootWebUiShellLayoutStyle(targetDocument as unknown as Document);
+
+    const styleText = targetDocument.head.querySelector("#desktop-root-webui-workbench-style")?.textContent ?? "";
+    expect(styleText).toContain("@media (min-width: 1181px)");
+    expect(styleText).toContain("@media (max-width: 1180px) and (min-width: 981px)");
+    expect(styleText).toContain("@media (max-width: 980px) and (min-width: 721px)");
+    expect(styleText).toContain("@media (max-width: 720px)");
+    expect(styleText).toContain("--desktop-sidebar-rail-size");
+    expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .sidebar");
+    expect(styleText).toContain("order: 0 !important");
+    expect(styleText).toContain("grid-column: 1 !important");
+    expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .chat-panel");
+    expect(styleText).toContain("grid-column: 2 !important");
+    expect(styleText).toContain("grid-template-columns: minmax(220px, var(--desktop-sidebar-size, 248px)) minmax(0, 1fr) 0");
+    expect(styleText).toContain("grid-template-columns: var(--desktop-sidebar-rail-size, 68px) minmax(0, 1fr) 0");
+    expect(styleText).toContain("grid-template-columns: 56px minmax(0, 1fr) 0");
+    expect(styleText).toContain(".desktop-app-sidebar-item-label");
+    expect(styleText).toContain(".desktop-app-sidebar-item-meta");
+  });
 });

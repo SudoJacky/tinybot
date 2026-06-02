@@ -286,4 +286,19 @@ describe("desktop composer surface", () => {
     expect(styleText).toContain(".desktop-task-status-surface");
     expect(styleText).toContain('[data-desktop-composer-action="stop"]');
   });
+
+  test("declares narrow composer controls that stay within the workspace", () => {
+    const targetDocument = new FakeDocument();
+
+    ensureDesktopComposerSurfaceStyle(targetDocument as unknown as Document);
+
+    const styleText = targetDocument.head.querySelector("#desktop-composer-surface-style")?.textContent ?? "";
+    expect(styleText).toContain("@media (max-width: 980px) and (min-width: 721px)");
+    expect(styleText).toContain("@media (max-width: 720px)");
+    expect(styleText).toContain("grid-template-columns: 38px minmax(0, 1fr) 48px");
+    expect(styleText).toContain("grid-template-columns: 36px minmax(0, 1fr)");
+    expect(styleText).toContain('[data-desktop-composer-action="stop"]');
+    expect(styleText).toContain("grid-column: 2 / 3");
+    expect(styleText).toContain("width: min(960px, 100%)");
+  });
 });
