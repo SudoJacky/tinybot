@@ -133,6 +133,8 @@ function createRootWebUiDocument(): FakeDocument {
 
   const chat = document.createElement("section");
   chat.className = "chat-panel";
+  const header = document.createElement("header");
+  header.className = "chat-header";
   const messageList = document.createElement("section");
   messageList.setAttribute("id", "message-list");
   const composer = document.createElement("form");
@@ -140,7 +142,7 @@ function createRootWebUiDocument(): FakeDocument {
   const status = document.createElement("section");
   status.className = "composer-status-panel";
   composer.append(status);
-  chat.append(messageList, composer);
+  chat.append(header, messageList, composer);
 
   const inspector = document.createElement("aside");
   inspector.setAttribute("id", "inspector-panel");
@@ -165,6 +167,8 @@ describe("desktop shell layout", () => {
     expect(targetDocument.body.querySelector(".sidebar")?.getAttribute("data-desktop-shell-region")).toBe("sidebar");
     expect(targetDocument.body.querySelector(".chat-panel")?.getAttribute("data-workbench-region")).toBe("main");
     expect(targetDocument.body.querySelector(".chat-panel")?.getAttribute("data-desktop-shell-region")).toBe("workspace");
+    expect(targetDocument.body.querySelector(".chat-header")?.classList.contains("desktop-workspace-header")).toBe(true);
+    expect(targetDocument.body.querySelector(".chat-header")?.getAttribute("data-desktop-shell-region")).toBe("workspace-header");
     expect(targetDocument.getElementById("message-list")?.getAttribute("data-desktop-shell-region")).toBe("message-list");
     expect(targetDocument.getElementById("inspector-panel")?.getAttribute("data-desktop-shell-region")).toBe("inspector");
     expect(targetDocument.getElementById("composer-form")?.getAttribute("data-desktop-shell-region")).toBe("composer");
@@ -188,5 +192,10 @@ describe("desktop shell layout", () => {
     expect(styleText).toContain("display: none");
     expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-app-sidebar");
     expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-app-sidebar-group");
+    expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-empty-state-compact");
+    expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-empty-hints");
+    expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-empty-command-hints");
+    expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-workspace-header");
+    expect(styleText).not.toContain(".desktop-empty-module");
   });
 });

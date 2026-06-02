@@ -266,7 +266,7 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(targetDocument.getElementById("inspector-panel")?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  test("adds task-oriented desktop modules to the root WebUI empty chat state once", () => {
+  test("adds compact desktop hints to the root WebUI empty chat state once", () => {
     const targetDocument = new FakeDocument();
     const empty = targetDocument.createElement("div");
     empty.className = "empty-state empty-chat";
@@ -280,13 +280,15 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(upgradeDesktopRootWebUiEmptyState(empty as unknown as HTMLElement, targetDocument as unknown as Document)).toBe(false);
 
     expect(empty.getAttribute("data-desktop-empty-state")).toBe("true");
-    expect(empty.querySelectorAll(".desktop-empty-modules")).toHaveLength(1);
-    expect(empty.querySelectorAll(".desktop-empty-module").map((node) => node.textContent)).toEqual([
+    expect(empty.classList.contains("desktop-empty-state-compact")).toBe(true);
+    expect(empty.querySelectorAll(".desktop-empty-hints")).toHaveLength(1);
+    expect(empty.querySelectorAll(".desktop-empty-hint").map((node) => node.textContent)).toEqual([
       "Recent sessionsUse Search to resume a conversation.",
       "Files and resourcesAttach a session file or open Workspace.",
       "Background tasksCheck streaming, cowork, uploads, and approvals.",
-      "Gateway healthUse the gateway chip for diagnostics.",
+      "Gateway healthUse the Gateway status for diagnostics.",
     ]);
+    expect(actions.classList.contains("desktop-empty-command-hints")).toBe(true);
   });
 
   test("mounts a command palette surface for the hosted root WebUI shell", () => {
@@ -365,7 +367,8 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(styleText).toContain("grid-template-columns: var(--desktop-sidebar-size, 248px) minmax(0, 1fr)");
     expect(styleText).toContain('body.desktop-root-webui-workbench > .shell[data-inspector-visible="false"]');
     expect(styleText).toContain("@media (max-width: 980px)");
-    expect(styleText).toContain(".desktop-empty-modules");
+    expect(styleText).toContain(".desktop-empty-state-compact");
+    expect(styleText).toContain(".desktop-empty-hints");
     expect(styleText).toContain(".desktop-command-palette");
     expect(styleText).toContain(".desktop-composer-feedback");
     expect(styleText).toContain("body.desktop-root-webui-workbench .composer-status-panel .system-status");
