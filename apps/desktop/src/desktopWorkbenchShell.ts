@@ -232,6 +232,7 @@ export function updateDesktopTaskCenterItems(
   }
   const next = createTaskCenterSurface(targetDocument, items, taskActions);
   taskCenter.replaceChildren(...Array.from(next.children));
+  refreshVisibleWorkLensFromTaskCenter(targetDocument, items);
 }
 
 export function updateDesktopGatewayRuntimeStatus(
@@ -1458,6 +1459,7 @@ function createWorkLensPane(
   section.setAttribute("aria-label", "Work Lens");
   section.setAttribute("data-desktop-work-lens-mode", workLens.mode);
   section.setAttribute("data-desktop-work-lens-kind", workLens.kind);
+  section.setAttribute("data-desktop-work-lens-id", workLens.id);
   section.setAttribute("data-desktop-work-lens-placement", placement);
   if (workLens.fallbackReason) {
     section.setAttribute("data-desktop-work-lens-fallback-reason", workLens.fallbackReason);
@@ -1863,19 +1865,54 @@ function renderTaskInspector(targetDocument: Document, item: DesktopTaskCenterIt
 }
 
 function renderTaskWorkLens(targetDocument: Document, item: DesktopTaskCenterItem): boolean {
+  return renderWorkLensProjection(targetDocument, buildDesktopWorkLensProjection({ task: item }), item);
+}
+
+function refreshVisibleWorkLensFromTaskCenter(targetDocument: Document, items: DesktopTaskCenterItem[]): void {
+  const current = targetDocument.querySelector<HTMLElement>(".desktop-work-lens");
+  const currentId = current?.getAttribute("data-desktop-work-lens-id") ?? "";
+  if (!current || !currentId) {
+    return;
+  }
+  const nextItem = items.find((item) => item.id === currentId);
+  if (nextItem) {
+    renderTaskWorkLens(targetDocument, nextItem);
+    return;
+  }
+  renderWorkLensProjection(targetDocument, buildDesktopWorkLensProjection({ fallbackReason: "missing-context" }));
+}
+
+function renderWorkLensProjection(
+  targetDocument: Document,
+  projection: DesktopWorkLensProjection,
+  fallbackItem?: DesktopTaskCenterItem,
+): boolean {
   const inspector = targetDocument.querySelector<HTMLElement>('[data-workbench-region="inspector"]');
   const inlineHost = targetDocument.getElementById(WORK_LENS_INLINE_ID);
   if (!inspector && !inlineHost) {
     return false;
   }
   const inspectorVisible = inspector?.getAttribute("data-visible") !== "false";
-  const projection = buildDesktopWorkLensProjection({ task: item });
   if (projection.mode !== "ready") {
-    if (inspector && inspectorVisible) {
-      renderTaskInspector(targetDocument, item);
+    if (projection.fallbackReason === "missing-context") {
+      renderProjectionInVisibleWorkLensTarget(targetDocument, projection, inspector, inlineHost);
+      return false;
+    }
+    if (inspector && inspectorVisible && fallbackItem) {
+      renderTaskInspector(targetDocument, fallbackItem);
     }
     return false;
   }
+  return renderProjectionInVisibleWorkLensTarget(targetDocument, projection, inspector, inlineHost);
+}
+
+function renderProjectionInVisibleWorkLensTarget(
+  targetDocument: Document,
+  projection: DesktopWorkLensProjection,
+  inspector: HTMLElement | null,
+  inlineHost: HTMLElement | null,
+): boolean {
+  const inspectorVisible = inspector?.getAttribute("data-visible") !== "false";
   if (inspector && inspectorVisible) {
     inlineHost?.replaceChildren();
     inspector.replaceChildren(createWorkLensPane(targetDocument, projection, {}, "inspector"));
