@@ -360,10 +360,60 @@ export function buildDesktopCoworkTaskOperation(value: unknown): DesktopTaskSour
     ...(progress ? { progress } : {}),
     canonical: { module: "cowork", entityId: row.id, href: "/cowork" },
     diagnostics: stringValue(session.error) || stringValue(session.last_error),
+    relatedResources: coworkWorkLensResources(session, row.id),
+    outputs: coworkWorkLensOutputs(session, row.id),
     retryable: COWORK_RETRYABLE_STATUSES.has(status.toLowerCase()),
     cancelable: COWORK_CANCELABLE_STATUSES.has(status.toLowerCase()),
     updatedAt: row.updatedAt,
   };
+}
+
+function coworkWorkLensResources(session: UnknownRecord, sessionId: string) {
+  const route = { module: "cowork" as const, entityId: sessionId, href: "/cowork" };
+  const taskResources = arrayValue(session.tasks).filter(isRecord).slice(0, 4).map((task, index) => ({
+    kind: "coworkEntity" as const,
+    id: `cowork:${sessionId}:task:${stringValue(task.id) || index + 1}`,
+    title: stringValue(task.title) || stringValue(task.name) || `Task ${index + 1}`,
+    detail: [stringValue(task.status), stringValue(task.assigned_agent_id) || stringValue(task.owner)].filter(Boolean).join(" / "),
+    route,
+  }));
+  const workUnitResources = arrayValue(asRecord(session.swarm_plan).work_units).filter(isRecord).slice(0, 4).map((unit, index) => ({
+    kind: "coworkEntity" as const,
+    id: `cowork:${sessionId}:work-unit:${stringValue(unit.id) || index + 1}`,
+    title: stringValue(unit.title) || stringValue(unit.name) || `Work unit ${index + 1}`,
+    detail: [stringValue(unit.status), stringValue(unit.assigned_agent_id) || stringValue(unit.owner)].filter(Boolean).join(" / "),
+    route,
+  }));
+  const branchResources = arrayValue(session.branches).filter(isRecord).slice(0, 4).map((branch, index) => ({
+    kind: "coworkEntity" as const,
+    id: `cowork:${sessionId}:branch:${stringValue(branch.id) || index + 1}`,
+    title: stringValue(branch.title) || stringValue(branch.name) || `Branch ${index + 1}`,
+    detail: [stringValue(branch.status), stringValue(branch.result_status)].filter(Boolean).join(" / "),
+    route,
+  }));
+  return [...taskResources, ...workUnitResources, ...branchResources];
+}
+
+function coworkWorkLensOutputs(session: UnknownRecord, sessionId: string) {
+  const route = { module: "cowork" as const, entityId: sessionId, href: "/cowork" };
+  const artifactOutputs = arrayValue(session.artifacts).filter(isRecord).slice(0, 4).map((artifact, index) => ({
+    kind: "artifact" as const,
+    id: `cowork:${sessionId}:artifact:${stringValue(artifact.id) || index + 1}`,
+    title: stringValue(artifact.title) || stringValue(artifact.name) || stringValue(artifact.path) || `Artifact ${index + 1}`,
+    detail: [stringValue(artifact.kind) || stringValue(artifact.type), stringValue(artifact.status), stringValue(artifact.path)].filter(Boolean).join(" / "),
+    route,
+  }));
+  const finalOutput = coworkFinalOutput(session);
+  return finalOutput ? [
+    ...artifactOutputs,
+    {
+      kind: "artifact" as const,
+      id: `cowork:${sessionId}:final-output`,
+      title: "Final output",
+      detail: finalOutput,
+      route,
+    },
+  ] : artifactOutputs;
 }
 
 export function buildDesktopCoworkGraphView(value: unknown): DesktopCoworkGraphView {

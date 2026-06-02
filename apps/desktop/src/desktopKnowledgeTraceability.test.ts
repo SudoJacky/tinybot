@@ -70,50 +70,50 @@ describe("desktop knowledge and traceability helpers", () => {
   });
 
   test("projects backend knowledge indexing and rebuild jobs into task center operations", () => {
-    expect(
-      buildDesktopKnowledgeTaskOperations([
-        {
-          job: {
-            id: "kjob_index",
-            doc_id: "doc-1",
-            name: "desktop-notes.md",
-            status: "running",
-            stage: "dense_indexing",
-            message: "Indexing retrieval vectors",
-            processed: 2,
-            total: 5,
-            error: "",
-            updated_at: "2026-05-31T10:00:00Z",
-          },
+    const operations = buildDesktopKnowledgeTaskOperations([
+      {
+        job: {
+          id: "kjob_index",
+          doc_id: "doc-1",
+          name: "desktop-notes.md",
+          status: "running",
+          stage: "dense_indexing",
+          message: "Indexing retrieval vectors",
+          processed: 2,
+          total: 5,
+          error: "",
+          updated_at: "2026-05-31T10:00:00Z",
         },
-        {
-          message: "Knowledge index rebuild started",
-          type: "all",
-          job: {
-            id: "kjob_rebuild",
-            name: "rebuild:all",
-            status: "queued",
-            stage: "queued",
-            message: "Queued for knowledge index rebuild",
-            processed: 0,
-            total: 3,
-          },
+      },
+      {
+        message: "Knowledge index rebuild started",
+        type: "all",
+        job: {
+          id: "kjob_rebuild",
+          name: "rebuild:all",
+          status: "queued",
+          stage: "queued",
+          message: "Queued for knowledge index rebuild",
+          processed: 0,
+          total: 3,
         },
-        {
-          data: {
-            id: "kjob_failed",
-            doc_id: "doc-2",
-            name: "broken.md",
-            status: "failed",
-            stage: "failed",
-            message: "Knowledge indexing failed",
-            error: "embedding timeout",
-            processed: 1,
-            total: 4,
-          },
+      },
+      {
+        data: {
+          id: "kjob_failed",
+          doc_id: "doc-2",
+          name: "broken.md",
+          status: "failed",
+          stage: "failed",
+          message: "Knowledge indexing failed",
+          error: "embedding timeout",
+          processed: 1,
+          total: 4,
         },
-      ]),
-    ).toEqual([
+      },
+    ]);
+
+    expect(operations).toMatchObject([
       {
         id: "knowledge:kjob_index",
         title: "Index desktop-notes.md",
@@ -146,6 +146,24 @@ describe("desktop knowledge and traceability helpers", () => {
         diagnostics: "embedding timeout",
         retryable: false,
         updatedAt: "",
+      },
+    ]);
+    expect(operations[0].relatedResources).toEqual([
+      {
+        kind: "evidence",
+        id: "knowledge-source:doc-1",
+        title: "desktop-notes.md",
+        detail: "dense_indexing",
+        route: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+      },
+    ]);
+    expect(operations[2].outputs).toEqual([
+      {
+        kind: "diagnostic",
+        id: "knowledge-diagnostic:kjob_failed",
+        title: "Knowledge diagnostics",
+        detail: "embedding timeout",
+        route: { module: "knowledge", entityId: "doc-2", href: "/knowledge" },
       },
     ]);
   });

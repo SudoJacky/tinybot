@@ -26,6 +26,24 @@ export interface DesktopTaskDestination {
   href?: string;
 }
 
+export type DesktopTaskRelatedResourceKind =
+  | "file"
+  | "evidence"
+  | "tool"
+  | "log"
+  | "artifact"
+  | "provider"
+  | "coworkEntity"
+  | "diagnostic";
+
+export interface DesktopTaskRelatedResourceInput {
+  kind: DesktopTaskRelatedResourceKind;
+  id: string;
+  title: string;
+  detail?: string;
+  route: DesktopTaskDestination;
+}
+
 export interface DesktopTaskProgress {
   completed?: number;
   total?: number;
@@ -42,6 +60,8 @@ export interface DesktopTaskSourceOperation {
   retryable?: boolean;
   cancelable?: boolean;
   diagnostics?: string;
+  relatedResources?: DesktopTaskRelatedResourceInput[];
+  outputs?: DesktopTaskRelatedResourceInput[];
   updatedAt?: string;
 }
 
@@ -73,6 +93,8 @@ export interface DesktopTaskCenterItem {
   progressLabel: string;
   destination: DesktopTaskDestination;
   diagnostics: string;
+  relatedResources: DesktopTaskRelatedResourceInput[];
+  outputs: DesktopTaskRelatedResourceInput[];
   actions: DesktopTaskCenterAction[];
   updatedAt: string;
 }
@@ -121,6 +143,8 @@ function projectOperations(source: DesktopTaskSource, operations: DesktopTaskSou
       progressLabel: progressLabel(operation.progress),
       destination: operation.canonical,
       diagnostics: operation.diagnostics ?? "",
+      relatedResources: operation.relatedResources ?? [],
+      outputs: operation.outputs ?? [],
       actions: taskActions(state, operation),
       updatedAt: operation.updatedAt ?? "",
     };

@@ -98,8 +98,8 @@ const ACTION_LABELS: Record<DesktopWorkLensActionId, string> = {
 
 export function buildDesktopWorkLensProjection({
   task,
-  resources = [],
-  outputs = [],
+  resources,
+  outputs,
   fallbackReason = "no-selection",
 }: DesktopWorkLensProjectionInput): DesktopWorkLensProjection {
   if (!task) {
@@ -112,8 +112,8 @@ export function buildDesktopWorkLensProjection({
   }
 
   const kind = SUPPORTED_WORK_SOURCES[task.source];
-  const relatedResources = normalizeResources(resources);
-  const outputResources = normalizeResources(outputs);
+  const relatedResources = normalizeResources(resources ?? task.relatedResources);
+  const outputResources = normalizeResources(outputs ?? task.outputs);
   if (!kind) {
     return fallbackProjection({
       fallbackReason: "unsupported-source",

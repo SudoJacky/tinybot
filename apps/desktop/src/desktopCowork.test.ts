@@ -251,7 +251,7 @@ describe("desktop Cowork helpers", () => {
       ],
     });
 
-    expect(operations).toEqual([
+    expect(operations).toMatchObject([
       {
         id: "cowork:running",
         title: "Running session",
@@ -322,6 +322,21 @@ describe("desktop Cowork helpers", () => {
       },
     ]);
 
+    expect(operations.find((operation) => operation.id === "cowork:running")?.relatedResources?.map((resource) => resource.title)).toEqual([
+      "Task 1",
+      "Task 2",
+    ]);
+    expect(operations.find((operation) => operation.id === "cowork:failed")?.outputs).toEqual([]);
+    expect(operations.find((operation) => operation.id === "cowork:done")?.outputs).toEqual([
+      {
+        kind: "artifact",
+        id: "cowork:done:final-output",
+        title: "Final output",
+        detail: "Ship it",
+        route: { module: "cowork", entityId: "done", href: "/cowork" },
+      },
+    ]);
+
     expect(buildDesktopTaskCenterItems({ coworkRuns: operations }).map((item) => [item.id, item.state, item.tone, item.actions.map((action) => action.id).join(",")])).toEqual([
       ["cowork:blocked", "blocked", "attention", "open,inspect"],
       ["cowork:paused", "blocked", "attention", "open,inspect"],
@@ -329,6 +344,40 @@ describe("desktop Cowork helpers", () => {
       ["cowork:failed", "failed", "danger", "retry,open,inspect,copyDiagnostics,dismiss"],
       ["cowork:running", "active", "normal", "cancel,open,inspect"],
       ["cowork:done", "completed", "complete", "open,dismiss"],
+    ]);
+  });
+
+  test("projects Cowork task, work-unit, branch, and artifact context for Work Lens", () => {
+    const [operation] = buildDesktopCoworkTaskOperations({
+      sessions: [
+        {
+          id: "rich",
+          title: "Review desktop release",
+          status: "blocked",
+          tasks: [{ id: "task-1", title: "Review migration notes", status: "blocked", assigned_agent_id: "agent-1" }],
+          swarm_plan: {
+            work_units: [{ id: "wu-1", title: "Extract projections", status: "failed", assigned_agent_id: "agent-1" }],
+          },
+          branches: [{ id: "branch-1", title: "release-notes", status: "ready" }],
+          artifacts: [{ id: "artifact-1", title: "Release draft", kind: "markdown", path: "outputs/release.md" }],
+          completion_decision: { blocked: [{ id: "blocker-1", content: "Operator approval required." }] },
+        },
+      ],
+    });
+
+    expect(operation?.relatedResources?.map((resource) => [resource.kind, resource.id, resource.title, resource.detail])).toEqual([
+      ["coworkEntity", "cowork:rich:task:task-1", "Review migration notes", "blocked / agent-1"],
+      ["coworkEntity", "cowork:rich:work-unit:wu-1", "Extract projections", "failed / agent-1"],
+      ["coworkEntity", "cowork:rich:branch:branch-1", "release-notes", "ready"],
+    ]);
+    expect(operation?.outputs).toEqual([
+      {
+        kind: "artifact",
+        id: "cowork:rich:artifact:artifact-1",
+        title: "Release draft",
+        detail: "markdown / outputs/release.md",
+        route: { module: "cowork", entityId: "rich", href: "/cowork" },
+      },
     ]);
   });
 

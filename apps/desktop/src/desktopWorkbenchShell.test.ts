@@ -649,6 +649,24 @@ describe("desktop workbench shell", () => {
           canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
           retryable: true,
           diagnostics: "HTTP 429",
+          relatedResources: [
+            {
+              kind: "evidence",
+              id: "evidence:doc-1",
+              title: "Desktop UX evidence",
+              detail: "Claim evidence",
+              route: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+            },
+          ],
+          outputs: [
+            {
+              kind: "diagnostic",
+              id: "diagnostic:doc-1",
+              title: "Failure diagnostics",
+              detail: "HTTP 429",
+              route: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+            },
+          ],
         },
       ],
     });
@@ -667,7 +685,10 @@ describe("desktop workbench shell", () => {
     expect(lens?.getAttribute("data-desktop-work-lens-kind")).toBe("knowledgeJob");
     expect(lens?.textContent).toContain("Index Desktop UX Notes");
     expect(lens?.textContent).toContain("Embedding provider returned 429");
+    expect(lens?.textContent).toContain("Desktop UX evidence");
+    expect(lens?.textContent).toContain("Failure diagnostics");
     expect(lens?.textContent).toContain("What can I do next?");
+    expect(lens?.querySelector('[data-desktop-work-lens-resource="evidence:doc-1"]')?.getAttribute("href")).toBe("/knowledge");
     expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Index Desktop UX Notes in Work Lens");
   });
 

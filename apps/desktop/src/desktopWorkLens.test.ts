@@ -107,6 +107,52 @@ describe("desktop work lens projection", () => {
     });
   });
 
+  test("uses task-center related resources and outputs when no explicit lens resources are passed", () => {
+    const [task] = buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-2:index",
+          title: "Rebuild source evidence",
+          status: "failed",
+          detail: "Source citation mismatch",
+          canonical: { module: "knowledge", entityId: "doc-2", href: "/knowledge" },
+          retryable: true,
+          relatedResources: [
+            {
+              kind: "evidence",
+              id: "evidence:doc-2:claim-1",
+              title: "Claim 1 evidence",
+              detail: "docs/operators.md line 12",
+              route: { module: "knowledge", entityId: "doc-2", href: "/knowledge" },
+            },
+          ],
+          outputs: [
+            {
+              kind: "diagnostic",
+              id: "diagnostic:doc-2",
+              title: "Citation mismatch",
+              detail: "Missing source span",
+              route: { module: "knowledge", entityId: "doc-2", href: "/knowledge" },
+            },
+          ],
+        },
+      ],
+    });
+
+    const lens = buildDesktopWorkLensProjection({ task });
+
+    expect(lens.relatedResources.map((resource) => resource.id)).toEqual(["evidence:doc-2:claim-1"]);
+    expect(lens.outputs.map((resource) => resource.id)).toEqual(["diagnostic:doc-2"]);
+    expect(lens.sections.find((section) => section.id === "used")?.rows).toContainEqual({
+      label: "Evidence",
+      value: "Claim 1 evidence / docs/operators.md line 12",
+    });
+    expect(lens.sections.find((section) => section.id === "changed")?.rows).toContainEqual({
+      label: "Diagnostic",
+      value: "Citation mismatch / Missing source span",
+    });
+  });
+
   test("projects Cowork blocked work without broad or destructive actions", () => {
     const [task] = buildDesktopTaskCenterItems({
       coworkRuns: [
