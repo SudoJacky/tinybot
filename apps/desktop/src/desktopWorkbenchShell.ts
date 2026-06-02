@@ -187,6 +187,7 @@ export interface DesktopCoworkPaneModel {
 
 const SHELL_ID = "desktop-workbench-shell";
 const STYLE_ID = "desktop-workbench-shell-style";
+const WORK_LENS_INLINE_ID = "desktop-work-lens-inline";
 const COWORK_GRAPH_NODE_LIMIT = 24;
 const COWORK_GRAPH_EDGE_LIMIT = 12;
 const COWORK_OBSERVABILITY_ROW_LIMIT = 24;
@@ -333,7 +334,7 @@ function createWorkbenchShell(
   shell.append(
     createActivityRail(targetDocument),
     createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument)),
-    createMainRegion(targetDocument, gatewayHttp, layout, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions),
+    createMainRegion(targetDocument, gatewayHttp, layout, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
     createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions)),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
@@ -389,6 +390,8 @@ function createMainRegion(
   toolsSkillsActions: DesktopToolsSkillsActionOptions,
   coworkPane: DesktopCoworkPaneModel | null,
   coworkActions: DesktopCoworkActionOptions,
+  workLens: DesktopWorkLensProjection | null,
+  workLensActions: DesktopWorkLensActionOptions,
 ): HTMLElement {
   const main = targetDocument.createElement("section");
   main.className = "desktop-workbench-main";
@@ -402,6 +405,7 @@ function createMainRegion(
     createText(targetDocument, "p", "Start from chat, inspect workspace, or check gateway status."),
     createQuickActions(targetDocument),
     createPanelControls(targetDocument, layout),
+    createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
     createCommandPalette(targetDocument),
     createFileActions(targetDocument),
     createDesktopHelpSurface(targetDocument),
@@ -419,6 +423,21 @@ function createMainRegion(
 
   main.append(empty, status);
   return main;
+}
+
+function createWorkLensInlineHost(
+  targetDocument: Document,
+  workLens: DesktopWorkLensProjection | null,
+  workLensActions: DesktopWorkLensActionOptions,
+): HTMLElement {
+  const host = targetDocument.createElement("section");
+  host.id = WORK_LENS_INLINE_ID;
+  host.className = "desktop-work-lens-inline";
+  host.setAttribute("aria-label", "Inline Work Lens");
+  if (workLens) {
+    host.append(createWorkLensPane(targetDocument, workLens, workLensActions, "inline"));
+  }
+  return host;
 }
 
 function createToolsSkillsPane(
@@ -1432,12 +1451,14 @@ function createWorkLensPane(
   targetDocument: Document,
   workLens: DesktopWorkLensProjection,
   workLensActions: DesktopWorkLensActionOptions,
+  placement: "inspector" | "inline" = "inspector",
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-work-lens";
   section.setAttribute("aria-label", "Work Lens");
   section.setAttribute("data-desktop-work-lens-mode", workLens.mode);
   section.setAttribute("data-desktop-work-lens-kind", workLens.kind);
+  section.setAttribute("data-desktop-work-lens-placement", placement);
   section.append(createText(targetDocument, "h2", "Work Lens"));
   section.append(createText(targetDocument, "p", workLens.title));
 
@@ -1834,15 +1855,27 @@ function renderTaskInspector(targetDocument: Document, item: DesktopTaskCenterIt
 
 function renderTaskWorkLens(targetDocument: Document, item: DesktopTaskCenterItem): boolean {
   const inspector = targetDocument.querySelector<HTMLElement>('[data-workbench-region="inspector"]');
-  if (!inspector) {
+  const inlineHost = targetDocument.getElementById(WORK_LENS_INLINE_ID);
+  if (!inspector && !inlineHost) {
     return false;
   }
+  const inspectorVisible = inspector?.getAttribute("data-visible") !== "false";
   const projection = buildDesktopWorkLensProjection({ task: item });
   if (projection.mode !== "ready") {
-    renderTaskInspector(targetDocument, item);
+    if (inspector && inspectorVisible) {
+      renderTaskInspector(targetDocument, item);
+    }
     return false;
   }
-  inspector.replaceChildren(createWorkLensPane(targetDocument, projection, {}));
+  if (inspector && inspectorVisible) {
+    inlineHost?.replaceChildren();
+    inspector.replaceChildren(createWorkLensPane(targetDocument, projection, {}, "inspector"));
+    return true;
+  }
+  if (inlineHost) {
+    inlineHost.replaceChildren(createWorkLensPane(targetDocument, projection, {}, "inline"));
+    return true;
+  }
   return true;
 }
 
@@ -2366,6 +2399,20 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-empty-session > * {
       min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-work-lens-inline {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-work-lens[data-desktop-work-lens-placement="inline"] {
+      width: 100%;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      background: var(--panel, #faf9f5);
     }
 
     body.desktop-native-workbench .desktop-empty-session h1 {

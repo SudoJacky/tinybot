@@ -646,6 +646,42 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Inspecting Review desktop release in Work Lens");
   });
 
+  test("keeps Work Lens available in the main region when the inspector is hidden", () => {
+    const targetDocument = new FakeDocument();
+    const items = buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-1:index",
+          title: "Index Desktop UX Notes",
+          status: "failed",
+          detail: "Embedding provider returned 429",
+          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+          retryable: true,
+          diagnostics: "HTTP 429",
+        },
+      ],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: {
+        ...createDefaultWorkbenchLayout(),
+        inspector: { visible: false, size: 360 },
+      },
+      gatewayHttp: "http://127.0.0.1:18790",
+      taskCenterItems: items,
+    });
+
+    targetDocument.body.querySelector('[data-desktop-task-action="inspect"]')?.click();
+
+    const main = targetDocument.body.querySelector('[data-workbench-region="main"]');
+    const mainLens = main?.querySelector(".desktop-work-lens");
+    expect(mainLens?.getAttribute("data-desktop-work-lens-kind")).toBe("knowledgeJob");
+    expect(mainLens?.getAttribute("data-desktop-work-lens-placement")).toBe("inline");
+    expect(mainLens?.textContent).toContain("Index Desktop UX Notes");
+    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.querySelector(".desktop-work-lens")).toBeNull();
+  });
+
   test("renders native file upload actions for knowledge and session files", () => {
     const targetDocument = new FakeDocument();
 
