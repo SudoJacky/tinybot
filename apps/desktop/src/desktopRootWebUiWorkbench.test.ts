@@ -235,6 +235,22 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(targetDocument.getElementById("inspector-panel")?.getAttribute("aria-hidden")).toBe("true");
   });
 
+  test("collapses a persisted inspector column when the hosted WebUI has no active inspector", () => {
+    const targetDocument = createRootWebUiDocument();
+    targetDocument.getElementById("inspector-panel")?.setAttribute("aria-hidden", "true");
+
+    applyRootWebUiWorkbenchLayout(targetDocument as unknown as Document, {
+      sidebar: { visible: true, size: 260 },
+      inspector: { visible: true, size: 420 },
+      bottom: { visible: false, size: 220 },
+    });
+
+    const shell = targetDocument.body.querySelector(".shell");
+    expect(shell?.getAttribute("data-inspector-visible")).toBe("false");
+    expect(shell?.classList.contains("inspection-mode")).toBe(false);
+    expect(targetDocument.getElementById("inspector-panel")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   test("adds task-oriented desktop modules to the root WebUI empty chat state once", () => {
     const targetDocument = new FakeDocument();
     const empty = targetDocument.createElement("div");

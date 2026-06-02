@@ -143,12 +143,13 @@ export function applyRootWebUiWorkbenchLayout(targetDocument: Document, layout: 
   if (!shell) {
     return;
   }
+  const inspectorVisible = layout.inspector.visible && isInspectorVisible(targetDocument);
 
   targetDocument.body.classList.add("desktop-root-webui-workbench");
   shell.setAttribute("data-desktop-workbench", "root-webui");
   shell.setAttribute("data-desktop-layout-storage-key", DESKTOP_WORKBENCH_LAYOUT_STORAGE_KEY);
   shell.setAttribute("data-sidebar-visible", String(layout.sidebar.visible));
-  shell.setAttribute("data-inspector-visible", String(layout.inspector.visible));
+  shell.setAttribute("data-inspector-visible", String(inspectorVisible));
   shell.setAttribute("data-bottom-visible", String(layout.bottom.visible));
   shell.style.setProperty("--desktop-sidebar-size", `${layout.sidebar.size}px`);
   shell.style.setProperty("--desktop-inspector-size", `${layout.inspector.size}px`);
@@ -173,7 +174,7 @@ export function applyRootWebUiWorkbenchLayout(targetDocument: Document, layout: 
     sidebar?.classList.add("collapsed");
   }
 
-  if (!layout.inspector.visible) {
+  if (!inspectorVisible) {
     shell.classList.remove("inspection-mode");
     inspector?.setAttribute("aria-hidden", "true");
   }
@@ -576,7 +577,7 @@ function isSidebarVisible(targetDocument: Document): boolean {
 function isInspectorVisible(targetDocument: Document): boolean {
   const shell = targetDocument.body.querySelector(".shell");
   const inspector = targetDocument.getElementById("inspector-panel");
-  return shell?.classList.contains("inspection-mode") === true || inspector?.getAttribute("aria-hidden") !== "true";
+  return shell?.classList.contains("inspection-mode") === true && inspector?.getAttribute("aria-hidden") !== "true";
 }
 
 function installEmptyStateObserver(targetDocument: Document): void {
