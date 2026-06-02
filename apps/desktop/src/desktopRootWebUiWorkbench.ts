@@ -107,6 +107,7 @@ export function installRootWebUiDesktopAppSidebar(targetDocument: Document): voi
     return;
   }
 
+  preserveRootWebUiCommandProxies(targetDocument);
   const workspace = buildRootWebUiWorkspaceContext({
     workspaceLabel: "tinybot",
     activeSession: rootWebUiActiveSession(targetDocument),
@@ -119,6 +120,48 @@ export function installRootWebUiDesktopAppSidebar(targetDocument: Document): voi
     }),
     targetDocument,
   );
+}
+
+const ROOT_WEBUI_COMMAND_PROXY_IDS = [
+  "new-chat-button",
+  "stop-generation-button",
+  "settings-button",
+  "theme-toggle",
+  "sidebar-collapse-button",
+  "help-tour-button",
+];
+
+function preserveRootWebUiCommandProxies(targetDocument: Document): void {
+  const controls = ROOT_WEBUI_COMMAND_PROXY_IDS
+    .map((id) => targetDocument.getElementById(id))
+    .filter((control): control is HTMLElement => Boolean(control));
+  if (controls.length === 0) {
+    return;
+  }
+
+  const proxyHost = ensureCommandProxyHost(targetDocument);
+  for (const control of controls) {
+    control.setAttribute("data-desktop-command-proxy", "true");
+    control.setAttribute("aria-hidden", "true");
+    control.tabIndex = -1;
+    proxyHost.append(control);
+  }
+}
+
+function ensureCommandProxyHost(targetDocument: Document): HTMLElement {
+  const existing = targetDocument.getElementById("desktop-webui-command-proxies");
+  if (existing) {
+    return existing;
+  }
+
+  const proxyHost = targetDocument.createElement("div");
+  proxyHost.id = "desktop-webui-command-proxies";
+  proxyHost.className = "desktop-webui-command-proxies";
+  proxyHost.setAttribute("id", "desktop-webui-command-proxies");
+  proxyHost.setAttribute("aria-hidden", "true");
+  proxyHost.hidden = true;
+  targetDocument.body.append(proxyHost);
+  return proxyHost;
 }
 
 function installRootWebUiPanelPersistence(

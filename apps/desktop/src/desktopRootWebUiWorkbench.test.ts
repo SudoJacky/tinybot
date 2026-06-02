@@ -115,6 +115,10 @@ class FakeElement {
     return true;
   }
 
+  click(): void {
+    this.dispatchEvent({ type: "click" });
+  }
+
   querySelector(selector: string): FakeElement | null {
     if (matchesSelector(this, selector)) {
       return this;
@@ -192,6 +196,17 @@ function createRootWebUiDocument(): FakeDocument {
 
   const sidebar = document.createElement("aside");
   sidebar.className = "sidebar";
+  const newChat = document.createElement("button");
+  newChat.setAttribute("id", "new-chat-button");
+  const settings = document.createElement("button");
+  settings.setAttribute("id", "settings-button");
+  const theme = document.createElement("button");
+  theme.setAttribute("id", "theme-toggle");
+  const collapse = document.createElement("button");
+  collapse.setAttribute("id", "sidebar-collapse-button");
+  const help = document.createElement("button");
+  help.setAttribute("id", "help-tour-button");
+  sidebar.append(newChat, settings, theme, collapse, help);
   const chat = document.createElement("section");
   chat.className = "chat-panel";
   const messageList = document.createElement("section");
@@ -334,6 +349,33 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(sidebar?.querySelector('[data-sidebar-command="new-chat"]')?.textContent).toContain("New");
     expect(sidebar?.querySelector('[data-sidebar-href="/tools"]')?.getAttribute("href")).toBe("/tools");
     expect(sidebar?.querySelector('[data-sidebar-item-id="session:chat-1"]')?.getAttribute("aria-current")).toBe("page");
+  });
+
+  test("keeps original WebUI command controls as hidden proxies after installing the desktop sidebar", () => {
+    const targetDocument = createRootWebUiDocument();
+    let newChatClicks = 0;
+    let settingsClicks = 0;
+    targetDocument.getElementById("new-chat-button")?.addEventListener("click", () => {
+      newChatClicks += 1;
+    });
+    targetDocument.getElementById("settings-button")?.addEventListener("click", () => {
+      settingsClicks += 1;
+    });
+
+    installDesktopRootWebUiWorkbenchAdapter({
+      targetDocument: targetDocument as unknown as Document,
+      storage: null,
+    });
+
+    expect(targetDocument.getElementById("new-chat-button")?.getAttribute("data-desktop-command-proxy")).toBe("true");
+    expect(targetDocument.getElementById("settings-button")?.getAttribute("data-desktop-command-proxy")).toBe("true");
+    expect(targetDocument.body.querySelector(".desktop-webui-command-proxies")?.getAttribute("aria-hidden")).toBe("true");
+
+    targetDocument.getElementById("new-chat-button")?.click();
+    targetDocument.getElementById("settings-button")?.click();
+
+    expect(newChatClicks).toBe(1);
+    expect(settingsClicks).toBe(1);
   });
 
   test("upgrades the hosted WebUI composer with runtime chips and blocked-send feedback", () => {
