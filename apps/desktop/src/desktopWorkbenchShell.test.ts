@@ -747,6 +747,57 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.querySelector(".desktop-work-lens")).toBeNull();
   });
 
+  test("refreshes or invalidates a visible Work Lens when task center state changes", () => {
+    const targetDocument = new FakeDocument();
+    const items = buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-1:index",
+          title: "Index Desktop UX Notes",
+          status: "failed",
+          detail: "Embedding provider returned 429",
+          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+          retryable: true,
+          diagnostics: "HTTP 429",
+        },
+      ],
+    });
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      taskCenterItems: items,
+    });
+
+    targetDocument.body.querySelector('[data-desktop-task-action="inspect"]')?.click();
+    expect(targetDocument.body.querySelector(".desktop-work-lens")?.textContent).toContain("Embedding provider returned 429");
+
+    updateDesktopTaskCenterItems(targetDocument as unknown as Document, buildDesktopTaskCenterItems({
+      knowledgeJobs: [
+        {
+          id: "knowledge:doc-1:index",
+          title: "Index Desktop UX Notes",
+          status: "completed",
+          detail: "Indexed 4 chunks",
+          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
+        },
+      ],
+    }));
+
+    const refreshed = targetDocument.body.querySelector(".desktop-work-lens");
+    expect(refreshed?.getAttribute("data-desktop-work-lens-id")).toBe("knowledge:doc-1:index");
+    expect(refreshed?.textContent).toContain("Status: completed");
+    expect(refreshed?.textContent).toContain("Indexed 4 chunks");
+    expect(refreshed?.textContent).not.toContain("Embedding provider returned 429");
+
+    updateDesktopTaskCenterItems(targetDocument as unknown as Document, []);
+
+    const invalidated = targetDocument.body.querySelector(".desktop-work-lens");
+    expect(invalidated?.getAttribute("data-desktop-work-lens-mode")).toBe("fallback");
+    expect(invalidated?.getAttribute("data-desktop-work-lens-fallback-reason")).toBe("missing-context");
+  });
+
   test("renders native file upload actions for knowledge and session files", () => {
     const targetDocument = new FakeDocument();
 
