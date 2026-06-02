@@ -3,10 +3,16 @@ import {
   persistWorkbenchLayout,
   toggleWorkbenchPanel,
 } from "./desktopWorkbenchLayout";
+import { renderDesktopAppSidebar } from "./desktopAppSidebar";
 import {
   applyRootWebUiShellLayout,
   ensureDesktopRootWebUiShellLayoutStyle,
 } from "./desktopShellLayout";
+import {
+  buildRootWebUiSidebarModel,
+  buildRootWebUiWorkspaceContext,
+  type DesktopSidebarItem,
+} from "./desktopSharedModels";
 
 interface InstallDesktopRootWebUiWorkbenchOptions {
   targetDocument?: Document;
@@ -23,6 +29,7 @@ export function installDesktopRootWebUiWorkbenchAdapter({
   installRootWebUiCommandPaletteSurface(targetDocument);
   const layout = loadWorkbenchLayout({ storage, viewportWidth });
   applyRootWebUiShellLayout(targetDocument, layout);
+  installRootWebUiDesktopAppSidebar(targetDocument);
   installRootWebUiComposerRuntime(targetDocument);
   installRootWebUiPanelPersistence(targetDocument, storage, viewportWidth);
   installEmptyStateObserver(targetDocument);
@@ -143,6 +150,26 @@ export function installRootWebUiCommandPaletteSurface(targetDocument: Document):
   targetDocument.body.append(palette);
 }
 
+export function installRootWebUiDesktopAppSidebar(targetDocument: Document): void {
+  const sidebar = targetDocument.body.querySelector<HTMLElement>(".sidebar");
+  if (!sidebar) {
+    return;
+  }
+
+  const workspace = buildRootWebUiWorkspaceContext({
+    workspaceLabel: "tinybot",
+    activeSession: rootWebUiActiveSession(targetDocument),
+  });
+  renderDesktopAppSidebar(
+    sidebar,
+    buildRootWebUiSidebarModel({
+      workspace,
+      sessions: rootWebUiSessionItems(targetDocument),
+    }),
+    targetDocument,
+  );
+}
+
 export function upgradeDesktopRootWebUiEmptyState(emptyChat: HTMLElement, targetDocument: Document): boolean {
   if (emptyChat.getAttribute("data-desktop-empty-state") === "true") {
     return false;
@@ -220,6 +247,56 @@ function isInspectorVisible(targetDocument: Document): boolean {
   const shell = targetDocument.body.querySelector(".shell");
   const inspector = targetDocument.getElementById("inspector-panel");
   return shell?.classList.contains("inspection-mode") === true && inspector?.getAttribute("aria-hidden") !== "true";
+}
+
+function rootWebUiActiveSession(targetDocument: Document): { id: string; title: string; meta?: string } | undefined {
+  const active = targetDocument.body.querySelector<HTMLElement>(
+    ".session-item.active, .session-item[aria-current='page'], .session-row.active, .session-row[aria-current='page']",
+  );
+  if (!active) {
+    return undefined;
+  }
+  const item = sessionItemFromElement(active);
+  return {
+    id: item.id,
+    title: item.label,
+    meta: item.meta,
+  };
+}
+
+function rootWebUiSessionItems(targetDocument: Document): DesktopSidebarItem[] {
+  return [
+    ...targetDocument.body.querySelectorAll<HTMLElement>(
+      ".session-item, .session-row, [data-session-id], [data-chat-id]",
+    ),
+  ].map(sessionItemFromElement);
+}
+
+function sessionItemFromElement(element: HTMLElement): DesktopSidebarItem {
+  const sessionId =
+    element.getAttribute("data-session-id") ??
+    element.getAttribute("data-chat-id") ??
+    element.querySelector<HTMLElement>("[data-session-id]")?.getAttribute("data-session-id") ??
+    element.querySelector<HTMLElement>("[data-chat-id]")?.getAttribute("data-chat-id") ??
+    element.textContent?.trim().toLowerCase().replace(/\s+/g, "-") ??
+    "session";
+  const title =
+    element.querySelector<HTMLElement>(".session-title, .session-name, [data-session-title]")?.textContent?.trim() ??
+    element.getAttribute("data-session-title") ??
+    element.textContent?.trim() ??
+    "Untitled session";
+  const meta =
+    element.querySelector<HTMLElement>(".session-meta, .session-time, [data-session-meta]")?.textContent?.trim() ??
+    element.getAttribute("data-session-meta") ??
+    undefined;
+
+  return {
+    id: `session:${sessionId}`,
+    kind: "session",
+    label: title,
+    meta,
+    active: element.classList.contains("active") || element.getAttribute("aria-current") === "page",
+  };
 }
 
 function installEmptyStateObserver(targetDocument: Document): void {

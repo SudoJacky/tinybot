@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  installDesktopRootWebUiWorkbenchAdapter,
   applyRootWebUiWorkbenchLayout,
   ensureDesktopRootWebUiWorkbenchStyle,
   installRootWebUiComposerRuntime,
@@ -73,6 +74,13 @@ class FakeElement {
     this.children.push(...children);
   }
 
+  replaceChildren(...children: FakeElement[]): void {
+    for (const child of children) {
+      child.parent = this;
+    }
+    this.children = [...children];
+  }
+
   insertBefore(node: FakeElement, child: FakeElement | null): void {
     node.parent = this;
     if (!child) {
@@ -143,6 +151,13 @@ class FakeDocument {
 }
 
 function matchesSelector(element: FakeElement, selector: string): boolean {
+  if (selector.includes(",")) {
+    return selector.split(",").some((part) => matchesSelector(element, part.trim()));
+  }
+  const attribute = selector.match(/^\[([^=\]]+)=['"]([^'"]+)['"]\]$/);
+  if (attribute) {
+    return element.getAttribute(attribute[1]) === attribute[2];
+  }
   if (selector.includes(" ")) {
     const parts = selector.split(/\s+/);
     const last = parts[parts.length - 1];
@@ -284,6 +299,39 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(targetDocument.getElementById("desktop-command-palette")?.getAttribute("role")).toBe("dialog");
     expect(targetDocument.getElementById("desktop-command-palette-input")?.getAttribute("aria-label")).toBe("Search commands and workbench data");
     expect(targetDocument.getElementById("desktop-command-palette-results")?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  test("installs the desktop app sidebar into the hosted root WebUI sidebar", () => {
+    const targetDocument = createRootWebUiDocument();
+    const session = targetDocument.createElement("button");
+    session.className = "session-item active";
+    session.setAttribute("data-session-id", "chat-1");
+    session.setAttribute("aria-current", "page");
+    const sessionTitle = targetDocument.createElement("span");
+    sessionTitle.className = "session-title";
+    sessionTitle.textContent = "Desktop shell planning";
+    const sessionMeta = targetDocument.createElement("span");
+    sessionMeta.className = "session-meta";
+    sessionMeta.textContent = "2 min";
+    session.append(sessionTitle, sessionMeta);
+    targetDocument.body.querySelector(".sidebar")?.append(session);
+
+    installDesktopRootWebUiWorkbenchAdapter({
+      targetDocument: targetDocument as unknown as Document,
+      storage: null,
+    });
+
+    const sidebar = targetDocument.body.querySelector(".sidebar");
+    expect(sidebar?.getAttribute("data-desktop-app-sidebar")).toBe("true");
+    expect(sidebar?.classList.contains("desktop-app-sidebar")).toBe(true);
+    expect(sidebar?.querySelectorAll(".desktop-app-sidebar-group").map((node) => node.getAttribute("data-sidebar-group"))).toEqual([
+      "actions",
+      "workspace",
+      "footer",
+    ]);
+    expect(sidebar?.querySelector('[data-sidebar-command="new-chat"]')?.textContent).toContain("New");
+    expect(sidebar?.querySelector('[data-sidebar-href="/tools"]')?.getAttribute("href")).toBe("/tools");
+    expect(sidebar?.querySelector('[data-sidebar-item-id="session:chat-1"]')?.getAttribute("aria-current")).toBe("page");
   });
 
   test("upgrades the hosted WebUI composer with runtime chips and blocked-send feedback", () => {

@@ -186,5 +186,7 @@ describe("desktop shell layout", () => {
     expect(styleText).toContain("grid-column: 2");
     expect(styleText).toContain("body.desktop-root-webui-workbench .sidebar .brand");
     expect(styleText).toContain("display: none");
+    expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-app-sidebar");
+    expect(styleText).toContain("body.desktop-root-webui-workbench .desktop-app-sidebar-group");
   });
 });
