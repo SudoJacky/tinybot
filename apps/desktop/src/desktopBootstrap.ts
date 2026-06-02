@@ -200,6 +200,7 @@ async function bootDesktopWebUi(): Promise<void> {
       return;
     }
     installWebUiShell(webUiHtml);
+    await import(/* @vite-ignore */ WEBUI_ENTRY);
     installDesktopRootWebUiWorkbenchAdapter();
     installDesktopCommandPalette({
       gatewayOrigin: gatewayConfig.httpBaseUrl,
@@ -209,7 +210,6 @@ async function bootDesktopWebUi(): Promise<void> {
     installRootWebUiDesktopAdapters();
     installTauriNavigation();
     installTauriWindowFrame(status);
-    await import(/* @vite-ignore */ WEBUI_ENTRY);
     console.info("Tinybot desktop WebUI initialized", status);
   } catch (error) {
     setStartupState(
