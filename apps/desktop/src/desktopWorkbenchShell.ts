@@ -32,6 +32,7 @@ import {
   type DesktopTaskActionId,
   type DesktopTaskCenterAction,
   type DesktopTaskCenterItem,
+  type DesktopTaskSource,
 } from "./desktopTaskCenter";
 import {
   buildDesktopWorkLensProjection,
@@ -335,7 +336,7 @@ function createWorkbenchShell(
   shell.append(
     createActivityRail(targetDocument),
     createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument)),
-    createMainRegion(targetDocument, gatewayHttp, layout, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
+    createMainRegion(targetDocument, gatewayHttp, layout, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
     createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions)),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
@@ -383,6 +384,7 @@ function createMainRegion(
   targetDocument: Document,
   gatewayHttp: string,
   layout: WorkbenchLayoutState,
+  taskCenterItems: DesktopTaskCenterItem[],
   settingsPane: DesktopSettingsPaneModel | null,
   settingsActions: DesktopSettingsActionOptions,
   knowledgePane: DesktopKnowledgePaneModel | null,
@@ -398,6 +400,7 @@ function createMainRegion(
   main.className = "desktop-workbench-main";
   main.setAttribute("data-workbench-region", "main");
   main.setAttribute("aria-label", "Primary desktop work area");
+  const chatWorkItems = moduleWorkItems(taskCenterItems, "chat");
 
   const empty = targetDocument.createElement("div");
   empty.className = "desktop-empty-session";
@@ -407,12 +410,13 @@ function createMainRegion(
     createQuickActions(targetDocument),
     createPanelControls(targetDocument, layout),
     createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
+    ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
     createCommandPalette(targetDocument),
     createFileActions(targetDocument),
     createDesktopHelpSurface(targetDocument),
     createWorkspaceFilesSurface(targetDocument),
     ...(settingsPane ? [createSettingsProvidersPane(targetDocument, settingsPane, settingsActions)] : []),
-    ...(knowledgePane ? [createKnowledgePane(targetDocument, knowledgePane, knowledgeActions)] : []),
+    ...(knowledgePane ? [createKnowledgePane(targetDocument, knowledgePane, knowledgeActions, moduleWorkItems(taskCenterItems, "knowledge"))] : []),
     ...(toolsSkillsPane ? [createToolsSkillsPane(targetDocument, toolsSkillsPane, toolsSkillsActions)] : []),
     ...(coworkPane ? [createCoworkCockpitPane(targetDocument, coworkPane, coworkActions)] : []),
   );
@@ -439,6 +443,34 @@ function createWorkLensInlineHost(
     host.append(createWorkLensPane(targetDocument, workLens, workLensActions, "inline"));
   }
   return host;
+}
+
+function moduleWorkItems(items: DesktopTaskCenterItem[], source: DesktopTaskSource): DesktopTaskCenterItem[] {
+  return items.filter((item) => item.source === source && item.actions.some((action) => action.id === "inspect"));
+}
+
+function createModuleWorkSection(targetDocument: Document, title: string, items: DesktopTaskCenterItem[]): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-module-work";
+  section.setAttribute("aria-label", title);
+  section.append(createText(targetDocument, "h2", title));
+
+  for (const item of items) {
+    const row = targetDocument.createElement("button");
+    row.type = "button";
+    row.className = "desktop-module-work-row";
+    row.setAttribute("data-desktop-module-work", item.id);
+    row.setAttribute("data-desktop-module-work-source", item.source);
+    row.setAttribute("aria-label", `Inspect ${item.title} in Work Lens`);
+    row.textContent = `${item.title}: ${[item.status, item.detail, item.progressLabel].filter(Boolean).join(" / ")}`;
+    row.addEventListener("click", () => {
+      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+    });
+    section.append(row);
+  }
+
+  return section;
 }
 
 function createToolsSkillsPane(
@@ -536,6 +568,7 @@ function createKnowledgePane(
   targetDocument: Document,
   pane: DesktopKnowledgePaneModel,
   knowledgeActions: DesktopKnowledgeActionOptions = {},
+  workItems: DesktopTaskCenterItem[] = [],
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-knowledge-pane";
@@ -565,6 +598,9 @@ function createKnowledgePane(
     actionRow.append(button);
   }
   section.append(actionRow);
+  if (workItems.length) {
+    section.append(createModuleWorkSection(targetDocument, "Knowledge jobs", workItems));
+  }
 
   const readiness = targetDocument.createElement("section");
   readiness.className = "desktop-knowledge-readiness";
@@ -2461,6 +2497,26 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: var(--panel, #faf9f5);
     }
 
+    body.desktop-native-workbench .desktop-module-work {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-module-work-row {
+      min-width: 0;
+      min-height: 34px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      padding: 6px 8px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 600 12px/1.3 var(--font-sans, system-ui, sans-serif);
+      text-align: left;
+      overflow-wrap: anywhere;
+      cursor: pointer;
+    }
+
     body.desktop-native-workbench .desktop-empty-session h1 {
       margin: 0;
       color: var(--text, #141413);
@@ -2640,6 +2696,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-cowork-action:focus-visible,
     body.desktop-native-workbench .desktop-cowork-observability-tab:focus-visible,
     body.desktop-native-workbench .desktop-cowork-graph-node:focus-visible,
+    body.desktop-native-workbench .desktop-module-work-row:focus-visible,
     body.desktop-native-workbench .desktop-task-action:focus-visible,
     body.desktop-native-workbench .desktop-session-upload-key:focus-visible,
     body.desktop-native-workbench .desktop-workspace-file-row:focus-visible,
