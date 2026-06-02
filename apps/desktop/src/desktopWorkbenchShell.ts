@@ -11,6 +11,7 @@ import {
   resolveDesktopVisibleHelpTargets,
 } from "./desktopHelp";
 import {
+  buildDesktopCoworkTaskOperation,
   buildDesktopCoworkCockpitView,
   type DesktopCoworkCockpitView,
   type DesktopCoworkActionInput,
@@ -26,7 +27,12 @@ import {
   type DesktopInspectorView,
   type DesktopRunChainItem,
 } from "./desktopRunChainInspector";
-import type { DesktopTaskActionId, DesktopTaskCenterAction, DesktopTaskCenterItem } from "./desktopTaskCenter";
+import {
+  buildDesktopTaskCenterItems,
+  type DesktopTaskActionId,
+  type DesktopTaskCenterAction,
+  type DesktopTaskCenterItem,
+} from "./desktopTaskCenter";
 import {
   buildDesktopWorkLensProjection,
   DesktopWorkLensActionId,
@@ -620,6 +626,14 @@ function createCoworkCockpitPane(
     row.className = "desktop-cowork-session-row";
     row.setAttribute("data-desktop-cowork-session", session.id);
     row.textContent = `${session.title}: ${session.meta}`;
+    row.addEventListener("click", () => {
+      const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+      if (!item) {
+        return;
+      }
+      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+    });
     sessions.append(row);
   }
   section.append(sessions);
