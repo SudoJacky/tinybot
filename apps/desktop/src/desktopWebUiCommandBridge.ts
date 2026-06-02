@@ -20,6 +20,11 @@ const WEBUI_COMMAND_BUTTONS: Partial<Record<DesktopMenuCommandId, string>> = {
   "open-page-help": "#help-tour-button",
 };
 
+const WEBUI_ROUTE_BUTTONS: Record<string, { selector: string; feedback: string }> = {
+  "/tools": { selector: "#tools-toggle", feedback: "Tools opened" },
+  "/cowork": { selector: "#cowork-toggle", feedback: "Automations opened" },
+};
+
 export function installDesktopWebUiCommandBridge({
   listenToMenuCommand,
   targetDocument = document,
@@ -42,6 +47,9 @@ export function installDesktopWebUiCommandBridge({
   });
   targetDocument.addEventListener("contextmenu", (event) => {
     recordDesktopWebUiContextTarget(event, targetDocument);
+  });
+  targetWindow.addEventListener("tinybot:desktop-route", (event) => {
+    routeDesktopWebUiWorkbenchRoute(event, targetDocument);
   });
 
   void listenToMenuCommand((id) => {
@@ -74,6 +82,31 @@ function routeDesktopWebUiCommand(id: string, targetDocument: Document, targetWi
   }
 
   setCommandFeedback(targetDocument, commandUnavailableFeedback(id));
+}
+
+function routeDesktopWebUiWorkbenchRoute(event: Event, targetDocument: Document): void {
+  const href = (event as CustomEvent<{ href?: unknown }>).detail?.href;
+  if (typeof href !== "string") {
+    return;
+  }
+  const pathname = routePathname(href);
+  const route = pathname ? WEBUI_ROUTE_BUTTONS[pathname] : undefined;
+  if (!route) {
+    return;
+  }
+  const target = targetDocument.querySelector<HTMLElement>(route.selector);
+  if (target && typeof target.click === "function") {
+    target.click();
+    setCommandFeedback(targetDocument, route.feedback);
+  }
+}
+
+function routePathname(href: string): string {
+  try {
+    return new URL(href, "http://localhost").pathname;
+  } catch {
+    return "";
+  }
 }
 
 function commandFeedback(id: string): string {

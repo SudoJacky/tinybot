@@ -23,6 +23,8 @@ class FakeWebUiDocument {
     "#theme-toggle": new FakeButton(),
     "#sidebar-collapse-button": new FakeButton(),
     "#help-tour-button": new FakeButton(),
+    "#tools-toggle": new FakeButton(),
+    "#cowork-toggle": new FakeButton(),
     "[data-desktop-route-status]": new FakeStatus(),
   };
 
@@ -156,6 +158,29 @@ describe("desktop WebUI command bridge", () => {
     expect(document.documentElement.dataset.desktopCommandFeedback).toBe("Session search opened");
   });
 
+  test("routes desktop workbench links to root WebUI drawers", () => {
+    const document = new FakeWebUiDocument();
+    const window = fakeWindow();
+
+    installDesktopWebUiCommandBridge({
+      targetDocument: document as unknown as Document,
+      targetWindow: window,
+      listenToMenuCommand: () => undefined,
+    });
+
+    window.dispatchEvent(new CustomEvent("tinybot:desktop-route", {
+      detail: { kind: "workbench-route", href: "http://localhost:1420/tools" },
+    }));
+    window.dispatchEvent(new CustomEvent("tinybot:desktop-route", {
+      detail: { kind: "workbench-route", href: "http://localhost:1420/cowork" },
+    }));
+
+    expect((document.nodes["#tools-toggle"] as FakeButton).clicks).toBe(1);
+    expect((document.nodes["#cowork-toggle"] as FakeButton).clicks).toBe(1);
+    expect(document.documentElement.dataset.desktopCommandFeedback).toBe("Automations opened");
+    expect((document.nodes["[data-desktop-route-status]"] as FakeStatus).textContent).toBe("Automations opened");
+  });
+
   test("records context targets for root WebUI context navigation", () => {
     const document = new FakeWebUiDocument();
     installDesktopWebUiCommandBridge({
@@ -179,7 +204,17 @@ describe("desktop WebUI command bridge", () => {
 });
 
 function fakeWindow(assigned: string[] = []): Window {
+  const listeners = new Map<string, Array<(event: Event) => void>>();
   return {
+    addEventListener: (type: string, listener: (event: Event) => void) => {
+      listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+    },
+    dispatchEvent: (event: Event) => {
+      for (const listener of listeners.get(event.type) ?? []) {
+        listener(event);
+      }
+      return true;
+    },
     location: {
       origin: "http://localhost:1420",
       assign: (href: string) => {
