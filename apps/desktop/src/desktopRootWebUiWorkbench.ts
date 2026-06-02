@@ -244,6 +244,24 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       box-shadow: none;
     }
 
+    body.desktop-root-webui-workbench > .shell .sidebar {
+      order: 0;
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    body.desktop-root-webui-workbench > .shell .chat-panel {
+      order: 0;
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    body.desktop-root-webui-workbench > .shell .inspector-panel {
+      order: 0;
+      grid-column: 3;
+      grid-row: 1;
+    }
+
     body.desktop-root-webui-workbench .message-list {
       min-width: 0;
       scrollbar-gutter: stable;
@@ -535,23 +553,15 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       }
 
       body.desktop-root-webui-workbench > .shell .sidebar {
-        order: 0;
-        grid-column: 1;
-        grid-row: 1;
         max-height: none;
       }
 
       body.desktop-root-webui-workbench > .shell .chat-panel {
-        order: 0;
-        grid-column: 2;
-        grid-row: 1;
         min-height: 0;
         height: auto;
       }
 
       body.desktop-root-webui-workbench .inspector-panel {
-        grid-column: 3;
-        grid-row: 1;
         display: none;
       }
 

@@ -328,5 +328,14 @@ describe("desktop root WebUI workbench adapter", () => {
     expect(styleText).toContain("body.desktop-root-webui-workbench > .shell .chat-panel");
     expect(styleText).toContain("grid-column: 2");
     expect(styleText).toContain("order: 0");
+    const narrowRuleIndex = styleText?.indexOf("@media (max-width: 980px)") ?? -1;
+    const sidebarPlacementIndex =
+      styleText?.indexOf("body.desktop-root-webui-workbench > .shell .sidebar") ?? -1;
+    const chatPlacementIndex =
+      styleText?.indexOf("body.desktop-root-webui-workbench > .shell .chat-panel") ?? -1;
+    expect(sidebarPlacementIndex).toBeGreaterThan(-1);
+    expect(chatPlacementIndex).toBeGreaterThan(-1);
+    expect(sidebarPlacementIndex).toBeLessThan(narrowRuleIndex);
+    expect(chatPlacementIndex).toBeLessThan(narrowRuleIndex);
   });
 });
