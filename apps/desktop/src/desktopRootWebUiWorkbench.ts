@@ -319,6 +319,15 @@ export function ensureDesktopRootWebUiWorkbenchStyle(targetDocument: Document): 
       min-width: 0;
     }
 
+    body.desktop-root-webui-workbench .composer-status-panel .system-status {
+      display: grid !important;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
+      grid-template-columns: none !important;
+      justify-content: start;
+      overflow: visible;
+    }
+
     body.desktop-root-webui-workbench .composer-status-panel .status-item {
       display: inline-flex;
       flex: 0 1 auto;
