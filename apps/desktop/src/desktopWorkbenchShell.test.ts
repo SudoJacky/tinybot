@@ -227,6 +227,66 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector(".desktop-status-strip")?.textContent).toContain("http://127.0.0.1:18790");
   });
 
+  test("renders the native workbench in the latest Codex-style three-column layout", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      runtimeStatus: {
+        state: "running",
+        owner: "external",
+        http_ok: true,
+        gateway_http: "http://127.0.0.1:18790",
+        gateway_ws: "ws://127.0.0.1:18790/ws",
+        command: "uv run tinybot gateway",
+        port: 18790,
+        repo_root: "D:/code/tinybot/tinybot",
+        logs: [],
+        last_error: null,
+        exit_policy: "keep_running",
+      },
+    });
+
+    const primaryAction = targetDocument.body.querySelector(".desktop-sidebar-primary-action");
+    const sidebarSearch = targetDocument.body.querySelector(".desktop-sidebar-search");
+    const workspaceList = targetDocument.body.querySelector(".desktop-workspace-list");
+    const recentChats = targetDocument.body.querySelector(".desktop-recent-chat-list");
+    expect(primaryAction).toBeTruthy();
+    expect(sidebarSearch).toBeTruthy();
+    expect(workspaceList).toBeTruthy();
+    expect(recentChats).toBeTruthy();
+    expect(primaryAction?.textContent).toContain("New chat");
+    expect(sidebarSearch?.getAttribute("placeholder")).toBe("Search");
+    expect(workspaceList?.textContent).toContain("tinybot");
+    expect(recentChats?.textContent).toContain("Design native workbench");
+
+    const chatHeader = targetDocument.body.querySelector(".desktop-chat-header");
+    const conversationThread = targetDocument.body.querySelector(".desktop-conversation-thread");
+    const composerModel = targetDocument.body.querySelector(".desktop-native-composer-model");
+    expect(chatHeader).toBeTruthy();
+    expect(conversationThread).toBeTruthy();
+    expect(composerModel).toBeTruthy();
+    expect(chatHeader?.textContent).toContain("Design native workbench");
+    expect(conversationThread?.textContent).toContain("这是目前的 native 界面");
+    expect(composerModel?.textContent).toContain("Tinybot Pro");
+
+    const inspector = targetDocument.body.querySelector(".desktop-inspector-content");
+    const runTabs = targetDocument.body.querySelector(".desktop-run-chain-tabs");
+    const runCards = targetDocument.body.querySelector(".desktop-run-chain-cards");
+    const runNewItem = targetDocument.body.querySelector(".desktop-run-chain-new-item");
+    expect(inspector).toBeTruthy();
+    expect(runTabs).toBeTruthy();
+    expect(runCards).toBeTruthy();
+    expect(runNewItem).toBeTruthy();
+    expect(inspector?.textContent).toContain("Run Chain");
+    expect(runTabs?.textContent).toContain("Context");
+    expect(runCards?.textContent).toContain("Gateway");
+    expect(runCards?.textContent).toContain("Workspace");
+    expect(runNewItem?.textContent).toContain("New Run Chain Item");
+  });
+
   test("renders explicit desktop navigation links for workbench, docs, gateway, and external routes", () => {
     const targetDocument = new FakeDocument();
 

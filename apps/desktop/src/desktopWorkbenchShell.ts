@@ -351,20 +351,43 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   rail.className = "desktop-activity-rail";
   rail.setAttribute("data-workbench-region", "activity");
   rail.setAttribute("aria-label", "Desktop workbench modules");
-  for (const [index, [label, href]] of [
-    ["Chat", "/chat"],
-    ["Files", "/workspace"],
-    ["Knowledge", "/knowledge"],
-    ["Cowork", "/cowork"],
+
+  const primary = targetDocument.createElement("div");
+  primary.className = "desktop-activity-primary";
+  for (const [index, [label, href, icon]] of [
+    ["Chat", "/chat", "C"],
+    ["Files", "/workspace", "F"],
+    ["Knowledge", "/knowledge", "K"],
+    ["Cowork", "/cowork", "Y"],
   ].entries()) {
     const item = targetDocument.createElement("a");
     item.className = "desktop-activity-button";
     item.setAttribute("href", href);
-    item.textContent = label.slice(0, 1);
+    item.textContent = icon;
     item.setAttribute("aria-label", label);
+    item.setAttribute("title", label);
     item.setAttribute("data-focus-order", `activity-${index + 1}`);
-    rail.append(item);
+    primary.append(item);
   }
+
+  const secondary = targetDocument.createElement("div");
+  secondary.className = "desktop-activity-secondary";
+  for (const [label, href, icon] of [
+    ["Workspace files", "/workspace", "D"],
+    ["Documents", "/docs", "M"],
+    ["Source control", "https://github.com/SudoJacky/tinybot", "G"],
+    ["Settings", "/settings", "S"],
+  ]) {
+    const item = targetDocument.createElement("a");
+    item.className = "desktop-activity-secondary-button";
+    item.setAttribute("href", href);
+    item.textContent = icon;
+    item.setAttribute("aria-label", label);
+    item.setAttribute("title", label);
+    secondary.append(item);
+  }
+
+  rail.append(primary, secondary);
   return rail;
 }
 
@@ -375,11 +398,121 @@ function createSidebar(targetDocument: Document): HTMLElement {
   const sidebar = targetDocument.createElement("div");
   sidebar.className = "desktop-sidebar-content";
   sidebar.append(
-    createSection(targetDocument, "Sessions", ["No active session", "Recent sessions will appear here"]),
+    createSidebarActions(targetDocument),
+    createSidebarWorkspaceList(targetDocument),
+    createSidebarRecentChats(targetDocument),
     createSharedSidebarLinkSection(targetDocument, workspaceGroup),
     createSharedSidebarCommandSection(targetDocument, footerGroup),
   );
   return sidebar;
+}
+
+function createSidebarActions(targetDocument: Document): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-sidebar-actions";
+
+  const newChat = createWorkbenchLink(targetDocument, "+  New chat", "/chat/new", "desktop-sidebar-primary-action");
+  newChat.setAttribute("aria-label", "New chat");
+  const shortcut = targetDocument.createElement("span");
+  shortcut.className = "desktop-sidebar-shortcut";
+  shortcut.textContent = "Ctrl N";
+  newChat.append(shortcut);
+
+  const search = targetDocument.createElement("input");
+  search.className = "desktop-sidebar-search";
+  search.setAttribute("type", "search");
+  search.setAttribute("aria-label", "Search");
+  search.setAttribute("placeholder", "Search");
+
+  section.append(newChat, search);
+  return section;
+}
+
+function createSidebarWorkspaceList(targetDocument: Document): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-sidebar-list-section";
+  section.append(createSidebarSectionHeading(targetDocument, "Workspaces", "+"));
+
+  const list = targetDocument.createElement("div");
+  list.className = "desktop-workspace-list";
+  list.setAttribute("role", "list");
+  for (const [name, meta, active] of [
+    ["tinybot", "1m ago", true],
+    ["ai-rvc", "2h ago", false],
+    ["ai-light", "Yesterday", false],
+    ["ai-tv", "2d ago", false],
+    ["ai-fridge", "3d ago", false],
+    ["genie", "4d ago", false],
+    ["docs", "May 26", false],
+    ["archive", "May 20", false],
+  ] as const) {
+    list.append(createSidebarRow(targetDocument, name, meta, active, "folder"));
+  }
+
+  section.append(list);
+  return section;
+}
+
+function createSidebarRecentChats(targetDocument: Document): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-sidebar-list-section";
+  section.append(createSidebarSectionHeading(targetDocument, "Recent chats"));
+
+  const list = targetDocument.createElement("div");
+  list.className = "desktop-recent-chat-list";
+  list.setAttribute("role", "list");
+  for (const [name, meta] of [
+    ["Design native workbench", "Just now"],
+    ["修复会话加载问题", "2h ago"],
+    ["实现文件上传功能", "Yesterday"],
+    ["项目启动优化", "2d ago"],
+    ["自动化脚本建议", "3d ago"],
+  ] as const) {
+    list.append(createSidebarRow(targetDocument, name, meta, false, "chat"));
+  }
+
+  section.append(list);
+  return section;
+}
+
+function createSidebarSectionHeading(targetDocument: Document, title: string, action?: string): HTMLElement {
+  const heading = targetDocument.createElement("div");
+  heading.className = "desktop-sidebar-section-heading";
+  const label = targetDocument.createElement("h2");
+  label.textContent = title;
+  heading.append(label);
+  if (action) {
+    const button = targetDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-sidebar-section-action";
+    button.setAttribute("aria-label", `${title} action`);
+    button.textContent = action;
+    heading.append(button);
+  }
+  return heading;
+}
+
+function createSidebarRow(
+  targetDocument: Document,
+  title: string,
+  meta: string,
+  active: boolean,
+  kind: "folder" | "chat",
+): HTMLElement {
+  const row = targetDocument.createElement("a");
+  row.className = "desktop-sidebar-row";
+  row.setAttribute("href", kind === "folder" ? "/workspace" : "/chat");
+  row.setAttribute("role", "listitem");
+  row.setAttribute("data-active", String(active));
+  row.setAttribute("data-sidebar-row-kind", kind);
+  const label = targetDocument.createElement("span");
+  label.className = "desktop-sidebar-row-label";
+  label.textContent = title;
+  const time = targetDocument.createElement("span");
+  time.className = "desktop-sidebar-row-meta";
+  time.textContent = meta;
+  row.append(label, time);
+  return row;
 }
 
 function createMainRegion(
@@ -404,15 +537,22 @@ function createMainRegion(
   main.setAttribute("aria-label", "Primary desktop work area");
   const chatWorkItems = moduleWorkItems(taskCenterItems, "chat");
 
-  const empty = targetDocument.createElement("div");
-  empty.className = "desktop-empty-session";
-  empty.append(
-    createText(targetDocument, "h1", "Ready for a new session"),
-    createText(targetDocument, "p", "Start from chat, inspect workspace, or check gateway status."),
+  const workbench = targetDocument.createElement("div");
+  workbench.className = "desktop-empty-session desktop-chat-workbench";
+  workbench.append(
+    createChatHeader(targetDocument),
+    createConversationThread(targetDocument),
+    createText(targetDocument, "span", "Ready for a new session"),
+    createText(targetDocument, "span", "Start from chat, inspect workspace, or check gateway status."),
     createQuickActions(targetDocument),
     createPanelControls(targetDocument, layout),
     createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
     ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
+  );
+
+  const utilities = targetDocument.createElement("div");
+  utilities.className = "desktop-utility-surfaces";
+  utilities.append(
     createCommandPalette(targetDocument),
     createFileActions(targetDocument),
     createDesktopHelpSurface(targetDocument),
@@ -426,10 +566,96 @@ function createMainRegion(
   const status = targetDocument.createElement("div");
   status.className = "desktop-status-strip";
   status.setAttribute("data-desktop-route-status", "");
-  status.textContent = `Gateway ${gatewayHttp}`;
+  status.textContent = `No workspace file selected · Gateway ${gatewayHttp}`;
 
-  main.append(empty, createNativeComposerSurface(targetDocument, gatewayHttp), status);
+  main.append(workbench, createNativeComposerSurface(targetDocument, gatewayHttp), utilities, status);
   return main;
+}
+
+function createChatHeader(targetDocument: Document): HTMLElement {
+  const header = targetDocument.createElement("header");
+  header.className = "desktop-chat-header";
+  const title = targetDocument.createElement("h1");
+  title.textContent = "Design native workbench";
+  const menu = targetDocument.createElement("button");
+  menu.type = "button";
+  menu.className = "desktop-chat-menu";
+  menu.setAttribute("aria-label", "More chat actions");
+  menu.textContent = "...";
+  header.append(title, menu);
+  return header;
+}
+
+function createConversationThread(targetDocument: Document): HTMLElement {
+  const thread = targetDocument.createElement("section");
+  thread.className = "desktop-conversation-thread";
+  thread.setAttribute("aria-label", "Conversation");
+  thread.append(
+    createConversationMessage(targetDocument, {
+      author: "You",
+      time: "10:28 AM",
+      avatar: "T",
+      tone: "user",
+      body: ["这是目前的 native 界面，我希望你帮我设计一个更接近 codex 风格的界面。"],
+    }),
+    createConversationMessage(targetDocument, {
+      author: "Tinybot",
+      time: "10:28 AM",
+      avatar: "TB",
+      tone: "assistant",
+      body: [
+        "好的，根据你的需求，我为 Tinybot native workbench 设计了一个更统一、简洁、专业的界面方向。",
+        "三栏布局：左侧导航 + 主会话区 + 右侧运行链面板",
+        "采用轻量配色与更清晰的层级，提升可读性和信息密度",
+        "底部 Composer 贴合 Codex 风格，支持附件与模型选择",
+        "运行链面板提供上下文、文件与任务的快速访问",
+      ],
+      attachment: "tinybot_native_workbench_design.png",
+    }),
+  );
+  return thread;
+}
+
+function createConversationMessage(
+  targetDocument: Document,
+  options: {
+    author: string;
+    time: string;
+    avatar: string;
+    tone: "user" | "assistant";
+    body: string[];
+    attachment?: string;
+  },
+): HTMLElement {
+  const article = targetDocument.createElement("article");
+  article.className = "desktop-conversation-message";
+  article.setAttribute("data-message-tone", options.tone);
+
+  const avatar = targetDocument.createElement("div");
+  avatar.className = "desktop-conversation-avatar";
+  avatar.textContent = options.avatar;
+
+  const content = targetDocument.createElement("div");
+  content.className = "desktop-conversation-content";
+  const meta = targetDocument.createElement("div");
+  meta.className = "desktop-conversation-meta";
+  meta.append(createText(targetDocument, "strong", options.author), createText(targetDocument, "span", options.time));
+  content.append(meta);
+  for (const [index, line] of options.body.entries()) {
+    const node = createText(targetDocument, "p", line);
+    if (index > 0 && options.tone === "assistant") {
+      node.className = "desktop-conversation-bullet";
+    }
+    content.append(node);
+  }
+  if (options.attachment) {
+    const attachment = targetDocument.createElement("div");
+    attachment.className = "desktop-conversation-attachment";
+    attachment.textContent = `${options.attachment}  1.2 MB`;
+    content.append(attachment);
+  }
+  article.append(avatar, content);
+  return article;
 }
 
 function createNativeComposerSurface(targetDocument: Document, gatewayHttp: string): HTMLElement {
@@ -458,18 +684,35 @@ function createNativeComposerSurface(targetDocument: Document, gatewayHttp: stri
   send.className = "desktop-native-composer-send";
   send.setAttribute("data-desktop-composer-action", "send");
   send.setAttribute("aria-label", "Send message");
-  send.textContent = "Send";
+  send.textContent = "↑";
+
+  const microphone = targetDocument.createElement("button");
+  microphone.id = "desktop-native-composer-microphone";
+  microphone.type = "button";
+  microphone.className = "desktop-native-composer-microphone";
+  microphone.setAttribute("data-desktop-composer-action", "microphone");
+  microphone.setAttribute("aria-label", "Voice input");
+  microphone.textContent = "Mic";
 
   const runtime = targetDocument.createElement("div");
   runtime.id = "desktop-native-composer-runtime";
   runtime.className = "desktop-native-composer-runtime";
   runtime.append(
+    createComposerModelControl(targetDocument),
     createComposerChip(targetDocument, "Gateway ready", gatewayHttp),
-    createComposerChip(targetDocument, "Native visual mode", "Composer shell"),
   );
 
-  composer.append(attach, input, send, runtime);
+  composer.append(attach, input, runtime, microphone, send);
   return composer;
+}
+
+function createComposerModelControl(targetDocument: Document): HTMLElement {
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-native-composer-model";
+  button.setAttribute("aria-label", "Select model");
+  button.textContent = "Tinybot Pro";
+  return button;
 }
 
 function createComposerChip(targetDocument: Document, label: string, value: string): HTMLElement {
@@ -1523,14 +1766,109 @@ function createInspector(
 ): HTMLElement {
   const inspector = targetDocument.createElement("aside");
   inspector.className = "desktop-inspector-content";
-  inspector.append(
-    workLens
-      ? createWorkLensPane(targetDocument, workLens, workLensActions)
-      : runChainItems.length
-      ? createRunChainInspectorPane(targetDocument, runChainItems, selectedRunChainItemKey)
-      : renderInspectorView(targetDocument, createDesktopRunChainInspectorView(null)),
-  );
+  inspector.append(createRunChainOverviewPanel(targetDocument));
+  if (workLens) {
+    inspector.append(createWorkLensPane(targetDocument, workLens, workLensActions));
+  } else if (runChainItems.length) {
+    inspector.append(createRunChainInspectorPane(targetDocument, runChainItems, selectedRunChainItemKey));
+  }
   return inspector;
+}
+
+function createRunChainOverviewPanel(targetDocument: Document): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-run-chain-overview";
+  section.setAttribute("aria-label", "Run Chain");
+
+  const header = targetDocument.createElement("header");
+  header.className = "desktop-run-chain-header";
+  header.append(createText(targetDocument, "h2", "Run Chain"));
+  const controls = targetDocument.createElement("div");
+  controls.className = "desktop-run-chain-header-controls";
+  for (const [label, value] of [
+    ["Pin Run Chain", "Pin"],
+    ["Close Run Chain", "Close"],
+  ]) {
+    const button = targetDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-run-chain-icon-button";
+    button.setAttribute("aria-label", label);
+    button.textContent = value;
+    controls.append(button);
+  }
+  header.append(controls);
+
+  const tabs = targetDocument.createElement("div");
+  tabs.className = "desktop-run-chain-tabs";
+  tabs.setAttribute("role", "tablist");
+  for (const [index, label] of ["Context", "Files", "Tasks"].entries()) {
+    const tab = targetDocument.createElement("button");
+    tab.type = "button";
+    tab.className = "desktop-run-chain-tab";
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(index === 0));
+    tab.textContent = label;
+    tabs.append(tab);
+  }
+
+  const cards = targetDocument.createElement("div");
+  cards.className = "desktop-run-chain-cards";
+  cards.append(
+    createRunChainCard(targetDocument, "Gateway", "Connected", [
+      ["Endpoint", "http://127.0.0.1:18790"],
+      ["Mode", "External"],
+      ["Version", "v0.1.0"],
+    ], "Open Gateway Status"),
+    createRunChainCard(targetDocument, "Workspace", "", [
+      ["tinybot", "D:\\code\\tinybot\\tinybot"],
+    ], "Open Workspace"),
+    createRunChainCard(targetDocument, "Current Run", "Idle", [
+      ["No run in progress", "Select an item below to run."],
+    ]),
+  );
+
+  const add = targetDocument.createElement("button");
+  add.type = "button";
+  add.className = "desktop-run-chain-new-item";
+  add.textContent = "+  New Run Chain Item";
+
+  section.append(header, tabs, cards, add);
+  return section;
+}
+
+function createRunChainCard(
+  targetDocument: Document,
+  title: string,
+  badge: string,
+  rows: [string, string][],
+  action?: string,
+): HTMLElement {
+  const card = targetDocument.createElement("article");
+  card.className = "desktop-run-chain-card";
+  const header = targetDocument.createElement("div");
+  header.className = "desktop-run-chain-card-header";
+  header.append(createText(targetDocument, "h3", title));
+  if (badge) {
+    const status = targetDocument.createElement("span");
+    status.className = "desktop-run-chain-card-badge";
+    status.textContent = badge;
+    header.append(status);
+  }
+  card.append(header);
+  for (const [label, value] of rows) {
+    const row = targetDocument.createElement("p");
+    row.className = "desktop-run-chain-card-row";
+    row.textContent = `${label}: ${value}`;
+    card.append(row);
+  }
+  if (action) {
+    const button = targetDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-run-chain-card-action";
+    button.textContent = action;
+    card.append(button);
+  }
+  return card;
 }
 
 function createWorkLensPane(
@@ -2267,16 +2605,6 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   return section;
 }
 
-function createSection(targetDocument: Document, title: string, rows: string[]): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-workbench-section";
-  section.append(createText(targetDocument, "h2", title));
-  for (const row of rows) {
-    section.append(createText(targetDocument, "p", row));
-  }
-  return section;
-}
-
 function renderInspectorView(targetDocument: Document, view: DesktopInspectorView): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-inspector-view";
@@ -2373,7 +2701,7 @@ function createWorkbenchLink(targetDocument: Document, label: string, href: stri
   return link;
 }
 
-function createText(targetDocument: Document, tagName: "h1" | "h2" | "p", text: string): HTMLElement {
+function createText(targetDocument: Document, tagName: keyof HTMLElementTagNameMap, text: string): HTMLElement {
   const element = targetDocument.createElement(tagName);
   element.textContent = text;
   return element;
@@ -2946,6 +3274,565 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       white-space: nowrap;
     }
 
+    body.desktop-native-workbench .desktop-workbench-shell {
+      grid-template-columns: 76px minmax(280px, 328px) minmax(520px, 1fr) minmax(360px, var(--desktop-inspector-size, 420px));
+      grid-template-rows: minmax(0, 1fr) auto;
+      border-top: 0;
+      background: #fbfaf7;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-shell[data-inspector-visible="false"] {
+      grid-template-columns: 76px minmax(280px, 328px) minmax(0, 1fr) 0;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] {
+      grid-template-columns: 76px 0 minmax(520px, 1fr) minmax(360px, var(--desktop-inspector-size, 420px));
+    }
+
+    body.desktop-native-workbench .desktop-activity-rail {
+      justify-content: space-between;
+      gap: 14px;
+      padding: 16px 10px 18px;
+      background: #fbfaf7;
+    }
+
+    body.desktop-native-workbench .desktop-activity-primary,
+    body.desktop-native-workbench .desktop-activity-secondary {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-activity-button,
+    body.desktop-native-workbench .desktop-activity-secondary-button {
+      width: 48px;
+      min-height: 48px;
+      border-radius: 8px;
+      color: #2f302e;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: none;
+    }
+
+    body.desktop-native-workbench .desktop-activity-button:first-child {
+      border-color: #eaded8;
+      background: #ffffff;
+      color: var(--primary);
+      box-shadow: 0 8px 20px rgba(20, 20, 19, 0.08);
+    }
+
+    body.desktop-native-workbench .desktop-activity-secondary-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid transparent;
+      background: transparent;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-sidebar,
+    body.desktop-native-workbench .desktop-workbench-main,
+    body.desktop-native-workbench .desktop-workbench-inspector {
+      border-color: #e9e4df;
+      background: #fbfaf7;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-content {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+      height: 100%;
+      min-height: 0;
+      padding: 18px 14px;
+      overflow: hidden;
+      background: #fbfaf7;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-content > .desktop-workbench-section {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-actions {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-primary-action {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 42px;
+      border: 1px solid #d9684c;
+      border-radius: 7px;
+      padding: 0 14px;
+      background: linear-gradient(180deg, #e76d50, #cf5e43);
+      color: #ffffff;
+      font: 600 14px/1.2 var(--font-sans);
+      text-decoration: none;
+      box-shadow: 0 10px 24px rgba(207, 94, 67, 0.18);
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-shortcut {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-search {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid #e5ddd7;
+      border-radius: 7px;
+      padding: 0 42px 0 14px;
+      background: #ffffff;
+      color: var(--text);
+      font: 13px/1.2 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-list-section {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+      padding: 0 8px;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-section-heading h2 {
+      margin: 0;
+      color: #696662;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-section-action {
+      border: 0;
+      background: transparent;
+      color: #696662;
+      font: 600 16px/1 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-list,
+    body.desktop-native-workbench .desktop-recent-chat-list {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+      overflow: auto;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 0 10px;
+      color: #262522;
+      font: 500 13px/1.2 var(--font-sans);
+      text-decoration: none;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-row[data-active="true"] {
+      border-color: #f0d8cf;
+      background: #f8e7e1;
+      color: #b4533c;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-row-label,
+    body.desktop-native-workbench .desktop-sidebar-row-meta {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-row-meta {
+      color: #77736f;
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-main {
+      grid-template-rows: auto auto minmax(0, auto) auto;
+      padding: 0;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    body.desktop-native-workbench .desktop-chat-workbench {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 0;
+      width: 100%;
+      max-width: none;
+      min-height: 0;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    body.desktop-native-workbench .desktop-chat-workbench > span,
+    body.desktop-native-workbench .desktop-chat-workbench > .desktop-quick-actions,
+    body.desktop-native-workbench .desktop-chat-workbench > .desktop-panel-controls {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-width: 0;
+      min-height: 72px;
+      border-bottom: 1px solid #e9e4df;
+      padding: 0 28px;
+      background: #ffffff;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header h1 {
+      margin: 0;
+      color: #1c1b19;
+      font-family: var(--font-sans);
+      font-size: 18px;
+      font-weight: 650;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-menu {
+      width: 40px;
+      height: 40px;
+      border: 1px solid #e6dfd8;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #262522;
+      font: 700 16px/1 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-thread {
+      display: grid;
+      align-content: start;
+      gap: 22px;
+      min-height: 390px;
+      padding: 32px min(8vw, 72px) 22px;
+      overflow: auto;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-message {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 14px;
+      max-width: 760px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-avatar {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border: 1px solid #e7ddd6;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #d66348;
+      font: 700 12px/1 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-conversation-message[data-message-tone="user"] .desktop-conversation-avatar {
+      border-color: #d66348;
+      background: #d66348;
+      color: #ffffff;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-content {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      color: #1f1d1a;
+      font: 14px/1.75 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-conversation-meta {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+      color: #6d6964;
+      font-size: 12px;
+      line-height: 1.2;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-meta strong {
+      color: #1f1d1a;
+      font-size: 14px;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-content p {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-bullet {
+      padding-left: 18px;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-bullet::before {
+      content: "•";
+      margin-left: -16px;
+      padding-right: 8px;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-attachment {
+      width: min(440px, 100%);
+      border: 1px solid #e2d9d2;
+      border-radius: 8px;
+      padding: 14px 16px;
+      background: #fbfaf7;
+      color: #4f4b46;
+      font: 13px/1.4 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer {
+      grid-template-columns: 48px minmax(0, 1fr) auto auto;
+      grid-template-rows: minmax(72px, auto) auto;
+      gap: 10px 12px;
+      width: min(820px, calc(100% - 56px));
+      margin: 0 auto 20px;
+      border-color: #ddd5cd;
+      border-radius: 16px;
+      padding: 12px;
+      background: #ffffff;
+      box-shadow: 0 10px 28px rgba(20, 20, 19, 0.08);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-action {
+      align-self: start;
+      width: 48px;
+      min-width: 48px;
+      min-height: 48px;
+      border-radius: 8px;
+      background: #fbfaf7;
+      font-size: 18px;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-input {
+      min-height: 54px;
+      padding: 10px 4px;
+      font-size: 15px;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-runtime {
+      grid-column: 2;
+      align-self: end;
+      align-items: center;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-model {
+      min-height: 34px;
+      border: 1px solid #e2d9d2;
+      border-radius: 7px;
+      padding: 0 14px;
+      background: #ffffff;
+      color: #262522;
+      font: 600 12px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-microphone {
+      grid-column: 3;
+      grid-row: 2;
+      width: 38px;
+      min-height: 38px;
+      border: 0;
+      background: transparent;
+      color: #3d3934;
+      font: 600 12px/1 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-send {
+      grid-column: 4;
+      grid-row: 2;
+      width: 46px;
+      min-width: 46px;
+      min-height: 46px;
+      border-radius: 999px;
+      font-size: 20px;
+    }
+
+    body.desktop-native-workbench .desktop-utility-surfaces {
+      display: grid;
+      gap: 12px;
+      max-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    body.desktop-native-workbench .desktop-status-strip {
+      border-top: 1px solid #e9e4df;
+      padding: 12px 28px;
+      background: #fbfaf7;
+      color: #55504b;
+      font-size: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-inspector-content {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 16px;
+      height: 100%;
+      min-height: 0;
+      padding: 18px 20px;
+      overflow: auto;
+      background: #fbfaf7;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-overview {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      gap: 16px;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-header,
+    body.desktop-native-workbench .desktop-run-chain-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-header h2,
+    body.desktop-native-workbench .desktop-run-chain-card h3 {
+      margin: 0;
+      color: #1f1d1a;
+      font-family: var(--font-sans);
+      font-size: 18px;
+      font-weight: 650;
+      line-height: 1.2;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-header-controls {
+      display: flex;
+      gap: 6px;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-icon-button {
+      min-height: 28px;
+      border: 0;
+      background: transparent;
+      color: #55504b;
+      font: 600 11px/1 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-tabs {
+      display: flex;
+      gap: 26px;
+      min-width: 0;
+      border-bottom: 1px solid #e1d9d3;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-tab {
+      min-height: 38px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      padding: 0 0 10px;
+      background: transparent;
+      color: #262522;
+      font: 500 14px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-tab[aria-selected="true"] {
+      border-bottom-color: var(--primary);
+      color: #1f1d1a;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-cards {
+      display: grid;
+      align-content: start;
+      gap: 16px;
+      min-width: 0;
+      overflow: auto;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-card {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+      border: 1px solid #e4dcd5;
+      border-radius: 8px;
+      padding: 18px;
+      background: #ffffff;
+      box-shadow: 0 1px 1px rgba(20, 20, 19, 0.03);
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-card h3 {
+      font-size: 15px;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-card-badge {
+      border: 1px solid #cfe8d1;
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: #f3fbf3;
+      color: #307a3e;
+      font: 600 11px/1 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-card-row {
+      margin: 0;
+      color: #4e4943;
+      font: 13px/1.45 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-card-action,
+    body.desktop-native-workbench .desktop-run-chain-new-item {
+      min-height: 38px;
+      border: 1px solid #e2d9d2;
+      border-radius: 7px;
+      background: #ffffff;
+      color: #262522;
+      font: 600 13px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-new-item {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
     body.desktop-native-workbench .desktop-bottom-content {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
@@ -3348,6 +4235,42 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-workbench-main {
         padding: 12px;
+      }
+
+      body.desktop-native-workbench .desktop-chat-header {
+        min-height: 84px;
+        padding: 0 16px;
+      }
+
+      body.desktop-native-workbench .desktop-conversation-thread {
+        padding: 28px 18px 18px;
+      }
+
+      body.desktop-native-workbench .desktop-conversation-message {
+        grid-template-columns: 48px minmax(0, 1fr);
+      }
+
+      body.desktop-native-workbench .desktop-native-composer {
+        width: calc(100% - 28px);
+        grid-template-columns: 48px minmax(0, 1fr) auto;
+        grid-template-rows: auto auto auto;
+      }
+
+      body.desktop-native-workbench .desktop-native-composer-runtime {
+        grid-column: 2;
+        display: grid;
+        grid-template-columns: minmax(0, max-content);
+      }
+
+      body.desktop-native-workbench .desktop-native-composer-microphone {
+        grid-column: 2;
+        grid-row: 3;
+        justify-self: end;
+      }
+
+      body.desktop-native-workbench .desktop-native-composer-send {
+        grid-column: 3;
+        grid-row: 3;
       }
 
       body.desktop-native-workbench .desktop-empty-session {

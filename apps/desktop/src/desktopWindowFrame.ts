@@ -49,6 +49,12 @@ export function installDesktopWindowFrame({
   title.setAttribute("data-tauri-drag-region", "");
   title.textContent = "Tinybot";
 
+  const brandMark = targetDocument.createElement("div");
+  brandMark.className = "desktop-window-brand-mark";
+  brandMark.setAttribute("data-tauri-drag-region", "");
+  brandMark.setAttribute("aria-hidden", "true");
+  brandMark.textContent = "TB";
+
   const context = targetDocument.createElement("div");
   context.id = CONTEXT_ID;
   context.setAttribute("id", CONTEXT_ID);
@@ -59,7 +65,7 @@ export function installDesktopWindowFrame({
   const titleGroup = targetDocument.createElement("div");
   titleGroup.className = "desktop-window-title-group";
   titleGroup.setAttribute("data-tauri-drag-region", "");
-  titleGroup.append(title, context);
+  titleGroup.append(brandMark, title, context);
 
   const appMenu = createApplicationMenu(targetDocument);
 
@@ -239,7 +245,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
   style.setAttribute("id", STYLE_ID);
   style.textContent = `
     :root {
-      --desktop-window-frame-height: 34px;
+      --desktop-window-frame-height: 58px;
       --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       --bg: #faf9f5;
       --bg-subtle: #f5f0e8;
@@ -269,9 +275,9 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: space-between;
       height: var(--desktop-window-frame-height);
-      padding: 0 6px 0 14px;
+      padding: 0 16px 0 22px;
       border-bottom: 1px solid var(--border, #e6dfd8);
-      background: color-mix(in srgb, var(--panel-strong, #efe9de) 92%, var(--bg-subtle, #f5f0e8));
+      background: #fbfaf7;
       color: var(--text, #141413);
       user-select: none;
       -webkit-user-select: none;
@@ -279,10 +285,23 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame .desktop-window-title-group {
       display: grid;
-      grid-template-columns: auto auto;
+      grid-template-columns: 28px auto auto;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       min-width: 0;
+    }
+
+    body.desktop-custom-frame .desktop-window-brand-mark {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid #d9cec5;
+      border-radius: 7px;
+      background: #ffffff;
+      color: var(--primary, #cc785c);
+      font: 800 9px/1 var(--font-sans, system-ui, sans-serif);
+      box-shadow: 0 2px 8px rgba(20, 20, 19, 0.08);
     }
 
     body.desktop-custom-frame .desktop-window-title,
@@ -297,7 +316,8 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame .desktop-window-title {
       color: var(--text, #141413);
-      font-weight: 700;
+      font-size: 16px;
+      font-weight: 750;
     }
 
     body.desktop-custom-frame .desktop-window-context {
@@ -316,22 +336,22 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       align-items: center;
       gap: 2px;
       min-width: 0;
-      margin-left: 12px;
+      margin-left: 24px;
       overflow: hidden;
     }
 
     body.desktop-custom-frame .desktop-application-menu-item {
       flex: 0 1 auto;
-      max-width: 82px;
+      max-width: 136px;
       min-width: 0;
-      height: 26px;
-      padding: 0 8px;
+      height: 34px;
+      padding: 0 12px;
       border: 0;
       border-radius: 4px;
       overflow: hidden;
       background: transparent;
       color: var(--text, #141413);
-      font: 600 11px/1 var(--font-sans, system-ui, sans-serif);
+      font: 500 14px/1 var(--font-sans, system-ui, sans-serif);
       text-overflow: ellipsis;
       white-space: nowrap;
       cursor: default;
@@ -348,17 +368,28 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       min-width: 0;
       max-width: min(38vw, 340px);
       overflow: hidden;
-      margin-left: 14px;
-      padding: 4px 9px;
+      margin-left: auto;
+      padding: 8px 14px;
       border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 88%, transparent);
       border-radius: 999px;
       color: var(--text-muted, #6c6a64);
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 600;
       line-height: 1;
       text-overflow: ellipsis;
       white-space: nowrap;
       cursor: default;
+    }
+
+    body.desktop-custom-frame .desktop-runtime-status::before {
+      content: "";
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      margin-right: 9px;
+      border-radius: 999px;
+      background: currentColor;
+      vertical-align: -1px;
     }
 
     body.desktop-custom-frame .desktop-runtime-status:focus-visible {
@@ -386,12 +417,13 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       display: flex;
       align-items: center;
       align-self: stretch;
-      gap: 2px;
+      gap: 8px;
+      margin-left: 16px;
     }
 
     body.desktop-custom-frame .desktop-window-button {
-      width: 38px;
-      height: 28px;
+      width: 34px;
+      height: 34px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -420,6 +452,24 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     body.desktop-custom-frame > .shell {
       height: calc(100vh - var(--desktop-window-frame-height) - 32px);
       margin: calc(var(--desktop-window-frame-height) + 16px) 16px 16px;
+    }
+
+    @media (max-width: 760px) {
+      body.desktop-custom-frame .desktop-window-frame {
+        padding: 0 12px;
+      }
+
+      body.desktop-custom-frame .desktop-window-title,
+      body.desktop-custom-frame .desktop-window-context,
+      body.desktop-custom-frame .desktop-application-menu {
+        display: none;
+      }
+
+      body.desktop-custom-frame .desktop-runtime-status {
+        max-width: 92px;
+        margin-left: auto;
+        padding: 7px 10px;
+      }
     }
 
     @media (max-width: 1100px) {
