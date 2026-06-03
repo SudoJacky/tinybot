@@ -435,6 +435,8 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Token: Ready");
     expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Token usage: 42%");
     expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Gateway: http://127.0.0.1:18790");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.getAttribute("data-desktop-composer-region")).toBe("runtime-status");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.getAttribute("aria-label")).toBe("Runtime status");
   });
 
   test("renders the native workbench in the latest Codex-style three-column layout", () => {
@@ -2436,8 +2438,9 @@ describe("desktop workbench shell", () => {
 
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
     expect(styleText).toContain("grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 340px);");
-    expect(styleText).toContain('grid-template-areas: "attach input input input" "runtime runtime runtime runtime" "stop spacer microphone send";');
-    expect(styleText).toContain(".desktop-native-composer-runtime {\n      grid-area: runtime;");
+    expect(styleText).toContain('grid-template-areas: "attach input input input" "stop spacer microphone send";');
+    expect(styleText).toContain(".desktop-native-composer-runtime {\n      position: absolute;");
+    expect(styleText).toContain("max-height: 30px;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-thread {\n      display: grid;");
     expect(styleText).toContain("min-height: 0;");
     expect(styleText).toContain("overflow-y: auto;");
