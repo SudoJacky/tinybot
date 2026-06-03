@@ -23,7 +23,7 @@ export function resolveDesktopWorkbenchStartupMode(
   return resolveDesktopWorkbenchMode({
     ...options,
     nativeWorkbenchAvailable: true,
-    defaultMode: "root-webui",
+    defaultMode: "native-workbench",
   });
 }
 
