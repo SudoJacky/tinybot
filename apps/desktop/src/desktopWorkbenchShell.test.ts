@@ -2441,6 +2441,8 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-thread {\n      display: grid;");
     expect(styleText).toContain("min-height: 0;");
     expect(styleText).toContain("overflow-y: auto;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench {\n      align-self: stretch;");
+    expect(styleText).toContain("height: 100%;");
     expect(styleText).toContain('html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-utility-surfaces');
     expect(styleText).toContain("[data-desktop-module-surface]");
     expect(styleText).toContain(".desktop-activity-button[data-active=\"true\"]");
