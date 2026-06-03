@@ -2447,6 +2447,25 @@ describe("desktop workbench shell", () => {
     expect(styleText).not.toContain(":root {");
   });
 
+  test("declares dark theme overrides for native workbench surfaces", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent;
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-rail');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-sidebar');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-workbench');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-inspector-content');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-pane');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-files');
+  });
+
   test("renders a bottom composer-like surface for native visual parity", () => {
     const targetDocument = new FakeDocument();
 

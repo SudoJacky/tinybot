@@ -5154,6 +5154,110 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-top: 1px solid var(--border, #e6dfd8);
     }
 
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-shell,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-rail,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-main,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-workbench {
+      background: var(--bg);
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-sidebar,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-inspector,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-bottom,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-content,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-conversation-thread,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-utility-surfaces,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-inspector-content,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-pane,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-files,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-status-strip {
+      background: var(--panel);
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-secondary-button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-delete-session,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-link,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-panel-control,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-file-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-help-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-input,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-actions button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field input,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field select,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field textarea,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-file-row,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-editor,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-task-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-session-row,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-observability-tab,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-observability-filter,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-observability-panel,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-action-input,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-item,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-card,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-card-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-new-item,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-gateway-action {
+      background: var(--panel-strong);
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button[data-active="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row[data-active="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-panel-control[aria-pressed="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-item[aria-selected="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-observability-tab[aria-selected="true"] {
+      background: var(--accent-soft);
+      color: var(--text-strong);
+      border-color: var(--accent);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row-meta,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-empty-session p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-section p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-chip,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-command-palette-status,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-summary,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-detail,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-action-status,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-action-summary,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-card-row,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-gateway-runtime-row {
+      color: var(--text-muted);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-send,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-quick-actions .desktop-quick-action:first-child {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--on-primary);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-diagnostics:not(:empty),
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-detail {
+      background: var(--surface-dark);
+      color: var(--on-dark);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-diagnostics:not(:empty) p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-detail p {
+      color: var(--on-dark-soft);
+    }
+
     @media (max-width: 760px) {
       body.desktop-native-workbench .desktop-workbench-shell,
       body.desktop-native-workbench .desktop-workbench-shell[data-inspector-visible="false"] {
