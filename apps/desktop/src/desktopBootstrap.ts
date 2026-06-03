@@ -258,6 +258,7 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
     api: {
       listSessions: () => gatewayApi.sessions.list(),
       loadMessages: (sessionKey) => gatewayApi.sessions.messages(sessionKey),
+      deleteSession: (sessionKey) => gatewayApi.sessions.delete(sessionKey),
     },
     sendSocketMessage: (message) => sendNativeChatSocketMessage(message),
   });
@@ -357,6 +358,21 @@ function nativeChatActions() {
       }
       nativeWorkbenchRuntime.startNewChat();
       updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    },
+    onDeleteSession: (event: { sessionKey: string; title: string }) => {
+      if (!nativeWorkbenchRuntime) {
+        return;
+      }
+      if (!window.confirm(`Delete chat "${event.title}"? This cannot be undone.`)) {
+        return;
+      }
+      void nativeWorkbenchRuntime.deleteChatSession(event.sessionKey).then(() => {
+        if (nativeWorkbenchRuntime) {
+          updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+        }
+      }).catch((error) => {
+        console.warn("Tinybot desktop session delete failed", error);
+      });
     },
     onPersistentRagChange: (enabled: boolean) => {
       if (!nativeWorkbenchRuntime) {

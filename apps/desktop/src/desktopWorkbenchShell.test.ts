@@ -248,6 +248,7 @@ describe("desktop workbench shell", () => {
 
   test("renders live native chat and sidebar state instead of static shell examples", () => {
     const targetDocument = new FakeDocument();
+    const deletedSessions: string[] = [];
     const sessions: NativeChatSession[] = [
       {
         key: "WebSocket:chat-live",
@@ -279,6 +280,9 @@ describe("desktop workbench shell", () => {
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chatActions: {
+        onDeleteSession: (event) => deletedSessions.push(event.sessionKey),
+      },
       chat: {
         sessions,
         activeSessionKey: "WebSocket:chat-live",
@@ -304,6 +308,10 @@ describe("desktop workbench shell", () => {
     const recentChat = targetDocument.body.querySelector('[data-desktop-entity-id="chat-live"]');
     expect(recentChat?.getAttribute("data-desktop-entity-module")).toBe("chat");
     expect(recentChat?.getAttribute("href")).toBe("/chat/chat-live");
+    const deleteButton = targetDocument.body.querySelector('[data-desktop-chat-delete="WebSocket:chat-live"]');
+    expect(deleteButton?.getAttribute("aria-label")).toBe("Delete chat Live gateway session");
+    deleteButton?.click();
+    expect(deletedSessions).toEqual(["WebSocket:chat-live"]);
   });
 
   test("updates native chat regions without reinstalling the whole workbench", () => {

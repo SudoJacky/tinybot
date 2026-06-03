@@ -15,6 +15,7 @@ import { createGatewaySocketMessage, type NormalizedGatewayEvent } from "./gatew
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
   loadMessages(sessionKey: string): Promise<unknown>;
+  deleteSession?: (sessionKey: string) => Promise<unknown>;
 }
 
 export interface DesktopChatSessionControllerOptions {
@@ -34,11 +35,17 @@ export type ChatGatewayEventResult = {
   reloadedSessions: boolean;
 };
 
+export type ChatDeleteSessionResult =
+  | { status: "missing"; deletedSessionKey: string; nextSessionKey: "" }
+  | { status: "unavailable"; deletedSessionKey: string; nextSessionKey: "" }
+  | { status: "deleted"; deletedSessionKey: string; nextSessionKey: string };
+
 export interface DesktopChatSessionController {
   readonly state: NativeChatState;
   loadSessions(): Promise<number>;
   selectSession(sessionKey: string, chatId: string): Promise<void>;
   startNewChat(): void;
+  deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   submitMessage(content: string, usePersistentRag?: boolean): ChatSubmitResult;
   interruptActiveChat(): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
@@ -71,6 +78,43 @@ export function createDesktopChatSessionController({
 
   function startNewChat(): void {
     sendSocketMessage(createGatewaySocketMessage.newChat());
+  }
+
+  async function deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult> {
+    const deletedSessionKey = sessionKey;
+    const target = state.sessions.find((session) => session.key === sessionKey);
+    if (!target) {
+      return { status: "missing", deletedSessionKey, nextSessionKey: "" };
+    }
+    if (!api.deleteSession) {
+      return { status: "unavailable", deletedSessionKey, nextSessionKey: "" };
+    }
+
+    await api.deleteSession(sessionKey);
+    state.messages.delete(sessionKey);
+    state.respondingSessionKeys.delete(sessionKey);
+    for (const [messageId, messageSessionKey] of state.streamMessageKeys) {
+      if (messageSessionKey === sessionKey) {
+        state.streamMessageKeys.delete(messageId);
+      }
+    }
+
+    const sessions = normalizeSessionsPayload(await api.listSessions());
+    setSessions(state, sessions);
+    if (state.activeSessionKey === sessionKey) {
+      const next = sessions[0];
+      if (next) {
+        await selectSession(next.key, next.chatId);
+      } else {
+        state.activeSessionKey = "";
+        state.activeChatId = "";
+      }
+    }
+    return {
+      status: "deleted",
+      deletedSessionKey,
+      nextSessionKey: state.activeSessionKey,
+    };
   }
 
   function submitMessage(content: string, usePersistentRag = true): ChatSubmitResult {
@@ -145,6 +189,7 @@ export function createDesktopChatSessionController({
     loadSessions,
     selectSession,
     startNewChat,
+    deleteSession,
     submitMessage,
     interruptActiveChat,
     handleGatewayEvent,

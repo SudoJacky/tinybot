@@ -52,6 +52,48 @@ describe("desktop chat session controller", () => {
     expect(sent).toContainEqual({ type: "attach", chat_id: "chat-7e9e" });
   });
 
+  test("deletes the active session, refreshes gateway sessions, and selects the next chat", async () => {
+    const sent: unknown[] = [];
+    const deleted: string[] = [];
+    let sessions = [
+      { key: "WebSocket:chat-1", chat_id: "chat-1", title: "First chat" },
+      { key: "WebSocket:chat-2", chat_id: "chat-2", title: "Second chat" },
+    ];
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({ items: sessions })),
+        loadMessages: vi.fn(async (key: string) => ({
+          messages: [{ role: "assistant", content: `loaded ${key}`, message_id: `m-${key}` }],
+        })),
+        deleteSession: vi.fn(async (key: string) => {
+          deleted.push(key);
+          sessions = sessions.filter((session) => session.key !== key);
+          return { deleted: true };
+        }),
+      },
+      sendSocketMessage: (message) => sent.push(message),
+    });
+
+    await controller.loadSessions();
+
+    await expect(controller.deleteSession("WebSocket:chat-1")).resolves.toEqual({
+      status: "deleted",
+      deletedSessionKey: "WebSocket:chat-1",
+      nextSessionKey: "WebSocket:chat-2",
+    });
+
+    expect(deleted).toEqual(["WebSocket:chat-1"]);
+    expect(controller.state.sessions.map((session) => session.key)).toEqual(["WebSocket:chat-2"]);
+    expect(controller.state.activeSessionKey).toBe("WebSocket:chat-2");
+    expect(controller.state.activeChatId).toBe("chat-2");
+    expect(controller.state.messages.has("WebSocket:chat-1")).toBe(false);
+    expect(controller.state.messages.get("WebSocket:chat-2")).toMatchObject([{ content: "loaded WebSocket:chat-2" }]);
+    expect(sent).toEqual([
+      { type: "attach", chat_id: "chat-1" },
+      { type: "attach", chat_id: "chat-2" },
+    ]);
+  });
+
   test("queues a new chat before sending pending content without changing WebSocket payload semantics", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({
