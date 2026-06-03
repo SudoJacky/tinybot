@@ -48,4 +48,63 @@ describe("desktop entity focus", () => {
     })).toBe(true);
     expect(focused).toEqual(["docs/desktop.md", "form-1"]);
   });
+
+  test("syncs active route state into mounted workbench navigation controls", () => {
+    const activityKnowledge = fakeElement({
+      "data-desktop-module-target": "knowledge",
+      href: "/knowledge",
+    });
+    const activityCowork = fakeElement({
+      "data-desktop-module-target": "cowork",
+      href: "/cowork",
+      "data-active": "true",
+      "aria-current": "page",
+    });
+    const sidebarKnowledge = fakeElement({
+      "data-sidebar-href": "/knowledge",
+    });
+    const sidebarSettings = fakeElement({
+      "data-sidebar-command": "open-settings",
+    });
+    const targetDocument = {
+      documentElement: { dataset: {} as Record<string, string> },
+      querySelectorAll: (selector: string) => {
+        if (selector === "[data-desktop-module-target]") {
+          return [activityKnowledge, activityCowork];
+        }
+        if (selector === "[data-sidebar-href], [data-sidebar-command]") {
+          return [sidebarKnowledge, sidebarSettings];
+        }
+        return [];
+      },
+    };
+
+    expect(applyDesktopWorkbenchRouteState(targetDocument as unknown as Document, "/knowledge")).toBe("knowledge");
+
+    expect(targetDocument.documentElement.dataset.desktopActiveWorkbenchModule).toBe("knowledge");
+    expect(activityKnowledge.getAttribute("data-active")).toBe("true");
+    expect(activityKnowledge.getAttribute("aria-current")).toBe("page");
+    expect(activityCowork.getAttribute("data-active")).toBeNull();
+    expect(activityCowork.getAttribute("aria-current")).toBeNull();
+    expect(sidebarKnowledge.getAttribute("data-active")).toBe("true");
+    expect(sidebarKnowledge.getAttribute("aria-current")).toBe("page");
+    expect(sidebarSettings.getAttribute("data-active")).toBeNull();
+
+    expect(applyDesktopWorkbenchRouteState(targetDocument as unknown as Document, "/settings")).toBe("settings");
+
+    expect(sidebarKnowledge.getAttribute("data-active")).toBeNull();
+    expect(sidebarSettings.getAttribute("data-active")).toBe("true");
+    expect(sidebarSettings.getAttribute("aria-current")).toBe("page");
+  });
 });
+
+function fakeElement(initialAttributes: Record<string, string>) {
+  const attributes = new Map(Object.entries(initialAttributes));
+  return {
+    setAttribute: (name: string, value: string) => attributes.set(name, value),
+    getAttribute: (name: string) => attributes.get(name) ?? null,
+    removeAttribute: (name: string) => {
+      attributes.delete(name);
+    },
+  };
+}

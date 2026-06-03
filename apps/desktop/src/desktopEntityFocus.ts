@@ -47,6 +47,7 @@ export function applyDesktopWorkbenchRouteState(targetDocument: Document, pathna
   const module = moduleForDesktopWorkbenchPath(pathname);
   if (module) {
     targetDocument.documentElement.dataset.desktopActiveWorkbenchModule = module;
+    syncDesktopWorkbenchNavigationState(targetDocument, module);
   }
   return module;
 }
@@ -83,6 +84,55 @@ function focusSelectorsFor(destination: DesktopEntityDestination): string[] {
     default:
       return [generic];
   }
+}
+
+function syncDesktopWorkbenchNavigationState(targetDocument: Document, activeModule: DesktopWorkbenchEntityModule): void {
+  if (typeof targetDocument.querySelectorAll !== "function") {
+    return;
+  }
+  for (const element of Array.from(targetDocument.querySelectorAll<HTMLElement>("[data-desktop-module-target]"))) {
+    setRouteElementActive(element, element.getAttribute("data-desktop-module-target") === activeModule);
+  }
+  for (const element of Array.from(targetDocument.querySelectorAll<HTMLElement>("[data-sidebar-href], [data-sidebar-command]"))) {
+    setRouteElementActive(element, moduleForSidebarElement(element) === activeModule);
+  }
+}
+
+function moduleForSidebarElement(element: HTMLElement): DesktopWorkbenchEntityModule | "" {
+  const commandModule = moduleForDesktopMenuCommand(element.getAttribute("data-sidebar-command") ?? "");
+  if (commandModule) {
+    return commandModule;
+  }
+  const href = element.getAttribute("data-sidebar-href") ?? "";
+  if (!href || !href.startsWith("/")) {
+    return "";
+  }
+  return moduleForDesktopWorkbenchPath(new URL(href, "http://desktop.local").pathname);
+}
+
+function moduleForDesktopMenuCommand(commandId: string): DesktopWorkbenchEntityModule | "" {
+  switch (commandId) {
+    case "new-chat":
+      return "chat";
+    case "open-settings":
+      return "settings";
+    case "open-docs":
+      return "docs";
+    case "refresh-gateway-status":
+      return "gateway";
+    default:
+      return "";
+  }
+}
+
+function setRouteElementActive(element: HTMLElement, active: boolean): void {
+  if (active) {
+    element.setAttribute("data-active", "true");
+    element.setAttribute("aria-current", "page");
+    return;
+  }
+  element.removeAttribute("data-active");
+  element.removeAttribute("aria-current");
 }
 
 function selectorValue(value: string): string {
