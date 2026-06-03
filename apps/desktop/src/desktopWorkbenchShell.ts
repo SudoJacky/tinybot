@@ -104,12 +104,19 @@ interface DesktopAgentUiFormActionOptions {
   onAgentUiFormAction?: (event: DesktopAgentUiFormActionEvent) => void;
 }
 
-export type DesktopSettingsActionId = "save" | "discoverModels";
+export type DesktopSettingsActionId = "save" | "discoverModels" | "edit";
 
-export interface DesktopSettingsActionEvent {
-  action: DesktopSettingsActionId;
-  pane: DesktopSettingsPaneModel;
-}
+export type DesktopSettingsActionEvent =
+  | {
+      action: "save" | "discoverModels";
+      pane: DesktopSettingsPaneModel;
+    }
+  | {
+      action: "edit";
+      pane: DesktopSettingsPaneModel;
+      fieldId: string;
+      value: string | boolean;
+    };
 
 interface DesktopSettingsActionOptions {
   onSettingsAction?: (event: DesktopSettingsActionEvent) => void;
@@ -2060,10 +2067,12 @@ function createSettingsProvidersPane(
   section.className = "desktop-workbench-section desktop-settings-pane";
   section.setAttribute("data-desktop-module-surface", "settings");
   section.setAttribute("aria-label", "Settings and providers");
-  section.append(
+  const header = targetDocument.createElement("header");
+  header.className = "desktop-settings-header";
+  const title = targetDocument.createElement("div");
+  title.append(
     createText(targetDocument, "h2", "Settings"),
-    createText(targetDocument, "p", `Save: ${pane.save.message}`),
-    createText(targetDocument, "p", pane.validationErrors.length ? `Validation: ${pane.validationErrors.map((error) => error.field).join(", ")}` : "Validation: ready"),
+    createText(targetDocument, "p", pane.dirty ? "Unsaved desktop configuration changes" : "Desktop configuration is up to date"),
   );
 
   const actions = targetDocument.createElement("div");
@@ -2089,7 +2098,23 @@ function createSettingsProvidersPane(
     settingsActions.onSettingsAction?.({ action: "discoverModels", pane });
   });
   actions.append(save, discover);
-  section.append(actions);
+  header.append(title, actions);
+  section.append(header);
+
+  const summary = targetDocument.createElement("div");
+  summary.className = "desktop-settings-summary";
+  summary.append(
+    createText(targetDocument, "p", `Save: ${pane.save.message}`),
+    createText(targetDocument, "p", pane.validationErrors.length ? `Validation: ${pane.validationErrors.map((error) => error.field).join(", ")}` : "Validation: ready"),
+    createText(targetDocument, "p", `Provider profile: ${pane.providerEditor.profileId || "default"}`),
+    createText(targetDocument, "p", `API key: ${pane.providerEditor.apiKey.displayValue || "Not configured"}`),
+    createText(targetDocument, "p", `Catalog: ${pane.providerCatalog.map((provider) => `${provider.label} (${provider.status})`).join(", ") || "No providers loaded"}`),
+    createText(targetDocument, "p", `Models: ${pane.providerEditor.models.join(", ") || "No models loaded"}`),
+  );
+  section.append(summary);
+
+  const grid = targetDocument.createElement("div");
+  grid.className = "desktop-settings-grid";
 
   for (const group of pane.groups) {
     const groupSection = targetDocument.createElement("section");
@@ -2101,19 +2126,80 @@ function createSettingsProvidersPane(
       row.className = "desktop-settings-field";
       row.setAttribute("data-desktop-settings-field", field.id);
       row.setAttribute("data-state", field.state);
-      row.textContent = `${field.label}: ${field.value}`;
+      const label = targetDocument.createElement("label");
+      label.textContent = `${field.label}: `;
+      label.setAttribute("for", `desktop-settings-${field.id}`);
+      const control = createDesktopSettingsControl(targetDocument, pane, field, settingsActions);
+      row.append(label, control);
       groupSection.append(row);
     }
-    section.append(groupSection);
+    grid.append(groupSection);
   }
 
-  section.append(
-    createText(targetDocument, "p", `Provider profile: ${pane.providerEditor.profileId || "default"}`),
-    createText(targetDocument, "p", `API key: ${pane.providerEditor.apiKey.displayValue || "Not configured"}`),
-    createText(targetDocument, "p", `Catalog: ${pane.providerCatalog.map((provider) => `${provider.label} (${provider.status})`).join(", ") || "No providers loaded"}`),
-    createText(targetDocument, "p", `Models: ${pane.providerEditor.models.join(", ") || "No models loaded"}`),
-  );
+  section.append(grid);
   return section;
+}
+
+function createDesktopSettingsControl(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  field: DesktopSettingsPaneModel["groups"][number]["fields"][number],
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const tagName = field.control === "textarea" ? "textarea" : field.control === "select" ? "select" : "input";
+  const control = targetDocument.createElement(tagName);
+  control.setAttribute("id", `desktop-settings-${field.id}`);
+  control.setAttribute("data-desktop-settings-control", field.id);
+  control.setAttribute("data-state", field.state);
+  if (field.state === "invalid") {
+    control.setAttribute("aria-invalid", "true");
+  }
+
+  if (field.control === "checkbox") {
+    (control as HTMLInputElement).type = "checkbox";
+    (control as HTMLInputElement).checked = Boolean(field.checked);
+    control.addEventListener("change", (event) => {
+      settingsActions.onSettingsAction?.({
+        action: "edit",
+        pane,
+        fieldId: field.id,
+        value: Boolean((event.target as HTMLInputElement | null)?.checked),
+      });
+    });
+    return control;
+  }
+
+  if (field.control === "number") {
+    (control as HTMLInputElement).type = "number";
+  } else if (field.control === "text") {
+    (control as HTMLInputElement).type = "text";
+  }
+
+  if (field.control === "select") {
+    for (const option of field.options ?? []) {
+      const element = targetDocument.createElement("option");
+      element.setAttribute("value", option.value);
+      element.textContent = option.label;
+      if (option.value === field.inputValue) {
+        element.setAttribute("selected", "true");
+      }
+      control.append(element);
+    }
+    (control as HTMLSelectElement).value = field.inputValue;
+  } else {
+    (control as HTMLInputElement | HTMLTextAreaElement).value = field.inputValue;
+  }
+
+  const eventName = field.control === "select" ? "change" : "input";
+  control.addEventListener(eventName, (event) => {
+    settingsActions.onSettingsAction?.({
+      action: "edit",
+      pane,
+      fieldId: field.id,
+      value: String((event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null)?.value ?? ""),
+    });
+  });
+  return control;
 }
 
 function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutState): HTMLElement {
@@ -4309,6 +4395,147 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench [data-desktop-module-surface~="settings"],
     html[data-desktop-active-workbench-module="docs"] body.desktop-native-workbench [data-desktop-module-surface~="docs"] {
       display: grid;
+    }
+
+    body.desktop-native-workbench .desktop-settings-pane {
+      align-content: start;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-header {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 16px;
+      min-width: 0;
+      border-bottom: 1px solid #e9e4df;
+      padding-bottom: 14px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-header h2 {
+      margin: 0;
+      color: #1f1d1a;
+      font: 700 20px/1.2 var(--font-sans);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-header p,
+    body.desktop-native-workbench .desktop-settings-summary p {
+      margin: 4px 0 0;
+      color: #67605a;
+      font: 500 12px/1.45 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: end;
+      gap: 8px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-actions button,
+    body.desktop-native-workbench .desktop-settings-field input,
+    body.desktop-native-workbench .desktop-settings-field select,
+    body.desktop-native-workbench .desktop-settings-field textarea {
+      border: 1px solid #d8d0c8;
+      border-radius: 6px;
+      background: #fffdfa;
+      color: #25211d;
+      font: 500 13px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-actions button {
+      min-height: 34px;
+      padding: 0 12px;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-actions button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    body.desktop-native-workbench .desktop-settings-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px 14px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(280px, 1fr));
+      gap: 16px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-group {
+      display: grid;
+      align-content: start;
+      gap: 12px;
+      min-width: 0;
+      border: 1px solid #ebe4dd;
+      border-radius: 8px;
+      padding: 14px;
+      background: #fffdfa;
+    }
+
+    body.desktop-native-workbench .desktop-settings-group h2 {
+      margin: 0;
+      color: #2d2924;
+      font: 650 14px/1.2 var(--font-sans);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field {
+      display: grid;
+      grid-template-columns: minmax(100px, 0.38fr) minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field label {
+      color: #625b54;
+      font: 600 12px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-field input,
+    body.desktop-native-workbench .desktop-settings-field select,
+    body.desktop-native-workbench .desktop-settings-field textarea {
+      width: 100%;
+      min-width: 0;
+      min-height: 34px;
+      padding: 7px 9px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field input[type="checkbox"] {
+      width: 18px;
+      min-height: 18px;
+      padding: 0;
+      justify-self: start;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field textarea {
+      min-height: 76px;
+      resize: vertical;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field input[aria-invalid="true"],
+    body.desktop-native-workbench .desktop-settings-field select[aria-invalid="true"],
+    body.desktop-native-workbench .desktop-settings-field textarea[aria-invalid="true"] {
+      border-color: #bd3d2a;
+      box-shadow: 0 0 0 1px rgba(189, 61, 42, 0.12);
+    }
+
+    body.desktop-native-workbench .desktop-settings-actions button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-field input:focus-visible,
+    body.desktop-native-workbench .desktop-settings-field select:focus-visible,
+    body.desktop-native-workbench .desktop-settings-field textarea:focus-visible {
+      outline: 2px solid rgba(31, 111, 235, 0.45);
+      outline-offset: 2px;
     }
 
     body.desktop-native-workbench .desktop-status-strip {
