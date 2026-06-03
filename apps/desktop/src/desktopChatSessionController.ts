@@ -51,7 +51,7 @@ export function createDesktopChatSessionController({
   now = () => new Date().toISOString(),
 }: DesktopChatSessionControllerOptions): DesktopChatSessionController {
   const state = createNativeChatState();
-  let pendingMessage: string | null = null;
+  let pendingMessage: { content: string; usePersistentRag: boolean } | null = null;
 
   async function loadSessions(): Promise<number> {
     const sessions = normalizeSessionsPayload(await api.listSessions());
@@ -80,7 +80,7 @@ export function createDesktopChatSessionController({
     }
 
     if (!state.activeChatId) {
-      pendingMessage = trimmed;
+      pendingMessage = { content: trimmed, usePersistentRag };
       startNewChat();
       return { status: "creating", pendingContent: trimmed };
     }
@@ -110,9 +110,9 @@ export function createDesktopChatSessionController({
       await loadSessions();
       result.reloadedSessions = true;
       if (pendingMessage) {
-        const content = pendingMessage;
+        const { content, usePersistentRag } = pendingMessage;
         pendingMessage = null;
-        sendActiveChatMessage(content);
+        sendActiveChatMessage(content, usePersistentRag);
         result.pendingMessageSent = true;
       }
     }

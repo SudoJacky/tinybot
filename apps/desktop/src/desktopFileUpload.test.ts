@@ -7,6 +7,9 @@ import {
   classifyDesktopDroppedFiles,
   desktopUploadPickerOptions,
   handleDesktopDroppedFiles,
+  installDesktopFileUploadActions,
+  normalizeDesktopSessionTemporaryFiles,
+  renderDesktopSessionTemporaryFiles,
 } from "./desktopFileUpload";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
 
@@ -108,6 +111,88 @@ describe("desktop file upload adapters", () => {
         expected_updated_at: null,
       },
     });
+  });
+
+  test("normalizes and renders active session temporary files", () => {
+    const payload = {
+      files: [
+        {
+          id: "file-1",
+          path: "C:\\tmp\\context.txt",
+          status: "indexed",
+          size_bytes: 1536,
+          mime_type: "text/plain",
+          updated_at: "2026-06-03T09:00:00.000Z",
+          actions: ["download"],
+        },
+      ],
+    };
+    expect(normalizeDesktopSessionTemporaryFiles(payload)).toHaveLength(1);
+    const targetDocument = createUploadTestDocument();
+    const list = targetDocument.createElement("div");
+    list.setAttribute("id", "desktop-session-file-list");
+    targetDocument.body.append(list);
+
+    const rendered = renderDesktopSessionTemporaryFiles(targetDocument as unknown as Document, "WebSocket:chat-1", payload);
+
+    expect(rendered).toEqual([{
+      id: "file-1",
+      name: "context.txt",
+      status: "indexed",
+      sizeBytes: 1536,
+      mimeType: "text/plain",
+      updatedAt: "2026-06-03T09:00:00.000Z",
+      actions: ["download"],
+    }]);
+    expect(targetDocument.querySelector("#desktop-session-file-list")?.dataset.fileCount).toBe("1");
+    expect(targetDocument.body.textContent).toContain("context.txt - indexed / text/plain / 1.5 KiB / 2026-06-03T09:00:00.000Z - download");
+  });
+
+  test("refreshes session temporary file list on install, session change, and upload success", async () => {
+    const targetDocument = createUploadTestDocument();
+    const input = targetDocument.createElement("input");
+    input.setAttribute("id", "desktop-session-upload-key");
+    input.value = "WebSocket:chat-1";
+    const button = targetDocument.createElement("button");
+    button.setAttribute("id", "desktop-session-file-upload");
+    const status = targetDocument.createElement("p");
+    status.setAttribute("id", "desktop-file-upload-status");
+    const list = targetDocument.createElement("div");
+    list.setAttribute("id", "desktop-session-file-list");
+    targetDocument.body.append(input, button, status, list);
+    const listedSessionKeys: string[] = [];
+    const uploadedSessionKeys: string[] = [];
+
+    installDesktopFileUploadActions({
+      targetDocument: targetDocument as unknown as Document,
+      pickFile: async () => pickedFile,
+      uploadKnowledgeDocument: async () => ({}),
+      uploadSessionTemporaryFile: async (sessionKey) => {
+        uploadedSessionKeys.push(sessionKey);
+      },
+      listSessionTemporaryFiles: async (sessionKey) => {
+        listedSessionKeys.push(sessionKey);
+        return {
+          files: [{ id: `${sessionKey}:context`, name: `${sessionKey}.txt`, status: "available" }],
+        };
+      },
+      getSessionKey: () => targetDocument.querySelector("#desktop-session-upload-key")?.value ?? "",
+    });
+
+    await flushPromises();
+    targetDocument.dispatchEvent({
+      type: "tinybot:desktop-session-key-changed",
+      detail: { sessionKey: "WebSocket:chat-2" },
+    });
+    await flushPromises();
+    targetDocument.querySelector("#desktop-session-file-upload")?.click();
+    await flushPromises();
+
+    expect(listedSessionKeys).toEqual(["WebSocket:chat-1", "WebSocket:chat-2", "WebSocket:chat-1"]);
+    expect(uploadedSessionKeys).toEqual(["WebSocket:chat-1"]);
+    expect(targetDocument.querySelector("#desktop-session-file-list")?.dataset.fileCount).toBe("1");
+    expect(targetDocument.querySelector("#desktop-session-file-list")?.textContent).toContain("WebSocket:chat-1.txt");
+    expect(targetDocument.querySelector("#desktop-file-upload-status")?.textContent).toContain("Attached notes.md to WebSocket:chat-1.");
   });
 
   test("routes dropped files through the matching gateway contracts with accepted and rejected feedback", async () => {
@@ -224,3 +309,107 @@ describe("desktop file upload adapters", () => {
     ]);
   });
 });
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+class UploadTestElement {
+  public id = "";
+  public value = "";
+  public className = "";
+  public dataset: Record<string, string> = {};
+  public children: UploadTestElement[] = [];
+  private ownTextContent = "";
+  private listeners = new Map<string, ((event: { type: string; detail?: unknown }) => void)[]>();
+  private attributes = new Map<string, string>();
+
+  constructor(public readonly tagName: string) {}
+
+  set textContent(value: string) {
+    this.ownTextContent = value;
+  }
+
+  get textContent(): string {
+    return `${this.ownTextContent}${this.children.map((child) => child.textContent).join("")}`;
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+    if (name === "id") {
+      this.id = value;
+    }
+    if (name === "class") {
+      this.className = value;
+    }
+  }
+
+  append(...children: UploadTestElement[]): void {
+    this.children.push(...children);
+  }
+
+  replaceChildren(...children: UploadTestElement[]): void {
+    this.children = children;
+    this.ownTextContent = "";
+  }
+
+  addEventListener(type: string, listener: (event: { type: string; detail?: unknown }) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  dispatchEvent(event: { type: string; detail?: unknown }): boolean {
+    for (const listener of this.listeners.get(event.type) ?? []) {
+      listener(event);
+    }
+    return true;
+  }
+
+  click(): void {
+    this.dispatchEvent({ type: "click" });
+  }
+
+  querySelector(selector: string): UploadTestElement | null {
+    if (selector.startsWith("#") && this.id === selector.slice(1)) {
+      return this;
+    }
+    for (const child of this.children) {
+      const match = child.querySelector(selector);
+      if (match) {
+        return match;
+      }
+    }
+    return null;
+  }
+}
+
+class UploadTestDocument {
+  public body = new UploadTestElement("body");
+  private listeners = new Map<string, ((event: { type: string; detail?: unknown }) => void)[]>();
+
+  createElement(tagName: string): UploadTestElement {
+    return new UploadTestElement(tagName);
+  }
+
+  querySelector(selector: string): UploadTestElement | null {
+    return this.body.querySelector(selector);
+  }
+
+  addEventListener(type: string, listener: (event: { type: string; detail?: unknown }) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  dispatchEvent(event: { type: string; detail?: unknown }): boolean {
+    for (const listener of this.listeners.get(event.type) ?? []) {
+      listener(event);
+    }
+    return true;
+  }
+}
+
+function createUploadTestDocument(): UploadTestDocument {
+  return new UploadTestDocument();
+}

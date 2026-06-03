@@ -248,6 +248,11 @@ function routeMenuNavigation(
 }
 
 function applyCommandAction(result: Extract<DesktopMenuCommandResult, { kind: "action" }>, targetDocument: Document): void {
+  if (result.action === "stop-generation") {
+    targetDocument.dispatchEvent(new CustomEvent("tinybot:desktop-stop-generation"));
+    setCommandFeedback(targetDocument, "Stop generation requested");
+    return;
+  }
   if (result.action === "set-theme") {
     targetDocument.documentElement.dataset.theme = result.value === "dark" ? "dark" : "light";
     setCommandFeedback(targetDocument, `Theme ${targetDocument.documentElement.dataset.theme}`);

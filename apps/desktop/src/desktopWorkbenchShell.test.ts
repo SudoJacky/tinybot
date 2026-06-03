@@ -7,7 +7,8 @@ import { buildDesktopTaskCenterItems } from "./desktopTaskCenter";
 import { buildDesktopToolsSkillsPaneModel } from "./desktopToolsSkills";
 import { buildDesktopWorkLensProjection } from "./desktopWorkLens";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
-import { installDesktopWorkbenchShell, updateDesktopSettingsPane, updateDesktopTaskCenterItems, updateDesktopToolsSkillsPane } from "./desktopWorkbenchShell";
+import { installDesktopWorkbenchShell, updateDesktopNativeChat, updateDesktopSettingsPane, updateDesktopTaskCenterItems, updateDesktopToolsSkillsPane } from "./desktopWorkbenchShell";
+import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 
 class FakeElement {
   public id = "";
@@ -182,6 +183,12 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
   return false;
 }
 
+function findEntityRow(root: FakeElement | null | undefined, module: string, entityId: string): FakeElement | undefined {
+  return root
+    ?.querySelectorAll(`[data-desktop-entity-module="${module}"]`)
+    .find((row) => row.getAttribute("data-desktop-entity-id") === entityId);
+}
+
 describe("desktop workbench shell", () => {
   test("renders persistent desktop regions from layout state", () => {
     const targetDocument = new FakeDocument();
@@ -190,6 +197,12 @@ describe("desktop workbench shell", () => {
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
     });
 
     expect(targetDocument.body.classList.values.has("desktop-native-workbench")).toBe(true);
@@ -216,6 +229,12 @@ describe("desktop workbench shell", () => {
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
     });
 
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session");
@@ -225,6 +244,197 @@ describe("desktop workbench shell", () => {
       "Gateway status",
     ]);
     expect(targetDocument.body.querySelector(".desktop-status-strip")?.textContent).toContain("http://127.0.0.1:18790");
+  });
+
+  test("renders live native chat and sidebar state instead of static shell examples", () => {
+    const targetDocument = new FakeDocument();
+    const sessions: NativeChatSession[] = [
+      {
+        key: "WebSocket:chat-live",
+        chatId: "chat-live",
+        title: "Live gateway session",
+        createdAt: "2026-06-03T08:00:00.000Z",
+        updatedAt: "2026-06-03T08:10:00.000Z",
+      },
+    ];
+    const messages: NativeChatMessage[] = [
+      {
+        role: "user",
+        content: "Please summarize the live runtime state.",
+        reasoningContent: "",
+        timestamp: "2026-06-03T08:09:00.000Z",
+        messageId: "user-1",
+      },
+      {
+        role: "assistant",
+        content: "The native workbench is rendering gateway data.",
+        reasoningContent: "Checked active session metadata.",
+        references: [{ kind: "tool", title: "read_file", detail: "docs/desktop.md" }],
+        timestamp: "2026-06-03T08:10:00.000Z",
+        messageId: "assistant-1",
+      },
+    ];
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions,
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages,
+        status: "Loaded from gateway",
+        responding: false,
+      },
+    });
+
+    const shellText = targetDocument.body.textContent;
+    expect(shellText).toContain("Live gateway session");
+    expect(shellText).toContain("Please summarize the live runtime state.");
+    expect(shellText).toContain("The native workbench is rendering gateway data.");
+    expect(shellText).toContain("Checked active session metadata.");
+    expect(shellText).toContain("tool: read_file");
+    expect(shellText).toContain("docs/desktop.md");
+    expect(shellText).toContain("Loaded from gateway");
+    expect(shellText).not.toContain("Design native workbench");
+    expect(shellText).not.toContain("tinybot_native_workbench_design.png");
+    expect(shellText).not.toContain("ai-rvc");
+
+    const recentChat = targetDocument.body.querySelector('[data-desktop-entity-id="chat-live"]');
+    expect(recentChat?.getAttribute("data-desktop-entity-module")).toBe("chat");
+    expect(recentChat?.getAttribute("href")).toBe("/chat/chat-live");
+  });
+
+  test("updates native chat regions without reinstalling the whole workbench", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{
+          key: "WebSocket:chat-live",
+          chatId: "chat-live",
+          title: "Initial live session",
+          createdAt: "",
+          updatedAt: "",
+        }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+        status: "Initial status",
+      },
+    });
+    const shell = targetDocument.getElementById("desktop-workbench-shell");
+
+    updateDesktopNativeChat(targetDocument as unknown as Document, {
+      sessions: [{
+        key: "WebSocket:chat-live",
+        chatId: "chat-live",
+        title: "Updated live session",
+        createdAt: "",
+        updatedAt: "2026-06-03T08:20:00.000Z",
+      }],
+      activeSessionKey: "WebSocket:chat-live",
+      activeChatId: "chat-live",
+      messages: [{
+        role: "assistant",
+        content: "Updated without full shell reinstall.",
+        reasoningContent: "",
+        timestamp: "2026-06-03T08:20:00.000Z",
+        messageId: "assistant-2",
+      }],
+      status: "Updated status",
+      responding: true,
+      usePersistentRag: false,
+      composerState: "queued",
+    });
+
+    expect(targetDocument.getElementById("desktop-workbench-shell")).toBe(shell);
+    expect(targetDocument.body.textContent).toContain("Updated live session");
+    expect(targetDocument.body.textContent).toContain("Updated without full shell reinstall.");
+    expect(targetDocument.body.textContent).toContain("Updated status");
+    expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-responding")).toBe("true");
+    expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-rag")).toBe("false");
+    expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-state")).toBe("queued");
+    expect(targetDocument.getElementById("desktop-native-composer-send")?.getAttribute("disabled")).toBe("");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Composer: Queued");
+    expect(targetDocument.getElementById("desktop-session-upload-key")?.value).toBe("WebSocket:chat-live");
+    expect(targetDocument.getElementById("desktop-session-upload-key")?.getAttribute("data-active-session-key")).toBe("WebSocket:chat-live");
+    expect(targetDocument.getElementById("desktop-session-file-list")?.textContent).toContain("Temporary files");
+  });
+
+  test("routes native composer send, stop, and RAG toggle actions", () => {
+    const targetDocument = new FakeDocument();
+    const composerActions: string[] = [];
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+        responding: true,
+        usePersistentRag: false,
+      },
+      chatActions: {
+        onComposerSubmit: (event) => {
+          composerActions.push(`send:${event.content}:${event.usePersistentRag}`);
+        },
+        onInterrupt: () => {
+          composerActions.push("stop");
+        },
+        onPersistentRagChange: (enabled) => {
+          composerActions.push(`rag:${enabled}`);
+        },
+      },
+    });
+
+    const input = targetDocument.getElementById("desktop-native-composer-input");
+    input!.value = "Run live composer";
+    const ragToggle = targetDocument.body.querySelector('[data-desktop-composer-action="rag-toggle"]');
+    expect(ragToggle?.getAttribute("aria-pressed")).toBe("false");
+    ragToggle?.click();
+    targetDocument.body.querySelector('[data-desktop-composer-action="send"]')?.click();
+    targetDocument.body.querySelector('[data-desktop-composer-action="stop"]')?.click();
+
+    expect(composerActions).toEqual(["rag:true", "send:Run live composer:false", "stop"]);
+  });
+
+  test("renders live native runtime chips near the composer", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [],
+        activeSessionKey: "",
+        activeChatId: "",
+        messages: [],
+        runtime: {
+          provider: "deepseek",
+          model: "deepseek-chat",
+          webSocket: "Connected",
+          tokenReady: true,
+          tokenUsage: "42%",
+          gatewayHttp: "http://127.0.0.1:18790",
+        },
+      },
+    });
+
+    expect(targetDocument.body.querySelector(".desktop-native-composer-model")?.textContent).toBe("deepseek-chat");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Provider: deepseek");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("WebSocket: Connected");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Token: Ready");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Token usage: 42%");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Gateway: http://127.0.0.1:18790");
   });
 
   test("renders the native workbench in the latest Codex-style three-column layout", () => {
@@ -957,6 +1167,12 @@ describe("desktop workbench shell", () => {
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
     });
 
     expect(targetDocument.getElementById("desktop-knowledge-upload")?.getAttribute("data-desktop-file-upload")).toBe("knowledge-document");
@@ -965,7 +1181,60 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-session-file-upload")?.getAttribute("data-desktop-drop-target")).toBe("session-temporary-file");
     expect(targetDocument.getElementById("desktop-workspace-file-drop")?.getAttribute("data-desktop-drop-target")).toBe("workspace-file");
     expect(targetDocument.getElementById("desktop-session-upload-key")?.getAttribute("aria-label")).toBe("Session key for temporary file upload");
+    expect(targetDocument.getElementById("desktop-session-upload-key")?.getAttribute("readonly")).toBe("");
+    expect(targetDocument.getElementById("desktop-session-upload-key")?.getAttribute("data-active-session-key")).toBe("WebSocket:chat-live");
+    expect(targetDocument.getElementById("desktop-session-upload-key")?.value).toBe("WebSocket:chat-live");
     expect(targetDocument.getElementById("desktop-file-upload-status")?.textContent).toContain("No file operation running");
+  });
+
+  test("renders native Agent UI form cards and routes submit and cancel actions", () => {
+    const targetDocument = new FakeDocument();
+    const actions: string[] = [];
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      agentUiForms: [
+        {
+          form_id: "approval-form-1",
+          title: "Approve deployment",
+          description: "Confirm release target",
+          status: "validation_failed",
+          correlation: { chat_id: "chat-1", message_id: "msg-1" },
+          initial_values: { target: "staging", force: false },
+          values: { target: "", force: false },
+          errors: { target: "Target is required" },
+          fields: [
+            { name: "target", type: "text", label: "Target", required: true },
+            { name: "force", type: "checkbox", label: "Force", required: false },
+          ],
+        },
+      ],
+      agentUiActions: {
+        onAgentUiFormAction: ({ action, values }) => {
+          actions.push(`${action}:${values?.target ?? ""}:${String(values?.force ?? "")}`);
+        },
+      },
+    });
+
+    const card = targetDocument.body.querySelector('[data-agent-ui-form-id="approval-form-1"]');
+    expect(card?.getAttribute("data-desktop-entity-module")).toBe("approvals");
+    expect(card?.getAttribute("data-desktop-entity-id")).toBe("approval-form-1");
+    expect(card?.textContent).toContain("Approve deployment");
+    expect(card?.textContent).toContain("validation_failed");
+    expect(card?.textContent).toContain("Target is required");
+
+    const target = card?.querySelector('[data-agent-ui-form-field="target"]');
+    const force = card?.querySelector('[data-agent-ui-form-field="force"]');
+    expect(target?.value).toBe("");
+    target!.value = "production";
+    force!.checked = true;
+
+    card?.querySelector('[data-agent-ui-form-action="submit"]')?.click();
+    card?.querySelector('[data-agent-ui-form-action="cancel"]')?.click();
+
+    expect(actions).toEqual(["submit:production:true", "cancel::"]);
   });
 
   test("renders a bottom task center surface with task states, progress, diagnostics, and valid actions", () => {
@@ -1316,6 +1585,8 @@ describe("desktop workbench shell", () => {
     expect(pane?.textContent).toContain("Always load: Enabled");
     expect(pane?.textContent).toContain("Save state: No changes");
     expect(pane?.textContent).toContain("Validation: idle");
+    expect(findEntityRow(pane, "tools", "exec")?.textContent).toContain("Command");
+    expect(findEntityRow(pane, "skills", "planner")?.textContent).toContain("planner");
 
     const description = pane?.querySelector('[data-desktop-skill-editor-field="description"]');
     description!.value = "Plan better";
@@ -1355,6 +1626,8 @@ describe("desktop workbench shell", () => {
     expect(pane?.textContent).toContain("1 tool / 1 skill");
     expect(pane?.textContent).toContain("Read file: no parameters");
     expect(pane?.textContent).toContain("reviewer: builtin / enabled");
+    expect(findEntityRow(pane, "tools", "read_file")?.textContent).toContain("Read file");
+    expect(findEntityRow(pane, "skills", "reviewer")?.textContent).toContain("reviewer");
   });
 
   test("renders knowledge pane with document detail, query, graph, and traceability actions", () => {
@@ -1403,6 +1676,7 @@ describe("desktop workbench shell", () => {
     expect(pane?.textContent).toContain("1 doc / readiness 100% / graph 1 nodes / 0 edges");
     expect(pane?.textContent).toContain("Knowledge enabled");
     expect(pane?.textContent).toContain("Desktop UX: indexed / 4 chunks");
+    expect(findEntityRow(pane, "knowledge", "doc-1")?.textContent).toContain("Desktop UX");
     expect(pane?.textContent).toContain("Document detail: Desktop UX");
     expect(pane?.textContent).toContain("docs/desktop.md / indexed / 4 chunks");
     expect(pane?.textContent).toContain("Query: desktop");
@@ -1479,6 +1753,8 @@ describe("desktop workbench shell", () => {
     expect(pane?.textContent).toContain("Move Cowork into a desktop cockpit");
     expect(pane?.textContent).toContain("blocked / Adaptive Starter / 1 agent / 0/1 tasks");
     expect(pane?.querySelectorAll(".desktop-cowork-session-row").map((row) => row.getAttribute("data-desktop-cowork-session"))).toEqual(["cowork-1"]);
+    expect(pane?.querySelector(".desktop-cowork-session-row")?.getAttribute("data-desktop-entity-module")).toBe("cowork");
+    expect(pane?.querySelector(".desktop-cowork-session-row")?.getAttribute("data-desktop-entity-id")).toBe("cowork-1");
     expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("2 nodes / 1 edge");
     expect(pane?.querySelector(".desktop-cowork-graph")?.textContent).toContain("Planner");
     expect(pane?.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Map cockpit layout");
@@ -2114,7 +2390,7 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-native-composer-input")?.getAttribute("placeholder")).toBe("Ask Tinybot");
     expect(targetDocument.getElementById("desktop-native-composer-attach")?.getAttribute("data-desktop-composer-action")).toBe("attach");
     expect(targetDocument.getElementById("desktop-native-composer-send")?.getAttribute("data-desktop-composer-action")).toBe("send");
-    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Gateway ready");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Gateway: http://127.0.0.1:18790");
   });
 
   test("reserves dark product surfaces for diagnostics instead of the runtime panel", () => {

@@ -114,9 +114,14 @@ describe("desktop shared shell models", () => {
     expect(model.groups.map((group) => group.id)).toEqual(["actions", "workspace", "footer"]);
     expect(model.groups[0].items.map((item) => item.commandId)).toEqual([
       "new-chat",
+      "stop-generation",
       "search-sessions",
       "open-command-palette",
     ]);
+    expect(buildDesktopCommandEntriesFromSidebar(model).find((entry) => entry.commandId === "stop-generation")).toMatchObject({
+      title: "Stop Generation",
+      group: "Actions",
+    });
     expect(model.groups[1].items.map((item) => [item.label, item.href])).toEqual([
       ["Workspace", "/workspace"],
       ["Knowledge", "/knowledge"],
@@ -145,5 +150,10 @@ describe("desktop shared shell models", () => {
         href: rootLookup.get(title)?.href,
       });
     }
+    expect(rootLookup.has("Stop Generation")).toBe(false);
+    expect(nativeLookup.get("Stop Generation")).toMatchObject({
+      title: "Stop Generation",
+      commandId: "stop-generation",
+    });
   });
 });

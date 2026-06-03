@@ -88,6 +88,13 @@ const ROOT_WEBUI_ACTION_COMMANDS: DesktopMenuCommandId[] = [
   "open-command-palette",
 ];
 
+const NATIVE_WORKBENCH_ACTION_COMMANDS: DesktopMenuCommandId[] = [
+  "new-chat",
+  "stop-generation",
+  "search-sessions",
+  "open-command-palette",
+];
+
 const ROOT_WEBUI_FOOTER_COMMANDS: DesktopMenuCommandId[] = [
   "open-settings",
   "refresh-gateway-status",
@@ -147,7 +154,7 @@ export function buildNativeWorkbenchSidebarModel({
     groups: [
       {
         id: "actions",
-        items: sidebarItemsFromCommands(ROOT_WEBUI_ACTION_COMMANDS),
+        items: sidebarItemsFromCommands(NATIVE_WORKBENCH_ACTION_COMMANDS),
       },
       {
         id: "workspace",
@@ -247,6 +254,8 @@ function commandIcon(commandId: DesktopMenuCommandId): string {
   switch (commandId) {
     case "new-chat":
       return "new-chat";
+    case "stop-generation":
+      return "stop";
     case "search-sessions":
       return "search";
     case "open-command-palette":
