@@ -2443,6 +2443,8 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("overflow-y: auto;");
     expect(styleText).toContain('html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-utility-surfaces');
     expect(styleText).toContain("[data-desktop-module-surface]");
+    expect(styleText).toContain(".desktop-activity-button[data-active=\"true\"]");
+    expect(styleText).toContain(".desktop-workbench-link[data-active=\"true\"]");
     expect(styleText).toContain(".desktop-inspector-content {\n      display: grid;");
     expect(styleText).toContain("overflow-x: hidden;");
   });

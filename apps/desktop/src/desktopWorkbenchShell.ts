@@ -498,6 +498,10 @@ function createActivityRail(targetDocument: Document): HTMLElement {
     item.setAttribute("aria-label", label);
     item.setAttribute("title", label);
     item.setAttribute("data-desktop-module-target", module);
+    if (module === "chat") {
+      item.setAttribute("data-active", "true");
+      item.setAttribute("aria-current", "page");
+    }
     item.setAttribute("data-focus-order", `activity-${index + 1}`);
     primary.append(item);
   }
@@ -3845,7 +3849,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       box-shadow: none;
     }
 
-    body.desktop-native-workbench .desktop-activity-button:first-child {
+    body.desktop-native-workbench .desktop-activity-button[data-active="true"],
+    body.desktop-native-workbench .desktop-activity-secondary-button[data-active="true"] {
       border-color: #eaded8;
       background: #ffffff;
       color: var(--primary);
@@ -3860,6 +3865,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: transparent;
       text-decoration: none;
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-link[data-active="true"] {
+      border-radius: 6px;
+      padding: 4px 8px;
+      background: #ffffff;
+      color: var(--primary);
+      box-shadow: inset 3px 0 0 var(--primary);
     }
 
     body.desktop-native-workbench .desktop-workbench-sidebar,
