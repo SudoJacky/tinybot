@@ -34,6 +34,7 @@ import {
 } from "./desktopNativeWorkbenchRuntime";
 import { createDesktopOsNotificationBridge } from "./desktopOsNotifications";
 import {
+  applyDesktopSettingsFieldEdit,
   applyDesktopProviderModels,
   buildDesktopProviderCatalogItems,
   buildDesktopProviderModelRequest,
@@ -988,6 +989,11 @@ async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
 
 async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Promise<void> {
   if (!nativeSettingsState) {
+    return;
+  }
+  if (event.action === "edit") {
+    nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, event.fieldId, event.value);
+    updateNativeSettingsPane("idle");
     return;
   }
   if (event.action === "save") {

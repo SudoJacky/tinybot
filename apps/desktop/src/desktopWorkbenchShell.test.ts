@@ -1511,7 +1511,13 @@ describe("desktop workbench shell", () => {
       gatewayHttp: "http://127.0.0.1:18790",
       settingsPane,
       settingsActions: {
-        onSettingsAction: ({ action }) => settingsActions.push(action),
+        onSettingsAction: (event) => {
+          if (event.action === "edit") {
+            settingsActions.push(`${event.action}:${event.fieldId}:${String(event.value)}`);
+            return;
+          }
+          settingsActions.push(event.action);
+        },
       },
     });
 
@@ -1526,11 +1532,24 @@ describe("desktop workbench shell", () => {
     expect(pane?.textContent).toContain("API key: ********");
     expect(pane?.textContent).toContain("Catalog: OpenAI (ready)");
     expect(pane?.textContent).toContain("Models: gpt-4.1, gpt-4.1-mini");
+    expect(pane?.querySelector('[data-desktop-settings-control="model"]')?.getAttribute("aria-invalid")).toBe("true");
+    expect(pane?.querySelector('[data-desktop-settings-control="timezone"]')?.getAttribute("aria-invalid")).toBe("true");
+    expect(pane?.querySelector('[data-desktop-settings-control="enabled"]')?.checked).toBe(true);
+    expect(pane?.querySelector('[data-desktop-settings-control="mcpServers"]')?.tagName).toBe("textarea");
     expect(pane?.querySelector('[data-desktop-settings-action="save"]')?.getAttribute("disabled")).toBe("true");
     expect(pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.textContent).toBe("Refresh models");
+
+    const modelInput = pane?.querySelector('[data-desktop-settings-control="model"]');
+    modelInput!.value = "gpt-4.1";
+    modelInput?.dispatchEvent({ type: "input", target: modelInput });
+
+    const knowledgeToggle = pane?.querySelector('[data-desktop-settings-control="enabled"]');
+    knowledgeToggle!.checked = false;
+    knowledgeToggle?.dispatchEvent({ type: "change", target: knowledgeToggle });
+
     pane?.querySelector('[data-desktop-settings-action="save"]')?.click();
     pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.click();
-    expect(settingsActions).toEqual(["save", "discoverModels"]);
+    expect(settingsActions).toEqual(["edit:model:gpt-4.1", "edit:enabled:false", "save", "discoverModels"]);
   });
 
   test("updates the installed settings pane without rebuilding the workbench", () => {

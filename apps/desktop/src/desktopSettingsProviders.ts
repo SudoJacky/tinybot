@@ -117,12 +117,23 @@ export interface DesktopSecretField {
 }
 
 export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed";
+export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select";
+export type DesktopSettingsEditableValue = string | boolean;
+
+export interface DesktopSettingsPaneFieldOption {
+  value: string;
+  label: string;
+}
 
 export interface DesktopSettingsPaneField {
   id: string;
   label: string;
   value: string;
   state: "normal" | "invalid";
+  control: DesktopSettingsPaneFieldControl;
+  inputValue: string;
+  checked?: boolean;
+  options?: DesktopSettingsPaneFieldOption[];
 }
 
 export interface DesktopSettingsPaneGroup {
@@ -426,7 +437,7 @@ export function buildDesktopSettingsPaneModel(
       message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty),
       canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
     },
-    groups: buildDesktopSettingsPaneGroups(state, validationErrors),
+    groups: buildDesktopSettingsPaneGroups(state, validationErrors, options.providerCatalog ?? []),
     providerCatalog: (options.providerCatalog ?? []).map((provider) => ({
       id: stringValue(provider.id),
       label: stringValue(provider.displayName) || stringValue(provider.id),
@@ -483,6 +494,83 @@ export function applyDesktopProviderModels(
     status: "loaded",
     message: stringValue(payload.warning) || `Loaded models ${models.length}`,
   };
+}
+
+export function applyDesktopSettingsFieldEdit(
+  state: DesktopSettingsFormState,
+  fieldId: string,
+  value: DesktopSettingsEditableValue,
+): DesktopSettingsFormState {
+  const nextState = cloneSettingsState(state);
+  const text = String(value);
+  switch (fieldId) {
+    case "model":
+      nextState.agent.model = stringOrNullInput(text);
+      break;
+    case "provider":
+      nextState.agent.provider = stringOrNullInput(text);
+      break;
+    case "activeProfile":
+      nextState.agent.activeProfile = stringOrNullInput(text);
+      break;
+    case "timezone":
+      nextState.agent.timezone = stringOrNullInput(text);
+      break;
+    case "selectedProvider":
+      nextState.providerEditor.selectedProvider = stringOrNullInput(text) || "deepseek";
+      nextState.agent.provider = nextState.providerEditor.selectedProvider;
+      break;
+    case "profileId":
+      nextState.providerEditor.profileId = text.trim();
+      nextState.agent.activeProfile = stringOrNullInput(text);
+      break;
+    case "apiBase":
+      nextState.providerEditor.apiBase = stringOrNullInput(text);
+      break;
+    case "models":
+      nextState.providerEditor.modelsText = text;
+      break;
+    case "enabled":
+      nextState.knowledge.enabled = Boolean(value);
+      break;
+    case "retrievalMode":
+      nextState.knowledge.retrievalMode = stringOrNullInput(text);
+      break;
+    case "maxChunks":
+      nextState.knowledge.maxChunks = numberOrNullInput(text);
+      break;
+    case "rerankApiBase":
+      nextState.knowledge.rerankApiBase = stringOrNullInput(text);
+      break;
+    case "webEnable":
+      nextState.tools.webEnable = Boolean(value);
+      break;
+    case "execEnable":
+      nextState.tools.execEnable = Boolean(value);
+      break;
+    case "mcpServers":
+      nextState.tools.mcpServersText = text;
+      break;
+    case "host":
+      nextState.gateway.host = stringOrNullInput(text);
+      break;
+    case "port":
+      nextState.gateway.port = numberOrNullInput(text);
+      break;
+    case "heartbeat":
+      nextState.gateway.heartbeatEnabled = Boolean(value);
+      break;
+    case "sendProgress":
+      nextState.channels.sendProgress = Boolean(value);
+      break;
+    case "sendToolHints":
+      nextState.channels.sendToolHints = Boolean(value);
+      break;
+    case "sendMaxRetries":
+      nextState.channels.sendMaxRetries = numberOrNullInput(text);
+      break;
+  }
+  return nextState;
 }
 
 export function buildDesktopSecretField(value: unknown, mask = MASKED_SECRET): DesktopSecretField {
@@ -610,13 +698,39 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
 function buildDesktopSettingsPaneGroups(
   state: DesktopSettingsFormState,
   validationErrors: DesktopSettingsValidationError[],
+  providerCatalog: DesktopProviderCatalogItem[] = [],
 ): DesktopSettingsPaneGroup[] {
   const invalidFields = new Set(validationErrors.map((error) => error.field));
-  const field = (id: string, label: string, value: unknown, validationField?: DesktopSettingsValidationField): DesktopSettingsPaneField => ({
+  const editorProviderOptions = providerCatalog.map((provider) => ({
+      value: stringValue(provider.id),
+      label: stringValue(provider.displayName) || stringValue(provider.id),
+    })).filter((provider) => provider.value);
+  for (const value of [state.providerEditor.selectedProvider, "deepseek"].filter(Boolean)) {
+    if (!editorProviderOptions.some((option) => option.value === value)) {
+      editorProviderOptions.push({ value, label: value });
+    }
+  }
+  const agentProviderOptions = [
+    { value: "auto", label: "Auto" },
+    ...editorProviderOptions,
+  ];
+  const field = (
+    id: string,
+    label: string,
+    value: unknown,
+    validationField?: DesktopSettingsValidationField,
+    control: DesktopSettingsPaneFieldControl = "text",
+    options?: DesktopSettingsPaneFieldOption[],
+    inputValue = stringValue(value),
+  ): DesktopSettingsPaneField => ({
     id,
     label,
     value: formatDesktopSettingsFieldValue(value),
     state: validationField && invalidFields.has(validationField) ? "invalid" : "normal",
+    control,
+    inputValue,
+    checked: control === "checkbox" ? value === true : undefined,
+    options,
   });
   return [
     {
@@ -624,7 +738,7 @@ function buildDesktopSettingsPaneGroups(
       label: "Agent",
       fields: [
         field("model", "Model", state.agent.model, "model"),
-        field("provider", "Provider", state.agent.provider),
+        field("provider", "Provider", state.agent.provider, undefined, "select", agentProviderOptions),
         field("activeProfile", "Profile", state.agent.activeProfile),
         field("timezone", "Timezone", state.agent.timezone, "timezone"),
       ],
@@ -633,19 +747,19 @@ function buildDesktopSettingsPaneGroups(
       id: "provider",
       label: "Provider",
       fields: [
-        field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider),
+        field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider, undefined, "select", editorProviderOptions),
         field("profileId", "Profile ID", state.providerEditor.profileId),
         field("apiBase", "API base", state.providerEditor.apiBase, "providerApiBase"),
-        field("models", "Models", parseDesktopProviderModelList(state.providerEditor.modelsText).join(", ")),
+        field("models", "Models", parseDesktopProviderModelList(state.providerEditor.modelsText).join(", "), undefined, "textarea", undefined, state.providerEditor.modelsText),
       ],
     },
     {
       id: "knowledge",
       label: "Knowledge",
       fields: [
-        field("enabled", "Enabled", state.knowledge.enabled),
+        field("enabled", "Enabled", state.knowledge.enabled, undefined, "checkbox"),
         field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode),
-        field("maxChunks", "Max chunks", state.knowledge.maxChunks),
+        field("maxChunks", "Max chunks", state.knowledge.maxChunks, undefined, "number"),
         field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, "rerankApiBase"),
       ],
     },
@@ -653,9 +767,9 @@ function buildDesktopSettingsPaneGroups(
       id: "tools",
       label: "Tools",
       fields: [
-        field("webEnable", "Web tools", state.tools.webEnable),
-        field("execEnable", "Exec tools", state.tools.execEnable),
-        field("mcpServers", "MCP servers", state.tools.mcpServersText ? "Configured" : "None", "mcpServers"),
+        field("webEnable", "Web tools", state.tools.webEnable, undefined, "checkbox"),
+        field("execEnable", "Exec tools", state.tools.execEnable, undefined, "checkbox"),
+        field("mcpServers", "MCP servers", state.tools.mcpServersText ? "Configured" : "None", "mcpServers", "textarea", undefined, state.tools.mcpServersText),
       ],
     },
     {
@@ -663,17 +777,17 @@ function buildDesktopSettingsPaneGroups(
       label: "Gateway",
       fields: [
         field("host", "Host", state.gateway.host),
-        field("port", "Port", state.gateway.port, "gatewayPort"),
-        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled),
+        field("port", "Port", state.gateway.port, "gatewayPort", "number"),
+        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, undefined, "checkbox"),
       ],
     },
     {
       id: "channels",
       label: "Channels",
       fields: [
-        field("sendProgress", "Progress events", state.channels.sendProgress),
-        field("sendToolHints", "Tool hints", state.channels.sendToolHints),
-        field("sendMaxRetries", "Max retries", state.channels.sendMaxRetries),
+        field("sendProgress", "Progress events", state.channels.sendProgress, undefined, "checkbox"),
+        field("sendToolHints", "Tool hints", state.channels.sendToolHints, undefined, "checkbox"),
+        field("sendMaxRetries", "Max retries", state.channels.sendMaxRetries, undefined, "number"),
       ],
     },
   ];
@@ -723,6 +837,20 @@ function stringOrNull(value: unknown): string | null {
 
 function stringOrDefault(value: unknown, fallback: string): string {
   return stringOrNull(value) ?? fallback;
+}
+
+function stringOrNullInput(value: string): string | null {
+  const text = value.trim();
+  return text ? text : null;
+}
+
+function numberOrNullInput(value: string): number | null {
+  const text = value.trim();
+  if (!text) {
+    return null;
+  }
+  const numeric = Number.parseFloat(text);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function numberOrDefault(value: unknown, fallback: number): number {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   applyDesktopProviderModels,
+  applyDesktopSettingsFieldEdit,
   buildDesktopProviderCatalogItems,
   buildDesktopSettingsPaneModel,
   buildDesktopProviderModelRequest,
@@ -286,8 +287,8 @@ describe("desktop settings and provider helpers", () => {
     expect(pane.validationErrors.map((error) => error.field)).toEqual(["model", "timezone"]);
     expect(pane.groups.map((group) => group.id)).toEqual(["agent", "provider", "knowledge", "tools", "gateway", "channels"]);
     expect(pane.groups.find((group) => group.id === "agent")?.fields).toEqual(expect.arrayContaining([
-      { id: "model", label: "Model", value: "", state: "invalid" },
-      { id: "timezone", label: "Timezone", value: "Shanghai", state: "invalid" },
+      expect.objectContaining({ id: "model", label: "Model", value: "", state: "invalid", control: "text" }),
+      expect.objectContaining({ id: "timezone", label: "Timezone", value: "Shanghai", state: "invalid", control: "text" }),
     ]));
     expect(pane.providerCatalog).toEqual([{ id: "openai", label: "OpenAI", status: "ready" }]);
     expect(pane.providerEditor).toMatchObject({
@@ -297,5 +298,23 @@ describe("desktop settings and provider helpers", () => {
       models: ["gpt-4.1", "gpt-4.1-mini"],
       canDiscoverModels: true,
     });
+  });
+
+  test("applies desktop settings field edits to the saved config patch shape", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work" } },
+      providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: ["gpt-4.1-mini"] } } },
+      knowledge: { enabled: true },
+      gateway: { port: 18790 },
+    }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    const withModel = applyDesktopSettingsFieldEdit(state, "model", "gpt-4.1");
+    const withoutKnowledge = applyDesktopSettingsFieldEdit(withModel, "enabled", false);
+    const withPort = applyDesktopSettingsFieldEdit(withoutKnowledge, "port", "18888");
+    const patch = createDesktopSettingsPatch(withPort, {}, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+
+    expect(patch.agents).toMatchObject({ defaults: { model: "gpt-4.1" } });
+    expect(patch.knowledge).toMatchObject({ enabled: false });
+    expect(patch.gateway).toMatchObject({ port: 18888 });
   });
 });
