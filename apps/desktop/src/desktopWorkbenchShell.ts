@@ -2137,8 +2137,8 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
     },
     {
       panel: "inspector",
-      label: "Inspector",
-      ariaLabel: "Toggle inspector panel",
+      label: "Run Chain",
+      ariaLabel: "Toggle Run Chain panel",
       visible: layout.inspector.visible,
     },
     {
@@ -2195,6 +2195,9 @@ function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControl
 }
 
 function formatPanelName(panel: DesktopPanelControlId): string {
+  if (panel === "inspector") {
+    return "Run Chain";
+  }
   if (panel === "bottom") {
     return "Task and runtime";
   }
@@ -2271,15 +2274,23 @@ function createRunChainOverviewPanel(targetDocument: Document): HTMLElement {
   header.append(createText(targetDocument, "h2", "Run Chain"));
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-run-chain-header-controls";
-  for (const [label, value] of [
-    ["Pin Run Chain", "Pin"],
-    ["Close Run Chain", "Close"],
+  for (const [label, value, action] of [
+    ["Pin Run Chain", "Pin", "pin"],
+    ["Close Run Chain", "Close", "close"],
   ]) {
     const button = targetDocument.createElement("button");
     button.type = "button";
     button.className = "desktop-run-chain-icon-button";
     button.setAttribute("aria-label", label);
+    button.setAttribute("data-desktop-run-chain-control", action);
     button.textContent = value;
+    button.addEventListener("click", () => {
+      if (action === "close") {
+        toggleDesktopPanel(targetDocument, "inspector");
+        return;
+      }
+      setRouteStatus(targetDocument, "Run Chain pinned");
+    });
     controls.append(button);
   }
   header.append(controls);
