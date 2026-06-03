@@ -205,6 +205,7 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector('[data-workbench-region="main"]')).toBeTruthy();
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.style.values.get("--region-size")).toBe("360px");
     expect(targetDocument.body.querySelector('[data-workbench-region="bottom"]')?.getAttribute("data-visible")).toBe("false");
+    expect(targetDocument.head.querySelector("#desktop-design-tokens")).toBeTruthy();
     expect(targetDocument.head.querySelector("#desktop-workbench-shell-style")).toBeTruthy();
   });
 
@@ -2027,16 +2028,36 @@ describe("desktop workbench shell", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
+    const tokenText = targetDocument.head.querySelector("#desktop-design-tokens")?.textContent;
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent;
-    expect(styleText).toContain("--bg: #faf9f5;");
-    expect(styleText).toContain("--panel-strong: #efe9de;");
-    expect(styleText).toContain("--primary: #cc785c;");
-    expect(styleText).toContain("--surface-dark: #181715;");
-    expect(styleText).toContain("--border: #e6dfd8;");
-    expect(styleText).toContain('--font-display: "Tiempos Headline"');
+    expect(tokenText).toContain("--bg: #faf9f5;");
+    expect(tokenText).toContain("--panel-strong: #faf9f5;");
+    expect(tokenText).toContain("--primary: var(--accent);");
+    expect(tokenText).toContain("--surface-dark: #181715;");
+    expect(tokenText).toContain("--border: #e6dfd8;");
+    expect(tokenText).toContain('--font-display: "Cormorant Garamond"');
+    expect(styleText).not.toContain(":root {");
   });
 
-  test("uses dark product surfaces for runtime diagnostics", () => {
+  test("renders a bottom composer-like surface for native visual parity", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const composer = targetDocument.getElementById("desktop-native-composer");
+    expect(composer?.getAttribute("aria-label")).toBe("Native desktop composer");
+    expect(targetDocument.getElementById("desktop-native-composer-input")?.getAttribute("aria-label")).toBe("Native composer input");
+    expect(targetDocument.getElementById("desktop-native-composer-input")?.getAttribute("placeholder")).toBe("Ask Tinybot");
+    expect(targetDocument.getElementById("desktop-native-composer-attach")?.getAttribute("data-desktop-composer-action")).toBe("attach");
+    expect(targetDocument.getElementById("desktop-native-composer-send")?.getAttribute("data-desktop-composer-action")).toBe("send");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Gateway ready");
+  });
+
+  test("reserves dark product surfaces for diagnostics instead of the runtime panel", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
@@ -2047,7 +2068,7 @@ describe("desktop workbench shell", () => {
 
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent;
     expect(styleText).toContain(".desktop-gateway-runtime");
-    expect(styleText).toContain("background: var(--surface-dark, #181715);");
+    expect(styleText).toContain("background: var(--panel);");
     expect(styleText).toContain(".desktop-task-center-diagnostics:not(:empty)");
     expect(styleText).toContain(".desktop-run-chain-detail");
     expect(styleText).toContain("background: var(--surface-dark-soft, #1f1e1b);");

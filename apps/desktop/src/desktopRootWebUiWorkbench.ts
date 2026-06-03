@@ -18,6 +18,7 @@ import {
   buildRootWebUiWorkspaceContext,
   type DesktopSidebarItem,
 } from "./desktopSharedModels";
+import { installDesktopDesignTokens } from "./desktopDesignTokens";
 
 interface InstallDesktopRootWebUiWorkbenchOptions {
   targetDocument?: Document;
@@ -30,6 +31,7 @@ export function installDesktopRootWebUiWorkbenchAdapter({
   storage = targetDocument.defaultView?.localStorage ?? null,
   viewportWidth = targetDocument.defaultView?.innerWidth ?? Number.POSITIVE_INFINITY,
 }: InstallDesktopRootWebUiWorkbenchOptions = {}): void {
+  installDesktopDesignTokens(targetDocument);
   ensureDesktopRootWebUiShellLayoutStyle(targetDocument);
   ensureDesktopComposerSurfaceStyle(targetDocument);
   installRootWebUiCommandPaletteSurface(targetDocument);

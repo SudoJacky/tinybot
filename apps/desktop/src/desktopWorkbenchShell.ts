@@ -47,6 +47,7 @@ import {
   type DesktopSidebarGroup,
   type DesktopSidebarItem,
 } from "./desktopSharedModels";
+import { installDesktopDesignTokens } from "./desktopDesignTokens";
 
 export interface DesktopTaskCenterActionEvent {
   action: DesktopTaskActionId;
@@ -216,6 +217,7 @@ export function installDesktopWorkbenchShell({
   taskActions = {},
   gatewayActions = {},
 }: InstallDesktopWorkbenchShellOptions): void {
+  installDesktopDesignTokens(targetDocument);
   ensureDesktopWorkbenchShellStyle(targetDocument);
   targetDocument.body.classList.add("desktop-native-workbench");
   targetDocument.body.replaceChildren(createWorkbenchShell(targetDocument, layout, runtimeStatus, gatewayHttp, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, runChainItems, selectedRunChainItemKey, workLens, workLensActions, taskActions, gatewayActions));
@@ -426,8 +428,55 @@ function createMainRegion(
   status.setAttribute("data-desktop-route-status", "");
   status.textContent = `Gateway ${gatewayHttp}`;
 
-  main.append(empty, status);
+  main.append(empty, createNativeComposerSurface(targetDocument, gatewayHttp), status);
   return main;
+}
+
+function createNativeComposerSurface(targetDocument: Document, gatewayHttp: string): HTMLElement {
+  const composer = targetDocument.createElement("form");
+  composer.id = "desktop-native-composer";
+  composer.className = "desktop-native-composer";
+  composer.setAttribute("aria-label", "Native desktop composer");
+
+  const attach = targetDocument.createElement("button");
+  attach.id = "desktop-native-composer-attach";
+  attach.type = "button";
+  attach.className = "desktop-native-composer-action";
+  attach.setAttribute("data-desktop-composer-action", "attach");
+  attach.setAttribute("aria-label", "Attach file");
+  attach.textContent = "+";
+
+  const input = targetDocument.createElement("textarea");
+  input.id = "desktop-native-composer-input";
+  input.className = "desktop-native-composer-input";
+  input.setAttribute("aria-label", "Native composer input");
+  input.setAttribute("placeholder", "Ask Tinybot");
+
+  const send = targetDocument.createElement("button");
+  send.id = "desktop-native-composer-send";
+  send.type = "button";
+  send.className = "desktop-native-composer-send";
+  send.setAttribute("data-desktop-composer-action", "send");
+  send.setAttribute("aria-label", "Send message");
+  send.textContent = "Send";
+
+  const runtime = targetDocument.createElement("div");
+  runtime.id = "desktop-native-composer-runtime";
+  runtime.className = "desktop-native-composer-runtime";
+  runtime.append(
+    createComposerChip(targetDocument, "Gateway ready", gatewayHttp),
+    createComposerChip(targetDocument, "Native visual mode", "Composer shell"),
+  );
+
+  composer.append(attach, input, send, runtime);
+  return composer;
+}
+
+function createComposerChip(targetDocument: Document, label: string, value: string): HTMLElement {
+  const chip = targetDocument.createElement("span");
+  chip.className = "desktop-native-composer-chip";
+  chip.textContent = `${label}: ${value}`;
+  return chip;
 }
 
 function createWorkLensInlineHost(
@@ -2338,44 +2387,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
   const style = targetDocument.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    :root {
-      --font-display: "Tiempos Headline", "Cormorant Garamond", "EB Garamond", Garamond, "Times New Roman", serif;
-      --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-      --bg: #faf9f5;
-      --bg-subtle: #f5f0e8;
-      --panel: #faf9f5;
-      --panel-strong: #efe9de;
-      --surface-cream-strong: #e8e0d2;
-      --surface-dark: #181715;
-      --surface-dark-elevated: #252320;
-      --surface-dark-soft: #1f1e1b;
-      --text: #141413;
-      --text-strong: #252523;
-      --text-muted: #6c6a64;
-      --muted: #8e8b82;
-      --border: #e6dfd8;
-      --border-soft: #ebe6df;
-      --primary: #cc785c;
-      --primary-active: #a9583e;
-      --accent: #cc785c;
-      --accent-teal: #5db8a6;
-      --success: #5db872;
-      --warning: #d4a017;
-      --danger: #c64545;
-      --on-dark: #faf9f5;
-      --on-dark-soft: #a09d96;
-      --focus-ring: rgba(204, 120, 92, 0.28);
-      --shadow-soft: 0 1px 3px rgba(20, 20, 19, 0.08);
-    }
-
     body.desktop-native-workbench {
       margin: 0;
       min-height: 100vh;
       overflow: hidden;
-      background: var(--bg, #faf9f5);
-      color: var(--text, #141413);
-      font-family: var(--font-sans, system-ui, sans-serif);
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-workbench-shell,
@@ -2387,22 +2405,22 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       height: calc(100vh - var(--desktop-window-frame-height, 0px));
       padding-top: var(--desktop-window-frame-height, 0px);
       display: grid;
-      grid-template-columns: 52px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(420px, 1fr) minmax(280px, var(--desktop-inspector-size, 360px));
+      grid-template-columns: 56px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(420px, 1fr) minmax(280px, var(--desktop-inspector-size, 360px));
       grid-template-rows: minmax(0, 1fr) auto;
-      border-top: 1px solid var(--border, #e6dfd8);
-      background: var(--bg, #faf9f5);
+      border-top: 1px solid var(--border);
+      background: var(--bg);
     }
 
     body.desktop-native-workbench .desktop-workbench-shell[data-inspector-visible="false"] {
-      grid-template-columns: 52px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;
+      grid-template-columns: 56px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;
     }
 
     body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] {
-      grid-template-columns: 52px 0 minmax(420px, 1fr) minmax(280px, var(--desktop-inspector-size, 360px));
+      grid-template-columns: 56px 0 minmax(420px, 1fr) minmax(280px, var(--desktop-inspector-size, 360px));
     }
 
     body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"][data-inspector-visible="false"] {
-      grid-template-columns: 52px 0 minmax(0, 1fr) 0;
+      grid-template-columns: 56px 0 minmax(0, 1fr) 0;
     }
 
     body.desktop-native-workbench .desktop-activity-rail {
@@ -2411,9 +2429,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: flex;
       flex-direction: column;
       gap: 6px;
-      padding: 10px 6px;
-      border-right: 1px solid var(--border, #e6dfd8);
-      background: var(--surface-dark, #181715);
+      padding: 10px 7px;
+      border-right: 1px solid var(--border);
+      background: var(--bg);
     }
 
     body.desktop-native-workbench .desktop-activity-button,
@@ -2422,13 +2440,20 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: center;
       min-height: 36px;
-      border: 1px solid var(--border, #e6dfd8);
-      border-radius: 6px;
-      background: var(--panel, #faf9f5);
-      color: var(--text, #141413);
-      font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      border: 1px solid transparent;
+      border-radius: var(--radius-md);
+      background: transparent;
+      color: var(--text-muted);
+      font: 600 12px/1.2 var(--font-sans);
       text-decoration: none;
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-activity-button:hover,
+    body.desktop-native-workbench .desktop-activity-button:focus-visible {
+      border-color: var(--border);
+      background: var(--surface-soft);
+      color: var(--text);
     }
 
     body.desktop-native-workbench .desktop-workbench-sidebar,
@@ -2438,8 +2463,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      border-right: 1px solid var(--border, #e6dfd8);
-      background: var(--panel, #faf9f5);
+      border-right: 1px solid var(--border);
+      background: var(--panel);
     }
 
     body.desktop-native-workbench .desktop-workbench-sidebar {
@@ -2461,22 +2486,24 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workbench-main {
       grid-column: 3;
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
-      padding: 14px;
+      grid-template-rows: minmax(0, 1fr) auto auto;
+      padding: 18px 24px 12px;
       overflow: auto;
-      background: var(--bg-subtle, #f5f0e8);
+      background: var(--bg);
     }
 
     body.desktop-native-workbench .desktop-empty-session {
       align-self: start;
       display: grid;
       gap: 12px;
-      max-width: 720px;
+      width: min(820px, 100%);
+      max-width: 820px;
       min-width: 0;
-      border: 1px solid var(--border, #e6dfd8);
-      border-radius: 12px;
-      padding: 18px;
-      background: var(--panel-strong, #efe9de);
+      margin: 0 auto;
+      border: 0;
+      border-radius: 0;
+      padding: 14px 0 18px;
+      background: transparent;
     }
 
     body.desktop-native-workbench .desktop-empty-session > * {
@@ -2550,9 +2577,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workbench-link:focus-visible,
     body.desktop-native-workbench .desktop-activity-button:focus-visible,
     body.desktop-native-workbench .desktop-quick-action:focus-visible {
-      outline: 2px solid var(--primary, #cc785c);
+      outline: 2px solid var(--primary);
       outline-offset: 2px;
-      box-shadow: 0 0 0 4px var(--focus-ring, rgba(204, 120, 92, 0.28));
+      box-shadow: 0 0 0 4px var(--focus-ring);
     }
 
     body.desktop-native-workbench .desktop-quick-actions {
@@ -2562,8 +2589,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-quick-actions .desktop-quick-action:first-child {
-      border-color: var(--primary, #cc785c);
-      background: var(--primary, #cc785c);
+      border-color: var(--primary);
+      background: var(--primary);
       color: #ffffff;
     }
 
@@ -2576,29 +2603,29 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-panel-control {
       min-height: 32px;
-      border: 1px solid var(--border, #e6dfd8);
-      border-radius: 6px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
       padding: 0 10px;
-      background: var(--panel, #faf9f5);
-      color: var(--text, #141413);
-      font: 600 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      background: var(--panel);
+      color: var(--text);
+      font: 600 12px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-panel-control[aria-pressed="true"] {
-      border-color: var(--primary, #cc785c);
-      background: var(--panel-strong, #efe9de);
+      border-color: var(--primary);
+      background: var(--surface-card);
     }
 
     body.desktop-native-workbench .desktop-command-palette {
       display: grid;
       gap: 8px;
       width: min(680px, 100%);
-      border: 1px solid var(--border, #e6dfd8);
-      border-radius: 6px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
       padding: 10px;
-      background: var(--panel, #faf9f5);
-      box-shadow: 0 12px 30px rgba(20, 18, 15, 0.16);
+      background: var(--panel);
+      box-shadow: var(--shadow-lg);
     }
 
     body.desktop-native-workbench .desktop-command-palette[hidden] {
@@ -2621,11 +2648,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-command-palette-close,
     body.desktop-native-workbench .desktop-command-palette-result {
-      border: 1px solid var(--border, #e6dfd8);
-      border-radius: 6px;
-      background: var(--panel, #faf9f5);
-      color: var(--text, #141413);
-      font: 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--panel);
+      color: var(--text);
+      font: 12px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
@@ -2638,11 +2665,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 100%;
       min-width: 0;
       min-height: 34px;
-      border: 1px solid var(--border, #e6dfd8);
-      border-radius: 6px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
       padding: 0 10px;
-      color: var(--text, #141413);
-      font: 13px/1.2 var(--font-sans, system-ui, sans-serif);
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.2 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-command-palette-results {
@@ -2837,6 +2865,87 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: var(--danger, #c64545);
     }
 
+    body.desktop-native-workbench .desktop-native-composer {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto;
+      gap: 8px;
+      width: min(820px, 100%);
+      min-width: 0;
+      margin: 0 auto 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 10px;
+      background: var(--panel);
+      box-shadow: var(--shadow-sm);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-action,
+    body.desktop-native-workbench .desktop-native-composer-send {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 36px;
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 0 12px;
+      background: var(--bg);
+      color: var(--text);
+      font: 600 12px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-send {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-input {
+      min-width: 0;
+      width: 100%;
+      min-height: 36px;
+      max-height: 108px;
+      border: 0;
+      border-radius: var(--radius-md);
+      padding: 8px 10px;
+      resize: vertical;
+      background: transparent;
+      color: var(--text);
+      font: 13px/1.45 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-input:focus-visible,
+    body.desktop-native-workbench .desktop-native-composer-action:focus-visible,
+    body.desktop-native-workbench .desktop-native-composer-send:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+      box-shadow: 0 0 0 4px var(--focus-ring);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-runtime {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-chip {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-full);
+      padding: 3px 8px;
+      background: var(--surface-soft);
+      color: var(--text-muted);
+      font: 500 11px/1.25 var(--font-sans);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     body.desktop-native-workbench .desktop-bottom-content {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
@@ -2968,16 +3077,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-gateway-runtime {
       min-width: 0;
       overflow: auto;
-      background: var(--surface-dark, #181715);
-      color: var(--on-dark, #faf9f5);
+      background: var(--panel);
+      color: var(--text);
     }
 
     body.desktop-native-workbench .desktop-gateway-runtime h2 {
-      color: var(--on-dark, #faf9f5);
+      color: var(--text);
     }
 
     body.desktop-native-workbench .desktop-gateway-runtime-row {
-      color: var(--on-dark-soft, #a09d96);
+      color: var(--text-muted);
       white-space: pre-wrap;
     }
 
@@ -2990,12 +3099,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-gateway-action {
       min-height: 28px;
-      border: 1px solid var(--surface-dark-elevated, #252320);
-      border-radius: 6px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
       padding: 0 8px;
-      background: var(--surface-dark-elevated, #252320);
-      color: var(--on-dark, #faf9f5);
-      font: 600 11px/1.2 var(--font-sans, system-ui, sans-serif);
+      background: var(--bg);
+      color: var(--text);
+      font: 600 11px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
