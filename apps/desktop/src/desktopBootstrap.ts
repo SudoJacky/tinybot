@@ -4,6 +4,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import webUiHtml from "../../../webui/index.html?raw";
 import {
+  buildAgentUiFormCancelRequest,
+  buildAgentUiFormSubmitRequest,
+  validateAgentUiFormValues,
+} from "./agentUiEvents";
+import {
   buildDesktopCoworkActionRequest,
   buildDesktopCoworkCockpitView,
   buildDesktopCoworkSessionRows,
@@ -22,6 +27,11 @@ import {
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
 import { installDesktopNavigation } from "./desktopNavigation";
+import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
+import {
+  createDesktopNativeWorkbenchRuntime,
+  type DesktopNativeWorkbenchRuntime,
+} from "./desktopNativeWorkbenchRuntime";
 import { createDesktopOsNotificationBridge } from "./desktopOsNotifications";
 import {
   applyDesktopProviderModels,
@@ -51,13 +61,16 @@ import {
 import {
   installDesktopWorkbenchShell,
   updateDesktopGatewayRuntimeStatus,
+  updateDesktopAgentUiForms,
   updateDesktopCoworkPane,
   updateDesktopKnowledgePane,
+  updateDesktopNativeChat,
   updateDesktopSettingsPane,
   updateDesktopTaskCenterItems,
   updateDesktopToolsSkillsPane,
   type DesktopCoworkActionEvent,
   type DesktopCoworkPaneModel,
+  type DesktopAgentUiFormActionEvent,
   type DesktopGatewayRuntimeActionEvent,
   type DesktopKnowledgeActionEvent,
   type DesktopSettingsActionEvent,
@@ -70,8 +83,14 @@ import { installWebUiShell } from "./desktopWebUiShell";
 import { resolveDesktopWorkbenchStartupMode } from "./desktopWorkbenchGate";
 import { installDesktopWindowFrame, setDesktopWindowRuntimeStatus } from "./desktopWindowFrame";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./gatewayConfig";
-import { createGatewayApiClient } from "./gatewayHttpClient";
+import { checkGatewayHealth, createGatewayApiClient } from "./gatewayHttpClient";
 import { normalizeSessionsPayload } from "./nativeChat";
+import {
+  flushGatewaySocketQueue,
+  openGatewaySocket,
+  sendGatewaySocketJson,
+  type NormalizedGatewayEvent,
+} from "./gatewayWebSocketClient";
 import {
   desktopUploadPickerOptions,
   installDesktopFileUploadActions,
@@ -109,6 +128,11 @@ let nativeKnowledgePane: DesktopKnowledgePaneModel | null = null;
 let nativeKnowledgeQueryResult: unknown = {};
 let nativeCoworkPane: DesktopCoworkPaneModel | null = null;
 let nativeCoworkSelectedSessionId = "";
+let nativeWorkbenchRuntime: DesktopNativeWorkbenchRuntime | null = null;
+let nativeChatSocket: WebSocket | null = null;
+let nativeChatWsUrl = gatewayConfig.wsUrl;
+let nativeChatRuntimeActionsInstalled = false;
+const nativePendingSocketMessages: unknown[] = [];
 const nativeOsNotifications = createDesktopOsNotificationBridge({
   hasTauriRuntime,
   loadApi: async () => {
@@ -150,12 +174,18 @@ async function bootDesktopWebUi(): Promise<void> {
     installDesktopGatewayBridge({ config: gatewayConfig });
     installWebUiRenderGlobals();
     if (workbenchMode.mode === "native-workbench") {
+      const nativeChatRuntime = await loadNativeChatRuntime();
       const settingsPane = await loadNativeSettingsPane();
+      syncNativeRuntimeMetadata();
       const knowledgePane = await loadNativeKnowledgePane();
       const toolsSkillsPane = await loadNativeToolsSkillsPane();
       const coworkPane = await loadNativeCoworkPane();
       installDesktopWorkbenchShell({
         runtimeStatus: status,
+        chat: nativeChatRuntime.chat,
+        chatActions: nativeChatActions(),
+        agentUiForms: nativeChatRuntime.agentUiForms,
+        agentUiActions: nativeAgentUiActions(),
         gatewayHttp: gatewayConfig.httpBaseUrl,
         taskCenterItems: currentNativeTaskCenterItems(),
         settingsPane,
@@ -188,6 +218,7 @@ async function bootDesktopWebUi(): Promise<void> {
           },
         },
       });
+      installNativeChatRuntimeActions();
       installNativeFileUploadActions();
       installNativeWorkspaceFileActions();
       installNativeCommandPalette();
@@ -219,6 +250,222 @@ async function bootDesktopWebUi(): Promise<void> {
       true,
     );
   }
+}
+
+async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
+  const runtime = createDesktopNativeWorkbenchRuntime({
+    api: {
+      listSessions: () => gatewayApi.sessions.list(),
+      loadMessages: (sessionKey) => gatewayApi.sessions.messages(sessionKey),
+    },
+    sendSocketMessage: (message) => sendNativeChatSocketMessage(message),
+  });
+  nativeWorkbenchRuntime = runtime;
+  const health = await checkGatewayHealth({ config: gatewayConfig }).catch(() => null);
+  nativeChatWsUrl = health?.tokenReady ? health.wsUrl : gatewayConfig.wsUrl;
+  runtime.setRuntimeMetadata({
+    gatewayHttp: gatewayConfig.httpBaseUrl,
+    webSocket: health?.webSocket.ok ? "Connected" : health?.webSocket.ok === false ? health.webSocket.error : "Pending",
+    tokenReady: health?.tokenReady === true,
+  });
+  ensureNativeChatSocket(runtime);
+  try {
+    await runtime.loadInitialChatState();
+  } catch (error) {
+    console.warn("Tinybot desktop failed to load native chat state", error);
+  }
+  return runtime;
+}
+
+function ensureNativeChatSocket(runtime = nativeWorkbenchRuntime): void {
+  if (!runtime || (nativeChatSocket && nativeChatSocket.readyState <= WebSocket.OPEN)) {
+    return;
+  }
+  nativeChatSocket = openGatewaySocket(resolveGatewayConfig({ ...gatewayConfig, wsUrl: nativeChatWsUrl }), {
+    onOpen: () => {
+      flushGatewaySocketQueue(nativeChatSocket, nativePendingSocketMessages);
+      runtime.setRuntimeMetadata({ webSocket: "Connected" });
+      updateDesktopNativeChat(document, runtime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    },
+    onClose: () => {
+      runtime.setRuntimeMetadata({ webSocket: "Disconnected" });
+      updateDesktopNativeChat(document, runtime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    },
+    onError: () => {
+      runtime.setRuntimeMetadata({ webSocket: "Connection failed" });
+      updateDesktopNativeChat(document, runtime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    },
+    onEvent: (event) => {
+      void handleNativeChatGatewayEvent(event);
+    },
+  });
+}
+
+function sendNativeChatSocketMessage(message: unknown): void {
+  ensureNativeChatSocket();
+  sendGatewaySocketJson(nativeChatSocket, message, nativePendingSocketMessages);
+}
+
+function syncNativeRuntimeMetadata(): void {
+  if (!nativeWorkbenchRuntime) {
+    return;
+  }
+  nativeWorkbenchRuntime.setRuntimeMetadata({
+    provider: nativeSettingsState?.agent.provider || undefined,
+    model: nativeSettingsState?.agent.model || undefined,
+    gatewayHttp: gatewayConfig.httpBaseUrl,
+  });
+  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+}
+
+async function handleNativeChatGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
+  if (!nativeWorkbenchRuntime) {
+    return;
+  }
+  await nativeWorkbenchRuntime.handleGatewayEvent(event);
+  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+  refreshNativeAgentUiForms();
+  publishNativeTaskCenterItems();
+}
+
+function nativeChatActions() {
+  return {
+    onComposerSubmit: (event: { content: string; usePersistentRag: boolean }) => {
+      if (!nativeWorkbenchRuntime) {
+        return;
+      }
+      const result = nativeWorkbenchRuntime.submitComposerMessage(event.content, event.usePersistentRag);
+      if (result.status !== "empty") {
+        const input = document.getElementById("desktop-native-composer-input") as HTMLTextAreaElement | null;
+        if (input) {
+          input.value = "";
+        }
+      }
+      updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    },
+    onInterrupt: () => {
+      if (!nativeWorkbenchRuntime) {
+        return;
+      }
+      nativeWorkbenchRuntime.interruptActiveChat();
+      updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    },
+    onNewChat: () => {
+      if (!nativeWorkbenchRuntime) {
+        return;
+      }
+      nativeWorkbenchRuntime.startNewChat();
+      updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    },
+    onPersistentRagChange: (enabled: boolean) => {
+      if (!nativeWorkbenchRuntime) {
+        return;
+      }
+      nativeWorkbenchRuntime.setPersistentRag(enabled);
+      updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+    },
+  };
+}
+
+function nativeAgentUiActions() {
+  return {
+    onAgentUiFormAction: (event: DesktopAgentUiFormActionEvent) => {
+      void handleNativeAgentUiFormAction(event);
+    },
+  };
+}
+
+function refreshNativeAgentUiForms(): void {
+  if (!nativeWorkbenchRuntime) {
+    return;
+  }
+  updateDesktopAgentUiForms(document, nativeWorkbenchRuntime.agentUiForms, nativeAgentUiActions());
+}
+
+async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEvent): Promise<void> {
+  const form = event.form;
+  if (event.action === "submit") {
+    const values = event.values ?? {};
+    try {
+      validateAgentUiFormValues(form, values);
+      const request = buildAgentUiFormSubmitRequest(form, values);
+      if (!request) {
+        return;
+      }
+      form.values = values;
+      form.errors = {};
+      form.submitting = true;
+      refreshNativeAgentUiForms();
+      await gatewayApi.agentUi.submitForm(form.form_id, request);
+      form.submitting = false;
+      refreshNativeAgentUiForms();
+      publishNativeTaskCenterItems();
+    } catch (error) {
+      form.values = values;
+      form.submitting = false;
+      form.errors = { ...(form.errors ?? {}), form: stringifyError(error) };
+      refreshNativeAgentUiForms();
+      publishNativeTaskCenterItems();
+    }
+    return;
+  }
+
+  try {
+    const request = buildAgentUiFormCancelRequest(form);
+    if (!request) {
+      return;
+    }
+    form.submitting = true;
+    refreshNativeAgentUiForms();
+    await gatewayApi.agentUi.cancelForm(form.form_id, request);
+    form.submitting = false;
+    refreshNativeAgentUiForms();
+    publishNativeTaskCenterItems();
+  } catch (error) {
+    form.submitting = false;
+    form.errors = { ...(form.errors ?? {}), form: stringifyError(error) };
+    refreshNativeAgentUiForms();
+    publishNativeTaskCenterItems();
+  }
+}
+
+function installNativeChatRuntimeActions(): void {
+  if (nativeChatRuntimeActionsInstalled) {
+    return;
+  }
+  nativeChatRuntimeActionsInstalled = true;
+  document.addEventListener("tinybot:desktop-stop-generation", () => {
+    nativeChatActions().onInterrupt();
+  });
+  window.addEventListener("tinybot:desktop-route", (event) => {
+    const target = (event as CustomEvent<{ href?: unknown }>).detail;
+    const href = typeof target?.href === "string" ? target.href : "";
+    if (!href) {
+      return;
+    }
+    const path = new URL(href, window.location.origin).pathname;
+    applyDesktopWorkbenchRouteState(document, path);
+    if (path === "/chat/new") {
+      nativeChatActions().onNewChat();
+      return;
+    }
+    if (path.startsWith("/chat/")) {
+      void selectNativeChatFromRoute(path);
+    }
+  });
+}
+
+async function selectNativeChatFromRoute(path: string): Promise<void> {
+  if (!nativeWorkbenchRuntime) {
+    return;
+  }
+  const chatId = decodeURIComponent(path.replace(/^\/chat\//, ""));
+  const session = nativeWorkbenchRuntime.chat.sessions.find((item) => item.chatId === chatId || item.key === chatId);
+  if (!session) {
+    return;
+  }
+  await nativeWorkbenchRuntime.selectChatSession(session.key, session.chatId);
+  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
 }
 
 async function loadNativeKnowledgePane(
@@ -821,6 +1068,7 @@ function updateNativeSettingsPane(
       void handleNativeSettingsAction(event);
     },
   });
+  syncNativeRuntimeMetadata();
 }
 
 function installNativeCommandPalette(): void {
@@ -888,6 +1136,8 @@ function installNativeFileUploadActions(): void {
     uploadKnowledgeDocument: (form) => gatewayApi.knowledge.uploadDocument(form),
     onKnowledgeTaskUpdated: updateNativeKnowledgeTask,
     uploadSessionTemporaryFile: (sessionKey, form) => gatewayApi.sessions.uploadTemporaryFile(sessionKey, form),
+    listSessionTemporaryFiles: (sessionKey) => gatewayApi.sessions.temporaryFiles(sessionKey),
+    getSessionKey: () => nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
     uploadWorkspaceFile: (path, body) => gatewayApi.workspace.putFile(path, body),
   });
 }
@@ -1061,7 +1311,10 @@ function currentNativeTaskCenterItems() {
     providerRefreshes: Array.from(nativeProviderTaskOperations.values()),
     fileOperations: Array.from(nativeFileTaskOperations.values()),
     gatewayOperations: Array.from(nativeGatewayTaskOperations.values()),
-    approvals: Array.from(nativeApprovalTaskOperations.values()),
+    approvals: [
+      ...Array.from(nativeApprovalTaskOperations.values()),
+      ...(nativeWorkbenchRuntime?.approvalOperations ?? []),
+    ],
   });
 }
 

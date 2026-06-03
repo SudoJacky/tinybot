@@ -145,6 +145,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     sessions: {
       list: () => request("/api/sessions"),
       messages: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/messages`),
+      temporaryFiles: (key: string) => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`),
       uploadTemporaryFile: (key: string, body: FormData) =>
         request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
       delete: (key: string) => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),

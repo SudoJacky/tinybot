@@ -1,4 +1,5 @@
 import { DESKTOP_MENU_COMMANDS, type DesktopMenuCommandId } from "./desktopCommandNavigation";
+import { focusDesktopEntity, type DesktopWorkbenchEntityModule } from "./desktopEntityFocus";
 import { resolveDesktopNavigationTarget } from "./desktopNavigation";
 import type { DesktopCommandEntry } from "./desktopSharedModels";
 import type { NativeChatSession } from "./nativeChat";
@@ -18,12 +19,7 @@ export type DesktopCommandPaletteGroupId =
 
 export type DesktopCommandPaletteDestinationModule =
   | "command"
-  | "sessions"
-  | "workspace"
-  | "knowledge"
-  | "tools"
-  | "skills"
-  | "cowork";
+  | DesktopWorkbenchEntityModule;
 
 export interface DesktopCommandPaletteDestination {
   module: DesktopCommandPaletteDestinationModule;
@@ -144,7 +140,13 @@ export function activateDesktopCommandPaletteResult(
     routePaletteNavigation(result.destination.href, { gatewayOrigin, targetDocument, targetWindow });
   }
 
-  const focused = focusPaletteDestination(targetDocument, result.destination);
+  let focused = false;
+  if (result.destination.module !== "command") {
+    focused = focusDesktopEntity(targetDocument, {
+      module: result.destination.module as DesktopWorkbenchEntityModule,
+      entityId: result.destination.entityId,
+    });
+  }
   targetDocument.dispatchEvent(new CustomEvent("tinybot:desktop-palette-activate", { detail: result.destination }));
   setPaletteFeedback(targetDocument, `${focused ? "Focused" : "Open"} ${result.group}: ${result.title}`);
 }
@@ -285,7 +287,7 @@ function desktopCommandEntryDestination(entry: DesktopCommandEntry): DesktopComm
   }
   if (entry.id.startsWith("sidebar:session:")) {
     const entityId = entry.id.replace(/^sidebar:session:/, "");
-    return { module: "sessions", entityId, href: `/chat/${entityId}` };
+    return { module: "chat", entityId, href: `/chat/${entityId}` };
   }
   return { module: "command" };
 }
@@ -304,7 +306,7 @@ function moduleForDesktopCommandHref(href: string): DesktopCommandPaletteDestina
     return "knowledge";
   }
   if (href.startsWith("/chat")) {
-    return "sessions";
+    return "chat";
   }
   return "command";
 }
@@ -338,38 +340,6 @@ function routePaletteNavigation(
   }
   if (target.kind === "gateway-action") {
     targetWindow.dispatchEvent(new CustomEvent("tinybot:desktop-gateway-action", { detail: target }));
-  }
-}
-
-function focusPaletteDestination(targetDocument: Document, destination: DesktopCommandPaletteDestination): boolean {
-  if (!destination.entityId) {
-    return false;
-  }
-  targetDocument.documentElement.dataset.desktopPaletteFocusModule = destination.module;
-  targetDocument.documentElement.dataset.desktopPaletteFocusEntity = destination.entityId;
-  const target = focusSelectorsFor(destination)
-    .map((selector) => targetDocument.querySelector<HTMLElement>(selector))
-    .find((element): element is HTMLElement => Boolean(element));
-  if (!target) {
-    return false;
-  }
-  target.focus();
-  targetDocument.documentElement.dataset.desktopPaletteFocused = "true";
-  return true;
-}
-
-function focusSelectorsFor(destination: DesktopCommandPaletteDestination): string[] {
-  const entity = destination.entityId ? selectorValue(destination.entityId) : "";
-  const generic = `[data-desktop-entity-module="${selectorValue(destination.module)}"][data-desktop-entity-id="${entity}"]`;
-  switch (destination.module) {
-    case "workspace":
-      return [generic, `[data-desktop-workspace-file="${entity}"]`];
-    case "sessions":
-      return [generic, `[data-session-key="${entity}"]`];
-    case "cowork":
-      return [generic, `[data-cowork-session="${entity}"]`];
-    default:
-      return [generic];
   }
 }
 
@@ -428,7 +398,7 @@ function sessionResults(rows: NativeChatSession[]): DesktopCommandPaletteResult[
     title: session.title || "New session",
     secondary: session.updatedAt || session.chatId || session.key,
     keywords: [session.key, session.chatId],
-    destination: { module: "sessions", entityId: session.key, href: session.chatId ? `/chat/${session.chatId}` : "/chat" },
+    destination: { module: "chat", entityId: session.chatId || session.key, href: session.chatId ? `/chat/${session.chatId}` : "/chat" },
   }));
 }
 
@@ -544,10 +514,6 @@ function setPaletteFeedback(targetDocument: Document, message: string): void {
     routeStatus.textContent = message;
   }
   targetDocument.documentElement.dataset.desktopCommandFeedback = message;
-}
-
-function selectorValue(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function stringifyError(error: unknown): string {

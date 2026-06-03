@@ -30,6 +30,7 @@ export interface DesktopFileUploadActions {
   pickFile: (kind: DesktopUploadKind, options: DesktopUploadPickerOptions) => Promise<DesktopPickedUploadFile | null>;
   uploadKnowledgeDocument: (form: FormData) => Promise<unknown>;
   uploadSessionTemporaryFile: (sessionKey: string, form: FormData) => Promise<unknown>;
+  listSessionTemporaryFiles?: (sessionKey: string) => Promise<unknown>;
   uploadWorkspaceFile?: (path: string, body: DesktopWorkspaceImportBody) => Promise<unknown>;
   getSessionKey?: () => string;
   onKnowledgeUploaded?: () => Promise<void>;
@@ -56,6 +57,16 @@ export interface DesktopWorkspaceImportBody {
 export interface DesktopWorkspaceImportPayload {
   path: string;
   body: DesktopWorkspaceImportBody;
+}
+
+export interface DesktopSessionTemporaryFileRow {
+  id: string;
+  name: string;
+  status: string;
+  sizeBytes?: number;
+  mimeType?: string;
+  updatedAt?: string;
+  actions: string[];
 }
 
 export interface DesktopDroppedFileHandlerOptions {
@@ -170,6 +181,66 @@ export async function buildDesktopWorkspaceImport(file: File): Promise<DesktopWo
   };
 }
 
+export function normalizeDesktopSessionTemporaryFiles(payload: unknown): DesktopSessionTemporaryFileRow[] {
+  return temporaryFileItems(payload).map((item, index) => {
+    const record = asRecord(item);
+    const sourceName = stringField(record, ["name", "filename", "file_name", "path", "id"]) || `session-file-${index + 1}`;
+    const size = numberField(record, ["size_bytes", "size", "bytes"]);
+    return {
+      id: stringField(record, ["id", "file_id", "path", "name", "filename"]) || `${index}:${sourceName}`,
+      name: fileNameFromPath(sourceName) || sourceName,
+      status: stringField(record, ["status", "indexing_status", "state"]) || "available",
+      sizeBytes: typeof size === "number" ? size : undefined,
+      mimeType: stringField(record, ["mime_type", "content_type", "type"]) || undefined,
+      updatedAt: stringField(record, ["updated_at", "created_at", "uploaded_at"]) || undefined,
+      actions: stringArrayField(record, "actions"),
+    };
+  });
+}
+
+export function renderDesktopSessionTemporaryFiles(
+  targetDocument: Document | undefined,
+  sessionKey: string,
+  payload: unknown,
+): DesktopSessionTemporaryFileRow[] {
+  const rows = normalizeDesktopSessionTemporaryFiles(payload);
+  const ownerDocument = targetDocument ?? document;
+  const container = ownerDocument.querySelector<HTMLElement>("#desktop-session-file-list");
+  if (!container) {
+    return rows;
+  }
+  container.replaceChildren();
+  container.dataset.sessionKey = sessionKey;
+  container.dataset.fileCount = String(rows.length);
+  if (!sessionKey) {
+    container.textContent = "Select a chat session to view temporary files.";
+    return rows;
+  }
+  if (!rows.length) {
+    container.textContent = "No temporary files attached to this session.";
+    return rows;
+  }
+
+  const list = ownerDocument.createElement("ul");
+  list.className = "desktop-session-temporary-file-list";
+  for (const row of rows) {
+    const item = ownerDocument.createElement("li");
+    item.className = "desktop-session-temporary-file-row";
+    item.dataset.sessionTemporaryFileId = row.id;
+    const details = [
+      row.status,
+      row.mimeType,
+      typeof row.sizeBytes === "number" ? formatFileSize(row.sizeBytes) : "",
+      row.updatedAt,
+    ].filter(Boolean);
+    const actions = row.actions.length ? row.actions.join(", ") : "No cleanup action exposed";
+    item.textContent = `${row.name} - ${details.join(" / ")} - ${actions}`;
+    list.append(item);
+  }
+  container.append(list);
+  return rows;
+}
+
 export async function handleDesktopDroppedFiles({
   targetDocument,
   targetKind,
@@ -225,6 +296,7 @@ export function installDesktopFileUploadActions({
   pickFile,
   uploadKnowledgeDocument,
   uploadSessionTemporaryFile,
+  listSessionTemporaryFiles,
   uploadWorkspaceFile,
   getSessionKey,
   onKnowledgeUploaded,
@@ -232,6 +304,21 @@ export function installDesktopFileUploadActions({
   onSessionFileUploaded,
   onWorkspaceFileImported,
 }: DesktopFileUploadActions): void {
+  const refreshSessionTemporaryFiles = async (sessionKey: string): Promise<void> => {
+    const cleanSessionKey = sessionKey.trim();
+    if (!listSessionTemporaryFiles || !cleanSessionKey) {
+      return;
+    }
+    setUploadStatus(targetDocument, `Refreshing temporary files for ${cleanSessionKey}.`);
+    const payload = await listSessionTemporaryFiles(cleanSessionKey);
+    const rows = renderDesktopSessionTemporaryFiles(targetDocument, cleanSessionKey, payload);
+    setUploadStatus(targetDocument, `Loaded ${plural(rows.length, "temporary file")} for ${cleanSessionKey}.`);
+  };
+  const notifySessionFileUploaded = async (sessionKey: string): Promise<void> => {
+    await onSessionFileUploaded?.(sessionKey);
+    await refreshSessionTemporaryFiles(sessionKey);
+  };
+
   targetDocument.querySelector<HTMLButtonElement>("#desktop-knowledge-upload")?.addEventListener("click", () => {
     void runKnowledgeUpload({ targetDocument, pickFile, uploadKnowledgeDocument, onKnowledgeUploaded, onKnowledgeTaskUpdated });
   });
@@ -248,9 +335,23 @@ export function installDesktopFileUploadActions({
       sessionKey,
       pickFile,
       uploadSessionTemporaryFile,
-      onSessionFileUploaded,
+      onSessionFileUploaded: notifySessionFileUploaded,
     });
   });
+
+  targetDocument.addEventListener("tinybot:desktop-session-key-changed", (event) => {
+    const sessionKey = ((event as CustomEvent<{ sessionKey?: string }>).detail?.sessionKey ?? "").trim();
+    void refreshSessionTemporaryFiles(sessionKey).catch((error) => {
+      setUploadStatus(targetDocument, `Temporary file refresh failed: ${stringifyError(error)}`);
+    });
+  });
+
+  const initialSessionKey = (getSessionKey?.() || targetDocument.querySelector<HTMLInputElement>("#desktop-session-upload-key")?.value || "").trim();
+  if (initialSessionKey) {
+    void refreshSessionTemporaryFiles(initialSessionKey).catch((error) => {
+      setUploadStatus(targetDocument, `Temporary file refresh failed: ${stringifyError(error)}`);
+    });
+  }
 
   if (uploadWorkspaceFile) {
     installDesktopFileDropActions({
@@ -261,7 +362,7 @@ export function installDesktopFileUploadActions({
       getSessionKey,
       onKnowledgeUploaded,
       onKnowledgeTaskUpdated,
-      onSessionFileUploaded,
+      onSessionFileUploaded: notifySessionFileUploaded,
       onWorkspaceFileImported,
     });
   }
@@ -439,6 +540,60 @@ function fileNameFromPath(path = ""): string {
 
 function fileExtension(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function temporaryFileItems(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  const record = asRecord(payload);
+  for (const key of ["files", "items", "temporary_files", "temporaryFiles"]) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+  return [];
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function stringField(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function numberField(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function stringArrayField(record: Record<string, unknown>, key: string): string[] {
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim());
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const kib = bytes / 1024;
+  return `${kib.toFixed(kib >= 10 ? 0 : 1)} KiB`;
 }
 
 function plural(count: number, unit: string): string {

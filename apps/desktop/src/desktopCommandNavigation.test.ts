@@ -245,4 +245,30 @@ describe("desktop command navigation", () => {
     expect(targetDocument.dispatched).toContain("tinybot:open-shortcut-help");
     expect(targetDocument.dispatched).toContain("tinybot:open-page-help");
   });
+
+  test("dispatches stop-generation action when a response is active", () => {
+    const targetDocument = new FakeCommandDocument();
+    targetDocument.documentElement.dataset.desktopActiveGeneration = "true";
+    const targetWindow = {
+      location: { origin: "http://localhost:1420" },
+      history: { pushState: () => undefined },
+      dispatchEvent: () => true,
+    };
+    installDesktopMenuCommandRouting({
+      gatewayOrigin: "http://127.0.0.1:18790",
+      listenToMenuCommand: () => undefined,
+      targetDocument: targetDocument as unknown as Document,
+      targetWindow: targetWindow as unknown as Window,
+    });
+
+    targetDocument.dispatchEvent({
+      type: "keydown",
+      key: ".",
+      ctrlKey: true,
+      preventDefault: () => undefined,
+    } as unknown as Event);
+
+    expect(targetDocument.dispatched).toContain("tinybot:desktop-stop-generation");
+    expect(targetDocument.status.textContent).toBe("Stop generation requested");
+  });
 });

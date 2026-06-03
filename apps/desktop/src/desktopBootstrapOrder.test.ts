@@ -21,4 +21,20 @@ describe("desktop root WebUI bootstrap order", () => {
     expect(webUiEntryPosition).toBeGreaterThan(shellPosition);
     expect(webUiEntryPosition).toBeLessThan(rootAdapterPosition);
   });
+
+  test("loads native chat runtime before installing the native workbench shell", () => {
+    const chatRuntimePosition = callPosition("const nativeChatRuntime = await loadNativeChatRuntime();");
+    const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
+    const chatOptionPosition = callPosition("chat: nativeChatRuntime.chat,");
+
+    expect(chatRuntimePosition).toBeLessThan(nativeShellPosition);
+    expect(chatOptionPosition).toBeGreaterThan(nativeShellPosition);
+  });
+
+  test("installs native chat runtime actions after the native shell exists", () => {
+    const nativeShellPosition = callPosition("installDesktopWorkbenchShell({");
+    const actionInstallPosition = callPosition("installNativeChatRuntimeActions();");
+
+    expect(actionInstallPosition).toBeGreaterThan(nativeShellPosition);
+  });
 });

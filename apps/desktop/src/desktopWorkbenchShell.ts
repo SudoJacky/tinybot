@@ -1,3 +1,4 @@
+import { isAgentUiFormSubmittable, type AgentUiForm, type AgentUiFormField } from "./agentUiEvents";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 import {
   buildDesktopGatewayRuntimeActions,
@@ -48,6 +49,7 @@ import {
   type DesktopSidebarItem,
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
+import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 
 export interface DesktopTaskCenterActionEvent {
   action: DesktopTaskActionId;
@@ -78,6 +80,28 @@ export interface DesktopWorkLensActionEvent {
 interface DesktopWorkLensActionOptions {
   onWorkLensAction?: (event: DesktopWorkLensActionEvent) => void;
   copyText?: (text: string) => void | Promise<void>;
+}
+
+export interface DesktopNativeChatComposerSubmitEvent {
+  content: string;
+  usePersistentRag: boolean;
+}
+
+interface DesktopNativeChatActionOptions {
+  onComposerSubmit?: (event: DesktopNativeChatComposerSubmitEvent) => void;
+  onInterrupt?: () => void;
+  onNewChat?: () => void;
+  onPersistentRagChange?: (enabled: boolean) => void;
+}
+
+export interface DesktopAgentUiFormActionEvent {
+  action: "submit" | "cancel";
+  form: AgentUiForm;
+  values?: Record<string, unknown>;
+}
+
+interface DesktopAgentUiFormActionOptions {
+  onAgentUiFormAction?: (event: DesktopAgentUiFormActionEvent) => void;
 }
 
 export type DesktopSettingsActionId = "save" | "discoverModels";
@@ -161,6 +185,10 @@ interface InstallDesktopWorkbenchShellOptions {
   targetDocument?: Document;
   layout?: WorkbenchLayoutState;
   runtimeStatus?: GatewayRuntimeStatus | null;
+  chat?: DesktopNativeChatModel | null;
+  chatActions?: DesktopNativeChatActionOptions;
+  agentUiForms?: AgentUiForm[];
+  agentUiActions?: DesktopAgentUiFormActionOptions;
   taskCenterItems?: DesktopTaskCenterItem[];
   gatewayHttp: string;
   settingsPane?: DesktopSettingsPaneModel | null;
@@ -187,6 +215,25 @@ export interface DesktopCoworkPaneModel {
   blueprintDiagnostics?: string;
 }
 
+export interface DesktopNativeChatModel {
+  sessions: NativeChatSession[];
+  activeSessionKey: string;
+  activeChatId: string;
+  messages: NativeChatMessage[];
+  status?: string;
+  responding?: boolean;
+  usePersistentRag?: boolean;
+  composerState?: "idle" | "queued" | "sending";
+  runtime?: {
+    provider?: string;
+    model?: string;
+    webSocket?: string;
+    tokenReady?: boolean;
+    tokenUsage?: string;
+    gatewayHttp?: string;
+  };
+}
+
 const SHELL_ID = "desktop-workbench-shell";
 const STYLE_ID = "desktop-workbench-shell-style";
 const WORK_LENS_INLINE_ID = "desktop-work-lens-inline";
@@ -200,6 +247,10 @@ export function installDesktopWorkbenchShell({
   targetDocument = document,
   layout = loadWorkbenchLayout(),
   runtimeStatus = null,
+  chat = null,
+  chatActions = {},
+  agentUiForms = [],
+  agentUiActions = {},
   taskCenterItems = [],
   gatewayHttp,
   settingsPane = null,
@@ -220,7 +271,10 @@ export function installDesktopWorkbenchShell({
   installDesktopDesignTokens(targetDocument);
   ensureDesktopWorkbenchShellStyle(targetDocument);
   targetDocument.body.classList.add("desktop-native-workbench");
-  targetDocument.body.replaceChildren(createWorkbenchShell(targetDocument, layout, runtimeStatus, gatewayHttp, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, runChainItems, selectedRunChainItemKey, workLens, workLensActions, taskActions, gatewayActions));
+  targetDocument.body.replaceChildren(createWorkbenchShell(targetDocument, layout, runtimeStatus, chat, chatActions, agentUiForms, agentUiActions, gatewayHttp, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, runChainItems, selectedRunChainItemKey, workLens, workLensActions, taskActions, gatewayActions));
+  if (chat) {
+    syncNativeChatDocumentState(targetDocument, chat);
+  }
   installDesktopHelpEventRouting(targetDocument);
 }
 
@@ -291,6 +345,19 @@ export function updateDesktopToolsSkillsPane(
   pane.replaceChildren(...Array.from(next.children));
 }
 
+export function updateDesktopAgentUiForms(
+  targetDocument: Document = document,
+  forms: AgentUiForm[],
+  agentUiActions: DesktopAgentUiFormActionOptions = {},
+): void {
+  const surface = targetDocument.querySelector<HTMLElement>(".desktop-agent-ui-forms");
+  if (!surface) {
+    return;
+  }
+  const next = createAgentUiFormsSurface(targetDocument, forms, agentUiActions);
+  surface.replaceChildren(...Array.from(next.children));
+}
+
 export function updateDesktopCoworkPane(
   targetDocument: Document = document,
   coworkPane: DesktopCoworkPaneModel,
@@ -304,10 +371,74 @@ export function updateDesktopCoworkPane(
   pane.replaceChildren(...Array.from(next.children));
 }
 
+export function updateDesktopNativeChat(
+  targetDocument: Document = document,
+  chat: DesktopNativeChatModel,
+  gatewayHttp = "",
+  chatActions: DesktopNativeChatActionOptions = {},
+): void {
+  syncNativeChatDocumentState(targetDocument, chat);
+  const header = targetDocument.querySelector<HTMLElement>(".desktop-chat-header");
+  if (header) {
+    const next = createChatHeader(targetDocument, chat);
+    header.replaceChildren(...Array.from(next.children));
+  }
+
+  const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
+  if (thread) {
+    const next = createConversationThread(targetDocument, chat);
+    thread.replaceChildren(...Array.from(next.children));
+  }
+
+  const workspaceList = targetDocument.querySelector<HTMLElement>(".desktop-workspace-list");
+  if (workspaceList) {
+    const next = createSidebarWorkspaceList(targetDocument, chat).querySelector<HTMLElement>(".desktop-workspace-list");
+    workspaceList.replaceChildren(...Array.from(next?.children ?? []));
+  }
+
+  const recentChats = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
+  if (recentChats) {
+    const next = createSidebarRecentChats(targetDocument, chat).querySelector<HTMLElement>(".desktop-recent-chat-list");
+    recentChats.replaceChildren(...Array.from(next?.children ?? []));
+  }
+
+  const composer = targetDocument.getElementById("desktop-native-composer");
+  if (composer) {
+    const http =
+      gatewayHttp ||
+      targetDocument
+        .querySelector<HTMLElement>(".desktop-native-composer-chip")
+        ?.textContent
+        ?.replace(/^Gateway ready:\s*/, "") ||
+      "";
+    const next = createNativeComposerSurface(targetDocument, http, chat, chatActions);
+    composer.setAttribute("data-active-session-key", chat.activeSessionKey);
+    composer.setAttribute("data-desktop-composer-responding", String(chat.responding === true));
+    composer.setAttribute("data-desktop-composer-rag", String(chat.usePersistentRag !== false));
+    composer.setAttribute("data-desktop-composer-state", nativeComposerState(chat));
+    composer.replaceChildren(...Array.from(next.children));
+  }
+  syncSessionFileUploadKey(targetDocument, chat.activeSessionKey);
+}
+
+function syncNativeChatDocumentState(targetDocument: Document, chat: DesktopNativeChatModel): void {
+  const documentElement = (targetDocument as Document & { documentElement?: HTMLElement }).documentElement;
+  if (!documentElement) {
+    return;
+  }
+  documentElement.dataset.desktopActiveGeneration = String(chat.responding === true);
+  documentElement.dataset.desktopActiveChatId = chat.activeChatId;
+  documentElement.dataset.desktopActiveSessionKey = chat.activeSessionKey;
+}
+
 function createWorkbenchShell(
   targetDocument: Document,
   layout: WorkbenchLayoutState,
   runtimeStatus: GatewayRuntimeStatus | null,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+  agentUiForms: AgentUiForm[],
+  agentUiActions: DesktopAgentUiFormActionOptions,
   gatewayHttp: string,
   taskCenterItems: DesktopTaskCenterItem[],
   settingsPane: DesktopSettingsPaneModel | null,
@@ -337,8 +468,8 @@ function createWorkbenchShell(
 
   shell.append(
     createActivityRail(targetDocument),
-    createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument)),
-    createMainRegion(targetDocument, gatewayHttp, layout, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
+    createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument, chat)),
+    createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
     createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions)),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
@@ -391,7 +522,7 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   return rail;
 }
 
-function createSidebar(targetDocument: Document): HTMLElement {
+function createSidebar(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
   const model = buildNativeWorkbenchSidebarModel();
   const workspaceGroup = model.groups.find((group) => group.id === "workspace");
   const footerGroup = model.groups.find((group) => group.id === "footer");
@@ -399,8 +530,8 @@ function createSidebar(targetDocument: Document): HTMLElement {
   sidebar.className = "desktop-sidebar-content";
   sidebar.append(
     createSidebarActions(targetDocument),
-    createSidebarWorkspaceList(targetDocument),
-    createSidebarRecentChats(targetDocument),
+    createSidebarWorkspaceList(targetDocument, chat),
+    createSidebarRecentChats(targetDocument, chat),
     createSharedSidebarLinkSection(targetDocument, workspaceGroup),
     createSharedSidebarCommandSection(targetDocument, footerGroup),
   );
@@ -428,7 +559,7 @@ function createSidebarActions(targetDocument: Document): HTMLElement {
   return section;
 }
 
-function createSidebarWorkspaceList(targetDocument: Document): HTMLElement {
+function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-sidebar-list-section";
   section.append(createSidebarSectionHeading(targetDocument, "Workspaces", "+"));
@@ -436,7 +567,7 @@ function createSidebarWorkspaceList(targetDocument: Document): HTMLElement {
   const list = targetDocument.createElement("div");
   list.className = "desktop-workspace-list";
   list.setAttribute("role", "list");
-  for (const [name, meta, active] of [
+  const rows = chat ? [["tinybot", chat.activeSessionKey ? "Active session" : "Ready", true]] as const : [
     ["tinybot", "1m ago", true],
     ["ai-rvc", "2h ago", false],
     ["ai-light", "Yesterday", false],
@@ -445,15 +576,16 @@ function createSidebarWorkspaceList(targetDocument: Document): HTMLElement {
     ["genie", "4d ago", false],
     ["docs", "May 26", false],
     ["archive", "May 20", false],
-  ] as const) {
-    list.append(createSidebarRow(targetDocument, name, meta, active, "folder"));
+  ] as const;
+  for (const [name, meta, active] of rows) {
+    list.append(createSidebarRow(targetDocument, name, meta, active, "folder", "workspace", name));
   }
 
   section.append(list);
   return section;
 }
 
-function createSidebarRecentChats(targetDocument: Document): HTMLElement {
+function createSidebarRecentChats(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-sidebar-list-section";
   section.append(createSidebarSectionHeading(targetDocument, "Recent chats"));
@@ -461,6 +593,26 @@ function createSidebarRecentChats(targetDocument: Document): HTMLElement {
   const list = targetDocument.createElement("div");
   list.className = "desktop-recent-chat-list";
   list.setAttribute("role", "list");
+  if (chat) {
+    const sessions = chat.sessions.length ? chat.sessions : [];
+    for (const session of sessions) {
+      list.append(createSidebarRow(
+        targetDocument,
+        session.title || "New session",
+        session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId,
+        session.key === chat.activeSessionKey,
+        "chat",
+        "chat",
+        session.chatId || session.key,
+      ));
+    }
+    if (!sessions.length) {
+      list.append(createText(targetDocument, "p", "No recent chats."));
+    }
+    section.append(list);
+    return section;
+  }
+
   for (const [name, meta] of [
     ["Design native workbench", "Just now"],
     ["修复会话加载问题", "2h ago"],
@@ -498,13 +650,28 @@ function createSidebarRow(
   meta: string,
   active: boolean,
   kind: "folder" | "chat",
+  entityModule?: string,
+  entityId?: string,
 ): HTMLElement {
   const row = targetDocument.createElement("a");
   row.className = "desktop-sidebar-row";
-  row.setAttribute("href", kind === "folder" ? "/workspace" : "/chat");
+  row.setAttribute(
+    "href",
+    kind === "folder"
+      ? "/workspace"
+      : entityId
+        ? `/chat/${encodeURIComponent(entityId)}`
+        : "/chat",
+  );
   row.setAttribute("role", "listitem");
   row.setAttribute("data-active", String(active));
   row.setAttribute("data-sidebar-row-kind", kind);
+  if (entityModule) {
+    row.setAttribute("data-desktop-entity-module", entityModule);
+  }
+  if (entityId) {
+    row.setAttribute("data-desktop-entity-id", entityId);
+  }
   const label = targetDocument.createElement("span");
   label.className = "desktop-sidebar-row-label";
   label.textContent = title;
@@ -519,6 +686,10 @@ function createMainRegion(
   targetDocument: Document,
   gatewayHttp: string,
   layout: WorkbenchLayoutState,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+  agentUiForms: AgentUiForm[],
+  agentUiActions: DesktopAgentUiFormActionOptions,
   taskCenterItems: DesktopTaskCenterItem[],
   settingsPane: DesktopSettingsPaneModel | null,
   settingsActions: DesktopSettingsActionOptions,
@@ -540,8 +711,8 @@ function createMainRegion(
   const workbench = targetDocument.createElement("div");
   workbench.className = "desktop-empty-session desktop-chat-workbench";
   workbench.append(
-    createChatHeader(targetDocument),
-    createConversationThread(targetDocument),
+    createChatHeader(targetDocument, chat),
+    createConversationThread(targetDocument, chat),
     createText(targetDocument, "span", "Ready for a new session"),
     createText(targetDocument, "span", "Start from chat, inspect workspace, or check gateway status."),
     createQuickActions(targetDocument),
@@ -554,8 +725,9 @@ function createMainRegion(
   utilities.className = "desktop-utility-surfaces";
   utilities.append(
     createCommandPalette(targetDocument),
-    createFileActions(targetDocument),
+    createFileActions(targetDocument, chat),
     createDesktopHelpSurface(targetDocument),
+    createAgentUiFormsSurface(targetDocument, agentUiForms, agentUiActions),
     createWorkspaceFilesSurface(targetDocument),
     ...(settingsPane ? [createSettingsProvidersPane(targetDocument, settingsPane, settingsActions)] : []),
     ...(knowledgePane ? [createKnowledgePane(targetDocument, knowledgePane, knowledgeActions, moduleWorkItems(taskCenterItems, "knowledge"))] : []),
@@ -568,28 +740,53 @@ function createMainRegion(
   status.setAttribute("data-desktop-route-status", "");
   status.textContent = `No workspace file selected · Gateway ${gatewayHttp}`;
 
-  main.append(workbench, createNativeComposerSurface(targetDocument, gatewayHttp), utilities, status);
+  main.append(workbench, createNativeComposerSurface(targetDocument, gatewayHttp, chat, chatActions), utilities, status);
   return main;
 }
 
-function createChatHeader(targetDocument: Document): HTMLElement {
+function createChatHeader(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
   const header = targetDocument.createElement("header");
   header.className = "desktop-chat-header";
   const title = targetDocument.createElement("h1");
-  title.textContent = "Design native workbench";
+  title.textContent = activeChatTitle(chat);
   const menu = targetDocument.createElement("button");
   menu.type = "button";
   menu.className = "desktop-chat-menu";
   menu.setAttribute("aria-label", "More chat actions");
   menu.textContent = "...";
-  header.append(title, menu);
+  header.append(title);
+  if (chat?.status) {
+    const status = createText(targetDocument, "span", chat.status);
+    status.className = "desktop-chat-runtime-status";
+    header.append(status);
+  }
+  header.append(menu);
   return header;
 }
 
-function createConversationThread(targetDocument: Document): HTMLElement {
+function createConversationThread(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
   const thread = targetDocument.createElement("section");
   thread.className = "desktop-conversation-thread";
   thread.setAttribute("aria-label", "Conversation");
+  if (chat) {
+    if (!chat.activeSessionKey) {
+      thread.append(createText(targetDocument, "p", "No live session selected."));
+      return thread;
+    }
+    if (!chat.messages.length) {
+      thread.append(createText(targetDocument, "p", "No messages in this session."));
+      return thread;
+    }
+    thread.append(...chat.messages.map((message) => createConversationMessage(targetDocument, {
+      author: message.role === "user" ? "You" : "Tinybot",
+      time: formatCompactTime(message.timestamp),
+      avatar: message.role === "user" ? "T" : "TB",
+      tone: message.role === "user" ? "user" : "assistant",
+      body: [message.reasoningContent, message.content].filter(Boolean),
+      references: message.references,
+    })));
+    return thread;
+  }
   thread.append(
     createConversationMessage(targetDocument, {
       author: "You",
@@ -624,6 +821,7 @@ function createConversationMessage(
     avatar: string;
     tone: "user" | "assistant";
     body: string[];
+    references?: NativeChatMessage["references"];
     attachment?: string;
   },
 ): HTMLElement {
@@ -648,6 +846,11 @@ function createConversationMessage(
     }
     content.append(node);
   }
+  for (const reference of options.references ?? []) {
+    const node = createText(targetDocument, "p", `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`);
+    node.className = "desktop-conversation-reference";
+    content.append(node);
+  }
   if (options.attachment) {
     const attachment = targetDocument.createElement("div");
     attachment.className = "desktop-conversation-attachment";
@@ -658,11 +861,22 @@ function createConversationMessage(
   return article;
 }
 
-function createNativeComposerSurface(targetDocument: Document, gatewayHttp: string): HTMLElement {
+function createNativeComposerSurface(
+  targetDocument: Document,
+  gatewayHttp: string,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions = {},
+): HTMLElement {
   const composer = targetDocument.createElement("form");
   composer.id = "desktop-native-composer";
   composer.className = "desktop-native-composer";
   composer.setAttribute("aria-label", "Native desktop composer");
+  if (chat?.activeSessionKey) {
+    composer.setAttribute("data-active-session-key", chat.activeSessionKey);
+  }
+  composer.setAttribute("data-desktop-composer-responding", String(chat?.responding === true));
+  composer.setAttribute("data-desktop-composer-rag", String(chat?.usePersistentRag !== false));
+  composer.setAttribute("data-desktop-composer-state", nativeComposerState(chat));
 
   const attach = targetDocument.createElement("button");
   attach.id = "desktop-native-composer-attach";
@@ -684,7 +898,28 @@ function createNativeComposerSurface(targetDocument: Document, gatewayHttp: stri
   send.className = "desktop-native-composer-send";
   send.setAttribute("data-desktop-composer-action", "send");
   send.setAttribute("aria-label", "Send message");
+  if (nativeComposerState(chat) !== "idle") {
+    send.setAttribute("disabled", "");
+  }
   send.textContent = "↑";
+  send.addEventListener("click", () => {
+    chatActions.onComposerSubmit?.({
+      content: input.value,
+      usePersistentRag: chat?.usePersistentRag !== false,
+    });
+  });
+
+  const stop = targetDocument.createElement("button");
+  stop.id = "desktop-native-composer-stop";
+  stop.type = "button";
+  stop.className = "desktop-native-composer-action";
+  stop.setAttribute("data-desktop-composer-action", "stop");
+  stop.setAttribute("aria-label", "Stop generation");
+  stop.textContent = "Stop";
+  stop.hidden = chat?.responding !== true;
+  stop.addEventListener("click", () => {
+    chatActions.onInterrupt?.();
+  });
 
   const microphone = targetDocument.createElement("button");
   microphone.id = "desktop-native-composer-microphone";
@@ -698,20 +933,58 @@ function createNativeComposerSurface(targetDocument: Document, gatewayHttp: stri
   runtime.id = "desktop-native-composer-runtime";
   runtime.className = "desktop-native-composer-runtime";
   runtime.append(
-    createComposerModelControl(targetDocument),
-    createComposerChip(targetDocument, "Gateway ready", gatewayHttp),
+    createComposerModelControl(targetDocument, chat),
+    createComposerChip(targetDocument, "Provider", chat?.runtime?.provider || "-"),
+    createComposerChip(targetDocument, "Session", chat?.activeChatId || "No active session"),
+    createPersistentRagToggle(targetDocument, chat, chatActions),
+    createComposerChip(targetDocument, "Generation", chat?.responding ? "Running" : "Idle"),
+    createComposerChip(targetDocument, "Composer", nativeComposerStateLabel(nativeComposerState(chat))),
+    createComposerChip(targetDocument, "WebSocket", chat?.runtime?.webSocket || "-"),
+    createComposerChip(targetDocument, "Token", chat?.runtime?.tokenReady ? "Ready" : "Pending"),
+    createComposerChip(targetDocument, "Token usage", chat?.runtime?.tokenUsage || "-"),
+    createComposerChip(targetDocument, "Gateway", chat?.runtime?.gatewayHttp || gatewayHttp),
   );
 
-  composer.append(attach, input, runtime, microphone, send);
+  composer.append(attach, input, runtime, microphone, stop, send);
   return composer;
 }
 
-function createComposerModelControl(targetDocument: Document): HTMLElement {
+function activeChatTitle(chat: DesktopNativeChatModel | null): string {
+  if (!chat) {
+    return "Design native workbench";
+  }
+  return chat.sessions.find((session) => session.key === chat.activeSessionKey)?.title || "New chat";
+}
+
+function nativeComposerState(chat: DesktopNativeChatModel | null): NonNullable<DesktopNativeChatModel["composerState"]> {
+  return chat?.composerState ?? (chat?.responding ? "sending" : "idle");
+}
+
+function nativeComposerStateLabel(state: NonNullable<DesktopNativeChatModel["composerState"]>): string {
+  switch (state) {
+    case "queued":
+      return "Queued";
+    case "sending":
+      return "Sending";
+    case "idle":
+      return "Ready";
+  }
+}
+
+function formatCompactTime(value: string): string {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString();
+}
+
+function createComposerModelControl(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
   const button = targetDocument.createElement("button");
   button.type = "button";
   button.className = "desktop-native-composer-model";
   button.setAttribute("aria-label", "Select model");
-  button.textContent = "Tinybot Pro";
+  button.textContent = chat?.runtime?.model || "Tinybot Pro";
   return button;
 }
 
@@ -720,6 +993,25 @@ function createComposerChip(targetDocument: Document, label: string, value: stri
   chip.className = "desktop-native-composer-chip";
   chip.textContent = `${label}: ${value}`;
   return chip;
+}
+
+function createPersistentRagToggle(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): HTMLElement {
+  const enabled = chat?.usePersistentRag !== false;
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-native-composer-chip desktop-native-composer-rag-toggle";
+  button.setAttribute("data-desktop-composer-action", "rag-toggle");
+  button.setAttribute("aria-label", "Toggle persistent RAG");
+  button.setAttribute("aria-pressed", String(enabled));
+  button.textContent = `RAG: ${enabled ? "On" : "Off"}`;
+  button.addEventListener("click", () => {
+    chatActions.onPersistentRagChange?.(!enabled);
+  });
+  return button;
 }
 
 function createWorkLensInlineHost(
@@ -765,6 +1057,172 @@ function createModuleWorkSection(targetDocument: Document, title: string, items:
   return section;
 }
 
+function createAgentUiFormsSurface(
+  targetDocument: Document,
+  forms: AgentUiForm[],
+  agentUiActions: DesktopAgentUiFormActionOptions = {},
+): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-workbench-section desktop-agent-ui-forms";
+  section.setAttribute("aria-label", "Agent UI forms");
+  section.append(createText(targetDocument, "h2", "Agent UI forms"));
+
+  if (!forms.length) {
+    section.append(createText(targetDocument, "p", "No pending Agent UI forms."));
+    return section;
+  }
+
+  for (const form of forms) {
+    section.append(createAgentUiFormCard(targetDocument, form, agentUiActions));
+  }
+  return section;
+}
+
+function createAgentUiFormCard(
+  targetDocument: Document,
+  form: AgentUiForm,
+  agentUiActions: DesktopAgentUiFormActionOptions,
+): HTMLElement {
+  const card = targetDocument.createElement("article");
+  card.className = "desktop-agent-ui-form-card";
+  card.setAttribute("data-agent-ui-form-id", form.form_id);
+  card.setAttribute("data-agent-ui-form-status", form.status ?? "pending");
+  setDesktopEntityHook(card, "approvals", form.form_id);
+
+  const title = createText(targetDocument, "h2", form.title || form.form_id);
+  const status = createText(targetDocument, "p", form.status ?? "pending");
+  status.className = "desktop-agent-ui-form-status";
+  card.append(title, status);
+  if (form.description) {
+    card.append(createText(targetDocument, "p", form.description));
+  }
+
+  const formElement = targetDocument.createElement("form");
+  formElement.className = "desktop-agent-ui-form";
+  formElement.setAttribute("data-agent-ui-form-id", form.form_id);
+  for (const field of form.fields) {
+    formElement.append(createAgentUiFormField(targetDocument, form, field));
+  }
+
+  if (form.errors?.form) {
+    const error = createText(targetDocument, "p", form.errors.form);
+    error.className = "desktop-agent-ui-form-error";
+    formElement.append(error);
+  }
+
+  if (isAgentUiFormSubmittable(form)) {
+    const actions = targetDocument.createElement("div");
+    actions.className = "desktop-agent-ui-form-actions";
+    const submit = targetDocument.createElement("button");
+    submit.type = "button";
+    submit.setAttribute("data-agent-ui-form-action", "submit");
+    submit.textContent = form.submit_label || "Submit";
+    submit.addEventListener("click", () => {
+      agentUiActions.onAgentUiFormAction?.({
+        action: "submit",
+        form,
+        values: collectAgentUiFormValues(form, formElement),
+      });
+    });
+    const cancel = targetDocument.createElement("button");
+    cancel.type = "button";
+    cancel.setAttribute("data-agent-ui-form-action", "cancel");
+    cancel.textContent = form.cancel_label || "Cancel";
+    cancel.addEventListener("click", () => {
+      agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+    });
+    actions.append(submit, cancel);
+    formElement.append(actions);
+  }
+
+  card.append(formElement);
+  return card;
+}
+
+function createAgentUiFormField(targetDocument: Document, form: AgentUiForm, field: AgentUiFormField): HTMLElement {
+  const wrapper = targetDocument.createElement("label");
+  wrapper.className = "desktop-agent-ui-form-field";
+  wrapper.append(createText(targetDocument, "span", field.label || field.name));
+  const control = createAgentUiFieldControl(targetDocument, form, field);
+  wrapper.append(control);
+  if (field.help) {
+    wrapper.append(createText(targetDocument, "span", field.help));
+  }
+  const error = form.errors?.[field.name];
+  if (error) {
+    const errorNode = createText(targetDocument, "span", error);
+    errorNode.className = "desktop-agent-ui-form-error";
+    wrapper.append(errorNode);
+  }
+  return wrapper;
+}
+
+function createAgentUiFieldControl(targetDocument: Document, form: AgentUiForm, field: AgentUiFormField): HTMLElement {
+  const value = form.values?.[field.name] ?? form.initial_values?.[field.name] ?? field.default ?? "";
+  const disabled = !isAgentUiFormSubmittable(form);
+  if (field.type === "textarea") {
+    const textarea = targetDocument.createElement("textarea");
+    textarea.setAttribute("data-agent-ui-form-field", field.name);
+    textarea.setAttribute("name", field.name);
+    textarea.value = String(value ?? "");
+    if (disabled) {
+      textarea.setAttribute("disabled", "");
+    }
+    return textarea;
+  }
+  if (field.type === "select" || field.type === "radio") {
+    const select = targetDocument.createElement("select");
+    select.setAttribute("data-agent-ui-form-field", field.name);
+    select.setAttribute("name", field.name);
+    for (const option of field.options ?? []) {
+      const optionNode = targetDocument.createElement("option");
+      optionNode.setAttribute("value", String(option.value));
+      optionNode.textContent = option.label;
+      if (String(option.value) === String(value)) {
+        optionNode.setAttribute("selected", "");
+      }
+      select.append(optionNode);
+    }
+    select.value = String(value ?? "");
+    if (disabled) {
+      select.setAttribute("disabled", "");
+    }
+    return select;
+  }
+  const input = targetDocument.createElement("input");
+  input.setAttribute("data-agent-ui-form-field", field.name);
+  input.setAttribute("name", field.name);
+  input.setAttribute("type", field.type === "checkbox" ? "checkbox" : field.type === "number" ? "number" : "text");
+  if (field.type === "checkbox") {
+    input.checked = value === true;
+  } else {
+    input.value = String(value ?? "");
+  }
+  if (disabled) {
+    input.setAttribute("disabled", "");
+  }
+  return input;
+}
+
+function collectAgentUiFormValues(form: AgentUiForm, formElement: HTMLElement): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of form.fields) {
+    const control = formElement.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[data-agent-ui-form-field="${field.name}"]`);
+    if (!control) {
+      continue;
+    }
+    if (field.type === "checkbox") {
+      values[field.name] = (control as HTMLInputElement).checked === true;
+    } else if (field.type === "number") {
+      const numeric = Number(control.value);
+      values[field.name] = Number.isFinite(numeric) ? numeric : control.value;
+    } else {
+      values[field.name] = control.value;
+    }
+  }
+  return values;
+}
+
 function createToolsSkillsPane(
   targetDocument: Document,
   pane: DesktopToolsSkillsPaneModel,
@@ -779,7 +1237,9 @@ function createToolsSkillsPane(
   tools.className = "desktop-tools-list";
   tools.append(createText(targetDocument, "h2", "Tools"));
   for (const tool of pane.toolRows) {
-    tools.append(createText(targetDocument, "p", `${tool.displayName}: ${tool.meta}`));
+    const row = createText(targetDocument, "p", `${tool.displayName}: ${tool.meta}`);
+    setDesktopEntityHook(row, "tools", tool.name);
+    tools.append(row);
   }
   section.append(tools);
 
@@ -808,7 +1268,9 @@ function createToolsSkillsPane(
   skills.className = "desktop-skills-list";
   skills.append(createText(targetDocument, "h2", "Skills"));
   for (const skill of pane.skillRows) {
-    skills.append(createText(targetDocument, "p", `${skill.name}: ${skill.meta}`));
+    const row = createText(targetDocument, "p", `${skill.name}: ${skill.meta}`);
+    setDesktopEntityHook(row, "skills", skill.name);
+    skills.append(row);
   }
   section.append(skills);
 
@@ -909,7 +1371,9 @@ function createKnowledgePane(
   documents.className = "desktop-knowledge-documents";
   documents.append(createText(targetDocument, "h2", "Documents"));
   for (const document of pane.documentRows) {
-    documents.append(createText(targetDocument, "p", `${document.title}: ${document.meta}`));
+    const row = createText(targetDocument, "p", `${document.title}: ${document.meta}`);
+    setDesktopEntityHook(row, "knowledge", document.id || document.path);
+    documents.append(row);
   }
   section.append(documents);
 
@@ -973,6 +1437,7 @@ function createCoworkCockpitPane(
     row.type = "button";
     row.className = "desktop-cowork-session-row";
     row.setAttribute("data-desktop-cowork-session", session.id);
+    setDesktopEntityHook(row, "cowork", session.id);
     row.textContent = `${session.title}: ${session.meta}`;
     row.addEventListener("click", () => {
       const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
@@ -2408,7 +2873,7 @@ function createQuickActions(targetDocument: Document): HTMLElement {
   return actions;
 }
 
-function createFileActions(targetDocument: Document): HTMLElement {
+function createFileActions(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-file-actions";
   section.append(createText(targetDocument, "h2", "File imports"));
@@ -2426,6 +2891,11 @@ function createFileActions(targetDocument: Document): HTMLElement {
   sessionKey.setAttribute("class", "desktop-session-upload-key");
   sessionKey.setAttribute("aria-label", "Session key for temporary file upload");
   sessionKey.setAttribute("placeholder", "Session key");
+  if (chat?.activeSessionKey) {
+    sessionKey.value = chat.activeSessionKey;
+    sessionKey.setAttribute("readonly", "");
+    sessionKey.setAttribute("data-active-session-key", chat.activeSessionKey);
+  }
 
   const session = targetDocument.createElement("button");
   session.setAttribute("id", "desktop-session-file-upload");
@@ -2444,8 +2914,25 @@ function createFileActions(targetDocument: Document): HTMLElement {
   status.setAttribute("class", "desktop-file-upload-status");
   status.textContent = "No file operation running.";
 
-  section.append(knowledge, sessionKey, session, workspace, status);
+  const sessionFiles = targetDocument.createElement("div");
+  sessionFiles.setAttribute("id", "desktop-session-file-list");
+  sessionFiles.setAttribute("class", "desktop-session-file-list");
+  sessionFiles.setAttribute("aria-label", "Session temporary files");
+  sessionFiles.textContent = chat?.activeSessionKey ? "Temporary files not loaded yet." : "Select a chat session to view temporary files.";
+
+  section.append(knowledge, sessionKey, session, workspace, status, sessionFiles);
   return section;
+}
+
+function syncSessionFileUploadKey(targetDocument: Document, activeSessionKey: string): void {
+  const sessionKey = targetDocument.getElementById("desktop-session-upload-key") as HTMLInputElement | null;
+  if (!sessionKey) {
+    return;
+  }
+  sessionKey.value = activeSessionKey;
+  sessionKey.setAttribute("readonly", "");
+  sessionKey.setAttribute("data-active-session-key", activeSessionKey);
+  targetDocument.dispatchEvent(new CustomEvent("tinybot:desktop-session-key-changed", { detail: { sessionKey: activeSessionKey } }));
 }
 
 function createDesktopHelpSurface(targetDocument: Document): HTMLElement {
@@ -2705,6 +3192,12 @@ function createText(targetDocument: Document, tagName: keyof HTMLElementTagNameM
   const element = targetDocument.createElement(tagName);
   element.textContent = text;
   return element;
+}
+
+function setDesktopEntityHook(element: HTMLElement, module: string, entityId: string): void {
+  element.setAttribute("data-desktop-entity-module", module);
+  element.setAttribute("data-desktop-entity-id", entityId);
+  element.setAttribute("tabindex", "0");
 }
 
 function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {

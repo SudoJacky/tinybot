@@ -12,8 +12,15 @@ export type NativeChatMessage = {
   role: string;
   content: string;
   reasoningContent: string;
+  references?: NativeChatReference[];
   timestamp: string;
   messageId: string;
+};
+
+export type NativeChatReference = {
+  kind: "tool" | "browser" | "memory" | "reference";
+  title: string;
+  detail: string;
 };
 
 export type NativeChatState = {
@@ -63,13 +70,17 @@ export function normalizeMessagesPayload(payload: unknown): NativeChatMessage[] 
   if (!isRecord(payload) || !Array.isArray(payload.messages)) {
     return [];
   }
-  return payload.messages.filter(isRecord).map((message) => ({
-    role: stringValue(message.role) || "assistant",
-    content: stringValue(message.content ?? message.text),
-    reasoningContent: stringValue(message.reasoning_content),
-    timestamp: stringValue(message.timestamp),
-    messageId: stringValue(message.message_id),
-  }));
+  return payload.messages.filter(isRecord).map((message) => {
+    const references = normalizeMessageReferences(message);
+    return {
+      role: stringValue(message.role) || "assistant",
+      content: stringValue(message.content ?? message.text),
+      reasoningContent: stringValue(message.reasoning_content),
+      ...(references.length ? { references } : {}),
+      timestamp: stringValue(message.timestamp),
+      messageId: stringValue(message.message_id),
+    };
+  });
 }
 
 export function setSessions(state: NativeChatState, sessions: NativeChatSession[]) {
@@ -220,6 +231,30 @@ function ensureMessageBucket(state: NativeChatState, sessionKey: string): Native
     state.messages.set(sessionKey, []);
   }
   return state.messages.get(sessionKey) ?? [];
+}
+
+function normalizeMessageReferences(message: Record<string, unknown>): NativeChatReference[] {
+  return [
+    ...referenceRows(message.tool_calls, "tool"),
+    ...referenceRows(message.tool_results, "tool"),
+    ...referenceRows(message.browser_references, "browser"),
+    ...referenceRows(message.browser_snapshots, "browser"),
+    ...referenceRows(message.memory_references, "memory"),
+    ...referenceRows(message.memories, "memory"),
+    ...referenceRows(message.references, "reference"),
+    ...referenceRows(message.citations, "reference"),
+  ];
+}
+
+function referenceRows(value: unknown, kind: NativeChatReference["kind"]): NativeChatReference[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isRecord).map((row) => ({
+    kind,
+    title: stringValue(row.title ?? row.name ?? row.id ?? row.url) || kind,
+    detail: stringValue(row.detail ?? row.summary ?? row.path ?? row.url ?? row.content),
+  }));
 }
 
 function chatIdFromKey(key: string): string {
