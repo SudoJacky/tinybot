@@ -30,6 +30,7 @@ export interface DesktopNativeWorkbenchRuntime {
   setRuntimeMetadata(metadata: NonNullable<DesktopNativeChatModel["runtime"]>): void;
   selectChatSession(sessionKey: string, chatId: string): Promise<void>;
   startNewChat(): void;
+  deleteChatSession(sessionKey: string): Promise<void>;
   setPersistentRag(enabled: boolean): void;
   submitComposerMessage(content: string, usePersistentRag?: boolean): ChatSubmitResult;
   interruptActiveChat(): boolean;
@@ -65,6 +66,16 @@ export function createDesktopNativeWorkbenchRuntime({
   function startNewChat(): void {
     chatController.startNewChat();
     chatStatus = "Creating chat session.";
+  }
+
+  async function deleteChatSession(sessionKey: string): Promise<void> {
+    const result = await chatController.deleteSession(sessionKey);
+    if (result.status === "deleted") {
+      chatStatus = result.nextSessionKey ? "Session deleted. Next chat loaded." : "Session deleted.";
+      composerState = "idle";
+      return;
+    }
+    chatStatus = result.status === "unavailable" ? "Session deletion is unavailable." : "Session not found.";
   }
 
   function setPersistentRag(enabled: boolean): void {
@@ -165,6 +176,7 @@ export function createDesktopNativeWorkbenchRuntime({
     setRuntimeMetadata,
     selectChatSession,
     startNewChat,
+    deleteChatSession,
     setPersistentRag,
     submitComposerMessage,
     interruptActiveChat,

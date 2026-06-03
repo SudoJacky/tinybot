@@ -87,10 +87,17 @@ export interface DesktopNativeChatComposerSubmitEvent {
   usePersistentRag: boolean;
 }
 
+export interface DesktopNativeChatDeleteSessionEvent {
+  sessionKey: string;
+  chatId: string;
+  title: string;
+}
+
 interface DesktopNativeChatActionOptions {
   onComposerSubmit?: (event: DesktopNativeChatComposerSubmitEvent) => void;
   onInterrupt?: () => void;
   onNewChat?: () => void;
+  onDeleteSession?: (event: DesktopNativeChatDeleteSessionEvent) => void;
   onPersistentRagChange?: (enabled: boolean) => void;
 }
 
@@ -405,7 +412,7 @@ export function updateDesktopNativeChat(
 
   const recentChats = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
   if (recentChats) {
-    const next = createSidebarRecentChats(targetDocument, chat).querySelector<HTMLElement>(".desktop-recent-chat-list");
+    const next = createSidebarRecentChats(targetDocument, chat, chatActions).querySelector<HTMLElement>(".desktop-recent-chat-list");
     recentChats.replaceChildren(...Array.from(next?.children ?? []));
   }
 
@@ -475,7 +482,7 @@ function createWorkbenchShell(
 
   shell.append(
     createActivityRail(targetDocument),
-    createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument, chat)),
+    createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument, chat, chatActions)),
     createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
     createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions)),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
@@ -534,7 +541,11 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   return rail;
 }
 
-function createSidebar(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
+function createSidebar(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): HTMLElement {
   const model = buildNativeWorkbenchSidebarModel();
   const workspaceGroup = model.groups.find((group) => group.id === "workspace");
   const footerGroup = model.groups.find((group) => group.id === "footer");
@@ -543,7 +554,7 @@ function createSidebar(targetDocument: Document, chat: DesktopNativeChatModel | 
   sidebar.append(
     createSidebarActions(targetDocument),
     createSidebarWorkspaceList(targetDocument, chat),
-    createSidebarRecentChats(targetDocument, chat),
+    createSidebarRecentChats(targetDocument, chat, chatActions),
     createSharedSidebarLinkSection(targetDocument, workspaceGroup),
     createSharedSidebarCommandSection(targetDocument, footerGroup),
   );
@@ -597,7 +608,11 @@ function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativ
   return section;
 }
 
-function createSidebarRecentChats(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
+function createSidebarRecentChats(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions = {},
+): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-sidebar-list-section";
   section.append(createSidebarSectionHeading(targetDocument, "Recent chats"));
@@ -609,15 +624,7 @@ function createSidebarRecentChats(targetDocument: Document, chat: DesktopNativeC
     const sessions = chat.sessions.length ? chat.sessions : [];
     for (const session of sessions) {
       const routeId = desktopChatRouteId(session);
-      list.append(createSidebarRow(
-        targetDocument,
-        session.title || "New session",
-        session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId,
-        session.key === chat.activeSessionKey,
-        "chat",
-        "chat",
-        routeId,
-      ));
+      list.append(createRecentChatRow(targetDocument, session, session.key === chat.activeSessionKey, chatActions, routeId));
     }
     if (!sessions.length) {
       list.append(createText(targetDocument, "p", "No recent chats."));
@@ -645,6 +652,56 @@ function desktopChatRouteId(session: NativeChatSession): string {
     return session.key;
   }
   return session.chatId || session.key;
+}
+
+function createRecentChatRow(
+  targetDocument: Document,
+  session: NativeChatSession,
+  active: boolean,
+  chatActions: DesktopNativeChatActionOptions,
+  routeId = desktopChatRouteId(session),
+): HTMLElement {
+  const row = targetDocument.createElement("div");
+  row.className = "desktop-sidebar-chat-row";
+  row.setAttribute("role", "listitem");
+  row.setAttribute("data-active", String(active));
+  row.setAttribute("data-sidebar-row-kind", "chat");
+
+  const link = targetDocument.createElement("a");
+  link.className = "desktop-sidebar-row desktop-sidebar-row-main";
+  link.setAttribute("href", `/chat/${encodeURIComponent(routeId)}`);
+  link.setAttribute("data-active", String(active));
+  link.setAttribute("data-sidebar-row-kind", "chat");
+  link.setAttribute("data-desktop-entity-module", "chat");
+  link.setAttribute("data-desktop-entity-id", routeId);
+
+  const title = session.title || "New session";
+  const label = targetDocument.createElement("span");
+  label.className = "desktop-sidebar-row-label";
+  label.textContent = title;
+  const time = targetDocument.createElement("span");
+  time.className = "desktop-sidebar-row-meta";
+  time.textContent = session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId;
+  link.append(label, time);
+
+  const deleteButton = targetDocument.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "desktop-sidebar-delete-session";
+  deleteButton.setAttribute("data-desktop-chat-delete", session.key);
+  deleteButton.setAttribute("aria-label", `Delete chat ${title}`);
+  deleteButton.textContent = "Delete";
+  deleteButton.addEventListener("click", (event) => {
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    chatActions.onDeleteSession?.({
+      sessionKey: session.key,
+      chatId: session.chatId,
+      title,
+    });
+  });
+
+  row.append(link, deleteButton);
+  return row;
 }
 
 function createSidebarSectionHeading(targetDocument: Document, title: string, action?: string): HTMLElement {
@@ -3678,6 +3735,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-panel-control:focus-visible,
     body.desktop-native-workbench .desktop-file-action:focus-visible,
     body.desktop-native-workbench .desktop-help-action:focus-visible,
+    body.desktop-native-workbench .desktop-sidebar-delete-session:focus-visible,
     body.desktop-native-workbench .desktop-cowork-session-row:focus-visible,
     body.desktop-native-workbench .desktop-cowork-action:focus-visible,
     body.desktop-native-workbench .desktop-cowork-observability-tab:focus-visible,
@@ -4088,6 +4146,36 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #262522;
       font: 500 13px/1.2 var(--font-sans);
       text-decoration: none;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row .desktop-sidebar-row {
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-delete-session {
+      width: 52px;
+      min-height: 30px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #8d4a3a;
+      font: 600 11px/1 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
+    body.desktop-native-workbench .desktop-sidebar-delete-session:focus-visible {
+      border-color: #f0d8cf;
+      background: #fff4ef;
+      color: #b4533c;
     }
 
     body.desktop-native-workbench .desktop-sidebar-row[data-active="true"] {
