@@ -946,6 +946,8 @@ function createNativeComposerSurface(
   const runtime = targetDocument.createElement("div");
   runtime.id = "desktop-native-composer-runtime";
   runtime.className = "desktop-native-composer-runtime";
+  runtime.setAttribute("data-desktop-composer-region", "runtime-status");
+  runtime.setAttribute("aria-label", "Runtime status");
   runtime.append(
     createComposerModelControl(targetDocument, chat),
     createComposerChip(targetDocument, "Provider", chat?.runtime?.provider || "-"),
@@ -4167,12 +4169,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer {
+      position: relative;
       grid-template-columns: 48px minmax(0, 1fr) 48px 56px;
-      grid-template-rows: minmax(72px, auto) auto auto;
-      grid-template-areas: "attach input input input" "runtime runtime runtime runtime" "stop spacer microphone send";
+      grid-template-rows: minmax(72px, auto) auto;
+      grid-template-areas: "attach input input input" "stop spacer microphone send";
       gap: 10px 12px;
       width: min(820px, calc(100% - 56px));
-      margin: 0 auto 20px;
+      margin: 0 auto 46px;
       border-color: #ddd5cd;
       border-radius: 16px;
       padding: 12px;
@@ -4207,9 +4210,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer-runtime {
-      grid-area: runtime;
-      align-self: end;
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      right: 0;
       align-items: center;
+      max-height: 30px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      flex-wrap: nowrap;
     }
 
     body.desktop-native-workbench .desktop-native-composer-model {
@@ -4852,13 +4861,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       body.desktop-native-workbench .desktop-native-composer {
         width: calc(100% - 28px);
         grid-template-columns: 48px minmax(0, 1fr) 56px;
-        grid-template-rows: auto auto auto;
-        grid-template-areas: "attach input input" "runtime runtime runtime" "stop microphone send";
+        grid-template-rows: auto auto;
+        grid-template-areas: "attach input input" "stop microphone send";
       }
 
       body.desktop-native-workbench .desktop-native-composer-runtime {
-        display: grid;
-        grid-template-columns: minmax(0, max-content);
+        display: flex;
       }
 
       body.desktop-native-workbench .desktop-native-composer-microphone {
