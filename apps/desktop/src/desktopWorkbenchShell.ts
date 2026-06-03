@@ -4022,11 +4022,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-workbench {
+      align-self: stretch;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       gap: 0;
       width: 100%;
       max-width: none;
+      height: 100%;
       min-height: 0;
       margin: 0;
       padding: 0;
