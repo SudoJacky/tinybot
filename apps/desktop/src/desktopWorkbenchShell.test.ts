@@ -672,9 +672,10 @@ describe("desktop workbench shell", () => {
     expect(controls.map((node) => node.getAttribute("data-desktop-panel-control"))).toEqual(["sidebar", "inspector", "bottom"]);
     expect(controls.map((node) => node.getAttribute("aria-label"))).toEqual([
       "Toggle sidebar panel",
-      "Toggle inspector panel",
+      "Toggle Run Chain panel",
       "Toggle task and runtime panel",
     ]);
+    expect(controls.map((node) => node.textContent)).toEqual(["Sidebar", "Run Chain", "Tasks"]);
     expect(controls.map((node) => node.getAttribute("aria-pressed"))).toEqual(["true", "true", "false"]);
     expect(controls[0].getAttribute("aria-keyshortcuts")).toBe("Ctrl+B");
 
@@ -691,6 +692,7 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("false");
     expect(controls[1].getAttribute("aria-pressed")).toBe("false");
+    expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Run Chain panel hidden");
   });
 
   test("renders a persistent run-chain inspector pane with selectable details", () => {
@@ -738,6 +740,11 @@ describe("desktop workbench shell", () => {
     expect(pane?.querySelector('[data-desktop-run-chain-item="m-plan:planning"]')?.getAttribute("aria-selected")).toBe("true");
     expect(pane?.querySelector(".desktop-run-chain-detail")?.textContent).toContain("Thinking: Inspect the active context");
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session");
+
+    targetDocument.body.querySelector('[data-desktop-run-chain-control="close"]')?.click();
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
+    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("false");
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-pressed")).toBe("false");
   });
 
   test("renders a right-side Work Lens before generic inspector detail for running work", () => {
