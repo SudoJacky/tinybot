@@ -352,6 +352,9 @@ function nativeChatActions() {
       nativeWorkbenchRuntime.interruptActiveChat();
       updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
     },
+    onAttachSessionFile: () => {
+      document.getElementById("desktop-session-file-upload")?.click();
+    },
     onNewChat: () => {
       if (!nativeWorkbenchRuntime) {
         return;
@@ -361,9 +364,6 @@ function nativeChatActions() {
     },
     onDeleteSession: (event: { sessionKey: string; title: string }) => {
       if (!nativeWorkbenchRuntime) {
-        return;
-      }
-      if (!window.confirm(`Delete chat "${event.title}"? This cannot be undone.`)) {
         return;
       }
       void nativeWorkbenchRuntime.deleteChatSession(event.sessionKey).then(() => {

@@ -17,6 +17,7 @@ class FakeElement {
   public attributes = new Map<string, string>();
   public value = "";
   public checked = false;
+  public disabled = false;
   private listeners = new Map<string, ((event: unknown) => void)[]>();
   private ownTextContent = "";
   public style = {
@@ -41,10 +42,20 @@ class FakeElement {
     if (name === "id") {
       this.id = value;
     }
+    if (name === "disabled") {
+      this.disabled = true;
+    }
   }
 
   getAttribute(name: string): string | null {
     return this.attributes.get(name) ?? null;
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+    if (name === "disabled") {
+      this.disabled = false;
+    }
   }
 
   append(...children: FakeElement[]): void {
@@ -220,6 +231,9 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector('[data-workbench-region="bottom"]')?.getAttribute("data-visible")).toBe("false");
     expect(targetDocument.head.querySelector("#desktop-design-tokens")).toBeTruthy();
     expect(targetDocument.head.querySelector("#desktop-workbench-shell-style")).toBeTruthy();
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toContain(".desktop-workbench-shell {\n      height: 100vh;");
+    expect(styleText).not.toContain("height: calc(100vh - var(--desktop-window-frame-height");
   });
 
   test("renders dense empty-chat context instead of a browser-style blank page", () => {
@@ -310,7 +324,15 @@ describe("desktop workbench shell", () => {
     expect(recentChat?.getAttribute("href")).toBe("/chat/chat-live");
     const deleteButton = targetDocument.body.querySelector('[data-desktop-chat-delete="WebSocket:chat-live"]');
     expect(deleteButton?.getAttribute("aria-label")).toBe("Delete chat Live gateway session");
+    expect(deleteButton?.textContent).toBe("x");
     deleteButton?.click();
+    expect(deletedSessions).toEqual([]);
+    expect(deleteButton?.getAttribute("aria-label")).toBe("Confirm delete chat Live gateway session");
+    expect(deleteButton?.textContent).toBe("Confirm");
+    deleteButton?.click();
+    expect(deleteButton?.getAttribute("data-deleting")).toBe("true");
+    expect(deleteButton?.getAttribute("disabled")).toBe("");
+    expect(deleteButton?.textContent).toBe("Deleting");
     expect(deletedSessions).toEqual(["WebSocket:chat-live"]);
   });
 
@@ -368,13 +390,14 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-rag")).toBe("false");
     expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-state")).toBe("queued");
     expect(targetDocument.getElementById("desktop-native-composer-send")?.getAttribute("disabled")).toBe("");
-    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Composer: Queued");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Tinybot Pro");
+    expect(targetDocument.body.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("0");
     expect(targetDocument.getElementById("desktop-session-upload-key")?.value).toBe("WebSocket:chat-live");
     expect(targetDocument.getElementById("desktop-session-upload-key")?.getAttribute("data-active-session-key")).toBe("WebSocket:chat-live");
     expect(targetDocument.getElementById("desktop-session-file-list")?.textContent).toContain("Temporary files");
   });
 
-  test("routes native composer send, stop, and RAG toggle actions", () => {
+  test("routes native composer send and temporary file attach actions", () => {
     const targetDocument = new FakeDocument();
     const composerActions: string[] = [];
 
@@ -387,15 +410,15 @@ describe("desktop workbench shell", () => {
         activeSessionKey: "WebSocket:chat-live",
         activeChatId: "chat-live",
         messages: [],
-        responding: true,
+        responding: false,
         usePersistentRag: false,
       },
       chatActions: {
         onComposerSubmit: (event) => {
           composerActions.push(`send:${event.content}:${event.usePersistentRag}`);
         },
-        onInterrupt: () => {
-          composerActions.push("stop");
+        onAttachSessionFile: () => {
+          composerActions.push("attach");
         },
         onPersistentRagChange: (enabled) => {
           composerActions.push(`rag:${enabled}`);
@@ -404,17 +427,45 @@ describe("desktop workbench shell", () => {
     });
 
     const input = targetDocument.getElementById("desktop-native-composer-input");
+    const send = targetDocument.getElementById("desktop-native-composer-send");
+    expect(send?.getAttribute("disabled")).toBe("");
+    send?.click();
+    expect(composerActions).toEqual([]);
     input!.value = "Run live composer";
-    const ragToggle = targetDocument.body.querySelector('[data-desktop-composer-action="rag-toggle"]');
-    expect(ragToggle?.getAttribute("aria-pressed")).toBe("false");
-    ragToggle?.click();
-    targetDocument.body.querySelector('[data-desktop-composer-action="send"]')?.click();
-    targetDocument.body.querySelector('[data-desktop-composer-action="stop"]')?.click();
+    input!.dispatchEvent({ type: "input" });
+    expect(send?.getAttribute("disabled")).toBeNull();
+    expect(targetDocument.getElementById("desktop-native-composer-stop")).toBeNull();
+    send?.click();
+    input!.value = "   ";
+    input!.dispatchEvent({ type: "input" });
+    expect(send?.getAttribute("disabled")).toBe("");
+    send?.click();
+    targetDocument.body.querySelector('[data-desktop-composer-action="attach"]')?.click();
 
-    expect(composerActions).toEqual(["rag:true", "send:Run live composer:false", "stop"]);
+    expect(composerActions).toEqual(["send:Run live composer:false", "attach"]);
   });
 
-  test("renders live native runtime chips near the composer", () => {
+  test("styles native composer input without focus chrome or manual resizing", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toContain(".desktop-native-composer-input:focus-visible {\n      outline: 0;");
+    expect(styleText).toContain("resize: none;");
+    expect(styleText).not.toContain(".desktop-native-composer-input:focus-visible,\n    body.desktop-native-workbench .desktop-native-composer-action:focus-visible");
+    expect(styleText).toContain(".desktop-native-composer-send:not(:disabled)");
+    expect(styleText).toContain("width: 36px;\n      min-width: 36px;\n      height: 36px;\n      min-height: 36px;");
+    expect(styleText).toContain(".desktop-native-token-orb {\n      width: 36px;\n      height: 36px;");
+    expect(styleText).toContain("min-height: 38px;\n      max-height: none;");
+    expect(styleText).toContain("overflow-y: visible;");
+  });
+
+  test("renders only model and token usage affordances near the native composer", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
@@ -438,11 +489,14 @@ describe("desktop workbench shell", () => {
     });
 
     expect(targetDocument.body.querySelector(".desktop-native-composer-model")?.textContent).toBe("deepseek-chat");
-    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Provider: deepseek");
-    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("WebSocket: Connected");
-    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Token: Ready");
-    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Token usage: 42%");
-    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Gateway: http://127.0.0.1:18790");
+    const tokenOrb = targetDocument.body.querySelector(".desktop-native-token-orb");
+    expect(tokenOrb?.getAttribute("aria-label")).toBe("Token usage 42%");
+    expect(tokenOrb?.getAttribute("data-token-usage")).toBe("42");
+    expect(tokenOrb?.style.values.get("--token-usage-fill")).toBe("42%");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).not.toContain("Provider:");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).not.toContain("Session:");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).not.toContain("WebSocket:");
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).not.toContain("Gateway:");
     expect(targetDocument.getElementById("desktop-native-composer-runtime")?.getAttribute("data-desktop-composer-region")).toBe("runtime-status");
     expect(targetDocument.getElementById("desktop-native-composer-runtime")?.getAttribute("aria-label")).toBe("Runtime status");
   });
@@ -2349,6 +2403,20 @@ describe("desktop workbench shell", () => {
     expect(filesSurface?.querySelector(".desktop-workspace-action-rail")?.querySelector("#desktop-workspace-save")).toBeTruthy();
   });
 
+  test("keeps the desktop Files workspace grid shrinkable inside the main work area", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).not.toContain("grid-template-columns: minmax(190px, 260px) minmax(280px, 1fr) minmax(120px, 160px);");
+    expect(styleText).toContain("grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.2fr) minmax(92px, 0.5fr);");
+  });
+
   test("allows the main work area to shrink when the inspector is collapsed", () => {
     const targetDocument = new FakeDocument();
 
@@ -2499,7 +2567,9 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-native-composer-input")?.getAttribute("placeholder")).toBe("Ask Tinybot");
     expect(targetDocument.getElementById("desktop-native-composer-attach")?.getAttribute("data-desktop-composer-action")).toBe("attach");
     expect(targetDocument.getElementById("desktop-native-composer-send")?.getAttribute("data-desktop-composer-action")).toBe("send");
-    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Gateway: http://127.0.0.1:18790");
+    expect(targetDocument.getElementById("desktop-native-composer-microphone")).toBeNull();
+    expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Tinybot Pro");
+    expect(targetDocument.body.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("0");
   });
 
   test("declares non-overlapping native workbench layout rules for composer, scroll, modules, and inspector", () => {
@@ -2513,14 +2583,19 @@ describe("desktop workbench shell", () => {
 
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
     expect(styleText).toContain("grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 340px);");
-    expect(styleText).toContain('grid-template-areas: "attach input input input" "stop spacer microphone send";');
-    expect(styleText).toContain(".desktop-native-composer-runtime {\n      position: absolute;");
-    expect(styleText).toContain("max-height: 30px;");
+    expect(styleText).toContain('grid-template-areas: "input input input" "attach runtime send";');
+    expect(styleText).not.toContain("microphone");
+    expect(styleText).toContain("border-radius: 24px;");
+    expect(styleText).toContain("min-height: 118px;");
+    expect(styleText).toContain(".desktop-native-composer-runtime {\n      grid-area: runtime;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-thread {\n      display: grid;");
     expect(styleText).toContain("min-height: 0;");
     expect(styleText).toContain("overflow-y: auto;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench {\n      align-self: stretch;");
     expect(styleText).toContain("height: 100%;");
+    expect(styleText).toContain("grid-template-rows: minmax(0, 1fr) auto 0;");
+    expect(styleText).toContain("margin: 0 auto 8px;");
+    expect(styleText).toContain(".desktop-status-strip {\n      height: 0;");
     expect(styleText).toContain('html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-utility-surfaces');
     expect(styleText).toContain("[data-desktop-module-surface]");
     expect(styleText).toContain(".desktop-activity-button[data-active=\"true\"]");

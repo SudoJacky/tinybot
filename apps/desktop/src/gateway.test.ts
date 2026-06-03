@@ -302,6 +302,11 @@ describe("gateway WebSocket client", () => {
       kind: "message.stream.completed",
       chatId: "chat-1",
     });
+    expect(normalizeGatewayFrame({ event: "usage", chat_id: "chat-1", usage: { total_tokens: 16384 } })).toMatchObject({
+      kind: "usage",
+      chatId: "chat-1",
+      tokenUsage: "25%",
+    });
     expect(normalizeGatewayFrame({ event: "browser_frame", image: "data:image/png;base64,x" })).toMatchObject({
       kind: "browser.frame",
     });
@@ -316,6 +321,38 @@ describe("gateway WebSocket client", () => {
     ).toMatchObject({
       kind: "agent-ui.event",
       eventType: "ui.form.requested",
+    });
+    expect(
+      normalizeGatewayFrame({
+        event: "agent_ui_event",
+        chat_id: "chat-1",
+        agent_ui_event: {
+          event_type: "message.delta",
+          chat_id: "chat-1",
+          message_id: "m3",
+          payload: { text: "streamed" },
+        },
+      }),
+    ).toMatchObject({
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "m3",
+      text: "streamed",
+      reasoning: false,
+    });
+    expect(
+      normalizeGatewayFrame({
+        event: "agent_ui_event",
+        chat_id: "chat-1",
+        agent_ui_event: {
+          event_type: "usage.updated",
+          payload: { usage: { total_tokens: 32768, context_window_tokens: 65536 } },
+        },
+      }),
+    ).toMatchObject({
+      kind: "usage",
+      chatId: "chat-1",
+      tokenUsage: "50%",
     });
   });
 });

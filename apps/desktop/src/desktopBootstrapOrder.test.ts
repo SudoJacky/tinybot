@@ -37,4 +37,11 @@ describe("desktop root WebUI bootstrap order", () => {
 
     expect(actionInstallPosition).toBeGreaterThan(nativeShellPosition);
   });
+
+  test("routes native composer attach through the session temporary file upload control", () => {
+    const attachActionPosition = callPosition("onAttachSessionFile: () => {");
+    const uploadClickPosition = callPosition('document.getElementById("desktop-session-file-upload")?.click();');
+
+    expect(uploadClickPosition).toBeGreaterThan(attachActionPosition);
+  });
 });
