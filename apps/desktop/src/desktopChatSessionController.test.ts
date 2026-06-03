@@ -24,6 +24,34 @@ describe("desktop chat session controller", () => {
     expect(sent).toEqual([{ type: "attach", chat_id: "chat-1" }]);
   });
 
+  test("preserves gateway session keys when selecting recent chats with non-WebSocket keys", async () => {
+    const sent: unknown[] = [];
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({
+          items: [
+            { key: "7e9e439b4487", chat_id: "chat-7e9e", title: "你好", updated_at: "2026-06-03T08:11:21Z" },
+            { key: "WebSocket:chat-1", chat_id: "chat-1", title: "New session" },
+          ],
+        })),
+        loadMessages: vi.fn(async (key: string) => ({
+          messages: [{ role: "assistant", content: `loaded ${key}`, message_id: `m-${key}` }],
+        })),
+      },
+      sendSocketMessage: (message) => sent.push(message),
+    });
+
+    await controller.loadSessions();
+    await controller.selectSession("7e9e439b4487", "chat-7e9e");
+
+    expect(controller.state.activeSessionKey).toBe("7e9e439b4487");
+    expect(controller.state.activeChatId).toBe("chat-7e9e");
+    expect(controller.state.sessions.map((session) => session.title)).toEqual(["你好", "New session"]);
+    expect(controller.state.sessions.filter((session) => session.title === "New session")).toHaveLength(1);
+    expect(controller.state.messages.get("7e9e439b4487")).toMatchObject([{ content: "loaded 7e9e439b4487" }]);
+    expect(sent).toContainEqual({ type: "attach", chat_id: "chat-7e9e" });
+  });
+
   test("queues a new chat before sending pending content without changing WebSocket payload semantics", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({

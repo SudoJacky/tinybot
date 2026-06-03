@@ -97,8 +97,13 @@ export function setMessages(state: NativeChatState, sessionKey: string, messages
 }
 
 export function activateChat(state: NativeChatState, chatId: string) {
+  const existing = state.sessions.find((session) => session.chatId === chatId);
+  activateSession(state, existing?.key || sessionKeyForChat(chatId), chatId);
+}
+
+export function activateSession(state: NativeChatState, sessionKey: string, chatId: string) {
   state.activeChatId = chatId;
-  state.activeSessionKey = sessionKeyForChat(chatId);
+  state.activeSessionKey = sessionKey || sessionKeyForChat(chatId);
   ensureMessageBucket(state, state.activeSessionKey);
   if (!state.sessions.some((session) => session.key === state.activeSessionKey)) {
     state.sessions = [
