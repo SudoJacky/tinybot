@@ -2331,6 +2331,24 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-workspace-error")?.textContent).toBe("");
   });
 
+  test("groups the desktop Files page into native browser, detail, editor, and action regions", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const filesSurface = targetDocument.body.querySelector(".desktop-workspace-files");
+    expect(filesSurface?.getAttribute("data-desktop-workspace-layout")).toBe("browser-detail-actions");
+    expect(filesSurface?.querySelector(".desktop-workspace-browser")?.querySelector("#desktop-workspace-recent-files")).toBeTruthy();
+    expect(filesSurface?.querySelector(".desktop-workspace-detail-panel")?.querySelector("#desktop-workspace-detail")).toBeTruthy();
+    expect(filesSurface?.querySelector(".desktop-workspace-editor-panel")?.querySelector("#desktop-workspace-editor")).toBeTruthy();
+    expect(filesSurface?.querySelector(".desktop-workspace-action-rail")?.getAttribute("aria-label")).toBe("Workspace file actions");
+    expect(filesSurface?.querySelector(".desktop-workspace-action-rail")?.querySelector("#desktop-workspace-save")).toBeTruthy();
+  });
+
   test("allows the main work area to shrink when the inspector is collapsed", () => {
     const targetDocument = new FakeDocument();
 

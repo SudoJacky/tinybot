@@ -3215,12 +3215,22 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workspace-files";
   section.setAttribute("data-desktop-module-surface", "workspace");
-  section.append(createText(targetDocument, "h2", "Workspace files"));
+  section.setAttribute("data-desktop-workspace-layout", "browser-detail-actions");
+
+  const header = targetDocument.createElement("div");
+  header.className = "desktop-workspace-header";
+  const titleGroup = targetDocument.createElement("div");
+  titleGroup.className = "desktop-workspace-title-group";
+  titleGroup.append(
+    createText(targetDocument, "h2", "Workspace files"),
+    createText(targetDocument, "p", "Browse, inspect, edit, and export workspace files."),
+  );
 
   const status = targetDocument.createElement("p");
   status.setAttribute("id", "desktop-workspace-status");
   status.setAttribute("class", "desktop-workspace-status");
   status.textContent = "0 files";
+  header.append(titleGroup, status);
 
   const recent = targetDocument.createElement("div");
   recent.setAttribute("id", "desktop-workspace-recent-files");
@@ -3242,10 +3252,33 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   detail.setAttribute("class", "desktop-workspace-detail");
   detail.textContent = "No workspace file selected.";
 
+  const browser = targetDocument.createElement("aside");
+  browser.className = "desktop-workspace-browser";
+  browser.append(
+    createText(targetDocument, "h3", "Files"),
+    recent,
+  );
+
+  const detailPanel = targetDocument.createElement("section");
+  detailPanel.className = "desktop-workspace-detail-panel";
+  detailPanel.append(
+    createText(targetDocument, "h3", "Selection"),
+    activePath,
+    updatedAt,
+    detail,
+  );
+
   const editor = targetDocument.createElement("textarea");
   editor.setAttribute("id", "desktop-workspace-editor");
   editor.setAttribute("class", "desktop-workspace-editor");
   editor.setAttribute("aria-label", "Workspace file editor");
+
+  const editorPanel = targetDocument.createElement("section");
+  editorPanel.className = "desktop-workspace-editor-panel";
+  editorPanel.append(
+    createText(targetDocument, "h3", "Editor"),
+    editor,
+  );
 
   const saveState = targetDocument.createElement("p");
   saveState.setAttribute("id", "desktop-workspace-save-state");
@@ -3282,7 +3315,17 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   actions.setAttribute("class", "desktop-workspace-actions");
   actions.append(save, reveal, exportButton);
 
-  section.append(status, activePath, updatedAt, recent, detail, editor, actions, saveState, error);
+  const actionRail = targetDocument.createElement("aside");
+  actionRail.className = "desktop-workspace-action-rail";
+  actionRail.setAttribute("aria-label", "Workspace file actions");
+  actionRail.append(
+    createText(targetDocument, "h3", "Actions"),
+    actions,
+    saveState,
+    error,
+  );
+
+  section.append(header, browser, detailPanel, editorPanel, actionRail);
   return section;
 }
 
@@ -3823,33 +3866,128 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-workspace-files {
       display: grid;
-      grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) max-content;
-      gap: 8px;
-      align-items: start;
+      grid-template-columns: minmax(190px, 260px) minmax(280px, 1fr) minmax(120px, 160px);
+      grid-template-areas:
+        "header header header"
+        "browser detail actions"
+        "browser editor actions";
+      gap: 12px;
+      align-items: stretch;
       min-width: 0;
     }
 
-    body.desktop-native-workbench .desktop-workspace-files h2,
+    body.desktop-native-workbench .desktop-workspace-header,
+    body.desktop-native-workbench .desktop-workspace-browser,
+    body.desktop-native-workbench .desktop-workspace-detail-panel,
+    body.desktop-native-workbench .desktop-workspace-editor-panel,
+    body.desktop-native-workbench .desktop-workspace-action-rail {
+      min-width: 0;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 8px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+    }
+
+    body.desktop-native-workbench .desktop-workspace-header {
+      grid-area: header;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 56px;
+      padding: 10px 12px;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-title-group {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-title-group h2,
+    body.desktop-native-workbench .desktop-workspace-title-group p,
+    body.desktop-native-workbench .desktop-workspace-browser h3,
+    body.desktop-native-workbench .desktop-workspace-detail-panel h3,
+    body.desktop-native-workbench .desktop-workspace-editor-panel h3,
+    body.desktop-native-workbench .desktop-workspace-action-rail h3,
     body.desktop-native-workbench .desktop-workspace-active-path,
+    body.desktop-native-workbench .desktop-workspace-updated-at,
+    body.desktop-native-workbench .desktop-workspace-detail,
     body.desktop-native-workbench .desktop-workspace-save-state,
-    body.desktop-native-workbench .desktop-workspace-error {
-      grid-column: 1 / -1;
+    body.desktop-native-workbench .desktop-workspace-error,
+    body.desktop-native-workbench .desktop-workspace-status {
+      margin: 0;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-title-group h2 {
+      font: 700 15px/1.25 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-workspace-title-group p,
+    body.desktop-native-workbench .desktop-workspace-updated-at,
+    body.desktop-native-workbench .desktop-workspace-detail,
+    body.desktop-native-workbench .desktop-workspace-save-state,
+    body.desktop-native-workbench .desktop-workspace-status {
+      color: var(--text-muted, #6f685f);
+      font: 12px/1.45 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-workspace-browser {
+      grid-area: browser;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-detail-panel {
+      grid-area: detail;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-editor-panel {
+      grid-area: editor;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-action-rail {
+      grid-area: actions;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-browser,
+    body.desktop-native-workbench .desktop-workspace-detail-panel,
+    body.desktop-native-workbench .desktop-workspace-editor-panel,
+    body.desktop-native-workbench .desktop-workspace-action-rail {
+      display: grid;
+      align-content: start;
+      gap: 10px;
+      padding: 10px;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-browser h3,
+    body.desktop-native-workbench .desktop-workspace-detail-panel h3,
+    body.desktop-native-workbench .desktop-workspace-editor-panel h3,
+    body.desktop-native-workbench .desktop-workspace-action-rail h3 {
+      color: var(--text-strong, #141413);
+      font: 700 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-active-path {
+      color: var(--text-strong, #141413);
+      font: 600 13px/1.35 var(--font-sans, system-ui, sans-serif);
+      overflow-wrap: anywhere;
     }
 
     body.desktop-native-workbench .desktop-workspace-recent-files {
       display: grid;
       gap: 6px;
-      max-height: 138px;
+      max-height: 270px;
       overflow: auto;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-workspace-file-row {
       min-width: 0;
-      min-height: 28px;
+      min-height: 34px;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
-      padding: 0 8px;
+      padding: 0 10px;
       overflow: hidden;
       background: var(--panel, #faf9f5);
       color: var(--text, #141413);
@@ -3863,18 +4001,23 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workspace-actions {
       display: grid;
       gap: 8px;
-      min-width: 92px;
+      min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-workspace-editor {
       min-width: 0;
       width: 100%;
-      min-height: 138px;
+      min-height: 220px;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 8px;
       resize: vertical;
       font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-save-state,
+    body.desktop-native-workbench .desktop-workspace-error {
+      overflow-wrap: anywhere;
     }
 
     body.desktop-native-workbench .desktop-workspace-error {
@@ -5174,6 +5317,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-inspector-content,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-pane,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-files,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-header,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-browser,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-detail-panel,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-editor-panel,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-action-rail,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-status-strip {
       background: var(--panel);
       color: var(--text);
@@ -5230,6 +5378,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-empty-session p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-section p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-chip,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-title-group p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-status,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-updated-at,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-detail,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-command-palette-status,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-summary,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-detail,
@@ -5256,6 +5408,21 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-diagnostics:not(:empty) p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-detail p {
       color: var(--on-dark-soft);
+    }
+
+    @media (max-width: 1020px) {
+      body.desktop-native-workbench .desktop-workspace-files {
+        grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+        grid-template-areas:
+          "header header"
+          "browser detail"
+          "browser editor"
+          "actions actions";
+      }
+
+      body.desktop-native-workbench .desktop-workspace-actions {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
     }
 
     @media (max-width: 760px) {
@@ -5307,6 +5474,21 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-empty-session {
         max-width: none;
+      }
+
+      body.desktop-native-workbench .desktop-workspace-files {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+          "header"
+          "browser"
+          "detail"
+          "editor"
+          "actions";
+      }
+
+      body.desktop-native-workbench .desktop-workspace-header {
+        align-items: flex-start;
+        flex-direction: column;
       }
     }
   `;
