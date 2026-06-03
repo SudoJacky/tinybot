@@ -516,7 +516,6 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   const secondary = targetDocument.createElement("div");
   secondary.className = "desktop-activity-secondary";
   for (const [label, href, module] of [
-    ["Files", "/workspace", "workspace"],
     ["Docs", "/docs", "docs"],
     ["GitHub", "https://github.com/SudoJacky/tinybot", "gateway"],
     ["Settings", "/settings", "settings"],

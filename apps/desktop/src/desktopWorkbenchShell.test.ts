@@ -514,6 +514,10 @@ describe("desktop workbench shell", () => {
       "/knowledge",
       "/cowork",
     ]);
+    expect([
+      ...targetDocument.body.querySelectorAll(".desktop-activity-button"),
+      ...targetDocument.body.querySelectorAll(".desktop-activity-secondary-button"),
+    ].filter((node) => node.getAttribute("href") === "/workspace")).toHaveLength(1);
     expect(targetDocument.body.querySelectorAll(".desktop-quick-action").map((node) => node.getAttribute("href"))).toEqual([
       "/chat/new",
       "/workspace",
