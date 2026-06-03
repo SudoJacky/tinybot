@@ -485,36 +485,38 @@ function createActivityRail(targetDocument: Document): HTMLElement {
 
   const primary = targetDocument.createElement("div");
   primary.className = "desktop-activity-primary";
-  for (const [index, [label, href, icon]] of [
-    ["Chat", "/chat", "C"],
-    ["Files", "/workspace", "F"],
-    ["Knowledge", "/knowledge", "K"],
-    ["Cowork", "/cowork", "Y"],
+  for (const [index, [label, href, module]] of [
+    ["Chat", "/chat", "chat"],
+    ["Files", "/workspace", "workspace"],
+    ["Knowledge", "/knowledge", "knowledge"],
+    ["Cowork", "/cowork", "cowork"],
   ].entries()) {
     const item = targetDocument.createElement("a");
     item.className = "desktop-activity-button";
     item.setAttribute("href", href);
-    item.textContent = icon;
+    item.textContent = label;
     item.setAttribute("aria-label", label);
     item.setAttribute("title", label);
+    item.setAttribute("data-desktop-module-target", module);
     item.setAttribute("data-focus-order", `activity-${index + 1}`);
     primary.append(item);
   }
 
   const secondary = targetDocument.createElement("div");
   secondary.className = "desktop-activity-secondary";
-  for (const [label, href, icon] of [
-    ["Workspace files", "/workspace", "D"],
-    ["Documents", "/docs", "M"],
-    ["Source control", "https://github.com/SudoJacky/tinybot", "G"],
-    ["Settings", "/settings", "S"],
+  for (const [label, href, module] of [
+    ["Files", "/workspace", "workspace"],
+    ["Docs", "/docs", "docs"],
+    ["GitHub", "https://github.com/SudoJacky/tinybot", "gateway"],
+    ["Settings", "/settings", "settings"],
   ]) {
     const item = targetDocument.createElement("a");
     item.className = "desktop-activity-secondary-button";
     item.setAttribute("href", href);
-    item.textContent = icon;
+    item.textContent = label;
     item.setAttribute("aria-label", label);
     item.setAttribute("title", label);
+    item.setAttribute("data-desktop-module-target", module);
     secondary.append(item);
   }
 
@@ -596,6 +598,7 @@ function createSidebarRecentChats(targetDocument: Document, chat: DesktopNativeC
   if (chat) {
     const sessions = chat.sessions.length ? chat.sessions : [];
     for (const session of sessions) {
+      const routeId = desktopChatRouteId(session);
       list.append(createSidebarRow(
         targetDocument,
         session.title || "New session",
@@ -603,7 +606,7 @@ function createSidebarRecentChats(targetDocument: Document, chat: DesktopNativeC
         session.key === chat.activeSessionKey,
         "chat",
         "chat",
-        session.chatId || session.key,
+        routeId,
       ));
     }
     if (!sessions.length) {
@@ -625,6 +628,13 @@ function createSidebarRecentChats(targetDocument: Document, chat: DesktopNativeC
 
   section.append(list);
   return section;
+}
+
+function desktopChatRouteId(session: NativeChatSession): string {
+  if (session.key && !session.key.startsWith("WebSocket:")) {
+    return session.key;
+  }
+  return session.chatId || session.key;
 }
 
 function createSidebarSectionHeading(targetDocument: Document, title: string, action?: string): HTMLElement {
@@ -1064,6 +1074,7 @@ function createAgentUiFormsSurface(
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-agent-ui-forms";
+  section.setAttribute("data-desktop-module-surface", "chat");
   section.setAttribute("aria-label", "Agent UI forms");
   section.append(createText(targetDocument, "h2", "Agent UI forms"));
 
@@ -1230,6 +1241,7 @@ function createToolsSkillsPane(
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-tools-skills-pane";
+  section.setAttribute("data-desktop-module-surface", "tools skills");
   section.setAttribute("aria-label", "Tools and skills");
   section.append(createText(targetDocument, "h2", "Tools and skills"), createText(targetDocument, "p", pane.status));
 
@@ -1326,6 +1338,7 @@ function createKnowledgePane(
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-knowledge-pane";
+  section.setAttribute("data-desktop-module-surface", "knowledge");
   section.setAttribute("aria-label", "Knowledge workbench");
   section.append(createText(targetDocument, "h2", "Knowledge"), createText(targetDocument, "p", pane.status));
 
@@ -1423,6 +1436,7 @@ function createCoworkCockpitPane(
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-cowork-cockpit";
+  section.setAttribute("data-desktop-module-surface", "cowork");
   section.setAttribute("aria-label", "Cowork cockpit");
   section.append(createText(targetDocument, "h2", "Cowork"));
 
@@ -2038,6 +2052,7 @@ function createSettingsProvidersPane(
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-settings-pane";
+  section.setAttribute("data-desktop-module-surface", "settings");
   section.setAttribute("aria-label", "Settings and providers");
   section.append(
     createText(targetDocument, "h2", "Settings"),
@@ -2272,7 +2287,15 @@ function createRunChainOverviewPanel(targetDocument: Document): HTMLElement {
     tab.className = "desktop-run-chain-tab";
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-selected", String(index === 0));
+    tab.setAttribute("data-desktop-run-chain-tab", label.toLowerCase());
     tab.textContent = label;
+    tab.addEventListener("click", () => {
+      for (const sibling of Array.from(tabs.children)) {
+        sibling.setAttribute("aria-selected", "false");
+      }
+      tab.setAttribute("aria-selected", "true");
+      setRouteStatus(targetDocument, `Run Chain ${label}`);
+    });
     tabs.append(tab);
   }
 
@@ -2283,19 +2306,22 @@ function createRunChainOverviewPanel(targetDocument: Document): HTMLElement {
       ["Endpoint", "http://127.0.0.1:18790"],
       ["Mode", "External"],
       ["Version", "v0.1.0"],
-    ], "Open Gateway Status"),
+    ], "Open Gateway Status", "/api/status"),
     createRunChainCard(targetDocument, "Workspace", "", [
       ["tinybot", "D:\\code\\tinybot\\tinybot"],
-    ], "Open Workspace"),
+    ], "Open Workspace", "/workspace"),
     createRunChainCard(targetDocument, "Current Run", "Idle", [
       ["No run in progress", "Select an item below to run."],
     ]),
   );
 
   const add = targetDocument.createElement("button");
-  add.type = "button";
   add.className = "desktop-run-chain-new-item";
   add.textContent = "+  New Run Chain Item";
+  add.setAttribute("type", "button");
+  add.addEventListener("click", () => {
+    setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+  });
 
   section.append(header, tabs, cards, add);
   return section;
@@ -2307,6 +2333,7 @@ function createRunChainCard(
   badge: string,
   rows: [string, string][],
   action?: string,
+  actionHref?: string,
 ): HTMLElement {
   const card = targetDocument.createElement("article");
   card.className = "desktop-run-chain-card";
@@ -2327,11 +2354,16 @@ function createRunChainCard(
     card.append(row);
   }
   if (action) {
-    const button = targetDocument.createElement("button");
-    button.type = "button";
-    button.className = "desktop-run-chain-card-action";
-    button.textContent = action;
-    card.append(button);
+    const element = actionHref
+      ? createWorkbenchLink(targetDocument, action, actionHref, "desktop-run-chain-card-action")
+      : targetDocument.createElement("button");
+    if (!actionHref) {
+      element.setAttribute("type", "button");
+      element.textContent = action;
+      element.className = "desktop-run-chain-card-action";
+    }
+    element.setAttribute("data-desktop-run-chain-action", action);
+    card.append(element);
   }
   return card;
 }
@@ -2876,6 +2908,7 @@ function createQuickActions(targetDocument: Document): HTMLElement {
 function createFileActions(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-file-actions";
+  section.setAttribute("data-desktop-module-surface", "workspace knowledge");
   section.append(createText(targetDocument, "h2", "File imports"));
 
   const knowledge = targetDocument.createElement("button");
@@ -2938,6 +2971,7 @@ function syncSessionFileUploadKey(targetDocument: Document, activeSessionKey: st
 function createDesktopHelpSurface(targetDocument: Document): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-help-pane";
+  section.setAttribute("data-desktop-module-surface", "docs settings");
   section.setAttribute("aria-label", "Desktop help");
   section.append(createText(targetDocument, "h2", "Help"));
 
@@ -3021,6 +3055,7 @@ function renderDesktopPageHelp(targetDocument: Document, title: string): void {
 function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workspace-files";
+  section.setAttribute("data-desktop-module-surface", "workspace");
   section.append(createText(targetDocument, "h2", "Workspace files"));
 
   const status = targetDocument.createElement("p");
@@ -3768,18 +3803,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workbench-shell {
-      grid-template-columns: 76px minmax(280px, 328px) minmax(520px, 1fr) minmax(360px, var(--desktop-inspector-size, 420px));
+      grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 340px);
       grid-template-rows: minmax(0, 1fr) auto;
       border-top: 0;
       background: #fbfaf7;
     }
 
     body.desktop-native-workbench .desktop-workbench-shell[data-inspector-visible="false"] {
-      grid-template-columns: 76px minmax(280px, 328px) minmax(0, 1fr) 0;
+      grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) 0;
     }
 
     body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] {
-      grid-template-columns: 76px 0 minmax(520px, 1fr) minmax(360px, var(--desktop-inspector-size, 420px));
+      grid-template-columns: 92px 0 minmax(0, 1fr) minmax(280px, 340px);
     }
 
     body.desktop-native-workbench .desktop-activity-rail {
@@ -3798,12 +3833,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-activity-button,
     body.desktop-native-workbench .desktop-activity-secondary-button {
-      width: 48px;
+      width: 72px;
       min-height: 48px;
       border-radius: 8px;
       color: #2f302e;
-      font-size: 13px;
+      font-size: 11px;
       font-weight: 700;
+      line-height: 1.15;
+      text-align: center;
+      white-space: normal;
       box-shadow: none;
     }
 
@@ -3962,7 +4000,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workbench-main {
-      grid-template-rows: auto auto minmax(0, auto) auto;
+      grid-template-rows: minmax(0, 1fr) auto auto;
+      height: 100%;
+      min-height: 0;
       padding: 0;
       overflow: hidden;
       background: #ffffff;
@@ -4030,9 +4070,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       align-content: start;
       gap: 22px;
-      min-height: 390px;
+      min-height: 0;
       padding: 32px min(8vw, 72px) 22px;
-      overflow: auto;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
 
     body.desktop-native-workbench .desktop-conversation-message {
@@ -4111,8 +4152,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer {
-      grid-template-columns: 48px minmax(0, 1fr) auto auto;
-      grid-template-rows: minmax(72px, auto) auto;
+      grid-template-columns: 48px minmax(0, 1fr) 48px 56px;
+      grid-template-rows: minmax(72px, auto) auto auto;
+      grid-template-areas: "attach input input input" "runtime runtime runtime runtime" "stop spacer microphone send";
       gap: 10px 12px;
       width: min(820px, calc(100% - 56px));
       margin: 0 auto 20px;
@@ -4133,14 +4175,24 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font-size: 18px;
     }
 
+    body.desktop-native-workbench #desktop-native-composer-attach {
+      grid-area: attach;
+    }
+
+    body.desktop-native-workbench #desktop-native-composer-stop {
+      grid-area: stop;
+      font-size: 12px;
+    }
+
     body.desktop-native-workbench .desktop-native-composer-input {
+      grid-area: input;
       min-height: 54px;
       padding: 10px 4px;
       font-size: 15px;
     }
 
     body.desktop-native-workbench .desktop-native-composer-runtime {
-      grid-column: 2;
+      grid-area: runtime;
       align-self: end;
       align-items: center;
     }
@@ -4157,8 +4209,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer-microphone {
-      grid-column: 3;
-      grid-row: 2;
+      grid-area: microphone;
       width: 38px;
       min-height: 38px;
       border: 0;
@@ -4169,8 +4220,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer-send {
-      grid-column: 4;
-      grid-row: 2;
+      grid-area: send;
       width: 46px;
       min-width: 46px;
       min-height: 46px;
@@ -4184,6 +4234,46 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       max-height: 0;
       min-width: 0;
       overflow: hidden;
+    }
+
+    body.desktop-native-workbench .desktop-utility-surfaces [data-desktop-module-surface] {
+      display: none;
+    }
+
+    html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-chat-workbench,
+    html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench .desktop-chat-workbench,
+    html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench .desktop-chat-workbench,
+    html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-chat-workbench,
+    html[data-desktop-active-workbench-module="docs"] body.desktop-native-workbench .desktop-chat-workbench {
+      display: none;
+    }
+
+    html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-native-composer,
+    html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench .desktop-native-composer,
+    html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench .desktop-native-composer,
+    html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-native-composer,
+    html[data-desktop-active-workbench-module="docs"] body.desktop-native-workbench .desktop-native-composer {
+      display: none;
+    }
+
+    html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-utility-surfaces,
+    html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench .desktop-utility-surfaces,
+    html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench .desktop-utility-surfaces,
+    html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-utility-surfaces,
+    html[data-desktop-active-workbench-module="docs"] body.desktop-native-workbench .desktop-utility-surfaces {
+      max-height: none;
+      height: 100%;
+      min-height: 0;
+      padding: 18px 28px;
+      overflow: auto;
+    }
+
+    html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench [data-desktop-module-surface~="workspace"],
+    html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench [data-desktop-module-surface~="knowledge"],
+    html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench [data-desktop-module-surface~="cowork"],
+    html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench [data-desktop-module-surface~="settings"],
+    html[data-desktop-active-workbench-module="docs"] body.desktop-native-workbench [data-desktop-module-surface~="docs"] {
+      display: grid;
     }
 
     body.desktop-native-workbench .desktop-status-strip {
@@ -4201,7 +4291,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       height: 100%;
       min-height: 0;
       padding: 18px 20px;
-      overflow: auto;
+      overflow-y: auto;
+      overflow-x: hidden;
       background: #fbfaf7;
     }
 
@@ -4745,25 +4836,21 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-native-composer {
         width: calc(100% - 28px);
-        grid-template-columns: 48px minmax(0, 1fr) auto;
+        grid-template-columns: 48px minmax(0, 1fr) 56px;
         grid-template-rows: auto auto auto;
+        grid-template-areas: "attach input input" "runtime runtime runtime" "stop microphone send";
       }
 
       body.desktop-native-workbench .desktop-native-composer-runtime {
-        grid-column: 2;
         display: grid;
         grid-template-columns: minmax(0, max-content);
       }
 
       body.desktop-native-workbench .desktop-native-composer-microphone {
-        grid-column: 2;
-        grid-row: 3;
         justify-self: end;
       }
 
       body.desktop-native-workbench .desktop-native-composer-send {
-        grid-column: 3;
-        grid-row: 3;
       }
 
       body.desktop-native-workbench .desktop-empty-session {

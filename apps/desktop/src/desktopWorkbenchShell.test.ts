@@ -617,12 +617,44 @@ describe("desktop workbench shell", () => {
     const activityButtons = targetDocument.body.querySelectorAll(".desktop-activity-button");
     expect(activityButtons.map((node) => node.getAttribute("href"))).toEqual(["/chat", "/workspace", "/knowledge", "/cowork"]);
     expect(activityButtons.map((node) => node.getAttribute("aria-label"))).toEqual(["Chat", "Files", "Knowledge", "Cowork"]);
+    expect(activityButtons.map((node) => node.textContent)).toEqual(["Chat", "Files", "Knowledge", "Cowork"]);
+    expect(activityButtons.map((node) => node.getAttribute("data-desktop-module-target"))).toEqual(["chat", "workspace", "knowledge", "cowork"]);
     expect(activityButtons.map((node) => node.getAttribute("data-focus-order"))).toEqual([
       "activity-1",
       "activity-2",
       "activity-3",
       "activity-4",
     ]);
+  });
+
+  test("routes recent chat rows by stable session key and keeps selected title visible", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [
+          {
+            key: "7e9e439b4487",
+            chatId: "chat-7e9e",
+            title: "你好",
+            createdAt: "",
+            updatedAt: "2026-06-03T08:11:21Z",
+          },
+        ],
+        activeSessionKey: "7e9e439b4487",
+        activeChatId: "chat-7e9e",
+        messages: [],
+        status: "Session loaded from gateway.",
+      },
+    });
+
+    const row = targetDocument.body.querySelector('[data-desktop-entity-id="7e9e439b4487"]');
+    expect(row?.getAttribute("href")).toBe("/chat/7e9e439b4487");
+    expect(targetDocument.body.querySelector(".desktop-chat-header")?.textContent).toContain("你好");
+    expect(targetDocument.body.querySelector(".desktop-chat-header")?.textContent).not.toContain("New session");
   });
 
   test("renders keyboard-operable panel controls with accessible labels", () => {
@@ -2391,6 +2423,28 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-native-composer-attach")?.getAttribute("data-desktop-composer-action")).toBe("attach");
     expect(targetDocument.getElementById("desktop-native-composer-send")?.getAttribute("data-desktop-composer-action")).toBe("send");
     expect(targetDocument.getElementById("desktop-native-composer-runtime")?.textContent).toContain("Gateway: http://127.0.0.1:18790");
+  });
+
+  test("declares non-overlapping native workbench layout rules for composer, scroll, modules, and inspector", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toContain("grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 340px);");
+    expect(styleText).toContain('grid-template-areas: "attach input input input" "runtime runtime runtime runtime" "stop spacer microphone send";');
+    expect(styleText).toContain(".desktop-native-composer-runtime {\n      grid-area: runtime;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-thread {\n      display: grid;");
+    expect(styleText).toContain("min-height: 0;");
+    expect(styleText).toContain("overflow-y: auto;");
+    expect(styleText).toContain('html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-utility-surfaces');
+    expect(styleText).toContain("[data-desktop-module-surface]");
+    expect(styleText).toContain(".desktop-inspector-content {\n      display: grid;");
+    expect(styleText).toContain("overflow-x: hidden;");
   });
 
   test("reserves dark product surfaces for diagnostics instead of the runtime panel", () => {

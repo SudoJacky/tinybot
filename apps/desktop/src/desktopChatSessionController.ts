@@ -1,8 +1,8 @@
 import {
-  activateChat,
   appendUserMessage,
   applyChatEvent,
   createNativeChatState,
+  activateSession,
   normalizeMessagesPayload,
   normalizeSessionsPayload,
   setMessages,
@@ -63,7 +63,7 @@ export function createDesktopChatSessionController({
   }
 
   async function selectSession(sessionKey: string, chatId: string): Promise<void> {
-    activateChat(state, chatId);
+    activateSession(state, sessionKey, chatId);
     const payload = await api.loadMessages(sessionKey);
     setMessages(state, sessionKey, normalizeMessagesPayload(payload));
     sendSocketMessage(createGatewaySocketMessage.attach(chatId));
