@@ -2557,6 +2557,8 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-inspector-content');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-pane');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-files');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-chat-row[data-active="true"]');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-chat-row:hover');
   });
 
   test("renders a bottom composer-like surface for native visual parity", () => {
