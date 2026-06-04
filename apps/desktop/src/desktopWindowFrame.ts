@@ -49,12 +49,6 @@ export function installDesktopWindowFrame({
   title.setAttribute("data-tauri-drag-region", "");
   title.textContent = "Tinybot";
 
-  const brandMark = targetDocument.createElement("div");
-  brandMark.className = "desktop-window-brand-mark";
-  brandMark.setAttribute("data-tauri-drag-region", "");
-  brandMark.setAttribute("aria-hidden", "true");
-  brandMark.textContent = "TB";
-
   const context = targetDocument.createElement("div");
   context.id = CONTEXT_ID;
   context.setAttribute("id", CONTEXT_ID);
@@ -65,7 +59,7 @@ export function installDesktopWindowFrame({
   const titleGroup = targetDocument.createElement("div");
   titleGroup.className = "desktop-window-title-group";
   titleGroup.setAttribute("data-tauri-drag-region", "");
-  titleGroup.append(brandMark, title, context);
+  titleGroup.append(title, context);
 
   const appMenu = createApplicationMenu(targetDocument);
 
@@ -285,23 +279,10 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame .desktop-window-title-group {
       display: grid;
-      grid-template-columns: 28px auto auto;
+      grid-template-columns: auto auto;
       align-items: center;
       gap: 10px;
       min-width: 0;
-    }
-
-    body.desktop-custom-frame .desktop-window-brand-mark {
-      display: grid;
-      place-items: center;
-      width: 28px;
-      height: 28px;
-      border: 1px solid #d9cec5;
-      border-radius: 7px;
-      background: #ffffff;
-      color: var(--primary, #cc785c);
-      font: 800 9px/1 var(--font-sans, system-ui, sans-serif);
-      box-shadow: 0 2px 8px rgba(20, 20, 19, 0.08);
     }
 
     body.desktop-custom-frame .desktop-window-title,
