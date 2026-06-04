@@ -406,6 +406,51 @@ describe("desktop workspace file adapter", () => {
     expect(targetDocument.getElementById("desktop-workspace-updated-at")?.textContent).toContain("2026-05-31T10:30:00+00:00");
   });
 
+  test("searches the full workspace file list beyond the recent-file limit", async () => {
+    const targetDocument = new FakeDocument();
+    createWorkspaceShell(targetDocument);
+    const loadedPaths: string[] = [];
+
+    installDesktopWorkspaceFileActions({
+      targetDocument: targetDocument as unknown as Document,
+      listWorkspaceFiles: async () => ({
+        items: [
+          { path: "file-1.md", exists: true, updated_at: "2026-05-31T10:01:00+00:00" },
+          { path: "file-2.md", exists: true, updated_at: "2026-05-31T10:02:00+00:00" },
+          { path: "file-3.md", exists: true, updated_at: "2026-05-31T10:03:00+00:00" },
+          { path: "file-4.md", exists: true, updated_at: "2026-05-31T10:04:00+00:00" },
+          { path: "file-5.md", exists: true, updated_at: "2026-05-31T10:05:00+00:00" },
+          { path: "file-6.md", exists: true, updated_at: "2026-05-31T10:06:00+00:00" },
+          { path: "deep/target-file.md", exists: true, updated_at: "2026-05-31T10:07:00+00:00" },
+        ],
+      }),
+      loadWorkspaceFile: async (path) => {
+        loadedPaths.push(path);
+        return {
+          path,
+          content: "# Target\n",
+          updated_at: "2026-05-31T10:07:00+00:00",
+          exists: true,
+        };
+      },
+      saveWorkspaceFile: async () => ({ saved: true }),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(targetDocument.getElementById("desktop-workspace-recent-files")?.textContent).not.toContain("deep/target-file.md");
+
+    const search = targetDocument.getElementById("desktop-workspace-search");
+    search!.value = "target-file";
+    search!.dispatchEvent("input", { target: search });
+
+    expect(targetDocument.getElementById("desktop-workspace-recent-files")?.textContent).toContain("deep/target-file.md");
+    targetDocument.body.querySelector("[data-desktop-workspace-file]")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(loadedPaths).toEqual(["deep/target-file.md"]);
+    expect(targetDocument.getElementById("desktop-workspace-active-path")?.textContent).toContain("deep/target-file.md");
+  });
+
   test("shows export failures without discarding unsaved workspace drafts", async () => {
     const targetDocument = new FakeDocument();
     createWorkspaceShell(targetDocument);
