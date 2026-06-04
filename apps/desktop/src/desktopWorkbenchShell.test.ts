@@ -315,7 +315,7 @@ describe("desktop workbench shell", () => {
     expect(shellText).toContain("Checked active session metadata.");
     expect(shellText).toContain("tool: read_file");
     expect(shellText).toContain("docs/desktop.md");
-    expect(shellText).toContain("Loaded from gateway");
+    expect(shellText).not.toContain("Loaded from gateway");
     expect(shellText).not.toContain("Design native workbench");
     expect(shellText).not.toContain("tinybot_native_workbench_design.png");
     expect(shellText).not.toContain("ai-rvc");
@@ -390,7 +390,7 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-workbench-shell")).toBe(shell);
     expect(targetDocument.body.textContent).toContain("Updated live session");
     expect(targetDocument.body.textContent).toContain("Updated without full shell reinstall.");
-    expect(targetDocument.body.textContent).toContain("Updated status");
+    expect(targetDocument.body.textContent).not.toContain("Updated status");
     expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-responding")).toBe("true");
     expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-rag")).toBe("false");
     expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-state")).toBe("queued");
@@ -904,6 +904,40 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector(".desktop-chat-header")?.textContent).not.toContain("New session");
   });
 
+  test("keeps chat header actions compact and owns sidebar and run-chain toggles there", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-1", chatId: "chat-1", title: "Session one", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-1",
+        activeChatId: "chat-1",
+        messages: [],
+        status: "Session loaded from gateway.",
+      },
+    });
+
+    const header = targetDocument.body.querySelector(".desktop-chat-header");
+    expect(header?.textContent).toContain("Session one");
+    expect(header?.textContent).toContain("...");
+    expect(header?.textContent).not.toContain("Session loaded from gateway.");
+    expect(targetDocument.body.querySelector(".desktop-chat-runtime-status")).toBeNull();
+    expect(header?.querySelector(".desktop-chat-menu")?.getAttribute("data-desktop-chat-menu")).toBe("more");
+    expect(header?.querySelector(".desktop-chat-menu")?.textContent).toBe("...");
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Collapse session list");
+    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Close Run Chain panel");
+    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toBe("▌");
+    expect(targetDocument.body.querySelector("[data-desktop-inspector-restore]")).toBeNull();
+
+    header?.querySelector('[data-desktop-panel-control="sidebar"]')?.click();
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("false");
+    expect(targetDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("false");
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Expand session list");
+  });
+
   test("renders keyboard-operable panel controls with accessible labels", () => {
     const targetDocument = new FakeDocument();
 
@@ -986,11 +1020,11 @@ describe("desktop workbench shell", () => {
     overview?.querySelector('[data-desktop-run-chain-control="close"]')?.click();
     const restore = targetDocument.body.querySelector("[data-desktop-inspector-restore]");
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
-    expect(restore?.textContent).toContain("Open Run Chain");
-    restore?.click();
+    expect(restore).toBeNull();
+    targetDocument.body.querySelector(".desktop-chat-header")?.querySelector('[data-desktop-panel-control="inspector"]')?.click();
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("true");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("true");
-    expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(targetDocument.body.querySelectorAll('[data-desktop-panel-control="inspector"]').map((node) => node.getAttribute("aria-pressed"))).toContain("true");
   });
 
   test("renders a persistent run-chain inspector pane with selectable details", () => {

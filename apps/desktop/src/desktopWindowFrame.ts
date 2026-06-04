@@ -6,11 +6,13 @@ export interface DesktopWindowHandle {
   toggleMaximize(): Promise<void>;
   close(): Promise<void>;
   startDragging(): Promise<void>;
+  setIcon?(icon: unknown): Promise<void>;
 }
 
 interface InstallDesktopWindowFrameOptions {
   targetDocument?: Document;
   currentWindow: DesktopWindowHandle;
+  defaultWindowIcon?: () => Promise<unknown | null>;
 }
 
 const FRAME_ID = "desktop-window-frame";
@@ -27,9 +29,11 @@ export interface DesktopRuntimeStatusView {
 export function installDesktopWindowFrame({
   targetDocument = document,
   currentWindow,
+  defaultWindowIcon,
 }: InstallDesktopWindowFrameOptions): void {
   ensureDesktopWindowFrameStyle(targetDocument);
   targetDocument.body.classList.add("desktop-custom-frame");
+  syncDesktopWindowIcon(currentWindow, defaultWindowIcon);
 
   if (targetDocument.getElementById(FRAME_ID)) {
     setDesktopWindowContext(targetDocument);
@@ -106,6 +110,23 @@ export function installDesktopWindowFrame({
   });
 
   targetDocument.body.prepend(frame);
+}
+
+function syncDesktopWindowIcon(
+  currentWindow: DesktopWindowHandle,
+  defaultWindowIcon: (() => Promise<unknown | null>) | undefined,
+): void {
+  if (!currentWindow.setIcon || !defaultWindowIcon) {
+    return;
+  }
+  void defaultWindowIcon()
+    .then((icon) => {
+      if (!icon) {
+        return;
+      }
+      return currentWindow.setIcon?.(icon);
+    })
+    .catch(logWindowFrameError);
 }
 
 function setDesktopWindowContext(targetDocument: Document): void {
@@ -239,7 +260,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
   style.setAttribute("id", STYLE_ID);
   style.textContent = `
     :root {
-      --desktop-window-frame-height: 58px;
+      --desktop-window-frame-height: 48px;
       --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       --bg: #faf9f5;
       --bg-subtle: #f5f0e8;
@@ -269,7 +290,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: space-between;
       height: var(--desktop-window-frame-height);
-      padding: 0 16px 0 22px;
+      padding: 0 12px 0 16px;
       border-bottom: 1px solid var(--border, #e6dfd8);
       background: #fbfaf7;
       color: var(--text, #141413);
@@ -317,7 +338,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       align-items: center;
       gap: 2px;
       min-width: 0;
-      margin-left: 24px;
+      margin-left: 18px;
       overflow: hidden;
     }
 
@@ -325,14 +346,14 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       flex: 0 1 auto;
       max-width: 136px;
       min-width: 0;
-      height: 34px;
-      padding: 0 12px;
+      height: 30px;
+      padding: 0 10px;
       border: 0;
       border-radius: 4px;
       overflow: hidden;
       background: transparent;
       color: var(--text, #141413);
-      font: 500 14px/1 var(--font-sans, system-ui, sans-serif);
+      font: 500 13px/1 var(--font-sans, system-ui, sans-serif);
       text-overflow: ellipsis;
       white-space: nowrap;
       cursor: default;
@@ -350,11 +371,11 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       max-width: min(38vw, 340px);
       overflow: hidden;
       margin-left: auto;
-      padding: 8px 14px;
+      padding: 6px 12px;
       border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 88%, transparent);
       border-radius: 999px;
       color: var(--text-muted, #6c6a64);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       line-height: 1;
       text-overflow: ellipsis;
@@ -398,13 +419,13 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       display: flex;
       align-items: center;
       align-self: stretch;
-      gap: 8px;
-      margin-left: 16px;
+      gap: 4px;
+      margin-left: 12px;
     }
 
     body.desktop-custom-frame .desktop-window-button {
-      width: 34px;
-      height: 34px;
+      width: 30px;
+      height: 30px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -427,12 +448,12 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame > .desktop-startup-shell {
       min-height: calc(100vh - var(--desktop-window-frame-height));
-      padding-top: calc(var(--desktop-window-frame-height) + 24px);
+      padding-top: calc(var(--desktop-window-frame-height) + 16px);
     }
 
     body.desktop-custom-frame > .shell {
-      height: calc(100vh - var(--desktop-window-frame-height) - 32px);
-      margin: calc(var(--desktop-window-frame-height) + 16px) 16px 16px;
+      height: calc(100vh - var(--desktop-window-frame-height) - 18px);
+      margin: calc(var(--desktop-window-frame-height) + 8px) 10px 10px;
     }
 
     @media (max-width: 760px) {
@@ -449,13 +470,13 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       body.desktop-custom-frame .desktop-runtime-status {
         max-width: 92px;
         margin-left: auto;
-        padding: 7px 10px;
+        padding: 6px 9px;
       }
     }
 
     @media (max-width: 1100px) {
       body.desktop-custom-frame > .shell {
-        min-height: calc(100vh - var(--desktop-window-frame-height) - 32px);
+        min-height: calc(100vh - var(--desktop-window-frame-height) - 18px);
       }
     }
   `;
