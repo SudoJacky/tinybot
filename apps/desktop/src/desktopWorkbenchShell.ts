@@ -1,3 +1,5 @@
+import hljs from "highlight.js";
+import { marked } from "marked";
 import { isAgentUiFormSubmittable, type AgentUiForm, type AgentUiFormField } from "./agentUiEvents";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 import {
@@ -862,7 +864,6 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
     thread.append(...chat.messages.map((message) => createConversationMessage(targetDocument, {
       author: message.role === "user" ? "You" : "Tinybot",
       time: formatCompactTime(message.timestamp),
-      avatar: message.role === "user" ? "T" : "TB",
       tone: message.role === "user" ? "user" : "assistant",
       body: [message.reasoningContent, message.content].filter(Boolean),
       references: message.references,
@@ -873,14 +874,12 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
     createConversationMessage(targetDocument, {
       author: "You",
       time: "10:28 AM",
-      avatar: "T",
       tone: "user",
       body: ["这是目前的 native 界面，我希望你帮我设计一个更接近 codex 风格的界面。"],
     }),
     createConversationMessage(targetDocument, {
       author: "Tinybot",
       time: "10:28 AM",
-      avatar: "TB",
       tone: "assistant",
       body: [
         "好的，根据你的需求，我为 Tinybot native workbench 设计了一个更统一、简洁、专业的界面方向。",
@@ -900,7 +899,6 @@ function createConversationMessage(
   options: {
     author: string;
     time: string;
-    avatar: string;
     tone: "user" | "assistant";
     body: string[];
     references?: NativeChatMessage["references"];
@@ -911,23 +909,13 @@ function createConversationMessage(
   article.className = "desktop-conversation-message";
   article.setAttribute("data-message-tone", options.tone);
 
-  const avatar = targetDocument.createElement("div");
-  avatar.className = "desktop-conversation-avatar";
-  avatar.textContent = options.avatar;
-
   const content = targetDocument.createElement("div");
   content.className = "desktop-conversation-content";
   const meta = targetDocument.createElement("div");
   meta.className = "desktop-conversation-meta";
   meta.append(createText(targetDocument, "strong", options.author), createText(targetDocument, "span", options.time));
   content.append(meta);
-  for (const [index, line] of options.body.entries()) {
-    const node = createText(targetDocument, "p", line);
-    if (index > 0 && options.tone === "assistant") {
-      node.className = "desktop-conversation-bullet";
-    }
-    content.append(node);
-  }
+  content.append(createConversationBody(targetDocument, options.body, options.tone));
   for (const reference of options.references ?? []) {
     const node = createText(targetDocument, "p", `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`);
     node.className = "desktop-conversation-reference";
@@ -939,8 +927,46 @@ function createConversationMessage(
     attachment.textContent = `${options.attachment}  1.2 MB`;
     content.append(attachment);
   }
-  article.append(avatar, content);
+  article.append(content);
   return article;
+}
+
+function createConversationBody(
+  targetDocument: Document,
+  body: string[],
+  tone: "user" | "assistant",
+): HTMLElement {
+  const node = targetDocument.createElement("div");
+  node.className = "desktop-conversation-body";
+  const content = body.filter((line) => line.trim()).join("\n\n");
+  if (tone === "assistant") {
+    renderConversationMarkdown(node, content);
+    return node;
+  }
+  for (const line of body) {
+    node.append(createText(targetDocument, "p", line));
+  }
+  return node;
+}
+
+function renderConversationMarkdown(target: HTMLElement, content: string): void {
+  target.textContent = "";
+  if (!content.trim()) {
+    return;
+  }
+  try {
+    const html = marked.parse(content, { breaks: true, gfm: true, async: false });
+    target.innerHTML = addMarkdownLinkAttributes(typeof html === "string" ? html : content);
+    target.querySelectorAll("pre code").forEach((block) => {
+      hljs.highlightElement(block as HTMLElement);
+    });
+  } catch {
+    target.textContent = content;
+  }
+}
+
+function addMarkdownLinkAttributes(html: string): string {
+  return html.replace(/<a\s+(?![^>]*\btarget=)([^>]*href=)/gi, '<a target="_blank" rel="noreferrer" $1');
 }
 
 function createNativeComposerSurface(
@@ -4484,28 +4510,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-conversation-message {
       display: grid;
-      grid-template-columns: 42px minmax(0, 1fr);
-      gap: 14px;
       max-width: 760px;
       min-width: 0;
-    }
-
-    body.desktop-native-workbench .desktop-conversation-avatar {
-      display: grid;
-      place-items: center;
-      width: 42px;
-      height: 42px;
-      border: 1px solid #e7ddd6;
-      border-radius: 999px;
-      background: #ffffff;
-      color: #d66348;
-      font: 700 12px/1 var(--font-sans);
-    }
-
-    body.desktop-native-workbench .desktop-conversation-message[data-message-tone="user"] .desktop-conversation-avatar {
-      border-color: #d66348;
-      background: #d66348;
-      color: #ffffff;
     }
 
     body.desktop-native-workbench .desktop-conversation-content {
@@ -4544,6 +4550,92 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       content: "•";
       margin-left: -16px;
       padding-right: 8px;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body > *:first-child {
+      margin-top: 0;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body > *:last-child {
+      margin-bottom: 0;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body p {
+      margin: 0 0 10px;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body ul,
+    body.desktop-native-workbench .desktop-conversation-body ol {
+      margin: 10px 0;
+      padding-left: 24px;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body li {
+      margin: 0 0 6px;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body pre {
+      margin: 12px 0;
+      min-height: auto;
+      max-width: 100%;
+      overflow-x: auto;
+      border: 1px solid #e2d9d2;
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: #fbfaf7;
+      color: #1f1d1a;
+      font: 12px/1.55 var(--font-mono);
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body code {
+      border: 1px solid #e8dfd7;
+      border-radius: 5px;
+      padding: 2px 5px;
+      background: #fbfaf7;
+      font: 12px/1.4 var(--font-mono);
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body pre code {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      font: inherit;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body blockquote {
+      margin: 12px 0;
+      border-left: 3px solid #d66348;
+      padding: 8px 12px;
+      background: #fbfaf7;
+      color: #5f5a54;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body a {
+      color: #a9583e;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(169, 88, 62, 0.35);
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body a:hover {
+      border-bottom-color: #a9583e;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body table {
+      width: 100%;
+      margin: 12px 0;
+      border-collapse: collapse;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-body th,
+    body.desktop-native-workbench .desktop-conversation-body td {
+      border: 1px solid #e2d9d2;
+      padding: 8px 10px;
+      text-align: left;
     }
 
     body.desktop-native-workbench .desktop-conversation-attachment {
