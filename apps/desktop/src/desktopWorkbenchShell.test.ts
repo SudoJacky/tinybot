@@ -995,6 +995,28 @@ describe("desktop workbench shell", () => {
     expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toContain("Run Chain");
   });
 
+  test("anchors the chat header menu popover inside the main work area", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-1", chatId: "chat-1", title: "你好", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-1",
+        activeChatId: "chat-1",
+        messages: [],
+      },
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-menu-popover");
+    expect(styleText).toContain("left: 0;");
+    expect(styleText).toContain("right: auto;");
+    expect(styleText).not.toContain("right: 0;\n      z-index: 8;");
+  });
+
   test("preserves pinned sessions when native chat refreshes", () => {
     const targetDocument = new FakeDocument();
     const chat = {
