@@ -110,6 +110,11 @@ export function createDesktopNativeWorkbenchRuntime({
   }
 
   async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
+    if (event.kind === "usage") {
+      setRuntimeMetadata({ tokenUsage: event.tokenUsage });
+      return;
+    }
+
     if (event.kind === "agent-ui.form" || event.kind === "agent-ui.event") {
       for (const agentUiEvent of normalizeAgentUiEvents(event.raw)) {
         reduceAgentUiEventState(agentUiState, agentUiEvent);

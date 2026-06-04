@@ -94,6 +94,43 @@ describe("desktop chat session controller", () => {
     ]);
   });
 
+  test("retries session deletion with the gateway WebSocket key when the visible key is bare", async () => {
+    const deleted: string[] = [];
+    let sessions = [
+      { key: "5225ad1670a7", chat_id: "5225ad1670a7", title: "New session" },
+      { key: "WebSocket:f9387efaabab", chat_id: "f9387efaabab", title: "Next session" },
+    ];
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({ items: sessions })),
+        loadMessages: vi.fn(async (key: string) => ({
+          messages: [{ role: "assistant", content: `loaded ${key}`, message_id: `m-${key}` }],
+        })),
+        deleteSession: vi.fn(async (key: string) => {
+          deleted.push(key);
+          if (key === "5225ad1670a7") {
+            throw new Error("Gateway request failed: HTTP 404");
+          }
+          sessions = sessions.filter((session) => session.key !== "5225ad1670a7");
+          return { deleted: true };
+        }),
+      },
+      sendSocketMessage: () => undefined,
+    });
+
+    await controller.loadSessions();
+
+    await expect(controller.deleteSession("5225ad1670a7")).resolves.toEqual({
+      status: "deleted",
+      deletedSessionKey: "5225ad1670a7",
+      nextSessionKey: "WebSocket:f9387efaabab",
+    });
+
+    expect(deleted).toEqual(["5225ad1670a7", "WebSocket:5225ad1670a7"]);
+    expect(controller.state.sessions.map((session) => session.key)).toEqual(["WebSocket:f9387efaabab"]);
+    expect(controller.state.activeSessionKey).toBe("WebSocket:f9387efaabab");
+  });
+
   test("queues a new chat before sending pending content without changing WebSocket payload semantics", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({

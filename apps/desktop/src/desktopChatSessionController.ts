@@ -90,7 +90,7 @@ export function createDesktopChatSessionController({
       return { status: "unavailable", deletedSessionKey, nextSessionKey: "" };
     }
 
-    await api.deleteSession(sessionKey);
+    await deleteGatewaySession(target);
     state.messages.delete(sessionKey);
     state.respondingSessionKeys.delete(sessionKey);
     for (const [messageId, messageSessionKey] of state.streamMessageKeys) {
@@ -115,6 +115,22 @@ export function createDesktopChatSessionController({
       deletedSessionKey,
       nextSessionKey: state.activeSessionKey,
     };
+  }
+
+  async function deleteGatewaySession(target: NativeChatState["sessions"][number]): Promise<void> {
+    if (!api.deleteSession) {
+      return;
+    }
+    try {
+      await api.deleteSession(target.key);
+      return;
+    } catch (error) {
+      const fallbackKey = sessionKeyForChat(target.chatId);
+      if (!fallbackKey || fallbackKey === target.key) {
+        throw error;
+      }
+      await api.deleteSession(fallbackKey);
+    }
   }
 
   function submitMessage(content: string, usePersistentRag = true): ChatSubmitResult {

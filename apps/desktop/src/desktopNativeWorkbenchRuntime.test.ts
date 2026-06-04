@@ -279,6 +279,28 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("gateway stream failed");
   });
 
+  test("updates native runtime token usage from gateway usage events", async () => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-usage", chat_id: "chat-usage", title: "Usage chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+    });
+    await runtime.loadInitialChatState();
+
+    await runtime.handleGatewayEvent({
+      kind: "usage",
+      chatId: "chat-usage",
+      tokenUsage: "37%",
+      raw: { event: "usage", usage: { total_tokens: 24248 } },
+    });
+
+    expect(runtime.chat.runtime?.tokenUsage).toBe("37%");
+  });
+
   test("reduces agent-ui form gateway events into native approval forms", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {

@@ -18,6 +18,7 @@ export type NormalizedGatewayEvent =
   | { kind: "message.delta"; chatId?: string; messageId?: string; text: string; reasoning: boolean; raw: Record<string, unknown> }
   | { kind: "message.completed"; chatId?: string; messageId?: string; text: string; raw: Record<string, unknown> }
   | { kind: "message.stream.completed"; chatId?: string; messageId?: string; raw: Record<string, unknown> }
+  | { kind: "usage"; chatId?: string; tokenUsage: string; raw: Record<string, unknown> }
   | { kind: "browser.frame"; raw: Record<string, unknown> }
   | { kind: "browser.snapshot"; raw: Record<string, unknown> }
   | { kind: "agent-ui.form"; raw: Record<string, unknown> }
@@ -68,6 +69,13 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
         messageId: optionalString(raw.message_id),
         raw,
       };
+    case "usage":
+      return {
+        kind: "usage",
+        chatId: optionalString(raw.chat_id),
+        tokenUsage: formatTokenUsage(raw.usage),
+        raw,
+      };
     case "browser_frame":
       return { kind: "browser.frame", raw };
     case "browser_snapshot":
@@ -77,6 +85,43 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
       return { kind: "agent-ui.form", raw };
     case "agent_ui_event": {
       const payload = isRecord(raw.agent_ui_event) ? raw.agent_ui_event : {};
+      const eventType = stringValue(payload.event_type ?? payload.type);
+      const eventPayload = isRecord(payload.payload) ? payload.payload : {};
+      if (eventType === "message.delta" || eventType === "reasoning.delta") {
+        return {
+          kind: "message.delta",
+          chatId: optionalString(payload.chat_id) ?? optionalString(raw.chat_id),
+          messageId: optionalString(payload.message_id),
+          text: stringValue(eventPayload.text ?? payload.text),
+          reasoning: eventType === "reasoning.delta" || eventPayload.is_reasoning === true,
+          raw,
+        };
+      }
+      if (eventType === "message.completed") {
+        return {
+          kind: "message.completed",
+          chatId: optionalString(payload.chat_id) ?? optionalString(raw.chat_id),
+          messageId: optionalString(payload.message_id),
+          text: stringValue(eventPayload.text ?? payload.text),
+          raw,
+        };
+      }
+      if (eventType === "message.stream.completed") {
+        return {
+          kind: "message.stream.completed",
+          chatId: optionalString(payload.chat_id) ?? optionalString(raw.chat_id),
+          messageId: optionalString(payload.message_id),
+          raw,
+        };
+      }
+      if (eventType === "usage.updated") {
+        return {
+          kind: "usage",
+          chatId: optionalString(payload.chat_id) ?? optionalString(raw.chat_id),
+          tokenUsage: formatTokenUsage(eventPayload.usage ?? eventPayload),
+          raw,
+        };
+      }
       return { kind: "agent-ui.event", eventType: stringValue(payload.event_type), raw };
     }
     case "interrupted":
@@ -152,4 +197,43 @@ function stringValue(value: unknown): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+function formatTokenUsage(value: unknown): string {
+  const usage = isRecord(value) ? value : {};
+  const explicitPercent = numberValue(usage.percent ?? usage.percentage ?? usage.token_usage_percent ?? usage.tokenUsagePercent);
+  if (explicitPercent !== null) {
+    return `${boundedPercent(explicitPercent)}%`;
+  }
+  const total = numberValue(usage.total_tokens ?? usage.totalTokens ?? usage.total) ?? 0;
+  const contextWindow = numberValue(
+    usage.context_window_tokens ??
+    usage.contextWindowTokens ??
+    usage.context_window ??
+    usage.contextWindow ??
+    usage.max_context_tokens ??
+    usage.maxContextTokens,
+  );
+  if (contextWindow === null) {
+    return "-";
+  }
+  if (contextWindow <= 0) {
+    return "0%";
+  }
+  return `${boundedPercent((total / contextWindow) * 100)}%`;
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function boundedPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }

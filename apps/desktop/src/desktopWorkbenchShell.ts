@@ -96,6 +96,7 @@ export interface DesktopNativeChatDeleteSessionEvent {
 interface DesktopNativeChatActionOptions {
   onComposerSubmit?: (event: DesktopNativeChatComposerSubmitEvent) => void;
   onInterrupt?: () => void;
+  onAttachSessionFile?: () => void;
   onNewChat?: () => void;
   onDeleteSession?: (event: DesktopNativeChatDeleteSessionEvent) => void;
   onPersistentRagChange?: (enabled: boolean) => void;
@@ -388,7 +389,7 @@ export function updateDesktopCoworkPane(
 export function updateDesktopNativeChat(
   targetDocument: Document = document,
   chat: DesktopNativeChatModel,
-  gatewayHttp = "",
+  _gatewayHttp = "",
   chatActions: DesktopNativeChatActionOptions = {},
 ): void {
   syncNativeChatDocumentState(targetDocument, chat);
@@ -418,14 +419,7 @@ export function updateDesktopNativeChat(
 
   const composer = targetDocument.getElementById("desktop-native-composer");
   if (composer) {
-    const http =
-      gatewayHttp ||
-      targetDocument
-        .querySelector<HTMLElement>(".desktop-native-composer-chip")
-        ?.textContent
-        ?.replace(/^Gateway ready:\s*/, "") ||
-      "";
-    const next = createNativeComposerSurface(targetDocument, http, chat, chatActions);
+    const next = createNativeComposerSurface(targetDocument, chat, chatActions);
     composer.setAttribute("data-active-session-key", chat.activeSessionKey);
     composer.setAttribute("data-desktop-composer-responding", String(chat.responding === true));
     composer.setAttribute("data-desktop-composer-rag", String(chat.usePersistentRag !== false));
@@ -689,10 +683,21 @@ function createRecentChatRow(
   deleteButton.className = "desktop-sidebar-delete-session";
   deleteButton.setAttribute("data-desktop-chat-delete", session.key);
   deleteButton.setAttribute("aria-label", `Delete chat ${title}`);
-  deleteButton.textContent = "Delete";
+  deleteButton.textContent = "x";
+  let confirmDelete = false;
   deleteButton.addEventListener("click", (event) => {
     event.preventDefault?.();
     event.stopPropagation?.();
+    if (!confirmDelete) {
+      confirmDelete = true;
+      deleteButton.setAttribute("aria-label", `Confirm delete chat ${title}`);
+      deleteButton.setAttribute("data-confirming", "true");
+      deleteButton.textContent = "Confirm";
+      return;
+    }
+    deleteButton.setAttribute("disabled", "");
+    deleteButton.setAttribute("data-deleting", "true");
+    deleteButton.textContent = "Deleting";
     chatActions.onDeleteSession?.({
       sessionKey: session.key,
       chatId: session.chatId,
@@ -817,7 +822,7 @@ function createMainRegion(
   status.setAttribute("data-desktop-route-status", "");
   status.textContent = `No workspace file selected · Gateway ${gatewayHttp}`;
 
-  main.append(workbench, createNativeComposerSurface(targetDocument, gatewayHttp, chat, chatActions), utilities, status);
+  main.append(workbench, createNativeComposerSurface(targetDocument, chat, chatActions), utilities, status);
   return main;
 }
 
@@ -940,7 +945,6 @@ function createConversationMessage(
 
 function createNativeComposerSurface(
   targetDocument: Document,
-  gatewayHttp: string,
   chat: DesktopNativeChatModel | null,
   chatActions: DesktopNativeChatActionOptions = {},
 ): HTMLElement {
@@ -960,8 +964,11 @@ function createNativeComposerSurface(
   attach.type = "button";
   attach.className = "desktop-native-composer-action";
   attach.setAttribute("data-desktop-composer-action", "attach");
-  attach.setAttribute("aria-label", "Attach file");
+  attach.setAttribute("aria-label", "Attach temporary file to current session");
   attach.textContent = "+";
+  attach.addEventListener("click", () => {
+    chatActions.onAttachSessionFile?.();
+  });
 
   const input = targetDocument.createElement("textarea");
   input.id = "desktop-native-composer-input";
@@ -975,36 +982,20 @@ function createNativeComposerSurface(
   send.className = "desktop-native-composer-send";
   send.setAttribute("data-desktop-composer-action", "send");
   send.setAttribute("aria-label", "Send message");
-  if (nativeComposerState(chat) !== "idle") {
-    send.setAttribute("disabled", "");
-  }
   send.textContent = "↑";
+  updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat);
+  input.addEventListener("input", () => {
+    updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat);
+  });
   send.addEventListener("click", () => {
+    if ((send as HTMLButtonElement).disabled || !input.value.trim()) {
+      return;
+    }
     chatActions.onComposerSubmit?.({
       content: input.value,
       usePersistentRag: chat?.usePersistentRag !== false,
     });
   });
-
-  const stop = targetDocument.createElement("button");
-  stop.id = "desktop-native-composer-stop";
-  stop.type = "button";
-  stop.className = "desktop-native-composer-action";
-  stop.setAttribute("data-desktop-composer-action", "stop");
-  stop.setAttribute("aria-label", "Stop generation");
-  stop.textContent = "Stop";
-  stop.hidden = chat?.responding !== true;
-  stop.addEventListener("click", () => {
-    chatActions.onInterrupt?.();
-  });
-
-  const microphone = targetDocument.createElement("button");
-  microphone.id = "desktop-native-composer-microphone";
-  microphone.type = "button";
-  microphone.className = "desktop-native-composer-microphone";
-  microphone.setAttribute("data-desktop-composer-action", "microphone");
-  microphone.setAttribute("aria-label", "Voice input");
-  microphone.textContent = "Mic";
 
   const runtime = targetDocument.createElement("div");
   runtime.id = "desktop-native-composer-runtime";
@@ -1013,19 +1004,26 @@ function createNativeComposerSurface(
   runtime.setAttribute("aria-label", "Runtime status");
   runtime.append(
     createComposerModelControl(targetDocument, chat),
-    createComposerChip(targetDocument, "Provider", chat?.runtime?.provider || "-"),
-    createComposerChip(targetDocument, "Session", chat?.activeChatId || "No active session"),
     createPersistentRagToggle(targetDocument, chat, chatActions),
-    createComposerChip(targetDocument, "Generation", chat?.responding ? "Running" : "Idle"),
-    createComposerChip(targetDocument, "Composer", nativeComposerStateLabel(nativeComposerState(chat))),
-    createComposerChip(targetDocument, "WebSocket", chat?.runtime?.webSocket || "-"),
-    createComposerChip(targetDocument, "Token", chat?.runtime?.tokenReady ? "Ready" : "Pending"),
-    createComposerChip(targetDocument, "Token usage", chat?.runtime?.tokenUsage || "-"),
-    createComposerChip(targetDocument, "Gateway", chat?.runtime?.gatewayHttp || gatewayHttp),
+    createTokenUsageOrb(targetDocument, chat?.runtime?.tokenUsage || "-"),
   );
 
-  composer.append(attach, input, runtime, microphone, stop, send);
+  composer.append(input, attach, runtime, send);
   return composer;
+}
+
+function updateNativeComposerSendState(
+  input: HTMLTextAreaElement,
+  send: HTMLButtonElement,
+  chat: DesktopNativeChatModel | null,
+): void {
+  const canSend = nativeComposerState(chat) === "idle" && Boolean(input.value.trim());
+  send.disabled = !canSend;
+  if (canSend) {
+    send.removeAttribute("disabled");
+  } else {
+    send.setAttribute("disabled", "");
+  }
 }
 
 function activeChatTitle(chat: DesktopNativeChatModel | null): string {
@@ -1037,17 +1035,6 @@ function activeChatTitle(chat: DesktopNativeChatModel | null): string {
 
 function nativeComposerState(chat: DesktopNativeChatModel | null): NonNullable<DesktopNativeChatModel["composerState"]> {
   return chat?.composerState ?? (chat?.responding ? "sending" : "idle");
-}
-
-function nativeComposerStateLabel(state: NonNullable<DesktopNativeChatModel["composerState"]>): string {
-  switch (state) {
-    case "queued":
-      return "Queued";
-    case "sending":
-      return "Sending";
-    case "idle":
-      return "Ready";
-  }
 }
 
 function formatCompactTime(value: string): string {
@@ -1067,13 +1054,6 @@ function createComposerModelControl(targetDocument: Document, chat: DesktopNativ
   return button;
 }
 
-function createComposerChip(targetDocument: Document, label: string, value: string): HTMLElement {
-  const chip = targetDocument.createElement("span");
-  chip.className = "desktop-native-composer-chip";
-  chip.textContent = `${label}: ${value}`;
-  return chip;
-}
-
 function createPersistentRagToggle(
   targetDocument: Document,
   chat: DesktopNativeChatModel | null,
@@ -1082,15 +1062,42 @@ function createPersistentRagToggle(
   const enabled = chat?.usePersistentRag !== false;
   const button = targetDocument.createElement("button");
   button.type = "button";
-  button.className = "desktop-native-composer-chip desktop-native-composer-rag-toggle";
+  button.className = "desktop-native-composer-model desktop-native-composer-rag-toggle";
   button.setAttribute("data-desktop-composer-action", "rag-toggle");
   button.setAttribute("aria-label", "Toggle persistent RAG");
   button.setAttribute("aria-pressed", String(enabled));
-  button.textContent = `RAG: ${enabled ? "On" : "Off"}`;
+  button.textContent = `RAG ${enabled ? "On" : "Off"}`;
   button.addEventListener("click", () => {
     chatActions.onPersistentRagChange?.(!enabled);
   });
   return button;
+}
+
+function createTokenUsageOrb(targetDocument: Document, tokenUsage: string): HTMLElement {
+  const percent = parseTokenUsagePercent(tokenUsage);
+  const orb = targetDocument.createElement("span");
+  orb.className = "desktop-native-token-orb";
+  orb.setAttribute("role", "meter");
+  orb.setAttribute("aria-label", `Token usage ${percent}%`);
+  orb.setAttribute("aria-valuemin", "0");
+  orb.setAttribute("aria-valuemax", "100");
+  orb.setAttribute("aria-valuenow", String(percent));
+  orb.setAttribute("data-token-usage", String(percent));
+  orb.style.setProperty("--token-usage-fill", `${percent}%`);
+  orb.textContent = `${percent}%`;
+  return orb;
+}
+
+function parseTokenUsagePercent(tokenUsage: string): number {
+  const match = tokenUsage.match(/\d+(?:\.\d+)?/);
+  if (!match) {
+    return 0;
+  }
+  const value = Number(match[0]);
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function createWorkLensInlineHost(
@@ -3460,7 +3467,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workbench-shell {
-      height: calc(100vh - var(--desktop-window-frame-height, 0px));
+      height: 100vh;
       padding-top: var(--desktop-window-frame-height, 0px);
       display: grid;
       grid-template-columns: 56px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(420px, 1fr) minmax(280px, var(--desktop-inspector-size, 360px));
@@ -3866,7 +3873,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-workspace-files {
       display: grid;
-      grid-template-columns: minmax(190px, 260px) minmax(280px, 1fr) minmax(120px, 160px);
+      grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.2fr) minmax(92px, 0.5fr);
       grid-template-areas:
         "header header header"
         "browser detail actions"
@@ -4026,15 +4033,17 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      grid-template-rows: auto auto;
-      gap: 8px;
-      width: min(820px, 100%);
+      grid-template-columns: 40px minmax(0, 1fr) 44px;
+      grid-template-rows: minmax(56px, auto) auto;
+      grid-template-areas: "input input input" "attach runtime send";
+      gap: 10px 12px;
+      align-items: end;
+      width: min(1100px, 100%);
       min-width: 0;
       margin: 0 auto 10px;
       border: 1px solid var(--border);
-      border-radius: var(--radius-xl);
-      padding: 10px;
+      border-radius: 24px;
+      padding: 16px 18px 14px;
       background: var(--panel);
       box-shadow: var(--shadow-sm);
     }
@@ -4044,11 +4053,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 36px;
-      min-height: 36px;
+      width: 40px;
+      min-width: 40px;
+      min-height: 40px;
       border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 0 12px;
+      border-radius: 999px;
+      padding: 0;
       background: var(--bg);
       color: var(--text);
       font: 600 12px/1.2 var(--font-sans);
@@ -4056,26 +4066,37 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer-send {
+      width: 38px;
+      min-width: 38px;
+      height: 38px;
+      min-height: 38px;
       border-color: var(--primary);
       background: var(--primary);
       color: var(--on-primary);
     }
 
-    body.desktop-native-workbench .desktop-native-composer-input {
-      min-width: 0;
-      width: 100%;
-      min-height: 36px;
-      max-height: 108px;
-      border: 0;
-      border-radius: var(--radius-md);
-      padding: 8px 10px;
-      resize: vertical;
-      background: transparent;
-      color: var(--text);
-      font: 13px/1.45 var(--font-sans);
+    body.desktop-native-workbench .desktop-native-composer-send:disabled {
+      border-color: #8f9094;
+      background: #8f9094;
+      color: #ffffff;
+      cursor: not-allowed;
     }
 
-    body.desktop-native-workbench .desktop-native-composer-input:focus-visible,
+    body.desktop-native-workbench .desktop-native-composer-input {
+      grid-area: input;
+      min-width: 0;
+      width: 100%;
+      min-height: 58px;
+      max-height: 108px;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      resize: none;
+      background: transparent;
+      color: var(--text);
+      font: 16px/1.5 var(--font-sans);
+    }
+
     body.desktop-native-workbench .desktop-native-composer-action:focus-visible,
     body.desktop-native-workbench .desktop-native-composer-send:focus-visible {
       outline: 2px solid var(--primary);
@@ -4083,26 +4104,42 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       box-shadow: 0 0 0 4px var(--focus-ring);
     }
 
-    body.desktop-native-workbench .desktop-native-composer-runtime {
-      grid-column: 1 / -1;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      min-width: 0;
+    body.desktop-native-workbench .desktop-native-composer-input:focus-visible {
+      outline: 0;
+      box-shadow: none;
     }
 
-    body.desktop-native-workbench .desktop-native-composer-chip {
+    body.desktop-native-workbench .desktop-native-composer-runtime {
+      grid-area: runtime;
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
       min-width: 0;
-      max-width: 100%;
+      overflow: hidden;
+    }
+
+    body.desktop-native-workbench .desktop-native-token-orb {
+      position: relative;
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
       overflow: hidden;
       border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-full);
-      padding: 3px 8px;
-      background: var(--surface-soft);
-      color: var(--text-muted);
-      font: 500 11px/1.25 var(--font-sans);
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      border-radius: 999px;
+      background:
+        linear-gradient(
+          to top,
+          rgba(105, 152, 220, 0.86) 0 var(--token-usage-fill, 0%),
+          rgba(255, 255, 255, 0.92) var(--token-usage-fill, 0%) 100%
+        );
+      color: #29313d;
+      font: 700 10px/1 var(--font-sans);
+      box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.58);
     }
 
     body.desktop-native-workbench .desktop-workbench-shell {
@@ -4304,7 +4341,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session {
-      width: 52px;
+      width: 30px;
       min-height: 30px;
       border: 1px solid transparent;
       border-radius: 6px;
@@ -4312,6 +4349,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #8d4a3a;
       font: 600 11px/1 var(--font-sans);
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-delete-session[data-confirming="true"] {
+      width: 64px;
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
@@ -4342,7 +4383,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workbench-main {
-      grid-template-rows: minmax(0, 1fr) auto auto;
+      grid-template-rows: minmax(0, 1fr) auto 0;
       height: 100%;
       min-height: 0;
       padding: 0;
@@ -4497,55 +4538,55 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       position: relative;
-      grid-template-columns: 48px minmax(0, 1fr) 48px 56px;
-      grid-template-rows: minmax(72px, auto) auto;
-      grid-template-areas: "attach input input input" "stop spacer microphone send";
-      gap: 10px 12px;
-      width: min(820px, calc(100% - 56px));
-      margin: 0 auto 46px;
+      grid-template-columns: 40px minmax(0, 1fr) 44px;
+      grid-template-rows: minmax(64px, auto) auto;
+      grid-template-areas: "input input input" "attach runtime send";
+      gap: 10px 14px;
+      align-items: end;
+      width: min(1120px, calc(100% - 40px));
+      min-height: 118px;
+      margin: 0 auto 8px;
       border-color: #ddd5cd;
-      border-radius: 16px;
-      padding: 12px;
+      border-radius: 24px;
+      padding: 18px 20px 14px;
       background: #ffffff;
       box-shadow: 0 10px 28px rgba(20, 20, 19, 0.08);
     }
 
     body.desktop-native-workbench .desktop-native-composer-action {
-      align-self: start;
-      width: 48px;
-      min-width: 48px;
-      min-height: 48px;
-      border-radius: 8px;
-      background: #fbfaf7;
-      font-size: 18px;
+      align-self: end;
+      width: 34px;
+      min-width: 34px;
+      min-height: 34px;
+      border-color: transparent;
+      border-radius: 999px;
+      background: transparent;
+      color: #7d7b76;
+      font-size: 24px;
     }
 
     body.desktop-native-workbench #desktop-native-composer-attach {
       grid-area: attach;
     }
 
-    body.desktop-native-workbench #desktop-native-composer-stop {
-      grid-area: stop;
-      font-size: 12px;
-    }
-
     body.desktop-native-workbench .desktop-native-composer-input {
       grid-area: input;
-      min-height: 54px;
-      padding: 10px 4px;
-      font-size: 15px;
+      min-height: 58px;
+      padding: 0;
+      color: #262522;
+      font-size: 16px;
     }
 
     body.desktop-native-workbench .desktop-native-composer-runtime {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 0;
-      right: 0;
+      grid-area: runtime;
       align-items: center;
-      max-height: 30px;
+      justify-content: flex-end;
+      min-height: 38px;
+      max-height: none;
       overflow-x: auto;
-      overflow-y: hidden;
+      overflow-y: visible;
       flex-wrap: nowrap;
+      min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-native-composer-model {
@@ -4559,24 +4600,29 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       cursor: pointer;
     }
 
-    body.desktop-native-workbench .desktop-native-composer-microphone {
-      grid-area: microphone;
-      width: 38px;
-      min-height: 38px;
-      border: 0;
-      background: transparent;
-      color: #3d3934;
-      font: 600 12px/1 var(--font-sans);
-      cursor: pointer;
+    body.desktop-native-workbench .desktop-native-token-orb {
+      width: 36px;
+      height: 36px;
+      border-color: #d8d2ca;
     }
 
     body.desktop-native-workbench .desktop-native-composer-send {
       grid-area: send;
-      width: 46px;
-      min-width: 46px;
-      min-height: 46px;
+      align-self: end;
+      width: 36px;
+      min-width: 36px;
+      height: 36px;
+      min-height: 36px;
+      border-color: var(--primary);
       border-radius: 999px;
+      background: var(--primary);
+      color: #ffffff;
       font-size: 20px;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-send:disabled {
+      border-color: #8f9094;
+      background: #8f9094;
     }
 
     body.desktop-native-workbench .desktop-utility-surfaces {
@@ -5282,8 +5328,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-status-strip {
+      height: 0;
       overflow: hidden;
-      padding: 8px 0 0;
+      padding: 0;
       color: var(--text-muted, #6c6a64);
       font-size: 11px;
       text-overflow: ellipsis;
@@ -5377,7 +5424,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row-meta,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-empty-session p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-section p,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-chip,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-title-group p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-status,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-updated-at,
@@ -5392,7 +5438,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: var(--text-muted);
     }
 
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-send,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-send:not(:disabled),
     html[data-theme="dark"] body.desktop-native-workbench .desktop-quick-actions .desktop-quick-action:first-child {
       background: var(--accent);
       border-color: var(--accent);
@@ -5456,17 +5502,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-native-composer {
         width: calc(100% - 28px);
-        grid-template-columns: 48px minmax(0, 1fr) 56px;
+        grid-template-columns: 36px minmax(0, 1fr) 44px;
         grid-template-rows: auto auto;
-        grid-template-areas: "attach input input" "stop microphone send";
+        grid-template-areas: "input input input" "attach runtime send";
       }
 
       body.desktop-native-workbench .desktop-native-composer-runtime {
         display: flex;
-      }
-
-      body.desktop-native-workbench .desktop-native-composer-microphone {
-        justify-self: end;
       }
 
       body.desktop-native-workbench .desktop-native-composer-send {
