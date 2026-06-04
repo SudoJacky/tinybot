@@ -136,11 +136,15 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
 
 function createWorkspaceShell(targetDocument: FakeDocument): void {
   const root = targetDocument.createElement("section");
+  const search = targetDocument.createElement("input");
+  search.setAttribute("id", "desktop-workspace-search");
+  root.append(search);
   for (const id of [
     "desktop-workspace-status",
     "desktop-workspace-recent-files",
     "desktop-workspace-active-path",
     "desktop-workspace-updated-at",
+    "desktop-workspace-size",
     "desktop-workspace-detail",
     "desktop-workspace-save-state",
     "desktop-workspace-error",
@@ -158,6 +162,9 @@ function createWorkspaceShell(targetDocument: FakeDocument): void {
   const reveal = targetDocument.createElement("button");
   reveal.setAttribute("id", "desktop-workspace-reveal");
   root.append(reveal);
+  const reload = targetDocument.createElement("button");
+  reload.setAttribute("id", "desktop-workspace-reload");
+  root.append(reload);
   const exportButton = targetDocument.createElement("button");
   exportButton.setAttribute("id", "desktop-workspace-export");
   root.append(exportButton);
@@ -337,6 +344,66 @@ describe("desktop workspace file adapter", () => {
       ["file:workspace:AGENTS.md:save", "saving", "Save AGENTS.md", ""],
       ["file:workspace:AGENTS.md:save", "failed", "Save AGENTS.md", "Gateway request failed: HTTP 404 file is not editable"],
     ]);
+  });
+
+  test("filters workspace files, marks the active row, shows size, and reloads after a save conflict", async () => {
+    const targetDocument = new FakeDocument();
+    createWorkspaceShell(targetDocument);
+    let loadCount = 0;
+
+    installDesktopWorkspaceFileActions({
+      targetDocument: targetDocument as unknown as Document,
+      listWorkspaceFiles: async () => ({
+        items: [
+          { path: "AGENTS.md", exists: true, updated_at: "2026-05-31T10:00:00+00:00" },
+          { path: "docs/notes.md", exists: true, updated_at: "2026-05-30T10:00:00+00:00" },
+        ],
+      }),
+      loadWorkspaceFile: async (path) => {
+        loadCount += 1;
+        return {
+          path,
+          content: loadCount > 1 ? "# Rules\n\nReloaded.\n" : "# Rules\n",
+          updated_at: loadCount > 1 ? "2026-05-31T10:30:00+00:00" : "2026-05-31T10:00:00+00:00",
+          exists: true,
+        };
+      },
+      saveWorkspaceFile: async () => {
+        throw new Error("Gateway request failed: HTTP 409");
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const search = targetDocument.getElementById("desktop-workspace-search");
+    search!.value = "notes";
+    search!.dispatchEvent("input", { target: search });
+
+    expect(targetDocument.getElementById("desktop-workspace-recent-files")?.textContent).not.toContain("AGENTS.md");
+    expect(targetDocument.getElementById("desktop-workspace-recent-files")?.textContent).toContain("docs/notes.md");
+
+    search!.value = "";
+    search!.dispatchEvent("input", { target: search });
+    targetDocument.body.querySelector("[data-desktop-workspace-file]")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const activeRow = targetDocument.body.querySelector("[data-desktop-workspace-file]");
+    expect(activeRow?.getAttribute("aria-selected")).toBe("true");
+    expect(targetDocument.getElementById("desktop-workspace-size")?.textContent).toContain("8 B");
+
+    const editor = targetDocument.getElementById("desktop-workspace-editor");
+    editor!.value = "# Rules\n\nUse uv.\n";
+    editor!.dispatchEvent("input", { target: editor });
+    targetDocument.getElementById("desktop-workspace-save")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(targetDocument.getElementById("desktop-workspace-error")?.textContent).toContain("Reload before saving");
+    expect(targetDocument.getElementById("desktop-workspace-reload")?.disabled).toBe(false);
+
+    targetDocument.getElementById("desktop-workspace-reload")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect((targetDocument.getElementById("desktop-workspace-editor") as FakeElement).value).toBe("# Rules\n\nReloaded.\n");
+    expect(targetDocument.getElementById("desktop-workspace-updated-at")?.textContent).toContain("2026-05-31T10:30:00+00:00");
   });
 
   test("shows export failures without discarding unsaved workspace drafts", async () => {

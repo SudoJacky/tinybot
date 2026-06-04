@@ -36,6 +36,15 @@ describe("desktop file upload adapters", () => {
       title: "Attach temporary session file",
       filters: [{ name: "Session files", extensions: ["md", "txt", "pdf", "docx", "csv", "json", "png", "jpg", "jpeg"] }],
     });
+    expect(desktopUploadPickerOptions("workspace-file")).toEqual({
+      title: "Import workspace file",
+      filters: [
+        {
+          name: "Workspace files",
+          extensions: ["md", "markdown", "txt", "json", "csv", "py", "js", "ts", "tsx", "jsx", "html", "css", "yaml", "yml", "toml"],
+        },
+      ],
+    });
   });
 
   test("converts an explicitly selected native file into a browser File", async () => {
@@ -195,6 +204,43 @@ describe("desktop file upload adapters", () => {
     expect(targetDocument.querySelector("#desktop-file-upload-status")?.textContent).toContain("Attached notes.md to WebSocket:chat-1.");
   });
 
+  test("imports a picked workspace file when the workspace import target is clicked", async () => {
+    const targetDocument = createUploadTestDocument();
+    const workspace = targetDocument.createElement("a");
+    workspace.setAttribute("id", "desktop-workspace-file-drop");
+    const status = targetDocument.createElement("p");
+    status.setAttribute("id", "desktop-file-upload-status");
+    targetDocument.body.append(workspace, status);
+    const pickedKinds: string[] = [];
+    const workspaceWrites: { path: string; body: unknown }[] = [];
+    const importedPaths: string[] = [];
+
+    installDesktopFileUploadActions({
+      targetDocument: targetDocument as unknown as Document,
+      pickFile: async (kind) => {
+        pickedKinds.push(kind);
+        return pickedFile;
+      },
+      uploadKnowledgeDocument: async () => ({}),
+      uploadSessionTemporaryFile: async () => undefined,
+      uploadWorkspaceFile: async (path, body) => {
+        workspaceWrites.push({ path, body });
+      },
+      onWorkspaceFileImported: async (path) => {
+        importedPaths.push(path);
+      },
+    });
+
+    targetDocument.querySelector("#desktop-workspace-file-drop")?.click();
+    await flushPromises();
+    await flushPromises();
+
+    expect(pickedKinds).toEqual(["workspace-file"]);
+    expect(workspaceWrites).toEqual([{ path: "notes.md", body: { content: "hello world", expected_updated_at: null } }]);
+    expect(importedPaths).toEqual(["notes.md"]);
+    expect(targetDocument.querySelector("#desktop-file-upload-status")?.textContent).toContain("Imported notes.md into workspace.");
+  });
+
   test("routes dropped files through the matching gateway contracts with accepted and rejected feedback", async () => {
     const knowledgeFormBodies: FormData[] = [];
     const sessionFormBodies: FormData[] = [];
@@ -325,7 +371,7 @@ class UploadTestElement {
   public dataset: Record<string, string> = {};
   public children: UploadTestElement[] = [];
   private ownTextContent = "";
-  private listeners = new Map<string, ((event: { type: string; detail?: unknown }) => void)[]>();
+  private listeners = new Map<string, ((event: { type: string; detail?: unknown; preventDefault?: () => void }) => void)[]>();
   private attributes = new Map<string, string>();
 
   constructor(public readonly tagName: string) {}
@@ -357,11 +403,11 @@ class UploadTestElement {
     this.ownTextContent = "";
   }
 
-  addEventListener(type: string, listener: (event: { type: string; detail?: unknown }) => void): void {
+  addEventListener(type: string, listener: (event: { type: string; detail?: unknown; preventDefault?: () => void }) => void): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
-  dispatchEvent(event: { type: string; detail?: unknown }): boolean {
+  dispatchEvent(event: { type: string; detail?: unknown; preventDefault?: () => void }): boolean {
     for (const listener of this.listeners.get(event.type) ?? []) {
       listener(event);
     }
@@ -369,7 +415,7 @@ class UploadTestElement {
   }
 
   click(): void {
-    this.dispatchEvent({ type: "click" });
+    this.dispatchEvent({ type: "click", preventDefault: () => undefined });
   }
 
   querySelector(selector: string): UploadTestElement | null {
@@ -384,6 +430,20 @@ class UploadTestElement {
     }
     return null;
   }
+
+  querySelectorAll(selector: string): UploadTestElement[] {
+    const matches: UploadTestElement[] = [];
+    if (selector === "[data-desktop-drop-target]" && this.attributes.has("data-desktop-drop-target")) {
+      matches.push(this);
+    }
+    if (selector.startsWith("#") && this.id === selector.slice(1)) {
+      matches.push(this);
+    }
+    for (const child of this.children) {
+      matches.push(...child.querySelectorAll(selector));
+    }
+    return matches;
+  }
 }
 
 class UploadTestDocument {
@@ -396,6 +456,10 @@ class UploadTestDocument {
 
   querySelector(selector: string): UploadTestElement | null {
     return this.body.querySelector(selector);
+  }
+
+  querySelectorAll(selector: string): UploadTestElement[] {
+    return this.body.querySelectorAll(selector);
   }
 
   addEventListener(type: string, listener: (event: { type: string; detail?: unknown }) => void): void {
