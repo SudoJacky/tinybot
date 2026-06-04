@@ -305,6 +305,17 @@ describe("gateway WebSocket client", () => {
     expect(normalizeGatewayFrame({ event: "usage", chat_id: "chat-1", usage: { total_tokens: 16384 } })).toMatchObject({
       kind: "usage",
       chatId: "chat-1",
+      tokenUsage: "-",
+    });
+    expect(
+      normalizeGatewayFrame({
+        event: "usage",
+        chat_id: "chat-1",
+        usage: { total_tokens: 16384, context_window_tokens: 65536 },
+      }),
+    ).toMatchObject({
+      kind: "usage",
+      chatId: "chat-1",
       tokenUsage: "25%",
     });
     expect(normalizeGatewayFrame({ event: "browser_frame", image: "data:image/png;base64,x" })).toMatchObject({

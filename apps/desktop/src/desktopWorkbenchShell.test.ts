@@ -441,8 +441,11 @@ describe("desktop workbench shell", () => {
     expect(send?.getAttribute("disabled")).toBe("");
     send?.click();
     targetDocument.body.querySelector('[data-desktop-composer-action="attach"]')?.click();
+    const ragToggle = targetDocument.body.querySelector('[data-desktop-composer-action="rag-toggle"]');
+    expect(ragToggle?.getAttribute("aria-pressed")).toBe("false");
+    ragToggle?.click();
 
-    expect(composerActions).toEqual(["send:Run live composer:false", "attach"]);
+    expect(composerActions).toEqual(["send:Run live composer:false", "attach", "rag:true"]);
   });
 
   test("styles native composer input without focus chrome or manual resizing", () => {
@@ -465,7 +468,7 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("overflow-y: visible;");
   });
 
-  test("renders only model and token usage affordances near the native composer", () => {
+  test("renders compact runtime affordances near the native composer", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({

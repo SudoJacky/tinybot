@@ -213,7 +213,10 @@ function formatTokenUsage(value: unknown): string {
     usage.contextWindow ??
     usage.max_context_tokens ??
     usage.maxContextTokens,
-  ) ?? 65536;
+  );
+  if (contextWindow === null) {
+    return "-";
+  }
   if (contextWindow <= 0) {
     return "0%";
   }

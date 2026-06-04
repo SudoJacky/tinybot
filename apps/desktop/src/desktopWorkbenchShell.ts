@@ -1004,6 +1004,7 @@ function createNativeComposerSurface(
   runtime.setAttribute("aria-label", "Runtime status");
   runtime.append(
     createComposerModelControl(targetDocument, chat),
+    createPersistentRagToggle(targetDocument, chat, chatActions),
     createTokenUsageOrb(targetDocument, chat?.runtime?.tokenUsage || "-"),
   );
 
@@ -1050,6 +1051,25 @@ function createComposerModelControl(targetDocument: Document, chat: DesktopNativ
   button.className = "desktop-native-composer-model";
   button.setAttribute("aria-label", "Select model");
   button.textContent = chat?.runtime?.model || "Tinybot Pro";
+  return button;
+}
+
+function createPersistentRagToggle(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): HTMLElement {
+  const enabled = chat?.usePersistentRag !== false;
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-native-composer-model desktop-native-composer-rag-toggle";
+  button.setAttribute("data-desktop-composer-action", "rag-toggle");
+  button.setAttribute("aria-label", "Toggle persistent RAG");
+  button.setAttribute("aria-pressed", String(enabled));
+  button.textContent = `RAG ${enabled ? "On" : "Off"}`;
+  button.addEventListener("click", () => {
+    chatActions.onPersistentRagChange?.(!enabled);
+  });
   return button;
 }
 
