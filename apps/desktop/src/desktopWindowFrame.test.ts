@@ -106,6 +106,9 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
   if (selector.startsWith("#")) {
     return element.getAttribute("id") === selector.slice(1);
   }
+  if (selector.startsWith(".")) {
+    return element.className.split(/\s+/).includes(selector.slice(1));
+  }
   const action = selector.match(/^\[data-window-action="(.+)"\]$/);
   if (action) {
     return element.getAttribute("data-window-action") === action[1];
@@ -140,6 +143,8 @@ describe("desktop window frame", () => {
     expect(frame?.getAttribute("data-tauri-drag-region")).toBe("");
     expect(targetDocument.body.classList.values.has("desktop-custom-frame")).toBe(true);
     expect(targetDocument.head.querySelector("#desktop-window-frame-style")).toBeTruthy();
+    expect(targetDocument.body.querySelector(".desktop-window-brand-mark")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-window-title-group")?.children.map((child) => child.textContent)).not.toContain("TB");
     expect(targetDocument.body.querySelector('[data-window-action="minimize"]')?.textContent).toBe("−");
     expect(targetDocument.body.querySelector('[data-window-action="maximize"]')?.textContent).toBe("□");
     expect(targetDocument.body.querySelector('[data-window-action="close"]')?.textContent).toBe("×");
