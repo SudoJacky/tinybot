@@ -18,6 +18,7 @@ class FakeElement {
   public value = "";
   public checked = false;
   public disabled = false;
+  public innerHTML = "";
   private listeners = new Map<string, ((event: unknown) => void)[]>();
   private ownTextContent = "";
   public style = {
@@ -34,7 +35,7 @@ class FakeElement {
   }
 
   get textContent(): string {
-    return `${this.ownTextContent}${this.children.map((child) => child.textContent).join("")}`;
+    return `${this.ownTextContent}${this.innerHTML}${this.children.map((child) => child.textContent).join("")}`;
   }
 
   setAttribute(name: string, value: string): void {
@@ -399,6 +400,70 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-session-upload-key")?.value).toBe("WebSocket:chat-live");
     expect(targetDocument.getElementById("desktop-session-upload-key")?.getAttribute("data-active-session-key")).toBe("WebSocket:chat-live");
     expect(targetDocument.getElementById("desktop-session-file-list")?.textContent).toContain("Temporary files");
+  });
+
+  test("renders native conversation messages without fake avatars and with assistant markdown", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{
+          key: "WebSocket:chat-live",
+          chatId: "chat-live",
+          title: "Markdown chat",
+          createdAt: "",
+          updatedAt: "",
+        }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [
+          {
+            role: "user",
+            content: "<img src=x onerror=alert(1)>",
+            reasoningContent: "",
+            timestamp: "2026-06-03T08:19:00.000Z",
+            messageId: "user-1",
+          },
+          {
+            role: "assistant",
+            content: [
+              "Here is a list:",
+              "",
+              "- first",
+              "",
+              "```ts",
+              "const answer = 42;",
+              "```",
+              "",
+              "[Open docs](https://example.test/docs)",
+            ].join("\n"),
+            reasoningContent: "",
+            timestamp: "2026-06-03T08:20:00.000Z",
+            messageId: "assistant-1",
+          },
+        ],
+        status: "Connected",
+      },
+    });
+
+    const thread = targetDocument.body.querySelector(".desktop-conversation-thread");
+    const messages = thread?.querySelectorAll(".desktop-conversation-message") ?? [];
+    expect(thread?.querySelector(".desktop-conversation-avatar")).toBeNull();
+    expect(messages).toHaveLength(2);
+
+    const userBody = messages[0].querySelector(".desktop-conversation-body");
+    expect(userBody?.textContent).toContain("<img src=x onerror=alert(1)>");
+    expect(userBody?.innerHTML).toBe("");
+
+    const assistantBody = messages[1].querySelector(".desktop-conversation-body");
+    expect(assistantBody?.innerHTML).toContain("<ul>");
+    expect(assistantBody?.innerHTML).toContain("<code");
+    expect(assistantBody?.innerHTML).toContain('href="https://example.test/docs"');
+    expect(assistantBody?.innerHTML).toContain('target="_blank"');
+    expect(assistantBody?.innerHTML).toContain('rel="noreferrer"');
   });
 
   test("routes native composer send and temporary file attach actions", () => {
