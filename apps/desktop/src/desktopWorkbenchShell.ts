@@ -53,6 +53,8 @@ import {
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 
+const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
+
 export interface DesktopTaskCenterActionEvent {
   action: DesktopTaskActionId;
   item: DesktopTaskCenterItem;
@@ -632,10 +634,20 @@ function createSidebarRecentChats(
   list.className = "desktop-recent-chat-list";
   list.setAttribute("role", "list");
   if (chat) {
-    const sessions = chat.sessions.length ? chat.sessions : [];
+    const pinnedSessionKeys = pinnedSessionKeysForDocument(targetDocument);
+    const sessions = chat.sessions.length
+      ? sortPinnedSessionsFirst(chat.sessions, pinnedSessionKeys)
+      : [];
     for (const session of sessions) {
       const routeId = desktopChatRouteId(session);
-      list.append(createRecentChatRow(targetDocument, session, session.key === chat.activeSessionKey, chatActions, routeId));
+      list.append(createRecentChatRow(
+        targetDocument,
+        session,
+        session.key === chat.activeSessionKey,
+        chatActions,
+        routeId,
+        pinnedSessionKeys.has(session.key),
+      ));
     }
     if (!sessions.length) {
       list.append(createText(targetDocument, "p", "No recent chats."));
@@ -665,12 +677,19 @@ function desktopChatRouteId(session: NativeChatSession): string {
   return session.chatId || session.key;
 }
 
+function sortPinnedSessionsFirst(sessions: NativeChatSession[], pinnedSessionKeys: Set<string>): NativeChatSession[] {
+  return [...sessions].sort(
+    (left, right) => Number(pinnedSessionKeys.has(right.key)) - Number(pinnedSessionKeys.has(left.key)),
+  );
+}
+
 function createRecentChatRow(
   targetDocument: Document,
   session: NativeChatSession,
   active: boolean,
   chatActions: DesktopNativeChatActionOptions,
   routeId = desktopChatRouteId(session),
+  pinned = false,
 ): HTMLElement {
   const row = targetDocument.createElement("div");
   row.className = "desktop-sidebar-chat-row";
@@ -680,7 +699,7 @@ function createRecentChatRow(
   row.setAttribute("data-desktop-session-key", session.key);
   row.setAttribute("data-desktop-chat-id", session.chatId);
   row.setAttribute("data-desktop-route-id", routeId);
-  row.setAttribute("data-pinned", "false");
+  row.setAttribute("data-pinned", String(pinned));
 
   const link = targetDocument.createElement("a");
   link.className = "desktop-sidebar-row desktop-sidebar-row-main";
@@ -954,9 +973,10 @@ function createChatMenuPopover(
     return button;
   };
 
+  const initialPinned = session ? isSessionPinned(targetDocument, session.key) : false;
   appendAction(
     "pin",
-    "Pin session",
+    initialPinned ? "Unpin session" : "Pin session",
     (button) => {
       if (!session) {
         return;
@@ -1016,9 +1036,32 @@ function promptForSessionTitle(targetDocument: Document, currentTitle: string): 
   return nextTitle;
 }
 
+function pinnedSessionKeysForDocument(targetDocument: Document): Set<string> {
+  let keys = desktopPinnedChatSessions.get(targetDocument);
+  if (!keys) {
+    keys = new Set<string>();
+    desktopPinnedChatSessions.set(targetDocument, keys);
+  }
+  return keys;
+}
+
+function isSessionPinned(targetDocument: Document, sessionKey: string): boolean {
+  return pinnedSessionKeysForDocument(targetDocument).has(sessionKey);
+}
+
+function setSessionPinned(targetDocument: Document, sessionKey: string, pinned: boolean): void {
+  const keys = pinnedSessionKeysForDocument(targetDocument);
+  if (pinned) {
+    keys.add(sessionKey);
+    return;
+  }
+  keys.delete(sessionKey);
+}
+
 function toggleActiveSessionPinned(targetDocument: Document, session: NativeChatSession): boolean {
   const row = findSessionRow(targetDocument, session.key);
-  const pinned = row?.getAttribute("data-pinned") !== "true";
+  const pinned = !isSessionPinned(targetDocument, session.key);
+  setSessionPinned(targetDocument, session.key, pinned);
   row?.setAttribute("data-pinned", String(pinned));
   if (pinned) {
     const list = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");

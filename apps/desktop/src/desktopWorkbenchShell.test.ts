@@ -995,6 +995,39 @@ describe("desktop workbench shell", () => {
     expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toContain("Run Chain");
   });
 
+  test("preserves pinned sessions when native chat refreshes", () => {
+    const targetDocument = new FakeDocument();
+    const chat = {
+      sessions: [
+        { key: "WebSocket:chat-2", chatId: "chat-2", title: "Session two", createdAt: "", updatedAt: "" },
+        { key: "WebSocket:chat-1", chatId: "chat-1", title: "Session one", createdAt: "", updatedAt: "" },
+      ],
+      activeSessionKey: "WebSocket:chat-1",
+      activeChatId: "chat-1",
+      messages: [],
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat,
+    });
+
+    const header = targetDocument.body.querySelector(".desktop-chat-header");
+    header?.querySelector(".desktop-chat-menu")?.click();
+    header?.querySelector('[data-desktop-chat-menu-action="pin"]')?.click();
+
+    updateDesktopNativeChat(targetDocument as unknown as Document, chat, "http://127.0.0.1:18790");
+
+    const firstRow = targetDocument.body.querySelector('[data-desktop-session-key]');
+    expect(firstRow?.getAttribute("data-desktop-session-key")).toBe("WebSocket:chat-1");
+    expect(firstRow?.getAttribute("data-pinned")).toBe("true");
+    const refreshedHeader = targetDocument.body.querySelector(".desktop-chat-header");
+    refreshedHeader?.querySelector(".desktop-chat-menu")?.click();
+    expect(refreshedHeader?.querySelector('[data-desktop-chat-menu-action="pin"]')?.textContent).toBe("Unpin session");
+  });
+
   test("renders keyboard-operable panel controls with accessible labels", () => {
     const targetDocument = new FakeDocument();
 
