@@ -12,9 +12,19 @@ export type NativeChatMessage = {
   role: string;
   content: string;
   reasoningContent: string;
+  toolActivities?: NativeChatToolActivity[];
   references?: NativeChatReference[];
   timestamp: string;
   messageId: string;
+};
+
+export type NativeChatToolActivity = {
+  id: string;
+  name: string;
+  argsText: string;
+  responseText: string;
+  kind: "call" | "result";
+  approvalStatus?: string;
 };
 
 export type NativeChatReference = {
@@ -72,10 +82,12 @@ export function normalizeMessagesPayload(payload: unknown): NativeChatMessage[] 
   }
   return payload.messages.filter(isRecord).map((message) => {
     const references = normalizeMessageReferences(message);
+    const toolActivities = normalizeToolActivities(message);
     return {
       role: stringValue(message.role) || "assistant",
       content: stringValue(message.content ?? message.text),
       reasoningContent: stringValue(message.reasoning_content),
+      ...(toolActivities.length ? { toolActivities } : {}),
       ...(references.length ? { references } : {}),
       timestamp: stringValue(message.timestamp),
       messageId: stringValue(message.message_id),
@@ -240,8 +252,8 @@ function ensureMessageBucket(state: NativeChatState, sessionKey: string): Native
 
 function normalizeMessageReferences(message: Record<string, unknown>): NativeChatReference[] {
   return [
-    ...referenceRows(message.tool_calls, "tool"),
-    ...referenceRows(message.tool_results, "tool"),
+    ...toolCallReferenceRows(message.tool_calls),
+    ...toolResultReferenceRows(message.tool_results),
     ...referenceRows(message.browser_references, "browser"),
     ...referenceRows(message.browser_snapshots, "browser"),
     ...referenceRows(message.memory_references, "memory"),
@@ -251,15 +263,113 @@ function normalizeMessageReferences(message: Record<string, unknown>): NativeCha
   ];
 }
 
-function referenceRows(value: unknown, kind: NativeChatReference["kind"]): NativeChatReference[] {
-  if (!Array.isArray(value)) {
-    return [];
+function normalizeToolActivities(message: Record<string, unknown>): NativeChatToolActivity[] {
+  const calls = toolCallRows(message.tool_calls);
+  const results = toolResultRows(message.tool_results);
+  const usedResultIndexes = new Set<number>();
+  const activities = calls.map((call, index) => {
+    const resultIndex = results.findIndex((result, candidateIndex) => (
+      !usedResultIndexes.has(candidateIndex)
+      && Boolean(result.id)
+      && result.id === call.id
+    ));
+    const fallbackIndex = resultIndex === -1 && results[index] && !usedResultIndexes.has(index) ? index : -1;
+    const pairedIndex = resultIndex === -1 ? fallbackIndex : resultIndex;
+    const result = pairedIndex === -1 ? null : results[pairedIndex];
+    if (pairedIndex !== -1) {
+      usedResultIndexes.add(pairedIndex);
+    }
+    return {
+      id: call.id || result?.id || `tool-call-${index + 1}`,
+      name: call.name || result?.name || "unknown",
+      argsText: call.argsText,
+      responseText: result?.responseText || "",
+      kind: result?.responseText ? "result" as const : "call" as const,
+      ...(call.approvalStatus || result?.approvalStatus ? { approvalStatus: call.approvalStatus || result?.approvalStatus } : {}),
+    };
+  });
+
+  results.forEach((result, index) => {
+    if (usedResultIndexes.has(index)) {
+      return;
+    }
+    activities.push({
+      id: result.id || `tool-result-${index + 1}`,
+      name: result.name || "tool",
+      argsText: "",
+      responseText: result.responseText,
+      kind: "result",
+      ...(result.approvalStatus ? { approvalStatus: result.approvalStatus } : {}),
+    });
+  });
+
+  if (!activities.length && (message.role === "tool" || message.role === "progress")) {
+    const responseText = textValue(message.content ?? message.text);
+    if (responseText) {
+      activities.push({
+        id: stringValue(message.tool_call_id ?? message._tool_call_id) || stringValue(message.message_id) || "tool-result",
+        name: stringValue(message._tool_name ?? message.name) || "tool",
+        argsText: "",
+        responseText,
+        kind: "result",
+        ...(stringValue(message._approval_status) ? { approvalStatus: stringValue(message._approval_status) } : {}),
+      });
+    }
   }
-  return value.filter(isRecord).map((row) => ({
+
+  return activities;
+}
+
+function toolCallRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "argsText"> & { approvalStatus?: string }> {
+  return arrayRows(value).map((row, index) => {
+    const functionPayload = isRecord(row.function) ? row.function : {};
+    return {
+      id: stringValue(row.id ?? row.tool_call_id) || `tool-call-${index + 1}`,
+      name: stringValue(functionPayload.name ?? row.name) || "unknown",
+      argsText: textValue(functionPayload.arguments ?? row.arguments ?? row.detail ?? row.path),
+      ...(stringValue(row._approval_status ?? row.approval_status) ? { approvalStatus: stringValue(row._approval_status ?? row.approval_status) } : {}),
+    };
+  });
+}
+
+function toolResultRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "responseText"> & { approvalStatus?: string }> {
+  return arrayRows(value).map((row, index) => ({
+    id: stringValue(row.tool_call_id ?? row.id) || `tool-result-${index + 1}`,
+    name: stringValue(row.name ?? row.title ?? row.tool_name) || "",
+    responseText: textValue(row.content ?? row.response ?? row.result ?? row.output ?? row.detail ?? row.summary),
+    ...(stringValue(row._approval_status ?? row.approval_status) ? { approvalStatus: stringValue(row._approval_status ?? row.approval_status) } : {}),
+  }));
+}
+
+function toolCallReferenceRows(value: unknown): NativeChatReference[] {
+  return toolCallRows(value).map((row) => ({
+    kind: "tool",
+    title: row.name || row.id || "tool",
+    detail: row.argsText,
+  }));
+}
+
+function toolResultReferenceRows(value: unknown): NativeChatReference[] {
+  return toolResultRows(value).map((row) => ({
+    kind: "tool",
+    title: row.id || row.name || "tool",
+    detail: row.responseText,
+  }));
+}
+
+function referenceRows(value: unknown, kind: NativeChatReference["kind"]): NativeChatReference[] {
+  return arrayRows(value).map((row) => ({
     kind,
     title: stringValue(row.title ?? row.name ?? row.id ?? row.url) || kind,
     detail: stringValue(row.detail ?? row.summary ?? row.path ?? row.url ?? row.content),
   }));
+}
+
+function arrayRows(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.filter(isRecord);
+  }
+  return isRecord(value) ? [value] : [];
 }
 
 function chatIdFromKey(key: string): string {
@@ -272,4 +382,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function textValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

@@ -865,7 +865,9 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
       author: message.role === "user" ? "You" : "Tinybot",
       time: formatCompactTime(message.timestamp),
       tone: message.role === "user" ? "user" : "assistant",
-      body: [message.reasoningContent, message.content].filter(Boolean),
+      reasoningContent: message.reasoningContent,
+      body: shouldRenderConversationBody(message) ? [message.content].filter(Boolean) : [],
+      toolActivities: message.toolActivities,
       references: message.references,
     })));
     return thread;
@@ -894,13 +896,19 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
   return thread;
 }
 
+function shouldRenderConversationBody(message: NativeChatMessage): boolean {
+  return !((message.role === "tool" || message.role === "progress") && Boolean(message.toolActivities?.length));
+}
+
 function createConversationMessage(
   targetDocument: Document,
   options: {
     author: string;
     time: string;
     tone: "user" | "assistant";
+    reasoningContent?: string;
     body: string[];
+    toolActivities?: NativeChatMessage["toolActivities"];
     references?: NativeChatMessage["references"];
     attachment?: string;
   },
@@ -915,6 +923,12 @@ function createConversationMessage(
   meta.className = "desktop-conversation-meta";
   meta.append(createText(targetDocument, "strong", options.author), createText(targetDocument, "span", options.time));
   content.append(meta);
+  if (options.reasoningContent?.trim()) {
+    content.append(createConversationReasoning(targetDocument, options.reasoningContent));
+  }
+  if (options.toolActivities?.length) {
+    content.append(createToolActivities(targetDocument, options.toolActivities));
+  }
   content.append(createConversationBody(targetDocument, options.body, options.tone));
   for (const reference of options.references ?? []) {
     const node = createText(targetDocument, "p", `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`);
@@ -929,6 +943,111 @@ function createConversationMessage(
   }
   article.append(content);
   return article;
+}
+
+function createConversationReasoning(targetDocument: Document, reasoningContent: string): HTMLElement {
+  const details = targetDocument.createElement("details");
+  details.className = "desktop-message-reasoning";
+  const summary = targetDocument.createElement("summary");
+  summary.className = "desktop-message-reasoning-summary";
+  const title = createText(targetDocument, "span", "Thinking");
+  title.className = "desktop-message-reasoning-title";
+  const meta = createText(targetDocument, "span", "Show details");
+  meta.className = "desktop-message-reasoning-meta";
+  summary.append(title, meta);
+  const body = createText(targetDocument, "div", reasoningContent);
+  body.className = "desktop-message-reasoning-body";
+  details.append(summary, body);
+  return details;
+}
+
+function createToolActivities(
+  targetDocument: Document,
+  activities: NonNullable<NativeChatMessage["toolActivities"]>,
+): HTMLElement {
+  const wrapper = targetDocument.createElement("div");
+  wrapper.className = "desktop-tool-activities";
+  for (const activity of activities) {
+    wrapper.append(createToolActivity(targetDocument, activity));
+  }
+  return wrapper;
+}
+
+function createToolActivity(
+  targetDocument: Document,
+  activity: NonNullable<NativeChatMessage["toolActivities"]>[number],
+): HTMLElement {
+  const details = targetDocument.createElement("details");
+  details.className = "desktop-tool-activity";
+  details.setAttribute("data-desktop-tool-activity-kind", activity.kind);
+  if (activity.id) {
+    details.setAttribute("data-desktop-tool-activity-id", activity.id);
+  }
+
+  const summary = targetDocument.createElement("summary");
+  summary.className = "desktop-tool-activity-summary";
+  const icon = createText(targetDocument, "span", ">");
+  icon.className = "desktop-tool-activity-icon";
+  icon.setAttribute("aria-hidden", "true");
+  const main = targetDocument.createElement("span");
+  main.className = "desktop-tool-activity-main";
+  const title = createText(targetDocument, "span", activity.name || "unknown");
+  title.className = "desktop-tool-activity-title";
+  const preview = createText(targetDocument, "span", summarizeToolText(activity.argsText || activity.responseText));
+  preview.className = "desktop-tool-activity-preview";
+  main.append(title, preview);
+  const badges = targetDocument.createElement("span");
+  badges.className = "desktop-tool-activity-badges";
+  if (activity.approvalStatus === "approved") {
+    const approval = createText(targetDocument, "span", "Approved");
+    approval.className = "desktop-tool-activity-badge desktop-tool-activity-approval-badge";
+    badges.append(approval);
+  }
+  const badge = createText(targetDocument, "span", activity.kind === "result" ? "Result" : "Call");
+  badge.className = "desktop-tool-activity-badge";
+  badges.append(badge);
+  summary.append(icon, main, badges);
+  details.append(summary);
+
+  const body = targetDocument.createElement("div");
+  body.className = "desktop-tool-activity-body";
+  if (activity.argsText) {
+    body.append(createToolActivitySection(targetDocument, "Arguments", activity.argsText, "call"));
+  }
+  if (activity.responseText) {
+    body.append(createToolActivitySection(targetDocument, "Response", activity.responseText, "response"));
+  }
+  if (!activity.argsText && !activity.responseText) {
+    const empty = createText(targetDocument, "div", "No arguments or response.");
+    empty.className = "desktop-tool-activity-empty";
+    body.append(empty);
+  }
+  details.append(body);
+  return details;
+}
+
+function createToolActivitySection(
+  targetDocument: Document,
+  label: string,
+  text: string,
+  kind: "call" | "response",
+): HTMLElement {
+  const section = targetDocument.createElement("div");
+  section.className = `desktop-tool-activity-section desktop-tool-activity-section-${kind}`;
+  const labelNode = createText(targetDocument, "div", label);
+  labelNode.className = "desktop-tool-activity-label";
+  const pre = createText(targetDocument, "pre", text);
+  pre.className = "desktop-tool-activity-pre";
+  section.append(labelNode, pre);
+  return section;
+}
+
+function summarizeToolText(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "No details";
+  }
+  return normalized.length > 96 ? `${normalized.slice(0, 93)}...` : normalized;
 }
 
 function createConversationBody(
@@ -4540,6 +4659,195 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-conversation-content p {
       margin: 0;
       overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning {
+      overflow: hidden;
+      border: 1px solid #e2d9d2;
+      border-radius: 8px;
+      background: #fbfaf7;
+      color: #625d57;
+      font-size: 13px;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning summary {
+      list-style: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning summary::-webkit-details-marker {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      padding: 8px 11px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-summary::before {
+      content: ">";
+      display: grid;
+      place-items: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      color: #a9583e;
+      font: 700 11px/1 var(--font-mono);
+      transition: transform 150ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning[open] .desktop-message-reasoning-summary::before {
+      transform: rotate(90deg);
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-title {
+      color: #3f3a35;
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-meta {
+      margin-left: auto;
+      color: #7a746d;
+      font-size: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-body {
+      max-height: 320px;
+      overflow: auto;
+      padding: 0 14px 12px 37px;
+      white-space: pre-wrap;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activities {
+      display: grid;
+      gap: 6px;
+      margin: 2px 0;
+      font-size: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity {
+      overflow: hidden;
+      border: 1px solid #e2d9d2;
+      border-radius: 8px;
+      background: #fbfaf7;
+      color: #625d57;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity summary {
+      list-style: none;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity summary::-webkit-details-marker {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-summary {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 6px 9px;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-icon {
+      display: grid;
+      place-items: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      background: rgba(109, 105, 100, 0.1);
+      color: #7a746d;
+      font: 700 11px/1 var(--font-mono);
+      transition: transform 150ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity[open] .desktop-tool-activity-icon {
+      transform: rotate(90deg);
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-main {
+      display: grid;
+      min-width: 0;
+      gap: 1px;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-title {
+      overflow: hidden;
+      color: #3f3a35;
+      font: 650 12px/1.35 var(--font-mono);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-preview {
+      overflow: hidden;
+      color: #7a746d;
+      font-size: 11px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-badges {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-badge {
+      border: 1px solid #e2d9d2;
+      border-radius: 999px;
+      padding: 1px 6px;
+      background: #ffffff;
+      color: #6d6964;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-approval-badge {
+      border-color: rgba(93, 184, 114, 0.4);
+      background: rgba(93, 184, 114, 0.12);
+      color: #3b8a4d;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-body {
+      display: grid;
+      gap: 0;
+      border-top: 1px solid #e8dfd7;
+      padding: 7px 11px 11px 35px;
+      background: #fffdf9;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-section {
+      display: grid;
+      gap: 5px;
+      padding: 5px 0 7px;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-label {
+      color: #7a746d;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-pre,
+    body.desktop-native-workbench .desktop-tool-activity-empty {
+      margin: 0;
+      min-height: auto;
+      overflow-x: auto;
+      padding: 0;
+      background: transparent;
+      color: #625d57;
+      font: 11px/1.5 var(--font-mono);
+      white-space: pre-wrap;
     }
 
     body.desktop-native-workbench .desktop-conversation-bullet {
