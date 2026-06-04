@@ -1524,6 +1524,12 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-session-upload-key")?.getAttribute("data-active-session-key")).toBe("WebSocket:chat-live");
     expect(targetDocument.getElementById("desktop-session-upload-key")?.value).toBe("WebSocket:chat-live");
     expect(targetDocument.getElementById("desktop-file-upload-status")?.textContent).toContain("No file operation running");
+    expect(targetDocument.body.querySelector(".desktop-file-import-grid")?.textContent).toContain("Drop files here or click to select");
+    expect(targetDocument.getElementById("desktop-file-knowledge-formats")?.textContent).toContain("pdf");
+    expect(targetDocument.getElementById("desktop-file-session-formats")?.textContent).toContain("png");
+    expect(targetDocument.getElementById("desktop-file-workspace-formats")?.textContent).toContain("toml");
+    expect(targetDocument.getElementById("desktop-session-file-count")?.textContent).toContain("0");
+    expect(targetDocument.getElementById("desktop-session-files-refresh")?.getAttribute("data-desktop-session-files-refresh")).toBe("true");
   });
 
   test("renders native Agent UI form cards and routes submit and cancel actions", () => {
@@ -2609,10 +2615,13 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-workspace-active-path")?.textContent).toContain("No workspace file selected");
     expect(targetDocument.getElementById("desktop-workspace-updated-at")?.textContent).toContain("No timestamp");
     expect(targetDocument.getElementById("desktop-workspace-detail")?.textContent).toContain("No workspace file selected");
+    expect(targetDocument.getElementById("desktop-workspace-search")?.getAttribute("placeholder")).toBe("Search workspace files...");
+    expect(targetDocument.getElementById("desktop-workspace-size")?.textContent).toContain("No size");
     expect(targetDocument.getElementById("desktop-workspace-editor")?.getAttribute("aria-label")).toBe("Workspace file editor");
     expect(targetDocument.getElementById("desktop-workspace-save")?.getAttribute("disabled")).toBe("");
     expect(targetDocument.getElementById("desktop-workspace-reveal")?.getAttribute("disabled")).toBe("");
     expect(targetDocument.getElementById("desktop-workspace-export")?.getAttribute("disabled")).toBe("");
+    expect(targetDocument.getElementById("desktop-workspace-reload")?.getAttribute("disabled")).toBe("");
     expect(targetDocument.getElementById("desktop-workspace-save-state")?.textContent).toContain("Select a workspace file");
     expect(targetDocument.getElementById("desktop-workspace-error")?.textContent).toBe("");
   });
@@ -2633,6 +2642,7 @@ describe("desktop workbench shell", () => {
     expect(filesSurface?.querySelector(".desktop-workspace-editor-panel")?.querySelector("#desktop-workspace-editor")).toBeTruthy();
     expect(filesSurface?.querySelector(".desktop-workspace-action-rail")?.getAttribute("aria-label")).toBe("Workspace file actions");
     expect(filesSurface?.querySelector(".desktop-workspace-action-rail")?.querySelector("#desktop-workspace-save")).toBeTruthy();
+    expect(filesSurface?.querySelector(".desktop-workspace-action-rail")?.querySelector("#desktop-workspace-reload")).toBeTruthy();
   });
 
   test("keeps the desktop Files workspace grid shrinkable inside the main work area", () => {
@@ -2646,7 +2656,7 @@ describe("desktop workbench shell", () => {
 
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
     expect(styleText).not.toContain("grid-template-columns: minmax(190px, 260px) minmax(280px, 1fr) minmax(120px, 160px);");
-    expect(styleText).toContain("grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.2fr) minmax(92px, 0.5fr);");
+    expect(styleText).toContain("grid-template-columns: minmax(220px, 0.78fr) minmax(0, 1.55fr) minmax(150px, 0.48fr);");
   });
 
   test("allows the main work area to shrink when the inspector is collapsed", () => {

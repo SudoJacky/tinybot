@@ -4,8 +4,8 @@ import {
 } from "./desktopKnowledgeTraceability";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
 
-export type DesktopUploadKind = "knowledge-document" | "session-temporary-file";
-export type DesktopDropTargetKind = DesktopUploadKind | "workspace-file";
+export type DesktopUploadKind = "knowledge-document" | "session-temporary-file" | "workspace-file";
+export type DesktopDropTargetKind = DesktopUploadKind;
 
 export interface DesktopUploadPickerFilter {
   name: string;
@@ -101,6 +101,17 @@ export function desktopUploadPickerOptions(kind: DesktopUploadKind): DesktopUplo
         {
           name: "Knowledge documents",
           extensions: ["md", "markdown", "txt", "pdf", "docx", "csv", "json"],
+        },
+      ],
+    };
+  }
+  if (kind === "workspace-file") {
+    return {
+      title: "Import workspace file",
+      filters: [
+        {
+          name: "Workspace files",
+          extensions: ["md", "markdown", "txt", "json", "csv", "py", "js", "ts", "tsx", "jsx", "html", "css", "yaml", "yml", "toml"],
         },
       ],
     };
@@ -212,6 +223,10 @@ export function renderDesktopSessionTemporaryFiles(
   container.replaceChildren();
   container.dataset.sessionKey = sessionKey;
   container.dataset.fileCount = String(rows.length);
+  const count = ownerDocument.querySelector<HTMLElement>("#desktop-session-file-count");
+  if (count) {
+    count.textContent = String(rows.length);
+  }
   if (!sessionKey) {
     container.textContent = "Select a chat session to view temporary files.";
     return rows;
@@ -339,6 +354,31 @@ export function installDesktopFileUploadActions({
     });
   });
 
+  targetDocument.querySelector<HTMLButtonElement>("#desktop-session-files-refresh")?.addEventListener("click", () => {
+    const sessionKey = (
+      getSessionKey?.() ||
+      targetDocument.querySelector<HTMLInputElement>("#desktop-session-upload-key")?.value ||
+      targetDocument.querySelector<HTMLElement>("#desktop-workbench-shell")?.dataset.activeSessionKey ||
+      ""
+    ).trim();
+    void refreshSessionTemporaryFiles(sessionKey).catch((error) => {
+      setUploadStatus(targetDocument, `Temporary file refresh failed: ${stringifyError(error)}`);
+    });
+  });
+
+  targetDocument.querySelector<HTMLElement>("#desktop-workspace-file-drop")?.addEventListener("click", (event) => {
+    if (!uploadWorkspaceFile) {
+      return;
+    }
+    event.preventDefault();
+    void runWorkspaceFileImport({
+      targetDocument,
+      pickFile,
+      uploadWorkspaceFile,
+      onWorkspaceFileImported,
+    });
+  });
+
   targetDocument.addEventListener("tinybot:desktop-session-key-changed", (event) => {
     const sessionKey = ((event as CustomEvent<{ sessionKey?: string }>).detail?.sessionKey ?? "").trim();
     void refreshSessionTemporaryFiles(sessionKey).catch((error) => {
@@ -366,6 +406,27 @@ export function installDesktopFileUploadActions({
       onWorkspaceFileImported,
     });
   }
+}
+
+async function runWorkspaceFileImport({
+  targetDocument,
+  pickFile,
+  uploadWorkspaceFile,
+  onWorkspaceFileImported,
+}: Pick<DesktopFileUploadActions, "targetDocument" | "pickFile" | "uploadWorkspaceFile" | "onWorkspaceFileImported"> & {
+  uploadWorkspaceFile: NonNullable<DesktopFileUploadActions["uploadWorkspaceFile"]>;
+}): Promise<void> {
+  setUploadStatus(targetDocument, "Opening workspace file picker.");
+  const picked = await pickFile("workspace-file", desktopUploadPickerOptions("workspace-file"));
+  if (!picked) {
+    setUploadStatus(targetDocument, "Workspace import canceled.");
+    return;
+  }
+  const payload = await buildDesktopWorkspaceImport(buildDesktopUploadFile(picked));
+  setUploadStatus(targetDocument, `Importing ${payload.path} into workspace.`);
+  await uploadWorkspaceFile(payload.path, payload.body);
+  await onWorkspaceFileImported?.(payload.path);
+  setUploadStatus(targetDocument, `Imported ${payload.path} into workspace.`);
 }
 
 function installDesktopFileDropActions({

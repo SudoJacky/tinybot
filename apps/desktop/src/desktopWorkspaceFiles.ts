@@ -20,12 +20,14 @@ export interface DesktopWorkspaceFileState {
   recentPaths: string[];
   activePath: string | null;
   activeUpdatedAt: string | null;
+  activeSizeBytes: number | null;
   draft: string;
   savedDraft: string;
   dirty: boolean;
   saveState: DesktopWorkspaceSaveState;
   error: string | null;
   exportedPath: string | null;
+  searchQuery: string;
 }
 
 export interface DesktopWorkspaceFilePayload {
@@ -99,12 +101,14 @@ export function createDesktopWorkspaceFileState(
       recentPaths: previous?.recentPaths ?? [],
       activePath: previous?.activePath ?? null,
       activeUpdatedAt: previous?.activeUpdatedAt ?? null,
+      activeSizeBytes: previous?.activeSizeBytes ?? null,
       draft: previous?.draft ?? "",
       savedDraft: previous?.savedDraft ?? "",
       dirty: previous?.dirty ?? false,
       saveState: previous?.saveState ?? "idle",
       error: previous?.error ?? null,
       exportedPath: previous?.exportedPath ?? null,
+      searchQuery: previous?.searchQuery ?? "",
     };
   }
 
@@ -116,12 +120,14 @@ export function createDesktopWorkspaceFileState(
     recentPaths: updateDesktopWorkspaceRecentFiles(previous?.recentPaths ?? [], path),
     activePath: path,
     activeUpdatedAt: updatedAt,
+    activeSizeBytes: byteSize(content),
     draft: content,
     savedDraft: content,
     dirty: false,
     saveState: previous?.dirty ? "saved" : "idle",
     error: null,
     exportedPath: null,
+    searchQuery: previous?.searchQuery ?? "",
   };
 }
 
@@ -133,6 +139,7 @@ export function applyDesktopWorkspaceDraft(
   return {
     ...state,
     draft,
+    activeSizeBytes: byteSize(draft),
     dirty,
     saveState: dirty ? "dirty" : "idle",
     error: dirty ? null : state.error,
@@ -226,13 +233,28 @@ export function installDesktopWorkspaceFileActions({
 }: DesktopWorkspaceFileActions): void {
   let state = createDesktopWorkspaceFileState();
   const editor = targetDocument.querySelector<HTMLTextAreaElement>("#desktop-workspace-editor");
+  const search = targetDocument.querySelector<HTMLInputElement>("#desktop-workspace-search");
   const saveButton = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-save");
   const revealButton = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-reveal");
+  const reloadButton = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-reload");
   const exportButton = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-export");
 
   editor?.addEventListener("input", () => {
     state = applyDesktopWorkspaceDraft(state, editor.value);
     renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), Boolean(exportWorkspaceFile));
+  });
+
+  search?.addEventListener("input", () => {
+    state = { ...state, searchQuery: search.value };
+    renderWorkspaceState(
+      targetDocument,
+      state,
+      (path) => {
+        void loadWorkspaceFileByPath(path);
+      },
+      Boolean(revealWorkspaceFile),
+      Boolean(exportWorkspaceFile),
+    );
   });
 
   saveButton?.addEventListener("click", () => {
@@ -241,6 +263,12 @@ export function installDesktopWorkspaceFileActions({
 
   revealButton?.addEventListener("click", () => {
     void revealActiveWorkspaceFile();
+  });
+
+  reloadButton?.addEventListener("click", () => {
+    if (state.activePath) {
+      void loadWorkspaceFileByPath(state.activePath);
+    }
   });
 
   exportButton?.addEventListener("click", () => {
@@ -445,17 +473,20 @@ function renderWorkspaceState(
 ): void {
   const recent = targetDocument.querySelector<HTMLElement>("#desktop-workspace-recent-files");
   if (recent) {
+    const query = state.searchQuery.trim().toLowerCase();
     const rows = state.recentPaths.length
       ? state.recentPaths
       : state.files.map((file) => file.path).slice(0, 6);
+    const visibleRows = rows.filter((path) => !query || path.toLowerCase().includes(query));
     recent.replaceChildren(
-      ...rows.map((path) => {
+      ...visibleRows.map((path) => {
         const button = targetDocument.createElement("button");
         button.type = "button";
         button.className = "desktop-workspace-file-row";
         button.setAttribute("data-desktop-workspace-file", path);
         button.setAttribute("data-desktop-entity-module", "workspace");
         button.setAttribute("data-desktop-entity-id", path);
+        button.setAttribute("aria-selected", state.activePath === path ? "true" : "false");
         const meta = state.files.find((file) => file.path === path)?.meta ?? "Recent";
         button.textContent = `${path} ${meta}`;
         button.addEventListener("click", () => onSelect?.(path));
@@ -468,6 +499,7 @@ function renderWorkspaceState(
   setText(targetDocument, "#desktop-workspace-status", `${state.files.length} ${fileLabel}`);
   setText(targetDocument, "#desktop-workspace-active-path", state.activePath ? `Active path: ${state.activePath}` : "No workspace file selected.");
   setText(targetDocument, "#desktop-workspace-updated-at", state.activeUpdatedAt ? `Updated: ${state.activeUpdatedAt}` : "No timestamp");
+  setText(targetDocument, "#desktop-workspace-size", typeof state.activeSizeBytes === "number" ? `Size: ${formatFileSize(state.activeSizeBytes)}` : "No size");
   setText(
     targetDocument,
     "#desktop-workspace-detail",
@@ -489,6 +521,10 @@ function renderWorkspaceState(
   const reveal = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-reveal");
   if (reveal) {
     reveal.disabled = !state.activePath || !canReveal || state.saveState === "saving";
+  }
+  const reload = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-reload");
+  if (reload) {
+    reload.disabled = !state.activePath || state.saveState !== "conflict-error";
   }
   const exportButton = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-export");
   if (exportButton) {
@@ -538,6 +574,25 @@ function stringValue(value: unknown): string {
 
 function fileNameFromPath(path = ""): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? "";
+}
+
+function byteSize(value: string): number {
+  if (typeof TextEncoder !== "undefined") {
+    return new TextEncoder().encode(value).length;
+  }
+  return value.length;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const kib = bytes / 1024;
+  if (kib < 1024) {
+    return `${kib.toFixed(kib >= 10 ? 0 : 1)} KB`;
+  }
+  const mib = kib / 1024;
+  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MB`;
 }
 
 function stringifyError(error: unknown): string {

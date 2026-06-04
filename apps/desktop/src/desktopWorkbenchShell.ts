@@ -3358,14 +3358,6 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   section.setAttribute("data-desktop-module-surface", "workspace knowledge");
   section.append(createText(targetDocument, "h2", "File imports"));
 
-  const knowledge = targetDocument.createElement("button");
-  knowledge.setAttribute("id", "desktop-knowledge-upload");
-  knowledge.setAttribute("type", "button");
-  knowledge.setAttribute("class", "desktop-file-action");
-  knowledge.setAttribute("data-desktop-file-upload", "knowledge-document");
-  knowledge.setAttribute("data-desktop-drop-target", "knowledge-document");
-  knowledge.textContent = "Import knowledge";
-
   const sessionKey = targetDocument.createElement("input");
   sessionKey.setAttribute("id", "desktop-session-upload-key");
   sessionKey.setAttribute("class", "desktop-session-upload-key");
@@ -3377,17 +3369,52 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
     sessionKey.setAttribute("data-active-session-key", chat.activeSessionKey);
   }
 
-  const session = targetDocument.createElement("button");
-  session.setAttribute("id", "desktop-session-file-upload");
-  session.setAttribute("type", "button");
-  session.setAttribute("class", "desktop-file-action");
-  session.setAttribute("data-desktop-file-upload", "session-temporary-file");
-  session.setAttribute("data-desktop-drop-target", "session-temporary-file");
-  session.textContent = "Attach to session";
+  const knowledge = createFileImportCard(targetDocument, {
+    id: "desktop-knowledge-upload",
+    label: "Import knowledge",
+    uploadKind: "knowledge-document",
+    dropTarget: "knowledge-document",
+    formatsId: "desktop-file-knowledge-formats",
+    formats: ["md", "pdf", "docx", "csv", "json"],
+  });
 
-  const workspace = createWorkbenchLink(targetDocument, "Workspace import", "/workspace", "desktop-file-action");
-  workspace.setAttribute("id", "desktop-workspace-file-drop");
-  workspace.setAttribute("data-desktop-drop-target", "workspace-file");
+  const session = createFileImportCard(targetDocument, {
+    id: "desktop-session-file-upload",
+    label: "Attach to session",
+    uploadKind: "session-temporary-file",
+    dropTarget: "session-temporary-file",
+    formatsId: "desktop-file-session-formats",
+    formats: ["md", "txt", "pdf", "docx", "csv", "json", "png", "jpg"],
+  });
+
+  const sessionCard = targetDocument.createElement("div");
+  sessionCard.className = "desktop-file-session-card";
+  const sessionLabel = targetDocument.createElement("label");
+  sessionLabel.setAttribute("for", "desktop-session-upload-key");
+  sessionLabel.textContent = "Session key";
+  const sessionMeta = targetDocument.createElement("div");
+  sessionMeta.className = "desktop-file-session-meta";
+  const sessionCount = targetDocument.createElement("span");
+  sessionCount.setAttribute("id", "desktop-session-file-count");
+  sessionCount.className = "desktop-file-count-pill";
+  sessionCount.textContent = "0";
+  const sessionRefresh = targetDocument.createElement("button");
+  sessionRefresh.setAttribute("id", "desktop-session-files-refresh");
+  sessionRefresh.setAttribute("type", "button");
+  sessionRefresh.setAttribute("class", "desktop-file-refresh");
+  sessionRefresh.setAttribute("data-desktop-session-files-refresh", "true");
+  sessionRefresh.textContent = "Refresh";
+  sessionMeta.append(createText(targetDocument, "span", "Temporary files"), sessionCount, sessionRefresh);
+  sessionCard.append(sessionLabel, sessionKey, sessionMeta);
+
+  const workspace = createFileImportCard(targetDocument, {
+    id: "desktop-workspace-file-drop",
+    label: "Workspace import",
+    href: "/workspace",
+    dropTarget: "workspace-file",
+    formatsId: "desktop-file-workspace-formats",
+    formats: ["md", "txt", "json", "csv", "py", "js", "ts", "html", "css", "yaml", "toml"],
+  });
 
   const status = targetDocument.createElement("p");
   status.setAttribute("id", "desktop-file-upload-status");
@@ -3400,8 +3427,77 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   sessionFiles.setAttribute("aria-label", "Session temporary files");
   sessionFiles.textContent = chat?.activeSessionKey ? "Temporary files not loaded yet." : "Select a chat session to view temporary files.";
 
-  section.append(knowledge, sessionKey, session, workspace, status, sessionFiles);
+  const grid = targetDocument.createElement("div");
+  grid.className = "desktop-file-import-grid";
+  grid.append(knowledge, session, sessionCard, workspace);
+
+  const operationStrip = targetDocument.createElement("div");
+  operationStrip.className = "desktop-file-operation-strip";
+  operationStrip.append(
+    createFileOperationStatus(targetDocument, "Knowledge upload", "Waiting"),
+    createFileOperationStatus(targetDocument, "Session upload", "Waiting"),
+    createFileOperationStatus(targetDocument, "Workspace import", "Waiting"),
+    status,
+  );
+
+  section.append(grid, operationStrip, sessionFiles);
   return section;
+}
+
+function createFileImportCard(
+  targetDocument: Document,
+  options: {
+    id: string;
+    label: string;
+    uploadKind?: string;
+    dropTarget: string;
+    formatsId: string;
+    formats: string[];
+    href?: string;
+  },
+): HTMLElement {
+  const control = options.href
+    ? createWorkbenchLink(targetDocument, options.label, options.href, "desktop-file-action desktop-file-import-button")
+    : targetDocument.createElement("button");
+  control.setAttribute("id", options.id);
+  control.setAttribute("class", "desktop-file-action desktop-file-import-button");
+  control.setAttribute("data-desktop-drop-target", options.dropTarget);
+  if (!options.href) {
+    control.setAttribute("type", "button");
+  }
+  if (options.uploadKind) {
+    control.setAttribute("data-desktop-file-upload", options.uploadKind);
+  }
+  control.append(
+    createText(targetDocument, "span", options.label),
+    createText(targetDocument, "small", "Drop files here or click to select"),
+  );
+
+  const card = targetDocument.createElement("div");
+  card.className = "desktop-file-import-card";
+  card.append(control, createFormatChipList(targetDocument, options.formatsId, options.formats));
+  return card;
+}
+
+function createFormatChipList(targetDocument: Document, id: string, formats: string[]): HTMLElement {
+  const row = targetDocument.createElement("p");
+  row.className = "desktop-file-format-row";
+  row.setAttribute("id", id);
+  row.append(createText(targetDocument, "span", "Formats:"));
+  for (const format of formats) {
+    const chip = targetDocument.createElement("span");
+    chip.className = "desktop-file-format-chip";
+    chip.textContent = format;
+    row.append(chip);
+  }
+  return row;
+}
+
+function createFileOperationStatus(targetDocument: Document, label: string, status: string): HTMLElement {
+  const item = targetDocument.createElement("div");
+  item.className = "desktop-file-operation-status";
+  item.append(createText(targetDocument, "span", label), createText(targetDocument, "strong", status));
+  return item;
 }
 
 function syncSessionFileUploadKey(targetDocument: Document, activeSessionKey: string): void {
@@ -3525,6 +3621,13 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   recent.setAttribute("class", "desktop-workspace-recent-files");
   recent.setAttribute("aria-label", "Recent workspace files");
 
+  const search = targetDocument.createElement("input");
+  search.setAttribute("id", "desktop-workspace-search");
+  search.setAttribute("class", "desktop-workspace-search");
+  search.setAttribute("type", "search");
+  search.setAttribute("placeholder", "Search workspace files...");
+  search.setAttribute("aria-label", "Search workspace files");
+
   const activePath = targetDocument.createElement("p");
   activePath.setAttribute("id", "desktop-workspace-active-path");
   activePath.setAttribute("class", "desktop-workspace-active-path");
@@ -3535,6 +3638,11 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   updatedAt.setAttribute("class", "desktop-workspace-updated-at");
   updatedAt.textContent = "No timestamp";
 
+  const size = targetDocument.createElement("p");
+  size.setAttribute("id", "desktop-workspace-size");
+  size.setAttribute("class", "desktop-workspace-size");
+  size.textContent = "No size";
+
   const detail = targetDocument.createElement("p");
   detail.setAttribute("id", "desktop-workspace-detail");
   detail.setAttribute("class", "desktop-workspace-detail");
@@ -3544,6 +3652,7 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   browser.className = "desktop-workspace-browser";
   browser.append(
     createText(targetDocument, "h3", "Files"),
+    search,
     recent,
   );
 
@@ -3553,6 +3662,7 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
     createText(targetDocument, "h3", "Selection"),
     activePath,
     updatedAt,
+    size,
     detail,
   );
 
@@ -3592,6 +3702,13 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   reveal.setAttribute("disabled", "");
   reveal.textContent = "Reveal";
 
+  const reload = targetDocument.createElement("button");
+  reload.setAttribute("id", "desktop-workspace-reload");
+  reload.setAttribute("type", "button");
+  reload.setAttribute("class", "desktop-file-action desktop-workspace-reload");
+  reload.setAttribute("disabled", "");
+  reload.textContent = "Reload";
+
   const exportButton = targetDocument.createElement("button");
   exportButton.setAttribute("id", "desktop-workspace-export");
   exportButton.setAttribute("type", "button");
@@ -3601,7 +3718,7 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
 
   const actions = targetDocument.createElement("div");
   actions.setAttribute("class", "desktop-workspace-actions");
-  actions.append(save, reveal, exportButton);
+  actions.append(save, reveal, exportButton, reload);
 
   const actionRail = targetDocument.createElement("aside");
   actionRail.className = "desktop-workspace-action-rail";
@@ -4092,7 +4209,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-cowork-graph-node:focus-visible,
     body.desktop-native-workbench .desktop-module-work-row:focus-visible,
     body.desktop-native-workbench .desktop-task-action:focus-visible,
+    body.desktop-native-workbench .desktop-file-refresh:focus-visible,
     body.desktop-native-workbench .desktop-session-upload-key:focus-visible,
+    body.desktop-native-workbench .desktop-workspace-search:focus-visible,
     body.desktop-native-workbench .desktop-workspace-file-row:focus-visible,
     body.desktop-native-workbench .desktop-workspace-editor:focus-visible,
     body.desktop-native-workbench .desktop-inspector-restore:focus-visible,
@@ -4112,15 +4231,148 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-file-actions {
       display: grid;
-      grid-template-columns: repeat(2, minmax(130px, max-content));
-      gap: 8px;
-      align-items: center;
+      gap: 10px;
       min-width: 0;
     }
 
-    body.desktop-native-workbench .desktop-file-actions h2,
-    body.desktop-native-workbench .desktop-file-upload-status {
-      grid-column: 1 / -1;
+    body.desktop-native-workbench .desktop-file-actions h2 {
+      margin: 0;
+      color: var(--text-strong, #141413);
+      font: 700 20px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-file-import-grid {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(170px, 0.82fr) minmax(180px, 1.18fr);
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 8px;
+      background: var(--panel, #faf9f5);
+    }
+
+    body.desktop-native-workbench .desktop-file-import-card,
+    body.desktop-native-workbench .desktop-file-session-card {
+      display: grid;
+      align-content: start;
+      gap: 10px;
+      min-width: 0;
+      min-height: 128px;
+      border-right: 1px solid var(--border, #e6dfd8);
+      padding: 14px;
+    }
+
+    body.desktop-native-workbench .desktop-file-import-card:last-child {
+      border-right: 0;
+    }
+
+    body.desktop-native-workbench .desktop-file-import-button {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      grid-template-areas: "icon label" "icon hint";
+      justify-content: start;
+      min-height: 42px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--text, #141413);
+      text-align: left;
+      text-decoration: none;
+    }
+
+    body.desktop-native-workbench .desktop-file-import-button::before {
+      content: "↑";
+      grid-area: icon;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: var(--accent-soft, #fff0ea);
+      color: var(--primary, #d85f45);
+      font: 700 16px/1 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-file-import-button span {
+      grid-area: label;
+      min-width: 0;
+      font: 700 12px/1.25 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-file-import-button small {
+      grid-area: hint;
+      min-width: 0;
+      color: var(--text-muted, #6f685f);
+      font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-file-format-row,
+    body.desktop-native-workbench .desktop-file-session-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+      min-width: 0;
+      margin: 0;
+      color: var(--text-muted, #6f685f);
+      font: 11px/1.3 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-file-format-chip,
+    body.desktop-native-workbench .desktop-file-count-pill,
+    body.desktop-native-workbench .desktop-file-operation-status strong {
+      display: inline-flex;
+      align-items: center;
+      min-height: 20px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 999px;
+      padding: 0 7px;
+      background: var(--bg, #fffdfa);
+      color: var(--text, #141413);
+      font: 600 11px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-file-session-card label {
+      color: var(--text-strong, #141413);
+      font: 700 12px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-file-refresh {
+      min-height: 24px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0 6px;
+      background: transparent;
+      color: var(--primary, #d85f45);
+      font: 700 11px/1.2 var(--font-sans, system-ui, sans-serif);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-file-operation-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr)) minmax(180px, 1.2fr);
+      gap: 12px;
+      align-items: center;
+      min-width: 0;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: var(--panel, #faf9f5);
+    }
+
+    body.desktop-native-workbench .desktop-file-operation-status {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+      font: 700 12px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-file-operation-status strong {
+      border-color: #bfe4c4;
+      background: #effaf0;
+      color: #2f7d3e;
     }
 
     body.desktop-native-workbench .desktop-file-action {
@@ -4169,17 +4421,19 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-session-upload-key {
       min-width: 0;
-      width: min(220px, 100%);
+      width: 100%;
       min-height: 34px;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
       padding: 0 10px;
+      background: var(--bg, #fffdfa);
+      color: var(--text, #141413);
       font: 12px/1.2 var(--font-sans, system-ui, sans-serif);
     }
 
     body.desktop-native-workbench .desktop-workspace-files {
       display: grid;
-      grid-template-columns: minmax(150px, 0.8fr) minmax(0, 1.2fr) minmax(92px, 0.5fr);
+      grid-template-columns: minmax(220px, 0.78fr) minmax(0, 1.55fr) minmax(150px, 0.48fr);
       grid-template-areas:
         "header header header"
         "browser detail actions"
@@ -4238,6 +4492,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-workspace-title-group p,
     body.desktop-native-workbench .desktop-workspace-updated-at,
+    body.desktop-native-workbench .desktop-workspace-size,
     body.desktop-native-workbench .desktop-workspace-detail,
     body.desktop-native-workbench .desktop-workspace-save-state,
     body.desktop-native-workbench .desktop-workspace-status {
@@ -4271,6 +4526,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 10px;
     }
 
+    body.desktop-native-workbench .desktop-workspace-search {
+      width: 100%;
+      min-width: 0;
+      min-height: 34px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: var(--bg, #fffdfa);
+      color: var(--text, #141413);
+      font: 12px/1.2 var(--font-sans, system-ui, sans-serif);
+    }
+
     body.desktop-native-workbench .desktop-workspace-browser h3,
     body.desktop-native-workbench .desktop-workspace-detail-panel h3,
     body.desktop-native-workbench .desktop-workspace-editor-panel h3,
@@ -4297,10 +4564,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-workspace-file-row {
       min-width: 0;
-      min-height: 34px;
+      min-height: 46px;
       border: 1px solid var(--border, #e6dfd8);
       border-radius: 6px;
-      padding: 0 10px;
+      padding: 7px 10px;
       overflow: hidden;
       background: var(--panel, #faf9f5);
       color: var(--text, #141413);
@@ -4309,6 +4576,30 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       text-overflow: ellipsis;
       white-space: nowrap;
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-file-import-button {
+      min-height: 42px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      text-decoration: none;
+    }
+
+    body.desktop-native-workbench .desktop-file-upload-status {
+      min-width: 0;
+      margin: 0;
+      overflow: hidden;
+      color: var(--text-muted, #6f685f);
+      font: 12px/1.35 var(--font-sans, system-ui, sans-serif);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-file-row[aria-selected="true"] {
+      border-color: var(--primary, #cc785c);
+      background: var(--accent-soft, #fff0ea);
+      color: var(--text-strong, #141413);
     }
 
     body.desktop-native-workbench .desktop-workspace-actions {
@@ -6002,6 +6293,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-detail-panel,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-editor-panel,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-action-rail,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-file-import-grid,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-file-import-card,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-file-session-card,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-file-operation-strip,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-status-strip {
       background: var(--panel);
       color: var(--text);
@@ -6023,6 +6318,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field select,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field textarea,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-file-row,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-search,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-editor,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-task-action,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-session-row,
@@ -6041,6 +6337,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: var(--panel-strong);
       color: var(--text);
       border-color: var(--border);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-file-import-button {
+      background: transparent;
+      border-color: transparent;
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button:hover,
@@ -6110,7 +6411,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       }
 
       body.desktop-native-workbench .desktop-workspace-actions {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      body.desktop-native-workbench .desktop-file-import-grid,
+      body.desktop-native-workbench .desktop-file-operation-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
@@ -6174,6 +6480,17 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       body.desktop-native-workbench .desktop-workspace-header {
         align-items: flex-start;
         flex-direction: column;
+      }
+
+      body.desktop-native-workbench .desktop-file-import-grid,
+      body.desktop-native-workbench .desktop-file-operation-strip {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.desktop-native-workbench .desktop-file-import-card,
+      body.desktop-native-workbench .desktop-file-session-card {
+        border-right: 0;
+        border-bottom: 1px solid var(--border, #e6dfd8);
       }
     }
   `;
