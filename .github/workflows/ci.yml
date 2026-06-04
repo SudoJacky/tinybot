@@ -1,10 +1,11 @@
 name: CI
 
 on:
-  push:
-    branches: [master, main]
   pull_request:
-    branches: [master, main]
+    types: [opened, synchronize, reopened]
+
+env:
+  UV_DEFAULT_INDEX: https://pypi.org/simple
 
 jobs:
   test:
