@@ -5424,7 +5424,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-chat-menu-popover {
       position: absolute;
       top: calc(100% + 8px);
-      right: 0;
+      left: 0;
+      right: auto;
       z-index: 8;
       display: grid;
       gap: 4px;
