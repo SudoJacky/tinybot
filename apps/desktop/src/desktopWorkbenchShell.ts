@@ -95,12 +95,27 @@ export interface DesktopNativeChatDeleteSessionEvent {
   title: string;
 }
 
+export interface DesktopNativeChatPinSessionEvent {
+  sessionKey: string;
+  chatId: string;
+  title: string;
+  pinned: boolean;
+}
+
+export interface DesktopNativeChatRenameSessionEvent {
+  sessionKey: string;
+  chatId: string;
+  title: string;
+}
+
 interface DesktopNativeChatActionOptions {
   onComposerSubmit?: (event: DesktopNativeChatComposerSubmitEvent) => void;
   onInterrupt?: () => void;
   onAttachSessionFile?: () => void;
   onNewChat?: () => void;
   onDeleteSession?: (event: DesktopNativeChatDeleteSessionEvent) => void;
+  onPinSession?: (event: DesktopNativeChatPinSessionEvent) => void;
+  onRenameSession?: (event: DesktopNativeChatRenameSessionEvent) => void;
   onPersistentRagChange?: (enabled: boolean) => void;
 }
 
@@ -397,7 +412,7 @@ export function updateDesktopNativeChat(
   syncNativeChatDocumentState(targetDocument, chat);
   const header = targetDocument.querySelector<HTMLElement>(".desktop-chat-header");
   if (header) {
-    const next = createChatHeader(targetDocument, chat, readCurrentWorkbenchLayout(targetDocument));
+    const next = createChatHeader(targetDocument, chat, readCurrentWorkbenchLayout(targetDocument), chatActions);
     header.replaceChildren(...Array.from(next.children));
   }
 
@@ -662,6 +677,10 @@ function createRecentChatRow(
   row.setAttribute("role", "listitem");
   row.setAttribute("data-active", String(active));
   row.setAttribute("data-sidebar-row-kind", "chat");
+  row.setAttribute("data-desktop-session-key", session.key);
+  row.setAttribute("data-desktop-chat-id", session.chatId);
+  row.setAttribute("data-desktop-route-id", routeId);
+  row.setAttribute("data-pinned", "false");
 
   const link = targetDocument.createElement("a");
   link.className = "desktop-sidebar-row desktop-sidebar-row-main";
@@ -795,7 +814,7 @@ function createMainRegion(
   const workbench = targetDocument.createElement("div");
   workbench.className = "desktop-empty-session desktop-chat-workbench";
   workbench.append(
-    createChatHeader(targetDocument, chat, layout),
+    createChatHeader(targetDocument, chat, layout, chatActions),
     createConversationThread(targetDocument, chat),
     createText(targetDocument, "span", "Ready for a new session"),
     createText(targetDocument, "span", "Start from chat, inspect workspace, or check gateway status."),
@@ -832,6 +851,7 @@ function createChatHeader(
   targetDocument: Document,
   chat: DesktopNativeChatModel | null,
   layout: WorkbenchLayoutState,
+  chatActions: DesktopNativeChatActionOptions = {},
 ): HTMLElement {
   const header = targetDocument.createElement("header");
   header.className = "desktop-chat-header";
@@ -839,17 +859,28 @@ function createChatHeader(
   const titleRow = targetDocument.createElement("div");
   titleRow.className = "desktop-chat-title-row";
 
+  const activeSession = activeChatSession(chat);
   const title = targetDocument.createElement("h1");
+  title.className = "desktop-chat-title";
   title.textContent = activeChatTitle(chat);
 
   const menu = targetDocument.createElement("button");
   menu.type = "button";
   menu.className = "desktop-chat-menu";
   menu.setAttribute("data-desktop-chat-menu", "more");
+  menu.setAttribute("aria-haspopup", "menu");
+  menu.setAttribute("aria-expanded", "false");
   menu.setAttribute("aria-label", "More chat actions");
   menu.textContent = "...";
 
-  titleRow.append(title, menu);
+  const popover = createChatMenuPopover(targetDocument, chat, activeSession, title, menu, chatActions);
+  menu.addEventListener("click", () => {
+    const expanded = menu.getAttribute("aria-expanded") === "true";
+    menu.setAttribute("aria-expanded", String(!expanded));
+    popover.hidden = expanded;
+  });
+
+  titleRow.append(title, menu, popover);
 
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-chat-header-actions";
@@ -872,6 +903,144 @@ function createChatHeader(
 
   header.append(titleRow, actions);
   return header;
+}
+
+function activeChatSession(chat: DesktopNativeChatModel | null): NativeChatSession | null {
+  if (!chat?.activeSessionKey) {
+    return null;
+  }
+  return chat.sessions.find((session) => session.key === chat.activeSessionKey) ?? null;
+}
+
+function createChatMenuPopover(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  session: NativeChatSession | null,
+  titleElement: HTMLElement,
+  trigger: HTMLElement,
+  chatActions: DesktopNativeChatActionOptions,
+): HTMLElement {
+  const popover = targetDocument.createElement("div");
+  popover.className = "desktop-chat-menu-popover";
+  popover.setAttribute("role", "menu");
+  popover.setAttribute("aria-label", "Chat session actions");
+  popover.hidden = true;
+
+  const close = () => {
+    popover.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  };
+
+  const appendAction = (action: string, label: string, handler: (button: HTMLElement) => void, disabled = false) => {
+    const button = targetDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-chat-menu-action";
+    button.setAttribute("role", "menuitem");
+    button.setAttribute("data-desktop-chat-menu-action", action);
+    button.textContent = label;
+    if (disabled) {
+      button.setAttribute("disabled", "");
+    }
+    button.addEventListener("click", (event) => {
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      if (disabled) {
+        return;
+      }
+      handler(button);
+      close();
+    });
+    popover.append(button);
+    return button;
+  };
+
+  appendAction(
+    "pin",
+    "Pin session",
+    (button) => {
+      if (!session) {
+        return;
+      }
+      const pinned = toggleActiveSessionPinned(targetDocument, session);
+      button.textContent = pinned ? "Unpin session" : "Pin session";
+      chatActions.onPinSession?.({
+        sessionKey: session.key,
+        chatId: session.chatId,
+        title: session.title || "New session",
+        pinned,
+      });
+    },
+    !session,
+  );
+  appendAction(
+    "rename",
+    "Rename session",
+    () => {
+      if (!session) {
+        return;
+      }
+      const renamedTitle = promptForSessionTitle(targetDocument, session.title || "New session");
+      if (!renamedTitle) {
+        return;
+      }
+      session.title = renamedTitle;
+      titleElement.textContent = renamedTitle;
+      updateSessionRowTitle(targetDocument, session.key, renamedTitle);
+      chatActions.onRenameSession?.({
+        sessionKey: session.key,
+        chatId: session.chatId,
+        title: renamedTitle,
+      });
+    },
+    !session,
+  );
+  appendAction("new-chat", "New chat", () => chatActions.onNewChat?.(), !chatActions.onNewChat);
+
+  if (!chat?.sessions.length) {
+    const empty = createText(targetDocument, "span", "No active session");
+    empty.className = "desktop-chat-menu-empty";
+    popover.append(empty);
+  }
+
+  return popover;
+}
+
+function promptForSessionTitle(targetDocument: Document, currentTitle: string): string | null {
+  const prompt = (targetDocument as Document & {
+    defaultView?: { prompt?: (message?: string, defaultValue?: string) => string | null };
+  }).defaultView?.prompt;
+  const nextTitle = prompt?.("Rename session", currentTitle)?.trim();
+  if (!nextTitle || nextTitle === currentTitle) {
+    return null;
+  }
+  return nextTitle;
+}
+
+function toggleActiveSessionPinned(targetDocument: Document, session: NativeChatSession): boolean {
+  const row = findSessionRow(targetDocument, session.key);
+  const pinned = row?.getAttribute("data-pinned") !== "true";
+  row?.setAttribute("data-pinned", String(pinned));
+  if (pinned) {
+    const list = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
+    if (list && row) {
+      const rows = Array.from(list.children).filter((child) => child !== row);
+      list.replaceChildren(row, ...rows);
+    }
+  }
+  return pinned;
+}
+
+function updateSessionRowTitle(targetDocument: Document, sessionKey: string, title: string): void {
+  const row = findSessionRow(targetDocument, sessionKey);
+  const label = row?.querySelector<HTMLElement>(".desktop-sidebar-row-label");
+  if (label) {
+    label.textContent = title;
+  }
+}
+
+function findSessionRow(targetDocument: Document, sessionKey: string): HTMLElement | null {
+  return Array.from(targetDocument.querySelectorAll<HTMLElement>("[data-desktop-session-key]"))
+    .find((row) => row.getAttribute("data-desktop-session-key") === sessionKey) ?? null;
 }
 
 function readCurrentWorkbenchLayout(targetDocument: Document): WorkbenchLayoutState {
@@ -916,7 +1085,18 @@ function createHeaderPanelControl(
   button.setAttribute("data-desktop-panel-label-unpressed", unpressedLabel);
   button.setAttribute("aria-label", visible ? pressedLabel : unpressedLabel);
   button.setAttribute("aria-pressed", String(visible));
-  button.textContent = label;
+  const displayLabel = panel === "sidebar" ? "Sessions" : panel === "inspector" ? "Run Chain" : label;
+  const displayIcon = panel === "sidebar" ? "||" : panel === "inspector" ? "[]" : "";
+  if (displayIcon) {
+    const icon = createText(targetDocument, "span", displayIcon);
+    icon.className = "desktop-chat-header-panel-icon";
+    icon.setAttribute("aria-hidden", "true");
+    const text = createText(targetDocument, "span", displayLabel);
+    text.className = "desktop-chat-header-panel-label";
+    button.append(icon, text);
+  } else {
+    button.textContent = displayLabel;
+  }
   button.addEventListener("click", () => {
     toggleDesktopPanel(targetDocument, panel);
   });
@@ -5058,6 +5238,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #b4533c;
     }
 
+    body.desktop-native-workbench .desktop-sidebar-chat-row[data-pinned="true"] {
+      border-color: #e9cabe;
+      background: #fbf2ee;
+    }
+
     body.desktop-native-workbench .desktop-sidebar-row-label,
     body.desktop-native-workbench .desktop-sidebar-row-meta {
       min-width: 0;
@@ -5121,6 +5306,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-title-row {
+      position: relative;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -5150,7 +5336,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 30px;
       height: 30px;
       min-width: 30px;
       min-height: 30px;
@@ -5163,9 +5348,23 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-header-panel-button {
+      gap: 7px;
+      min-width: 0;
+      padding: 0 10px;
       border: 1px solid #e4ddd6;
       color: #59544f;
-      font-size: 15px;
+      font: 650 12px/1 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-panel-icon {
+      color: #8b8580;
+      font: 700 11px/1 var(--font-mono);
+    }
+
+    body.desktop-native-workbench .desktop-chat-menu {
+      width: 30px;
+      padding: 0;
+      font-size: 16px;
     }
 
     body.desktop-native-workbench .desktop-chat-menu:hover,
@@ -5173,6 +5372,48 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-chat-header-panel-button:hover,
     body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible {
       background: #f7f2ed;
+    }
+
+    body.desktop-native-workbench .desktop-chat-menu-popover {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      z-index: 8;
+      display: grid;
+      gap: 4px;
+      min-width: 176px;
+      border: 1px solid #e5ddd7;
+      border-radius: 8px;
+      padding: 6px;
+      background: #ffffff;
+      box-shadow: 0 12px 26px rgba(42, 34, 27, 0.14);
+    }
+
+    body.desktop-native-workbench .desktop-chat-menu-popover[hidden] {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-chat-menu-action {
+      min-height: 30px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0 10px;
+      background: transparent;
+      color: #262522;
+      font: 600 13px/1.2 var(--font-sans);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-chat-menu-action:hover,
+    body.desktop-native-workbench .desktop-chat-menu-action:focus-visible {
+      background: #f7f2ed;
+    }
+
+    body.desktop-native-workbench .desktop-chat-menu-empty {
+      padding: 7px 10px;
+      color: #77736f;
+      font: 500 12px/1.2 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-conversation-thread {

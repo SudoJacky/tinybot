@@ -929,13 +929,70 @@ describe("desktop workbench shell", () => {
     expect(header?.querySelector(".desktop-chat-menu")?.textContent).toBe("...");
     expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Collapse session list");
     expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Close Run Chain panel");
-    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toBe("▌");
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toContain("Sessions");
+    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toContain("Run Chain");
     expect(targetDocument.body.querySelector("[data-desktop-inspector-restore]")).toBeNull();
 
     header?.querySelector('[data-desktop-panel-control="sidebar"]')?.click();
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("false");
     expect(targetDocument.body.querySelector('[data-workbench-region="sidebar"]')?.getAttribute("data-visible")).toBe("false");
     expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Expand session list");
+  });
+
+  test("opens chat header menu actions and updates the active session affordances", () => {
+    const targetDocument = new FakeDocument();
+    (targetDocument as unknown as { defaultView: { prompt: () => string } }).defaultView = {
+      prompt: () => "Renamed session",
+    };
+    const pinEvents: unknown[] = [];
+    const renameEvents: unknown[] = [];
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [
+          { key: "WebSocket:chat-2", chatId: "chat-2", title: "Session two", createdAt: "", updatedAt: "" },
+          { key: "WebSocket:chat-1", chatId: "chat-1", title: "Session one", createdAt: "", updatedAt: "" },
+        ],
+        activeSessionKey: "WebSocket:chat-1",
+        activeChatId: "chat-1",
+        messages: [],
+      },
+      chatActions: {
+        onPinSession: (event) => pinEvents.push(event),
+        onRenameSession: (event) => renameEvents.push(event),
+      },
+    });
+
+    const header = targetDocument.body.querySelector(".desktop-chat-header");
+    const menu = header?.querySelector(".desktop-chat-menu");
+    const popover = header?.querySelector(".desktop-chat-menu-popover") as unknown as { hidden: boolean } | null;
+    expect(menu?.getAttribute("aria-expanded")).toBe("false");
+    expect(popover?.hidden).toBe(true);
+
+    menu?.click();
+    expect(menu?.getAttribute("aria-expanded")).toBe("true");
+    expect(popover?.hidden).toBe(false);
+    header?.querySelector('[data-desktop-chat-menu-action="pin"]')?.click();
+    expect(pinEvents).toEqual([{ sessionKey: "WebSocket:chat-1", chatId: "chat-1", title: "Session one", pinned: true }]);
+    expect(targetDocument.body.querySelector('[data-desktop-session-key]')?.getAttribute("data-desktop-session-key")).toBe(
+      "WebSocket:chat-1",
+    );
+    expect(targetDocument.body.querySelector('[data-desktop-session-key]')?.getAttribute("data-pinned")).toBe("true");
+    expect(header?.querySelector('[data-desktop-chat-menu-action="pin"]')?.textContent).toBe("Unpin session");
+    expect(menu?.getAttribute("aria-expanded")).toBe("false");
+
+    menu?.click();
+    header?.querySelector('[data-desktop-chat-menu-action="rename"]')?.click();
+    expect(renameEvents).toEqual([{ sessionKey: "WebSocket:chat-1", chatId: "chat-1", title: "Renamed session" }]);
+    expect(header?.querySelector(".desktop-chat-title")?.textContent).toBe("Renamed session");
+    expect(targetDocument.body.querySelector('[data-desktop-session-key]')?.querySelector(".desktop-sidebar-row-label")?.textContent).toBe(
+      "Renamed session",
+    );
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toContain("Sessions");
+    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toContain("Run Chain");
   });
 
   test("renders keyboard-operable panel controls with accessible labels", () => {
