@@ -735,6 +735,7 @@ describe("desktop workbench shell", () => {
     expect(inspector?.textContent).toContain("Run Chain");
     expect(runTabs?.textContent).toContain("Context");
     expect(runCards?.textContent).toContain("Gateway");
+    targetDocument.body.querySelector('[data-desktop-run-chain-tab="files"]')?.click();
     expect(runCards?.textContent).toContain("Workspace");
     expect(runNewItem?.textContent).toContain("New Run Chain Item");
   });
@@ -937,6 +938,49 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("false");
     expect(controls[1].getAttribute("aria-pressed")).toBe("false");
     expect(targetDocument.body.querySelector("[data-desktop-route-status]")?.textContent).toContain("Run Chain panel hidden");
+  });
+
+  test("makes the native Run Chain overview compact, switchable, and recoverable after close", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const overview = targetDocument.body.querySelector(".desktop-run-chain-overview");
+    const panel = overview?.querySelector(".desktop-run-chain-panel");
+    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Gateway");
+    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Idle");
+    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("context");
+    expect(panel?.textContent).toContain("Endpoint");
+
+    overview?.querySelector('[data-desktop-run-chain-tab="files"]')?.click();
+    expect(overview?.querySelector('[data-desktop-run-chain-tab="files"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("files");
+    expect(panel?.textContent).toContain("Workspace");
+    expect(panel?.textContent).toContain("Open Workspace");
+
+    overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.click();
+    expect(overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("tasks");
+    expect(panel?.textContent).toContain("Current Run");
+    expect(panel?.textContent).toContain("New Run Chain Item");
+
+    const pin = overview?.querySelector('[data-desktop-run-chain-control="pin"]');
+    expect(pin?.getAttribute("aria-pressed")).toBe("false");
+    pin?.click();
+    expect(pin?.getAttribute("aria-pressed")).toBe("true");
+
+    overview?.querySelector('[data-desktop-run-chain-control="close"]')?.click();
+    const restore = targetDocument.body.querySelector("[data-desktop-inspector-restore]");
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
+    expect(restore?.textContent).toContain("Open Run Chain");
+    restore?.click();
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("true");
+    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("true");
+    expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-pressed")).toBe("true");
   });
 
   test("renders a persistent run-chain inspector pane with selectable details", () => {
