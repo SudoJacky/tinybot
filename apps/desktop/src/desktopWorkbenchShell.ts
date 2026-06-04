@@ -5432,6 +5432,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button:focus-visible,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button[data-active="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-chat-row[data-active="true"],
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row[data-active="true"],
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-panel-control[aria-pressed="true"],
@@ -5440,6 +5441,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: var(--accent-soft);
       color: var(--text-strong);
       border-color: var(--accent);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-chat-row:hover {
+      background: var(--panel-strong);
+      border-color: var(--border);
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row-meta,
