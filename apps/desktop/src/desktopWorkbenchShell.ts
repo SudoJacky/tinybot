@@ -801,6 +801,7 @@ function createMainRegion(
     createText(targetDocument, "span", "Start from chat, inspect workspace, or check gateway status."),
     createQuickActions(targetDocument),
     createPanelControls(targetDocument, layout),
+    createInspectorRestoreButton(targetDocument, layout),
     createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
     ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
   );
@@ -2470,6 +2471,24 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
   return controls;
 }
 
+function createInspectorRestoreButton(targetDocument: Document, layout: WorkbenchLayoutState): HTMLElement {
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-inspector-restore";
+  button.setAttribute("data-desktop-inspector-restore", "");
+  button.setAttribute("aria-label", "Open Run Chain panel");
+  button.setAttribute("aria-hidden", String(layout.inspector.visible));
+  button.textContent = "Open Run Chain";
+  button.addEventListener("click", () => {
+    const shell = targetDocument.getElementById(SHELL_ID);
+    if (shell?.getAttribute("data-inspector-visible") !== "false") {
+      return;
+    }
+    toggleDesktopPanel(targetDocument, "inspector");
+  });
+  return button;
+}
+
 function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControlId): void {
   const shell = targetDocument.getElementById(SHELL_ID);
   const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
@@ -2481,6 +2500,11 @@ function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControl
   targetDocument
     .querySelector<HTMLElement>(`[data-desktop-panel-control="${panel}"]`)
     ?.setAttribute("aria-pressed", String(nextVisible));
+  if (panel === "inspector") {
+    targetDocument
+      .querySelector<HTMLElement>("[data-desktop-inspector-restore]")
+      ?.setAttribute("aria-hidden", String(nextVisible));
+  }
 
   const status = targetDocument.querySelector<HTMLElement>("[data-desktop-route-status]");
   if (status) {
@@ -2549,7 +2573,7 @@ function createInspector(
 ): HTMLElement {
   const inspector = targetDocument.createElement("aside");
   inspector.className = "desktop-inspector-content";
-  inspector.append(createRunChainOverviewPanel(targetDocument));
+  inspector.append(createRunChainOverviewPanel(targetDocument, runChainItems));
   if (workLens) {
     inspector.append(createWorkLensPane(targetDocument, workLens, workLensActions));
   } else if (runChainItems.length) {
@@ -2558,7 +2582,12 @@ function createInspector(
   return inspector;
 }
 
-function createRunChainOverviewPanel(targetDocument: Document): HTMLElement {
+type RunChainOverviewTab = "context" | "files" | "tasks";
+
+function createRunChainOverviewPanel(
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[] = [],
+): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-run-chain-overview";
   section.setAttribute("aria-label", "Run Chain");
@@ -2577,106 +2606,213 @@ function createRunChainOverviewPanel(targetDocument: Document): HTMLElement {
     button.className = "desktop-run-chain-icon-button";
     button.setAttribute("aria-label", label);
     button.setAttribute("data-desktop-run-chain-control", action);
+    if (action === "pin") {
+      button.setAttribute("aria-pressed", "false");
+    }
     button.textContent = value;
     button.addEventListener("click", () => {
       if (action === "close") {
         toggleDesktopPanel(targetDocument, "inspector");
         return;
       }
-      setRouteStatus(targetDocument, "Run Chain pinned");
+      const nextPressed = button.getAttribute("aria-pressed") !== "true";
+      button.setAttribute("aria-pressed", String(nextPressed));
+      button.textContent = nextPressed ? "Pinned" : "Pin";
+      setRouteStatus(targetDocument, nextPressed ? "Run Chain pinned" : "Run Chain unpinned");
     });
     controls.append(button);
   }
   header.append(controls);
 
+  const panel = targetDocument.createElement("div");
+  panel.className = "desktop-run-chain-panel desktop-run-chain-cards";
+  panel.setAttribute("data-desktop-run-chain-panel", "context");
+
   const tabs = targetDocument.createElement("div");
   tabs.className = "desktop-run-chain-tabs";
   tabs.setAttribute("role", "tablist");
-  for (const [index, label] of ["Context", "Files", "Tasks"].entries()) {
+  const renderPanel = (tabId: RunChainOverviewTab): void => {
+    panel.setAttribute("data-desktop-run-chain-panel", tabId);
+    panel.replaceChildren(...createRunChainOverviewPanelContent(targetDocument, tabId, runChainItems));
+  };
+  const selectTab = (tabId: RunChainOverviewTab): void => {
+    for (const sibling of Array.from(tabs.children)) {
+      sibling.setAttribute("aria-selected", String(sibling.getAttribute("data-desktop-run-chain-tab") === tabId));
+    }
+    renderPanel(tabId);
+  };
+
+  for (const [index, tabInfo] of ([
+    { id: "context", label: "Context" },
+    { id: "files", label: "Files" },
+    { id: "tasks", label: "Tasks" },
+  ] as Array<{ id: RunChainOverviewTab; label: string }>).entries()) {
     const tab = targetDocument.createElement("button");
     tab.type = "button";
     tab.className = "desktop-run-chain-tab";
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-selected", String(index === 0));
-    tab.setAttribute("data-desktop-run-chain-tab", label.toLowerCase());
-    tab.textContent = label;
+    tab.setAttribute("data-desktop-run-chain-tab", tabInfo.id);
+    tab.textContent = tabInfo.label;
     tab.addEventListener("click", () => {
-      for (const sibling of Array.from(tabs.children)) {
-        sibling.setAttribute("aria-selected", "false");
-      }
-      tab.setAttribute("aria-selected", "true");
-      setRouteStatus(targetDocument, `Run Chain ${label}`);
+      selectTab(tabInfo.id);
+      setRouteStatus(targetDocument, `Run Chain ${tabInfo.label}`);
     });
     tabs.append(tab);
   }
 
-  const cards = targetDocument.createElement("div");
-  cards.className = "desktop-run-chain-cards";
-  cards.append(
-    createRunChainCard(targetDocument, "Gateway", "Connected", [
-      ["Endpoint", "http://127.0.0.1:18790"],
-      ["Mode", "External"],
-      ["Version", "v0.1.0"],
-    ], "Open Gateway Status", "/api/status"),
-    createRunChainCard(targetDocument, "Workspace", "", [
-      ["tinybot", "D:\\code\\tinybot\\tinybot"],
-    ], "Open Workspace", "/workspace"),
-    createRunChainCard(targetDocument, "Current Run", "Idle", [
-      ["No run in progress", "Select an item below to run."],
-    ]),
+  const summary = createRunChainSummaryStrip(targetDocument, runChainItems, selectTab);
+  selectTab("context");
+
+  const actions = targetDocument.createElement("div");
+  actions.className = "desktop-run-chain-actions";
+  actions.append(
+    createRunChainActionButton(targetDocument, "Open Task Center", () => toggleDesktopPanel(targetDocument, "bottom")),
+    createRunChainActionButton(targetDocument, "New Run Chain Item", () => {
+      setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+    }, "desktop-run-chain-new-item"),
   );
 
-  const add = targetDocument.createElement("button");
-  add.className = "desktop-run-chain-new-item";
-  add.textContent = "+  New Run Chain Item";
-  add.setAttribute("type", "button");
-  add.addEventListener("click", () => {
-    setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
-  });
-
-  section.append(header, tabs, cards, add);
+  section.append(header, summary, tabs, panel, actions);
   return section;
 }
 
-function createRunChainCard(
+function createRunChainSummaryStrip(
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[],
+  renderPanel: (tabId: RunChainOverviewTab) => void,
+): HTMLElement {
+  const summary = targetDocument.createElement("div");
+  summary.className = "desktop-run-chain-summary-strip";
+  const status = runChainOverviewStatus(runChainItems);
+  for (const item of [
+    { label: "Gateway", value: "Connected", tab: "context" as const },
+    { label: "Run", value: status, tab: "tasks" as const },
+    { label: "Items", value: String(runChainItems.length), tab: "tasks" as const },
+  ]) {
+    const button = targetDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-run-chain-summary-item";
+    button.setAttribute("data-desktop-run-chain-summary", item.label.toLowerCase());
+    button.textContent = `${item.label} ${item.value}`;
+    button.addEventListener("click", () => {
+      renderPanel(item.tab);
+      setRouteStatus(targetDocument, `Run Chain ${item.label}`);
+    });
+    summary.append(button);
+  }
+  return summary;
+}
+
+function createRunChainOverviewPanelContent(
+  targetDocument: Document,
+  tabId: RunChainOverviewTab,
+  runChainItems: DesktopRunChainItem[],
+): HTMLElement[] {
+  if (tabId === "files") {
+    return [
+      createRunChainPanelSection(targetDocument, "Workspace", [
+        ["Project", "tinybot"],
+        ["Path", "D:\\code\\tinybot\\tinybot"],
+      ], createWorkbenchLink(targetDocument, "Open Workspace", "/workspace", "desktop-run-chain-panel-action")),
+    ];
+  }
+
+  if (tabId === "tasks") {
+    const feed = createRunChainActivityFeed(targetDocument, runChainItems);
+    return [
+      createRunChainPanelSection(targetDocument, "Current Run", [
+        ["Status", runChainOverviewStatus(runChainItems)],
+        ["Chain items", String(runChainItems.length)],
+      ], createRunChainActionButton(targetDocument, "New Run Chain Item", () => {
+        setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+      }, "desktop-run-chain-panel-action desktop-run-chain-new-item")),
+      ...(feed ? [feed] : []),
+    ];
+  }
+
+  return [
+    createRunChainPanelSection(targetDocument, "Gateway", [
+      ["Status", "Connected"],
+      ["Endpoint", "http://127.0.0.1:18790"],
+      ["Mode", "External"],
+      ["Version", "v0.1.0"],
+    ], createWorkbenchLink(targetDocument, "Open Gateway Status", "/api/status", "desktop-run-chain-panel-action")),
+    createRunChainPanelSection(targetDocument, "Session Context", [
+      ["Run", runChainOverviewStatus(runChainItems)],
+      ["Items", String(runChainItems.length)],
+    ]),
+  ];
+}
+
+function createRunChainPanelSection(
   targetDocument: Document,
   title: string,
-  badge: string,
   rows: [string, string][],
-  action?: string,
-  actionHref?: string,
+  action?: HTMLElement,
 ): HTMLElement {
-  const card = targetDocument.createElement("article");
-  card.className = "desktop-run-chain-card";
-  const header = targetDocument.createElement("div");
-  header.className = "desktop-run-chain-card-header";
-  header.append(createText(targetDocument, "h3", title));
-  if (badge) {
-    const status = targetDocument.createElement("span");
-    status.className = "desktop-run-chain-card-badge";
-    status.textContent = badge;
-    header.append(status);
-  }
-  card.append(header);
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-run-chain-panel-section";
+  section.append(createText(targetDocument, "h3", title));
   for (const [label, value] of rows) {
     const row = targetDocument.createElement("p");
     row.className = "desktop-run-chain-card-row";
     row.textContent = `${label}: ${value}`;
-    card.append(row);
+    section.append(row);
   }
   if (action) {
-    const element = actionHref
-      ? createWorkbenchLink(targetDocument, action, actionHref, "desktop-run-chain-card-action")
-      : targetDocument.createElement("button");
-    if (!actionHref) {
-      element.setAttribute("type", "button");
-      element.textContent = action;
-      element.className = "desktop-run-chain-card-action";
-    }
-    element.setAttribute("data-desktop-run-chain-action", action);
-    card.append(element);
+    section.append(action);
   }
-  return card;
+  return section;
+}
+
+function createRunChainActivityFeed(
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[],
+): HTMLElement | null {
+  if (!runChainItems.length) {
+    return null;
+  }
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-run-chain-panel-section desktop-run-chain-activity-feed";
+  section.append(createText(targetDocument, "h3", "Activity"));
+  for (const item of runChainItems.slice(0, 4)) {
+    const row = targetDocument.createElement("button");
+    row.type = "button";
+    row.className = "desktop-run-chain-feed-item";
+    row.setAttribute("data-desktop-run-chain-feed-item", item.key);
+    row.textContent = `${item.title}: ${item.preview}`;
+    row.addEventListener("click", () => {
+      setRouteStatus(targetDocument, `Selected ${item.title}`);
+    });
+    section.append(row);
+  }
+  return section;
+}
+
+function createRunChainActionButton(
+  targetDocument: Document,
+  label: string,
+  onClick: () => void,
+  className = "desktop-run-chain-panel-action",
+): HTMLElement {
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.setAttribute("data-desktop-run-chain-action", label);
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function runChainOverviewStatus(runChainItems: DesktopRunChainItem[]): string {
+  if (runChainItems.some((item) => item.status === "failed")) {
+    return "Needs attention";
+  }
+  if (runChainItems.some((item) => item.status === "running")) {
+    return "Running";
+  }
+  return runChainItems.length ? "Completed" : "Idle";
 }
 
 function createWorkLensPane(
@@ -3827,6 +3963,25 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: var(--surface-card);
     }
 
+    body.desktop-native-workbench .desktop-inspector-restore {
+      display: none;
+      justify-self: start;
+      min-height: 32px;
+      border: 1px solid var(--primary);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: #fff7f3;
+      color: var(--primary);
+      font: 700 12px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-shell[data-inspector-visible="false"] .desktop-inspector-restore {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
     body.desktop-native-workbench .desktop-command-palette {
       display: grid;
       gap: 8px;
@@ -3939,7 +4094,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-task-action:focus-visible,
     body.desktop-native-workbench .desktop-session-upload-key:focus-visible,
     body.desktop-native-workbench .desktop-workspace-file-row:focus-visible,
-    body.desktop-native-workbench .desktop-workspace-editor:focus-visible {
+    body.desktop-native-workbench .desktop-workspace-editor:focus-visible,
+    body.desktop-native-workbench .desktop-inspector-restore:focus-visible,
+    body.desktop-native-workbench .desktop-run-chain-icon-button:focus-visible,
+    body.desktop-native-workbench .desktop-run-chain-summary-item:focus-visible,
+    body.desktop-native-workbench .desktop-run-chain-tab:focus-visible,
+    body.desktop-native-workbench .desktop-run-chain-panel-action:focus-visible,
+    body.desktop-native-workbench .desktop-run-chain-feed-item:focus-visible {
       outline: 2px solid var(--primary, #cc785c);
       outline-offset: 2px;
     }
@@ -5266,27 +5427,26 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-run-chain-overview {
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
-      gap: 16px;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+      gap: 10px;
       min-width: 0;
       min-height: 0;
     }
 
-    body.desktop-native-workbench .desktop-run-chain-header,
-    body.desktop-native-workbench .desktop-run-chain-card-header {
+    body.desktop-native-workbench .desktop-run-chain-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 10px;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-run-chain-header h2,
-    body.desktop-native-workbench .desktop-run-chain-card h3 {
+    body.desktop-native-workbench .desktop-run-chain-panel-section h3 {
       margin: 0;
       color: #1f1d1a;
       font-family: var(--font-sans);
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 650;
       line-height: 1.2;
       letter-spacing: 0;
@@ -5299,85 +5459,128 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-run-chain-icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       min-height: 28px;
-      border: 0;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 0 8px;
       background: transparent;
       color: #55504b;
       font: 600 11px/1 var(--font-sans);
       cursor: pointer;
     }
 
-    body.desktop-native-workbench .desktop-run-chain-tabs {
-      display: flex;
-      gap: 26px;
+    body.desktop-native-workbench .desktop-run-chain-icon-button[aria-pressed="true"] {
+      border-color: rgba(217, 104, 76, 0.35);
+      background: rgba(217, 104, 76, 0.1);
+      color: var(--primary);
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-summary-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
       min-width: 0;
-      border-bottom: 1px solid #e1d9d3;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-summary-item {
+      display: grid;
+      min-width: 0;
+      min-height: 34px;
+      border: 1px solid #e6dfd8;
+      border-radius: 6px;
+      padding: 5px 7px;
+      overflow: hidden;
+      background: #fffdf9;
+      color: #3f3a35;
+      font: 700 11px/1.25 var(--font-sans);
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px;
+      min-width: 0;
+      border: 1px solid #e3dbd4;
+      border-radius: 7px;
+      padding: 3px;
+      background: #f2eee8;
     }
 
     body.desktop-native-workbench .desktop-run-chain-tab {
-      min-height: 38px;
+      min-width: 0;
+      min-height: 30px;
       border: 0;
-      border-bottom: 2px solid transparent;
-      padding: 0 0 10px;
+      border-radius: 5px;
+      padding: 0 8px;
       background: transparent;
       color: #262522;
-      font: 500 14px/1.2 var(--font-sans);
+      font: 700 12px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-run-chain-tab[aria-selected="true"] {
-      border-bottom-color: var(--primary);
+      background: #ffffff;
       color: #1f1d1a;
+      box-shadow: 0 1px 2px rgba(20, 20, 19, 0.06);
     }
 
-    body.desktop-native-workbench .desktop-run-chain-cards {
+    body.desktop-native-workbench .desktop-run-chain-panel {
       display: grid;
       align-content: start;
-      gap: 16px;
+      gap: 8px;
       min-width: 0;
       overflow: auto;
     }
 
-    body.desktop-native-workbench .desktop-run-chain-card {
+    body.desktop-native-workbench .desktop-run-chain-panel-section {
       display: grid;
-      gap: 14px;
+      gap: 7px;
       min-width: 0;
-      border: 1px solid #e4dcd5;
-      border-radius: 8px;
-      padding: 18px;
-      background: #ffffff;
-      box-shadow: 0 1px 1px rgba(20, 20, 19, 0.03);
-    }
-
-    body.desktop-native-workbench .desktop-run-chain-card h3 {
-      font-size: 15px;
-    }
-
-    body.desktop-native-workbench .desktop-run-chain-card-badge {
-      border: 1px solid #cfe8d1;
-      border-radius: 999px;
-      padding: 4px 10px;
-      background: #f3fbf3;
-      color: #307a3e;
-      font: 600 11px/1 var(--font-sans);
+      border-top: 1px solid #e7dfd8;
+      padding: 10px 0 2px;
     }
 
     body.desktop-native-workbench .desktop-run-chain-card-row {
       margin: 0;
       color: #4e4943;
-      font: 13px/1.45 var(--font-sans);
+      font: 12px/1.4 var(--font-sans);
       overflow-wrap: anywhere;
     }
 
-    body.desktop-native-workbench .desktop-run-chain-card-action,
+    body.desktop-native-workbench .desktop-run-chain-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-panel-action,
+    body.desktop-native-workbench .desktop-run-chain-feed-item,
     body.desktop-native-workbench .desktop-run-chain-new-item {
-      min-height: 38px;
+      min-height: 32px;
       border: 1px solid #e2d9d2;
-      border-radius: 7px;
+      border-radius: 6px;
+      padding: 0 10px;
       background: #ffffff;
       color: #262522;
-      font: 600 13px/1.2 var(--font-sans);
+      font: 700 12px/1.2 var(--font-sans);
+      text-align: center;
+      text-decoration: none;
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-feed-item {
+      overflow: hidden;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     body.desktop-native-workbench .desktop-run-chain-new-item {
@@ -5829,9 +6032,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-observability-panel,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-action-input,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-item,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-card,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-card-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-summary-item,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-panel-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-feed-item,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-new-item,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-inspector-restore,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-gateway-action {
       background: var(--panel-strong);
       color: var(--text);
@@ -5845,6 +6050,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row[data-active="true"],
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-panel-control[aria-pressed="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-tab[aria-selected="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-icon-button[aria-pressed="true"],
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-item[aria-selected="true"],
     html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-observability-tab[aria-selected="true"] {
       background: var(--accent-soft);
