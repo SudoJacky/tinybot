@@ -5040,6 +5040,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-template-columns: 92px 0 minmax(0, 1fr) minmax(280px, 340px);
     }
 
+    body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"][data-inspector-visible="false"] {
+      grid-template-columns: 92px 0 minmax(0, 1fr) 0;
+    }
+
     body.desktop-native-workbench .desktop-activity-rail {
       justify-content: space-between;
       gap: 14px;

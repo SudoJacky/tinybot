@@ -2801,6 +2801,27 @@ describe("desktop workbench shell", () => {
     );
   });
 
+  test("keeps the activity rail at its native width when both side panels are collapsed", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: {
+        ...createDefaultWorkbenchLayout(),
+        sidebar: { visible: false, size: 260 },
+        inspector: { visible: false, size: 360 },
+      },
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-sidebar-visible")).toBe("false");
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
+    expect(styleText).toContain(
+      'body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"][data-inspector-visible="false"] {\n      grid-template-columns: 92px 0 minmax(0, 1fr) 0;',
+    );
+  });
+
   test("collapses secondary panes at the minimum desktop width", () => {
     const targetDocument = new FakeDocument();
 
