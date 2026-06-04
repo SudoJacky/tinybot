@@ -322,7 +322,11 @@ describe("desktop workbench shell", () => {
     const recentChat = targetDocument.body.querySelector('[data-desktop-entity-id="chat-live"]');
     expect(recentChat?.getAttribute("data-desktop-entity-module")).toBe("chat");
     expect(recentChat?.getAttribute("href")).toBe("/chat/chat-live");
+    const recentChatRow = targetDocument.body.querySelector(".desktop-sidebar-chat-row");
+    expect(recentChatRow?.getAttribute("role")).toBe("listitem");
+    expect(recentChatRow?.getAttribute("data-active")).toBe("true");
     const deleteButton = targetDocument.body.querySelector('[data-desktop-chat-delete="WebSocket:chat-live"]');
+    expect(recentChatRow?.querySelector('[data-desktop-chat-delete="WebSocket:chat-live"]')).toBe(deleteButton);
     expect(deleteButton?.getAttribute("aria-label")).toBe("Delete chat Live gateway session");
     expect(deleteButton?.textContent).toBe("x");
     deleteButton?.click();
