@@ -466,6 +466,108 @@ describe("desktop workbench shell", () => {
     expect(assistantBody?.innerHTML).toContain('rel="noreferrer"');
   });
 
+  test("renders native reasoning and tool activities as interactive middle conversation blocks", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{
+          key: "WebSocket:chat-live",
+          chatId: "chat-live",
+          title: "Tool chat",
+          createdAt: "",
+          updatedAt: "",
+        }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [
+          {
+            role: "assistant",
+            content: "The command finished.",
+            reasoningContent: "I should inspect the workspace first.",
+            toolActivities: [
+              {
+                id: "call-shell",
+                name: "shell",
+                argsText: "{\"command\":\"pwd\"}",
+                responseText: "D:/code/tinybot/tinybot",
+                kind: "result",
+              },
+            ],
+            timestamp: "2026-06-03T08:20:00.000Z",
+            messageId: "assistant-1",
+          },
+        ],
+        status: "Connected",
+      },
+    });
+
+    const message = targetDocument.body.querySelector(".desktop-conversation-message");
+    const reasoning = message?.querySelector(".desktop-message-reasoning");
+    const toolActivity = message?.querySelector(".desktop-tool-activity");
+    const body = message?.querySelector(".desktop-conversation-body");
+
+    expect(reasoning?.tagName).toBe("details");
+    expect(reasoning?.querySelector(".desktop-message-reasoning-title")?.textContent).toBe("Thinking");
+    expect(reasoning?.textContent).toContain("I should inspect the workspace first.");
+    expect(toolActivity?.tagName).toBe("details");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-title")?.textContent).toBe("shell");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-badge")?.textContent).toBe("Result");
+    expect(toolActivity?.textContent).toContain("Arguments");
+    expect(toolActivity?.textContent).toContain("{\"command\":\"pwd\"}");
+    expect(toolActivity?.textContent).toContain("Response");
+    expect(toolActivity?.textContent).toContain("D:/code/tinybot/tinybot");
+    expect(body?.textContent).not.toContain("I should inspect the workspace first.");
+    expect(body?.textContent).toContain("The command finished.");
+  });
+
+  test("renders standalone native tool results without duplicating response text as message body", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{
+          key: "WebSocket:chat-live",
+          chatId: "chat-live",
+          title: "Tool result chat",
+          createdAt: "",
+          updatedAt: "",
+        }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [
+          {
+            role: "tool",
+            content: "stdout: done",
+            reasoningContent: "",
+            toolActivities: [
+              {
+                id: "call-shell",
+                name: "shell",
+                argsText: "",
+                responseText: "stdout: done",
+                kind: "result",
+              },
+            ],
+            timestamp: "2026-06-03T08:20:00.000Z",
+            messageId: "tool-1",
+          },
+        ],
+        status: "Connected",
+      },
+    });
+
+    const message = targetDocument.body.querySelector(".desktop-conversation-message");
+    expect(message?.querySelector(".desktop-tool-activity")?.textContent).toContain("stdout: done");
+    expect(message?.querySelector(".desktop-conversation-body")?.textContent).not.toContain("stdout: done");
+  });
+
   test("routes native composer send and temporary file attach actions", () => {
     const targetDocument = new FakeDocument();
     const composerActions: string[] = [];

@@ -45,7 +45,11 @@ describe("native chat state", () => {
             role: "assistant",
             content: "hi",
             reasoning_content: "thinking",
-            tool_calls: [{ name: "read_file", path: "docs/desktop.md" }],
+            tool_calls: [{
+              id: "call-read",
+              function: { name: "read_file", arguments: "{\"path\":\"docs/desktop.md\"}" },
+            }],
+            tool_results: [{ tool_call_id: "call-read", content: "file contents" }],
             browser_references: [{ title: "Browser snapshot", url: "https://example.com" }],
             memory_references: [{ id: "mem-1", summary: "Remembered setting" }],
             timestamp: "2026-05-29T08:00:01Z",
@@ -65,8 +69,18 @@ describe("native chat state", () => {
         role: "assistant",
         content: "hi",
         reasoningContent: "thinking",
+        toolActivities: [
+          {
+            id: "call-read",
+            name: "read_file",
+            argsText: "{\"path\":\"docs/desktop.md\"}",
+            responseText: "file contents",
+            kind: "result",
+          },
+        ],
         references: [
-          { kind: "tool", title: "read_file", detail: "docs/desktop.md" },
+          { kind: "tool", title: "read_file", detail: "{\"path\":\"docs/desktop.md\"}" },
+          { kind: "tool", title: "call-read", detail: "file contents" },
           { kind: "browser", title: "Browser snapshot", detail: "https://example.com" },
           { kind: "memory", title: "mem-1", detail: "Remembered setting" },
         ],
@@ -142,5 +156,39 @@ describe("native chat state", () => {
 
     expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
     expect(state.error).toBe("chat is not attached");
+  });
+
+  test("normalizes standalone tool result messages into native tool activities", () => {
+    expect(
+      normalizeMessagesPayload({
+        messages: [
+          {
+            role: "tool",
+            name: "shell",
+            tool_call_id: "call-shell",
+            content: "stdout: done",
+            timestamp: "2026-05-29T08:00:02Z",
+            message_id: "tool-1",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        role: "tool",
+        content: "stdout: done",
+        reasoningContent: "",
+        toolActivities: [
+          {
+            id: "call-shell",
+            name: "shell",
+            argsText: "",
+            responseText: "stdout: done",
+            kind: "result",
+          },
+        ],
+        timestamp: "2026-05-29T08:00:02Z",
+        messageId: "tool-1",
+      },
+    ]);
   });
 });
