@@ -580,7 +580,7 @@ function createSidebarActions(targetDocument: Document): HTMLElement {
 
 function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
   const section = targetDocument.createElement("section");
-  section.className = "desktop-sidebar-list-section";
+  section.className = "desktop-sidebar-list-section desktop-sidebar-list-section-workspaces";
   section.append(createSidebarSectionHeading(targetDocument, "Workspaces", "+"));
 
   const list = targetDocument.createElement("div");
@@ -610,7 +610,7 @@ function createSidebarRecentChats(
   chatActions: DesktopNativeChatActionOptions = {},
 ): HTMLElement {
   const section = targetDocument.createElement("section");
-  section.className = "desktop-sidebar-list-section";
+  section.className = "desktop-sidebar-list-section desktop-sidebar-list-section-recent";
   section.append(createSidebarSectionHeading(targetDocument, "Recent chats"));
 
   const list = targetDocument.createElement("div");
@@ -4365,8 +4365,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-sidebar-content {
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
-      gap: 14px;
+      grid-template-rows: auto auto auto;
+      align-content: start;
+      gap: 10px;
       height: 100%;
       min-height: 0;
       padding: 18px 14px;
@@ -4425,6 +4426,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       overflow: hidden;
     }
 
+    body.desktop-native-workbench .desktop-sidebar-list-section-recent {
+      margin-top: 6px;
+    }
+
     body.desktop-native-workbench .desktop-sidebar-section-heading {
       display: flex;
       align-items: center;
@@ -4459,6 +4464,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       gap: 6px;
       min-width: 0;
       overflow: auto;
+    }
+
+    body.desktop-native-workbench .desktop-recent-chat-list {
+      max-height: min(42vh, 360px);
     }
 
     body.desktop-native-workbench .desktop-sidebar-row {
