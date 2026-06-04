@@ -474,10 +474,12 @@ function renderWorkspaceState(
   const recent = targetDocument.querySelector<HTMLElement>("#desktop-workspace-recent-files");
   if (recent) {
     const query = state.searchQuery.trim().toLowerCase();
-    const rows = state.recentPaths.length
+    const recentRows = state.recentPaths.length
       ? state.recentPaths
       : state.files.map((file) => file.path).slice(0, 6);
-    const visibleRows = rows.filter((path) => !query || path.toLowerCase().includes(query));
+    const visibleRows = query
+      ? state.files.map((file) => file.path).filter((path) => path.toLowerCase().includes(query))
+      : recentRows;
     recent.replaceChildren(
       ...visibleRows.map((path) => {
         const button = targetDocument.createElement("button");
