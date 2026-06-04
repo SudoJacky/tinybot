@@ -968,6 +968,16 @@ describe("desktop workbench shell", () => {
     expect(panel?.textContent).toContain("Current Run");
     expect(panel?.textContent).toContain("New Run Chain Item");
 
+    overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.click();
+    expect(overview?.querySelector('[data-desktop-run-chain-tab="context"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.getAttribute("aria-selected")).toBe("false");
+    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("context");
+
+    overview?.querySelector('[data-desktop-run-chain-summary="items"]')?.click();
+    expect(overview?.querySelector('[data-desktop-run-chain-tab="context"]')?.getAttribute("aria-selected")).toBe("false");
+    expect(overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("tasks");
+
     const pin = overview?.querySelector('[data-desktop-run-chain-control="pin"]');
     expect(pin?.getAttribute("aria-pressed")).toBe("false");
     pin?.click();

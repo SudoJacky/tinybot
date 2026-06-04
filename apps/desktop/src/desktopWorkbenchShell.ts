@@ -2680,7 +2680,7 @@ function createRunChainOverviewPanel(
 function createRunChainSummaryStrip(
   targetDocument: Document,
   runChainItems: DesktopRunChainItem[],
-  renderPanel: (tabId: RunChainOverviewTab) => void,
+  selectTab: (tabId: RunChainOverviewTab) => void,
 ): HTMLElement {
   const summary = targetDocument.createElement("div");
   summary.className = "desktop-run-chain-summary-strip";
@@ -2696,7 +2696,7 @@ function createRunChainSummaryStrip(
     button.setAttribute("data-desktop-run-chain-summary", item.label.toLowerCase());
     button.textContent = `${item.label} ${item.value}`;
     button.addEventListener("click", () => {
-      renderPanel(item.tab);
+      selectTab(item.tab);
       setRouteStatus(targetDocument, `Run Chain ${item.label}`);
     });
     summary.append(button);
