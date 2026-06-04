@@ -709,6 +709,10 @@ describe("desktop workbench shell", () => {
     expect(sidebarSearch?.getAttribute("placeholder")).toBe("Search");
     expect(workspaceList?.textContent).toContain("tinybot");
     expect(recentChats?.textContent).toContain("Design native workbench");
+    const sidebarStyle = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(sidebarStyle).toContain("grid-template-rows: auto auto auto");
+    expect(sidebarStyle).toContain(".desktop-sidebar-list-section-recent");
+    expect(sidebarStyle).toContain("max-height: min(42vh, 360px)");
 
     const chatHeader = targetDocument.body.querySelector(".desktop-chat-header");
     const conversationThread = targetDocument.body.querySelector(".desktop-conversation-thread");
