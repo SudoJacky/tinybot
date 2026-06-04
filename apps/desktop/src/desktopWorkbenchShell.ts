@@ -4309,7 +4309,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workspace-list,
     body.desktop-native-workbench .desktop-recent-chat-list {
       display: grid;
-      gap: 2px;
+      align-content: start;
+      grid-auto-rows: min-content;
+      gap: 6px;
       min-width: 0;
       overflow: auto;
     }
@@ -4332,21 +4334,30 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
       min-width: 0;
+      min-height: 36px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 0 5px 0 0;
+      transition: background-color 120ms ease, border-color 120ms ease;
     }
 
     body.desktop-native-workbench .desktop-sidebar-chat-row .desktop-sidebar-row {
       min-width: 0;
+      min-height: 34px;
+      border: 0;
+      padding: 0 4px 0 10px;
+      background: transparent;
     }
 
     body.desktop-native-workbench .desktop-sidebar-delete-session {
-      width: 30px;
-      min-height: 30px;
+      width: 24px;
+      min-height: 24px;
       border: 1px solid transparent;
-      border-radius: 6px;
+      border-radius: 5px;
       background: transparent;
-      color: #8d4a3a;
+      color: #8b5b4e;
       font: 600 11px/1 var(--font-sans);
       cursor: pointer;
     }
@@ -4355,16 +4366,26 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 64px;
     }
 
-    body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
-    body.desktop-native-workbench .desktop-sidebar-delete-session:focus-visible {
-      border-color: #f0d8cf;
-      background: #fff4ef;
-      color: #b4533c;
+    body.desktop-native-workbench .desktop-sidebar-chat-row:hover {
+      border-color: #eee4dd;
+      background: #fffdfb;
     }
 
+    body.desktop-native-workbench .desktop-sidebar-delete-session:hover,
+    body.desktop-native-workbench .desktop-sidebar-delete-session:focus-visible {
+      border-color: #eaded8;
+      background: #f8eee9;
+      color: #8d4a3a;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row[data-active="true"],
     body.desktop-native-workbench .desktop-sidebar-row[data-active="true"] {
       border-color: #f0d8cf;
       background: #f8e7e1;
+      color: #b4533c;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-chat-row[data-active="true"] .desktop-sidebar-row {
       color: #b4533c;
     }
 
