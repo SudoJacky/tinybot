@@ -9,8 +9,8 @@ import {
   type DesktopGatewayRuntimeActionId,
 } from "./desktopGatewayRuntimeControls";
 import {
+  DESKTOP_SHORTCUT_HELP_ITEMS,
   buildDesktopPageHelpText,
-  buildDesktopShortcutHelpText,
   resolveDesktopVisibleHelpTargets,
 } from "./desktopHelp";
 import {
@@ -710,13 +710,17 @@ function createRecentChatRow(
   link.setAttribute("data-desktop-entity-id", routeId);
 
   const title = session.title || "New session";
+  const titleWrap = targetDocument.createElement("span");
+  titleWrap.className = "desktop-sidebar-row-title";
   const label = targetDocument.createElement("span");
   label.className = "desktop-sidebar-row-label";
   label.textContent = title;
+  titleWrap.append(label);
+  setSessionRowPinIcon(targetDocument, titleWrap, pinned);
   const time = targetDocument.createElement("span");
   time.className = "desktop-sidebar-row-meta";
   time.textContent = session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId;
-  link.append(label, time);
+  link.append(titleWrap, time);
 
   const deleteButton = targetDocument.createElement("button");
   deleteButton.type = "button";
@@ -999,18 +1003,7 @@ function createChatMenuPopover(
       if (!session) {
         return;
       }
-      const renamedTitle = promptForSessionTitle(targetDocument, session.title || "New session");
-      if (!renamedTitle) {
-        return;
-      }
-      session.title = renamedTitle;
-      titleElement.textContent = renamedTitle;
-      updateSessionRowTitle(targetDocument, session.key, renamedTitle);
-      chatActions.onRenameSession?.({
-        sessionKey: session.key,
-        chatId: session.chatId,
-        title: renamedTitle,
-      });
+      startInlineSessionRename(targetDocument, session, titleElement, chatActions);
     },
     !session,
   );
@@ -1023,17 +1016,6 @@ function createChatMenuPopover(
   }
 
   return popover;
-}
-
-function promptForSessionTitle(targetDocument: Document, currentTitle: string): string | null {
-  const prompt = (targetDocument as Document & {
-    defaultView?: { prompt?: (message?: string, defaultValue?: string) => string | null };
-  }).defaultView?.prompt;
-  const nextTitle = prompt?.("Rename session", currentTitle)?.trim();
-  if (!nextTitle || nextTitle === currentTitle) {
-    return null;
-  }
-  return nextTitle;
 }
 
 function pinnedSessionKeysForDocument(targetDocument: Document): Set<string> {
@@ -1063,6 +1045,7 @@ function toggleActiveSessionPinned(targetDocument: Document, session: NativeChat
   const pinned = !isSessionPinned(targetDocument, session.key);
   setSessionPinned(targetDocument, session.key, pinned);
   row?.setAttribute("data-pinned", String(pinned));
+  syncSessionRowPinIcon(targetDocument, session.key, pinned);
   if (pinned) {
     const list = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
     if (list && row) {
@@ -1073,12 +1056,108 @@ function toggleActiveSessionPinned(targetDocument: Document, session: NativeChat
   return pinned;
 }
 
+function startInlineSessionRename(
+  targetDocument: Document,
+  session: NativeChatSession,
+  titleElement: HTMLElement,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const existingEditor = titleElement.querySelector<HTMLInputElement>(".desktop-chat-title-editor");
+  if (existingEditor) {
+    focusSessionTitleEditor(existingEditor);
+    return;
+  }
+
+  const currentTitle = session.title || "New session";
+  const editor = targetDocument.createElement("input");
+  editor.type = "text";
+  editor.className = "desktop-chat-title-editor";
+  editor.setAttribute("aria-label", "Rename session");
+  editor.value = currentTitle;
+
+  let closed = false;
+  const closeEditor = (nextTitle = currentTitle) => {
+    closed = true;
+    titleElement.replaceChildren();
+    titleElement.textContent = nextTitle;
+  };
+  const commit = () => {
+    if (closed) {
+      return;
+    }
+    const renamedTitle = editor.value.trim();
+    if (!renamedTitle || renamedTitle === currentTitle) {
+      closeEditor();
+      return;
+    }
+    session.title = renamedTitle;
+    updateSessionRowTitle(targetDocument, session.key, renamedTitle);
+    closeEditor(renamedTitle);
+    chatActions.onRenameSession?.({
+      sessionKey: session.key,
+      chatId: session.chatId,
+      title: renamedTitle,
+    });
+  };
+  const cancel = () => {
+    if (!closed) {
+      closeEditor();
+    }
+  };
+
+  editor.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commit();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancel();
+    }
+  });
+  editor.addEventListener("blur", commit);
+
+  titleElement.textContent = "";
+  titleElement.replaceChildren(editor);
+  focusSessionTitleEditor(editor);
+}
+
+function focusSessionTitleEditor(editor: HTMLInputElement): void {
+  editor.focus?.({ preventScroll: true });
+  editor.setSelectionRange?.(0, editor.value.length);
+}
+
 function updateSessionRowTitle(targetDocument: Document, sessionKey: string, title: string): void {
   const row = findSessionRow(targetDocument, sessionKey);
   const label = row?.querySelector<HTMLElement>(".desktop-sidebar-row-label");
   if (label) {
     label.textContent = title;
   }
+}
+
+function syncSessionRowPinIcon(targetDocument: Document, sessionKey: string, pinned: boolean): void {
+  const row = findSessionRow(targetDocument, sessionKey);
+  const titleWrap = row?.querySelector<HTMLElement>(".desktop-sidebar-row-title");
+  if (titleWrap) {
+    setSessionRowPinIcon(targetDocument, titleWrap, pinned);
+  }
+}
+
+function setSessionRowPinIcon(targetDocument: Document, titleWrap: HTMLElement, pinned: boolean): void {
+  const label = titleWrap.querySelector<HTMLElement>(".desktop-sidebar-row-label");
+  if (!label) {
+    return;
+  }
+  if (!pinned) {
+    titleWrap.replaceChildren(label);
+    return;
+  }
+  const icon = targetDocument.createElement("span");
+  icon.className = "desktop-sidebar-pin-icon";
+  icon.setAttribute("data-desktop-session-pin-icon", "");
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = "📌";
+  titleWrap.replaceChildren(icon, label);
 }
 
 function findSessionRow(targetDocument: Document, sessionKey: string): HTMLElement | null {
@@ -1127,18 +1206,21 @@ function createHeaderPanelControl(
   button.setAttribute("data-desktop-panel-label-pressed", pressedLabel);
   button.setAttribute("data-desktop-panel-label-unpressed", unpressedLabel);
   button.setAttribute("aria-label", visible ? pressedLabel : unpressedLabel);
+  button.setAttribute("title", visible ? pressedLabel : unpressedLabel);
   button.setAttribute("aria-pressed", String(visible));
-  const displayLabel = panel === "sidebar" ? "Sessions" : panel === "inspector" ? "Run Chain" : label;
-  const displayIcon = panel === "sidebar" ? "||" : panel === "inspector" ? "[]" : "";
-  if (displayIcon) {
-    const icon = createText(targetDocument, "span", displayIcon);
+  const iconDirection = panel === "sidebar" ? "collapse-left" : panel === "inspector" ? "collapse-right" : "";
+  if (iconDirection) {
+    const icon = targetDocument.createElement("span");
     icon.className = "desktop-chat-header-panel-icon";
+    icon.setAttribute("data-panel-icon", iconDirection);
     icon.setAttribute("aria-hidden", "true");
-    const text = createText(targetDocument, "span", displayLabel);
-    text.className = "desktop-chat-header-panel-label";
-    button.append(icon, text);
+    icon.append(
+      createPanelIconPart(targetDocument, "frame"),
+      createPanelIconPart(targetDocument, "rail"),
+    );
+    button.append(icon);
   } else {
-    button.textContent = displayLabel;
+    button.textContent = label;
   }
   button.addEventListener("click", () => {
     toggleDesktopPanel(targetDocument, panel);
@@ -1151,6 +1233,12 @@ function createHeaderPanelControl(
     toggleDesktopPanel(targetDocument, panel);
   });
   return button;
+}
+
+function createPanelIconPart(targetDocument: Document, part: "frame" | "rail"): HTMLElement {
+  const node = targetDocument.createElement("span");
+  node.className = `desktop-chat-header-panel-icon-${part}`;
+  return node;
 }
 
 function createConversationThread(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
@@ -2579,7 +2667,14 @@ function createSettingsProvidersPane(
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-settings-pane";
   section.setAttribute("data-desktop-module-surface", "settings");
+  section.setAttribute("data-settings-layout", "codex-like");
   section.setAttribute("aria-label", "Settings and providers");
+
+  section.append(createSettingsSidebar(targetDocument, pane));
+
+  const content = targetDocument.createElement("div");
+  content.className = "desktop-settings-content";
+
   const header = targetDocument.createElement("header");
   header.className = "desktop-settings-header";
   const title = targetDocument.createElement("div");
@@ -2612,19 +2707,9 @@ function createSettingsProvidersPane(
   });
   actions.append(save, discover);
   header.append(title, actions);
-  section.append(header);
+  content.append(header);
 
-  const summary = targetDocument.createElement("div");
-  summary.className = "desktop-settings-summary";
-  summary.append(
-    createText(targetDocument, "p", `Save: ${pane.save.message}`),
-    createText(targetDocument, "p", pane.validationErrors.length ? `Validation: ${pane.validationErrors.map((error) => error.field).join(", ")}` : "Validation: ready"),
-    createText(targetDocument, "p", `Provider profile: ${pane.providerEditor.profileId || "default"}`),
-    createText(targetDocument, "p", `API key: ${pane.providerEditor.apiKey.displayValue || "Not configured"}`),
-    createText(targetDocument, "p", `Catalog: ${pane.providerCatalog.map((provider) => `${provider.label} (${provider.status})`).join(", ") || "No providers loaded"}`),
-    createText(targetDocument, "p", `Models: ${pane.providerEditor.models.join(", ") || "No models loaded"}`),
-  );
-  section.append(summary);
+  content.append(createSettingsStatusCard(targetDocument, pane));
 
   const grid = targetDocument.createElement("div");
   grid.className = "desktop-settings-grid";
@@ -2632,25 +2717,167 @@ function createSettingsProvidersPane(
   for (const group of pane.groups) {
     const groupSection = targetDocument.createElement("section");
     groupSection.className = "desktop-settings-group";
+    groupSection.setAttribute("id", `desktop-settings-group-${group.id}`);
     groupSection.setAttribute("data-desktop-settings-group", group.id);
     groupSection.append(createText(targetDocument, "h2", group.label));
+    const description = getSettingsGroupDescription(group.id);
+    if (description) {
+      const copy = createText(targetDocument, "p", description);
+      copy.className = "desktop-settings-group-description";
+      groupSection.append(copy);
+    }
     for (const field of group.fields) {
-      const row = targetDocument.createElement("p");
+      const row = targetDocument.createElement("div");
       row.className = "desktop-settings-field";
       row.setAttribute("data-desktop-settings-field", field.id);
       row.setAttribute("data-state", field.state);
+      const copy = targetDocument.createElement("div");
+      copy.className = "desktop-settings-field-copy";
       const label = targetDocument.createElement("label");
       label.textContent = `${field.label}: `;
       label.setAttribute("for", `desktop-settings-${field.id}`);
+      const help = createText(targetDocument, "span", getSettingsFieldDescription(group.id, field.id, field.value));
+      help.className = "desktop-settings-field-description";
       const control = createDesktopSettingsControl(targetDocument, pane, field, settingsActions);
-      row.append(label, control);
+      copy.append(label, help);
+      row.append(copy, control);
       groupSection.append(row);
     }
     grid.append(groupSection);
   }
 
-  section.append(grid);
+  content.append(grid);
+  section.append(content);
   return section;
+}
+
+function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
+  const sidebar = targetDocument.createElement("aside");
+  sidebar.className = "desktop-settings-sidebar";
+  sidebar.setAttribute("aria-label", "Settings navigation");
+
+  const search = targetDocument.createElement("input");
+  search.className = "desktop-settings-search";
+  search.setAttribute("type", "search");
+  search.setAttribute("placeholder", "Search settings...");
+  search.setAttribute("aria-label", "Search settings");
+  sidebar.append(search);
+
+  const nav = targetDocument.createElement("nav");
+  nav.className = "desktop-settings-nav";
+  nav.setAttribute("aria-label", "Settings sections");
+
+  const personal = createText(targetDocument, "p", "Personal");
+  personal.className = "desktop-settings-nav-heading";
+  nav.append(personal);
+
+  pane.groups.forEach((group, index) => {
+    if (index === 3) {
+      const system = createText(targetDocument, "p", "System");
+      system.className = "desktop-settings-nav-heading";
+      nav.append(system);
+    }
+    const item = targetDocument.createElement("a");
+    item.className = "desktop-settings-nav-item";
+    item.setAttribute("href", `#desktop-settings-group-${group.id}`);
+    item.setAttribute("data-desktop-settings-nav", group.id);
+    if (index === 0) {
+      item.setAttribute("data-active", "true");
+      item.setAttribute("aria-current", "page");
+    }
+    item.textContent = getSettingsNavLabel(group.id);
+    nav.append(item);
+  });
+
+  sidebar.append(nav);
+  return sidebar;
+}
+
+function createSettingsStatusCard(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
+  const card = targetDocument.createElement("section");
+  card.className = "desktop-settings-status-card";
+  card.setAttribute("aria-label", "Settings status");
+
+  const details = targetDocument.createElement("div");
+  details.className = "desktop-settings-summary";
+  details.append(
+    createSettingsStatusItem(targetDocument, "Save", pane.save.message),
+    createSettingsStatusItem(
+      targetDocument,
+      "Validation",
+      pane.validationErrors.length ? pane.validationErrors.map((error) => error.field).join(", ") : "ready",
+    ),
+    createSettingsStatusItem(targetDocument, "Provider profile", pane.providerEditor.profileId || "default"),
+    createSettingsStatusItem(targetDocument, "API key", pane.providerEditor.apiKey.displayValue || "Not configured"),
+    createSettingsStatusItem(
+      targetDocument,
+      "Catalog",
+      pane.providerCatalog.map((provider) => `${provider.label} (${provider.status})`).join(", ") || "No providers loaded",
+    ),
+    createSettingsStatusItem(targetDocument, "Models", pane.providerEditor.models.join(", ") || "No models loaded"),
+  );
+  card.append(details);
+  return card;
+}
+
+function createSettingsStatusItem(targetDocument: Document, label: string, value: string): HTMLElement {
+  const row = targetDocument.createElement("p");
+  row.className = "desktop-settings-status-item";
+  row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
+  return row;
+}
+
+function getSettingsNavLabel(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
+  return {
+    agent: "General",
+    provider: "Provider",
+    knowledge: "Knowledge",
+    tools: "Tools",
+    gateway: "Gateway",
+    channels: "Channels",
+  }[groupId];
+}
+
+function getSettingsGroupDescription(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
+  return {
+    agent: "Default model, profile, and timezone used by the desktop workbench.",
+    provider: "Provider profile, endpoint, and model catalog for chat and agent runs.",
+    knowledge: "Retrieval behavior for workspace knowledge and RAG context.",
+    tools: "Browser, command execution, and MCP server access.",
+    gateway: "Local gateway connection and heartbeat configuration.",
+    channels: "Streaming and retry behavior for desktop channels.",
+  }[groupId];
+}
+
+function getSettingsFieldDescription(
+  groupId: DesktopSettingsPaneModel["groups"][number]["id"],
+  fieldId: string,
+  value: string,
+): string {
+  const descriptions: Record<string, string> = {
+    "agent.model": "Model used for default chat and agent responses.",
+    "agent.provider": "Provider routing for the selected model.",
+    "agent.activeProfile": "Named provider profile with credentials and endpoint settings.",
+    "agent.timezone": "Timezone used for timestamps, reminders, and scheduled work.",
+    "provider.selectedProvider": "Provider catalog entry edited by this profile.",
+    "provider.profileId": "Stable profile name saved in desktop configuration.",
+    "provider.apiBase": "OpenAI-compatible endpoint for this provider.",
+    "provider.models": "One model id per line; refresh can discover supported models.",
+    "knowledge.enabled": "Enable retrieval from indexed workspace knowledge.",
+    "knowledge.retrievalMode": "Retrieval strategy used when knowledge context is requested.",
+    "knowledge.maxChunks": "Maximum number of chunks injected into context.",
+    "knowledge.rerankApiBase": "Endpoint used when reranking is enabled.",
+    "tools.webEnable": "Allow browser and web search tools.",
+    "tools.execEnable": "Allow local command execution from agent workflows.",
+    "tools.mcpServers": "JSON object of MCP server definitions.",
+    "gateway.host": "Host interface where the desktop gateway listens.",
+    "gateway.port": "Port used by the local gateway endpoint.",
+    "gateway.heartbeat": "Keep the desktop gateway connection fresh.",
+    "channels.sendProgress": "Stream progress events into the desktop session.",
+    "channels.sendToolHints": "Show tool status hints during agent work.",
+    "channels.sendMaxRetries": "Retry count for channel delivery failures.",
+  };
+  return descriptions[`${groupId}.${fieldId}`] ?? `Current value: ${value || "Not configured"}.`;
 }
 
 function createDesktopSettingsControl(
@@ -2788,6 +3015,7 @@ function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControl
     const label = control.getAttribute(nextVisible ? "data-desktop-panel-label-pressed" : "data-desktop-panel-label-unpressed");
     if (label) {
       control.setAttribute("aria-label", label);
+      control.setAttribute("title", label);
     }
   }
 
@@ -3850,17 +4078,114 @@ function installDesktopHelpEventRouting(targetDocument: Document): void {
 }
 
 function renderDesktopShortcutHelp(targetDocument: Document): void {
-  const inspector = targetDocument.querySelector<HTMLElement>('[data-workbench-region="inspector"]');
-  if (!inspector) {
+  const existing = targetDocument.getElementById("desktop-shortcut-help-dialog") as HTMLElement | null;
+  if (existing) {
+    existing.hidden = false;
+    setRouteStatus(targetDocument, "Opened shortcut help");
     return;
   }
-  inspector.replaceChildren(renderInspectorView(targetDocument, {
-    title: "Shortcut Help",
-    subtitle: "Current desktop command bindings",
-    emptyText: "",
-    sections: buildDesktopShortcutHelpText().map((row) => ({ type: "text" as const, label: "Shortcut", text: row })),
-  }));
+
+  const dialog = targetDocument.createElement("section");
+  dialog.id = "desktop-shortcut-help-dialog";
+  dialog.setAttribute("id", "desktop-shortcut-help-dialog");
+  dialog.className = "desktop-shortcut-help-dialog";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-label", "Keyboard shortcuts");
+
+  const panel = targetDocument.createElement("div");
+  panel.className = "desktop-shortcut-help-panel";
+
+  const header = targetDocument.createElement("header");
+  header.className = "desktop-shortcut-help-header";
+  header.append(createText(targetDocument, "h2", "Keyboard shortcuts"));
+
+  const close = targetDocument.createElement("button");
+  close.type = "button";
+  close.className = "desktop-shortcut-help-close";
+  close.setAttribute("aria-label", "Close keyboard shortcuts");
+  close.textContent = "x";
+  close.addEventListener("click", () => {
+    dialog.hidden = true;
+  });
+  header.append(close);
+
+  const search = targetDocument.createElement("input");
+  search.type = "search";
+  search.className = "desktop-shortcut-help-search";
+  search.setAttribute("aria-label", "Search shortcuts");
+  search.setAttribute("placeholder", "Search shortcuts");
+
+  const list = targetDocument.createElement("div");
+  list.className = "desktop-shortcut-help-list";
+  list.setAttribute("role", "list");
+  renderShortcutHelpRows(targetDocument, list, "");
+
+  search.addEventListener("input", () => {
+    renderShortcutHelpRows(targetDocument, list, search.value);
+  });
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      dialog.hidden = true;
+    }
+  });
+
+  panel.append(header, search, list);
+  dialog.append(panel);
+  targetDocument.body.append(dialog);
   setRouteStatus(targetDocument, "Opened shortcut help");
+}
+
+function renderShortcutHelpRows(targetDocument: Document, list: HTMLElement, query: string): void {
+  const normalizedQuery = query.trim().toLowerCase();
+  list.replaceChildren();
+  for (const [group, items] of groupShortcutHelpItems()) {
+    const visibleItems = items.filter((item) => {
+      if (!normalizedQuery) {
+        return true;
+      }
+      return `${item.command} ${item.key} ${item.description}`.toLowerCase().includes(normalizedQuery);
+    });
+    if (!visibleItems.length) {
+      continue;
+    }
+
+    const section = targetDocument.createElement("section");
+    section.className = "desktop-shortcut-help-group";
+    section.append(createText(targetDocument, "h3", group));
+    for (const item of visibleItems) {
+      const row = targetDocument.createElement("div");
+      row.className = "desktop-shortcut-help-row";
+      row.setAttribute("role", "listitem");
+
+      const label = targetDocument.createElement("span");
+      label.className = "desktop-shortcut-help-command";
+      label.textContent = item.command;
+
+      const key = targetDocument.createElement("kbd");
+      key.className = "desktop-shortcut-help-key";
+      key.textContent = item.key;
+
+      row.append(label, key);
+      section.append(row);
+    }
+    list.append(section);
+  }
+}
+
+function groupShortcutHelpItems(): Array<[string, typeof DESKTOP_SHORTCUT_HELP_ITEMS]> {
+  return [
+    ["Chat", DESKTOP_SHORTCUT_HELP_ITEMS.filter((item) => ["New chat", "Stop generation", "Search sessions"].includes(item.command))],
+    [
+      "Navigation",
+      DESKTOP_SHORTCUT_HELP_ITEMS.filter((item) => ["Settings", "Documentation", "Command palette", "Gateway status"].includes(item.command)),
+    ],
+    [
+      "Workbench",
+      DESKTOP_SHORTCUT_HELP_ITEMS.filter((item) => ["Toggle sidebar", "Shortcut help", "Page help"].includes(item.command)),
+    ],
+  ];
 }
 
 function renderDesktopPageHelp(targetDocument: Document, title: string): void {
@@ -4698,6 +5023,125 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       cursor: pointer;
     }
 
+    body.desktop-native-workbench .desktop-shortcut-help-dialog {
+      position: fixed;
+      inset: 0;
+      z-index: 1500;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(20, 18, 16, 0.18);
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-dialog[hidden] {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-panel {
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 18px;
+      width: min(860px, calc(100vw - 32px));
+      max-height: min(820px, calc(100vh - 32px));
+      border: 1px solid rgba(230, 223, 216, 0.74);
+      border-radius: 18px;
+      padding: 28px 30px 26px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 24px 70px rgba(34, 28, 22, 0.18);
+      backdrop-filter: blur(14px);
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-header h2 {
+      margin: 0;
+      color: var(--text, #141413);
+      font: 750 24px/1.15 var(--font-sans, system-ui, sans-serif);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-close {
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text-muted, #6f685f);
+      font: 500 20px/1 var(--font-sans, system-ui, sans-serif);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-close:hover,
+    body.desktop-native-workbench .desktop-shortcut-help-close:focus-visible {
+      background: #f2ede7;
+      outline: 0;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-search {
+      width: 100%;
+      min-height: 52px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 10px;
+      padding: 0 16px;
+      background: rgba(255, 255, 255, 0.9);
+      color: var(--text, #141413);
+      font: 500 15px/1.2 var(--font-sans, system-ui, sans-serif);
+      outline: 0;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-search:focus {
+      border-color: var(--primary, #cc785c);
+      box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.16);
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-list {
+      min-height: 0;
+      overflow: auto;
+      padding-right: 6px;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-group {
+      display: grid;
+      gap: 10px;
+      margin: 0 0 24px;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-group h3 {
+      margin: 0 0 8px;
+      color: var(--text, #141413);
+      font: 750 16px/1.2 var(--font-sans, system-ui, sans-serif);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+      min-height: 28px;
+      color: #4f4b46;
+      font: 500 15px/1.25 var(--font-sans, system-ui, sans-serif);
+    }
+
+    body.desktop-native-workbench .desktop-shortcut-help-key {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 22px;
+      border-radius: 999px;
+      padding: 0 9px;
+      background: #ecebea;
+      color: #595653;
+      font: 500 13px/1 var(--font-mono, ui-monospace, monospace);
+      white-space: nowrap;
+    }
+
     body.desktop-native-workbench .desktop-file-action.is-desktop-drop-hover,
     body.desktop-native-workbench .desktop-file-action[data-desktop-drop-target]:focus-visible {
       outline: 2px solid var(--primary, #cc785c);
@@ -5247,6 +5691,19 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: transparent;
     }
 
+    body.desktop-native-workbench .desktop-sidebar-row-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-pin-icon {
+      flex: 0 0 auto;
+      font-size: 11px;
+      line-height: 1;
+    }
+
     body.desktop-native-workbench .desktop-sidebar-delete-session {
       width: 24px;
       min-height: 24px;
@@ -5370,6 +5827,24 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       letter-spacing: 0;
     }
 
+    body.desktop-native-workbench .desktop-chat-title-editor {
+      width: min(360px, 42vw);
+      min-width: 120px;
+      border: 1px solid #dfd6cf;
+      border-radius: 6px;
+      padding: 3px 7px;
+      background: #fffdfb;
+      color: #1c1b19;
+      font: 650 18px/1.2 var(--font-sans);
+      letter-spacing: 0;
+      outline: none;
+    }
+
+    body.desktop-native-workbench .desktop-chat-title-editor:focus {
+      border-color: #d5674c;
+      box-shadow: 0 0 0 2px rgba(213, 103, 76, 0.16);
+    }
+
     body.desktop-native-workbench .desktop-chat-header-actions {
       display: flex;
       align-items: center;
@@ -5395,17 +5870,43 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-header-panel-button {
-      gap: 7px;
-      min-width: 0;
-      padding: 0 10px;
+      width: 34px;
+      min-width: 34px;
+      padding: 0;
       border: 1px solid #e4ddd6;
       color: #59544f;
-      font: 650 12px/1 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-chat-header-panel-icon {
-      color: #8b8580;
-      font: 700 11px/1 var(--font-mono);
+      position: relative;
+      display: block;
+      width: 18px;
+      height: 18px;
+      color: #6f6963;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-panel-icon-frame {
+      position: absolute;
+      inset: 2px;
+      border: 1.5px solid currentColor;
+      border-radius: 4px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-panel-icon-rail {
+      position: absolute;
+      top: 5px;
+      bottom: 5px;
+      width: 3px;
+      border-radius: 2px;
+      background: currentColor;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-panel-icon[data-panel-icon="collapse-left"] .desktop-chat-header-panel-icon-rail {
+      left: 5px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-panel-icon[data-panel-icon="collapse-right"] .desktop-chat-header-panel-icon-rail {
+      right: 5px;
     }
 
     body.desktop-native-workbench .desktop-chat-menu {
@@ -5942,8 +6443,71 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-pane {
+      grid-template-columns: minmax(180px, 220px) minmax(0, 920px);
+      justify-content: center;
+      align-items: start;
+      gap: 42px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-sidebar {
+      position: sticky;
+      top: 0;
+      display: grid;
       align-content: start;
-      gap: 18px;
+      gap: 16px;
+      min-width: 0;
+      padding-top: 6px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-search {
+      width: 100%;
+      min-width: 0;
+      min-height: 34px;
+      border: 1px solid #e5ded7;
+      border-radius: 8px;
+      background: #fffdfa;
+      color: #25211d;
+      padding: 0 10px;
+      font: 500 13px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-nav {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-nav-heading {
+      margin: 14px 0 4px;
+      color: #9a9189;
+      font: 650 11px/1.2 var(--font-sans);
+      text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-settings-nav-item {
+      display: flex;
+      align-items: center;
+      min-height: 34px;
+      min-width: 0;
+      border-radius: 7px;
+      padding: 0 10px;
+      color: #3a332e;
+      font: 650 13px/1.25 var(--font-sans);
+      text-decoration: none;
+    }
+
+    body.desktop-native-workbench .desktop-settings-nav-item:hover,
+    body.desktop-native-workbench .desktop-settings-nav-item:focus-visible,
+    body.desktop-native-workbench .desktop-settings-nav-item[data-active="true"] {
+      background: #eee9e3;
+      color: #1f1d1a;
+    }
+
+    body.desktop-native-workbench .desktop-settings-content {
+      display: grid;
+      gap: 30px;
+      width: 100%;
       min-width: 0;
     }
 
@@ -5953,19 +6517,20 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       justify-content: space-between;
       gap: 16px;
       min-width: 0;
-      border-bottom: 1px solid #e9e4df;
-      padding-bottom: 14px;
+      padding-top: 26px;
     }
 
     body.desktop-native-workbench .desktop-settings-header h2 {
       margin: 0;
       color: #1f1d1a;
-      font: 700 20px/1.2 var(--font-sans);
+      font: 700 24px/1.2 var(--font-sans);
       letter-spacing: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-header p,
-    body.desktop-native-workbench .desktop-settings-summary p {
+    body.desktop-native-workbench .desktop-settings-summary p,
+    body.desktop-native-workbench .desktop-settings-field-description,
+    body.desktop-native-workbench .desktop-settings-group-description {
       margin: 4px 0 0;
       color: #67605a;
       font: 500 12px/1.45 var(--font-sans);
@@ -6000,50 +6565,86 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       opacity: 0.55;
     }
 
+    body.desktop-native-workbench .desktop-settings-status-card {
+      min-width: 0;
+      border: 1px solid #ebe4dd;
+      border-radius: 8px;
+      background: #fffdfa;
+      overflow: hidden;
+    }
+
     body.desktop-native-workbench .desktop-settings-summary {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-status-item {
+      min-width: 0;
+      margin: 0;
+      border-bottom: 1px solid #eee8e1;
+      padding: 12px 14px;
+      color: #67605a;
+      font: 600 12px/1.45 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-status-item:nth-last-child(-n + 2) {
+      border-bottom: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-status-item strong {
+      color: #36312c;
+      font-weight: 650;
     }
 
     body.desktop-native-workbench .desktop-settings-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(280px, 1fr));
-      gap: 16px;
+      gap: 28px;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-group {
       display: grid;
       align-content: start;
-      gap: 12px;
+      gap: 0;
       min-width: 0;
       border: 1px solid #ebe4dd;
       border-radius: 8px;
-      padding: 14px;
       background: #fffdfa;
+      overflow: hidden;
     }
 
     body.desktop-native-workbench .desktop-settings-group h2 {
       margin: 0;
+      padding: 16px 18px 0;
       color: #2d2924;
       font: 650 14px/1.2 var(--font-sans);
       letter-spacing: 0;
     }
 
+    body.desktop-native-workbench .desktop-settings-group-description {
+      padding: 0 18px 14px;
+    }
+
     body.desktop-native-workbench .desktop-settings-field {
       display: grid;
-      grid-template-columns: minmax(100px, 0.38fr) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
       align-items: center;
-      gap: 10px;
+      gap: 22px;
       margin: 0;
+      border-top: 1px solid #eee8e1;
+      padding: 14px 18px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-copy {
+      display: grid;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-field label {
-      color: #625b54;
-      font: 600 12px/1.35 var(--font-sans);
+      color: #2d2924;
+      font: 650 13px/1.35 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-settings-field input,
@@ -6059,7 +6660,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 18px;
       min-height: 18px;
       padding: 0;
-      justify-self: start;
+      justify-self: end;
     }
 
     body.desktop-native-workbench .desktop-settings-field textarea {
@@ -6075,11 +6676,32 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-actions button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-search:focus-visible,
+    body.desktop-native-workbench .desktop-settings-nav-item:focus-visible,
     body.desktop-native-workbench .desktop-settings-field input:focus-visible,
     body.desktop-native-workbench .desktop-settings-field select:focus-visible,
     body.desktop-native-workbench .desktop-settings-field textarea:focus-visible {
       outline: 2px solid rgba(31, 111, 235, 0.45);
       outline-offset: 2px;
+    }
+
+    @media (max-width: 980px) {
+      body.desktop-native-workbench .desktop-settings-pane {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 22px;
+      }
+
+      body.desktop-native-workbench .desktop-settings-sidebar {
+        position: static;
+      }
+
+      body.desktop-native-workbench .desktop-settings-field {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.desktop-native-workbench .desktop-settings-field input[type="checkbox"] {
+        justify-self: start;
+      }
     }
 
     body.desktop-native-workbench .desktop-status-strip {
@@ -6699,6 +7321,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-help-action,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-action,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-input,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-search,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-actions button,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field input,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field select,
@@ -6728,6 +7351,44 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-file-import-button {
       background: transparent;
       border-color: transparent;
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-card,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group {
+      background: var(--panel-strong);
+      border-color: var(--border);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-item,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field {
+      border-color: var(--border);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-header h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field label,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-item strong {
+      color: var(--text);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-header p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-summary p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field-description,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group-description,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-item,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-nav-heading {
+      color: var(--muted);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-nav-item {
+      color: var(--text);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-nav-item:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-nav-item:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-nav-item[data-active="true"] {
+      background: var(--panel-strong);
+      color: var(--text);
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button:hover,

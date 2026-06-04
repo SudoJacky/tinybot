@@ -10,6 +10,7 @@ class FakeElement {
   public textContent = "";
   public children: FakeElement[] = [];
   public attributes = new Map<string, string>();
+  public hidden = false;
   private listeners = new Map<string, Array<(event: { stopPropagation(): void }) => void>>();
 
   constructor(public readonly tagName: string) {}
@@ -144,7 +145,9 @@ describe("desktop window frame", () => {
     expect(targetDocument.body.classList.values.has("desktop-custom-frame")).toBe(true);
     expect(targetDocument.head.querySelector("#desktop-window-frame-style")).toBeTruthy();
     expect(targetDocument.body.querySelector(".desktop-window-brand-mark")).toBeNull();
-    expect(targetDocument.body.querySelector(".desktop-window-title-group")?.children.map((child) => child.textContent)).not.toContain("TB");
+    expect(targetDocument.body.querySelector(".desktop-window-title-group")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-window-title")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-window-context")).toBeNull();
     expect(targetDocument.body.querySelector('[data-window-action="minimize"]')?.textContent).toBe("−");
     expect(targetDocument.body.querySelector('[data-window-action="maximize"]')?.textContent).toBe("□");
     expect(targetDocument.body.querySelector('[data-window-action="close"]')?.textContent).toBe("×");
@@ -263,10 +266,26 @@ describe("desktop window frame", () => {
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')).toBeNull();
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-settings"]')?.textContent).toBe("Settings");
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-docs"]')?.textContent).toBe("Documentation");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-shortcut-help"]')?.textContent).toBe("Shortcut Help");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-page-help"]')?.textContent).toBe("Page Help");
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="toggle-theme"]')?.textContent).toBe("Toggle Theme");
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')).toBeNull();
+
+    const helpTrigger = targetDocument.body.querySelector(".desktop-help-menu-trigger");
+    const helpMenu = targetDocument.body.querySelector(".desktop-help-menu-popover");
+    expect(helpTrigger?.textContent).toBe("Help");
+    expect(helpTrigger?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(helpMenu?.getAttribute("role")).toBe("menu");
+    expect(helpMenu?.hidden).toBe(true);
+
+    helpTrigger?.click();
+    expect(helpTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(helpMenu?.hidden).toBe(false);
+    const shortcutHelp = helpMenu?.querySelector('[data-desktop-menu-command="open-shortcut-help"]');
+    const pageHelp = helpMenu?.querySelector('[data-desktop-menu-command="open-page-help"]');
+    expect(shortcutHelp?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Shortcut Help");
+    expect(shortcutHelp?.querySelector(".desktop-help-menu-shortcut")?.textContent).toBe("Ctrl+/");
+    expect(pageHelp?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Page Help");
+    expect(pageHelp?.querySelector(".desktop-help-menu-shortcut")?.textContent).toBe("Ctrl+Shift+/");
   });
 
   test("routes runtime status clicks through the gateway status command", () => {
@@ -293,7 +312,7 @@ describe("desktop window frame", () => {
     expect(currentWindow.startDragging).not.toHaveBeenCalled();
   });
 
-  test("shows the current desktop surface context in app chrome", () => {
+  test("keeps app chrome focused on commands without product or surface labels", () => {
     const targetDocument = new FakeDocument();
     targetDocument.documentElement.dataset.desktopWorkbenchMode = "root-webui";
     const currentWindow = {
@@ -308,7 +327,10 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    expect(targetDocument.body.querySelector("#desktop-window-context")?.textContent).toBe("WebUI shell");
+    const frame = targetDocument.getElementById("desktop-window-frame");
+    expect(frame?.textContent).not.toContain("Tinybot");
+    expect(frame?.textContent).not.toContain("WebUI shell");
+    expect(targetDocument.body.querySelector("#desktop-window-context")).toBeNull();
 
     targetDocument.documentElement.dataset.desktopWorkbenchMode = "native-workbench";
     installDesktopWindowFrame({
@@ -316,7 +338,8 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    expect(targetDocument.body.querySelector("#desktop-window-context")?.textContent).toBe("Native workbench");
+    expect(frame?.textContent).not.toContain("Native workbench");
+    expect(targetDocument.body.querySelector("#desktop-window-context")).toBeNull();
   });
 
   test("declares DESIGN.md shell chrome tokens for the custom frame", () => {
@@ -334,14 +357,19 @@ describe("desktop window frame", () => {
     });
 
     const styleText = targetDocument.head.querySelector("#desktop-window-frame-style")?.textContent;
-    expect(styleText).toContain("--desktop-window-frame-height: 48px;");
-    expect(styleText).toContain("height: 30px;");
-    expect(styleText).toContain("width: 30px;");
+    expect(styleText).toContain("--desktop-window-frame-height: 38px;");
+    expect(styleText).toContain("height: 28px;");
+    expect(styleText).toContain("width: 28px;");
     expect(styleText).toContain("--bg: #faf9f5;");
     expect(styleText).toContain("--panel-strong: #efe9de;");
     expect(styleText).toContain("--primary: #cc785c;");
     expect(styleText).toContain("--success: #5db872;");
     expect(styleText).toContain("--border: #e6dfd8;");
-    expect(styleText).toContain("outline: 2px solid var(--primary, #cc785c);");
+    const menuInteractionRule = styleText?.match(
+      /body\.desktop-custom-frame \.desktop-application-menu-item:hover,[\s\S]*?body\.desktop-custom-frame \.desktop-application-menu-item:focus-visible \{[\s\S]*?\}/,
+    )?.[0];
+    expect(menuInteractionRule).toContain("background: #f2ede7;");
+    expect(menuInteractionRule).toContain("outline: 0;");
+    expect(menuInteractionRule).not.toContain("outline: 2px solid var(--primary, #cc785c);");
   });
 });

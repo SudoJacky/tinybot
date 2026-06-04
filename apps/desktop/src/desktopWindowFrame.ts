@@ -1,4 +1,4 @@
-import { DESKTOP_CHROME_COMMANDS } from "./desktopCommandNavigation";
+import { DESKTOP_CHROME_COMMANDS, DESKTOP_HELP_COMMANDS, type DesktopMenuCommand } from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 
 export interface DesktopWindowHandle {
@@ -16,7 +16,6 @@ interface InstallDesktopWindowFrameOptions {
 }
 
 const FRAME_ID = "desktop-window-frame";
-const CONTEXT_ID = "desktop-window-context";
 const RUNTIME_STATUS_ID = "desktop-runtime-status";
 const STYLE_ID = "desktop-window-frame-style";
 
@@ -36,7 +35,6 @@ export function installDesktopWindowFrame({
   syncDesktopWindowIcon(currentWindow, defaultWindowIcon);
 
   if (targetDocument.getElementById(FRAME_ID)) {
-    setDesktopWindowContext(targetDocument);
     return;
   }
 
@@ -47,23 +45,6 @@ export function installDesktopWindowFrame({
   frame.setAttribute("data-tauri-drag-region", "");
   frame.setAttribute("role", "banner");
   frame.setAttribute("aria-label", "Tinybot desktop window controls");
-
-  const title = targetDocument.createElement("div");
-  title.className = "desktop-window-title";
-  title.setAttribute("data-tauri-drag-region", "");
-  title.textContent = "Tinybot";
-
-  const context = targetDocument.createElement("div");
-  context.id = CONTEXT_ID;
-  context.setAttribute("id", CONTEXT_ID);
-  context.className = "desktop-window-context";
-  context.setAttribute("data-tauri-drag-region", "");
-  context.textContent = resolveDesktopWindowContextLabel(targetDocument);
-
-  const titleGroup = targetDocument.createElement("div");
-  titleGroup.className = "desktop-window-title-group";
-  titleGroup.setAttribute("data-tauri-drag-region", "");
-  titleGroup.append(title, context);
 
   const appMenu = createApplicationMenu(targetDocument);
 
@@ -101,7 +82,7 @@ export function installDesktopWindowFrame({
     createWindowButton(targetDocument, "close", "Close", "×", () => currentWindow.close()),
   );
 
-  frame.append(titleGroup, appMenu, runtimeStatus, controls);
+  frame.append(appMenu, runtimeStatus, controls);
   frame.addEventListener("pointerdown", () => {
     void currentWindow.startDragging().catch(logWindowFrameError);
   });
@@ -129,47 +110,110 @@ function syncDesktopWindowIcon(
     .catch(logWindowFrameError);
 }
 
-function setDesktopWindowContext(targetDocument: Document): void {
-  const context = targetDocument.getElementById(CONTEXT_ID);
-  if (context) {
-    context.textContent = resolveDesktopWindowContextLabel(targetDocument);
-  }
-}
-
-function resolveDesktopWindowContextLabel(targetDocument: Document): string {
-  const mode = targetDocument.documentElement?.dataset?.desktopWorkbenchMode;
-  if (mode === "native-workbench") {
-    return "Native workbench";
-  }
-  if (mode === "root-webui") {
-    return "WebUI shell";
-  }
-  return "Starting";
-}
-
 function createApplicationMenu(targetDocument: Document): HTMLElement {
   const menu = targetDocument.createElement("nav");
   menu.className = "desktop-application-menu";
   menu.setAttribute("aria-label", "Desktop application menu");
 
   for (const command of DESKTOP_CHROME_COMMANDS) {
-    const button = targetDocument.createElement("button");
-    button.type = "button";
-    button.className = "desktop-application-menu-item";
-    button.setAttribute("data-desktop-menu-command", command.id);
-    button.setAttribute("aria-label", `${command.label} (${command.shortcut})`);
-    button.title = `${command.label} (${command.shortcut})`;
-    button.textContent = command.chromeLabel ?? command.label;
-    button.addEventListener("pointerdown", (event) => event.stopPropagation());
-    button.addEventListener("dblclick", (event) => event.stopPropagation());
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: command.id } }));
-    });
-    menu.append(button);
+    menu.append(createApplicationMenuCommand(targetDocument, command));
+    if (command.id === "open-docs") {
+      menu.append(createHelpMenu(targetDocument));
+    }
   }
 
   return menu;
+}
+
+function createApplicationMenuCommand(targetDocument: Document, command: DesktopMenuCommand): HTMLButtonElement {
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-application-menu-item";
+  button.setAttribute("data-desktop-menu-command", command.id);
+  button.setAttribute("aria-label", `${command.label} (${command.shortcut})`);
+  button.title = `${command.label} (${command.shortcut})`;
+  button.textContent = command.chromeLabel ?? command.label;
+  button.addEventListener("pointerdown", (event) => event.stopPropagation());
+  button.addEventListener("dblclick", (event) => event.stopPropagation());
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: command.id } }));
+  });
+  return button;
+}
+
+function createHelpMenu(targetDocument: Document): HTMLElement {
+  const menu = targetDocument.createElement("div");
+  menu.className = "desktop-help-menu";
+
+  const trigger = targetDocument.createElement("button");
+  trigger.type = "button";
+  trigger.className = "desktop-application-menu-item desktop-help-menu-trigger";
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.textContent = "Help";
+
+  const popover = targetDocument.createElement("div");
+  popover.className = "desktop-help-menu-popover";
+  popover.setAttribute("role", "menu");
+  popover.setAttribute("aria-label", "Help menu");
+  popover.hidden = true;
+
+  const close = () => {
+    popover.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  };
+  const toggle = () => {
+    const expanded = trigger.getAttribute("aria-expanded") === "true";
+    popover.hidden = expanded;
+    trigger.setAttribute("aria-expanded", String(!expanded));
+  };
+
+  trigger.addEventListener("pointerdown", (event) => event.stopPropagation());
+  trigger.addEventListener("dblclick", (event) => event.stopPropagation());
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggle();
+  });
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    event.preventDefault();
+    close();
+  });
+
+  for (const command of DESKTOP_HELP_COMMANDS) {
+    const item = targetDocument.createElement("button");
+    item.type = "button";
+    item.className = "desktop-help-menu-item";
+    item.setAttribute("role", "menuitem");
+    item.setAttribute("data-desktop-menu-command", command.id);
+    item.setAttribute("aria-label", `${command.label} (${command.shortcut})`);
+    item.title = `${command.label} (${command.shortcut})`;
+    item.append(
+      createHelpMenuText(targetDocument, "desktop-help-menu-label", command.label),
+      createHelpMenuText(targetDocument, "desktop-help-menu-shortcut", command.shortcut),
+    );
+    item.addEventListener("pointerdown", (event) => event.stopPropagation());
+    item.addEventListener("dblclick", (event) => event.stopPropagation());
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      close();
+      targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: command.id } }));
+    });
+    popover.append(item);
+  }
+
+  menu.append(trigger, popover);
+  return menu;
+}
+
+function createHelpMenuText(targetDocument: Document, className: string, text: string): HTMLElement {
+  const node = targetDocument.createElement("span");
+  node.className = className;
+  node.textContent = text;
+  return node;
 }
 
 export function setDesktopWindowRuntimeStatus(
@@ -260,7 +304,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
   style.setAttribute("id", STYLE_ID);
   style.textContent = `
     :root {
-      --desktop-window-frame-height: 48px;
+      --desktop-window-frame-height: 38px;
       --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       --bg: #faf9f5;
       --bg-subtle: #f5f0e8;
@@ -290,7 +334,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: space-between;
       height: var(--desktop-window-frame-height);
-      padding: 0 12px 0 16px;
+      padding: 0 10px 0 14px;
       border-bottom: 1px solid var(--border, #e6dfd8);
       background: #fbfaf7;
       color: var(--text, #141413);
@@ -298,55 +342,24 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       -webkit-user-select: none;
     }
 
-    body.desktop-custom-frame .desktop-window-title-group {
-      display: grid;
-      grid-template-columns: auto auto;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-    }
-
-    body.desktop-custom-frame .desktop-window-title,
-    body.desktop-custom-frame .desktop-window-context {
-      min-width: 0;
-      overflow: hidden;
-      font-size: 12px;
-      line-height: 1;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    body.desktop-custom-frame .desktop-window-title {
-      color: var(--text, #141413);
-      font-size: 16px;
-      font-weight: 750;
-    }
-
-    body.desktop-custom-frame .desktop-window-context {
-      color: var(--text-muted, #6c6a64);
-      font-weight: 500;
-    }
-
-    body.desktop-custom-frame .desktop-window-context::before {
-      content: "/";
-      padding-right: 8px;
-      color: var(--text-muted, #6c6a64);
-    }
-
     body.desktop-custom-frame .desktop-application-menu {
       display: flex;
       align-items: center;
       gap: 2px;
       min-width: 0;
-      margin-left: 18px;
-      overflow: hidden;
+      overflow: visible;
+    }
+
+    body.desktop-custom-frame .desktop-help-menu {
+      position: relative;
+      flex: 0 0 auto;
     }
 
     body.desktop-custom-frame .desktop-application-menu-item {
       flex: 0 1 auto;
       max-width: 136px;
       min-width: 0;
-      height: 30px;
+      height: 28px;
       padding: 0 10px;
       border: 0;
       border-radius: 4px;
@@ -361,9 +374,62 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame .desktop-application-menu-item:hover,
     body.desktop-custom-frame .desktop-application-menu-item:focus-visible {
-      background: color-mix(in srgb, var(--primary, #cc785c) 12%, transparent);
-      outline: 2px solid var(--primary, #cc785c);
-      outline-offset: 1px;
+      background: #f2ede7;
+      outline: 0;
+    }
+
+    body.desktop-custom-frame .desktop-help-menu-popover {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 1410;
+      display: grid;
+      gap: 2px;
+      width: 260px;
+      border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 72%, transparent);
+      border-radius: 8px;
+      padding: 8px 0;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 18px 44px rgba(38, 30, 23, 0.14);
+      backdrop-filter: blur(12px);
+    }
+
+    body.desktop-custom-frame .desktop-help-menu-popover[hidden] {
+      display: none;
+    }
+
+    body.desktop-custom-frame .desktop-help-menu-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 16px;
+      min-height: 34px;
+      border: 0;
+      padding: 0 16px;
+      background: transparent;
+      color: var(--text, #141413);
+      font: 500 13px/1 var(--font-sans, system-ui, sans-serif);
+      text-align: left;
+      cursor: default;
+    }
+
+    body.desktop-custom-frame .desktop-help-menu-item:hover,
+    body.desktop-custom-frame .desktop-help-menu-item:focus-visible {
+      background: #f2ede7;
+      outline: 0;
+    }
+
+    body.desktop-custom-frame .desktop-help-menu-label,
+    body.desktop-custom-frame .desktop-help-menu-shortcut {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-custom-frame .desktop-help-menu-shortcut {
+      color: var(--text-muted, #6c6a64);
+      font-size: 12px;
     }
 
     body.desktop-custom-frame .desktop-runtime-status {
@@ -371,7 +437,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       max-width: min(38vw, 340px);
       overflow: hidden;
       margin-left: auto;
-      padding: 6px 12px;
+      padding: 5px 11px;
       border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 88%, transparent);
       border-radius: 999px;
       color: var(--text-muted, #6c6a64);
@@ -424,8 +490,8 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     }
 
     body.desktop-custom-frame .desktop-window-button {
-      width: 30px;
-      height: 30px;
+      width: 28px;
+      height: 28px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -448,12 +514,12 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
 
     body.desktop-custom-frame > .desktop-startup-shell {
       min-height: calc(100vh - var(--desktop-window-frame-height));
-      padding-top: calc(var(--desktop-window-frame-height) + 16px);
+      padding-top: calc(var(--desktop-window-frame-height) + 12px);
     }
 
     body.desktop-custom-frame > .shell {
       height: calc(100vh - var(--desktop-window-frame-height) - 18px);
-      margin: calc(var(--desktop-window-frame-height) + 8px) 10px 10px;
+      margin: calc(var(--desktop-window-frame-height) + 6px) 10px 10px;
     }
 
     @media (max-width: 760px) {
@@ -461,8 +527,6 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
         padding: 0 12px;
       }
 
-      body.desktop-custom-frame .desktop-window-title,
-      body.desktop-custom-frame .desktop-window-context,
       body.desktop-custom-frame .desktop-application-menu {
         display: none;
       }
