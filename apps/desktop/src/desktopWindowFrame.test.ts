@@ -186,6 +186,27 @@ describe("desktop window frame", () => {
     });
   });
 
+  test("applies the bundled Tinybot icon to the current native window", async () => {
+    const targetDocument = new FakeDocument();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+      setIcon: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+      defaultWindowIcon: async () => "tinybot-window-icon",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(currentWindow.setIcon).toHaveBeenCalledWith("tinybot-window-icon");
+  });
+
   test("updates the installed frame runtime status without replacing window controls", () => {
     const targetDocument = new FakeDocument();
     const currentWindow = {
@@ -313,6 +334,9 @@ describe("desktop window frame", () => {
     });
 
     const styleText = targetDocument.head.querySelector("#desktop-window-frame-style")?.textContent;
+    expect(styleText).toContain("--desktop-window-frame-height: 48px;");
+    expect(styleText).toContain("height: 30px;");
+    expect(styleText).toContain("width: 30px;");
     expect(styleText).toContain("--bg: #faf9f5;");
     expect(styleText).toContain("--panel-strong: #efe9de;");
     expect(styleText).toContain("--primary: #cc785c;");

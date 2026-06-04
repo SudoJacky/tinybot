@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { defaultWindowIcon } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import webUiHtml from "../../../webui/index.html?raw";
@@ -1377,7 +1378,7 @@ function installTauriWindowFrame(runtimeStatus?: GatewayRuntimeStatus | null): v
   if (!hasTauriRuntime()) {
     return;
   }
-  installDesktopWindowFrame({ currentWindow: getCurrentWindow() });
+  installDesktopWindowFrame({ currentWindow: getCurrentWindow(), defaultWindowIcon });
   if (runtimeStatus !== undefined) {
     setDesktopWindowRuntimeStatus(runtimeStatus);
   }

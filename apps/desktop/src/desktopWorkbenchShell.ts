@@ -397,7 +397,7 @@ export function updateDesktopNativeChat(
   syncNativeChatDocumentState(targetDocument, chat);
   const header = targetDocument.querySelector<HTMLElement>(".desktop-chat-header");
   if (header) {
-    const next = createChatHeader(targetDocument, chat);
+    const next = createChatHeader(targetDocument, chat, readCurrentWorkbenchLayout(targetDocument));
     header.replaceChildren(...Array.from(next.children));
   }
 
@@ -795,13 +795,12 @@ function createMainRegion(
   const workbench = targetDocument.createElement("div");
   workbench.className = "desktop-empty-session desktop-chat-workbench";
   workbench.append(
-    createChatHeader(targetDocument, chat),
+    createChatHeader(targetDocument, chat, layout),
     createConversationThread(targetDocument, chat),
     createText(targetDocument, "span", "Ready for a new session"),
     createText(targetDocument, "span", "Start from chat, inspect workspace, or check gateway status."),
     createQuickActions(targetDocument),
     createPanelControls(targetDocument, layout),
-    createInspectorRestoreButton(targetDocument, layout),
     createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
     ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
   );
@@ -829,24 +828,106 @@ function createMainRegion(
   return main;
 }
 
-function createChatHeader(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
+function createChatHeader(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  layout: WorkbenchLayoutState,
+): HTMLElement {
   const header = targetDocument.createElement("header");
   header.className = "desktop-chat-header";
+
+  const titleRow = targetDocument.createElement("div");
+  titleRow.className = "desktop-chat-title-row";
+
   const title = targetDocument.createElement("h1");
   title.textContent = activeChatTitle(chat);
+
   const menu = targetDocument.createElement("button");
   menu.type = "button";
   menu.className = "desktop-chat-menu";
+  menu.setAttribute("data-desktop-chat-menu", "more");
   menu.setAttribute("aria-label", "More chat actions");
   menu.textContent = "...";
-  header.append(title);
-  if (chat?.status) {
-    const status = createText(targetDocument, "span", chat.status);
-    status.className = "desktop-chat-runtime-status";
-    header.append(status);
-  }
-  header.append(menu);
+
+  titleRow.append(title, menu);
+
+  const actions = targetDocument.createElement("div");
+  actions.className = "desktop-chat-header-actions";
+  actions.append(
+    createHeaderPanelControl(targetDocument, {
+      panel: "sidebar",
+      visible: layout.sidebar.visible,
+      label: "▏",
+      pressedLabel: "Collapse session list",
+      unpressedLabel: "Expand session list",
+    }),
+    createHeaderPanelControl(targetDocument, {
+      panel: "inspector",
+      visible: layout.inspector.visible,
+      label: "▌",
+      pressedLabel: "Close Run Chain panel",
+      unpressedLabel: "Open Run Chain panel",
+    }),
+  );
+
+  header.append(titleRow, actions);
   return header;
+}
+
+function readCurrentWorkbenchLayout(targetDocument: Document): WorkbenchLayoutState {
+  const shell = targetDocument.getElementById(SHELL_ID);
+  return {
+    sidebar: {
+      visible: shell?.getAttribute("data-sidebar-visible") !== "false",
+      size: 260,
+    },
+    inspector: {
+      visible: shell?.getAttribute("data-inspector-visible") !== "false",
+      size: 360,
+    },
+    bottom: {
+      visible: shell?.getAttribute("data-bottom-visible") === "true",
+      size: 220,
+    },
+  };
+}
+
+function createHeaderPanelControl(
+  targetDocument: Document,
+  {
+    panel,
+    visible,
+    label,
+    pressedLabel,
+    unpressedLabel,
+  }: {
+    panel: DesktopPanelControlId;
+    visible: boolean;
+    label: string;
+    pressedLabel: string;
+    unpressedLabel: string;
+  },
+): HTMLElement {
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-chat-header-panel-button";
+  button.setAttribute("data-desktop-panel-control", panel);
+  button.setAttribute("data-desktop-panel-label-pressed", pressedLabel);
+  button.setAttribute("data-desktop-panel-label-unpressed", unpressedLabel);
+  button.setAttribute("aria-label", visible ? pressedLabel : unpressedLabel);
+  button.setAttribute("aria-pressed", String(visible));
+  button.textContent = label;
+  button.addEventListener("click", () => {
+    toggleDesktopPanel(targetDocument, panel);
+  });
+  button.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    toggleDesktopPanel(targetDocument, panel);
+  });
+  return button;
 }
 
 function createConversationThread(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
@@ -2471,24 +2552,6 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
   return controls;
 }
 
-function createInspectorRestoreButton(targetDocument: Document, layout: WorkbenchLayoutState): HTMLElement {
-  const button = targetDocument.createElement("button");
-  button.type = "button";
-  button.className = "desktop-inspector-restore";
-  button.setAttribute("data-desktop-inspector-restore", "");
-  button.setAttribute("aria-label", "Open Run Chain panel");
-  button.setAttribute("aria-hidden", String(layout.inspector.visible));
-  button.textContent = "Open Run Chain";
-  button.addEventListener("click", () => {
-    const shell = targetDocument.getElementById(SHELL_ID);
-    if (shell?.getAttribute("data-inspector-visible") !== "false") {
-      return;
-    }
-    toggleDesktopPanel(targetDocument, "inspector");
-  });
-  return button;
-}
-
 function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControlId): void {
   const shell = targetDocument.getElementById(SHELL_ID);
   const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
@@ -2497,13 +2560,12 @@ function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControl
   const nextVisible = currentValue === "false";
   shell?.setAttribute(stateAttribute, String(nextVisible));
   panelElement?.setAttribute("data-visible", String(nextVisible));
-  targetDocument
-    .querySelector<HTMLElement>(`[data-desktop-panel-control="${panel}"]`)
-    ?.setAttribute("aria-pressed", String(nextVisible));
-  if (panel === "inspector") {
-    targetDocument
-      .querySelector<HTMLElement>("[data-desktop-inspector-restore]")
-      ?.setAttribute("aria-hidden", String(nextVisible));
+  for (const control of targetDocument.querySelectorAll<HTMLElement>(`[data-desktop-panel-control="${panel}"]`)) {
+    control.setAttribute("aria-pressed", String(nextVisible));
+    const label = control.getAttribute(nextVisible ? "data-desktop-panel-label-pressed" : "data-desktop-panel-label-unpressed");
+    if (label) {
+      control.setAttribute("aria-label", label);
+    }
   }
 
   const status = targetDocument.querySelector<HTMLElement>("[data-desktop-route-status]");
@@ -4215,6 +4277,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workspace-file-row:focus-visible,
     body.desktop-native-workbench .desktop-workspace-editor:focus-visible,
     body.desktop-native-workbench .desktop-inspector-restore:focus-visible,
+    body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-icon-button:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-summary-item:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-tab:focus-visible,
@@ -5049,12 +5112,19 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: 12px;
       min-width: 0;
-      min-height: 72px;
+      min-height: 54px;
       border-bottom: 1px solid #e9e4df;
-      padding: 0 28px;
+      padding: 0 18px;
       background: #ffffff;
+    }
+
+    body.desktop-native-workbench .desktop-chat-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-chat-header h1 {
@@ -5067,15 +5137,42 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       letter-spacing: 0;
     }
 
+    body.desktop-native-workbench .desktop-chat-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-panel-button,
     body.desktop-native-workbench .desktop-chat-menu {
-      width: 40px;
-      height: 40px;
-      border: 1px solid #e6dfd8;
-      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      min-width: 30px;
+      min-height: 30px;
+      border: 0;
+      border-radius: 6px;
       background: #ffffff;
       color: #262522;
       font: 700 16px/1 var(--font-sans);
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-panel-button {
+      border: 1px solid #e4ddd6;
+      color: #59544f;
+      font-size: 15px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-menu:hover,
+    body.desktop-native-workbench .desktop-chat-menu:focus-visible,
+    body.desktop-native-workbench .desktop-chat-header-panel-button:hover,
+    body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible {
+      background: #f7f2ed;
     }
 
     body.desktop-native-workbench .desktop-conversation-thread {
@@ -6437,7 +6534,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       }
 
       body.desktop-native-workbench .desktop-chat-header {
-        min-height: 84px;
+        min-height: 54px;
         padding: 0 16px;
       }
 
