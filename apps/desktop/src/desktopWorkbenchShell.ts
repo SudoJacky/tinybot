@@ -1867,6 +1867,7 @@ function createToolsSkillsPane(
     setDesktopEntityHook(row, "tools", tool.name);
     tools.append(row);
   }
+  mountToolsListVueIsland(tools, pane);
   section.append(tools);
 
   if (pane.selectedTool) {
@@ -1961,6 +1962,20 @@ function mountToolsSkillsActionsVueIsland(
         toolsSkillsActions.onToolsSkillsAction?.({ action, pane });
       },
     });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountToolsListVueIsland(
+  tools: HTMLElement,
+  pane: DesktopToolsSkillsPaneModel,
+): void {
+  if (!canMountVueIsland(tools)) {
+    return;
+  }
+  void import("./native-vue/toolsListIsland").then(({ mountToolsListIsland }) => {
+    mountToolsListIsland(tools, { tools: pane.toolRows });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
