@@ -1,6 +1,11 @@
-import { createApp, defineComponent, h, type App } from "vue";
-import { NButton, NConfigProvider, NTag } from "naive-ui";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
+import { NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
+import { mountFileImportCardIsland } from "./fileImportCardIsland";
+import { mountFileOperationStatusIsland } from "./fileOperationStatusIsland";
+import { mountFileUploadStatusIsland } from "./fileUploadStatusIsland";
+import { mountSessionFileListIsland } from "./sessionFileListIsland";
+import { mountSessionUploadCardIsland } from "./sessionUploadCardIsland";
 
 export interface FileActionsSurfaceIslandOptions {
   activeSessionKey?: string | null;
@@ -68,116 +73,68 @@ function createFileActionsSurfaceApp(options: FileActionsSurfaceIslandOptions): 
   return createApp(defineComponent({
     name: "FileActionsSurfaceIsland",
     setup() {
+      const mountedChildren: Array<{ unmount: () => void }> = [];
+      const knowledgeImport = ref<HTMLElement | null>(null);
+      const sessionImport = ref<HTMLElement | null>(null);
+      const sessionUpload = ref<HTMLElement | null>(null);
+      const workspaceImport = ref<HTMLElement | null>(null);
+      const knowledgeStatus = ref<HTMLElement | null>(null);
+      const sessionStatus = ref<HTMLElement | null>(null);
+      const workspaceStatus = ref<HTMLElement | null>(null);
+      const uploadStatus = ref<HTMLElement | null>(null);
+      const sessionFiles = ref<HTMLElement | null>(null);
+      const activeSessionKey = options.activeSessionKey ?? "";
+
+      onMounted(() => {
+        mountChild(mountedChildren, knowledgeImport.value, (host) => mountFileImportCardIsland(host, fileImportCards[0]));
+        mountChild(mountedChildren, sessionImport.value, (host) => mountFileImportCardIsland(host, fileImportCards[1]));
+        mountChild(mountedChildren, sessionUpload.value, (host) => mountSessionUploadCardIsland(host, { activeSessionKey }));
+        mountChild(mountedChildren, workspaceImport.value, (host) => mountFileImportCardIsland(host, fileImportCards[2]));
+        mountChild(mountedChildren, knowledgeStatus.value, (host) => mountFileOperationStatusIsland(host, { label: "Knowledge upload", status: "Waiting" }));
+        mountChild(mountedChildren, sessionStatus.value, (host) => mountFileOperationStatusIsland(host, { label: "Session upload", status: "Waiting" }));
+        mountChild(mountedChildren, workspaceStatus.value, (host) => mountFileOperationStatusIsland(host, { label: "Workspace import", status: "Waiting" }));
+        mountChild(mountedChildren, uploadStatus.value, (host) => mountFileUploadStatusIsland(host, { message: "No file operation running." }));
+        mountChild(mountedChildren, sessionFiles.value, (host) => mountSessionFileListIsland(host, {
+          rows: [],
+          sessionKey: activeSessionKey,
+        }));
+      });
+
+      onBeforeUnmount(() => {
+        while (mountedChildren.length) {
+          mountedChildren.pop()?.unmount();
+        }
+      });
+
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
           h("h2", "File imports"),
-          renderImportGrid(options.activeSessionKey ?? ""),
-          renderOperationStrip(),
-          renderSessionFileList(options.activeSessionKey ?? ""),
+          h("div", { class: "desktop-file-import-grid" }, [
+            h("div", { ref: knowledgeImport }),
+            h("div", { ref: sessionImport }),
+            h("div", { ref: sessionUpload }),
+            h("div", { ref: workspaceImport }),
+          ]),
+          h("div", { class: "desktop-file-operation-strip" }, [
+            h("div", { ref: knowledgeStatus }),
+            h("div", { ref: sessionStatus }),
+            h("div", { ref: workspaceStatus }),
+            h("p", { ref: uploadStatus }),
+          ]),
+          h("div", { ref: sessionFiles }),
         ],
       });
     },
   }));
 }
 
-function renderImportGrid(activeSessionKey: string) {
-  return h("div", { class: "desktop-file-import-grid" }, [
-    renderFileImportCard(fileImportCards[0]),
-    renderFileImportCard(fileImportCards[1]),
-    renderSessionUploadCard(activeSessionKey),
-    renderFileImportCard(fileImportCards[2]),
-  ]);
-}
-
-function renderFileImportCard(card: FileImportCard) {
-  return h("div", { class: "desktop-file-import-card" }, [
-    renderFileImportControl(card),
-    renderFormats(card.formatsId, card.formats),
-  ]);
-}
-
-function renderFileImportControl(card: FileImportCard) {
-  const attrs = {
-    id: card.id,
-    class: "desktop-file-action desktop-file-import-button",
-    "data-desktop-drop-target": card.dropTarget,
-    "data-desktop-file-upload": card.uploadKind,
-  };
-  const children = [
-    h("span", card.label),
-    h("small", "Drop files here or click to select"),
-  ];
-  if (card.href) {
-    return h("a", { ...attrs, href: card.href }, children);
+function mountChild<T extends { unmount: () => void }>(
+  mountedChildren: Array<{ unmount: () => void }>,
+  host: HTMLElement | null,
+  mount: (host: HTMLElement) => T,
+): void {
+  if (!host) {
+    return;
   }
-  return h("button", { ...attrs, type: "button" }, children);
-}
-
-function renderFormats(id: string, formats: string[]) {
-  return h("p", { id, class: "desktop-file-format-row" }, [
-    h("span", "Formats:"),
-    ...formats.map((format) => h(NTag, {
-      class: "desktop-file-format-chip",
-      size: "small",
-      round: true,
-    }, { default: () => format })),
-  ]);
-}
-
-function renderSessionUploadCard(activeSessionKey: string) {
-  return h("div", { class: "desktop-file-session-card" }, [
-    h("label", { for: "desktop-session-upload-key" }, "Session key"),
-    h("input", {
-      id: "desktop-session-upload-key",
-      class: "desktop-session-upload-key",
-      "aria-label": "Session key for temporary file upload",
-      placeholder: "Session key",
-      value: activeSessionKey,
-      readonly: activeSessionKey ? "" : undefined,
-      "data-active-session-key": activeSessionKey || undefined,
-    }),
-    h("div", { class: "desktop-file-session-meta" }, [
-      h("span", "Temporary files"),
-      h(NTag, {
-        id: "desktop-session-file-count",
-        class: "desktop-file-count-pill",
-        size: "small",
-        round: true,
-      }, { default: () => "0" }),
-      h(NButton, {
-        id: "desktop-session-files-refresh",
-        class: "desktop-file-refresh",
-        type: "default",
-        size: "small",
-        "data-desktop-session-files-refresh": "true",
-      }, { default: () => "Refresh" }),
-    ]),
-  ]);
-}
-
-function renderOperationStrip() {
-  return h("div", { class: "desktop-file-operation-strip" }, [
-    renderOperationStatus("Knowledge upload", "Waiting"),
-    renderOperationStatus("Session upload", "Waiting"),
-    renderOperationStatus("Workspace import", "Waiting"),
-    h("p", {
-      id: "desktop-file-upload-status",
-      class: "desktop-file-upload-status",
-    }, "No file operation running."),
-  ]);
-}
-
-function renderOperationStatus(label: string, status: string) {
-  return h("div", { class: "desktop-file-operation-status" }, [
-    h("span", label),
-    h("strong", status),
-  ]);
-}
-
-function renderSessionFileList(activeSessionKey: string) {
-  return h("div", {
-    id: "desktop-session-file-list",
-    class: "desktop-session-file-list",
-    "aria-label": "Session temporary files",
-  }, activeSessionKey ? "Temporary files not loaded yet." : "Select a chat session to view temporary files.");
+  mountedChildren.push(mount(host));
 }

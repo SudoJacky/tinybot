@@ -16,6 +16,7 @@ describe("file actions surface Vue island", () => {
     expect(host.getAttribute("data-desktop-module-surface")).toBe("workspace knowledge");
     expect(host.querySelector("h2")?.textContent).toBe("File imports");
 
+    expect(host.querySelector("#desktop-knowledge-upload")?.closest(".desktop-file-import-card")?.getAttribute("data-desktop-vue-island")).toBe("file-import-card");
     expect(host.querySelector("#desktop-knowledge-upload")?.getAttribute("data-desktop-file-upload")).toBe("knowledge-document");
     expect(host.querySelector("#desktop-session-file-upload")?.getAttribute("data-desktop-file-upload")).toBe("session-temporary-file");
     expect(host.querySelector("#desktop-workspace-file-drop")?.getAttribute("href")).toBe("/workspace");
@@ -23,20 +24,24 @@ describe("file actions surface Vue island", () => {
 
     const sessionKey = host.querySelector<HTMLInputElement>("#desktop-session-upload-key");
     expect(sessionKey?.value).toBe("WebSocket:chat-live");
+    expect(sessionKey?.closest(".desktop-file-session-card")?.getAttribute("data-desktop-vue-island")).toBe("session-upload-card");
     expect(sessionKey?.getAttribute("readonly")).toBe("");
     expect(sessionKey?.getAttribute("data-active-session-key")).toBe("WebSocket:chat-live");
     expect(host.querySelector("#desktop-session-file-count")?.textContent).toContain("0");
     expect(host.querySelector("#desktop-session-files-refresh")?.getAttribute("data-desktop-session-files-refresh")).toBe("true");
 
     const operationStrip = host.querySelector(".desktop-file-operation-strip");
+    expect(operationStrip?.querySelector(".desktop-file-operation-status")?.getAttribute("data-desktop-vue-island")).toBe("file-operation-status");
     expect(operationStrip?.textContent).toContain("Knowledge upload");
     expect(operationStrip?.textContent).toContain("Session upload");
     expect(operationStrip?.textContent).toContain("Workspace import");
     expect(host.querySelector("#desktop-file-upload-status")?.textContent).toBe("No file operation running.");
+    expect(host.querySelector("#desktop-file-upload-status")?.getAttribute("data-desktop-vue-island")).toBe("file-upload-status");
 
     const sessionFiles = host.querySelector("#desktop-session-file-list");
+    expect(sessionFiles?.getAttribute("data-desktop-vue-island")).toBe("session-file-list");
     expect(sessionFiles?.getAttribute("aria-label")).toBe("Session temporary files");
-    expect(sessionFiles?.textContent).toContain("Temporary files not loaded yet.");
+    expect(sessionFiles?.textContent).toContain("No temporary files attached to this session.");
 
     mounted.unmount();
     expect(host.textContent).toBe("");
