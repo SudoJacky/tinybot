@@ -4147,7 +4147,19 @@ function createCommandPalette(targetDocument: Document): HTMLElement {
   status.textContent = "Type to search.";
 
   palette.append(header, input, results, status);
+  mountCommandPaletteVueIsland(palette);
   return palette;
+}
+
+function mountCommandPaletteVueIsland(palette: HTMLElement): void {
+  if (!canMountVueIsland(palette)) {
+    return;
+  }
+  void import("./native-vue/commandPaletteIsland").then(({ mountCommandPaletteIsland }) => {
+    mountCommandPaletteIsland(palette);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createInspector(
