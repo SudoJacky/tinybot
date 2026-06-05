@@ -2813,6 +2813,13 @@ function createProviderManagementSection(
   add.className = "desktop-settings-provider-add";
   add.setAttribute("type", "button");
   add.setAttribute("data-desktop-settings-action", "addProvider");
+  add.addEventListener("click", () => {
+    const providerId = promptForSettingsProviderId(targetDocument);
+    if (providerId) {
+      selectSettingsProvider(pane, settingsActions, providerId);
+      focusDesktopSettingsControl(targetDocument, "selectedProvider");
+    }
+  });
   add.textContent = "+ 添加提供商";
   tools.append(search, refresh, add);
   header.append(tools);
@@ -2820,8 +2827,11 @@ function createProviderManagementSection(
   const cards = targetDocument.createElement("div");
   cards.className = "desktop-settings-provider-grid";
   for (const provider of getProviderCards(pane)) {
-    cards.append(createProviderManagementCard(targetDocument, provider));
+    cards.append(createProviderManagementCard(targetDocument, pane, provider, settingsActions));
   }
+  search.addEventListener("input", () => {
+    filterSettingsProviderCards(cards, search.value);
+  });
 
   section.append(header, cards);
   return section;
@@ -2881,7 +2891,12 @@ function createDesktopSettingsModelSelect(
   return select;
 }
 
-function createProviderManagementCard(targetDocument: Document, provider: DesktopProviderCardModel): HTMLElement {
+function createProviderManagementCard(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  provider: DesktopProviderCardModel,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
   const card = targetDocument.createElement("article");
   card.className = "desktop-settings-provider-card";
   card.setAttribute("data-desktop-settings-provider-card", provider.id);
@@ -2910,10 +2925,19 @@ function createProviderManagementCard(targetDocument: Document, provider: Deskto
 
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-settings-provider-card-actions";
-  actions.append(createText(targetDocument, "button", "模型"), createText(targetDocument, "button", "设置"));
-  for (const button of actions.querySelectorAll("button")) {
-    button.setAttribute("type", "button");
-  }
+  const modelAction = createText(targetDocument, "button", "\u6a21\u578b");
+  modelAction.setAttribute("type", "button");
+  modelAction.setAttribute("data-desktop-settings-provider-action", "models");
+  modelAction.addEventListener("click", () => {
+    handleSettingsProviderCardAction(targetDocument, pane, settingsActions, provider.id, "model");
+  });
+  const settingsAction = createText(targetDocument, "button", "\u8bbe\u7f6e");
+  settingsAction.setAttribute("type", "button");
+  settingsAction.setAttribute("data-desktop-settings-provider-action", "settings");
+  settingsAction.addEventListener("click", () => {
+    handleSettingsProviderCardAction(targetDocument, pane, settingsActions, provider.id, "settings");
+  });
+  actions.replaceChildren(modelAction, settingsAction);
 
   card.append(header, details, actions);
   return card;
@@ -2924,6 +2948,51 @@ function createSettingsProviderDetail(targetDocument: Document, label: string, v
   row.className = "desktop-settings-provider-detail";
   row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
   return row;
+}
+
+function filterSettingsProviderCards(cards: HTMLElement, query: string): void {
+  const normalizedQuery = query.trim().toLowerCase();
+  for (const card of cards.querySelectorAll<HTMLElement>(".desktop-settings-provider-card")) {
+    const haystack = `${card.getAttribute("data-desktop-settings-provider-card") ?? ""} ${card.textContent ?? ""}`.toLowerCase();
+    card.hidden = Boolean(normalizedQuery) && !haystack.includes(normalizedQuery);
+  }
+}
+
+function promptForSettingsProviderId(targetDocument: Document): string | null {
+  const providerId = targetDocument.defaultView?.prompt("Provider ID", "")?.trim() ?? "";
+  return providerId || null;
+}
+
+function handleSettingsProviderCardAction(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+  providerId: string,
+  target: "model" | "settings",
+): void {
+  if (providerId !== pane.providerEditor.selectedProvider) {
+    selectSettingsProvider(pane, settingsActions, providerId);
+    focusDesktopSettingsControl(targetDocument, "selectedProvider");
+    return;
+  }
+  focusDesktopSettingsControl(targetDocument, target === "model" ? "model" : "apiBase");
+}
+
+function selectSettingsProvider(
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+  providerId: string,
+): void {
+  settingsActions.onSettingsAction?.({
+    action: "edit",
+    pane,
+    fieldId: "selectedProvider",
+    value: providerId,
+  });
+}
+
+function focusDesktopSettingsControl(targetDocument: Document, fieldId: string): void {
+  targetDocument.querySelector<HTMLElement>(`[data-desktop-settings-control="${fieldId}"]`)?.focus();
 }
 
 type DesktopSettingsPaneGroup = DesktopSettingsPaneModel["groups"][number];
