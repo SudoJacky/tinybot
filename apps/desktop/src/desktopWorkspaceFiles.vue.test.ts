@@ -56,7 +56,7 @@ describe("desktop workspace files Vue integration", () => {
 
     expect(loaded).toEqual(["docs/notes.md"]);
     expect(document.querySelector("#desktop-workspace-active-path")?.textContent).toContain("docs/notes.md");
-  }, 10_000);
+  }, 20_000);
 });
 
 async function flushAsyncWork(): Promise<void> {

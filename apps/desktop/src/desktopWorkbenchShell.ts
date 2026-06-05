@@ -1938,10 +1938,32 @@ function createToolsSkillsPane(
       });
       actionRow.append(button);
     }
+    mountToolsSkillsActionsVueIsland(actionRow, actions, pane, toolsSkillsActions);
     detail.append(actionRow);
     section.append(detail);
   }
   return section;
+}
+
+function mountToolsSkillsActionsVueIsland(
+  actionRow: HTMLElement,
+  actions: Array<[DesktopToolsSkillsActionId, string, boolean]>,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): void {
+  if (!canMountVueIsland(actionRow)) {
+    return;
+  }
+  void import("./native-vue/toolsSkillsActionsIsland").then(({ mountToolsSkillsActionsIsland }) => {
+    mountToolsSkillsActionsIsland(actionRow, {
+      actions: actions.map(([action, label, enabled]) => ({ action, label, enabled })),
+      onAction: (action) => {
+        toolsSkillsActions.onToolsSkillsAction?.({ action, pane });
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createKnowledgePane(
