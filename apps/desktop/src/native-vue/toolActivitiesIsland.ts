@@ -1,7 +1,7 @@
-import { createApp, defineComponent, h, type App } from "vue";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
 import { NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
-import { renderToolActivityNode, type ToolActivityIslandOptions } from "./toolActivityIsland";
+import { mountToolActivityIsland, renderToolActivityNode, type ToolActivityIslandOptions } from "./toolActivityIsland";
 
 export interface ToolActivitiesIslandOptions {
   activities: ToolActivityIslandOptions[];
@@ -31,8 +31,30 @@ function createToolActivitiesApp(options: ToolActivitiesIslandOptions): App {
   return createApp(defineComponent({
     name: "ToolActivitiesIsland",
     setup() {
+      const activityHosts = ref<Array<HTMLElement | null>>([]);
+      const mountedChildren: Array<{ unmount: () => void }> = [];
+
+      onMounted(() => {
+        options.activities.forEach((activity, index) => {
+          mountChild(mountedChildren, activityHosts.value[index] ?? null, (host) => mountToolActivityIsland(host, activity));
+        });
+      });
+
+      onBeforeUnmount(() => {
+        while (mountedChildren.length) {
+          mountedChildren.pop()?.unmount();
+        }
+      });
+
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => renderToolActivitiesChildren(options),
+        default: () => options.activities.map((activity, index) => h("details", {
+          ref: (element) => {
+            activityHosts.value[index] = element as HTMLElement | null;
+          },
+          class: "desktop-tool-activity",
+          "data-desktop-tool-activity-id": activity.id || undefined,
+          "data-desktop-tool-activity-kind": activity.kind,
+        })),
       });
     },
   }));
@@ -44,4 +66,15 @@ export function renderToolActivitiesNode(options: ToolActivitiesIslandOptions) {
 
 export function renderToolActivitiesChildren(options: ToolActivitiesIslandOptions) {
   return options.activities.map((activity) => renderToolActivityNode(activity));
+}
+
+function mountChild<T extends { unmount: () => void }>(
+  mountedChildren: Array<{ unmount: () => void }>,
+  host: HTMLElement | null,
+  mount: (host: HTMLElement) => T,
+): void {
+  if (!host) {
+    return;
+  }
+  mountedChildren.push(mount(host));
 }
