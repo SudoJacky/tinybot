@@ -119,12 +119,19 @@ describe("cowork pane Vue island", () => {
     expect(host.getAttribute("aria-label")).toBe("Cowork cockpit");
     expect(host.textContent).toContain("Cowork");
 
+    expect(host.querySelector(".desktop-cowork-sessions")?.getAttribute("data-desktop-vue-island")).toBe("cowork-sessions");
     expect(host.querySelector('[data-desktop-cowork-session="cowork-1"]')?.textContent).toContain("Desktop migration");
+    expect(host.querySelector(".desktop-cowork-header")?.getAttribute("data-desktop-vue-island")).toBe("cowork-header");
     expect(host.querySelector(".desktop-cowork-header")?.textContent).toContain("Desktop migration");
+    expect(host.querySelector(".desktop-cowork-actions")?.getAttribute("data-desktop-vue-island")).toBe("cowork-actions");
     expect(host.querySelector(".desktop-cowork-actions")?.textContent).toContain("Blueprint ready");
+    expect(host.querySelector(".desktop-cowork-graph")?.getAttribute("data-desktop-vue-island")).toBe("cowork-graph");
     expect(host.querySelector('[data-desktop-cowork-entity="task-1"]')?.textContent).toContain("Map helpers");
+    expect(host.querySelector(".desktop-cowork-observability")?.getAttribute("data-desktop-vue-island")).toBe("cowork-observability");
     expect(host.querySelector(".desktop-cowork-observability")?.textContent).toContain("Observability");
+    expect(host.querySelector(".desktop-cowork-inspector")?.getAttribute("data-desktop-vue-island")).toBe("cowork-inspector");
     expect(host.querySelector(".desktop-cowork-inspector")?.textContent).toContain("Selected: Review blocker");
+    expect(host.querySelector(".desktop-cowork-task-feed")?.getAttribute("data-desktop-vue-island")).toBe("cowork-task-feed");
     expect(host.querySelector(".desktop-cowork-task-feed")?.textContent).toContain("agents");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-cowork-session="cowork-1"]')?.click();
