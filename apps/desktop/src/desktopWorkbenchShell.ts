@@ -600,7 +600,19 @@ function createSidebarActions(targetDocument: Document): HTMLElement {
   search.setAttribute("placeholder", "Search");
 
   section.append(newChat, search);
+  mountSidebarActionsVueIsland(section);
   return section;
+}
+
+function mountSidebarActionsVueIsland(section: HTMLElement): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/sidebarActionsIsland").then(({ mountSidebarActionsIsland }) => {
+    mountSidebarActionsIsland(section);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
