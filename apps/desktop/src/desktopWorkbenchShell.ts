@@ -4870,7 +4870,19 @@ function createTaskStateBadge(targetDocument: Document, item: DesktopTaskCenterI
   badge.className = "desktop-task-state-badge";
   badge.setAttribute("data-desktop-task-state-badge", item.state);
   badge.textContent = item.state;
+  mountTaskStateBadgeVueIsland(badge, item.state);
   return badge;
+}
+
+function mountTaskStateBadgeVueIsland(badge: HTMLElement, state: string): void {
+  if (!canMountVueIsland(badge)) {
+    return;
+  }
+  void import("./native-vue/taskStateBadgeIsland").then(({ mountTaskStateBadgeIsland }) => {
+    mountTaskStateBadgeIsland(badge, { state });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createTaskAction(
