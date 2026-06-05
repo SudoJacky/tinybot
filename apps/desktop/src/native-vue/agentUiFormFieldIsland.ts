@@ -35,18 +35,26 @@ function createAgentUiFormFieldApp(options: AgentUiFormFieldIslandOptions): App 
     name: "AgentUiFormFieldIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h(NText, { tag: "span" }, { default: () => options.field.label || options.field.name }),
-          renderControl(options),
-          options.field.help ? h(NText, { depth: 3, tag: "span" }, { default: () => options.field.help }) : null,
-          options.error ? h(NText, { class: "desktop-agent-ui-form-error", tag: "span", type: "error" }, { default: () => options.error }) : null,
-        ],
+        default: () => renderAgentUiFormFieldChildren(options),
       });
     },
   }));
 }
 
-function renderControl(options: AgentUiFormFieldIslandOptions) {
+export function renderAgentUiFormFieldNode(options: AgentUiFormFieldIslandOptions) {
+  return h("label", { class: "desktop-agent-ui-form-field" }, renderAgentUiFormFieldChildren(options));
+}
+
+export function renderAgentUiFormFieldChildren(options: AgentUiFormFieldIslandOptions) {
+  return [
+    h(NText, { tag: "span" }, { default: () => options.field.label || options.field.name }),
+    renderControl(options),
+    options.field.help ? h(NText, { depth: 3, tag: "span" }, { default: () => options.field.help }) : null,
+    options.error ? h(NText, { class: "desktop-agent-ui-form-error", tag: "span", type: "error" }, { default: () => options.error }) : null,
+  ];
+}
+
+export function renderControl(options: AgentUiFormFieldIslandOptions) {
   const field = options.field;
   const value = options.value ?? "";
   const shared = {

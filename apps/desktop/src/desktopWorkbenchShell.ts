@@ -2345,7 +2345,38 @@ function createAgentUiFormCard(
   }
 
   card.append(formElement);
+  mountAgentUiFormCardVueIsland(card, {
+    form,
+    onCancel: (nextForm) => {
+      agentUiActions.onAgentUiFormAction?.({ action: "cancel", form: nextForm });
+    },
+    onSubmit: (nextForm, values) => {
+      agentUiActions.onAgentUiFormAction?.({
+        action: "submit",
+        form: nextForm,
+        values,
+      });
+    },
+  });
   return card;
+}
+
+function mountAgentUiFormCardVueIsland(
+  card: HTMLElement,
+  options: {
+    form: AgentUiForm;
+    onCancel: (form: AgentUiForm) => void;
+    onSubmit: (form: AgentUiForm, values: Record<string, unknown>) => void;
+  },
+): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  void import("./native-vue/agentUiFormCardIsland").then(({ mountAgentUiFormCardIsland }) => {
+    mountAgentUiFormCardIsland(card, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountAgentUiFormActionsVueIsland(

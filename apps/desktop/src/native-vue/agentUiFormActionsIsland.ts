@@ -34,24 +34,32 @@ function createAgentUiFormActionsApp(options: AgentUiFormActionsIslandOptions): 
     name: "AgentUiFormActionsIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NSpace, { size: 8 }, {
-          default: () => [
-            h(NButton, {
-              "data-agent-ui-form-action": "submit",
-              secondary: true,
-              size: "small",
-              type: "primary",
-              onClick: () => options.onSubmit?.(),
-            }, { default: () => options.submitLabel || "Submit" }),
-            h(NButton, {
-              "data-agent-ui-form-action": "cancel",
-              secondary: true,
-              size: "small",
-              onClick: () => options.onCancel?.(),
-            }, { default: () => options.cancelLabel || "Cancel" }),
-          ],
-        }),
+        default: () => renderAgentUiFormActionsChildren(options),
       });
     },
   }));
+}
+
+export function renderAgentUiFormActionsNode(options: AgentUiFormActionsIslandOptions) {
+  return h("div", { class: "desktop-agent-ui-form-actions" }, renderAgentUiFormActionsChildren(options));
+}
+
+export function renderAgentUiFormActionsChildren(options: AgentUiFormActionsIslandOptions) {
+  return h(NSpace, { size: 8 }, {
+    default: () => [
+      h(NButton, {
+        "data-agent-ui-form-action": "submit",
+        secondary: true,
+        size: "small",
+        type: "primary",
+        onClick: () => options.onSubmit?.(),
+      }, { default: () => options.submitLabel || "Submit" }),
+      h(NButton, {
+        "data-agent-ui-form-action": "cancel",
+        secondary: true,
+        size: "small",
+        onClick: () => options.onCancel?.(),
+      }, { default: () => options.cancelLabel || "Cancel" }),
+    ],
+  });
 }
