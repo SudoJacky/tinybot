@@ -41,14 +41,27 @@ function createComposerRuntimeApp(options: ComposerRuntimeIslandOptions): App {
     name: "ComposerRuntimeIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          renderModelControl(options.model),
-          renderPersistentRagToggle(options),
-          renderTokenUsageOrb(options.tokenUsage),
-        ],
+        default: () => renderComposerRuntimeContent(options),
       });
     },
   }));
+}
+
+export function renderComposerRuntimeSurface(options: ComposerRuntimeIslandOptions) {
+  return h("div", {
+    id: "desktop-native-composer-runtime",
+    class: "desktop-native-composer-runtime",
+    "data-desktop-composer-region": "runtime-status",
+    "aria-label": "Runtime status",
+  }, renderComposerRuntimeContent(options));
+}
+
+export function renderComposerRuntimeContent(options: ComposerRuntimeIslandOptions) {
+  return [
+    renderModelControl(options.model),
+    renderPersistentRagToggle(options),
+    renderTokenUsageOrb(options.tokenUsage),
+  ];
 }
 
 function renderModelControl(model?: string | null) {

@@ -2247,7 +2247,33 @@ function createNativeComposerSurface(
   mountComposerRuntimeVueIsland(runtime, chat, chatActions);
 
   composer.append(input, attach, runtime, send);
+  mountComposerSurfaceVueIsland(composer, chat, chatActions);
   return composer;
+}
+
+function mountComposerSurfaceVueIsland(
+  composer: HTMLElement,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  if (!canMountVueIsland(composer)) {
+    return;
+  }
+  void import("./native-vue/composerSurfaceIsland").then(({ mountComposerSurfaceIsland }) => {
+    mountComposerSurfaceIsland(composer, {
+      activeSessionKey: chat?.activeSessionKey || null,
+      composerState: nativeComposerState(chat),
+      model: chat?.runtime?.model || null,
+      responding: chat?.responding === true,
+      tokenUsage: chat?.runtime?.tokenUsage || "-",
+      usePersistentRag: chat?.usePersistentRag !== false,
+      onAttach: () => chatActions.onAttachSessionFile?.(),
+      onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
+      onSend: (event) => chatActions.onComposerSubmit?.(event),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountComposerSendButtonVueIsland(
