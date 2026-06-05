@@ -721,15 +721,18 @@ function createRecentChatRow(
   row.setAttribute("data-desktop-route-id", routeId);
   row.setAttribute("data-pinned", String(pinned));
 
+  const title = session.title || "New session";
+  const href = `/chat/${encodeURIComponent(routeId)}`;
+  const updatedLabel = session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId;
+
   const link = targetDocument.createElement("a");
   link.className = "desktop-sidebar-row desktop-sidebar-row-main";
-  link.setAttribute("href", `/chat/${encodeURIComponent(routeId)}`);
+  link.setAttribute("href", href);
   link.setAttribute("data-active", String(active));
   link.setAttribute("data-sidebar-row-kind", "chat");
   link.setAttribute("data-desktop-entity-module", "chat");
   link.setAttribute("data-desktop-entity-id", routeId);
 
-  const title = session.title || "New session";
   const titleWrap = targetDocument.createElement("span");
   titleWrap.className = "desktop-sidebar-row-title";
   const label = targetDocument.createElement("span");
@@ -739,7 +742,7 @@ function createRecentChatRow(
   setSessionRowPinIcon(targetDocument, titleWrap, pinned);
   const time = targetDocument.createElement("span");
   time.className = "desktop-sidebar-row-meta";
-  time.textContent = session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId;
+  time.textContent = updatedLabel;
   link.append(titleWrap, time);
 
   const deleteButton = targetDocument.createElement("button");
@@ -770,7 +773,42 @@ function createRecentChatRow(
   });
 
   row.append(link, deleteButton);
+  mountRecentChatRowVueIsland(row, {
+    active,
+    chatId: session.chatId,
+    href,
+    onDeleteSession: chatActions.onDeleteSession,
+    pinned,
+    routeId,
+    sessionKey: session.key,
+    title,
+    updatedLabel,
+  });
   return row;
+}
+
+function mountRecentChatRowVueIsland(
+  row: HTMLElement,
+  options: {
+    active: boolean;
+    chatId: string;
+    href: string;
+    onDeleteSession?: (event: { chatId: string; sessionKey: string; title: string }) => void;
+    pinned: boolean;
+    routeId: string;
+    sessionKey: string;
+    title: string;
+    updatedLabel: string;
+  },
+): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  void import("./native-vue/recentChatRowIsland").then(({ mountRecentChatRowIsland }) => {
+    mountRecentChatRowIsland(row, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSidebarSectionHeading(targetDocument: Document, title: string, action?: string): HTMLElement {
