@@ -37,11 +37,16 @@ describe("sidebar content Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("sidebar-content");
     expect(host.className).toBe("desktop-sidebar-content");
+    expect(host.querySelector(".desktop-sidebar-actions")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-actions");
     expect(host.querySelector(".desktop-sidebar-primary-action")?.getAttribute("href")).toBe("/chat/new");
     expect(host.querySelector(".desktop-sidebar-search")?.getAttribute("type")).toBe("search");
+    expect(host.querySelector(".desktop-sidebar-list-section-workspaces")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-workspace-list");
     expect(host.querySelector(".desktop-workspace-list")?.textContent).toContain("tinybot");
+    expect(host.querySelector(".desktop-sidebar-list-section-recent")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-recent-chats");
     expect(host.querySelector("[data-desktop-session-key]")?.getAttribute("data-pinned")).toBe("true");
+    expect(host.querySelector('[data-sidebar-item-id="workspace"]')?.closest(".desktop-workbench-section")?.getAttribute("data-desktop-vue-island")).toBe("shared-sidebar-links");
     expect(host.querySelector('[data-sidebar-item-id="workspace"]')?.getAttribute("href")).toBe("/workspace");
+    expect(host.querySelector('[data-sidebar-command="open-settings"]')?.closest(".desktop-workbench-section")?.getAttribute("data-desktop-vue-island")).toBe("shared-sidebar-commands");
 
     host.querySelector<HTMLButtonElement>('[data-sidebar-command="open-settings"]')?.click();
     expect(commands).toEqual([{ id: "open-settings", source: "native-sidebar" }]);

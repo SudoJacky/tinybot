@@ -1,10 +1,10 @@
-import { createApp, defineComponent, h, type App } from "vue";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
 import { NConfigProvider } from "naive-ui";
-import { renderSharedSidebarCommandsSection, type SharedSidebarCommandItem } from "./sharedSidebarCommandsIsland";
-import { renderSharedSidebarLinksSection, type SharedSidebarLinkItem } from "./sharedSidebarLinksIsland";
-import { renderSidebarActionsContent } from "./sidebarActionsIsland";
-import { renderSidebarRecentChatsSection, type SidebarRecentChatRow } from "./sidebarRecentChatsIsland";
-import { renderSidebarWorkspaceListSection, type SidebarWorkspaceListRow } from "./sidebarWorkspaceListIsland";
+import { mountSharedSidebarCommandsIsland, type SharedSidebarCommandItem } from "./sharedSidebarCommandsIsland";
+import { mountSharedSidebarLinksIsland, type SharedSidebarLinkItem } from "./sharedSidebarLinksIsland";
+import { mountSidebarActionsIsland } from "./sidebarActionsIsland";
+import { mountSidebarRecentChatsIsland, type SidebarRecentChatRow } from "./sidebarRecentChatsIsland";
+import { mountSidebarWorkspaceListIsland, type SidebarWorkspaceListRow } from "./sidebarWorkspaceListIsland";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface SidebarContentIslandOptions {
@@ -44,19 +44,58 @@ function createSidebarContentApp(options: Required<SidebarContentIslandOptions>)
   return createApp(defineComponent({
     name: "SidebarContentIsland",
     setup() {
+      const mountedChildren: Array<{ unmount: () => void }> = [];
+      const actions = ref<HTMLElement | null>(null);
+      const workspaces = ref<HTMLElement | null>(null);
+      const recent = ref<HTMLElement | null>(null);
+      const links = ref<HTMLElement | null>(null);
+      const commands = ref<HTMLElement | null>(null);
+
+      onMounted(() => {
+        mountChild(mountedChildren, actions.value, (host) => mountSidebarActionsIsland(host));
+        mountChild(mountedChildren, workspaces.value, (host) => mountSidebarWorkspaceListIsland(host, {
+          rows: options.workspaceRows,
+        }));
+        mountChild(mountedChildren, recent.value, (host) => mountSidebarRecentChatsIsland(host, {
+          rows: options.recentChats,
+        }));
+        mountChild(mountedChildren, links.value, (host) => mountSharedSidebarLinksIsland(host, {
+          items: options.resourceItems,
+          label: options.resourceLabel,
+        }));
+        mountChild(mountedChildren, commands.value, (host) => mountSharedSidebarCommandsIsland(host, {
+          items: options.commandItems,
+          label: options.commandLabel,
+          targetDocument: options.targetDocument,
+        }));
+      });
+
+      onBeforeUnmount(() => {
+        while (mountedChildren.length) {
+          mountedChildren.pop()?.unmount();
+        }
+      });
+
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          h("section", { class: "desktop-sidebar-actions" }, renderSidebarActionsContent()),
-          renderSidebarWorkspaceListSection({ rows: options.workspaceRows }),
-          renderSidebarRecentChatsSection({ rows: options.recentChats }),
-          renderSharedSidebarLinksSection({ items: options.resourceItems, label: options.resourceLabel }),
-          renderSharedSidebarCommandsSection({
-            items: options.commandItems,
-            label: options.commandLabel,
-            targetDocument: options.targetDocument,
-          }),
+          h("section", { ref: actions }),
+          h("section", { ref: workspaces }),
+          h("section", { ref: recent }),
+          h("section", { ref: links }),
+          h("section", { ref: commands }),
         ],
       });
     },
   }));
+}
+
+function mountChild<T extends { unmount: () => void }>(
+  mountedChildren: Array<{ unmount: () => void }>,
+  host: HTMLElement | null,
+  mount: (host: HTMLElement) => T,
+): void {
+  if (!host) {
+    return;
+  }
+  mountedChildren.push(mount(host));
 }
