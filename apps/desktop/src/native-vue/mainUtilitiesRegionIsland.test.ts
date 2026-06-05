@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import {
   buildDesktopSettingsFormState,
   buildDesktopSettingsPaneModel,
@@ -50,7 +51,7 @@ const approvalForm: AgentUiForm = {
 };
 
 describe("main utilities region Vue island", () => {
-  test("composes utility surfaces and forwards child actions", () => {
+  test("composes utility surfaces and forwards child actions", async () => {
     const host = document.createElement("div");
     const helpActions: string[] = [];
     const formActions: string[] = [];
@@ -65,6 +66,8 @@ describe("main utilities region Vue island", () => {
       onHelpAction: (action) => helpActions.push(action),
       onSettingsAction: (event: DesktopSettingsActionEvent) => settingsActions.push(event.action),
     });
+    await nextTick();
+    await nextTick();
 
     expect(host.className).toBe("desktop-utility-surfaces");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("main-utilities-region");
