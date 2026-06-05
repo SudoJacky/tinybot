@@ -1,10 +1,12 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NButton, NConfigProvider, NSpace, NTag } from "naive-ui";
+import { NConfigProvider, NSpace } from "naive-ui";
 import type {
   DesktopTaskActionId,
   DesktopTaskCenterItem,
 } from "../desktopTaskCenter";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
+import { renderTaskActionSurface } from "./taskActionIsland";
+import { renderTaskStateBadgeSurface } from "./taskStateBadgeIsland";
 
 export interface TaskCenterIslandActionEvent {
   action: DesktopTaskActionId;
@@ -82,13 +84,7 @@ function renderTaskItem(item: DesktopTaskCenterItem, options: TaskCenterIslandOp
   }, [
     h("div", { class: "desktop-task-center-item-heading" }, [
       h("h2", item.title),
-      h(NTag, {
-        class: "desktop-task-state-badge",
-        "data-desktop-task-state-badge": item.state,
-        size: "small",
-        round: true,
-        type: taskTagType(item.state),
-      }, { default: () => item.state }),
+      renderTaskStateBadgeSurface({ state: item.state }),
     ]),
     h("p", { class: "desktop-task-center-detail" }, [
       formatTaskSource(item.source),
@@ -113,28 +109,14 @@ function renderTaskAction(
   label: string,
   options: TaskCenterIslandOptions,
 ) {
-  const commonProps = {
-    class: "desktop-task-action",
-    "data-desktop-task-action": action,
-    "data-desktop-task-id": item.id,
-    "data-desktop-task-source": item.source,
-  };
-  if (action === "open") {
-    return h("a", {
-      ...commonProps,
-      href: item.destination.href ?? `/${item.destination.module}`,
-    }, label);
-  }
-  return h(NButton, {
-    ...commonProps,
-    size: "tiny",
-    secondary: true,
-    type: actionType(action),
-    onClick: (event: Event) => {
-      event.preventDefault();
-      options.onAction?.({ action, item });
-    },
-  }, { default: () => label });
+  return renderTaskActionSurface({
+    action,
+    href: action === "open" ? item.destination.href ?? `/${item.destination.module}` : undefined,
+    itemId: item.id,
+    itemSource: item.source,
+    label,
+    onAction: (nextAction) => options.onAction?.({ action: nextAction as DesktopTaskActionId, item }),
+  });
 }
 
 function taskCenterSummary(items: DesktopTaskCenterItem[]): string {
@@ -152,33 +134,4 @@ function formatTaskSource(source: DesktopTaskCenterItem["source"]): string {
     return "Cowork";
   }
   return source[0].toUpperCase() + source.slice(1);
-}
-
-function taskTagType(state: DesktopTaskCenterItem["state"]): "default" | "error" | "info" | "success" | "warning" {
-  if (state === "failed") {
-    return "error";
-  }
-  if (state === "blocked") {
-    return "warning";
-  }
-  if (state === "completed") {
-    return "success";
-  }
-  if (state === "active") {
-    return "info";
-  }
-  return "default";
-}
-
-function actionType(action: DesktopTaskActionId): "primary" | "default" | "error" | "warning" {
-  if (action === "retry") {
-    return "primary";
-  }
-  if (action === "cancel") {
-    return "warning";
-  }
-  if (action === "dismiss") {
-    return "default";
-  }
-  return "default";
 }

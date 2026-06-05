@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider, NText } from "naive-ui";
+import { NButton, NConfigProvider, NText } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface TaskActionIslandOptions {
@@ -50,8 +50,49 @@ function createTaskActionApp(options: TaskActionIslandOptions): App {
     name: "TaskActionIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NText, { strong: true }, { default: () => options.label }),
+        default: () => renderTaskActionContent(options),
       });
     },
   }));
+}
+
+export function renderTaskActionSurface(options: TaskActionIslandOptions) {
+  const attrs = {
+    class: "desktop-task-action",
+    "data-desktop-vue-island": "task-action",
+    "data-desktop-task-action": options.action,
+    "data-desktop-task-id": options.itemId,
+    "data-desktop-task-source": options.itemSource,
+  };
+  const children = renderTaskActionContent(options);
+  if (options.action === "open" && options.href) {
+    return h("a", {
+      ...attrs,
+      href: options.href,
+    }, children);
+  }
+  return h(NButton, {
+    ...attrs,
+    size: "tiny",
+    secondary: true,
+    type: actionType(options.action),
+    onClick: (event: Event) => {
+      event.preventDefault();
+      options.onAction?.(options.action);
+    },
+  }, { default: () => children });
+}
+
+function renderTaskActionContent(options: TaskActionIslandOptions) {
+  return h(NText, { strong: true }, { default: () => options.label });
+}
+
+function actionType(action: string): "primary" | "default" | "error" | "warning" {
+  if (action === "retry") {
+    return "primary";
+  }
+  if (action === "cancel") {
+    return "warning";
+  }
+  return "default";
 }

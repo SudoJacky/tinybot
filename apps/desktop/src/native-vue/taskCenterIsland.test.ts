@@ -48,6 +48,8 @@ describe("task center Vue island", () => {
     ]);
     expect(host.querySelector('[data-desktop-task-id="chat:stream:chat-1"]')?.textContent).toContain("42%");
     expect(host.querySelector('[data-desktop-task-id="file:workspace:AGENTS.md:save"]')?.textContent).toContain("HTTP 409");
+    expect(host.querySelector('[data-desktop-task-id="file:workspace:AGENTS.md:save"] .desktop-task-state-badge')?.getAttribute("data-desktop-vue-island")).toBe("task-state-badge");
+    expect(host.querySelector('[data-desktop-task-id="file:workspace:AGENTS.md:save"][data-desktop-task-action="retry"]')?.getAttribute("data-desktop-vue-island")).toBe("task-action");
     expect(host.querySelector<HTMLAnchorElement>('[data-desktop-task-id="file:workspace:AGENTS.md:save"][data-desktop-task-action="open"]')?.getAttribute("href")).toBe("/workspace");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-task-id="file:workspace:AGENTS.md:save"][data-desktop-task-action="retry"]')?.click();
