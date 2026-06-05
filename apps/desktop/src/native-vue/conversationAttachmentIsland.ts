@@ -32,14 +32,22 @@ function createConversationAttachmentApp(options: ConversationAttachmentIslandOp
     name: "ConversationAttachmentIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h(NText, { tag: "span" }, { default: () => options.name }),
-          options.sizeLabel ? "  " : "",
-          options.sizeLabel
-            ? h(NTag, { bordered: false, round: true, size: "small" }, { default: () => options.sizeLabel })
-            : null,
-        ],
+        default: () => renderConversationAttachmentChildren(options),
       });
     },
   }));
+}
+
+export function renderConversationAttachmentNode(options: ConversationAttachmentIslandOptions) {
+  return h("div", { class: "desktop-conversation-attachment" }, renderConversationAttachmentChildren(options));
+}
+
+export function renderConversationAttachmentChildren(options: ConversationAttachmentIslandOptions) {
+  return [
+    h(NText, { tag: "span" }, { default: () => options.name }),
+    options.sizeLabel ? "  " : "",
+    options.sizeLabel
+      ? h(NTag, { bordered: false, round: true, size: "small" }, { default: () => options.sizeLabel })
+      : null,
+  ];
 }

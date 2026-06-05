@@ -32,8 +32,16 @@ function createToolActivitiesApp(options: ToolActivitiesIslandOptions): App {
     name: "ToolActivitiesIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => options.activities.map((activity) => renderToolActivityNode(activity)),
+        default: () => renderToolActivitiesChildren(options),
       });
     },
   }));
+}
+
+export function renderToolActivitiesNode(options: ToolActivitiesIslandOptions) {
+  return h("div", { class: "desktop-tool-activities" }, renderToolActivitiesChildren(options));
+}
+
+export function renderToolActivitiesChildren(options: ToolActivitiesIslandOptions) {
+  return options.activities.map((activity) => renderToolActivityNode(activity));
 }

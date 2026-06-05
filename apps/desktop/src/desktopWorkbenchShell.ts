@@ -1538,7 +1538,58 @@ function createConversationMessage(
     content.append(attachment);
   }
   article.append(content);
+  mountConversationMessageVueIsland(article, {
+    attachment: options.attachment,
+    author: options.author,
+    body: options.body,
+    references: (options.references ?? []).map((reference) => ({
+      detail: reference.detail ?? "",
+      kind: reference.kind,
+      title: reference.title,
+    })),
+    reasoningContent: options.reasoningContent,
+    time: options.time,
+    tone: options.tone,
+    toolActivities: (options.toolActivities ?? []).map((activity) => ({
+      argsText: activity.argsText || "",
+      approvalStatus: activity.approvalStatus || "",
+      id: activity.id || "",
+      kind: activity.kind,
+      name: activity.name || "",
+      responseText: activity.responseText || "",
+    })),
+  });
   return article;
+}
+
+function mountConversationMessageVueIsland(
+  message: HTMLElement,
+  options: {
+    attachment?: string;
+    author: string;
+    body: string[];
+    references: Array<{ detail: string; kind: string; title: string }>;
+    reasoningContent?: string;
+    time: string;
+    tone: "assistant" | "user";
+    toolActivities: Array<{
+      argsText: string;
+      approvalStatus: string;
+      id: string;
+      kind: "call" | "result";
+      name: string;
+      responseText: string;
+    }>;
+  },
+): void {
+  if (!canMountVueIsland(message)) {
+    return;
+  }
+  void import("./native-vue/conversationMessageIsland").then(({ mountConversationMessageIsland }) => {
+    mountConversationMessageIsland(message, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountConversationMetaVueIsland(meta: HTMLElement, options: { author: string; time: string }): void {

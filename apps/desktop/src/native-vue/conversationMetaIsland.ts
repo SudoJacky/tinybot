@@ -32,11 +32,19 @@ function createConversationMetaApp(options: ConversationMetaIslandOptions): App 
     name: "ConversationMetaIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h(NText, { strong: true, tag: "strong" }, { default: () => options.author }),
-          h(NText, { depth: 3, tag: "span" }, { default: () => options.time }),
-        ],
+        default: () => renderConversationMetaChildren(options),
       });
     },
   }));
+}
+
+export function renderConversationMetaNode(options: ConversationMetaIslandOptions) {
+  return h("div", { class: "desktop-conversation-meta" }, renderConversationMetaChildren(options));
+}
+
+export function renderConversationMetaChildren(options: ConversationMetaIslandOptions) {
+  return [
+    h(NText, { strong: true, tag: "strong" }, { default: () => options.author }),
+    h(NText, { depth: 3, tag: "span" }, { default: () => options.time }),
+  ];
 }

@@ -33,18 +33,26 @@ function createConversationReferenceApp(options: ConversationReferenceIslandOpti
     name: "ConversationReferenceIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h(NTag, {
-            bordered: false,
-            round: true,
-            size: "small",
-          }, { default: () => `${options.kind}:` }),
-          " ",
-          h(NText, { tag: "span" }, { default: () => conversationReferenceText(options) }),
-        ],
+        default: () => renderConversationReferenceChildren(options),
       });
     },
   }));
+}
+
+export function renderConversationReferenceNode(options: ConversationReferenceIslandOptions) {
+  return h("p", { class: "desktop-conversation-reference" }, renderConversationReferenceChildren(options));
+}
+
+export function renderConversationReferenceChildren(options: ConversationReferenceIslandOptions) {
+  return [
+    h(NTag, {
+      bordered: false,
+      round: true,
+      size: "small",
+    }, { default: () => `${options.kind}:` }),
+    " ",
+    h(NText, { tag: "span" }, { default: () => conversationReferenceText(options) }),
+  ];
 }
 
 function conversationReferenceText(options: ConversationReferenceIslandOptions): string {

@@ -31,14 +31,22 @@ function createConversationReasoningApp(options: ConversationReasoningIslandOpti
     name: "ConversationReasoningIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("summary", { class: "desktop-message-reasoning-summary" }, [
-            h(NText, { class: "desktop-message-reasoning-title", tag: "span" }, { default: () => "Thinking" }),
-            h(NText, { class: "desktop-message-reasoning-meta", depth: 3, tag: "span" }, { default: () => "Show details" }),
-          ]),
-          h(NText, { class: "desktop-message-reasoning-body", tag: "div" }, { default: () => options.content }),
-        ],
+        default: () => renderConversationReasoningChildren(options),
       });
     },
   }));
+}
+
+export function renderConversationReasoningNode(options: ConversationReasoningIslandOptions) {
+  return h("details", { class: "desktop-message-reasoning" }, renderConversationReasoningChildren(options));
+}
+
+export function renderConversationReasoningChildren(options: ConversationReasoningIslandOptions) {
+  return [
+    h("summary", { class: "desktop-message-reasoning-summary" }, [
+      h(NText, { class: "desktop-message-reasoning-title", tag: "span" }, { default: () => "Thinking" }),
+      h(NText, { class: "desktop-message-reasoning-meta", depth: 3, tag: "span" }, { default: () => "Show details" }),
+    ]),
+    h(NText, { class: "desktop-message-reasoning-body", tag: "div" }, { default: () => options.content }),
+  ];
 }

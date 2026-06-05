@@ -33,20 +33,42 @@ function createConversationBodyApp(options: ConversationBodyIslandOptions): App 
   return createApp(defineComponent({
     name: "ConversationBodyIsland",
     setup() {
-      const markdownHost = ref<HTMLElement | null>(null);
-      onMounted(() => {
-        if (options.tone === "assistant" && markdownHost.value) {
-          renderConversationMarkdown(markdownHost.value, conversationBodyContent(options.body));
-        }
-      });
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => options.tone === "assistant"
-          ? h("div", { ref: markdownHost })
-          : options.body.filter((line) => line.trim()).map((line) => h(NText, { tag: "p" }, { default: () => line })),
+        default: () => renderConversationBodyChildren(options),
       });
     },
   }));
 }
+
+export function renderConversationBodyNode(options: ConversationBodyIslandOptions) {
+  return h("div", { class: "desktop-conversation-body" }, renderConversationBodyChildren(options));
+}
+
+export function renderConversationBodyChildren(options: ConversationBodyIslandOptions) {
+  if (options.tone === "assistant") {
+    return h(ConversationMarkdownBody, { content: conversationBodyContent(options.body) });
+  }
+  return options.body.filter((line) => line.trim()).map((line) => h(NText, { tag: "p" }, { default: () => line }));
+}
+
+const ConversationMarkdownBody = defineComponent({
+  name: "ConversationMarkdownBody",
+  props: {
+    content: {
+      required: true,
+      type: String,
+    },
+  },
+  setup(props) {
+    const markdownHost = ref<HTMLElement | null>(null);
+    onMounted(() => {
+      if (markdownHost.value) {
+        renderConversationMarkdown(markdownHost.value, props.content);
+      }
+    });
+    return () => h("div", { ref: markdownHost });
+  },
+});
 
 function conversationBodyContent(body: string[]): string {
   return body.filter((line) => line.trim()).join("\n\n");
