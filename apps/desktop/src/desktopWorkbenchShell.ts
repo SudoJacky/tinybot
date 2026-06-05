@@ -1321,11 +1321,11 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
   thread.setAttribute("aria-label", "Conversation");
   if (chat) {
     if (!chat.activeSessionKey) {
-      thread.append(createText(targetDocument, "p", "No live session selected."));
+      renderConversationEmptyState(targetDocument, thread, "No live session selected.");
       return thread;
     }
     if (!chat.messages.length) {
-      thread.append(createText(targetDocument, "p", "No messages in this session."));
+      renderConversationEmptyState(targetDocument, thread, "No messages in this session.");
       return thread;
     }
     thread.append(...chat.messages.map((message) => createConversationMessage(targetDocument, {
@@ -1361,6 +1361,18 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
     }),
   );
   return thread;
+}
+
+function renderConversationEmptyState(targetDocument: Document, thread: HTMLElement, message: string): void {
+  thread.append(createText(targetDocument, "p", message));
+  if (!canMountVueIsland(thread)) {
+    return;
+  }
+  void import("./native-vue/conversationEmptyStateIsland").then(({ mountConversationEmptyStateIsland }) => {
+    mountConversationEmptyStateIsland(thread, { message });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function shouldRenderConversationBody(message: NativeChatMessage): boolean {
