@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import { mountConversationMessageIsland } from "./conversationMessageIsland";
 
 describe("conversation message Vue island", () => {
-  test("renders composed assistant message content", () => {
+  test("renders composed assistant message content", async () => {
     const host = document.createElement("article");
 
     const mounted = mountConversationMessageIsland(host, {
@@ -15,10 +16,15 @@ describe("conversation message Vue island", () => {
       time: "10:28 AM",
       tone: "assistant",
     });
+    await nextTick();
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("conversation-message");
     expect(host.className).toBe("desktop-conversation-message");
     expect(host.getAttribute("data-message-tone")).toBe("assistant");
+    expect(host.querySelector(".desktop-conversation-meta")?.getAttribute("data-desktop-vue-island")).toBe("conversation-meta");
+    expect(host.querySelector(".desktop-conversation-body")?.getAttribute("data-desktop-vue-island")).toBe("conversation-body");
+    expect(host.querySelector(".desktop-conversation-reference")?.getAttribute("data-desktop-vue-island")).toBe("conversation-reference");
+    expect(host.querySelector(".desktop-conversation-attachment")?.getAttribute("data-desktop-vue-island")).toBe("conversation-attachment");
     expect(host.querySelector(".desktop-conversation-meta strong")?.textContent).toBe("Tinybot");
     expect(host.querySelector(".desktop-conversation-meta span")?.textContent).toBe("10:28 AM");
     expect(host.querySelector(".desktop-conversation-body a")?.getAttribute("target")).toBe("_blank");

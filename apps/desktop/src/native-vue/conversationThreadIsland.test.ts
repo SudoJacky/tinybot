@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import { mountConversationThreadIsland } from "./conversationThreadIsland";
 
 describe("conversation thread Vue island", () => {
-  test("renders messages in order", () => {
+  test("renders messages in order", async () => {
     const host = document.createElement("section");
 
     const mounted = mountConversationThreadIsland(host, {
@@ -28,6 +29,8 @@ describe("conversation thread Vue island", () => {
         },
       ],
     });
+    await nextTick();
+    await nextTick();
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("conversation-thread");
     expect(host.className).toBe("desktop-conversation-thread");
