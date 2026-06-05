@@ -5264,7 +5264,19 @@ function createFormatChipList(targetDocument: Document, id: string, formats: str
     chip.textContent = format;
     row.append(chip);
   }
+  mountFormatChipListVueIsland(row, id, formats);
   return row;
+}
+
+function mountFormatChipListVueIsland(row: HTMLElement, id: string, formats: string[]): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  void import("./native-vue/formatChipListIsland").then(({ mountFormatChipListIsland }) => {
+    mountFormatChipListIsland(row, { id, formats });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createFileOperationStatus(targetDocument: Document, label: string, status: string): HTMLElement {
