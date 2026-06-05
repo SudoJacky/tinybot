@@ -1524,9 +1524,7 @@ function createNativeComposerSurface(
   attach.setAttribute("data-desktop-composer-action", "attach");
   attach.setAttribute("aria-label", "Attach temporary file to current session");
   attach.textContent = "+";
-  attach.addEventListener("click", () => {
-    chatActions.onAttachSessionFile?.();
-  });
+  mountComposerAttachButtonVueIsland(attach, chatActions);
 
   const input = targetDocument.createElement("textarea");
   input.id = "desktop-native-composer-input";
@@ -1568,6 +1566,28 @@ function createNativeComposerSurface(
 
   composer.append(input, attach, runtime, send);
   return composer;
+}
+
+function mountComposerAttachButtonVueIsland(
+  button: HTMLElement,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const installFallback = () => {
+    button.addEventListener("click", () => {
+      chatActions.onAttachSessionFile?.();
+    });
+  };
+  if (!canMountVueIsland(button)) {
+    installFallback();
+    return;
+  }
+  void import("./native-vue/composerAttachButtonIsland").then(({ mountComposerAttachButtonIsland }) => {
+    mountComposerAttachButtonIsland(button, {
+      onAttach: () => chatActions.onAttachSessionFile?.(),
+    });
+  }).catch(() => {
+    installFallback();
+  });
 }
 
 function updateNativeComposerSendState(
