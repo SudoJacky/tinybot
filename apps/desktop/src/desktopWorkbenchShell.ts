@@ -3178,7 +3178,32 @@ function createKnowledgePane(
   mountKnowledgeGraphVueIsland(graph, pane);
   section.append(graph);
 
+  mountKnowledgePaneVueIsland(section, targetDocument, pane, knowledgeActions, workItems);
   return section;
+}
+
+function mountKnowledgePaneVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  pane: DesktopKnowledgePaneModel,
+  knowledgeActions: DesktopKnowledgeActionOptions,
+  workItems: DesktopTaskCenterItem[],
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/knowledgePaneIsland").then(({ mountKnowledgePaneIsland }) => {
+    mountKnowledgePaneIsland(section, {
+      pane,
+      workItems,
+      onInspectWorkItem: (item) => renderWorkLensFromTask(targetDocument, item),
+      onKnowledgeAction: (event) => {
+        knowledgeActions.onKnowledgeAction?.(event);
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountKnowledgeActionsVueIsland(
