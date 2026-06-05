@@ -2327,11 +2327,44 @@ function createAgentUiFormCard(
       agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
     });
     actions.append(submit, cancel);
+    mountAgentUiFormActionsVueIsland(actions, {
+      cancelLabel: form.cancel_label || "Cancel",
+      onCancel: () => {
+        agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+      },
+      onSubmit: () => {
+        agentUiActions.onAgentUiFormAction?.({
+          action: "submit",
+          form,
+          values: collectAgentUiFormValues(form, formElement),
+        });
+      },
+      submitLabel: form.submit_label || "Submit",
+    });
     formElement.append(actions);
   }
 
   card.append(formElement);
   return card;
+}
+
+function mountAgentUiFormActionsVueIsland(
+  actions: HTMLElement,
+  options: {
+    cancelLabel: string;
+    onCancel: () => void;
+    onSubmit: () => void;
+    submitLabel: string;
+  },
+): void {
+  if (!canMountVueIsland(actions)) {
+    return;
+  }
+  void import("./native-vue/agentUiFormActionsIsland").then(({ mountAgentUiFormActionsIsland }) => {
+    mountAgentUiFormActionsIsland(actions, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createAgentUiFormField(targetDocument: Document, form: AgentUiForm, field: AgentUiFormField): HTMLElement {
