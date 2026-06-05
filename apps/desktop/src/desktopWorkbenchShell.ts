@@ -1666,7 +1666,36 @@ function createToolActivity(
     body.append(empty);
   }
   details.append(body);
+  mountToolActivityVueIsland(details, {
+    argsText: activity.argsText || "",
+    approvalStatus: activity.approvalStatus || "",
+    id: activity.id || "",
+    kind: activity.kind,
+    name: activity.name || "",
+    responseText: activity.responseText || "",
+  });
   return details;
+}
+
+function mountToolActivityVueIsland(
+  activity: HTMLElement,
+  options: {
+    argsText: string;
+    approvalStatus: string;
+    id: string;
+    kind: "call" | "result";
+    name: string;
+    responseText: string;
+  },
+): void {
+  if (!canMountVueIsland(activity)) {
+    return;
+  }
+  void import("./native-vue/toolActivityIsland").then(({ mountToolActivityIsland }) => {
+    mountToolActivityIsland(activity, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createToolActivitySection(
