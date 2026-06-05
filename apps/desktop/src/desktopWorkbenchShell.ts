@@ -1671,14 +1671,37 @@ function createModuleWorkSection(targetDocument: Document, title: string, items:
     row.setAttribute("data-desktop-module-work-source", item.source);
     row.setAttribute("aria-label", `Inspect ${item.title} in Work Lens`);
     row.textContent = `${item.title}: ${[item.status, item.detail, item.progressLabel].filter(Boolean).join(" / ")}`;
-    row.addEventListener("click", () => {
-      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
-      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
-    });
+    row.addEventListener("click", () => inspectModuleWorkItem(targetDocument, item));
     section.append(row);
   }
 
+  mountModuleWorkSectionVueIsland(section, targetDocument, title, items);
   return section;
+}
+
+function mountModuleWorkSectionVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  title: string,
+  items: DesktopTaskCenterItem[],
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/moduleWorkSectionIsland").then(({ mountModuleWorkSectionIsland }) => {
+    mountModuleWorkSectionIsland(section, {
+      title,
+      items,
+      onInspect: (item) => inspectModuleWorkItem(targetDocument, item),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function inspectModuleWorkItem(targetDocument: Document, item: DesktopTaskCenterItem): void {
+  const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+  setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
 }
 
 function createAgentUiFormsSurface(
