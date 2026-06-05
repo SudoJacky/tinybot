@@ -1517,8 +1517,13 @@ function createConversationMessage(
   }
   content.append(createConversationBody(targetDocument, options.body, options.tone));
   for (const reference of options.references ?? []) {
-    const node = createText(targetDocument, "p", `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`);
+    const node = createText(targetDocument, "p", conversationReferenceText(reference));
     node.className = "desktop-conversation-reference";
+    mountConversationReferenceVueIsland(node, {
+      detail: reference.detail ?? "",
+      kind: reference.kind,
+      title: reference.title,
+    });
     content.append(node);
   }
   if (options.attachment) {
@@ -1529,6 +1534,24 @@ function createConversationMessage(
   }
   article.append(content);
   return article;
+}
+
+function conversationReferenceText(reference: { detail?: string; kind: string; title: string }): string {
+  return `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`;
+}
+
+function mountConversationReferenceVueIsland(
+  reference: HTMLElement,
+  options: { detail: string; kind: string; title: string },
+): void {
+  if (!canMountVueIsland(reference)) {
+    return;
+  }
+  void import("./native-vue/conversationReferenceIsland").then(({ mountConversationReferenceIsland }) => {
+    mountConversationReferenceIsland(reference, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createConversationReasoning(targetDocument: Document, reasoningContent: string): HTMLElement {
