@@ -6196,7 +6196,29 @@ function createPanel(
   panel.setAttribute("data-visible", String(state.visible));
   panel.style.setProperty("--region-size", `${state.size}px`);
   panel.append(content);
+  mountWorkbenchPanelVueIsland(panel, region, state, content);
   return panel;
+}
+
+function mountWorkbenchPanelVueIsland(
+  panel: HTMLElement,
+  region: WorkbenchPanelId,
+  state: WorkbenchPanelState,
+  content: HTMLElement,
+): void {
+  if (!canMountVueIsland(panel)) {
+    return;
+  }
+  void import("./native-vue/workbenchPanelIsland").then(({ mountWorkbenchPanelIsland }) => {
+    mountWorkbenchPanelIsland(panel, {
+      content,
+      region,
+      size: state.size,
+      visible: state.visible,
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createQuickActions(targetDocument: Document): HTMLElement {
