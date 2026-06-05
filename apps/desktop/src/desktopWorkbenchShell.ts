@@ -3679,7 +3679,19 @@ function createSettingsProviderDetail(targetDocument: Document, label: string, v
   const row = targetDocument.createElement("p");
   row.className = "desktop-settings-provider-detail";
   row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
+  mountSettingsProviderDetailVueIsland(row, label, value);
   return row;
+}
+
+function mountSettingsProviderDetailVueIsland(row: HTMLElement, label: string, value: string): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  void import("./native-vue/settingsProviderDetailIsland").then(({ mountSettingsProviderDetailIsland }) => {
+    mountSettingsProviderDetailIsland(row, { label, value });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function filterSettingsProviderCards(cards: HTMLElement, query: string): void {
