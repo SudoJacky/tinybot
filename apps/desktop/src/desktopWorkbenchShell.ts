@@ -52,6 +52,7 @@ import {
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
+import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
@@ -5109,6 +5110,11 @@ function formatPanelName(panel: DesktopPanelControlId): string {
 
 function createCommandPalette(targetDocument: Document): HTMLElement {
   const palette = targetDocument.createElement("section");
+  if (canMountVueIsland(palette)) {
+    mountCommandPaletteIsland(palette);
+    return palette;
+  }
+
   palette.id = "desktop-command-palette";
   palette.className = "desktop-command-palette";
   palette.setAttribute("role", "dialog");
@@ -5146,19 +5152,7 @@ function createCommandPalette(targetDocument: Document): HTMLElement {
   status.textContent = "Type to search.";
 
   palette.append(header, input, results, status);
-  mountCommandPaletteVueIsland(palette);
   return palette;
-}
-
-function mountCommandPaletteVueIsland(palette: HTMLElement): void {
-  if (!canMountVueIsland(palette)) {
-    return;
-  }
-  void import("./native-vue/commandPaletteIsland").then(({ mountCommandPaletteIsland }) => {
-    mountCommandPaletteIsland(palette);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
 }
 
 function createInspector(

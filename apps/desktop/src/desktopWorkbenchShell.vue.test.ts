@@ -5,6 +5,23 @@ import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
 import { installDesktopWorkbenchShell } from "./desktopWorkbenchShell";
 
 describe("desktop workbench shell Vue integration", () => {
+  test("renders the command palette through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const palette = document.getElementById("desktop-command-palette");
+    expect(palette?.getAttribute("data-desktop-vue-island")).toBe("command-palette");
+    expect(palette?.getAttribute("role")).toBe("dialog");
+    expect(document.getElementById("desktop-command-palette-input")?.getAttribute("aria-label")).toBe("Search commands and workbench data");
+    expect(document.getElementById("desktop-command-palette-results")?.getAttribute("aria-live")).toBe("polite");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
