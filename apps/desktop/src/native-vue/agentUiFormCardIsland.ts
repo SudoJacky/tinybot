@@ -37,39 +37,51 @@ function createAgentUiFormCardApp(options: AgentUiFormCardIslandOptions): App {
   return createApp(defineComponent({
     name: "AgentUiFormCardIsland",
     setup() {
-      const formHost = ref<HTMLElement | null>(null);
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", options.form.title || options.form.form_id),
-          h(NText, { class: "desktop-agent-ui-form-status", tag: "p" }, { default: () => options.form.status ?? "pending" }),
-          options.form.description ? h(NText, { tag: "p" }, { default: () => options.form.description }) : null,
-          h("form", {
-            ref: formHost,
-            class: "desktop-agent-ui-form",
-            "data-agent-ui-form-id": options.form.form_id,
-          }, [
-            ...options.form.fields.map((field) => renderAgentUiFormFieldNode({
-              disabled: !isAgentUiFormSubmittable(options.form),
-              error: options.form.errors?.[field.name],
-              field,
-              value: agentUiFieldValue(options.form, field),
-            })),
-            options.form.errors?.form
-              ? h(NText, { class: "desktop-agent-ui-form-error", tag: "p", type: "error" }, { default: () => options.form.errors?.form ?? "" })
-              : null,
-            isAgentUiFormSubmittable(options.form)
-              ? renderAgentUiFormActionsNode({
-                cancelLabel: options.form.cancel_label || "Cancel",
-                onCancel: () => options.onCancel?.(options.form),
-                onSubmit: () => options.onSubmit?.(options.form, collectAgentUiFormValues(options.form, formHost.value)),
-                submitLabel: options.form.submit_label || "Submit",
-              })
-              : null,
-          ]),
-        ],
+        default: () => renderAgentUiFormCardChildren(options),
       });
     },
   }));
+}
+
+export function renderAgentUiFormCardNode(options: AgentUiFormCardIslandOptions) {
+  return h("article", {
+    class: "desktop-agent-ui-form-card",
+    "data-agent-ui-form-id": options.form.form_id,
+    "data-agent-ui-form-status": options.form.status ?? "pending",
+  }, renderAgentUiFormCardChildren(options));
+}
+
+export function renderAgentUiFormCardChildren(options: AgentUiFormCardIslandOptions) {
+  const formHost = ref<HTMLElement | null>(null);
+  return [
+    h("h2", options.form.title || options.form.form_id),
+    h(NText, { class: "desktop-agent-ui-form-status", tag: "p" }, { default: () => options.form.status ?? "pending" }),
+    options.form.description ? h(NText, { tag: "p" }, { default: () => options.form.description }) : null,
+    h("form", {
+      ref: formHost,
+      class: "desktop-agent-ui-form",
+      "data-agent-ui-form-id": options.form.form_id,
+    }, [
+      ...options.form.fields.map((field) => renderAgentUiFormFieldNode({
+        disabled: !isAgentUiFormSubmittable(options.form),
+        error: options.form.errors?.[field.name],
+        field,
+        value: agentUiFieldValue(options.form, field),
+      })),
+      options.form.errors?.form
+        ? h(NText, { class: "desktop-agent-ui-form-error", tag: "p", type: "error" }, { default: () => options.form.errors?.form ?? "" })
+        : null,
+      isAgentUiFormSubmittable(options.form)
+        ? renderAgentUiFormActionsNode({
+          cancelLabel: options.form.cancel_label || "Cancel",
+          onCancel: () => options.onCancel?.(options.form),
+          onSubmit: () => options.onSubmit?.(options.form, collectAgentUiFormValues(options.form, formHost.value)),
+          submitLabel: options.form.submit_label || "Submit",
+        })
+        : null,
+    ]),
+  ];
 }
 
 function agentUiFieldValue(form: AgentUiForm, field: AgentUiFormField): unknown {

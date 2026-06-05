@@ -2264,13 +2264,44 @@ function createAgentUiFormsSurface(
 
   if (!forms.length) {
     section.append(createText(targetDocument, "p", "No pending Agent UI forms."));
+    mountAgentUiFormsSurfaceVueIsland(section, { agentUiActions, forms });
     return section;
   }
 
   for (const form of forms) {
     section.append(createAgentUiFormCard(targetDocument, form, agentUiActions));
   }
+  mountAgentUiFormsSurfaceVueIsland(section, { agentUiActions, forms });
   return section;
+}
+
+function mountAgentUiFormsSurfaceVueIsland(
+  section: HTMLElement,
+  options: {
+    agentUiActions: DesktopAgentUiFormActionOptions;
+    forms: AgentUiForm[];
+  },
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/agentUiFormsSurfaceIsland").then(({ mountAgentUiFormsSurfaceIsland }) => {
+    mountAgentUiFormsSurfaceIsland(section, {
+      forms: options.forms,
+      onCancel: (form) => {
+        options.agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+      },
+      onSubmit: (form, values) => {
+        options.agentUiActions.onAgentUiFormAction?.({
+          action: "submit",
+          form,
+          values,
+        });
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createAgentUiFormCard(
