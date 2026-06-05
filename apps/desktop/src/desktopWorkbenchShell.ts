@@ -3164,7 +3164,19 @@ function mountCoworkTaskFeedVueIsland(feed: HTMLElement, view: DesktopCoworkCock
 function createCoworkDataRow(targetDocument: Document, className: string, text: string): HTMLElement {
   const row = createText(targetDocument, "p", text);
   row.className = className;
+  mountCoworkDataRowVueIsland(row, className, text);
   return row;
+}
+
+function mountCoworkDataRowVueIsland(row: HTMLElement, className: string, text: string): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  void import("./native-vue/coworkDataRowIsland").then(({ mountCoworkDataRowIsland }) => {
+    mountCoworkDataRowIsland(row, { className, text });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createCoworkLimitStatus(targetDocument: Document, visible: number, total: number, singular: string, plural: string): HTMLElement {
