@@ -3224,7 +3224,29 @@ function createProviderManagementSection(
   });
 
   section.append(header, cards);
+  mountSettingsProviderManagementVueIsland(section, targetDocument, pane, settingsActions);
   return section;
+}
+
+function mountSettingsProviderManagementVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/settingsProviderManagementIsland").then(({ mountSettingsProviderManagementIsland }) => {
+    mountSettingsProviderManagementIsland(section, {
+      pane,
+      onSettingsAction: settingsActions.onSettingsAction,
+      promptProviderId: () => promptForSettingsProviderId(targetDocument),
+      onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSettingsControlField(
