@@ -4081,6 +4081,7 @@ function renderDesktopShortcutHelp(targetDocument: Document): void {
   const existing = targetDocument.getElementById("desktop-shortcut-help-dialog") as HTMLElement | null;
   if (existing) {
     existing.hidden = false;
+    existing.querySelector<HTMLElement>(".desktop-shortcut-help-search")?.focus();
     setRouteStatus(targetDocument, "Opened shortcut help");
     return;
   }
@@ -4134,6 +4135,7 @@ function renderDesktopShortcutHelp(targetDocument: Document): void {
   panel.append(header, search, list);
   dialog.append(panel);
   targetDocument.body.append(dialog);
+  search.focus();
   setRouteStatus(targetDocument, "Opened shortcut help");
 }
 

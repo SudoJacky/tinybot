@@ -28,7 +28,7 @@ class FakeElement {
     },
   };
 
-  constructor(public readonly tagName: string) {}
+  constructor(public readonly tagName: string, private readonly ownerDocument?: FakeDocument) {}
 
   set textContent(value: string) {
     this.ownTextContent = value;
@@ -76,6 +76,12 @@ class FakeElement {
 
   click(): void {
     this.dispatchEvent({ type: "click" });
+  }
+
+  focus(): void {
+    if (this.ownerDocument) {
+      this.ownerDocument.activeElement = this;
+    }
   }
 
   getBoundingClientRect(): DOMRect {
@@ -129,24 +135,30 @@ class FakeClassList {
 class FakeBody extends FakeElement {
   public classList = new FakeClassList();
 
-  constructor() {
-    super("body");
+  constructor(ownerDocument: FakeDocument) {
+    super("body", ownerDocument);
   }
 }
 
 class FakeHead extends FakeElement {
-  constructor() {
-    super("head");
+  constructor(ownerDocument: FakeDocument) {
+    super("head", ownerDocument);
   }
 }
 
 class FakeDocument {
-  public body = new FakeBody();
-  public head = new FakeHead();
+  public body: FakeBody;
+  public head: FakeHead;
+  public activeElement: FakeElement | null = null;
   public listeners = new Map<string, ((event: unknown) => void)[]>();
 
+  constructor() {
+    this.body = new FakeBody(this);
+    this.head = new FakeHead(this);
+  }
+
   createElement(tagName: string): FakeElement {
-    return new FakeElement(tagName);
+    return new FakeElement(tagName, this);
   }
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
@@ -843,7 +855,9 @@ describe("desktop workbench shell", () => {
     expect(shortcutDialog?.getAttribute("role")).toBe("dialog");
     expect(shortcutDialog?.getAttribute("aria-modal")).toBe("true");
     expect(shortcutDialog?.textContent).toContain("Keyboard shortcuts");
-    expect(shortcutDialog?.querySelector(".desktop-shortcut-help-search")?.getAttribute("placeholder")).toBe("Search shortcuts");
+    const shortcutSearch = shortcutDialog?.querySelector(".desktop-shortcut-help-search");
+    expect(shortcutSearch?.getAttribute("placeholder")).toBe("Search shortcuts");
+    expect(targetDocument.activeElement).toBe(shortcutSearch);
     expect(shortcutDialog?.textContent).toContain("Chat");
     expect(shortcutDialog?.textContent).toContain("Navigation");
     expect(shortcutDialog?.textContent).toContain("Ctrl+Shift+P");
