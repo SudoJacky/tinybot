@@ -6633,8 +6633,22 @@ function renderDesktopShortcutHelp(targetDocument: Document): void {
   panel.append(header, search, list);
   dialog.append(panel);
   targetDocument.body.append(dialog);
+  mountShortcutHelpDialogVueIsland(dialog);
   search.focus();
   setRouteStatus(targetDocument, "Opened shortcut help");
+}
+
+function mountShortcutHelpDialogVueIsland(dialog: HTMLElement): void {
+  if (!canMountVueIsland(dialog)) {
+    return;
+  }
+  void import("./native-vue/shortcutHelpDialogIsland").then(({ mountShortcutHelpDialogIsland }) => {
+    mountShortcutHelpDialogIsland(dialog, {
+      groups: groupShortcutHelpItems().map(([title, items]) => ({ title, items })),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function renderShortcutHelpRows(targetDocument: Document, list: HTMLElement, query: string): void {
