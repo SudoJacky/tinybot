@@ -2975,7 +2975,28 @@ function createToolsSkillsPane(
     detail.append(actionRow);
     section.append(detail);
   }
+  mountToolsSkillsPaneVueIsland(section, pane, toolsSkillsActions);
   return section;
+}
+
+function mountToolsSkillsPaneVueIsland(
+  section: HTMLElement,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/toolsSkillsPaneIsland").then(({ mountToolsSkillsPaneIsland }) => {
+    mountToolsSkillsPaneIsland(section, {
+      pane,
+      onToolsSkillsAction: (event) => {
+        toolsSkillsActions.onToolsSkillsAction?.(event);
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountToolsSkillsActionsVueIsland(
