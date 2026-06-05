@@ -5229,7 +5229,28 @@ function createRunChainInspectorPane(
 
   detail.append(renderInspectorView(targetDocument, createDesktopRunChainInspectorView(selectedItem)));
   section.append(list, detail);
+  mountRunChainInspectorVueIsland(section, targetDocument, runChainItems, selectedItem.key);
   return section;
+}
+
+function mountRunChainInspectorVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  items: DesktopRunChainItem[],
+  selectedItemKey: string,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/runChainInspectorIsland").then(({ mountRunChainInspectorIsland }) => {
+    mountRunChainInspectorIsland(section, {
+      items,
+      selectedItemKey,
+      onSelect: (item) => setRouteStatus(targetDocument, `Inspecting ${item.title}`),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createBottomRegion(
