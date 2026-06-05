@@ -1682,7 +1682,22 @@ function createToolActivitySection(
   const pre = createText(targetDocument, "pre", text);
   pre.className = "desktop-tool-activity-pre";
   section.append(labelNode, pre);
+  mountToolActivitySectionVueIsland(section, { kind, label, text });
   return section;
+}
+
+function mountToolActivitySectionVueIsland(
+  section: HTMLElement,
+  options: { kind: "call" | "response"; label: string; text: string },
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/toolActivitySectionIsland").then(({ mountToolActivitySectionIsland }) => {
+    mountToolActivitySectionIsland(section, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function summarizeToolText(value: string): string {
