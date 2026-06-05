@@ -3098,8 +3098,27 @@ function createSettingsProvidersPane(
   }
 
   content.append(grid);
+  mountSettingsGroupsVueIsland(grid, pane, settingsActions);
   section.append(content);
   return section;
+}
+
+function mountSettingsGroupsVueIsland(
+  grid: HTMLElement,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): void {
+  if (!canMountVueIsland(grid)) {
+    return;
+  }
+  void import("./native-vue/settingsGroupsIsland").then(({ mountSettingsGroupsIsland }) => {
+    mountSettingsGroupsIsland(grid, {
+      pane,
+      onSettingsAction: settingsActions.onSettingsAction,
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createDefaultLlmSettingsCard(
