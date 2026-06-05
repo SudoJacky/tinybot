@@ -5,6 +5,7 @@ import {
 } from "./desktopFileExport";
 import { buildDesktopFileTaskOperation } from "./desktopTaskCenterSources";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
+import type { MountedWorkspaceDetailIsland } from "./native-vue/workspaceDetailIsland";
 import type { MountedWorkspaceRecentFilesIsland } from "./native-vue/workspaceRecentFilesIsland";
 
 export type DesktopWorkspaceSaveState = "idle" | "dirty" | "saving" | "saved" | "protected-path-error" | "conflict-error" | "error";
@@ -63,6 +64,7 @@ export interface DesktopWorkspaceFileActions {
 }
 
 const workspaceRecentFileIslands = new WeakMap<HTMLElement, MountedWorkspaceRecentFilesIsland>();
+const workspaceDetailIslands = new WeakMap<HTMLElement, MountedWorkspaceDetailIsland>();
 
 export function buildDesktopWorkspaceFileRows(payload: unknown): DesktopWorkspaceFileRow[] {
   const items = isRecord(payload) && Array.isArray(payload.items) ? payload.items : [];
@@ -513,6 +515,10 @@ function renderWorkspaceState(
       ? `Workspace detail: ${state.activePath} / ${workspaceSaveStateText(state)}`
       : "No workspace file selected.",
   );
+  const detailPanel = targetDocument.querySelector<HTMLElement>(".desktop-workspace-detail-panel");
+  if (detailPanel) {
+    mountWorkspaceDetailVueIsland(detailPanel, state);
+  }
   setText(targetDocument, "#desktop-workspace-save-state", workspaceSaveStateText(state));
   setText(targetDocument, "#desktop-workspace-error", state.error ?? "");
 
@@ -553,6 +559,22 @@ function mountWorkspaceRecentFilesVueIsland(
   }
   void import("./native-vue/workspaceRecentFilesIsland").then(({ mountWorkspaceRecentFilesIsland }) => {
     workspaceRecentFileIslands.set(host, mountWorkspaceRecentFilesIsland(host, { state, onSelect }));
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountWorkspaceDetailVueIsland(host: HTMLElement, state: DesktopWorkspaceFileState): void {
+  if (!canMountVueIsland(host)) {
+    return;
+  }
+  const mounted = workspaceDetailIslands.get(host);
+  if (mounted) {
+    mounted.update(state);
+    return;
+  }
+  void import("./native-vue/workspaceDetailIsland").then(({ mountWorkspaceDetailIsland }) => {
+    workspaceDetailIslands.set(host, mountWorkspaceDetailIsland(host, { state }));
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
