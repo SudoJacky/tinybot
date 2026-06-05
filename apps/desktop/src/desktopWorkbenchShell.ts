@@ -1036,6 +1036,23 @@ function createChatHeader(
     }),
   );
 
+  mountChatHeaderActionsVueIsland(actions, targetDocument, [
+    {
+      panel: "sidebar",
+      visible: layout.sidebar.visible,
+      label: "Sidebar",
+      pressedLabel: "Collapse session list",
+      unpressedLabel: "Expand session list",
+    },
+    {
+      panel: "inspector",
+      visible: layout.inspector.visible,
+      label: "Run Chain",
+      pressedLabel: "Close Run Chain panel",
+      unpressedLabel: "Open Run Chain panel",
+    },
+  ]);
+
   header.append(titleRow, actions);
   return header;
 }
@@ -1067,6 +1084,30 @@ function mountChatMenuButtonVueIsland(menu: HTMLElement, popover: HTMLElement): 
     });
   }).catch(() => {
     installFallback();
+  });
+}
+
+function mountChatHeaderActionsVueIsland(
+  actions: HTMLElement,
+  targetDocument: Document,
+  items: ReadonlyArray<{
+    panel: "sidebar" | "inspector";
+    visible: boolean;
+    label: string;
+    pressedLabel: string;
+    unpressedLabel: string;
+  }>,
+): void {
+  if (!canMountVueIsland(actions)) {
+    return;
+  }
+  void import("./native-vue/chatHeaderActionsIsland").then(({ mountChatHeaderActionsIsland }) => {
+    mountChatHeaderActionsIsland(actions, {
+      actions: [...items],
+      onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
 }
 

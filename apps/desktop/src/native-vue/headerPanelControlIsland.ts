@@ -65,7 +65,7 @@ function applyHeaderPanelControlHost(host: HTMLElement, options: HeaderPanelCont
   host.setAttribute("aria-pressed", String(options.visible));
 }
 
-function renderHeaderPanelControlContent(options: HeaderPanelControlIslandOptions) {
+export function renderHeaderPanelControlContent(options: HeaderPanelControlIslandOptions) {
   const iconDirection = options.panel === "sidebar" ? "collapse-left" : options.panel === "inspector" ? "collapse-right" : "";
   if (!iconDirection) {
     return options.label;
