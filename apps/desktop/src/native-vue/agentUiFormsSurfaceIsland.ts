@@ -1,8 +1,8 @@
-import { createApp, defineComponent, h, type App } from "vue";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
 import { NConfigProvider, NEmpty } from "naive-ui";
 import type { AgentUiForm } from "../agentUiEvents";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
-import { renderAgentUiFormCardNode } from "./agentUiFormCardIsland";
+import { mountAgentUiFormCardIsland } from "./agentUiFormCardIsland";
 
 export interface AgentUiFormsSurfaceIslandOptions {
   forms: AgentUiForm[];
@@ -36,18 +36,49 @@ function createAgentUiFormsSurfaceApp(options: AgentUiFormsSurfaceIslandOptions)
   return createApp(defineComponent({
     name: "AgentUiFormsSurfaceIsland",
     setup() {
+      const mountedChildren: Array<{ unmount: () => void }> = [];
+      const formHosts = ref<Array<HTMLElement | null>>([]);
+
+      onMounted(() => {
+        options.forms.forEach((form, index) => {
+          mountChild(mountedChildren, formHosts.value[index] ?? null, (host) => mountAgentUiFormCardIsland(host, {
+            form,
+            onCancel: options.onCancel,
+            onSubmit: options.onSubmit,
+          }));
+        });
+      });
+
+      onBeforeUnmount(() => {
+        while (mountedChildren.length) {
+          mountedChildren.pop()?.unmount();
+        }
+      });
+
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
           h("h2", "Agent UI forms"),
           options.forms.length
-            ? options.forms.map((form) => renderAgentUiFormCardNode({
-              form,
-              onCancel: options.onCancel,
-              onSubmit: options.onSubmit,
+            ? options.forms.map((form, index) => h("article", {
+              ref: (element) => {
+                formHosts.value[index] = element as HTMLElement | null;
+              },
+              "data-agent-ui-form-id": form.form_id,
             }))
             : h(NEmpty, { description: "No pending Agent UI forms." }),
         ],
       });
     },
   }));
+}
+
+function mountChild<T extends { unmount: () => void }>(
+  mountedChildren: Array<{ unmount: () => void }>,
+  host: HTMLElement | null,
+  mount: (host: HTMLElement) => T,
+): void {
+  if (!host) {
+    return;
+  }
+  mountedChildren.push(mount(host));
 }
