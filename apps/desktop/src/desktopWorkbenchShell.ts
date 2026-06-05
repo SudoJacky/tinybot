@@ -1429,21 +1429,36 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
   if (chat) {
     if (!chat.activeSessionKey) {
       renderConversationEmptyState(targetDocument, thread, "No live session selected.");
+      mountConversationThreadVueIsland(thread, { emptyMessage: "No live session selected.", messages: [] });
       return thread;
     }
     if (!chat.messages.length) {
       renderConversationEmptyState(targetDocument, thread, "No messages in this session.");
+      mountConversationThreadVueIsland(thread, { emptyMessage: "No messages in this session.", messages: [] });
       return thread;
     }
-    thread.append(...chat.messages.map((message) => createConversationMessage(targetDocument, {
+    const messages = chat.messages.map((message) => ({
       author: message.role === "user" ? "You" : "Tinybot",
       time: formatCompactTime(message.timestamp),
       tone: message.role === "user" ? "user" : "assistant",
       reasoningContent: message.reasoningContent,
       body: shouldRenderConversationBody(message) ? [message.content].filter(Boolean) : [],
-      toolActivities: message.toolActivities,
-      references: message.references,
-    })));
+      toolActivities: (message.toolActivities ?? []).map((activity) => ({
+        argsText: activity.argsText || "",
+        approvalStatus: activity.approvalStatus || "",
+        id: activity.id || "",
+        kind: activity.kind,
+        name: activity.name || "",
+        responseText: activity.responseText || "",
+      })),
+      references: (message.references ?? []).map((reference) => ({
+        detail: reference.detail ?? "",
+        kind: reference.kind,
+        title: reference.title,
+      })),
+    }));
+    thread.append(...messages.map((message) => createConversationMessage(targetDocument, message)));
+    mountConversationThreadVueIsland(thread, { emptyMessage: "", messages });
     return thread;
   }
   thread.append(
@@ -1468,6 +1483,39 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
     }),
   );
   return thread;
+}
+
+function mountConversationThreadVueIsland(
+  thread: HTMLElement,
+  options: {
+    emptyMessage: string;
+    messages: Array<{
+      attachment?: string;
+      author: string;
+      body: string[];
+      references: Array<{ detail: string; kind: string; title: string }>;
+      reasoningContent?: string;
+      time: string;
+      tone: "assistant" | "user";
+      toolActivities: Array<{
+        argsText: string;
+        approvalStatus: string;
+        id: string;
+        kind: "call" | "result";
+        name: string;
+        responseText: string;
+      }>;
+    }>;
+  },
+): void {
+  if (!canMountVueIsland(thread)) {
+    return;
+  }
+  void import("./native-vue/conversationThreadIsland").then(({ mountConversationThreadIsland }) => {
+    mountConversationThreadIsland(thread, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function renderConversationEmptyState(targetDocument: Document, thread: HTMLElement, message: string): void {
