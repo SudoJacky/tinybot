@@ -1407,7 +1407,19 @@ function mountHeaderPanelControlVueIsland(
 function createPanelIconPart(targetDocument: Document, part: "frame" | "rail"): HTMLElement {
   const node = targetDocument.createElement("span");
   node.className = `desktop-chat-header-panel-icon-${part}`;
+  mountPanelIconPartVueIsland(node, part);
   return node;
+}
+
+function mountPanelIconPartVueIsland(node: HTMLElement, part: "frame" | "rail"): void {
+  if (!canMountVueIsland(node)) {
+    return;
+  }
+  void import("./native-vue/panelIconPartIsland").then(({ mountPanelIconPartIsland }) => {
+    mountPanelIconPartIsland(node, { part });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createConversationThread(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
