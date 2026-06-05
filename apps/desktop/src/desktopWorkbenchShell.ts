@@ -917,11 +917,7 @@ function createChatHeader(
   menu.textContent = "...";
 
   const popover = createChatMenuPopover(targetDocument, chat, activeSession, title, menu, chatActions);
-  menu.addEventListener("click", () => {
-    const expanded = menu.getAttribute("aria-expanded") === "true";
-    menu.setAttribute("aria-expanded", String(!expanded));
-    popover.hidden = expanded;
-  });
+  mountChatMenuButtonVueIsland(menu, popover);
 
   titleRow.append(title, menu, popover);
 
@@ -946,6 +942,31 @@ function createChatHeader(
 
   header.append(titleRow, actions);
   return header;
+}
+
+function mountChatMenuButtonVueIsland(menu: HTMLElement, popover: HTMLElement): void {
+  const toggle = () => toggleChatMenuPopover(menu, popover);
+  const installFallback = () => {
+    menu.addEventListener("click", toggle);
+  };
+  if (!canMountVueIsland(menu)) {
+    installFallback();
+    return;
+  }
+  void import("./native-vue/chatMenuButtonIsland").then(({ mountChatMenuButtonIsland }) => {
+    mountChatMenuButtonIsland(menu, {
+      expanded: menu.getAttribute("aria-expanded") === "true",
+      onToggle: toggle,
+    });
+  }).catch(() => {
+    installFallback();
+  });
+}
+
+function toggleChatMenuPopover(menu: HTMLElement, popover: HTMLElement): void {
+  const expanded = menu.getAttribute("aria-expanded") === "true";
+  menu.setAttribute("aria-expanded", String(!expanded));
+  popover.hidden = expanded;
 }
 
 function activeChatSession(chat: DesktopNativeChatModel | null): NativeChatSession | null {
