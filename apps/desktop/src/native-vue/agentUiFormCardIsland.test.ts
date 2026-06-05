@@ -63,6 +63,12 @@ describe("Agent UI form card Vue island", () => {
     expect(host.querySelector(".desktop-agent-ui-form-status")?.textContent).toBe("pending");
     expect(host.textContent).toContain("Review the pending edit.");
     expect(host.textContent).toContain("Check the values");
+    expect(Array.from(host.querySelectorAll(".desktop-agent-ui-form-field")).map((field) => field.getAttribute("data-desktop-vue-island"))).toEqual([
+      "agent-ui-form-field",
+      "agent-ui-form-field",
+      "agent-ui-form-field",
+    ]);
+    expect(host.querySelector(".desktop-agent-ui-form-actions")?.getAttribute("data-desktop-vue-island")).toBe("agent-ui-form-actions");
 
     const target = host.querySelector<HTMLInputElement>('[data-agent-ui-form-field="target"]');
     const force = host.querySelector<HTMLInputElement>('[data-agent-ui-form-field="force"]');

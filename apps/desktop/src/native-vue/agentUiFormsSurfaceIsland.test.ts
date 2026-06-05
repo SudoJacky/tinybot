@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import type { AgentUiForm } from "../agentUiEvents";
 import { mountAgentUiFormsSurfaceIsland } from "./agentUiFormsSurfaceIsland";
 
@@ -41,7 +42,7 @@ describe("Agent UI forms surface Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
-  test("renders form cards and forwards actions", () => {
+  test("renders form cards and forwards actions", async () => {
     const host = document.createElement("section");
     const events: Array<Record<string, unknown>> = [];
 
@@ -50,6 +51,8 @@ describe("Agent UI forms surface Vue island", () => {
       onCancel: (nextForm) => events.push({ action: "cancel", formId: nextForm.form_id }),
       onSubmit: (nextForm, values) => events.push({ action: "submit", formId: nextForm.form_id, values }),
     });
+    await nextTick();
+    await nextTick();
 
     expect(host.querySelector('[data-agent-ui-form-id="approval-1"]')?.getAttribute("data-desktop-vue-island")).toBe("agent-ui-form-card");
     expect(host.querySelector('[data-agent-ui-form-id="approval-1"] h2')?.textContent).toBe("Approve change");
