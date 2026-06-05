@@ -3143,7 +3143,26 @@ function createDefaultLlmSettingsCard(
   copy.className = "desktop-settings-default-llm-copy";
 
   card.append(heading, form, copy);
+  mountSettingsDefaultLlmVueIsland(card, pane, settingsActions);
   return card;
+}
+
+function mountSettingsDefaultLlmVueIsland(
+  card: HTMLElement,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  void import("./native-vue/settingsDefaultLlmIsland").then(({ mountSettingsDefaultLlmIsland }) => {
+    mountSettingsDefaultLlmIsland(card, {
+      pane,
+      onSettingsAction: settingsActions.onSettingsAction,
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createProviderManagementSection(
