@@ -1637,10 +1637,32 @@ function createPersistentRagToggle(
   button.setAttribute("aria-label", "Toggle persistent RAG");
   button.setAttribute("aria-pressed", String(enabled));
   button.textContent = `RAG ${enabled ? "On" : "Off"}`;
-  button.addEventListener("click", () => {
-    chatActions.onPersistentRagChange?.(!enabled);
-  });
+  mountPersistentRagToggleVueIsland(button, enabled, chatActions);
   return button;
+}
+
+function mountPersistentRagToggleVueIsland(
+  button: HTMLElement,
+  enabled: boolean,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const installFallback = () => {
+    button.addEventListener("click", () => {
+      chatActions.onPersistentRagChange?.(!enabled);
+    });
+  };
+  if (!canMountVueIsland(button)) {
+    installFallback();
+    return;
+  }
+  void import("./native-vue/persistentRagToggleIsland").then(({ mountPersistentRagToggleIsland }) => {
+    mountPersistentRagToggleIsland(button, {
+      enabled,
+      onToggle: (nextEnabled) => chatActions.onPersistentRagChange?.(nextEnabled),
+    });
+  }).catch(() => {
+    installFallback();
+  });
 }
 
 function createTokenUsageOrb(targetDocument: Document, tokenUsage: string): HTMLElement {
