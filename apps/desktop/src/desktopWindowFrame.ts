@@ -1,6 +1,7 @@
 import { DESKTOP_CHROME_COMMANDS, DESKTOP_HELP_COMMANDS, type DesktopMenuCommand } from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 import { mountOrUpdateDesktopRuntimeStatusIsland } from "./native-vue/desktopRuntimeStatusIsland";
+import { mountDesktopWindowControlsIsland } from "./native-vue/desktopWindowControlsIsland";
 
 export interface DesktopWindowHandle {
   minimize(): Promise<void>;
@@ -72,11 +73,20 @@ export function installDesktopWindowFrame({
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-window-controls";
 
-  controls.append(
+  if (canMountDesktopWindowControlsIsland(controls)) {
+    mountDesktopWindowControlsIsland(controls, {
+      onMinimize: () => currentWindow.minimize(),
+      onToggleMaximize: () => currentWindow.toggleMaximize(),
+      onClose: () => currentWindow.close(),
+      onError: logWindowFrameError,
+    });
+  } else {
+    controls.append(
     createWindowButton(targetDocument, "minimize", "Minimize", "−", () => currentWindow.minimize()),
     createWindowButton(targetDocument, "maximize", "Maximize", "□", () => currentWindow.toggleMaximize()),
     createWindowButton(targetDocument, "close", "Close", "×", () => currentWindow.close()),
-  );
+    );
+  }
 
   frame.append(appMenu, runtimeStatus, controls);
   frame.addEventListener("pointerdown", () => {
@@ -286,6 +296,10 @@ function createWindowButton(
     void handler().catch(logWindowFrameError);
   });
   return button;
+}
+
+function canMountDesktopWindowControlsIsland(controls: HTMLElement): boolean {
+  return typeof window !== "undefined" && controls instanceof window.HTMLElement;
 }
 
 function applyDesktopRuntimeStatusView(statusElement: HTMLElement, view: DesktopRuntimeStatusView): void {

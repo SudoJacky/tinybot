@@ -344,6 +344,33 @@ describe("desktop window frame", () => {
     expect(dispatched).toEqual(["refresh-gateway-status"]);
   });
 
+  test("uses a Vue island host for real window controls", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: document,
+      currentWindow,
+    });
+
+    const controls = document.body.querySelector<HTMLElement>(".desktop-window-controls");
+    expect(controls?.getAttribute("data-desktop-vue-island")).toBe("desktop-window-controls");
+    expect(controls?.querySelector('[data-window-action="minimize"]')?.getAttribute("aria-label")).toBe("Minimize");
+    expect(controls?.querySelector('[data-window-action="maximize"]')?.getAttribute("aria-label")).toBe("Maximize");
+    expect(controls?.querySelector('[data-window-action="close"]')?.getAttribute("aria-label")).toBe("Close");
+
+    controls?.querySelector<HTMLButtonElement>('[data-window-action="minimize"]')?.click();
+
+    expect(currentWindow.minimize).toHaveBeenCalledTimes(1);
+    expect(currentWindow.startDragging).not.toHaveBeenCalled();
+  });
+
   test("keeps app chrome focused on commands without product or surface labels", () => {
     const targetDocument = new FakeDocument();
     targetDocument.documentElement.dataset.desktopWorkbenchMode = "root-webui";
