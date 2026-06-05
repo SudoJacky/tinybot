@@ -102,12 +102,19 @@ describe("knowledge pane Vue island", () => {
     expect(host.textContent).toContain("Knowledge");
     expect(host.textContent).toContain("2 docs / readiness 100% / graph 2 nodes / 1 edge");
 
+    expect(host.querySelector(".desktop-knowledge-actions")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-actions");
     expect(host.querySelector('[data-desktop-knowledge-action="runQuery"]')?.textContent).toContain("Run query");
+    expect(host.querySelector(".desktop-knowledge-readiness")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-readiness");
     expect(host.querySelector(".desktop-knowledge-readiness")?.textContent).toContain("Readiness");
+    expect(host.querySelector(".desktop-knowledge-documents")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-documents");
     expect(host.querySelector('[data-desktop-entity-module="knowledge"]')?.getAttribute("data-desktop-entity-id")).toBe("doc-1");
+    expect(host.querySelector(".desktop-knowledge-document-detail")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-document-detail");
     expect(host.querySelector(".desktop-knowledge-document-detail")?.textContent).toContain("Document detail: Desktop UX");
+    expect(host.querySelector(".desktop-knowledge-query")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-query");
     expect(host.querySelector('[data-desktop-knowledge-query-result]')?.textContent).toContain("Desktop panes expose graph evidence.");
+    expect(host.querySelector(".desktop-knowledge-graph")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-graph");
     expect(host.querySelector('[data-desktop-knowledge-graph-reference="Community:community-1"]')?.textContent).toContain("Desktop cluster");
+    expect(host.querySelector(".desktop-module-work")?.getAttribute("data-desktop-vue-island")).toBe("module-work");
     expect(host.querySelector('[data-desktop-module-work="knowledge:rebuild"]')?.textContent).toContain("Rebuild knowledge index");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="runQuery"]')?.click();
