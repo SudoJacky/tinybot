@@ -1543,15 +1543,7 @@ function createNativeComposerSurface(
   input.addEventListener("input", () => {
     updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat);
   });
-  send.addEventListener("click", () => {
-    if ((send as HTMLButtonElement).disabled || !input.value.trim()) {
-      return;
-    }
-    chatActions.onComposerSubmit?.({
-      content: input.value,
-      usePersistentRag: chat?.usePersistentRag !== false,
-    });
-  });
+  mountComposerSendButtonVueIsland(send, input as HTMLTextAreaElement, chat, chatActions);
 
   const runtime = targetDocument.createElement("div");
   runtime.id = "desktop-native-composer-runtime";
@@ -1566,6 +1558,45 @@ function createNativeComposerSurface(
 
   composer.append(input, attach, runtime, send);
   return composer;
+}
+
+function mountComposerSendButtonVueIsland(
+  button: HTMLElement,
+  input: HTMLTextAreaElement,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const submit = () => submitNativeComposerMessage(button as HTMLButtonElement, input, chat, chatActions);
+  const installFallback = () => {
+    button.addEventListener("click", submit);
+  };
+  if (!canMountVueIsland(button)) {
+    installFallback();
+    return;
+  }
+  void import("./native-vue/composerSendButtonIsland").then(({ mountComposerSendButtonIsland }) => {
+    mountComposerSendButtonIsland(button, {
+      disabled: (button as HTMLButtonElement).disabled,
+      onSend: submit,
+    });
+  }).catch(() => {
+    installFallback();
+  });
+}
+
+function submitNativeComposerMessage(
+  send: HTMLButtonElement,
+  input: HTMLTextAreaElement,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  if (send.disabled || !input.value.trim()) {
+    return;
+  }
+  chatActions.onComposerSubmit?.({
+    content: input.value,
+    usePersistentRag: chat?.usePersistentRag !== false,
+  });
 }
 
 function mountComposerAttachButtonVueIsland(
