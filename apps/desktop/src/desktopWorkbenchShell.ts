@@ -1906,7 +1906,9 @@ function createToolsSkillsPane(
   if (pane.selectedSkill) {
     const detail = targetDocument.createElement("section");
     detail.className = "desktop-skill-detail";
-    detail.append(
+    const summary = targetDocument.createElement("section");
+    summary.className = "desktop-skill-detail-summary";
+    summary.append(
       createText(targetDocument, "h2", `Skill detail: ${pane.selectedSkill.name}`),
       createText(targetDocument, "p", pane.selectedSkill.description),
       createText(targetDocument, "p", `Source: ${pane.selectedSkill.source}`),
@@ -1917,8 +1919,9 @@ function createToolsSkillsPane(
         "p",
         `Validation: ${pane.selectedSkill.editor.validation.message || pane.selectedSkill.editor.validation.state}`,
       ),
-      createDesktopSkillEditor(targetDocument, pane, toolsSkillsActions),
     );
+    mountSkillDetailSummaryVueIsland(summary, pane.selectedSkill);
+    detail.append(summary, createDesktopSkillEditor(targetDocument, pane, toolsSkillsActions));
     const actions: Array<[DesktopToolsSkillsActionId, string, boolean]> = [
       ["createSkill", "Create skill", pane.selectedSkill.actions.create],
       ["saveSkill", "Save skill", pane.selectedSkill.actions.save],
@@ -2006,6 +2009,20 @@ function mountToolDetailVueIsland(
   }
   void import("./native-vue/toolDetailIsland").then(({ mountToolDetailIsland }) => {
     mountToolDetailIsland(detail, { tool });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountSkillDetailSummaryVueIsland(
+  summary: HTMLElement,
+  skill: NonNullable<DesktopToolsSkillsPaneModel["selectedSkill"]>,
+): void {
+  if (!canMountVueIsland(summary)) {
+    return;
+  }
+  void import("./native-vue/skillDetailSummaryIsland").then(({ mountSkillDetailSummaryIsland }) => {
+    mountSkillDetailSummaryIsland(summary, { skill });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
