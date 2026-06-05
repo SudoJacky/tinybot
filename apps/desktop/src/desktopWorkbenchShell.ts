@@ -1072,15 +1072,21 @@ function createMainRegion(
 
   const workbench = targetDocument.createElement("div");
   workbench.className = "desktop-empty-session desktop-chat-workbench";
-  workbench.append(
-    createChatHeader(targetDocument, chat, layout, chatActions),
-    createConversationThread(targetDocument, chat),
+  const workbenchChrome = targetDocument.createElement("div");
+  workbenchChrome.className = "desktop-chat-workbench-chrome";
+  workbenchChrome.append(
     createText(targetDocument, "span", "Ready for a new session"),
     createText(targetDocument, "span", "Start from chat, inspect workspace, or check gateway status."),
     createQuickActions(targetDocument),
     createPanelControls(targetDocument, layout),
-    createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
     ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
+  );
+  mountChatWorkbenchVueIsland(workbenchChrome, targetDocument, layout, chatWorkItems);
+  workbench.append(
+    createChatHeader(targetDocument, chat, layout, chatActions),
+    createConversationThread(targetDocument, chat),
+    workbenchChrome,
+    createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
   );
 
   const utilities = targetDocument.createElement("div");
@@ -1105,6 +1111,27 @@ function createMainRegion(
   mountStatusStripVueIsland(status, status.textContent);
   main.append(workbench, createNativeComposerSurface(targetDocument, chat, chatActions), utilities, status);
   return main;
+}
+
+function mountChatWorkbenchVueIsland(
+  workbenchChrome: HTMLElement,
+  targetDocument: Document,
+  layout: WorkbenchLayoutState,
+  chatWorkItems: DesktopTaskCenterItem[],
+): void {
+  if (!canMountVueIsland(workbenchChrome)) {
+    return;
+  }
+  void import("./native-vue/chatWorkbenchIsland").then(({ mountChatWorkbenchIsland }) => {
+    mountChatWorkbenchIsland(workbenchChrome, {
+      moduleWorkItems: chatWorkItems,
+      panelControls: buildDesktopPanelControls(layout),
+      onInspectWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
+      onPanelToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountStatusStripVueIsland(status: HTMLElement, message: string): void {
@@ -4777,27 +4804,7 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
   controls.className = "desktop-panel-controls";
   controls.setAttribute("aria-label", "Workbench panel controls");
 
-  const panelControls: DesktopPanelControlItem[] = [
-    {
-      panel: "sidebar",
-      label: "Sidebar",
-      ariaLabel: "Toggle sidebar panel",
-      visible: layout.sidebar.visible,
-      shortcut: "Ctrl+B",
-    },
-    {
-      panel: "inspector",
-      label: "Run Chain",
-      ariaLabel: "Toggle Run Chain panel",
-      visible: layout.inspector.visible,
-    },
-    {
-      panel: "bottom",
-      label: "Tasks",
-      ariaLabel: "Toggle task and runtime panel",
-      visible: layout.bottom.visible,
-    },
-  ];
+  const panelControls = buildDesktopPanelControls(layout);
 
   for (const control of panelControls) {
     const button = targetDocument.createElement("button");
@@ -4825,6 +4832,30 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
 
   mountPanelControlsVueIsland(controls, targetDocument, panelControls);
   return controls;
+}
+
+function buildDesktopPanelControls(layout: WorkbenchLayoutState): DesktopPanelControlItem[] {
+  return [
+    {
+      panel: "sidebar",
+      label: "Sidebar",
+      ariaLabel: "Toggle sidebar panel",
+      visible: layout.sidebar.visible,
+      shortcut: "Ctrl+B",
+    },
+    {
+      panel: "inspector",
+      label: "Run Chain",
+      ariaLabel: "Toggle Run Chain panel",
+      visible: layout.inspector.visible,
+    },
+    {
+      panel: "bottom",
+      label: "Tasks",
+      ariaLabel: "Toggle task and runtime panel",
+      visible: layout.bottom.visible,
+    },
+  ];
 }
 
 function mountPanelControlsVueIsland(

@@ -35,19 +35,30 @@ function createModuleWorkSectionApp(options: ModuleWorkSectionIslandOptions): Ap
     name: "ModuleWorkSectionIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", options.title),
-          h(NSpace, {
-            class: "desktop-module-work-list",
-            vertical: true,
-            size: 8,
-          }, {
-            default: () => options.items.map((item) => renderModuleWorkRow(item, options)),
-          }),
-        ],
+        default: () => renderModuleWorkSectionContent(options),
       });
     },
   }));
+}
+
+export function renderModuleWorkSectionSurface(options: ModuleWorkSectionIslandOptions) {
+  return h("section", {
+    class: "desktop-module-work",
+    "aria-label": options.title,
+  }, renderModuleWorkSectionContent(options));
+}
+
+export function renderModuleWorkSectionContent(options: ModuleWorkSectionIslandOptions) {
+  return [
+    h("h2", options.title),
+    h(NSpace, {
+      class: "desktop-module-work-list",
+      vertical: true,
+      size: 8,
+    }, {
+      default: () => options.items.map((item) => renderModuleWorkRow(item, options)),
+    }),
+  ];
 }
 
 function renderModuleWorkRow(item: DesktopTaskCenterItem, options: ModuleWorkSectionIslandOptions) {

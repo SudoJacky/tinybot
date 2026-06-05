@@ -35,16 +35,24 @@ function createQuickActionsApp(): App {
     name: "QuickActionsIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NSpace, {
-          class: "desktop-quick-actions-list",
-          size: 8,
-        }, {
-          default: () => QUICK_ACTION_LINKS.map((link) => h("a", {
-            class: "desktop-quick-action",
-            href: link.href,
-          }, link.label)),
-        }),
+        default: () => renderQuickActionsContent(),
       });
     },
   }));
+}
+
+export function renderQuickActionsSurface() {
+  return h("div", { class: "desktop-quick-actions" }, renderQuickActionsContent());
+}
+
+export function renderQuickActionsContent() {
+  return h(NSpace, {
+    class: "desktop-quick-actions-list",
+    size: 8,
+  }, {
+    default: () => QUICK_ACTION_LINKS.map((link) => h("a", {
+      class: "desktop-quick-action",
+      href: link.href,
+    }, link.label)),
+  });
 }
