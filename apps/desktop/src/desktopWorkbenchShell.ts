@@ -1589,7 +1589,19 @@ function createConversationReasoning(targetDocument: Document, reasoningContent:
   const body = createText(targetDocument, "div", reasoningContent);
   body.className = "desktop-message-reasoning-body";
   details.append(summary, body);
+  mountConversationReasoningVueIsland(details, reasoningContent);
   return details;
+}
+
+function mountConversationReasoningVueIsland(reasoning: HTMLElement, content: string): void {
+  if (!canMountVueIsland(reasoning)) {
+    return;
+  }
+  void import("./native-vue/conversationReasoningIsland").then(({ mountConversationReasoningIsland }) => {
+    mountConversationReasoningIsland(reasoning, { content });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createToolActivities(
