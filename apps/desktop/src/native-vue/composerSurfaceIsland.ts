@@ -1,6 +1,6 @@
-import { createApp, defineComponent, h, ref, type App } from "vue";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
 import { NConfigProvider, NText } from "naive-ui";
-import { renderComposerRuntimeSurface } from "./composerRuntimeIsland";
+import { mountComposerRuntimeIsland } from "./composerRuntimeIsland";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export type ComposerSurfaceState = "idle" | "queued" | "sending";
@@ -61,6 +61,8 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
     name: "ComposerSurfaceIsland",
     setup() {
       const content = ref("");
+      const mountedChildren: Array<{ unmount: () => void }> = [];
+      const runtime = ref<HTMLElement | null>(null);
       const canSend = () => options.composerState === "idle" && Boolean(content.value.trim());
       const send = () => {
         if (!canSend()) {
@@ -71,6 +73,21 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
           usePersistentRag: options.usePersistentRag,
         });
       };
+
+      onMounted(() => {
+        mountChild(mountedChildren, runtime.value, (host) => mountComposerRuntimeIsland(host, {
+          model: options.model,
+          persistentRag: options.usePersistentRag,
+          tokenUsage: options.tokenUsage,
+          onPersistentRagChange: options.onPersistentRagChange,
+        }));
+      });
+
+      onBeforeUnmount(() => {
+        while (mountedChildren.length) {
+          mountedChildren.pop()?.unmount();
+        }
+      });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
@@ -92,12 +109,7 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
             "aria-label": "Attach temporary file to current session",
             onClick: () => options.onAttach?.(),
           }, h(NText, { strong: true }, { default: () => "+" })),
-          renderComposerRuntimeSurface({
-            model: options.model,
-            persistentRag: options.usePersistentRag,
-            tokenUsage: options.tokenUsage,
-            onPersistentRagChange: options.onPersistentRagChange,
-          }),
+          h("div", { ref: runtime }),
           h("button", {
             id: "desktop-native-composer-send",
             type: "button",
@@ -111,4 +123,15 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
       });
     },
   }));
+}
+
+function mountChild<T extends { unmount: () => void }>(
+  mountedChildren: Array<{ unmount: () => void }>,
+  host: HTMLElement | null,
+  mount: (host: HTMLElement) => T,
+): void {
+  if (!host) {
+    return;
+  }
+  mountedChildren.push(mount(host));
 }

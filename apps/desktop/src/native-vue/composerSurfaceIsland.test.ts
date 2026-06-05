@@ -37,6 +37,7 @@ describe("composer surface Vue island", () => {
     expect(input?.getAttribute("aria-label")).toBe("Native composer input");
     expect(input?.getAttribute("placeholder")).toBe("Ask Tinybot");
     expect(send?.getAttribute("disabled")).toBe("");
+    expect(host.querySelector("#desktop-native-composer-runtime")?.getAttribute("data-desktop-vue-island")).toBe("composer-runtime");
     expect(host.querySelector("#desktop-native-composer-runtime")?.textContent).toContain("deepseek-chat");
     expect(host.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("42");
 
