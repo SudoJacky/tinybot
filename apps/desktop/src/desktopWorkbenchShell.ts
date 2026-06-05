@@ -3758,7 +3758,31 @@ function createWorkLensPane(
     section.append(actions);
   }
 
+  mountWorkLensVueIsland(section, workLens, workLensActions, placement);
   return section;
+}
+
+function mountWorkLensVueIsland(
+  section: HTMLElement,
+  workLens: DesktopWorkLensProjection,
+  workLensActions: DesktopWorkLensActionOptions,
+  placement: "inspector" | "inline",
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/workLensIsland").then(({ mountWorkLensIsland }) => {
+    mountWorkLensIsland(section, {
+      workLens,
+      placement,
+      onAction: ({ action }) => {
+        workLensActions.onWorkLensAction?.({ action, workLens });
+      },
+      copyText: workLensActions.copyText,
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createWorkLensResourceList(
