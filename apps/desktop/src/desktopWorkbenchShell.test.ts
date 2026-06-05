@@ -1915,6 +1915,9 @@ describe("desktop workbench shell", () => {
   test("renders grouped settings and providers pane state in the desktop workbench", () => {
     const targetDocument = new FakeDocument();
     const settingsActions: string[] = [];
+    (targetDocument as unknown as { defaultView: { prompt: () => string } }).defaultView = {
+      prompt: () => "custom-openai",
+    };
     const settingsPane = buildDesktopSettingsPaneModel(
       {
         agent: {
@@ -2089,7 +2092,7 @@ describe("desktop workbench shell", () => {
 
     settingsActions.length = 0;
     pane?.querySelector('[data-desktop-settings-action="addProvider"]')?.click();
-    expect(settingsActions).toEqual(["edit:selectedProvider:deepseek"]);
+    expect(settingsActions).toEqual(["edit:selectedProvider:custom-openai"]);
 
     settingsActions.length = 0;
     pane?.querySelector('[data-desktop-settings-provider-card="deepseek"]')

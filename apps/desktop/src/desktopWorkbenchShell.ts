@@ -2813,13 +2813,10 @@ function createProviderManagementSection(
   add.className = "desktop-settings-provider-add";
   add.setAttribute("type", "button");
   add.setAttribute("data-desktop-settings-action", "addProvider");
-  const addTarget = getProviderCards(pane).find((provider) => provider.id !== pane.providerEditor.selectedProvider);
-  if (!addTarget) {
-    add.setAttribute("disabled", "true");
-  }
   add.addEventListener("click", () => {
-    if (addTarget) {
-      selectSettingsProvider(pane, settingsActions, addTarget.id);
+    const providerId = promptForSettingsProviderId(targetDocument);
+    if (providerId) {
+      selectSettingsProvider(pane, settingsActions, providerId);
       focusDesktopSettingsControl(targetDocument, "selectedProvider");
     }
   });
@@ -2959,6 +2956,11 @@ function filterSettingsProviderCards(cards: HTMLElement, query: string): void {
     const haystack = `${card.getAttribute("data-desktop-settings-provider-card") ?? ""} ${card.textContent ?? ""}`.toLowerCase();
     card.hidden = Boolean(normalizedQuery) && !haystack.includes(normalizedQuery);
   }
+}
+
+function promptForSettingsProviderId(targetDocument: Document): string | null {
+  const providerId = targetDocument.defaultView?.prompt("Provider ID", "")?.trim() ?? "";
+  return providerId || null;
 }
 
 function handleSettingsProviderCardAction(
