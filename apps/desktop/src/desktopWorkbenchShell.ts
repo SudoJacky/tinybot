@@ -1161,10 +1161,22 @@ function createChatMenuPopover(
   if (!chat?.sessions.length) {
     const empty = createText(targetDocument, "span", "No active session");
     empty.className = "desktop-chat-menu-empty";
+    mountChatMenuEmptyVueIsland(empty, "No active session");
     popover.append(empty);
   }
 
   return popover;
+}
+
+function mountChatMenuEmptyVueIsland(empty: HTMLElement, message: string): void {
+  if (!canMountVueIsland(empty)) {
+    return;
+  }
+  void import("./native-vue/chatMenuEmptyIsland").then(({ mountChatMenuEmptyIsland }) => {
+    mountChatMenuEmptyIsland(empty, { message });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountChatMenuActionVueIsland(
