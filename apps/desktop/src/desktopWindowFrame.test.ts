@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, test, vi } from "vitest";
 import {
   installDesktopWindowFrame,
@@ -310,6 +312,36 @@ describe("desktop window frame", () => {
 
     expect(targetDocument.dispatched).toContain("desktop-menu-command");
     expect(currentWindow.startDragging).not.toHaveBeenCalled();
+  });
+
+  test("uses a Vue island host for the real runtime status command", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+    const dispatched: string[] = [];
+    document.addEventListener("desktop-menu-command", (event) => {
+      dispatched.push((event as CustomEvent<{ id: string }>).detail.id);
+    });
+
+    installDesktopWindowFrame({
+      targetDocument: document,
+      currentWindow,
+    });
+
+    const runtimeStatus = document.getElementById("desktop-runtime-status");
+    expect(runtimeStatus?.getAttribute("data-desktop-vue-island")).toBe("desktop-runtime-status");
+    expect(runtimeStatus?.getAttribute("data-desktop-runtime-command")).toBe("refresh-gateway-status");
+    expect(runtimeStatus?.getAttribute("data-runtime-tone")).toBe("pending");
+    expect(runtimeStatus?.textContent).toContain("Gateway: Starting");
+
+    runtimeStatus?.click();
+
+    expect(dispatched).toEqual(["refresh-gateway-status"]);
   });
 
   test("keeps app chrome focused on commands without product or surface labels", () => {

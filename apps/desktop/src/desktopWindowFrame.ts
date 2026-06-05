@@ -1,5 +1,6 @@
 import { DESKTOP_CHROME_COMMANDS, DESKTOP_HELP_COMMANDS, type DesktopMenuCommand } from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
+import { mountOrUpdateDesktopRuntimeStatusIsland } from "./native-vue/desktopRuntimeStatusIsland";
 
 export interface DesktopWindowHandle {
   minimize(): Promise<void>;
@@ -49,16 +50,11 @@ export function installDesktopWindowFrame({
   const appMenu = createApplicationMenu(targetDocument);
 
   const runtimeStatus = targetDocument.createElement("div");
-  runtimeStatus.id = RUNTIME_STATUS_ID;
-  runtimeStatus.setAttribute("id", RUNTIME_STATUS_ID);
-  runtimeStatus.className = "desktop-runtime-status";
-  runtimeStatus.setAttribute("role", "button");
-  runtimeStatus.setAttribute("tabindex", "0");
-  runtimeStatus.setAttribute("data-desktop-runtime-command", "refresh-gateway-status");
-  runtimeStatus.setAttribute("aria-live", "polite");
-  runtimeStatus.setAttribute("data-runtime-tone", "pending");
-  runtimeStatus.textContent = "Gateway: Starting";
-  runtimeStatus.setAttribute("title", "Waiting for Tinybot gateway readiness");
+  applyDesktopRuntimeStatusView(runtimeStatus, {
+    tone: "pending",
+    label: "Gateway: Starting",
+    detail: "Waiting for Tinybot gateway readiness",
+  });
   runtimeStatus.addEventListener("pointerdown", (event) => event.stopPropagation());
   runtimeStatus.addEventListener("dblclick", (event) => event.stopPropagation());
   runtimeStatus.addEventListener("click", (event) => {
@@ -226,9 +222,7 @@ export function setDesktopWindowRuntimeStatus(
   }
 
   const view = resolveDesktopRuntimeStatusView(status);
-  statusElement.textContent = view.label;
-  statusElement.setAttribute("title", view.detail);
-  statusElement.setAttribute("data-runtime-tone", view.tone);
+  applyDesktopRuntimeStatusView(statusElement, view);
 }
 
 export function resolveDesktopRuntimeStatusView(status: GatewayRuntimeStatus | null): DesktopRuntimeStatusView {
@@ -292,6 +286,28 @@ function createWindowButton(
     void handler().catch(logWindowFrameError);
   });
   return button;
+}
+
+function applyDesktopRuntimeStatusView(statusElement: HTMLElement, view: DesktopRuntimeStatusView): void {
+  if (canMountDesktopRuntimeStatusIsland(statusElement)) {
+    mountOrUpdateDesktopRuntimeStatusIsland(statusElement, { view });
+    return;
+  }
+
+  statusElement.id = RUNTIME_STATUS_ID;
+  statusElement.setAttribute("id", RUNTIME_STATUS_ID);
+  statusElement.className = "desktop-runtime-status";
+  statusElement.setAttribute("role", "button");
+  statusElement.setAttribute("tabindex", "0");
+  statusElement.setAttribute("data-desktop-runtime-command", "refresh-gateway-status");
+  statusElement.setAttribute("aria-live", "polite");
+  statusElement.setAttribute("data-runtime-tone", view.tone);
+  statusElement.textContent = view.label;
+  statusElement.setAttribute("title", view.detail);
+}
+
+function canMountDesktopRuntimeStatusIsland(statusElement: HTMLElement): boolean {
+  return typeof window !== "undefined" && statusElement instanceof window.HTMLElement;
 }
 
 function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
