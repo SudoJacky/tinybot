@@ -1643,7 +1643,19 @@ function createTokenUsageOrb(targetDocument: Document, tokenUsage: string): HTML
   orb.setAttribute("data-token-usage", String(percent));
   orb.style.setProperty("--token-usage-fill", `${percent}%`);
   orb.textContent = `${percent}%`;
+  mountTokenUsageOrbVueIsland(orb, tokenUsage);
   return orb;
+}
+
+function mountTokenUsageOrbVueIsland(orb: HTMLElement, tokenUsage: string): void {
+  if (!canMountVueIsland(orb)) {
+    return;
+  }
+  void import("./native-vue/tokenUsageOrbIsland").then(({ mountTokenUsageOrbIsland }) => {
+    mountTokenUsageOrbIsland(orb, { tokenUsage });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function parseTokenUsagePercent(tokenUsage: string): number {
