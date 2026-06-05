@@ -2280,7 +2280,36 @@ function createCoworkGraphPane(
     graph.append(createText(targetDocument, "p", `${edge.source} -> ${edge.target}${edge.label ? ` / ${edge.label}` : ""}`));
   }
   graph.append(createCoworkLimitStatus(targetDocument, visibleEdges.length, view.graph.edges.length, "edge", "edges"));
+  mountCoworkGraphVueIsland(graph, targetDocument, view, inspector, pane, coworkActions);
   return graph;
+}
+
+function mountCoworkGraphVueIsland(
+  graph: HTMLElement,
+  targetDocument: Document,
+  view: DesktopCoworkCockpitView,
+  inspector: HTMLElement,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(graph)) {
+    return;
+  }
+  void import("./native-vue/coworkGraphIsland").then(({ mountCoworkGraphIsland }) => {
+    mountCoworkGraphIsland(graph, {
+      graph: view.graph,
+      onSelect: ({ type, id, label }) => {
+        const selectedView = buildDesktopCoworkCockpitView(view.raw, {
+          selected: { type, id },
+        });
+        const selectedInspector = createCoworkInspectorPane(targetDocument, selectedView, pane, coworkActions);
+        inspector.replaceChildren(...Array.from(selectedInspector.children));
+        setRouteStatus(targetDocument, `Inspecting Cowork ${label}`);
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function coworkSelectionTypeForKind(kind: string): DesktopCoworkSelectionType {
