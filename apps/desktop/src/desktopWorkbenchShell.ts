@@ -2026,6 +2026,7 @@ function createKnowledgePane(
     setDesktopEntityHook(row, "knowledge", document.id || document.path);
     documents.append(row);
   }
+  mountKnowledgeDocumentsVueIsland(documents, pane);
   section.append(documents);
 
   if (pane.selectedDocument) {
@@ -2100,6 +2101,20 @@ function mountKnowledgeReadinessVueIsland(
       readiness: pane.readiness,
       configHints: pane.configHints,
     });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountKnowledgeDocumentsVueIsland(
+  documents: HTMLElement,
+  pane: DesktopKnowledgePaneModel,
+): void {
+  if (!canMountVueIsland(documents)) {
+    return;
+  }
+  void import("./native-vue/knowledgeDocumentsIsland").then(({ mountKnowledgeDocumentsIsland }) => {
+    mountKnowledgeDocumentsIsland(documents, { documents: pane.documentRows });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
