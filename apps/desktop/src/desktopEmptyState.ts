@@ -16,12 +16,12 @@ export function upgradeDesktopRootWebUiEmptyState(emptyChat: HTMLElement, target
   emptyChat.classList.add("desktop-empty-state-compact");
 
   const hints = targetDocument.createElement("div");
-  if (typeof window === "undefined") {
-    renderStaticEmptyHints(hints, targetDocument);
-  } else {
+  if (canMountDesktopEmptyHintsIsland(hints)) {
     mountDesktopEmptyHintsIsland(hints, {
       hints: EMPTY_HINTS.map(([title, detail]) => ({ detail, title })),
     });
+  } else {
+    renderStaticEmptyHints(hints, targetDocument);
   }
 
   const actions = emptyChat.querySelector<HTMLElement>(".empty-chat-actions");
@@ -29,6 +29,10 @@ export function upgradeDesktopRootWebUiEmptyState(emptyChat: HTMLElement, target
   actions?.setAttribute("data-desktop-empty-command-hints", "true");
   emptyChat.insertBefore(hints, actions ?? null);
   return true;
+}
+
+function canMountDesktopEmptyHintsIsland(hints: HTMLElement): boolean {
+  return typeof window !== "undefined" && hints instanceof window.HTMLElement;
 }
 
 function renderStaticEmptyHints(hints: HTMLElement, targetDocument: Document): void {
