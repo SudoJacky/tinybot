@@ -26,6 +26,87 @@ function sidebarItems(): DesktopSidebarItem[] {
   ];
 }
 
+class FakeClassList {
+  constructor(private readonly element: FakeElement) {}
+
+  add(value: string): void {
+    const values = new Set(this.element.className.split(/\s+/).filter(Boolean));
+    values.add(value);
+    this.element.className = [...values].join(" ");
+  }
+
+  remove(value: string): void {
+    const values = new Set(this.element.className.split(/\s+/).filter(Boolean));
+    values.delete(value);
+    this.element.className = [...values].join(" ");
+  }
+
+  contains(value: string): boolean {
+    return this.element.className.split(/\s+/).includes(value);
+  }
+}
+
+class FakeElement {
+  public className = "";
+  public children: FakeElement[] = [];
+  public attributes = new Map<string, string>();
+  public classList = new FakeClassList(this);
+  private ownTextContent = "";
+
+  constructor(public readonly tagName: string) {}
+
+  set textContent(value: string) {
+    this.ownTextContent = value;
+  }
+
+  get textContent(): string {
+    return `${this.ownTextContent}${this.children.map((child) => child.textContent).join("")}`;
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+
+  append(...children: FakeElement[]): void {
+    this.children.push(...children);
+  }
+
+  replaceChildren(...children: FakeElement[]): void {
+    this.children = [...children];
+  }
+
+  addEventListener(): void {}
+
+  querySelectorAll(selector: string): FakeElement[] {
+    const matches = matchesFakeSelector(this, selector) ? [this] : [];
+    for (const child of this.children) {
+      matches.push(...child.querySelectorAll(selector));
+    }
+    return matches;
+  }
+}
+
+class FakeDocument {
+  createElement(tagName: string): FakeElement {
+    return new FakeElement(tagName);
+  }
+}
+
+function matchesFakeSelector(element: FakeElement, selector: string): boolean {
+  if (selector.startsWith(".")) {
+    return element.className.split(/\s+/).includes(selector.slice(1));
+  }
+  const group = selector.match(/^\[data-sidebar-group="(.+)"\]$/);
+  if (group) {
+    return element.getAttribute("data-sidebar-group") === group[1];
+  }
+  return false;
+}
+
 describe("desktop app sidebar", () => {
   test("renders action, workspace, and footer groups from the shared sidebar model", () => {
     const host = document.createElement("aside");
@@ -93,5 +174,24 @@ describe("desktop app sidebar", () => {
         detail: { id: "new-chat", source: "desktop-sidebar" },
       },
     ]);
+  });
+
+  test("uses the static fallback when the host is not a real DOM element", () => {
+    const host = new FakeElement("aside");
+    const model = buildRootWebUiSidebarModel({
+      workspace: buildRootWebUiWorkspaceContext({ workspaceLabel: "tinybot" }),
+      sessions: sidebarItems(),
+    });
+
+    renderDesktopAppSidebar(host as unknown as HTMLElement, model, new FakeDocument() as unknown as Document);
+
+    expect(host.getAttribute("data-desktop-app-sidebar")).toBe("true");
+    expect(host.getAttribute("data-desktop-vue-island")).toBeNull();
+    expect(host.querySelectorAll(".desktop-app-sidebar-group").map((node) => node.getAttribute("data-sidebar-group"))).toEqual([
+      "actions",
+      "workspace",
+      "footer",
+    ]);
+    expect(host.querySelectorAll(".desktop-app-sidebar-item").map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("session");
   });
 });

@@ -16,11 +16,15 @@ export function renderDesktopAppSidebar(
   host.setAttribute("data-desktop-sidebar-mode", model.mode);
   host.setAttribute("aria-label", "Desktop navigation");
 
-  if (typeof window === "undefined") {
-    renderStaticDesktopAppSidebar(host, model, targetDocument);
+  if (canMountDesktopAppSidebarIsland(host)) {
+    mountDesktopAppSidebarIsland(host, { model, targetDocument });
     return;
   }
-  mountDesktopAppSidebarIsland(host, { model, targetDocument });
+  renderStaticDesktopAppSidebar(host, model, targetDocument);
+}
+
+function canMountDesktopAppSidebarIsland(host: HTMLElement): boolean {
+  return typeof window !== "undefined" && host instanceof window.HTMLElement;
 }
 
 function renderStaticDesktopAppSidebar(
