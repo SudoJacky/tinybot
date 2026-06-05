@@ -813,14 +813,12 @@ function createSidebarRow(
 ): HTMLElement {
   const row = targetDocument.createElement("a");
   row.className = "desktop-sidebar-row";
-  row.setAttribute(
-    "href",
-    kind === "folder"
-      ? "/workspace"
-      : entityId
-        ? `/chat/${encodeURIComponent(entityId)}`
-        : "/chat",
-  );
+  const href = kind === "folder"
+    ? "/workspace"
+    : entityId
+      ? `/chat/${encodeURIComponent(entityId)}`
+      : "/chat";
+  row.setAttribute("href", href);
   row.setAttribute("role", "listitem");
   row.setAttribute("data-active", String(active));
   row.setAttribute("data-sidebar-row-kind", kind);
@@ -837,7 +835,30 @@ function createSidebarRow(
   time.className = "desktop-sidebar-row-meta";
   time.textContent = meta;
   row.append(label, time);
+  mountSidebarRowVueIsland(row, { active, entityId, entityModule, href, kind, meta, title });
   return row;
+}
+
+function mountSidebarRowVueIsland(
+  row: HTMLAnchorElement,
+  options: {
+    active: boolean;
+    entityId?: string;
+    entityModule?: string;
+    href: string;
+    kind: "folder" | "chat";
+    meta: string;
+    title: string;
+  },
+): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  void import("./native-vue/sidebarRowIsland").then(({ mountSidebarRowIsland }) => {
+    mountSidebarRowIsland(row, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createMainRegion(
