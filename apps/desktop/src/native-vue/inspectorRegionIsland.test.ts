@@ -70,7 +70,9 @@ describe("inspector region Vue island", () => {
 
     expect(host.className).toBe("desktop-inspector-content");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("inspector-region");
+    expect(host.querySelector(".desktop-run-chain-overview")?.getAttribute("data-desktop-vue-island")).toBe("run-chain-overview");
     expect(host.querySelector(".desktop-run-chain-overview")?.textContent).toContain("Run Chain");
+    expect(host.querySelector(".desktop-work-lens")?.getAttribute("data-desktop-vue-island")).toBe("work-lens");
     expect(host.querySelector(".desktop-work-lens")?.getAttribute("data-desktop-work-lens-id")).toBe("knowledge:doc-1:index");
     expect(host.querySelector(".desktop-work-lens")?.textContent).toContain("Index Desktop UX Notes");
     expect(host.querySelector(".desktop-run-chain-inspector")).toBeNull();
@@ -99,6 +101,8 @@ describe("inspector region Vue island", () => {
     });
 
     expect(host.querySelector(".desktop-work-lens")).toBeNull();
+    expect(host.querySelector(".desktop-run-chain-overview")?.getAttribute("data-desktop-vue-island")).toBe("run-chain-overview");
+    expect(host.querySelector(".desktop-run-chain-inspector")?.getAttribute("data-desktop-vue-island")).toBe("run-chain-inspector");
     expect(host.querySelector(".desktop-run-chain-inspector")?.textContent).toContain("Run-chain inspector");
     expect(host.querySelector('[data-desktop-run-chain-item="tool:1"]')?.getAttribute("aria-selected")).toBe("true");
 

@@ -1,10 +1,10 @@
-import { createApp, defineComponent, h, type App } from "vue";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
 import type { DesktopRunChainItem } from "../desktopRunChainInspector";
 import type { DesktopWorkLensActionId, DesktopWorkLensProjection } from "../desktopWorkLens";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
-import { renderRunChainOverviewSurface, type RunChainOverviewIslandAction } from "./runChainOverviewIsland";
-import { renderRunChainInspectorSurface } from "./runChainInspectorIsland";
-import { renderWorkLensSurface } from "./workLensIsland";
+import { mountRunChainInspectorIsland } from "./runChainInspectorIsland";
+import { mountRunChainOverviewIsland, type RunChainOverviewIslandAction } from "./runChainOverviewIsland";
+import { mountWorkLensIsland } from "./workLensIsland";
 import { NConfigProvider } from "naive-ui";
 
 export interface InspectorRegionWorkLensActionEvent {
@@ -47,28 +47,59 @@ function createInspectorRegionApp(options: InspectorRegionIslandOptions): App {
   return createApp(defineComponent({
     name: "InspectorRegionIsland",
     setup() {
+      const mountedChildren: Array<{ unmount: () => void }> = [];
+      const overview = ref<HTMLElement | null>(null);
+      const lens = ref<HTMLElement | null>(null);
+      const inspector = ref<HTMLElement | null>(null);
+
+      onMounted(() => {
+        mountChild(mountedChildren, overview.value, (host) => mountRunChainOverviewIsland(host, {
+          items: options.runChainItems,
+          onAction: options.onRunChainAction,
+        }));
+        if (options.workLens) {
+          mountChild(mountedChildren, lens.value, (host) => mountWorkLensIsland(host, {
+            workLens: options.workLens!,
+            placement: "inspector",
+            onAction: options.onWorkLensAction,
+            copyText: options.copyText,
+          }));
+        } else if (options.runChainItems.length) {
+          mountChild(mountedChildren, inspector.value, (host) => mountRunChainInspectorIsland(host, {
+            items: options.runChainItems,
+            selectedItemKey: options.selectedRunChainItemKey,
+            onSelect: options.onRunChainItemSelected,
+          }));
+        }
+      });
+
+      onBeforeUnmount(() => {
+        while (mountedChildren.length) {
+          mountedChildren.pop()?.unmount();
+        }
+      });
+
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          renderRunChainOverviewSurface({
-            items: options.runChainItems,
-            onAction: options.onRunChainAction,
-          }),
+          h("section", { ref: overview }),
           options.workLens
-            ? renderWorkLensSurface({
-              workLens: options.workLens,
-              placement: "inspector",
-              onAction: options.onWorkLensAction,
-              copyText: options.copyText,
-            })
+            ? h("section", { ref: lens })
             : options.runChainItems.length
-              ? renderRunChainInspectorSurface({
-                items: options.runChainItems,
-                selectedItemKey: options.selectedRunChainItemKey,
-                onSelect: options.onRunChainItemSelected,
-              })
+              ? h("section", { ref: inspector })
               : null,
         ],
       });
     },
   }));
+}
+
+function mountChild<T extends { unmount: () => void }>(
+  mountedChildren: Array<{ unmount: () => void }>,
+  host: HTMLElement | null,
+  mount: (host: HTMLElement) => T,
+): void {
+  if (!host) {
+    return;
+  }
+  mountedChildren.push(mount(host));
 }
