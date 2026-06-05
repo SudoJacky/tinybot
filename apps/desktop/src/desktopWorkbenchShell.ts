@@ -5831,7 +5831,19 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   );
 
   section.append(grid, operationStrip, sessionFiles);
+  mountFileActionsSurfaceVueIsland(section, chat?.activeSessionKey ?? null);
   return section;
+}
+
+function mountFileActionsSurfaceVueIsland(section: HTMLElement, activeSessionKey: string | null): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/fileActionsSurfaceIsland").then(({ mountFileActionsSurfaceIsland }) => {
+    mountFileActionsSurfaceIsland(section, { activeSessionKey });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountSessionUploadCardVueIsland(card: HTMLElement, activeSessionKey: string | null): void {
