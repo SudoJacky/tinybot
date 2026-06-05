@@ -8,6 +8,7 @@ import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
 import type { MountedWorkspaceActionsIsland } from "./native-vue/workspaceActionsIsland";
 import type { MountedWorkspaceDetailIsland } from "./native-vue/workspaceDetailIsland";
 import type { MountedWorkspaceEditorIsland } from "./native-vue/workspaceEditorIsland";
+import type { MountedWorkspaceHeaderIsland } from "./native-vue/workspaceHeaderIsland";
 import type { MountedWorkspaceRecentFilesIsland } from "./native-vue/workspaceRecentFilesIsland";
 
 export type DesktopWorkspaceSaveState = "idle" | "dirty" | "saving" | "saved" | "protected-path-error" | "conflict-error" | "error";
@@ -69,6 +70,7 @@ const workspaceRecentFileIslands = new WeakMap<HTMLElement, MountedWorkspaceRece
 const workspaceDetailIslands = new WeakMap<HTMLElement, MountedWorkspaceDetailIsland>();
 const workspaceActionsIslands = new WeakMap<HTMLElement, MountedWorkspaceActionsIsland>();
 const workspaceEditorIslands = new WeakMap<HTMLElement, MountedWorkspaceEditorIsland>();
+const workspaceHeaderIslands = new WeakMap<HTMLElement, MountedWorkspaceHeaderIsland>();
 
 export function buildDesktopWorkspaceFileRows(payload: unknown): DesktopWorkspaceFileRow[] {
   const items = isRecord(payload) && Array.isArray(payload.items) ? payload.items : [];
@@ -559,6 +561,10 @@ function renderWorkspaceState(
 
   const fileLabel = state.files.length === 1 ? "file" : "files";
   setText(targetDocument, "#desktop-workspace-status", `${state.files.length} ${fileLabel}`);
+  const header = targetDocument.querySelector<HTMLElement>(".desktop-workspace-header");
+  if (header) {
+    mountWorkspaceHeaderVueIsland(header, state);
+  }
   setText(targetDocument, "#desktop-workspace-active-path", state.activePath ? `Active path: ${state.activePath}` : "No workspace file selected.");
   setText(targetDocument, "#desktop-workspace-updated-at", state.activeUpdatedAt ? `Updated: ${state.activeUpdatedAt}` : "No timestamp");
   setText(targetDocument, "#desktop-workspace-size", typeof state.activeSizeBytes === "number" ? `Size: ${formatFileSize(state.activeSizeBytes)}` : "No size");
@@ -687,6 +693,22 @@ function mountWorkspaceEditorVueIsland(
       state,
       onDraftInput,
     }));
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountWorkspaceHeaderVueIsland(host: HTMLElement, state: DesktopWorkspaceFileState): void {
+  if (!canMountVueIsland(host)) {
+    return;
+  }
+  const mounted = workspaceHeaderIslands.get(host);
+  if (mounted) {
+    mounted.update(state);
+    return;
+  }
+  void import("./native-vue/workspaceHeaderIsland").then(({ mountWorkspaceHeaderIsland }) => {
+    workspaceHeaderIslands.set(host, mountWorkspaceHeaderIsland(host, { state }));
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
