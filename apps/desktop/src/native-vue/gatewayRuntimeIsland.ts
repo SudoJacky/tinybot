@@ -45,37 +45,41 @@ function createGatewayRuntimeApp(options: GatewayRuntimeIslandOptions): App {
     name: "GatewayRuntimeIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h("section", {
-          class: "desktop-workbench-section desktop-gateway-runtime",
-          "aria-label": "Gateway runtime controls",
-        }, [
-          h("h2", "Runtime"),
-          ...buildDesktopGatewayRuntimeRows(options.status, options.gatewayHttp).map((row) => h("p", {
-            class: "desktop-gateway-runtime-row",
-            "data-desktop-gateway-runtime-row": row.label,
-          }, [
-            h("span", { class: "desktop-gateway-runtime-label" }, row.label),
-            h("span", { class: "desktop-gateway-runtime-value" }, row.value),
-          ])),
-          h(NSpace, {
-            class: "desktop-gateway-actions",
-            role: "group",
-            "aria-label": "Gateway runtime actions",
-            size: 8,
-          }, {
-            default: () => buildDesktopGatewayRuntimeActions(options.status).map((action) => h(NButton, {
-              class: "desktop-gateway-action",
-              "data-desktop-gateway-action": action.id,
-              size: "small",
-              secondary: true,
-              type: gatewayPrimaryAction(action.id),
-              onClick: () => handleAction(action.id, options),
-            }, { default: () => action.label })),
-          }),
-        ]),
+        default: () => renderGatewayRuntimeSurface(options),
       });
     },
   }));
+}
+
+export function renderGatewayRuntimeSurface(options: GatewayRuntimeIslandOptions) {
+  return h("section", {
+    class: "desktop-workbench-section desktop-gateway-runtime",
+    "aria-label": "Gateway runtime controls",
+  }, [
+    h("h2", "Runtime"),
+    ...buildDesktopGatewayRuntimeRows(options.status, options.gatewayHttp).map((row) => h("p", {
+      class: "desktop-gateway-runtime-row",
+      "data-desktop-gateway-runtime-row": row.label,
+    }, [
+      h("span", { class: "desktop-gateway-runtime-label" }, row.label),
+      h("span", { class: "desktop-gateway-runtime-value" }, row.value),
+    ])),
+    h(NSpace, {
+      class: "desktop-gateway-actions",
+      role: "group",
+      "aria-label": "Gateway runtime actions",
+      size: 8,
+    }, {
+      default: () => buildDesktopGatewayRuntimeActions(options.status).map((action) => h(NButton, {
+        class: "desktop-gateway-action",
+        "data-desktop-gateway-action": action.id,
+        size: "small",
+        secondary: true,
+        type: gatewayPrimaryAction(action.id),
+        onClick: () => handleAction(action.id, options),
+      }, { default: () => action.label })),
+    }),
+  ]);
 }
 
 function handleAction(action: DesktopGatewayRuntimeActionId, options: GatewayRuntimeIslandOptions): void {

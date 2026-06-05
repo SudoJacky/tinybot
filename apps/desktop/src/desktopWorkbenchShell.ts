@@ -5267,7 +5267,37 @@ function createBottomRegion(
     createTaskCenterSurface(targetDocument, taskCenterItems, taskActions),
     createGatewayRuntimeSurface(targetDocument, runtimeStatus, gatewayHttp, gatewayActions),
   );
+  mountBottomRegionVueIsland(bottom, targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions);
   return bottom;
+}
+
+function mountBottomRegionVueIsland(
+  bottom: HTMLElement,
+  targetDocument: Document,
+  runtimeStatus: GatewayRuntimeStatus | null,
+  gatewayHttp: string,
+  taskCenterItems: DesktopTaskCenterItem[],
+  taskActions: DesktopTaskCenterActionOptions,
+  gatewayActions: DesktopGatewayRuntimeActionOptions,
+): void {
+  if (!canMountVueIsland(bottom)) {
+    return;
+  }
+  void import("./native-vue/bottomRegionIsland").then(({ mountBottomRegionIsland }) => {
+    mountBottomRegionIsland(bottom, {
+      gatewayHttp,
+      gatewayStatus: runtimeStatus,
+      taskItems: taskCenterItems,
+      onGatewayAction: ({ action }) => {
+        handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
+      },
+      onTaskAction: ({ action, item }) => {
+        handleTaskActionId(targetDocument, item, action, taskCenterItems, taskActions);
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createGatewayRuntimeSurface(

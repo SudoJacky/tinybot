@@ -43,20 +43,32 @@ function createTaskCenterApp(options: TaskCenterIslandOptions): App {
     name: "TaskCenterIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", "Task Center"),
-          h("p", { class: "desktop-task-center-summary" }, taskCenterSummary(options.items)),
-          h("div", {
-            class: "desktop-task-center-list",
-            role: "list",
-            "aria-live": "polite",
-          }, options.items.length
-            ? options.items.map((item) => renderTaskItem(item, options))
-            : [h("p", { class: "desktop-task-center-empty" }, "No background tasks.")]),
-        ],
+        default: () => renderTaskCenterContent(options),
       });
     },
   }));
+}
+
+export function renderTaskCenterSurface(options: TaskCenterIslandOptions) {
+  return h("section", {
+    id: "desktop-task-center",
+    class: "desktop-task-center",
+    "aria-label": "Background task center",
+  }, renderTaskCenterContent(options));
+}
+
+export function renderTaskCenterContent(options: TaskCenterIslandOptions) {
+  return [
+    h("h2", "Task Center"),
+    h("p", { class: "desktop-task-center-summary" }, taskCenterSummary(options.items)),
+    h("div", {
+      class: "desktop-task-center-list",
+      role: "list",
+      "aria-live": "polite",
+    }, options.items.length
+      ? options.items.map((item) => renderTaskItem(item, options))
+      : [h("p", { class: "desktop-task-center-empty" }, "No background tasks.")]),
+  ];
 }
 
 function renderTaskItem(item: DesktopTaskCenterItem, options: TaskCenterIslandOptions) {
