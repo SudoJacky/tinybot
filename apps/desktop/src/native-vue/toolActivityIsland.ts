@@ -42,13 +42,28 @@ function createToolActivityApp(options: ToolActivityIslandOptions): App {
     name: "ToolActivityIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          renderSummary(options),
-          renderBody(options),
-        ],
+        default: () => renderToolActivityChildren(options),
       });
     },
   }));
+}
+
+export function renderToolActivityNode(options: ToolActivityIslandOptions) {
+  const attributes: Record<string, string> = {
+    class: "desktop-tool-activity",
+    "data-desktop-tool-activity-kind": options.kind,
+  };
+  if (options.id) {
+    attributes["data-desktop-tool-activity-id"] = options.id;
+  }
+  return h("details", attributes, renderToolActivityChildren(options));
+}
+
+export function renderToolActivityChildren(options: ToolActivityIslandOptions) {
+  return [
+    renderSummary(options),
+    renderBody(options),
+  ];
 }
 
 function renderSummary(options: ToolActivityIslandOptions) {

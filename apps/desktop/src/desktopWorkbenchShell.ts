@@ -1613,7 +1613,36 @@ function createToolActivities(
   for (const activity of activities) {
     wrapper.append(createToolActivity(targetDocument, activity));
   }
+  mountToolActivitiesVueIsland(wrapper, activities.map((activity) => ({
+    argsText: activity.argsText || "",
+    approvalStatus: activity.approvalStatus || "",
+    id: activity.id || "",
+    kind: activity.kind,
+    name: activity.name || "",
+    responseText: activity.responseText || "",
+  })));
   return wrapper;
+}
+
+function mountToolActivitiesVueIsland(
+  wrapper: HTMLElement,
+  activities: Array<{
+    argsText: string;
+    approvalStatus: string;
+    id: string;
+    kind: "call" | "result";
+    name: string;
+    responseText: string;
+  }>,
+): void {
+  if (!canMountVueIsland(wrapper)) {
+    return;
+  }
+  void import("./native-vue/toolActivitiesIsland").then(({ mountToolActivitiesIsland }) => {
+    mountToolActivitiesIsland(wrapper, { activities });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createToolActivity(
