@@ -18,6 +18,7 @@ class FakeElement {
   public value = "";
   public checked = false;
   public disabled = false;
+  public hidden = false;
   public innerHTML = "";
   private listeners = new Map<string, ((event: unknown) => void)[]>();
   private ownTextContent = "";
@@ -1990,7 +1991,11 @@ describe("desktop workbench shell", () => {
         lastSavedState: null,
         saveStatus: "failed",
         saveError: "HTTP 400",
-        providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+        providerCatalog: [
+          { id: "openai", displayName: "OpenAI", status: "ready" },
+          { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+          { id: "ollama", displayName: "Ollama", status: "not_configured" },
+        ],
       },
     );
 
@@ -2035,6 +2040,11 @@ describe("desktop workbench shell", () => {
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("Base URL: https://api.openai.com/v1");
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("API Key: ********");
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("Model: gpt-4.1, gpt-4.1-mini");
+    expect(pane?.querySelectorAll(".desktop-settings-provider-card").map((card) => card.getAttribute("data-desktop-settings-provider-card"))).toEqual([
+      "openai",
+      "deepseek",
+      "ollama",
+    ]);
     expect(pane?.querySelector('[data-desktop-settings-group="agent"]')?.getAttribute("id")).toBe("desktop-settings-group-agent");
     expect(pane?.textContent).toContain("设置 / 模型");
     expect(pane?.textContent).toContain("Save: HTTP 400");
@@ -2070,6 +2080,33 @@ describe("desktop workbench shell", () => {
     providerSelect!.value = "deepseek";
     providerSelect?.dispatchEvent({ type: "change", target: providerSelect });
     expect(settingsActions[settingsActions.length - 1]).toBe("edit:selectedProvider:deepseek");
+
+    const providerSearch = pane?.querySelector(".desktop-settings-provider-search");
+    providerSearch!.value = "deep";
+    providerSearch?.dispatchEvent({ type: "input", target: providerSearch });
+    const filteredCards = pane?.querySelectorAll(".desktop-settings-provider-card") ?? [];
+    expect(filteredCards.map((card) => card.hidden)).toEqual([true, false, true]);
+
+    settingsActions.length = 0;
+    pane?.querySelector('[data-desktop-settings-action="addProvider"]')?.click();
+    expect(settingsActions).toEqual(["edit:selectedProvider:deepseek"]);
+
+    settingsActions.length = 0;
+    pane?.querySelector('[data-desktop-settings-provider-card="deepseek"]')
+      ?.querySelector('[data-desktop-settings-provider-action="settings"]')
+      ?.click();
+    expect(settingsActions).toEqual(["edit:selectedProvider:deepseek"]);
+
+    pane?.querySelector('[data-desktop-settings-provider-card="openai"]')
+      ?.querySelector('[data-desktop-settings-provider-action="models"]')
+      ?.click();
+    expect(targetDocument.activeElement).toBe(modelInput);
+
+    const apiBaseInput = pane?.querySelector('[data-desktop-settings-control="apiBase"]');
+    pane?.querySelector('[data-desktop-settings-provider-card="openai"]')
+      ?.querySelector('[data-desktop-settings-provider-action="settings"]')
+      ?.click();
+    expect(targetDocument.activeElement).toBe(apiBaseInput);
   });
 
   test("allows custom model entry when no provider model catalog is loaded", () => {
