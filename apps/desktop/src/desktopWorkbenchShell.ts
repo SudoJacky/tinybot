@@ -1001,6 +1001,7 @@ function createChatHeader(
   const title = targetDocument.createElement("h1");
   title.className = "desktop-chat-title";
   title.textContent = activeChatTitle(chat);
+  mountChatTitleVueIsland(title, activeChatTitle(chat));
 
   const menu = targetDocument.createElement("button");
   menu.type = "button";
@@ -1037,6 +1038,17 @@ function createChatHeader(
 
   header.append(titleRow, actions);
   return header;
+}
+
+function mountChatTitleVueIsland(title: HTMLElement, text: string): void {
+  if (!canMountVueIsland(title)) {
+    return;
+  }
+  void import("./native-vue/chatTitleIsland").then(({ mountChatTitleIsland }) => {
+    mountChatTitleIsland(title, { title: text });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountChatMenuButtonVueIsland(menu: HTMLElement, popover: HTMLElement): void {
