@@ -4919,7 +4919,19 @@ function createFileOperationStatus(targetDocument: Document, label: string, stat
   const item = targetDocument.createElement("div");
   item.className = "desktop-file-operation-status";
   item.append(createText(targetDocument, "span", label), createText(targetDocument, "strong", status));
+  mountFileOperationStatusVueIsland(item, label, status);
   return item;
+}
+
+function mountFileOperationStatusVueIsland(item: HTMLElement, label: string, status: string): void {
+  if (!canMountVueIsland(item)) {
+    return;
+  }
+  void import("./native-vue/fileOperationStatusIsland").then(({ mountFileOperationStatusIsland }) => {
+    mountFileOperationStatusIsland(item, { label, status });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function syncSessionFileUploadKey(targetDocument: Document, activeSessionKey: string): void {
