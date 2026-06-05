@@ -4748,7 +4748,19 @@ function createQuickActions(targetDocument: Document): HTMLElement {
   ]) {
     actions.append(createWorkbenchLink(targetDocument, label, href, "desktop-quick-action"));
   }
+  mountQuickActionsVueIsland(actions);
   return actions;
+}
+
+function mountQuickActionsVueIsland(actions: HTMLElement): void {
+  if (!canMountVueIsland(actions)) {
+    return;
+  }
+  void import("./native-vue/quickActionsIsland").then(({ mountQuickActionsIsland }) => {
+    mountQuickActionsIsland(actions);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createFileActions(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
