@@ -1609,7 +1609,19 @@ function createComposerModelControl(targetDocument: Document, chat: DesktopNativ
   button.className = "desktop-native-composer-model";
   button.setAttribute("aria-label", "Select model");
   button.textContent = chat?.runtime?.model || "Tinybot Pro";
+  mountComposerModelControlVueIsland(button, chat?.runtime?.model || null);
   return button;
+}
+
+function mountComposerModelControlVueIsland(button: HTMLElement, model: string | null): void {
+  if (!canMountVueIsland(button)) {
+    return;
+  }
+  void import("./native-vue/composerModelControlIsland").then(({ mountComposerModelControlIsland }) => {
+    mountComposerModelControlIsland(button, { model });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createPersistentRagToggle(
