@@ -559,7 +559,19 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   }
 
   rail.append(primary, secondary);
+  mountActivityRailVueIsland(rail);
   return rail;
+}
+
+function mountActivityRailVueIsland(rail: HTMLElement): void {
+  if (!canMountVueIsland(rail)) {
+    return;
+  }
+  void import("./native-vue/activityRailIsland").then(({ mountActivityRailIsland }) => {
+    mountActivityRailIsland(rail);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSidebar(
