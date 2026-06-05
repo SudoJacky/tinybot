@@ -2677,44 +2677,24 @@ function createSettingsProvidersPane(
 
   const header = targetDocument.createElement("header");
   header.className = "desktop-settings-header";
-  const title = targetDocument.createElement("div");
-  title.append(
-    createText(targetDocument, "h2", "Settings"),
-    createText(targetDocument, "p", pane.dirty ? "Unsaved desktop configuration changes" : "Desktop configuration is up to date"),
-  );
-
-  const actions = targetDocument.createElement("div");
-  actions.className = "desktop-settings-actions";
-  const save = targetDocument.createElement("button");
-  save.setAttribute("type", "button");
-  save.setAttribute("data-desktop-settings-action", "save");
-  if (!pane.save.canSave) {
-    save.setAttribute("disabled", "true");
-  }
-  save.textContent = pane.save.status === "saving" ? "Saving" : "Save settings";
-  save.addEventListener("click", () => {
-    settingsActions.onSettingsAction?.({ action: "save", pane });
-  });
-  const discover = targetDocument.createElement("button");
-  discover.setAttribute("type", "button");
-  discover.setAttribute("data-desktop-settings-action", "discoverModels");
-  if (!pane.providerEditor.canDiscoverModels) {
-    discover.setAttribute("disabled", "true");
-  }
-  discover.textContent = "Refresh models";
-  discover.addEventListener("click", () => {
-    settingsActions.onSettingsAction?.({ action: "discoverModels", pane });
-  });
-  actions.append(save, discover);
-  header.append(title, actions);
+  const breadcrumb = targetDocument.createElement("div");
+  breadcrumb.className = "desktop-settings-breadcrumb";
+  breadcrumb.append(createText(targetDocument, "h2", "设置 / 模型"));
+  header.append(breadcrumb);
   content.append(header);
 
+  content.append(createDefaultLlmSettingsCard(targetDocument, pane, settingsActions));
+  content.append(createProviderManagementSection(targetDocument, pane, settingsActions));
   content.append(createSettingsStatusCard(targetDocument, pane));
 
   const grid = targetDocument.createElement("div");
   grid.className = "desktop-settings-grid";
 
   for (const group of pane.groups) {
+    const fields = getSettingsGroupDisplayFields(group);
+    if (!fields.length) {
+      continue;
+    }
     const groupSection = targetDocument.createElement("section");
     groupSection.className = "desktop-settings-group";
     groupSection.setAttribute("id", `desktop-settings-group-${group.id}`);
@@ -2726,7 +2706,7 @@ function createSettingsProvidersPane(
       copy.className = "desktop-settings-group-description";
       groupSection.append(copy);
     }
-    for (const field of group.fields) {
+    for (const field of fields) {
       const row = targetDocument.createElement("div");
       row.className = "desktop-settings-field";
       row.setAttribute("data-desktop-settings-field", field.id);
@@ -2749,6 +2729,261 @@ function createSettingsProvidersPane(
   content.append(grid);
   section.append(content);
   return section;
+}
+
+function createDefaultLlmSettingsCard(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const card = targetDocument.createElement("section");
+  card.className = "desktop-settings-default-llm-card";
+  card.setAttribute("aria-label", "Default LLM settings");
+
+  const heading = targetDocument.createElement("div");
+  heading.className = "desktop-settings-card-heading";
+  heading.append(createText(targetDocument, "h2", "默认 LLM"));
+
+  const form = targetDocument.createElement("div");
+  form.className = "desktop-settings-default-llm-form";
+  const provider = findSettingsPaneField(pane, "provider", "selectedProvider");
+  const model = findSettingsPaneField(pane, "agent", "model");
+  if (provider) {
+    form.append(createSettingsControlField(targetDocument, pane, provider, "提供商", settingsActions));
+  }
+  if (model) {
+    form.append(createSettingsControlField(targetDocument, pane, model, "模型", settingsActions));
+  }
+
+  const save = targetDocument.createElement("button");
+  save.className = "desktop-settings-save-status-button";
+  save.setAttribute("type", "button");
+  save.setAttribute("data-desktop-settings-action", "save");
+  if (!pane.save.canSave) {
+    save.setAttribute("disabled", "true");
+  }
+  save.textContent = pane.save.status === "saving" ? "保存中" : pane.save.status === "saved" ? "已保存" : pane.dirty ? "保存设置" : "已保存";
+  save.addEventListener("click", () => {
+    settingsActions.onSettingsAction?.({ action: "save", pane });
+  });
+  form.append(save);
+
+  const copy = createText(targetDocument, "p", "这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。");
+  copy.className = "desktop-settings-default-llm-copy";
+
+  card.append(heading, form, copy);
+  return card;
+}
+
+function createProviderManagementSection(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-settings-provider-section";
+  section.setAttribute("aria-label", "Provider management");
+
+  const header = targetDocument.createElement("header");
+  header.className = "desktop-settings-provider-header";
+  header.append(createText(targetDocument, "h2", "提供商"));
+
+  const tools = targetDocument.createElement("div");
+  tools.className = "desktop-settings-provider-tools";
+  const search = targetDocument.createElement("input");
+  search.className = "desktop-settings-provider-search";
+  search.setAttribute("type", "search");
+  search.setAttribute("placeholder", "搜索提供商...");
+  search.setAttribute("aria-label", "Search providers");
+
+  const refresh = targetDocument.createElement("button");
+  refresh.className = "desktop-settings-provider-icon-button";
+  refresh.setAttribute("type", "button");
+  refresh.setAttribute("data-desktop-settings-action", "discoverModels");
+  refresh.setAttribute("aria-label", "Refresh provider models");
+  if (!pane.providerEditor.canDiscoverModels) {
+    refresh.setAttribute("disabled", "true");
+  }
+  refresh.textContent = "Refresh models";
+  refresh.addEventListener("click", () => {
+    settingsActions.onSettingsAction?.({ action: "discoverModels", pane });
+  });
+
+  const add = targetDocument.createElement("button");
+  add.className = "desktop-settings-provider-add";
+  add.setAttribute("type", "button");
+  add.setAttribute("data-desktop-settings-action", "addProvider");
+  add.textContent = "+ 添加提供商";
+  tools.append(search, refresh, add);
+  header.append(tools);
+
+  const cards = targetDocument.createElement("div");
+  cards.className = "desktop-settings-provider-grid";
+  for (const provider of getProviderCards(pane)) {
+    cards.append(createProviderManagementCard(targetDocument, provider));
+  }
+
+  section.append(header, cards);
+  return section;
+}
+
+function createSettingsControlField(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  field: DesktopSettingsPaneModel["groups"][number]["fields"][number],
+  labelText: string,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const wrapper = targetDocument.createElement("label");
+  wrapper.className = "desktop-settings-inline-field";
+  wrapper.append(createText(targetDocument, "span", labelText));
+  wrapper.append(field.id === "model" && pane.providerEditor.models.length > 0
+    ? createDesktopSettingsModelSelect(targetDocument, pane, field, settingsActions)
+    : createDesktopSettingsControl(targetDocument, pane, field, settingsActions));
+  return wrapper;
+}
+
+function createDesktopSettingsModelSelect(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  field: DesktopSettingsPaneField,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const select = targetDocument.createElement("select");
+  select.setAttribute("id", `desktop-settings-${field.id}`);
+  select.setAttribute("data-desktop-settings-control", field.id);
+  select.setAttribute("data-state", field.state);
+  if (field.state === "invalid") {
+    select.setAttribute("aria-invalid", "true");
+  }
+  const values = [field.inputValue, ...pane.providerEditor.models].filter(Boolean);
+  const uniqueValues = Array.from(new Set(values));
+  if (!uniqueValues.length) {
+    uniqueValues.push("");
+  }
+  for (const value of uniqueValues) {
+    const option = targetDocument.createElement("option");
+    option.setAttribute("value", value);
+    option.textContent = value || "暂未选择模型";
+    if (value === field.inputValue) {
+      option.setAttribute("selected", "true");
+    }
+    select.append(option);
+  }
+  select.addEventListener("change", (event) => {
+    settingsActions.onSettingsAction?.({
+      action: "edit",
+      pane,
+      fieldId: field.id,
+      value: String((event.target as HTMLSelectElement | null)?.value ?? ""),
+    });
+  });
+  return select;
+}
+
+function createProviderManagementCard(targetDocument: Document, provider: DesktopProviderCardModel): HTMLElement {
+  const card = targetDocument.createElement("article");
+  card.className = "desktop-settings-provider-card";
+  card.setAttribute("data-desktop-settings-provider-card", provider.id);
+
+  const header = targetDocument.createElement("header");
+  header.className = "desktop-settings-provider-card-header";
+  const title = targetDocument.createElement("div");
+  title.className = "desktop-settings-provider-title";
+  title.append(createText(targetDocument, "h3", provider.label));
+  if (provider.badge) {
+    const badge = createText(targetDocument, "span", provider.badge);
+    badge.className = "desktop-settings-provider-badge";
+    title.append(badge);
+  }
+  const status = createText(targetDocument, "span", provider.statusLabel);
+  status.className = "desktop-settings-provider-status";
+  header.append(title, status);
+
+  const details = targetDocument.createElement("div");
+  details.className = "desktop-settings-provider-details";
+  details.append(
+    createSettingsProviderDetail(targetDocument, "Base URL", provider.baseUrl),
+    createSettingsProviderDetail(targetDocument, "API Key", provider.apiKey),
+    createSettingsProviderDetail(targetDocument, "Model", provider.models),
+  );
+
+  const actions = targetDocument.createElement("div");
+  actions.className = "desktop-settings-provider-card-actions";
+  actions.append(createText(targetDocument, "button", "模型"), createText(targetDocument, "button", "设置"));
+  for (const button of actions.querySelectorAll("button")) {
+    button.setAttribute("type", "button");
+  }
+
+  card.append(header, details, actions);
+  return card;
+}
+
+function createSettingsProviderDetail(targetDocument: Document, label: string, value: string): HTMLElement {
+  const row = targetDocument.createElement("p");
+  row.className = "desktop-settings-provider-detail";
+  row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
+  return row;
+}
+
+type DesktopSettingsPaneGroup = DesktopSettingsPaneModel["groups"][number];
+type DesktopSettingsPaneField = DesktopSettingsPaneGroup["fields"][number];
+
+interface DesktopProviderCardModel {
+  id: string;
+  label: string;
+  badge: string;
+  statusLabel: string;
+  baseUrl: string;
+  apiKey: string;
+  models: string;
+}
+
+function findSettingsPaneField(
+  pane: DesktopSettingsPaneModel,
+  groupId: DesktopSettingsPaneGroup["id"],
+  fieldId: string,
+): DesktopSettingsPaneField | null {
+  return pane.groups.find((group) => group.id === groupId)?.fields.find((field) => field.id === fieldId) ?? null;
+}
+
+function getSettingsGroupDisplayFields(group: DesktopSettingsPaneGroup): DesktopSettingsPaneField[] {
+  if (group.id === "agent") {
+    return group.fields.filter((field) => !["model", "provider"].includes(field.id));
+  }
+  if (group.id === "provider") {
+    return group.fields.filter((field) => !["selectedProvider"].includes(field.id));
+  }
+  return group.fields;
+}
+
+function getProviderCards(pane: DesktopSettingsPaneModel): DesktopProviderCardModel[] {
+  const selectedProvider = pane.providerEditor.selectedProvider || "provider";
+  const catalog = pane.providerCatalog.length
+    ? pane.providerCatalog
+    : [{ id: selectedProvider, label: selectedProvider, status: "not_configured" }];
+  return catalog.map((provider) => {
+    const isSelected = provider.id === selectedProvider;
+    const models = isSelected ? pane.providerEditor.models.join(", ") : "";
+    return {
+      id: provider.id,
+      label: provider.label || provider.id,
+      badge: isSelected ? "当前" : "",
+      statusLabel: formatProviderStatus(provider.status),
+      baseUrl: isSelected ? pane.providerEditor.apiBase || "未设置" : "未设置",
+      apiKey: isSelected ? pane.providerEditor.apiKey.displayValue || "未设置" : "未设置",
+      models: models || "暂无模型",
+    };
+  });
+}
+
+function formatProviderStatus(status: string): string {
+  return {
+    ready: "已连接",
+    needs_key: "未就绪",
+    unavailable: "不可用",
+    not_configured: "未配置",
+  }[status] ?? status;
 }
 
 function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
@@ -4027,7 +4262,7 @@ function syncSessionFileUploadKey(targetDocument: Document, activeSessionKey: st
 function createDesktopHelpSurface(targetDocument: Document): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-help-pane";
-  section.setAttribute("data-desktop-module-surface", "docs settings");
+  section.setAttribute("data-desktop-module-surface", "docs");
   section.setAttribute("aria-label", "Desktop help");
   section.append(createText(targetDocument, "h2", "Help"));
 
@@ -6424,6 +6659,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: none;
     }
 
+    html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell {
+      grid-template-columns: 56px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;
+    }
+
+    html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-inspector {
+      display: none;
+    }
+
     html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-utility-surfaces,
     html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench .desktop-utility-surfaces,
     html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench .desktop-utility-surfaces,
@@ -6445,11 +6688,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-pane {
-      grid-template-columns: minmax(180px, 220px) minmax(0, 920px);
-      justify-content: center;
+      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+      justify-content: stretch;
       align-items: start;
-      gap: 42px;
+      gap: 28px;
       min-width: 0;
+      width: 100%;
+      max-width: 1180px;
+      margin: 0 auto;
     }
 
     body.desktop-native-workbench .desktop-settings-sidebar {
@@ -6508,7 +6754,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-content {
       display: grid;
-      gap: 30px;
+      gap: 26px;
       width: 100%;
       min-width: 0;
     }
@@ -6519,14 +6765,228 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       justify-content: space-between;
       gap: 16px;
       min-width: 0;
-      padding-top: 26px;
+      padding-top: 22px;
     }
 
-    body.desktop-native-workbench .desktop-settings-header h2 {
+    body.desktop-native-workbench .desktop-settings-breadcrumb h2 {
       margin: 0;
       color: #1f1d1a;
-      font: 700 24px/1.2 var(--font-sans);
+      font: 700 20px/1.2 var(--font-sans);
       letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-breadcrumb {
+      color: #8c847c;
+    }
+
+    body.desktop-native-workbench .desktop-settings-default-llm-card,
+    body.desktop-native-workbench .desktop-settings-provider-section {
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-default-llm-card {
+      display: grid;
+      gap: 12px;
+      border: 1px solid #ebe4dd;
+      border-radius: 8px;
+      padding: 34px 40px;
+      background: #fffdfa;
+    }
+
+    body.desktop-native-workbench .desktop-settings-card-heading h2,
+    body.desktop-native-workbench .desktop-settings-provider-header h2 {
+      margin: 0;
+      color: #1f1d1a;
+      font: 750 21px/1.2 var(--font-sans);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-default-llm-form {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) minmax(120px, 0.35fr);
+      align-items: end;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-inline-field {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      color: #3b352f;
+      font: 650 13px/1.3 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-inline-field select,
+    body.desktop-native-workbench .desktop-settings-inline-field input,
+    body.desktop-native-workbench .desktop-settings-provider-search {
+      width: 100%;
+      min-width: 0;
+      min-height: 34px;
+      border: 1px solid #e0d8d0;
+      border-radius: 6px;
+      padding: 0 10px;
+      background: #fffdfa;
+      color: #25211d;
+      font: 500 13px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-save-status-button {
+      min-height: 34px;
+      border: 1px solid #d8d0c8;
+      border-radius: 6px;
+      padding: 0 14px;
+      background: #f8f6f2;
+      color: #5c554e;
+      font: 700 13px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-save-status-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.62;
+    }
+
+    body.desktop-native-workbench .desktop-settings-default-llm-copy {
+      margin: 0;
+      color: #6b635c;
+      font: 500 13px/1.55 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-section {
+      display: grid;
+      gap: 18px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-tools {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto auto;
+      gap: 10px;
+      min-width: min(420px, 100%);
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-icon-button,
+    body.desktop-native-workbench .desktop-settings-provider-add,
+    body.desktop-native-workbench .desktop-settings-provider-card-actions button {
+      min-height: 34px;
+      border: 1px solid #d8d0c8;
+      border-radius: 6px;
+      padding: 0 12px;
+      background: #fffdfa;
+      color: #25211d;
+      font: 700 13px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-icon-button {
+      width: 42px;
+      overflow: hidden;
+      color: transparent;
+      position: relative;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-icon-button::before {
+      content: "↻";
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #25211d;
+      font-size: 16px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-add {
+      border-color: #f07a2b;
+      background: #ff7a1a;
+      color: #ffffff;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-card {
+      display: grid;
+      align-content: space-between;
+      gap: 20px;
+      min-width: 0;
+      min-height: 250px;
+      border: 1px solid #ebe4dd;
+      border-radius: 8px;
+      padding: 28px 26px 18px;
+      background: #fffdfa;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-card-header {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-title h3 {
+      margin: 0;
+      color: #141413;
+      font: 750 20px/1.2 var(--font-sans);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-badge {
+      border-radius: 5px;
+      padding: 2px 6px;
+      background: #d9f7f1;
+      color: #08756b;
+      font: 700 11px/1.2 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-status {
+      color: #8c847c;
+      font: 700 12px/1.2 var(--font-sans);
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-details {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-detail {
+      margin: 0;
+      color: #8a827a;
+      font: 500 12px/1.45 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-detail strong {
+      color: #4a433d;
+      font-weight: 600;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-card-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-header p,
@@ -6678,8 +7138,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-settings-actions button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-save-status-button:focus-visible,
     body.desktop-native-workbench .desktop-settings-search:focus-visible,
+    body.desktop-native-workbench .desktop-settings-provider-search:focus-visible,
+    body.desktop-native-workbench .desktop-settings-provider-icon-button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-provider-add:focus-visible,
+    body.desktop-native-workbench .desktop-settings-provider-card-actions button:focus-visible,
     body.desktop-native-workbench .desktop-settings-nav-item:focus-visible,
+    body.desktop-native-workbench .desktop-settings-inline-field select:focus-visible,
+    body.desktop-native-workbench .desktop-settings-inline-field input:focus-visible,
     body.desktop-native-workbench .desktop-settings-field input:focus-visible,
     body.desktop-native-workbench .desktop-settings-field select:focus-visible,
     body.desktop-native-workbench .desktop-settings-field textarea:focus-visible {
@@ -6699,6 +7166,21 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-settings-field {
         grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.desktop-native-workbench .desktop-settings-default-llm-card {
+        padding: 24px;
+      }
+
+      body.desktop-native-workbench .desktop-settings-default-llm-form,
+      body.desktop-native-workbench .desktop-settings-provider-grid,
+      body.desktop-native-workbench .desktop-settings-provider-tools {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.desktop-native-workbench .desktop-settings-provider-header {
+        align-items: stretch;
+        flex-direction: column;
       }
 
       body.desktop-native-workbench .desktop-settings-field input[type="checkbox"] {
@@ -7325,6 +7807,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-input,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-search,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-actions button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-save-status-button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-inline-field select,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-inline-field input,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-search,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-icon-button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-add,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-card-actions button,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field input,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field select,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field textarea,
@@ -7356,7 +7845,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-card,
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group {
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-default-llm-card,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-card {
       background: var(--panel-strong);
       border-color: var(--border);
     }
@@ -7366,9 +7857,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-color: var(--border);
     }
 
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-header h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-breadcrumb h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-card-heading h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-header h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-title h3,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-inline-field,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field label,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-detail strong,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-item strong {
       color: var(--text);
     }
@@ -7377,6 +7873,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-summary p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field-description,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group-description,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-default-llm-copy,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-status,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-detail,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-item,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-nav-heading {
       color: var(--muted);

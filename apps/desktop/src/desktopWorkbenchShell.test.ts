@@ -2023,19 +2023,29 @@ describe("desktop workbench shell", () => {
       "Channels",
     ]);
     expect(pane?.querySelector(".desktop-settings-nav-item")?.getAttribute("data-active")).toBe("true");
-    expect(pane?.querySelector(".desktop-settings-content")?.textContent).toContain("Settings");
-    expect(pane?.querySelector(".desktop-settings-status-card")?.textContent).toContain("Save: HTTP 400");
-    expect(pane?.querySelector(".desktop-settings-status-card")?.textContent).toContain("Validation: model, timezone");
+    expect(pane?.querySelector(".desktop-settings-content")?.textContent).toContain("设置 / 模型");
+    expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("默认 LLM");
+    expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("提供商");
+    expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("模型");
+    expect(pane?.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("这里设置全局默认的 LLM 模型");
+    expect(pane?.querySelector(".desktop-settings-provider-section")?.textContent).toContain("提供商");
+    expect(pane?.querySelector(".desktop-settings-provider-search")?.getAttribute("placeholder")).toBe("搜索提供商...");
+    expect(pane?.querySelector('[data-desktop-settings-action="addProvider"]')?.textContent).toBe("+ 添加提供商");
+    expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("OpenAI");
+    expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("Base URL: https://api.openai.com/v1");
+    expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("API Key: ********");
+    expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("Model: gpt-4.1, gpt-4.1-mini");
     expect(pane?.querySelector('[data-desktop-settings-group="agent"]')?.getAttribute("id")).toBe("desktop-settings-group-agent");
-    expect(pane?.textContent).toContain("Settings");
+    expect(pane?.textContent).toContain("设置 / 模型");
     expect(pane?.textContent).toContain("Save: HTTP 400");
     expect(pane?.textContent).toContain("Validation: model, timezone");
-    expect(pane?.textContent).toContain("Agent");
     expect(pane?.textContent).toContain("Model: ");
     expect(pane?.textContent).toContain("Provider profile: work");
     expect(pane?.textContent).toContain("API key: ********");
     expect(pane?.textContent).toContain("Catalog: OpenAI (ready)");
     expect(pane?.textContent).toContain("Models: gpt-4.1, gpt-4.1-mini");
+    expect(pane?.textContent).not.toContain("Open docs");
+    expect(pane?.textContent).not.toContain("Shortcut help");
     expect(pane?.querySelector('[data-desktop-settings-control="model"]')?.getAttribute("aria-invalid")).toBe("true");
     expect(pane?.querySelector('[data-desktop-settings-control="timezone"]')?.getAttribute("aria-invalid")).toBe("true");
     expect(pane?.querySelector('[data-desktop-settings-control="enabled"]')?.checked).toBe(true);
@@ -2044,8 +2054,9 @@ describe("desktop workbench shell", () => {
     expect(pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.textContent).toBe("Refresh models");
 
     const modelInput = pane?.querySelector('[data-desktop-settings-control="model"]');
+    expect(modelInput?.tagName).toBe("select");
     modelInput!.value = "gpt-4.1";
-    modelInput?.dispatchEvent({ type: "input", target: modelInput });
+    modelInput?.dispatchEvent({ type: "change", target: modelInput });
 
     const knowledgeToggle = pane?.querySelector('[data-desktop-settings-control="enabled"]');
     knowledgeToggle!.checked = false;
@@ -2054,6 +2065,46 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-settings-action="save"]')?.click();
     pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.click();
     expect(settingsActions).toEqual(["edit:model:gpt-4.1", "edit:enabled:false", "save", "discoverModels"]);
+
+    const providerSelect = pane?.querySelector('[data-desktop-settings-control="selectedProvider"]');
+    providerSelect!.value = "deepseek";
+    providerSelect?.dispatchEvent({ type: "change", target: providerSelect });
+    expect(settingsActions[settingsActions.length - 1]).toBe("edit:selectedProvider:deepseek");
+  });
+
+  test("allows custom model entry when no provider model catalog is loaded", () => {
+    const targetDocument = new FakeDocument();
+    const settingsActions: string[] = [];
+    const settingsPane = buildDesktopSettingsPaneModel(
+      buildDesktopSettingsFormState({
+        agents: { defaults: { provider: "openai", model: "", active_profile: "work" } },
+        providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: [] } } },
+      }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]),
+      {
+        lastSavedState: null,
+        providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      },
+    );
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      settingsPane,
+      settingsActions: {
+        onSettingsAction: (event) => {
+          if (event.action === "edit") {
+            settingsActions.push(`${event.action}:${event.fieldId}:${String(event.value)}`);
+          }
+        },
+      },
+    });
+
+    const modelInput = targetDocument.body.querySelector('[data-desktop-settings-control="model"]');
+    expect(modelInput?.tagName).toBe("input");
+    modelInput!.value = "custom-model";
+    modelInput?.dispatchEvent({ type: "input", target: modelInput });
+    expect(settingsActions).toEqual(["edit:model:custom-model"]);
   });
 
   test("updates the installed settings pane without rebuilding the workbench", () => {
