@@ -3832,7 +3832,31 @@ function createGatewayRuntimeSurface(
     actions.append(button);
   }
   section.append(actions);
+  mountGatewayRuntimeVueIsland(section, targetDocument, runtimeStatus, gatewayHttp, gatewayActions);
   return section;
+}
+
+function mountGatewayRuntimeVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  runtimeStatus: GatewayRuntimeStatus | null,
+  gatewayHttp: string,
+  gatewayActions: DesktopGatewayRuntimeActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/gatewayRuntimeIsland").then(({ mountGatewayRuntimeIsland }) => {
+    mountGatewayRuntimeIsland(section, {
+      gatewayHttp,
+      status: runtimeStatus,
+      onAction: ({ action }) => {
+        handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
+      },
+    });
+  }).catch(() => {
+    setRouteStatus(targetDocument, "Gateway runtime Vue surface unavailable");
+  });
 }
 
 function handleGatewayRuntimeAction(
@@ -3844,6 +3868,16 @@ function handleGatewayRuntimeAction(
   event: Event,
 ): void {
   event.preventDefault?.();
+  handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
+}
+
+function handleGatewayRuntimeActionId(
+  targetDocument: Document,
+  runtimeStatus: GatewayRuntimeStatus | null,
+  gatewayHttp: string,
+  gatewayActions: DesktopGatewayRuntimeActionOptions,
+  action: DesktopGatewayRuntimeActionId,
+): void {
   const diagnostics = buildDesktopGatewayRuntimeDiagnostics(runtimeStatus, gatewayHttp);
   if (action === "copyDiagnostics") {
     void copyGatewayRuntimeDiagnostics(diagnostics, gatewayActions.copyText);
@@ -3856,6 +3890,10 @@ function handleGatewayRuntimeAction(
     return;
   }
   gatewayActions.onGatewayRuntimeAction?.({ action, status: runtimeStatus, diagnostics });
+}
+
+function canMountVueIsland(element: HTMLElement): boolean {
+  return typeof HTMLElement !== "undefined" && element instanceof HTMLElement;
 }
 
 async function copyGatewayRuntimeDiagnostics(text: string, copyText?: (text: string) => void | Promise<void>): Promise<void> {
@@ -3923,7 +3961,29 @@ function createTaskCenterSurface(
   }
 
   section.append(list);
+  mountTaskCenterVueIsland(section, targetDocument, items, taskActions);
   return section;
+}
+
+function mountTaskCenterVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  items: DesktopTaskCenterItem[],
+  taskActions: DesktopTaskCenterActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/taskCenterIsland").then(({ mountTaskCenterIsland }) => {
+    mountTaskCenterIsland(section, {
+      items,
+      onAction: ({ action, item }) => {
+        handleTaskActionId(targetDocument, item, action, items, taskActions);
+      },
+    });
+  }).catch(() => {
+    setRouteStatus(targetDocument, "Task Center Vue surface unavailable");
+  });
 }
 
 function createTaskCenterItem(
@@ -4010,6 +4070,16 @@ function handleTaskAction(
   event: Event,
 ): void {
   event.preventDefault?.();
+  handleTaskActionId(targetDocument, item, action, items, taskActions);
+}
+
+function handleTaskActionId(
+  targetDocument: Document,
+  item: DesktopTaskCenterItem,
+  action: DesktopTaskActionId,
+  items: DesktopTaskCenterItem[],
+  taskActions: DesktopTaskCenterActionOptions,
+): void {
   if (!item.actions.some((candidate) => candidate.id === action)) {
     return;
   }
