@@ -2374,7 +2374,28 @@ function createCoworkObservabilityPane(targetDocument: Document, view: DesktopCo
   });
   section.append(createText(targetDocument, "h2", "Observability"), tabs, filter, panelHost);
   renderPanel(view.observabilityPanels[0]?.id ?? "");
+  mountCoworkObservabilityVueIsland(section, targetDocument, view);
   return section;
+}
+
+function mountCoworkObservabilityVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  view: DesktopCoworkCockpitView,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/coworkObservabilityIsland").then(({ mountCoworkObservabilityIsland }) => {
+    mountCoworkObservabilityIsland(section, {
+      panels: view.observabilityPanels,
+      onPanelSelected: (panel) => {
+        setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+      },
+    });
+  }).catch(() => {
+    setRouteStatus(targetDocument, "Cowork observability native UI unavailable.");
+  });
 }
 
 function createCoworkInspectorPane(
