@@ -1788,12 +1788,28 @@ function createConversationBody(
   const content = body.filter((line) => line.trim()).join("\n\n");
   if (tone === "assistant") {
     renderConversationMarkdown(node, content);
+    mountConversationBodyVueIsland(node, { body, tone });
     return node;
   }
   for (const line of body) {
     node.append(createText(targetDocument, "p", line));
   }
+  mountConversationBodyVueIsland(node, { body, tone });
   return node;
+}
+
+function mountConversationBodyVueIsland(
+  body: HTMLElement,
+  options: { body: string[]; tone: "assistant" | "user" },
+): void {
+  if (!canMountVueIsland(body)) {
+    return;
+  }
+  void import("./native-vue/conversationBodyIsland").then(({ mountConversationBodyIsland }) => {
+    mountConversationBodyIsland(body, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function renderConversationMarkdown(target: HTMLElement, content: string): void {
