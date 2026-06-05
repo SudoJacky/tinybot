@@ -5674,20 +5674,57 @@ function renderInspectorView(targetDocument: Document, view: DesktopInspectorVie
   }
 
   if (!view.sections.length) {
-    section.append(createText(targetDocument, "p", "Select a run-chain item, file, tool, skill, or Cowork entity."));
+    section.append(createText(targetDocument, "p", view.emptyText));
+    mountInspectorViewVueIsland(section, {
+      emptyText: view.emptyText,
+      rows: [],
+      subtitle: view.subtitle,
+      title: view.title,
+    });
     return section;
   }
 
-  for (const item of view.sections) {
+  const rows = inspectorViewRows(view);
+  for (const text of rows) {
     const row = targetDocument.createElement("p");
-    if (item.type === "browserActivity") {
-      row.textContent = `${item.activity.actionLabel}: ${[item.activity.title, item.activity.url].filter(Boolean).join(" | ")}`;
-    } else {
-      row.textContent = `${item.label}: ${item.text}`;
-    }
+    row.textContent = text;
     section.append(row);
   }
+  mountInspectorViewVueIsland(section, {
+    emptyText: view.emptyText,
+    rows,
+    subtitle: view.subtitle,
+    title: view.title,
+  });
   return section;
+}
+
+function inspectorViewRows(view: DesktopInspectorView): string[] {
+  return view.sections.map((item) => {
+    if (item.type === "browserActivity") {
+      return `${item.activity.actionLabel}: ${[item.activity.title, item.activity.url].filter(Boolean).join(" | ")}`;
+    }
+    return `${item.label}: ${item.text}`;
+  });
+}
+
+function mountInspectorViewVueIsland(
+  section: HTMLElement,
+  options: {
+    emptyText: string;
+    rows: string[];
+    subtitle?: string;
+    title: string;
+  },
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/inspectorViewIsland").then(({ mountInspectorViewIsland }) => {
+    mountInspectorViewIsland(section, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSharedSidebarLinkSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
