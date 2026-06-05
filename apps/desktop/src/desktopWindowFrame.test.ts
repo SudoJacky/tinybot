@@ -371,6 +371,41 @@ describe("desktop window frame", () => {
     expect(currentWindow.startDragging).not.toHaveBeenCalled();
   });
 
+  test("uses a Vue island host for the real help menu", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+    const dispatched: string[] = [];
+    document.addEventListener("desktop-menu-command", (event) => {
+      dispatched.push((event as CustomEvent<{ id: string }>).detail.id);
+    });
+
+    installDesktopWindowFrame({
+      targetDocument: document,
+      currentWindow,
+    });
+
+    const helpMenu = document.body.querySelector<HTMLElement>(".desktop-help-menu");
+    const helpTrigger = helpMenu?.querySelector<HTMLButtonElement>(".desktop-help-menu-trigger");
+    const shortcutHelp = helpMenu?.querySelector<HTMLButtonElement>('[data-desktop-menu-command="open-shortcut-help"]');
+    expect(helpMenu?.getAttribute("data-desktop-vue-island")).toBe("desktop-help-menu");
+    expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
+
+    helpTrigger?.click();
+    await Promise.resolve();
+    expect(helpTrigger?.getAttribute("aria-expanded")).toBe("true");
+
+    shortcutHelp?.click();
+    await Promise.resolve();
+    expect(dispatched).toEqual(["open-shortcut-help"]);
+    expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
+  });
+
   test("keeps app chrome focused on commands without product or surface labels", () => {
     const targetDocument = new FakeDocument();
     targetDocument.documentElement.dataset.desktopWorkbenchMode = "root-webui";

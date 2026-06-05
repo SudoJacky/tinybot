@@ -1,5 +1,6 @@
 import { DESKTOP_CHROME_COMMANDS, DESKTOP_HELP_COMMANDS, type DesktopMenuCommand } from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
+import { mountDesktopHelpMenuIsland } from "./native-vue/desktopHelpMenuIsland";
 import { mountOrUpdateDesktopRuntimeStatusIsland } from "./native-vue/desktopRuntimeStatusIsland";
 import { mountDesktopWindowControlsIsland } from "./native-vue/desktopWindowControlsIsland";
 
@@ -150,6 +151,16 @@ function createApplicationMenuCommand(targetDocument: Document, command: Desktop
 
 function createHelpMenu(targetDocument: Document): HTMLElement {
   const menu = targetDocument.createElement("div");
+  if (canMountDesktopHelpMenuIsland(menu)) {
+    mountDesktopHelpMenuIsland(menu, {
+      commands: DESKTOP_HELP_COMMANDS,
+      onCommand: (id) => {
+        targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id } }));
+      },
+    });
+    return menu;
+  }
+
   menu.className = "desktop-help-menu";
 
   const trigger = targetDocument.createElement("button");
@@ -213,6 +224,10 @@ function createHelpMenu(targetDocument: Document): HTMLElement {
 
   menu.append(trigger, popover);
   return menu;
+}
+
+function canMountDesktopHelpMenuIsland(menu: HTMLElement): boolean {
+  return typeof window !== "undefined" && menu instanceof window.HTMLElement;
 }
 
 function createHelpMenuText(targetDocument: Document, className: string, text: string): HTMLElement {
