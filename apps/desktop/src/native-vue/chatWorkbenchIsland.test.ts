@@ -42,8 +42,11 @@ describe("chat workbench Vue island", () => {
     expect(host.className).toBe("desktop-chat-workbench-chrome");
     expect(host.textContent).toContain("Ready for a new session");
     expect(host.textContent).toContain("Start from chat, inspect workspace, or check gateway status.");
+    expect(host.querySelector(".desktop-quick-actions")?.getAttribute("data-desktop-vue-island")).toBe("quick-actions");
     expect(host.querySelector(".desktop-quick-actions")?.textContent).toContain("Open workspace");
+    expect(host.querySelector(".desktop-panel-controls")?.getAttribute("data-desktop-vue-island")).toBe("panel-controls");
     expect(host.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector(".desktop-module-work")?.getAttribute("data-desktop-vue-island")).toBe("module-work");
     expect(host.querySelector('[data-desktop-module-work="chat:stream:chat-1"]')?.textContent).toContain("Streaming response");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-panel-control="bottom"]')?.click();
