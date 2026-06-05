@@ -1529,7 +1529,11 @@ function createConversationMessage(
   if (options.attachment) {
     const attachment = targetDocument.createElement("div");
     attachment.className = "desktop-conversation-attachment";
-    attachment.textContent = `${options.attachment}  1.2 MB`;
+    attachment.textContent = conversationAttachmentText(options.attachment, "1.2 MB");
+    mountConversationAttachmentVueIsland(attachment, {
+      name: options.attachment,
+      sizeLabel: "1.2 MB",
+    });
     content.append(attachment);
   }
   article.append(content);
@@ -1538,6 +1542,24 @@ function createConversationMessage(
 
 function conversationReferenceText(reference: { detail?: string; kind: string; title: string }): string {
   return `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`;
+}
+
+function conversationAttachmentText(name: string, sizeLabel: string): string {
+  return `${name}${sizeLabel ? `  ${sizeLabel}` : ""}`;
+}
+
+function mountConversationAttachmentVueIsland(
+  attachment: HTMLElement,
+  options: { name: string; sizeLabel: string },
+): void {
+  if (!canMountVueIsland(attachment)) {
+    return;
+  }
+  void import("./native-vue/conversationAttachmentIsland").then(({ mountConversationAttachmentIsland }) => {
+    mountConversationAttachmentIsland(attachment, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountConversationReferenceVueIsland(
