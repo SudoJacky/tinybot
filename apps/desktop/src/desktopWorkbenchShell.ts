@@ -2533,7 +2533,27 @@ function createCoworkTaskFeed(targetDocument: Document, view: DesktopCoworkCockp
   }
   feed.append(createCoworkLimitStatus(targetDocument, visibleItems.length, view.taskCenterItems.length, "task status item", "task status items"));
   feed.append(createText(targetDocument, "p", `${view.agents.length} agents / ${view.tasks.length} tasks / ${view.mailbox.length} mailbox / ${view.artifacts.length} artifacts`));
+  mountCoworkTaskFeedVueIsland(feed, view);
   return feed;
+}
+
+function mountCoworkTaskFeedVueIsland(feed: HTMLElement, view: DesktopCoworkCockpitView): void {
+  if (!canMountVueIsland(feed)) {
+    return;
+  }
+  void import("./native-vue/coworkTaskFeedIsland").then(({ mountCoworkTaskFeedIsland }) => {
+    mountCoworkTaskFeedIsland(feed, {
+      items: view.taskCenterItems,
+      totals: {
+        agents: view.agents.length,
+        tasks: view.tasks.length,
+        mailbox: view.mailbox.length,
+        artifacts: view.artifacts.length,
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createCoworkDataRow(targetDocument: Document, className: string, text: string): HTMLElement {
