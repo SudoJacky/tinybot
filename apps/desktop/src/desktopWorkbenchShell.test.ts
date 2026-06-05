@@ -2065,6 +2065,46 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-settings-action="save"]')?.click();
     pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.click();
     expect(settingsActions).toEqual(["edit:model:gpt-4.1", "edit:enabled:false", "save", "discoverModels"]);
+
+    const providerSelect = pane?.querySelector('[data-desktop-settings-control="selectedProvider"]');
+    providerSelect!.value = "deepseek";
+    providerSelect?.dispatchEvent({ type: "change", target: providerSelect });
+    expect(settingsActions[settingsActions.length - 1]).toBe("edit:selectedProvider:deepseek");
+  });
+
+  test("allows custom model entry when no provider model catalog is loaded", () => {
+    const targetDocument = new FakeDocument();
+    const settingsActions: string[] = [];
+    const settingsPane = buildDesktopSettingsPaneModel(
+      buildDesktopSettingsFormState({
+        agents: { defaults: { provider: "openai", model: "", active_profile: "work" } },
+        providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: [] } } },
+      }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]),
+      {
+        lastSavedState: null,
+        providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
+      },
+    );
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+      settingsPane,
+      settingsActions: {
+        onSettingsAction: (event) => {
+          if (event.action === "edit") {
+            settingsActions.push(`${event.action}:${event.fieldId}:${String(event.value)}`);
+          }
+        },
+      },
+    });
+
+    const modelInput = targetDocument.body.querySelector('[data-desktop-settings-control="model"]');
+    expect(modelInput?.tagName).toBe("input");
+    modelInput!.value = "custom-model";
+    modelInput?.dispatchEvent({ type: "input", target: modelInput });
+    expect(settingsActions).toEqual(["edit:model:custom-model"]);
   });
 
   test("updates the installed settings pane without rebuilding the workbench", () => {

@@ -2746,7 +2746,7 @@ function createDefaultLlmSettingsCard(
 
   const form = targetDocument.createElement("div");
   form.className = "desktop-settings-default-llm-form";
-  const provider = findSettingsPaneField(pane, "agent", "provider");
+  const provider = findSettingsPaneField(pane, "provider", "selectedProvider");
   const model = findSettingsPaneField(pane, "agent", "model");
   if (provider) {
     form.append(createSettingsControlField(targetDocument, pane, provider, "提供商", settingsActions));
@@ -2837,7 +2837,7 @@ function createSettingsControlField(
   const wrapper = targetDocument.createElement("label");
   wrapper.className = "desktop-settings-inline-field";
   wrapper.append(createText(targetDocument, "span", labelText));
-  wrapper.append(field.id === "model"
+  wrapper.append(field.id === "model" && pane.providerEditor.models.length > 0
     ? createDesktopSettingsModelSelect(targetDocument, pane, field, settingsActions)
     : createDesktopSettingsControl(targetDocument, pane, field, settingsActions));
   return wrapper;
