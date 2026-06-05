@@ -2000,6 +2000,7 @@ function createKnowledgePane(
     });
     actionRow.append(button);
   }
+  mountKnowledgeActionsVueIsland(actionRow, actions, pane, knowledgeActions);
   section.append(actionRow);
   if (workItems.length) {
     section.append(createModuleWorkSection(targetDocument, "Knowledge jobs", workItems));
@@ -2063,6 +2064,27 @@ function createKnowledgePane(
   section.append(graph);
 
   return section;
+}
+
+function mountKnowledgeActionsVueIsland(
+  actionRow: HTMLElement,
+  actions: Array<[DesktopKnowledgeActionId, string, boolean]>,
+  pane: DesktopKnowledgePaneModel,
+  knowledgeActions: DesktopKnowledgeActionOptions,
+): void {
+  if (!canMountVueIsland(actionRow)) {
+    return;
+  }
+  void import("./native-vue/knowledgeActionsIsland").then(({ mountKnowledgeActionsIsland }) => {
+    mountKnowledgeActionsIsland(actionRow, {
+      actions: actions.map(([action, label, enabled]) => ({ action, label, enabled })),
+      onAction: (action) => {
+        knowledgeActions.onKnowledgeAction?.({ action, pane });
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createCoworkCockpitPane(
