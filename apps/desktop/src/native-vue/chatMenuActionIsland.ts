@@ -6,6 +6,7 @@ export interface ChatMenuActionIslandOptions {
   action: string;
   disabled: boolean;
   label: string;
+  onClick?: () => void;
 }
 
 export interface MountedChatMenuActionIsland {
@@ -29,11 +30,17 @@ export function mountChatMenuActionIsland(
   } else {
     host.removeAttribute("disabled");
   }
+  host.onclick = () => {
+    if (!options.disabled) {
+      options.onClick?.();
+    }
+  };
   const app = createChatMenuActionApp(options);
   app.mount(host);
   return {
     unmount: () => {
       app.unmount();
+      host.onclick = null;
       host.replaceChildren();
     },
   };

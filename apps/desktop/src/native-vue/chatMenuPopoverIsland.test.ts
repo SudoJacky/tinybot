@@ -44,6 +44,11 @@ describe("chat menu popover Vue island", () => {
     expect(host.className).toBe("desktop-chat-menu-popover");
     expect(host.getAttribute("role")).toBe("menu");
     expect(host.getAttribute("aria-label")).toBe("Chat session actions");
+    expect(Array.from(host.querySelectorAll(".desktop-chat-menu-action")).map((button) => button.getAttribute("data-desktop-vue-island"))).toEqual([
+      "chat-menu-action",
+      "chat-menu-action",
+      "chat-menu-action",
+    ]);
     expect(Array.from(host.querySelectorAll(".desktop-chat-menu-action")).map((button) => button.textContent)).toEqual([
       "Pin session",
       "Rename session",
@@ -71,6 +76,7 @@ describe("chat menu popover Vue island", () => {
       emptyMessage: "No active session",
     });
 
+    expect(host.querySelector(".desktop-chat-menu-empty")?.getAttribute("data-desktop-vue-island")).toBe("chat-menu-empty");
     expect(host.textContent).toBe("No active session");
   });
 });
