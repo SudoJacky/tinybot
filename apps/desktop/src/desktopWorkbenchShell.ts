@@ -52,6 +52,7 @@ import {
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
+import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 
@@ -516,6 +517,11 @@ function createWorkbenchShell(
 
 function createActivityRail(targetDocument: Document): HTMLElement {
   const rail = targetDocument.createElement("nav");
+  if (canMountVueIsland(rail)) {
+    mountActivityRailIsland(rail);
+    return rail;
+  }
+
   rail.className = "desktop-activity-rail";
   rail.setAttribute("data-workbench-region", "activity");
   rail.setAttribute("aria-label", "Desktop workbench modules");
@@ -561,19 +567,7 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   }
 
   rail.append(primary, secondary);
-  mountActivityRailVueIsland(rail);
   return rail;
-}
-
-function mountActivityRailVueIsland(rail: HTMLElement): void {
-  if (!canMountVueIsland(rail)) {
-    return;
-  }
-  void import("./native-vue/activityRailIsland").then(({ mountActivityRailIsland }) => {
-    mountActivityRailIsland(rail);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
 }
 
 function createSidebar(

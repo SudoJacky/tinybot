@@ -5,6 +5,24 @@ import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
 import { installDesktopWorkbenchShell } from "./desktopWorkbenchShell";
 
 describe("desktop workbench shell Vue integration", () => {
+  test("renders the activity rail through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const rail = document.querySelector<HTMLElement>(".desktop-activity-rail");
+    expect(rail?.getAttribute("data-desktop-vue-island")).toBe("activity-rail");
+    expect(rail?.getAttribute("aria-label")).toBe("Desktop workbench modules");
+    expect(rail?.querySelector('[data-desktop-module-target="chat"]')?.getAttribute("aria-current")).toBe("page");
+    expect(rail?.querySelector('[data-desktop-module-target="workspace"]')?.textContent).toBe("Files");
+    expect(rail?.querySelector('[data-desktop-module-target="settings"]')?.getAttribute("href")).toBe("/settings");
+  });
+
   test("renders the command palette through the Vue shell island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
