@@ -2259,7 +2259,32 @@ function createCoworkActionControls(
     });
   });
   actions.append(addTask);
+  mountCoworkActionsVueIsland(actions, pane, coworkActions);
   return actions;
+}
+
+function mountCoworkActionsVueIsland(
+  actions: HTMLElement,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(actions)) {
+    return;
+  }
+  void import("./native-vue/coworkActionsIsland").then(({ mountCoworkActionsIsland }) => {
+    mountCoworkActionsIsland(actions, {
+      sessionId: pane.cockpitView?.header.id ?? "",
+      agents: pane.cockpitView?.agents ?? [],
+      actionStatus: pane.actionStatus,
+      summaryText: pane.summaryText,
+      blueprintDiagnostics: pane.blueprintDiagnostics,
+      onAction: (event) => {
+        coworkActions.onCoworkAction?.({ ...event, pane });
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createCoworkGraphPane(
