@@ -31,8 +31,16 @@ function createChatMenuEmptyApp(options: ChatMenuEmptyIslandOptions): App {
     name: "ChatMenuEmptyIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NText, { depth: 3, tag: "span" }, { default: () => options.message }),
+        default: () => renderChatMenuEmptyChildren(options),
       });
     },
   }));
+}
+
+export function renderChatMenuEmptyNode(options: ChatMenuEmptyIslandOptions) {
+  return h("span", { class: "desktop-chat-menu-empty" }, renderChatMenuEmptyChildren(options));
+}
+
+export function renderChatMenuEmptyChildren(options: ChatMenuEmptyIslandOptions) {
+  return h(NText, { depth: 3, tag: "span" }, { default: () => options.message });
 }

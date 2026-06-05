@@ -44,13 +44,32 @@ function createChatMenuActionApp(options: ChatMenuActionIslandOptions): App {
     name: "ChatMenuActionIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NButton, {
-          block: true,
-          disabled: options.disabled,
-          quaternary: true,
-          size: "small",
-        }, { default: () => options.label }),
+        default: () => renderChatMenuActionChildren(options),
       });
     },
   }));
+}
+
+export function renderChatMenuActionNode(options: ChatMenuActionIslandOptions & { onClick?: () => void }) {
+  return h("button", {
+    class: "desktop-chat-menu-action",
+    "data-desktop-chat-menu-action": options.action,
+    disabled: options.disabled,
+    role: "menuitem",
+    type: "button",
+    onClick: () => {
+      if (!options.disabled) {
+        options.onClick?.();
+      }
+    },
+  }, renderChatMenuActionChildren(options));
+}
+
+export function renderChatMenuActionChildren(options: ChatMenuActionIslandOptions) {
+  return h(NButton, {
+    block: true,
+    disabled: options.disabled,
+    quaternary: true,
+    size: "small",
+  }, { default: () => options.label });
 }

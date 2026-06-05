@@ -1102,6 +1102,13 @@ function createChatMenuPopover(
     trigger.setAttribute("aria-expanded", "false");
   };
 
+  const popoverActions: Array<{
+    action: string;
+    disabled: boolean;
+    label: string;
+    onAction: () => string | void;
+  }> = [];
+
   const appendAction = (action: string, label: string, handler: (button: HTMLElement) => void, disabled = false) => {
     const button = targetDocument.createElement("button");
     button.type = "button";
@@ -1123,6 +1130,19 @@ function createChatMenuPopover(
     });
     mountChatMenuActionVueIsland(button, { action, disabled, label });
     popover.append(button);
+    popoverActions.push({
+      action,
+      disabled,
+      label,
+      onAction: () => {
+        if (disabled) {
+          return;
+        }
+        handler(button);
+        close();
+        return button.textContent ?? undefined;
+      },
+    });
     return button;
   };
 
@@ -1165,7 +1185,33 @@ function createChatMenuPopover(
     popover.append(empty);
   }
 
+  mountChatMenuPopoverVueIsland(popover, {
+    actions: popoverActions,
+    emptyMessage: !chat?.sessions.length ? "No active session" : "",
+  });
   return popover;
+}
+
+function mountChatMenuPopoverVueIsland(
+  popover: HTMLElement,
+  options: {
+    actions: Array<{
+      action: string;
+      disabled: boolean;
+      label: string;
+      onAction: () => string | void;
+    }>;
+    emptyMessage: string;
+  },
+): void {
+  if (!canMountVueIsland(popover)) {
+    return;
+  }
+  void import("./native-vue/chatMenuPopoverIsland").then(({ mountChatMenuPopoverIsland }) => {
+    mountChatMenuPopoverIsland(popover, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountChatMenuEmptyVueIsland(empty: HTMLElement, message: string): void {
