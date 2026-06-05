@@ -3181,9 +3181,22 @@ function mountCoworkDataRowVueIsland(row: HTMLElement, className: string, text: 
 
 function createCoworkLimitStatus(targetDocument: Document, visible: number, total: number, singular: string, plural: string): HTMLElement {
   const noun = total === 1 ? singular : plural;
-  const status = createText(targetDocument, "p", `Showing ${visible} of ${total} ${noun}`);
+  const text = `Showing ${visible} of ${total} ${noun}`;
+  const status = createText(targetDocument, "p", text);
   status.className = "desktop-cowork-limit-status";
+  mountCoworkLimitStatusVueIsland(status, text);
   return status;
+}
+
+function mountCoworkLimitStatusVueIsland(status: HTMLElement, text: string): void {
+  if (!canMountVueIsland(status)) {
+    return;
+  }
+  void import("./native-vue/coworkLimitStatusIsland").then(({ mountCoworkLimitStatusIsland }) => {
+    mountCoworkLimitStatusIsland(status, { text });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createCoworkFilteredLimitStatus(
@@ -3199,8 +3212,10 @@ function createCoworkFilteredLimitStatus(
     return createCoworkLimitStatus(targetDocument, visible, total, singular, plural);
   }
   const noun = plural || singular;
-  const status = createText(targetDocument, "p", `Showing ${visible} of ${matched} matching ${noun} (${total} total)`);
+  const text = `Showing ${visible} of ${matched} matching ${noun} (${total} total)`;
+  const status = createText(targetDocument, "p", text);
   status.className = "desktop-cowork-limit-status";
+  mountCoworkLimitStatusVueIsland(status, text);
   return status;
 }
 
