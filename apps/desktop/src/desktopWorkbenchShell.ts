@@ -4220,7 +4220,29 @@ function createSettingsProvidersPane(
   content.append(grid);
   mountSettingsGroupsVueIsland(grid, pane, settingsActions);
   section.append(content);
+  mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions);
   return section;
+}
+
+function mountSettingsPaneVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/settingsPaneIsland").then(({ mountSettingsPaneIsland }) => {
+    mountSettingsPaneIsland(section, {
+      pane,
+      onSettingsAction: settingsActions.onSettingsAction,
+      promptProviderId: () => promptForSettingsProviderId(targetDocument),
+      onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountSettingsGroupsVueIsland(
