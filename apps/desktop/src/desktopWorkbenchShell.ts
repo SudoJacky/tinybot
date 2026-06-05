@@ -3896,7 +3896,19 @@ function createSettingsStatusItem(targetDocument: Document, label: string, value
   const row = targetDocument.createElement("p");
   row.className = "desktop-settings-status-item";
   row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
+  mountSettingsStatusItemVueIsland(row, label, value);
   return row;
+}
+
+function mountSettingsStatusItemVueIsland(row: HTMLElement, label: string, value: string): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  void import("./native-vue/settingsStatusItemIsland").then(({ mountSettingsStatusItemIsland }) => {
+    mountSettingsStatusItemIsland(row, { label, value });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function getSettingsNavLabel(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
