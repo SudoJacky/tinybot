@@ -4805,6 +4805,7 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   sessionRefresh.textContent = "Refresh";
   sessionMeta.append(createText(targetDocument, "span", "Temporary files"), sessionCount, sessionRefresh);
   sessionCard.append(sessionLabel, sessionKey, sessionMeta);
+  mountSessionUploadCardVueIsland(sessionCard, chat?.activeSessionKey ?? null);
 
   const workspace = createFileImportCard(targetDocument, {
     id: "desktop-workspace-file-drop",
@@ -4841,6 +4842,17 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
 
   section.append(grid, operationStrip, sessionFiles);
   return section;
+}
+
+function mountSessionUploadCardVueIsland(card: HTMLElement, activeSessionKey: string | null): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  void import("./native-vue/sessionUploadCardIsland").then(({ mountSessionUploadCardIsland }) => {
+    mountSessionUploadCardIsland(card, { activeSessionKey });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createFileImportCard(
