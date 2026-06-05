@@ -5940,7 +5940,25 @@ function createSharedSidebarCommandButton(targetDocument: Document, item: Deskto
       detail: { id: item.commandId, source: "native-sidebar" },
     }));
   });
+  mountSharedSidebarCommandButtonVueIsland(button, item);
   return button;
+}
+
+function mountSharedSidebarCommandButtonVueIsland(button: HTMLElement, item: DesktopSidebarItem): void {
+  if (!canMountVueIsland(button) || item.kind !== "command" || !item.commandId) {
+    return;
+  }
+  void import("./native-vue/sharedSidebarCommandButtonIsland").then(({ mountSharedSidebarCommandButtonIsland }) => {
+    mountSharedSidebarCommandButtonIsland(button, {
+      commandId: item.commandId ?? "",
+      icon: item.icon,
+      id: item.id,
+      kind: "command",
+      label: item.label,
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function applySharedSidebarItemAttributes(element: HTMLElement, item: DesktopSidebarItem): void {
