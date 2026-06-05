@@ -3238,8 +3238,28 @@ function appendKnowledgeReferenceRows(
   rows: Array<{ title: string; meta: string; text: string }>,
 ): void {
   for (const row of rows.slice(0, 4)) {
-    section.append(createText(targetDocument, "p", `${label}: ${row.title}${row.text ? ` - ${row.text}` : ""}`));
+    const element = createText(targetDocument, "p", knowledgeReferenceRowText(label, row));
+    mountKnowledgeReferenceRowVueIsland(element, { label, text: row.text, title: row.title });
+    section.append(element);
   }
+}
+
+function knowledgeReferenceRowText(label: string, row: { title: string; text: string }): string {
+  return `${label}: ${row.title}${row.text ? ` - ${row.text}` : ""}`;
+}
+
+function mountKnowledgeReferenceRowVueIsland(
+  row: HTMLElement,
+  options: { label: string; text: string; title: string },
+): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  void import("./native-vue/knowledgeReferenceRowIsland").then(({ mountKnowledgeReferenceRowIsland }) => {
+    mountKnowledgeReferenceRowIsland(row, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createDesktopSkillEditor(
