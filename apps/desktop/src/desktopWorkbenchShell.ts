@@ -3492,7 +3492,19 @@ function createSettingsStatusCard(targetDocument: Document, pane: DesktopSetting
     createSettingsStatusItem(targetDocument, "Models", pane.providerEditor.models.join(", ") || "No models loaded"),
   );
   card.append(details);
+  mountSettingsStatusVueIsland(card, pane);
   return card;
+}
+
+function mountSettingsStatusVueIsland(card: HTMLElement, pane: DesktopSettingsPaneModel): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  void import("./native-vue/settingsStatusIsland").then(({ mountSettingsStatusIsland }) => {
+    mountSettingsStatusIsland(card, { pane });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSettingsStatusItem(targetDocument: Document, label: string, value: string): HTMLElement {
