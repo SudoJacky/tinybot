@@ -5694,12 +5694,30 @@ function createSharedSidebarLinkSection(targetDocument: Document, group: Desktop
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section";
   section.append(createText(targetDocument, "h2", group?.label ?? "Resources"));
+  const linkItems: Array<DesktopSidebarItem & { href: string; kind: "link" }> = [];
   for (const item of group?.items ?? []) {
     if (item.kind === "link" && item.href) {
+      linkItems.push({ ...item, href: item.href, kind: "link" });
       section.append(createSharedWorkbenchLink(targetDocument, item));
     }
   }
+  mountSharedSidebarLinksVueIsland(section, group?.label, linkItems);
   return section;
+}
+
+function mountSharedSidebarLinksVueIsland(
+  section: HTMLElement,
+  label: string | undefined,
+  items: Array<DesktopSidebarItem & { href: string; kind: "link" }>,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/sharedSidebarLinksIsland").then(({ mountSharedSidebarLinksIsland }) => {
+    mountSharedSidebarLinksIsland(section, { label, items });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSharedSidebarCommandSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
