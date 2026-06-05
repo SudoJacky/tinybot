@@ -2349,11 +2349,40 @@ function createAgentUiFormField(targetDocument: Document, form: AgentUiForm, fie
     errorNode.className = "desktop-agent-ui-form-error";
     wrapper.append(errorNode);
   }
+  mountAgentUiFormFieldVueIsland(wrapper, {
+    disabled: !isAgentUiFormSubmittable(form),
+    error,
+    field,
+    value: agentUiFieldValue(form, field),
+  });
   return wrapper;
 }
 
+function mountAgentUiFormFieldVueIsland(
+  wrapper: HTMLElement,
+  options: {
+    disabled: boolean;
+    error?: string;
+    field: AgentUiFormField;
+    value: unknown;
+  },
+): void {
+  if (!canMountVueIsland(wrapper)) {
+    return;
+  }
+  void import("./native-vue/agentUiFormFieldIsland").then(({ mountAgentUiFormFieldIsland }) => {
+    mountAgentUiFormFieldIsland(wrapper, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function agentUiFieldValue(form: AgentUiForm, field: AgentUiFormField): unknown {
+  return form.values?.[field.name] ?? form.initial_values?.[field.name] ?? field.default ?? "";
+}
+
 function createAgentUiFieldControl(targetDocument: Document, form: AgentUiForm, field: AgentUiFormField): HTMLElement {
-  const value = form.values?.[field.name] ?? form.initial_values?.[field.name] ?? field.default ?? "";
+  const value = agentUiFieldValue(form, field);
   const disabled = !isAgentUiFormSubmittable(form);
   if (field.type === "textarea") {
     const textarea = targetDocument.createElement("textarea");
