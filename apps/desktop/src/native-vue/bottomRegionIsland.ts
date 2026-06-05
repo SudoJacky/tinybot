@@ -1,9 +1,9 @@
-import { createApp, defineComponent, h, type App } from "vue";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
 import { NConfigProvider } from "naive-ui";
 import type { GatewayRuntimeIslandActionEvent } from "./gatewayRuntimeIsland";
-import { renderGatewayRuntimeSurface } from "./gatewayRuntimeIsland";
+import { mountGatewayRuntimeIsland } from "./gatewayRuntimeIsland";
 import type { TaskCenterIslandActionEvent } from "./taskCenterIsland";
-import { renderTaskCenterSurface } from "./taskCenterIsland";
+import { mountTaskCenterIsland } from "./taskCenterIsland";
 import type { GatewayRuntimeStatus } from "../desktopGatewayStartup";
 import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
@@ -40,19 +40,45 @@ function createBottomRegionApp(options: BottomRegionIslandOptions): App {
   return createApp(defineComponent({
     name: "BottomRegionIsland",
     setup() {
+      const mountedChildren: Array<{ unmount: () => void }> = [];
+      const taskCenter = ref<HTMLElement | null>(null);
+      const gatewayRuntime = ref<HTMLElement | null>(null);
+
+      onMounted(() => {
+        mountChild(mountedChildren, taskCenter.value, (host) => mountTaskCenterIsland(host, {
+          items: options.taskItems,
+          onAction: options.onTaskAction,
+        }));
+        mountChild(mountedChildren, gatewayRuntime.value, (host) => mountGatewayRuntimeIsland(host, {
+          gatewayHttp: options.gatewayHttp,
+          status: options.gatewayStatus,
+          onAction: options.onGatewayAction,
+        }));
+      });
+
+      onBeforeUnmount(() => {
+        while (mountedChildren.length) {
+          mountedChildren.pop()?.unmount();
+        }
+      });
+
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          renderTaskCenterSurface({
-            items: options.taskItems,
-            onAction: options.onTaskAction,
-          }),
-          renderGatewayRuntimeSurface({
-            gatewayHttp: options.gatewayHttp,
-            status: options.gatewayStatus,
-            onAction: options.onGatewayAction,
-          }),
+          h("section", { ref: taskCenter }),
+          h("section", { ref: gatewayRuntime }),
         ],
       });
     },
   }));
+}
+
+function mountChild<T extends { unmount: () => void }>(
+  mountedChildren: Array<{ unmount: () => void }>,
+  host: HTMLElement | null,
+  mount: (host: HTMLElement) => T,
+): void {
+  if (!host) {
+    return;
+  }
+  mountedChildren.push(mount(host));
 }

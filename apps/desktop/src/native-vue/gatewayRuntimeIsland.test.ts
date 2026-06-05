@@ -29,7 +29,8 @@ describe("gateway runtime Vue island", () => {
     });
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("gateway-runtime");
-    expect(host.querySelector(".desktop-gateway-runtime")?.getAttribute("aria-label")).toBe("Gateway runtime controls");
+    expect(host.className).toBe("desktop-workbench-section desktop-gateway-runtime");
+    expect(host.getAttribute("aria-label")).toBe("Gateway runtime controls");
     expect(Array.from(host.querySelectorAll("[data-desktop-gateway-runtime-row]")).map((row) => row.textContent)).toEqual([
       "StateRunning",
       "OwnerShell-owned",

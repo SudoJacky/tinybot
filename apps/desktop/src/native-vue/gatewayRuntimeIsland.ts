@@ -30,6 +30,8 @@ export function mountGatewayRuntimeIsland(
   options: GatewayRuntimeIslandOptions,
 ): MountedGatewayRuntimeIsland {
   host.setAttribute("data-desktop-vue-island", "gateway-runtime");
+  host.className = "desktop-workbench-section desktop-gateway-runtime";
+  host.setAttribute("aria-label", "Gateway runtime controls");
   const app = createGatewayRuntimeApp(options);
   app.mount(host);
   return {
@@ -45,7 +47,7 @@ function createGatewayRuntimeApp(options: GatewayRuntimeIslandOptions): App {
     name: "GatewayRuntimeIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => renderGatewayRuntimeSurface(options),
+        default: () => renderGatewayRuntimeContent(options),
       });
     },
   }));
@@ -55,7 +57,11 @@ export function renderGatewayRuntimeSurface(options: GatewayRuntimeIslandOptions
   return h("section", {
     class: "desktop-workbench-section desktop-gateway-runtime",
     "aria-label": "Gateway runtime controls",
-  }, [
+  }, renderGatewayRuntimeContent(options));
+}
+
+function renderGatewayRuntimeContent(options: GatewayRuntimeIslandOptions) {
+  return [
     h("h2", "Runtime"),
     ...buildDesktopGatewayRuntimeRows(options.status, options.gatewayHttp).map((row) => h("p", {
       class: "desktop-gateway-runtime-row",
@@ -79,7 +85,7 @@ export function renderGatewayRuntimeSurface(options: GatewayRuntimeIslandOptions
         onClick: () => handleAction(action.id, options),
       }, { default: () => action.label })),
     }),
-  ]);
+  ];
 }
 
 function handleAction(action: DesktopGatewayRuntimeActionId, options: GatewayRuntimeIslandOptions): void {
