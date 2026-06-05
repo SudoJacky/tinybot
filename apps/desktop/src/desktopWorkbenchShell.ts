@@ -1888,6 +1888,7 @@ function createToolsSkillsPane(
         `${field.name}: ${field.type}${field.required ? " required" : ""}${field.description ? ` - ${field.description}` : ""}`,
       ));
     }
+    mountToolDetailVueIsland(detail, pane.selectedTool);
     section.append(detail);
   }
 
@@ -1991,6 +1992,20 @@ function mountSkillsListVueIsland(
   }
   void import("./native-vue/skillsListIsland").then(({ mountSkillsListIsland }) => {
     mountSkillsListIsland(skills, { skills: pane.skillRows });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountToolDetailVueIsland(
+  detail: HTMLElement,
+  tool: NonNullable<DesktopToolsSkillsPaneModel["selectedTool"]>,
+): void {
+  if (!canMountVueIsland(detail)) {
+    return;
+  }
+  void import("./native-vue/toolDetailIsland").then(({ mountToolDetailIsland }) => {
+    mountToolDetailIsland(detail, { tool });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
