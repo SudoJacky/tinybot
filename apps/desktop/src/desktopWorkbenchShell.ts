@@ -787,7 +787,19 @@ function createSidebarSectionHeading(targetDocument: Document, title: string, ac
     button.textContent = action;
     heading.append(button);
   }
+  mountSidebarSectionHeadingVueIsland(heading, title, action);
   return heading;
+}
+
+function mountSidebarSectionHeadingVueIsland(heading: HTMLElement, title: string, action?: string): void {
+  if (!canMountVueIsland(heading)) {
+    return;
+  }
+  void import("./native-vue/sidebarSectionHeadingIsland").then(({ mountSidebarSectionHeadingIsland }) => {
+    mountSidebarSectionHeadingIsland(heading, { title, action });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSidebarRow(
