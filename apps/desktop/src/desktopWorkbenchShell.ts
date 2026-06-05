@@ -2077,6 +2077,7 @@ function createCoworkCockpitPane(
     });
     sessions.append(row);
   }
+  mountCoworkSessionsVueIsland(sessions, targetDocument, pane.sessionRows);
   section.append(sessions);
   section.append(createCoworkActionControls(targetDocument, pane, coworkActions));
 
@@ -2102,6 +2103,31 @@ function createCoworkCockpitPane(
   section.append(createCoworkTaskFeed(targetDocument, view));
 
   return section;
+}
+
+function mountCoworkSessionsVueIsland(
+  sessions: HTMLElement,
+  targetDocument: Document,
+  sessionRows: DesktopCoworkSessionRow[],
+): void {
+  if (!canMountVueIsland(sessions)) {
+    return;
+  }
+  void import("./native-vue/coworkSessionsIsland").then(({ mountCoworkSessionsIsland }) => {
+    mountCoworkSessionsIsland(sessions, {
+      sessions: sessionRows,
+      onSelect: (session) => {
+        const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+        if (!item) {
+          return;
+        }
+        const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+        setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createCoworkActionControls(
