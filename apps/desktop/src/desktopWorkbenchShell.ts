@@ -2094,6 +2094,7 @@ function createCoworkCockpitPane(
     createText(targetDocument, "p", view.header.goal || "No goal provided."),
     createText(targetDocument, "p", `${view.header.status} / ${view.header.workflow}${view.header.updatedAt ? ` / ${view.header.updatedAt}` : ""}`),
   );
+  mountCoworkHeaderVueIsland(header, view.header);
   section.append(header);
 
   const inspector = createCoworkInspectorPane(targetDocument, view, pane, coworkActions);
@@ -2103,6 +2104,20 @@ function createCoworkCockpitPane(
   section.append(createCoworkTaskFeed(targetDocument, view));
 
   return section;
+}
+
+function mountCoworkHeaderVueIsland(
+  header: HTMLElement,
+  viewHeader: DesktopCoworkCockpitView["header"],
+): void {
+  if (!canMountVueIsland(header)) {
+    return;
+  }
+  void import("./native-vue/coworkHeaderIsland").then(({ mountCoworkHeaderIsland }) => {
+    mountCoworkHeaderIsland(header, { header: viewHeader });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountCoworkSessionsVueIsland(
