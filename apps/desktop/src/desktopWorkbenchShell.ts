@@ -874,8 +874,20 @@ function createMainRegion(
   status.setAttribute("data-desktop-route-status", "");
   status.textContent = `No workspace file selected · Gateway ${gatewayHttp}`;
 
+  mountStatusStripVueIsland(status, status.textContent);
   main.append(workbench, createNativeComposerSurface(targetDocument, chat, chatActions), utilities, status);
   return main;
+}
+
+function mountStatusStripVueIsland(status: HTMLElement, message: string): void {
+  if (!canMountVueIsland(status)) {
+    return;
+  }
+  void import("./native-vue/statusStripIsland").then(({ mountStatusStripIsland }) => {
+    mountStatusStripIsland(status, { message });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createChatHeader(
