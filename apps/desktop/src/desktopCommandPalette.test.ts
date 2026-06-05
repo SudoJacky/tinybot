@@ -9,6 +9,9 @@ import {
   openDesktopCommandPalette,
 } from "./desktopCommandPalette";
 import {
+  installRootWebUiCommandPaletteSurface,
+} from "./desktopRootWebUiWorkbench";
+import {
   buildDesktopCommandEntriesFromSidebar,
   buildNativeWorkbenchSidebarModel,
   buildRootWebUiSidebarModel,
@@ -195,6 +198,20 @@ describe("desktop command palette", () => {
     expect(document.querySelector("[data-palette-result-id]")?.textContent).toContain("New");
 
     host.remove();
+  });
+
+  test("mounts the root WebUI command palette shell through a Vue island", () => {
+    document.body.replaceChildren();
+
+    installRootWebUiCommandPaletteSurface(document);
+    installRootWebUiCommandPaletteSurface(document);
+
+    const palette = document.getElementById("desktop-command-palette");
+    expect(document.body.querySelectorAll("#desktop-command-palette")).toHaveLength(1);
+    expect(palette?.getAttribute("data-desktop-vue-island")).toBe("command-palette");
+    expect(palette?.getAttribute("role")).toBe("dialog");
+    expect(document.getElementById("desktop-command-palette-input")?.getAttribute("aria-label")).toBe("Search commands and workbench data");
+    expect(document.getElementById("desktop-command-palette-results")?.getAttribute("aria-live")).toBe("polite");
   });
 
   test("activates quick-search results by navigating and focusing matching entities", () => {
