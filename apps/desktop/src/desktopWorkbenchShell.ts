@@ -4820,6 +4820,7 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   status.setAttribute("id", "desktop-file-upload-status");
   status.setAttribute("class", "desktop-file-upload-status");
   status.textContent = "No file operation running.";
+  mountFileUploadStatusVueIsland(status, "No file operation running.");
 
   const sessionFiles = targetDocument.createElement("div");
   sessionFiles.setAttribute("id", "desktop-session-file-list");
@@ -4941,6 +4942,17 @@ function mountFileOperationStatusVueIsland(item: HTMLElement, label: string, sta
   }
   void import("./native-vue/fileOperationStatusIsland").then(({ mountFileOperationStatusIsland }) => {
     mountFileOperationStatusIsland(item, { label, status });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountFileUploadStatusVueIsland(status: HTMLElement, message: string): void {
+  if (!canMountVueIsland(status)) {
+    return;
+  }
+  void import("./native-vue/fileUploadStatusIsland").then(({ mountFileUploadStatusIsland }) => {
+    mountFileUploadStatusIsland(status, { message });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
