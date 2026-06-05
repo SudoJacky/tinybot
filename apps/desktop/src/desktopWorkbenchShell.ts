@@ -4875,7 +4875,30 @@ function createFileImportCard(
   const card = targetDocument.createElement("div");
   card.className = "desktop-file-import-card";
   card.append(control, createFormatChipList(targetDocument, options.formatsId, options.formats));
+  mountFileImportCardVueIsland(card, options);
   return card;
+}
+
+function mountFileImportCardVueIsland(
+  card: HTMLElement,
+  options: {
+    id: string;
+    label: string;
+    uploadKind?: string;
+    dropTarget: string;
+    formatsId: string;
+    formats: string[];
+    href?: string;
+  },
+): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  void import("./native-vue/fileImportCardIsland").then(({ mountFileImportCardIsland }) => {
+    mountFileImportCardIsland(card, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createFormatChipList(targetDocument: Document, id: string, formats: string[]): HTMLElement {
