@@ -5905,7 +5905,25 @@ function mountSharedSidebarCommandsVueIsland(
 function createSharedWorkbenchLink(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
   const link = createWorkbenchLink(targetDocument, item.label, item.href ?? "#", "desktop-workbench-link");
   applySharedSidebarItemAttributes(link, item);
+  mountSharedSidebarLinkVueIsland(link, item);
   return link;
+}
+
+function mountSharedSidebarLinkVueIsland(link: HTMLElement, item: DesktopSidebarItem): void {
+  if (!canMountVueIsland(link) || item.kind !== "link" || !item.href) {
+    return;
+  }
+  void import("./native-vue/sharedSidebarLinkIsland").then(({ mountSharedSidebarLinkIsland }) => {
+    mountSharedSidebarLinkIsland(link, {
+      href: item.href ?? "#",
+      icon: item.icon,
+      id: item.id,
+      kind: "link",
+      label: item.label,
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSharedSidebarCommandButton(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
