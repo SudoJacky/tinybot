@@ -55,23 +55,43 @@ function createWorkLensApp(options: WorkLensIslandOptions, placement: "inspector
     name: "WorkLensIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          renderHeader(options.workLens, placement),
-          options.workLens.fallbackReason ? renderFallback(options.workLens.fallbackReason) : null,
-          ...options.workLens.sections.map(renderWorkLensSection),
-          options.workLens.relatedResources.length
-            ? renderResourceList("Related resources", options.workLens.relatedResources)
-            : null,
-          options.workLens.outputs.length
-            ? renderResourceList("Outputs", options.workLens.outputs)
-            : null,
-          options.workLens.nextActions.length
-            ? renderActions(options.workLens, options)
-            : null,
-        ],
+        default: () => renderWorkLensContent(options, placement),
       });
     },
   }));
+}
+
+export function renderWorkLensSurface(options: WorkLensIslandOptions) {
+  const placement = options.placement ?? "inspector";
+  const attrs: Record<string, string> = {
+    class: "desktop-workbench-section desktop-work-lens",
+    "aria-label": "Work Lens",
+    "data-desktop-work-lens-mode": options.workLens.mode,
+    "data-desktop-work-lens-kind": options.workLens.kind,
+    "data-desktop-work-lens-id": options.workLens.id,
+    "data-desktop-work-lens-placement": placement,
+  };
+  if (options.workLens.fallbackReason) {
+    attrs["data-desktop-work-lens-fallback-reason"] = options.workLens.fallbackReason;
+  }
+  return h("section", attrs, renderWorkLensContent(options, placement));
+}
+
+function renderWorkLensContent(options: WorkLensIslandOptions, placement: "inspector" | "inline") {
+  return [
+    renderHeader(options.workLens, placement),
+    options.workLens.fallbackReason ? renderFallback(options.workLens.fallbackReason) : null,
+    ...options.workLens.sections.map(renderWorkLensSection),
+    options.workLens.relatedResources.length
+      ? renderResourceList("Related resources", options.workLens.relatedResources)
+      : null,
+    options.workLens.outputs.length
+      ? renderResourceList("Outputs", options.workLens.outputs)
+      : null,
+    options.workLens.nextActions.length
+      ? renderActions(options.workLens, options)
+      : null,
+  ];
 }
 
 function renderHeader(workLens: DesktopWorkLensProjection, placement: "inspector" | "inline") {

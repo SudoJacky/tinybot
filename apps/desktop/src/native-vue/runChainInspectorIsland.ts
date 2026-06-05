@@ -39,7 +39,20 @@ function applyHostContract(host: HTMLElement): void {
 }
 
 function createRunChainInspectorApp(options: RunChainInspectorIslandOptions): App {
-  return createApp(defineComponent({
+  return createApp(createRunChainInspectorComponent(options));
+}
+
+export function renderRunChainInspectorSurface(options: RunChainInspectorIslandOptions) {
+  return h("section", {
+    class: "desktop-workbench-section desktop-run-chain-inspector",
+    "aria-label": "Run-chain inspector",
+  }, [
+    h(createRunChainInspectorComponent(options)),
+  ]);
+}
+
+function createRunChainInspectorComponent(options: RunChainInspectorIslandOptions) {
+  return defineComponent({
     name: "RunChainInspectorIsland",
     setup() {
       const selectedKey = ref(resolveSelectedItem(options)?.key ?? "");
@@ -60,7 +73,7 @@ function createRunChainInspectorApp(options: RunChainInspectorIslandOptions): Ap
         });
       };
     },
-  }));
+  });
 }
 
 function resolveSelectedItem(options: RunChainInspectorIslandOptions): DesktopRunChainItem | null {

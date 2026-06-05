@@ -5083,7 +5083,54 @@ function createInspector(
   } else if (runChainItems.length) {
     inspector.append(createRunChainInspectorPane(targetDocument, runChainItems, selectedRunChainItemKey));
   }
+  mountInspectorRegionVueIsland(inspector, targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions);
   return inspector;
+}
+
+function mountInspectorRegionVueIsland(
+  inspector: HTMLElement,
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[],
+  selectedRunChainItemKey: string | null,
+  workLens: DesktopWorkLensProjection | null,
+  workLensActions: DesktopWorkLensActionOptions,
+): void {
+  if (!canMountVueIsland(inspector)) {
+    return;
+  }
+  void import("./native-vue/inspectorRegionIsland").then(({ mountInspectorRegionIsland }) => {
+    mountInspectorRegionIsland(inspector, {
+      runChainItems,
+      selectedRunChainItemKey,
+      workLens,
+      onRunChainAction: (action) => {
+        if (action.type === "close") {
+          toggleDesktopPanel(targetDocument, "inspector");
+        } else if (action.type === "pin") {
+          setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
+        } else if (action.type === "tab" || action.type === "summary") {
+          setRouteStatus(targetDocument, `Run Chain ${action.label}`);
+        } else if (action.type === "open-task-center") {
+          toggleDesktopPanel(targetDocument, "bottom");
+        } else if (action.type === "new-item") {
+          setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+        } else if (action.type === "feed") {
+          setRouteStatus(targetDocument, `Selected ${action.title}`);
+        }
+      },
+      onRunChainItemSelected: (item) => {
+        setRouteStatus(targetDocument, `Inspecting ${item.title}`);
+      },
+      onWorkLensAction: ({ action }) => {
+        if (workLens) {
+          workLensActions.onWorkLensAction?.({ action, workLens });
+        }
+      },
+      copyText: workLensActions.copyText,
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 type RunChainOverviewTab = "context" | "files" | "tasks";

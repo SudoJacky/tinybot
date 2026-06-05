@@ -41,7 +41,20 @@ export function mountRunChainOverviewIsland(
 }
 
 function createRunChainOverviewApp(options: RunChainOverviewIslandOptions): App {
-  return createApp(defineComponent({
+  return createApp(createRunChainOverviewComponent(options));
+}
+
+export function renderRunChainOverviewSurface(options: RunChainOverviewIslandOptions) {
+  return h("section", {
+    class: "desktop-run-chain-overview",
+    "aria-label": "Run Chain",
+  }, [
+    h(createRunChainOverviewComponent(options)),
+  ]);
+}
+
+function createRunChainOverviewComponent(options: RunChainOverviewIslandOptions) {
+  return defineComponent({
     name: "RunChainOverviewIsland",
     setup() {
       const selectedTab = ref<RunChainOverviewIslandTab>("context");
@@ -69,7 +82,7 @@ function createRunChainOverviewApp(options: RunChainOverviewIslandOptions): App 
         ],
       });
     },
-  }));
+  });
 }
 
 function renderHeader(
