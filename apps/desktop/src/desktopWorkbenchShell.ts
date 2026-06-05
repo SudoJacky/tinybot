@@ -277,6 +277,14 @@ const COWORK_OBSERVABILITY_ROW_LIMIT = 24;
 const COWORK_TASK_FEED_LIMIT = 20;
 type DesktopPanelControlId = "sidebar" | "inspector" | "bottom";
 
+interface DesktopPanelControlItem {
+  panel: DesktopPanelControlId;
+  label: string;
+  ariaLabel: string;
+  visible: boolean;
+  shortcut?: string;
+}
+
 export function installDesktopWorkbenchShell({
   targetDocument = document,
   layout = loadWorkbenchLayout(),
@@ -3729,13 +3737,7 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
   controls.className = "desktop-panel-controls";
   controls.setAttribute("aria-label", "Workbench panel controls");
 
-  const panelControls: {
-    panel: DesktopPanelControlId;
-    label: string;
-    ariaLabel: string;
-    visible: boolean;
-    shortcut?: string;
-  }[] = [
+  const panelControls: DesktopPanelControlItem[] = [
     {
       panel: "sidebar",
       label: "Sidebar",
@@ -3781,7 +3783,26 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
     controls.append(button);
   }
 
+  mountPanelControlsVueIsland(controls, targetDocument, panelControls);
   return controls;
+}
+
+function mountPanelControlsVueIsland(
+  controls: HTMLElement,
+  targetDocument: Document,
+  panelControls: DesktopPanelControlItem[],
+): void {
+  if (!canMountVueIsland(controls)) {
+    return;
+  }
+  void import("./native-vue/panelControlsIsland").then(({ mountPanelControlsIsland }) => {
+    mountPanelControlsIsland(controls, {
+      controls: panelControls,
+      onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControlId): void {
