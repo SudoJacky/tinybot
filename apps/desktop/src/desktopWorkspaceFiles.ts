@@ -5,6 +5,7 @@ import {
 } from "./desktopFileExport";
 import { buildDesktopFileTaskOperation } from "./desktopTaskCenterSources";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
+import type { MountedWorkspaceRecentFilesIsland } from "./native-vue/workspaceRecentFilesIsland";
 
 export type DesktopWorkspaceSaveState = "idle" | "dirty" | "saving" | "saved" | "protected-path-error" | "conflict-error" | "error";
 
@@ -60,6 +61,8 @@ export interface DesktopWorkspaceFileActions {
   exportWorkspaceFile?: (request: DesktopFileExportRequest) => Promise<unknown>;
   onFileTaskUpdated?: (operation: DesktopTaskSourceOperation) => void;
 }
+
+const workspaceRecentFileIslands = new WeakMap<HTMLElement, MountedWorkspaceRecentFilesIsland>();
 
 export function buildDesktopWorkspaceFileRows(payload: unknown): DesktopWorkspaceFileRow[] {
   const items = isRecord(payload) && Array.isArray(payload.items) ? payload.items : [];
@@ -495,6 +498,7 @@ function renderWorkspaceState(
         return button;
       }),
     );
+    mountWorkspaceRecentFilesVueIsland(recent, state, onSelect);
   }
 
   const fileLabel = state.files.length === 1 ? "file" : "files";
@@ -532,6 +536,30 @@ function renderWorkspaceState(
   if (exportButton) {
     exportButton.disabled = !state.activePath || !canExport || state.saveState === "saving";
   }
+}
+
+function mountWorkspaceRecentFilesVueIsland(
+  host: HTMLElement,
+  state: DesktopWorkspaceFileState,
+  onSelect: ((path: string) => void) | undefined,
+): void {
+  if (!canMountVueIsland(host)) {
+    return;
+  }
+  const mounted = workspaceRecentFileIslands.get(host);
+  if (mounted) {
+    mounted.update(state);
+    return;
+  }
+  void import("./native-vue/workspaceRecentFilesIsland").then(({ mountWorkspaceRecentFilesIsland }) => {
+    workspaceRecentFileIslands.set(host, mountWorkspaceRecentFilesIsland(host, { state, onSelect }));
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function canMountVueIsland(element: HTMLElement): boolean {
+  return typeof HTMLElement !== "undefined" && element instanceof HTMLElement;
 }
 
 function workspaceSaveStateText(state: DesktopWorkspaceFileState): string {
