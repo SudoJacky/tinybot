@@ -2903,7 +2903,33 @@ function createDesktopSkillEditor(
     createDesktopSkillCheckbox(targetDocument, "always", "Always load", detail.editor.draft.always, pane, toolsSkillsActions),
     createDesktopSkillTextArea(targetDocument, "content", "Skill content", detail.editor.draft.content, pane, toolsSkillsActions),
   );
+  mountSkillEditorVueIsland(editor, pane, toolsSkillsActions);
   return editor;
+}
+
+function mountSkillEditorVueIsland(
+  editor: HTMLElement,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): void {
+  if (!canMountVueIsland(editor) || !pane.selectedSkill) {
+    return;
+  }
+  void import("./native-vue/skillEditorIsland").then(({ mountSkillEditorIsland }) => {
+    mountSkillEditorIsland(editor, {
+      skill: pane.selectedSkill!,
+      onEdit: (field, value) => {
+        toolsSkillsActions.onToolsSkillsAction?.({
+          action: "editSkill",
+          pane,
+          field,
+          value,
+        });
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createDesktopSkillInput(
