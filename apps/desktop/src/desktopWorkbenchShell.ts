@@ -650,7 +650,32 @@ function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativ
   }
 
   section.append(list);
+  mountSidebarWorkspaceListVueIsland(section, rows.map(([name, meta, active]) => ({
+    active,
+    entityId: name,
+    meta,
+    title: name,
+  })));
   return section;
+}
+
+function mountSidebarWorkspaceListVueIsland(
+  section: HTMLElement,
+  rows: Array<{
+    active: boolean;
+    entityId: string;
+    meta: string;
+    title: string;
+  }>,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/sidebarWorkspaceListIsland").then(({ mountSidebarWorkspaceListIsland }) => {
+    mountSidebarWorkspaceListIsland(section, { rows });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSidebarRecentChats(
