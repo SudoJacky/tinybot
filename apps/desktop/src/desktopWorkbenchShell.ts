@@ -4908,7 +4908,34 @@ function createTaskAction(
       handleTaskAction(targetDocument, item, action.id, items, taskActions, event);
     });
   }
+  mountTaskActionVueIsland(element, {
+    action: action.id,
+    href,
+    itemId: item.id,
+    itemSource: item.source,
+    label: action.label,
+  });
   return element;
+}
+
+function mountTaskActionVueIsland(
+  element: HTMLElement,
+  options: {
+    action: DesktopTaskActionId;
+    href: string;
+    itemId: string;
+    itemSource: DesktopTaskSource;
+    label: string;
+  },
+): void {
+  if (!canMountVueIsland(element)) {
+    return;
+  }
+  void import("./native-vue/taskActionIsland").then(({ mountTaskActionIsland }) => {
+    mountTaskActionIsland(element, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function handleTaskAction(
