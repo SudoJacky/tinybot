@@ -5175,6 +5175,7 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
     search,
     recent,
   );
+  mountWorkspaceBrowserVueIsland(browser);
 
   const detailPanel = targetDocument.createElement("section");
   detailPanel.className = "desktop-workspace-detail-panel";
@@ -5252,6 +5253,17 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
 
   section.append(header, browser, detailPanel, editorPanel, actionRail);
   return section;
+}
+
+function mountWorkspaceBrowserVueIsland(browser: HTMLElement): void {
+  if (!canMountVueIsland(browser)) {
+    return;
+  }
+  void import("./native-vue/workspaceBrowserIsland").then(({ mountWorkspaceBrowserIsland }) => {
+    mountWorkspaceBrowserIsland(browser);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function renderInspectorView(targetDocument: Document, view: DesktopInspectorView): HTMLElement {
