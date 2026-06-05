@@ -3465,7 +3465,19 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
   });
 
   sidebar.append(nav);
+  mountSettingsSidebarVueIsland(sidebar, pane);
   return sidebar;
+}
+
+function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettingsPaneModel): void {
+  if (!canMountVueIsland(sidebar)) {
+    return;
+  }
+  void import("./native-vue/settingsSidebarIsland").then(({ mountSettingsSidebarIsland }) => {
+    mountSettingsSidebarIsland(sidebar, { groups: pane.groups });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function createSettingsStatusCard(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
