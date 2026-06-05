@@ -1899,6 +1899,7 @@ function createToolsSkillsPane(
     setDesktopEntityHook(row, "skills", skill.name);
     skills.append(row);
   }
+  mountSkillsListVueIsland(skills, pane);
   section.append(skills);
 
   if (pane.selectedSkill) {
@@ -1976,6 +1977,20 @@ function mountToolsListVueIsland(
   }
   void import("./native-vue/toolsListIsland").then(({ mountToolsListIsland }) => {
     mountToolsListIsland(tools, { tools: pane.toolRows });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountSkillsListVueIsland(
+  skills: HTMLElement,
+  pane: DesktopToolsSkillsPaneModel,
+): void {
+  if (!canMountVueIsland(skills)) {
+    return;
+  }
+  void import("./native-vue/skillsListIsland").then(({ mountSkillsListIsland }) => {
+    mountSkillsListIsland(skills, { skills: pane.skillRows });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
