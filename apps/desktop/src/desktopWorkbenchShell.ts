@@ -1508,6 +1508,7 @@ function createConversationMessage(
   const meta = targetDocument.createElement("div");
   meta.className = "desktop-conversation-meta";
   meta.append(createText(targetDocument, "strong", options.author), createText(targetDocument, "span", options.time));
+  mountConversationMetaVueIsland(meta, { author: options.author, time: options.time });
   content.append(meta);
   if (options.reasoningContent?.trim()) {
     content.append(createConversationReasoning(targetDocument, options.reasoningContent));
@@ -1538,6 +1539,17 @@ function createConversationMessage(
   }
   article.append(content);
   return article;
+}
+
+function mountConversationMetaVueIsland(meta: HTMLElement, options: { author: string; time: string }): void {
+  if (!canMountVueIsland(meta)) {
+    return;
+  }
+  void import("./native-vue/conversationMetaIsland").then(({ mountConversationMetaIsland }) => {
+    mountConversationMetaIsland(meta, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function conversationReferenceText(reference: { detail?: string; kind: string; title: string }): string {
