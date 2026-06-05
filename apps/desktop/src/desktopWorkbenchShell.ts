@@ -2417,7 +2417,29 @@ function createCoworkInspectorPane(
     inspector.append(createText(targetDocument, "p", `Payload: ${view.inspector.payloadText}`));
   }
   appendCoworkSelectedActions(targetDocument, inspector, view, pane, coworkActions);
+  mountCoworkInspectorVueIsland(inspector, view, pane, coworkActions);
   return inspector;
+}
+
+function mountCoworkInspectorVueIsland(
+  inspector: HTMLElement,
+  view: DesktopCoworkCockpitView,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(inspector)) {
+    return;
+  }
+  void import("./native-vue/coworkInspectorIsland").then(({ mountCoworkInspectorIsland }) => {
+    mountCoworkInspectorIsland(inspector, {
+      view,
+      onAction: (event) => {
+        coworkActions.onCoworkAction?.({ ...event, pane });
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function appendCoworkSelectedActions(
