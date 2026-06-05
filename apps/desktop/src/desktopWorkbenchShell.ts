@@ -1121,6 +1121,7 @@ function createChatMenuPopover(
       handler(button);
       close();
     });
+    mountChatMenuActionVueIsland(button, { action, disabled, label });
     popover.append(button);
     return button;
   };
@@ -1164,6 +1165,20 @@ function createChatMenuPopover(
   }
 
   return popover;
+}
+
+function mountChatMenuActionVueIsland(
+  button: HTMLElement,
+  options: { action: string; disabled: boolean; label: string },
+): void {
+  if (!canMountVueIsland(button)) {
+    return;
+  }
+  void import("./native-vue/chatMenuActionIsland").then(({ mountChatMenuActionIsland }) => {
+    mountChatMenuActionIsland(button, options);
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function pinnedSessionKeysForDocument(targetDocument: Document): Set<string> {
