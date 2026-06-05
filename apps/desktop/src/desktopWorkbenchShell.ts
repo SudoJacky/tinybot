@@ -591,7 +591,59 @@ function createSidebar(
     createSharedSidebarLinkSection(targetDocument, workspaceGroup),
     createSharedSidebarCommandSection(targetDocument, footerGroup),
   );
+  if (chat) {
+    mountSidebarContentVueIsland(sidebar, targetDocument, chat, chatActions, workspaceGroup, footerGroup);
+  }
   return sidebar;
+}
+
+function mountSidebarContentVueIsland(
+  sidebar: HTMLElement,
+  targetDocument: Document,
+  chat: DesktopNativeChatModel,
+  chatActions: DesktopNativeChatActionOptions,
+  workspaceGroup: DesktopSidebarGroup | undefined,
+  footerGroup: DesktopSidebarGroup | undefined,
+): void {
+  if (!canMountVueIsland(sidebar)) {
+    return;
+  }
+  const pinnedSessionKeys = pinnedSessionKeysForDocument(targetDocument);
+  const recentChats = sortPinnedSessionsFirst(chat.sessions, pinnedSessionKeys).map((session) => recentChatRowModel(
+    session,
+    session.key === chat.activeSessionKey,
+    pinnedSessionKeys.has(session.key),
+  ));
+  void import("./native-vue/sidebarContentIsland").then(({ mountSidebarContentIsland }) => {
+    mountSidebarContentIsland(sidebar, {
+      commandItems: sidebarCommandItems(footerGroup),
+      commandLabel: footerGroup?.label,
+      recentChats,
+      resourceItems: sidebarLinkItems(workspaceGroup),
+      resourceLabel: workspaceGroup?.label,
+      targetDocument,
+      workspaceRows: [{
+        active: true,
+        entityId: "tinybot",
+        meta: chat.activeSessionKey ? "Active session" : "Ready",
+        title: "tinybot",
+      }],
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function sidebarLinkItems(group: DesktopSidebarGroup | undefined): Array<DesktopSidebarItem & { href: string; kind: "link" }> {
+  return (group?.items ?? []).flatMap((item) => item.kind === "link" && item.href
+    ? [{ ...item, href: item.href, kind: "link" as const }]
+    : []);
+}
+
+function sidebarCommandItems(group: DesktopSidebarGroup | undefined): Array<DesktopSidebarItem & { commandId: string; kind: "command" }> {
+  return (group?.items ?? []).flatMap((item) => item.kind === "command" && item.commandId
+    ? [{ ...item, commandId: item.commandId, kind: "command" as const }]
+    : []);
 }
 
 function createSidebarActions(targetDocument: Document): HTMLElement {

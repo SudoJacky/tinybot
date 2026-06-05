@@ -40,20 +40,28 @@ function createSharedSidebarLinksApp(options: SharedSidebarLinksIslandOptions): 
     name: "SharedSidebarLinksIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", options.label ?? "Resources"),
-          h(NSpace, { vertical: true, size: 6 }, {
-            default: () => options.items.map((item) => h("a", {
-              class: "desktop-workbench-link",
-              "data-sidebar-href": item.href,
-              "data-sidebar-icon": item.icon,
-              "data-sidebar-item-id": item.id,
-              "data-sidebar-item-kind": item.kind,
-              href: item.href,
-            }, item.label)),
-          }),
-        ],
+        default: () => renderSharedSidebarLinksContent(options),
       });
     },
   }));
+}
+
+export function renderSharedSidebarLinksSection(options: SharedSidebarLinksIslandOptions) {
+  return h("section", { class: "desktop-workbench-section" }, renderSharedSidebarLinksContent(options));
+}
+
+export function renderSharedSidebarLinksContent(options: SharedSidebarLinksIslandOptions) {
+  return [
+    h("h2", options.label ?? "Resources"),
+    h(NSpace, { vertical: true, size: 6 }, {
+      default: () => options.items.map((item) => h("a", {
+        class: "desktop-workbench-link",
+        "data-sidebar-href": item.href,
+        "data-sidebar-icon": item.icon,
+        "data-sidebar-item-id": item.id,
+        "data-sidebar-item-kind": item.kind,
+        href: item.href,
+      }, item.label)),
+    }),
+  ];
 }

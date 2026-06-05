@@ -35,18 +35,28 @@ function createSidebarRecentChatsApp(options: SidebarRecentChatsIslandOptions): 
     name: "SidebarRecentChatsIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          renderHeading(),
-          h("div", {
-            class: "desktop-recent-chat-list",
-            role: "list",
-          }, options.rows.length
-            ? options.rows.map((row) => renderRecentChatRow(row, options))
-            : [h("p", "No recent chats.")]),
-        ],
+        default: () => renderSidebarRecentChatsContent(options),
       });
     },
   }));
+}
+
+export function renderSidebarRecentChatsSection(options: SidebarRecentChatsIslandOptions) {
+  return h("section", {
+    class: "desktop-sidebar-list-section desktop-sidebar-list-section-recent",
+  }, renderSidebarRecentChatsContent(options));
+}
+
+export function renderSidebarRecentChatsContent(options: SidebarRecentChatsIslandOptions) {
+  return [
+    renderHeading(),
+    h("div", {
+      class: "desktop-recent-chat-list",
+      role: "list",
+    }, options.rows.length
+      ? options.rows.map((row) => renderRecentChatRow(row, options))
+      : [h("p", "No recent chats.")]),
+  ];
 }
 
 function renderHeading() {

@@ -43,28 +43,36 @@ function createSharedSidebarCommandsApp(options: Required<SharedSidebarCommandsI
   return createApp(defineComponent({
     name: "SharedSidebarCommandsIsland",
     setup() {
-      const dispatchCommand = (commandId: string) => {
-        options.targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", {
-          detail: { id: commandId, source: "native-sidebar" },
-        }));
-      };
-
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", options.label ?? "System"),
-          h(NSpace, { vertical: true, size: 6 }, {
-            default: () => options.items.map((item) => h("button", {
-              class: "desktop-workbench-link",
-              "data-sidebar-command": item.commandId,
-              "data-sidebar-icon": item.icon,
-              "data-sidebar-item-id": item.id,
-              "data-sidebar-item-kind": item.kind,
-              onClick: () => dispatchCommand(item.commandId),
-              type: "button",
-            }, item.label)),
-          }),
-        ],
+        default: () => renderSharedSidebarCommandsContent(options),
       });
     },
   }));
+}
+
+export function renderSharedSidebarCommandsSection(options: Required<SharedSidebarCommandsIslandOptions>) {
+  return h("section", { class: "desktop-workbench-section" }, renderSharedSidebarCommandsContent(options));
+}
+
+export function renderSharedSidebarCommandsContent(options: Required<SharedSidebarCommandsIslandOptions>) {
+  const dispatchCommand = (commandId: string) => {
+    options.targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", {
+      detail: { id: commandId, source: "native-sidebar" },
+    }));
+  };
+
+  return [
+    h("h2", options.label ?? "System"),
+    h(NSpace, { vertical: true, size: 6 }, {
+      default: () => options.items.map((item) => h("button", {
+        class: "desktop-workbench-link",
+        "data-sidebar-command": item.commandId,
+        "data-sidebar-icon": item.icon,
+        "data-sidebar-item-id": item.id,
+        "data-sidebar-item-kind": item.kind,
+        onClick: () => dispatchCommand(item.commandId),
+        type: "button",
+      }, item.label)),
+    }),
+  ];
 }

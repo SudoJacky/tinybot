@@ -24,28 +24,32 @@ function createSidebarActionsApp(): App {
     name: "SidebarActionsIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NSpace, {
-          vertical: true,
-          size: 8,
-        }, {
-          default: () => [
-            h("a", {
-              class: "desktop-sidebar-primary-action",
-              href: "/chat/new",
-              "aria-label": "New chat",
-            }, [
-              "+  New chat",
-              h("span", { class: "desktop-sidebar-shortcut" }, "Ctrl N"),
-            ]),
-            h("input", {
-              class: "desktop-sidebar-search",
-              type: "search",
-              "aria-label": "Search",
-              placeholder: "Search",
-            }),
-          ],
-        }),
+        default: () => renderSidebarActionsContent(),
       });
     },
   }));
+}
+
+export function renderSidebarActionsContent() {
+  return h(NSpace, {
+    vertical: true,
+    size: 8,
+  }, {
+    default: () => [
+      h("a", {
+        class: "desktop-sidebar-primary-action",
+        href: "/chat/new",
+        "aria-label": "New chat",
+      }, [
+        "+  New chat",
+        h("span", { class: "desktop-sidebar-shortcut" }, "Ctrl N"),
+      ]),
+      h("input", {
+        class: "desktop-sidebar-search",
+        type: "search",
+        "aria-label": "Search",
+        placeholder: "Search",
+      }),
+    ],
+  });
 }

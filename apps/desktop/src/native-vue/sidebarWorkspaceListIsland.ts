@@ -38,16 +38,26 @@ function createSidebarWorkspaceListApp(options: SidebarWorkspaceListIslandOption
     name: "SidebarWorkspaceListIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          renderHeading(),
-          h("div", {
-            class: "desktop-workspace-list",
-            role: "list",
-          }, options.rows.map(renderWorkspaceRow)),
-        ],
+        default: () => renderSidebarWorkspaceListContent(options),
       });
     },
   }));
+}
+
+export function renderSidebarWorkspaceListSection(options: SidebarWorkspaceListIslandOptions) {
+  return h("section", {
+    class: "desktop-sidebar-list-section desktop-sidebar-list-section-workspaces",
+  }, renderSidebarWorkspaceListContent(options));
+}
+
+export function renderSidebarWorkspaceListContent(options: SidebarWorkspaceListIslandOptions) {
+  return [
+    renderHeading(),
+    h("div", {
+      class: "desktop-workspace-list",
+      role: "list",
+    }, options.rows.map(renderWorkspaceRow)),
+  ];
 }
 
 function renderHeading() {
