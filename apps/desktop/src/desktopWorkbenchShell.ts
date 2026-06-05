@@ -2064,6 +2064,7 @@ function createKnowledgePane(
   for (const evidence of pane.graph.evidence.slice(0, 4)) {
     graph.append(createText(targetDocument, "p", `Evidence: ${evidence.title} / ${evidence.docName}`));
   }
+  mountKnowledgeGraphVueIsland(graph, pane);
   section.append(graph);
 
   return section;
@@ -2133,6 +2134,20 @@ function mountKnowledgeQueryVueIsland(
       draft: pane.query.draft,
       results: pane.query.results,
     });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountKnowledgeGraphVueIsland(
+  graph: HTMLElement,
+  pane: DesktopKnowledgePaneModel,
+): void {
+  if (!canMountVueIsland(graph)) {
+    return;
+  }
+  void import("./native-vue/knowledgeGraphIsland").then(({ mountKnowledgeGraphIsland }) => {
+    mountKnowledgeGraphIsland(graph, { graph: pane.graph });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
