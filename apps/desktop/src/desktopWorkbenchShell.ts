@@ -3491,6 +3491,7 @@ function createRunChainOverviewPanel(
   );
 
   section.append(header, summary, tabs, panel, actions);
+  mountRunChainOverviewVueIsland(section, targetDocument, runChainItems);
   return section;
 }
 
@@ -3630,6 +3631,38 @@ function runChainOverviewStatus(runChainItems: DesktopRunChainItem[]): string {
     return "Running";
   }
   return runChainItems.length ? "Completed" : "Idle";
+}
+
+function mountRunChainOverviewVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[],
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/runChainOverviewIsland").then(({ mountRunChainOverviewIsland }) => {
+    mountRunChainOverviewIsland(section, {
+      items: runChainItems,
+      onAction: (action) => {
+        if (action.type === "close") {
+          toggleDesktopPanel(targetDocument, "inspector");
+        } else if (action.type === "pin") {
+          setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
+        } else if (action.type === "tab" || action.type === "summary") {
+          setRouteStatus(targetDocument, `Run Chain ${action.label}`);
+        } else if (action.type === "open-task-center") {
+          toggleDesktopPanel(targetDocument, "bottom");
+        } else if (action.type === "new-item") {
+          setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+        } else if (action.type === "feed") {
+          setRouteStatus(targetDocument, `Selected ${action.title}`);
+        }
+      },
+    });
+  }).catch(() => {
+    setRouteStatus(targetDocument, "Run Chain native UI unavailable.");
+  });
 }
 
 function createWorkLensPane(
