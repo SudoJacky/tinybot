@@ -2111,6 +2111,7 @@ function createNativeComposerSurface(
     createPersistentRagToggle(targetDocument, chat, chatActions),
     createTokenUsageOrb(targetDocument, chat?.runtime?.tokenUsage || "-"),
   );
+  mountComposerRuntimeVueIsland(runtime, chat, chatActions);
 
   composer.append(input, attach, runtime, send);
   return composer;
@@ -2174,6 +2175,26 @@ function mountComposerAttachButtonVueIsland(
     });
   }).catch(() => {
     installFallback();
+  });
+}
+
+function mountComposerRuntimeVueIsland(
+  runtime: HTMLElement,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  if (!canMountVueIsland(runtime)) {
+    return;
+  }
+  void import("./native-vue/composerRuntimeIsland").then(({ mountComposerRuntimeIsland }) => {
+    mountComposerRuntimeIsland(runtime, {
+      model: chat?.runtime?.model || null,
+      persistentRag: chat?.usePersistentRag !== false,
+      tokenUsage: chat?.runtime?.tokenUsage || "-",
+      onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
 }
 
