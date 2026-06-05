@@ -1,5 +1,6 @@
 import { DESKTOP_CHROME_COMMANDS, DESKTOP_HELP_COMMANDS, type DesktopMenuCommand } from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
+import { mountDesktopAppMenuCommandIsland } from "./native-vue/desktopAppMenuCommandIsland";
 import { mountDesktopHelpMenuIsland } from "./native-vue/desktopHelpMenuIsland";
 import { mountOrUpdateDesktopRuntimeStatusIsland } from "./native-vue/desktopRuntimeStatusIsland";
 import { mountDesktopWindowControlsIsland } from "./native-vue/desktopWindowControlsIsland";
@@ -132,7 +133,18 @@ function createApplicationMenu(targetDocument: Document): HTMLElement {
   return menu;
 }
 
-function createApplicationMenuCommand(targetDocument: Document, command: DesktopMenuCommand): HTMLButtonElement {
+function createApplicationMenuCommand(targetDocument: Document, command: DesktopMenuCommand): HTMLElement {
+  const host = targetDocument.createElement("span");
+  if (canMountDesktopAppMenuCommandIsland(host)) {
+    mountDesktopAppMenuCommandIsland(host, {
+      command,
+      onCommand: (id) => {
+        targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id } }));
+      },
+    });
+    return host;
+  }
+
   const button = targetDocument.createElement("button");
   button.type = "button";
   button.className = "desktop-application-menu-item";
@@ -311,6 +323,10 @@ function createWindowButton(
     void handler().catch(logWindowFrameError);
   });
   return button;
+}
+
+function canMountDesktopAppMenuCommandIsland(host: HTMLElement): boolean {
+  return typeof window !== "undefined" && host instanceof window.HTMLElement;
 }
 
 function canMountDesktopWindowControlsIsland(controls: HTMLElement): boolean {

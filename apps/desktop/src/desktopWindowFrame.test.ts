@@ -406,6 +406,39 @@ describe("desktop window frame", () => {
     expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
   });
 
+  test("uses Vue island hosts for real app menu commands", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+    const dispatched: string[] = [];
+    document.addEventListener("desktop-menu-command", (event) => {
+      dispatched.push((event as CustomEvent<{ id: string }>).detail.id);
+    });
+
+    installDesktopWindowFrame({
+      targetDocument: document,
+      currentWindow,
+    });
+
+    const settings = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="open-settings"]');
+    const docs = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="open-docs"]');
+    const theme = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="toggle-theme"]');
+    expect(settings?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
+    expect(docs?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
+    expect(theme?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
+    expect(settings?.textContent).toContain("Settings");
+
+    settings?.click();
+
+    expect(dispatched).toEqual(["open-settings"]);
+    expect(currentWindow.startDragging).not.toHaveBeenCalled();
+  });
+
   test("keeps app chrome focused on commands without product or surface labels", () => {
     const targetDocument = new FakeDocument();
     targetDocument.documentElement.dataset.desktopWorkbenchMode = "root-webui";
