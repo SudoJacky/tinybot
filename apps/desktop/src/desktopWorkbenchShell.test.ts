@@ -28,7 +28,7 @@ class FakeElement {
     },
   };
 
-  constructor(public readonly tagName: string) {}
+  constructor(public readonly tagName: string, private readonly ownerDocument?: FakeDocument) {}
 
   set textContent(value: string) {
     this.ownTextContent = value;
@@ -76,6 +76,12 @@ class FakeElement {
 
   click(): void {
     this.dispatchEvent({ type: "click" });
+  }
+
+  focus(): void {
+    if (this.ownerDocument) {
+      this.ownerDocument.activeElement = this;
+    }
   }
 
   getBoundingClientRect(): DOMRect {
@@ -129,24 +135,30 @@ class FakeClassList {
 class FakeBody extends FakeElement {
   public classList = new FakeClassList();
 
-  constructor() {
-    super("body");
+  constructor(ownerDocument: FakeDocument) {
+    super("body", ownerDocument);
   }
 }
 
 class FakeHead extends FakeElement {
-  constructor() {
-    super("head");
+  constructor(ownerDocument: FakeDocument) {
+    super("head", ownerDocument);
   }
 }
 
 class FakeDocument {
-  public body = new FakeBody();
-  public head = new FakeHead();
+  public body: FakeBody;
+  public head: FakeHead;
+  public activeElement: FakeElement | null = null;
   public listeners = new Map<string, ((event: unknown) => void)[]>();
 
+  constructor() {
+    this.body = new FakeBody(this);
+    this.head = new FakeHead(this);
+  }
+
   createElement(tagName: string): FakeElement {
-    return new FakeElement(tagName);
+    return new FakeElement(tagName, this);
   }
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
@@ -839,8 +851,17 @@ describe("desktop workbench shell", () => {
     ]);
 
     help?.querySelector('[data-desktop-help-action="shortcut-help"]')?.click();
-    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Shortcut Help");
-    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Ctrl+Shift+P: Command palette");
+    const shortcutDialog = targetDocument.body.querySelector("#desktop-shortcut-help-dialog");
+    expect(shortcutDialog?.getAttribute("role")).toBe("dialog");
+    expect(shortcutDialog?.getAttribute("aria-modal")).toBe("true");
+    expect(shortcutDialog?.textContent).toContain("Keyboard shortcuts");
+    const shortcutSearch = shortcutDialog?.querySelector(".desktop-shortcut-help-search");
+    expect(shortcutSearch?.getAttribute("placeholder")).toBe("Search shortcuts");
+    expect(targetDocument.activeElement).toBe(shortcutSearch);
+    expect(shortcutDialog?.textContent).toContain("Chat");
+    expect(shortcutDialog?.textContent).toContain("Navigation");
+    expect(shortcutDialog?.textContent).toContain("Ctrl+Shift+P");
+    expect(shortcutDialog?.textContent).toContain("Command palette");
 
     targetDocument.dispatchEvent({ type: "tinybot:open-page-help" });
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.textContent).toContain("Page help");
@@ -929,8 +950,14 @@ describe("desktop workbench shell", () => {
     expect(header?.querySelector(".desktop-chat-menu")?.textContent).toBe("...");
     expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Collapse session list");
     expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Close Run Chain panel");
-    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toContain("Sessions");
-    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toContain("Run Chain");
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toBe("");
+    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toBe("");
+    expect(
+      header?.querySelector('[data-desktop-panel-control="sidebar"]')?.querySelector(".desktop-chat-header-panel-icon")?.getAttribute("data-panel-icon"),
+    ).toBe("collapse-left");
+    expect(
+      header?.querySelector('[data-desktop-panel-control="inspector"]')?.querySelector(".desktop-chat-header-panel-icon")?.getAttribute("data-panel-icon"),
+    ).toBe("collapse-right");
     expect(targetDocument.body.querySelector("[data-desktop-inspector-restore]")).toBeNull();
 
     header?.querySelector('[data-desktop-panel-control="sidebar"]')?.click();
@@ -942,7 +969,9 @@ describe("desktop workbench shell", () => {
   test("opens chat header menu actions and updates the active session affordances", () => {
     const targetDocument = new FakeDocument();
     (targetDocument as unknown as { defaultView: { prompt: () => string } }).defaultView = {
-      prompt: () => "Renamed session",
+      prompt: () => {
+        throw new Error("Rename session should edit inline instead of opening a prompt.");
+      },
     };
     const pinEvents: unknown[] = [];
     const renameEvents: unknown[] = [];
@@ -981,18 +1010,27 @@ describe("desktop workbench shell", () => {
       "WebSocket:chat-1",
     );
     expect(targetDocument.body.querySelector('[data-desktop-session-key]')?.getAttribute("data-pinned")).toBe("true");
+    expect(
+      targetDocument.body.querySelector('[data-desktop-session-key]')?.querySelector("[data-desktop-session-pin-icon]")?.textContent,
+    ).toBe("📌");
     expect(header?.querySelector('[data-desktop-chat-menu-action="pin"]')?.textContent).toBe("Unpin session");
     expect(menu?.getAttribute("aria-expanded")).toBe("false");
 
     menu?.click();
     header?.querySelector('[data-desktop-chat-menu-action="rename"]')?.click();
+    const editor = header?.querySelector(".desktop-chat-title-editor");
+    expect(editor).toBeTruthy();
+    expect(editor?.getAttribute("aria-label")).toBe("Rename session");
+    expect(editor?.value).toBe("Session one");
+    editor!.value = "Renamed session";
+    editor!.dispatchEvent({ type: "keydown", key: "Enter", preventDefault: () => undefined });
     expect(renameEvents).toEqual([{ sessionKey: "WebSocket:chat-1", chatId: "chat-1", title: "Renamed session" }]);
     expect(header?.querySelector(".desktop-chat-title")?.textContent).toBe("Renamed session");
     expect(targetDocument.body.querySelector('[data-desktop-session-key]')?.querySelector(".desktop-sidebar-row-label")?.textContent).toBe(
       "Renamed session",
     );
-    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toContain("Sessions");
-    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toContain("Run Chain");
+    expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toBe("");
+    expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.textContent).toBe("");
   });
 
   test("anchors the chat header menu popover inside the main work area", () => {
@@ -1045,6 +1083,7 @@ describe("desktop workbench shell", () => {
     const firstRow = targetDocument.body.querySelector('[data-desktop-session-key]');
     expect(firstRow?.getAttribute("data-desktop-session-key")).toBe("WebSocket:chat-1");
     expect(firstRow?.getAttribute("data-pinned")).toBe("true");
+    expect(firstRow?.querySelector("[data-desktop-session-pin-icon]")?.textContent).toBe("📌");
     const refreshedHeader = targetDocument.body.querySelector(".desktop-chat-header");
     refreshedHeader?.querySelector(".desktop-chat-menu")?.click();
     expect(refreshedHeader?.querySelector('[data-desktop-chat-menu-action="pin"]')?.textContent).toBe("Unpin session");
@@ -1973,6 +2012,21 @@ describe("desktop workbench shell", () => {
 
     const pane = targetDocument.body.querySelector(".desktop-settings-pane");
     expect(pane?.getAttribute("aria-label")).toBe("Settings and providers");
+    expect(pane?.getAttribute("data-settings-layout")).toBe("codex-like");
+    expect(pane?.querySelector(".desktop-settings-search")?.getAttribute("placeholder")).toBe("Search settings...");
+    expect(pane?.querySelectorAll(".desktop-settings-nav-item").map((item) => item.textContent)).toEqual([
+      "General",
+      "Provider",
+      "Knowledge",
+      "Tools",
+      "Gateway",
+      "Channels",
+    ]);
+    expect(pane?.querySelector(".desktop-settings-nav-item")?.getAttribute("data-active")).toBe("true");
+    expect(pane?.querySelector(".desktop-settings-content")?.textContent).toContain("Settings");
+    expect(pane?.querySelector(".desktop-settings-status-card")?.textContent).toContain("Save: HTTP 400");
+    expect(pane?.querySelector(".desktop-settings-status-card")?.textContent).toContain("Validation: model, timezone");
+    expect(pane?.querySelector('[data-desktop-settings-group="agent"]')?.getAttribute("id")).toBe("desktop-settings-group-agent");
     expect(pane?.textContent).toContain("Settings");
     expect(pane?.textContent).toContain("Save: HTTP 400");
     expect(pane?.textContent).toContain("Validation: model, timezone");

@@ -65,12 +65,19 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
 const DESKTOP_CHROME_COMMAND_IDS: DesktopMenuCommandId[] = [
   "open-settings",
   "open-docs",
-  "open-shortcut-help",
-  "open-page-help",
   "toggle-theme",
 ];
 
 export const DESKTOP_CHROME_COMMANDS: DesktopMenuCommand[] = DESKTOP_CHROME_COMMAND_IDS
+  .map((id) => DESKTOP_MENU_COMMANDS.find((command) => command.id === id))
+  .filter((command): command is DesktopMenuCommand => Boolean(command));
+
+const DESKTOP_HELP_COMMAND_IDS: DesktopMenuCommandId[] = [
+  "open-shortcut-help",
+  "open-page-help",
+];
+
+export const DESKTOP_HELP_COMMANDS: DesktopMenuCommand[] = DESKTOP_HELP_COMMAND_IDS
   .map((id) => DESKTOP_MENU_COMMANDS.find((command) => command.id === id))
   .filter((command): command is DesktopMenuCommand => Boolean(command));
 

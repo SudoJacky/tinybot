@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   DESKTOP_CHROME_COMMANDS,
+  DESKTOP_HELP_COMMANDS,
   DESKTOP_MENU_COMMANDS,
   installDesktopMenuCommandRouting,
   resolveDesktopShortcutCommand,
@@ -119,16 +120,20 @@ describe("desktop command navigation", () => {
     expect(DESKTOP_CHROME_COMMANDS.map((command) => command.id)).toEqual([
       "open-settings",
       "open-docs",
-      "open-shortcut-help",
-      "open-page-help",
       "toggle-theme",
     ]);
     expect(DESKTOP_CHROME_COMMANDS.map((command) => command.chromeLabel)).toEqual([
       undefined,
       undefined,
       undefined,
-      undefined,
-      undefined,
+    ]);
+    expect(DESKTOP_HELP_COMMANDS.map((command) => command.id)).toEqual([
+      "open-shortcut-help",
+      "open-page-help",
+    ]);
+    expect(DESKTOP_HELP_COMMANDS.map((command) => command.label)).toEqual([
+      "Shortcut Help",
+      "Page Help",
     ]);
     expect(DESKTOP_MENU_COMMANDS.filter((command) => command.chromeGroup === "secondary").map((command) => command.id)).toEqual([
       "open-settings",
