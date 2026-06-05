@@ -3343,6 +3343,7 @@ function createCoworkCockpitPane(
 
   if (!pane.cockpitView) {
     section.append(createText(targetDocument, "p", "Select a Cowork session to open the cockpit."));
+    mountCoworkPaneVueIsland(section, targetDocument, pane, coworkActions);
     return section;
   }
 
@@ -3363,7 +3364,43 @@ function createCoworkCockpitPane(
   section.append(inspector);
   section.append(createCoworkTaskFeed(targetDocument, view));
 
+  mountCoworkPaneVueIsland(section, targetDocument, pane, coworkActions);
   return section;
+}
+
+function mountCoworkPaneVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/coworkPaneIsland").then(({ mountCoworkPaneIsland }) => {
+    mountCoworkPaneIsland(section, {
+      pane,
+      onCoworkAction: (event) => {
+        coworkActions.onCoworkAction?.(event);
+      },
+      onGraphSelect: (selection) => {
+        setRouteStatus(targetDocument, `Inspecting Cowork ${selection.label}`);
+      },
+      onObservabilityPanelSelected: (panel) => {
+        setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+      },
+      onSessionSelect: (session) => {
+        const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+        if (!item) {
+          return;
+        }
+        const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+        setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+      },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function mountCoworkHeaderVueIsland(
