@@ -4436,7 +4436,29 @@ function createDesktopHelpSurface(targetDocument: Document): HTMLElement {
   });
 
   section.append(docs, shortcuts, pageHelp, tour);
+  mountHelpSurfaceVueIsland(section, targetDocument);
   return section;
+}
+
+function mountHelpSurfaceVueIsland(section: HTMLElement, targetDocument: Document): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/helpSurfaceIsland").then(({ mountHelpSurfaceIsland }) => {
+    mountHelpSurfaceIsland(section, {
+      onAction: (action) => {
+        if (action === "shortcut-help") {
+          renderDesktopShortcutHelp(targetDocument);
+        } else if (action === "page-help") {
+          renderDesktopPageHelp(targetDocument, "Page help");
+        } else if (action === "help-tour") {
+          renderDesktopPageHelp(targetDocument, "Desktop help tour");
+        }
+      },
+    });
+  }).catch(() => {
+    setRouteStatus(targetDocument, "Help Vue surface unavailable");
+  });
 }
 
 function installDesktopHelpEventRouting(targetDocument: Document): void {
