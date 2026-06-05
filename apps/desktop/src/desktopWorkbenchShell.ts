@@ -710,6 +710,11 @@ function createSidebarRecentChats(
       list.append(createText(targetDocument, "p", "No recent chats."));
     }
     section.append(list);
+    mountSidebarRecentChatsVueIsland(section, sessions.map((session) => recentChatRowModel(
+      session,
+      session.key === chat.activeSessionKey,
+      pinnedSessionKeys.has(session.key),
+    )), chatActions);
     return section;
   }
 
@@ -725,6 +730,57 @@ function createSidebarRecentChats(
 
   section.append(list);
   return section;
+}
+
+function recentChatRowModel(session: NativeChatSession, active: boolean, pinned: boolean): {
+  active: boolean;
+  chatId: string;
+  href: string;
+  pinned: boolean;
+  routeId: string;
+  sessionKey: string;
+  title: string;
+  updatedLabel: string;
+} {
+  const routeId = desktopChatRouteId(session);
+  const title = session.title || "New session";
+  return {
+    active,
+    chatId: session.chatId,
+    href: `/chat/${encodeURIComponent(routeId)}`,
+    pinned,
+    routeId,
+    sessionKey: session.key,
+    title,
+    updatedLabel: session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId,
+  };
+}
+
+function mountSidebarRecentChatsVueIsland(
+  section: HTMLElement,
+  rows: Array<{
+    active: boolean;
+    chatId: string;
+    href: string;
+    pinned: boolean;
+    routeId: string;
+    sessionKey: string;
+    title: string;
+    updatedLabel: string;
+  }>,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  void import("./native-vue/sidebarRecentChatsIsland").then(({ mountSidebarRecentChatsIsland }) => {
+    mountSidebarRecentChatsIsland(section, {
+      rows,
+      onDeleteSession: chatActions.onDeleteSession,
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
 }
 
 function desktopChatRouteId(session: NativeChatSession): string {
