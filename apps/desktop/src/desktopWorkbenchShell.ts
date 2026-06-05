@@ -1263,17 +1263,50 @@ function createHeaderPanelControl(
   } else {
     button.textContent = label;
   }
-  button.addEventListener("click", () => {
-    toggleDesktopPanel(targetDocument, panel);
-  });
-  button.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    toggleDesktopPanel(targetDocument, panel);
+  mountHeaderPanelControlVueIsland(button, targetDocument, {
+    panel,
+    visible,
+    label,
+    pressedLabel,
+    unpressedLabel,
   });
   return button;
+}
+
+function mountHeaderPanelControlVueIsland(
+  button: HTMLElement,
+  targetDocument: Document,
+  options: {
+    panel: DesktopPanelControlId;
+    visible: boolean;
+    label: string;
+    pressedLabel: string;
+    unpressedLabel: string;
+  },
+): void {
+  const toggle = () => toggleDesktopPanel(targetDocument, options.panel);
+  const installFallback = () => {
+    button.addEventListener("click", toggle);
+    button.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      toggle();
+    });
+  };
+  if (!canMountVueIsland(button)) {
+    installFallback();
+    return;
+  }
+  void import("./native-vue/headerPanelControlIsland").then(({ mountHeaderPanelControlIsland }) => {
+    mountHeaderPanelControlIsland(button, {
+      ...options,
+      onToggle: () => toggle(),
+    });
+  }).catch(() => {
+    installFallback();
+  });
 }
 
 function createPanelIconPart(targetDocument: Document, part: "frame" | "rail"): HTMLElement {
