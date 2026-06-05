@@ -1102,6 +1102,22 @@ function createMainRegion(
     ...(toolsSkillsPane ? [createToolsSkillsPane(targetDocument, toolsSkillsPane, toolsSkillsActions)] : []),
     ...(coworkPane ? [createCoworkCockpitPane(targetDocument, coworkPane, coworkActions)] : []),
   );
+  mountMainUtilitiesRegionVueIsland(
+    utilities,
+    targetDocument,
+    chat,
+    agentUiForms,
+    agentUiActions,
+    taskCenterItems,
+    settingsPane,
+    settingsActions,
+    knowledgePane,
+    knowledgeActions,
+    toolsSkillsPane,
+    toolsSkillsActions,
+    coworkPane,
+    coworkActions,
+  );
 
   const status = targetDocument.createElement("div");
   status.className = "desktop-status-strip";
@@ -1128,6 +1144,82 @@ function mountChatWorkbenchVueIsland(
       panelControls: buildDesktopPanelControls(layout),
       onInspectWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
       onPanelToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountMainUtilitiesRegionVueIsland(
+  utilities: HTMLElement,
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  agentUiForms: AgentUiForm[],
+  agentUiActions: DesktopAgentUiFormActionOptions,
+  taskCenterItems: DesktopTaskCenterItem[],
+  settingsPane: DesktopSettingsPaneModel | null,
+  settingsActions: DesktopSettingsActionOptions,
+  knowledgePane: DesktopKnowledgePaneModel | null,
+  knowledgeActions: DesktopKnowledgeActionOptions,
+  toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+  coworkPane: DesktopCoworkPaneModel | null,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(utilities)) {
+    return;
+  }
+  void import("./native-vue/mainUtilitiesRegionIsland").then(({ mountMainUtilitiesRegionIsland }) => {
+    mountMainUtilitiesRegionIsland(utilities, {
+      activeSessionKey: chat?.activeSessionKey ?? null,
+      agentUiForms,
+      coworkPane,
+      knowledgePane,
+      knowledgeWorkItems: moduleWorkItems(taskCenterItems, "knowledge"),
+      settingsPane,
+      toolsSkillsPane,
+      onAgentUiCancel: (form) => {
+        agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+      },
+      onAgentUiSubmit: (form, values) => {
+        agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
+      },
+      onCoworkAction: (event) => {
+        coworkActions.onCoworkAction?.(event);
+      },
+      onCoworkGraphSelect: (selection) => {
+        setRouteStatus(targetDocument, `Inspecting Cowork ${selection.label}`);
+      },
+      onCoworkObservabilityPanelSelected: (panel) => {
+        setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+      },
+      onCoworkSessionSelect: (session) => {
+        const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+        if (!item) {
+          return;
+        }
+        const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+        setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+      },
+      onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+      onHelpAction: (action) => {
+        if (action === "shortcut-help") {
+          renderDesktopShortcutHelp(targetDocument);
+        } else if (action === "page-help") {
+          renderDesktopPageHelp(targetDocument, "Page help");
+        } else if (action === "help-tour") {
+          renderDesktopPageHelp(targetDocument, "Desktop help tour");
+        }
+      },
+      onInspectKnowledgeWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
+      onKnowledgeAction: (event) => {
+        knowledgeActions.onKnowledgeAction?.(event);
+      },
+      onSettingsAction: settingsActions.onSettingsAction,
+      onToolsSkillsAction: (event) => {
+        toolsSkillsActions.onToolsSkillsAction?.(event);
+      },
+      promptProviderId: () => promptForSettingsProviderId(targetDocument),
     });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
