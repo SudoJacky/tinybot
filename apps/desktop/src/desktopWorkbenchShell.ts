@@ -52,6 +52,7 @@ import {
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
+import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
 
@@ -6585,6 +6586,15 @@ function renderDesktopShortcutHelp(targetDocument: Document): void {
   }
 
   const dialog = targetDocument.createElement("section");
+  if (canMountVueIsland(dialog)) {
+    targetDocument.body.append(dialog);
+    mountShortcutHelpDialogIsland(dialog, {
+      groups: groupShortcutHelpItems().map(([title, items]) => ({ title, items })),
+    });
+    setRouteStatus(targetDocument, "Opened shortcut help");
+    return;
+  }
+
   dialog.id = "desktop-shortcut-help-dialog";
   dialog.setAttribute("id", "desktop-shortcut-help-dialog");
   dialog.className = "desktop-shortcut-help-dialog";
@@ -6633,22 +6643,8 @@ function renderDesktopShortcutHelp(targetDocument: Document): void {
   panel.append(header, search, list);
   dialog.append(panel);
   targetDocument.body.append(dialog);
-  mountShortcutHelpDialogVueIsland(dialog);
   search.focus();
   setRouteStatus(targetDocument, "Opened shortcut help");
-}
-
-function mountShortcutHelpDialogVueIsland(dialog: HTMLElement): void {
-  if (!canMountVueIsland(dialog)) {
-    return;
-  }
-  void import("./native-vue/shortcutHelpDialogIsland").then(({ mountShortcutHelpDialogIsland }) => {
-    mountShortcutHelpDialogIsland(dialog, {
-      groups: groupShortcutHelpItems().map(([title, items]) => ({ title, items })),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
 }
 
 function renderShortcutHelpRows(targetDocument: Document, list: HTMLElement, query: string): void {
