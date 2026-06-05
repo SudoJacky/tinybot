@@ -7,6 +7,7 @@ import type { DesktopCoworkSessionRow } from "./desktopCowork";
 import type { DesktopKnowledgeDocumentRow } from "./desktopKnowledgeTraceability";
 import type { DesktopSkillRow, DesktopToolRow } from "./desktopToolsSkills";
 import type { DesktopWorkspaceFileRow } from "./desktopWorkspaceFiles";
+import { mountCommandPaletteResultsIsland } from "./native-vue/commandPaletteResultsIsland";
 
 export type DesktopCommandPaletteGroupId =
   | "commands"
@@ -348,46 +349,11 @@ function renderPalette(targetDocument: Document, state: DesktopCommandPaletteSta
   if (!results) {
     return;
   }
-  results.textContent = "";
   const matches = buildDesktopCommandPaletteResults(state, query);
-  if (!matches.length) {
-    const empty = targetDocument.createElement("p");
-    empty.className = "desktop-command-palette-empty";
-    empty.textContent = "No command palette matches.";
-    results.append(empty);
-  } else {
-    for (const [index, match] of matches.entries()) {
-      results.append(createResultButton(targetDocument, match, index === 0));
-    }
-  }
+  mountCommandPaletteResultsIsland(results, { results: matches });
   const loaded = state.groups.filter((group) => group.loaded).map((group) => `${group.label} ${group.count}`).join(" / ");
   const unloaded = state.groups.filter((group) => !group.loaded).map((group) => group.label).join(", ");
   setPaletteStatus(targetDocument, query ? `${matches.length} result(s). ${loaded}` : `Type to search. ${loaded}${unloaded ? `. Not loaded: ${unloaded}.` : "."}`);
-}
-
-function createResultButton(targetDocument: Document, result: DesktopCommandPaletteResult, selected: boolean): HTMLElement {
-  const button = targetDocument.createElement("button");
-  button.type = "button";
-  button.className = "desktop-command-palette-result";
-  button.setAttribute("aria-selected", String(selected));
-  button.setAttribute("data-palette-result-id", result.id);
-  button.setAttribute("data-palette-module", result.destination.module);
-  if (result.destination.commandId) {
-    button.setAttribute("data-palette-command", result.destination.commandId);
-  }
-  button.setAttribute("data-palette-group", result.groupId);
-  if (result.destination.entityId) {
-    button.setAttribute("data-palette-entity", result.destination.entityId);
-  }
-  if (result.destination.href) {
-    button.setAttribute("data-palette-href", result.destination.href);
-  }
-  const title = targetDocument.createElement("strong");
-  title.textContent = result.title;
-  const meta = targetDocument.createElement("span");
-  meta.textContent = [result.group, result.secondary].filter(Boolean).join(" / ");
-  button.append(title, meta);
-  return button;
 }
 
 function sessionResults(rows: NativeChatSession[]): DesktopCommandPaletteResult[] {

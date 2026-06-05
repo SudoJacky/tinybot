@@ -1,8 +1,11 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, test } from "vitest";
 import {
   activateDesktopCommandPaletteResult,
   buildDesktopCommandPaletteResults,
   createDesktopCommandPaletteState,
+  installDesktopCommandPalette,
   openDesktopCommandPalette,
 } from "./desktopCommandPalette";
 import {
@@ -10,6 +13,7 @@ import {
   buildNativeWorkbenchSidebarModel,
   buildRootWebUiSidebarModel,
 } from "./desktopSharedModels";
+import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 
 describe("desktop command palette", () => {
   test("adapts shared desktop entries into root command search destinations", () => {
@@ -174,6 +178,23 @@ describe("desktop command palette", () => {
     openDesktopCommandPalette(targetDocument as unknown as Document, "session");
 
     expect(events).toEqual([{ query: "session" }]);
+  });
+
+  test("renders installed command palette results through a Vue island", () => {
+    const host = document.createElement("section");
+    mountCommandPaletteIsland(host);
+    document.body.append(host);
+
+    installDesktopCommandPalette({
+      desktopCommands: buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel()),
+      targetDocument: document,
+      targetWindow: window,
+    });
+
+    expect(document.querySelector("#desktop-command-palette-results")?.getAttribute("data-desktop-vue-island")).toBe("command-palette-results");
+    expect(document.querySelector("[data-palette-result-id]")?.textContent).toContain("New");
+
+    host.remove();
   });
 
   test("activates quick-search results by navigating and focusing matching entities", () => {
