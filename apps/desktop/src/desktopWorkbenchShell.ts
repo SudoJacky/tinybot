@@ -4827,6 +4827,7 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   sessionFiles.setAttribute("class", "desktop-session-file-list");
   sessionFiles.setAttribute("aria-label", "Session temporary files");
   sessionFiles.textContent = chat?.activeSessionKey ? "Temporary files not loaded yet." : "Select a chat session to view temporary files.";
+  mountSessionFileListVueIsland(sessionFiles, chat?.activeSessionKey ?? "");
 
   const grid = targetDocument.createElement("div");
   grid.className = "desktop-file-import-grid";
@@ -4953,6 +4954,17 @@ function mountFileUploadStatusVueIsland(status: HTMLElement, message: string): v
   }
   void import("./native-vue/fileUploadStatusIsland").then(({ mountFileUploadStatusIsland }) => {
     mountFileUploadStatusIsland(status, { message });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountSessionFileListVueIsland(sessionFiles: HTMLElement, sessionKey: string): void {
+  if (!canMountVueIsland(sessionFiles)) {
+    return;
+  }
+  void import("./native-vue/sessionFileListIsland").then(({ mountOrUpdateSessionFileListIsland }) => {
+    mountOrUpdateSessionFileListIsland(sessionFiles, { sessionKey, rows: [] });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });

@@ -3,6 +3,7 @@ import {
   buildDesktopKnowledgeUploadTaskOperation,
 } from "./desktopKnowledgeTraceability";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
+import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";
 
 export type DesktopUploadKind = "knowledge-document" | "session-temporary-file" | "workspace-file";
 export type DesktopDropTargetKind = DesktopUploadKind;
@@ -220,20 +221,38 @@ export function renderDesktopSessionTemporaryFiles(
   if (!container) {
     return rows;
   }
-  container.replaceChildren();
-  container.dataset.sessionKey = sessionKey;
-  container.dataset.fileCount = String(rows.length);
   const count = ownerDocument.querySelector<HTMLElement>("#desktop-session-file-count");
   if (count) {
     count.textContent = String(rows.length);
   }
+  if (canMountSessionFileListVueIsland(container)) {
+    mountOrUpdateSessionFileListIsland(container, { sessionKey, rows });
+    return rows;
+  }
+  renderDesktopSessionTemporaryFilesFallback(ownerDocument, container, sessionKey, rows);
+  return rows;
+}
+
+function canMountSessionFileListVueIsland(container: HTMLElement): boolean {
+  return typeof window !== "undefined" && container instanceof window.HTMLElement;
+}
+
+function renderDesktopSessionTemporaryFilesFallback(
+  ownerDocument: Document,
+  container: HTMLElement,
+  sessionKey: string,
+  rows: DesktopSessionTemporaryFileRow[],
+): void {
+  container.replaceChildren();
+  container.dataset.sessionKey = sessionKey;
+  container.dataset.fileCount = String(rows.length);
   if (!sessionKey) {
     container.textContent = "Select a chat session to view temporary files.";
-    return rows;
+    return;
   }
   if (!rows.length) {
     container.textContent = "No temporary files attached to this session.";
-    return rows;
+    return;
   }
 
   const list = ownerDocument.createElement("ul");
@@ -253,7 +272,6 @@ export function renderDesktopSessionTemporaryFiles(
     list.append(item);
   }
   container.append(list);
-  return rows;
 }
 
 export async function handleDesktopDroppedFiles({
