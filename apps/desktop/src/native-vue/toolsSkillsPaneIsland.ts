@@ -1,15 +1,17 @@
-import { createApp, defineComponent, h, type App } from "vue";
-import { NButton, NCard, NConfigProvider, NEmpty, NList, NListItem, NSpace, NTag } from "naive-ui";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
+import { NConfigProvider } from "naive-ui";
 import type {
   DesktopSkillEditorField,
   DesktopSkillPaneDetailView,
-  DesktopSkillRow,
-  DesktopToolDetailView,
-  DesktopToolRow,
-  DesktopToolSchemaField,
   DesktopToolsSkillsPaneModel,
 } from "../desktopToolsSkills";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
+import { mountSkillDetailSummaryIsland } from "./skillDetailSummaryIsland";
+import { mountSkillEditorIsland } from "./skillEditorIsland";
+import { mountSkillsListIsland } from "./skillsListIsland";
+import { mountToolDetailIsland } from "./toolDetailIsland";
+import { mountToolsListIsland } from "./toolsListIsland";
+import { mountToolsSkillsActionsIsland } from "./toolsSkillsActionsIsland";
 
 export type ToolsSkillsPaneActionId = "createSkill" | "editSkill" | "saveSkill" | "deleteSkill" | "validateSkill" | "toggleAlways";
 
@@ -60,191 +62,57 @@ function createToolsSkillsPaneApp(options: ToolsSkillsPaneIslandOptions): App {
   return createApp(defineComponent({
     name: "ToolsSkillsPaneIsland",
     setup() {
+      const mountedChildren: Array<{ unmount: () => void }> = [];
+      const toolsList = ref<HTMLElement | null>(null);
+      const toolDetail = ref<HTMLElement | null>(null);
+      const skillsList = ref<HTMLElement | null>(null);
+      const skillSummary = ref<HTMLElement | null>(null);
+      const skillEditor = ref<HTMLElement | null>(null);
+      const skillActionsHost = ref<HTMLElement | null>(null);
+
+      onMounted(() => {
+        mountChild(mountedChildren, toolsList.value, (host) => mountToolsListIsland(host, { tools: options.pane.toolRows }));
+        if (options.pane.selectedTool) {
+          mountChild(mountedChildren, toolDetail.value, (host) => mountToolDetailIsland(host, { tool: options.pane.selectedTool! }));
+        }
+        mountChild(mountedChildren, skillsList.value, (host) => mountSkillsListIsland(host, { skills: options.pane.skillRows }));
+        if (options.pane.selectedSkill) {
+          mountChild(mountedChildren, skillSummary.value, (host) => mountSkillDetailSummaryIsland(host, { skill: options.pane.selectedSkill! }));
+          mountChild(mountedChildren, skillEditor.value, (host) => mountSkillEditorIsland(host, {
+            skill: options.pane.selectedSkill!,
+            onEdit: (field, value) => emitSkillEdit(options, field, value),
+          }));
+          mountChild(mountedChildren, skillActionsHost.value, (host) => mountToolsSkillsActionsIsland(host, {
+            actions: skillActions(options.pane.selectedSkill!),
+            onAction: (action) => options.onToolsSkillsAction?.({ action, pane: options.pane }),
+          }));
+        }
+      });
+
+      onBeforeUnmount(() => {
+        while (mountedChildren.length) {
+          mountedChildren.pop()?.unmount();
+        }
+      });
+
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
           h("h2", "Tools and skills"),
           h("p", options.pane.status),
-          renderToolsList(options.pane.toolRows),
-          options.pane.selectedTool ? renderToolDetail(options.pane.selectedTool) : null,
-          renderSkillsList(options.pane.skillRows),
-          options.pane.selectedSkill ? renderSkillDetail(options, options.pane.selectedSkill) : null,
+          h("section", { ref: toolsList }),
+          options.pane.selectedTool ? h("section", { ref: toolDetail }) : null,
+          h("section", { ref: skillsList }),
+          options.pane.selectedSkill
+            ? h("section", { class: "desktop-skill-detail" }, [
+              h("section", { ref: skillSummary }),
+              h("div", { ref: skillEditor }),
+              h("div", { ref: skillActionsHost }),
+            ])
+            : null,
         ],
       });
     },
   }));
-}
-
-function renderToolsList(tools: DesktopToolRow[]) {
-  return h("section", { class: "desktop-tools-list" }, [
-    h("h2", "Tools"),
-    tools.length
-      ? h(NList, { bordered: false, hoverable: true }, {
-        default: () => tools.map((tool) => h(NListItem, {
-          "data-desktop-entity-module": "tools",
-          "data-desktop-entity-id": tool.name,
-        }, {
-          default: () => h(NSpace, { vertical: true, size: 4 }, {
-            default: () => [
-              h("span", `${tool.displayName}: ${tool.meta}`),
-              h(NSpace, { size: 4, wrap: true }, {
-                default: () => [
-                  h(NTag, { size: "small", round: true, type: tool.enabled ? "success" : "default" }, {
-                    default: () => tool.enabled ? "enabled" : "disabled",
-                  }),
-                  tool.configHint ? h(NTag, { size: "small", round: true, type: "warning" }, { default: () => tool.configHint }) : null,
-                ],
-              }),
-            ],
-          }),
-        })),
-      })
-      : h(NEmpty, { class: "desktop-tools-list-empty", description: "No tools loaded.", size: "small" }),
-  ]);
-}
-
-function renderToolDetail(tool: DesktopToolDetailView) {
-  return h("section", { class: "desktop-tool-detail" }, [
-    h(NCard, { size: "small", bordered: false }, {
-      default: () => [
-        h("h2", `Tool detail: ${tool.title}`),
-        h("p", tool.description),
-        h("p", `Config: ${tool.configHint || "ready"}`),
-        renderToolSchemaFields(toolSchemaFields(tool)),
-      ],
-    }),
-  ]);
-}
-
-function renderToolSchemaFields(fields: DesktopToolSchemaField[]) {
-  return h(NList, { bordered: false, hoverable: true }, {
-    default: () => fields.map((field) => h(NListItem, {
-      "data-desktop-tool-schema-field": field.name,
-    }, {
-      default: () => h(NSpace, { align: "center", size: 6, wrap: true }, {
-        default: () => [
-          h("span", toolFieldCopy(field)),
-          field.required ? h(NTag, { size: "small", round: true, type: "warning" }, { default: () => "required" }) : null,
-        ],
-      }),
-    })),
-  });
-}
-
-function renderSkillsList(skills: DesktopSkillRow[]) {
-  return h("section", { class: "desktop-skills-list" }, [
-    h("h2", "Skills"),
-    skills.length
-      ? h(NList, { bordered: false, hoverable: true }, {
-        default: () => skills.map((skill) => h(NListItem, {
-          "data-desktop-entity-module": "skills",
-          "data-desktop-entity-id": skill.name,
-        }, {
-          default: () => h(NSpace, { vertical: true, size: 4 }, {
-            default: () => [
-              h("span", `${skill.name}: ${skill.meta}`),
-              h(NSpace, { size: 4, wrap: true }, {
-                default: () => [
-                  h(NTag, { size: "small", round: true, type: skillStatusType(skill.status) }, { default: () => skill.status }),
-                  h(NTag, { size: "small", round: true }, { default: () => skill.source }),
-                ],
-              }),
-            ],
-          }),
-        })),
-      })
-      : h(NEmpty, { class: "desktop-skills-list-empty", description: "No skills loaded.", size: "small" }),
-  ]);
-}
-
-function renderSkillDetail(options: ToolsSkillsPaneIslandOptions, skill: DesktopSkillPaneDetailView) {
-  return h("section", { class: "desktop-skill-detail" }, [
-    renderSkillSummary(skill),
-    renderSkillEditor(options, skill),
-    renderSkillActions(options, skillActions(skill)),
-  ]);
-}
-
-function renderSkillSummary(skill: DesktopSkillPaneDetailView) {
-  return h("section", { class: "desktop-skill-detail-summary" }, [
-    h(NCard, { size: "small", bordered: false }, {
-      default: () => [
-        h("h2", `Skill detail: ${skill.name}`),
-        h("p", skill.description),
-        h("p", `Source: ${skill.source}`),
-        h("p", `Always load: ${skill.always ? "Enabled" : "Disabled"}`),
-        h("p", `Save state: ${skill.editor.saveMessage}`),
-        h("p", `Validation: ${skill.editor.validation.message || skill.editor.validation.state}`),
-      ],
-    }),
-  ]);
-}
-
-function renderSkillEditor(options: ToolsSkillsPaneIslandOptions, skill: DesktopSkillPaneDetailView) {
-  return h("div", { class: "desktop-skill-editor" }, [
-    renderSkillTextInput(options, "name", "Skill name", skill.editor.draft.name, !skill.nameEditable),
-    renderSkillTextInput(options, "description", "Description", skill.editor.draft.description, false),
-    renderSkillCheckbox(options, skill),
-    h("textarea", {
-      class: "desktop-skill-editor-field desktop-skill-editor-content",
-      "aria-label": "Skill content",
-      "data-desktop-skill-editor-field": "content",
-      value: skill.editor.draft.content,
-      onInput: (event: Event) => {
-        emitSkillEdit(options, "content", String((event.target as HTMLTextAreaElement | null)?.value ?? ""));
-      },
-    }),
-  ]);
-}
-
-function renderSkillTextInput(
-  options: ToolsSkillsPaneIslandOptions,
-  field: Extract<DesktopSkillEditorField, "name" | "description">,
-  label: string,
-  value: string,
-  disabled: boolean,
-) {
-  return h("input", {
-    class: "desktop-skill-editor-field",
-    "aria-label": label,
-    "data-desktop-skill-editor-field": field,
-    disabled,
-    value,
-    onInput: (event: Event) => {
-      emitSkillEdit(options, field, String((event.target as HTMLInputElement | null)?.value ?? ""));
-    },
-  });
-}
-
-function renderSkillCheckbox(options: ToolsSkillsPaneIslandOptions, skill: DesktopSkillPaneDetailView) {
-  return h("input", {
-    class: "desktop-skill-editor-field",
-    type: "checkbox",
-    "aria-label": "Always load",
-    "data-desktop-skill-editor-field": "always",
-    checked: skill.editor.draft.always,
-    onChange: (event: Event) => {
-      emitSkillEdit(options, "always", (event.target as HTMLInputElement | null)?.checked === true);
-    },
-  });
-}
-
-function renderSkillActions(options: ToolsSkillsPaneIslandOptions, actions: SkillActionItem[]) {
-  return h("div", { class: "desktop-tools-skills-actions" }, [
-    h(NSpace, { size: 8, wrap: true }, {
-      default: () => actions.map((item) => h(NButton, {
-        "data-desktop-tools-skills-action": item.action,
-        disabled: !item.enabled,
-        secondary: true,
-        size: "small",
-        type: actionButtonType(item.action),
-        onClick: () => {
-          if (item.enabled) {
-            options.onToolsSkillsAction?.({ action: item.action, pane: options.pane });
-          }
-        },
-      }, { default: () => item.label })),
-    }),
-  ]);
 }
 
 function emitSkillEdit(
@@ -270,39 +138,13 @@ function skillActions(skill: DesktopSkillPaneDetailView): SkillActionItem[] {
   ];
 }
 
-function toolSchemaFields(tool: DesktopToolDetailView): DesktopToolSchemaField[] {
-  return tool.schemaFields.length
-    ? tool.schemaFields
-    : [{
-      name: "parameters",
-      type: "none",
-      required: false,
-      description: tool.emptySchemaText,
-      defaultValue: "",
-      enumValues: [],
-    }];
-}
-
-function toolFieldCopy(field: DesktopToolSchemaField): string {
-  return `${field.name}: ${field.type}${field.required ? " required" : ""}${field.description ? ` - ${field.description}` : ""}`;
-}
-
-function skillStatusType(status: DesktopSkillRow["status"]): "default" | "success" | "warning" {
-  if (status === "always" || status === "enabled") {
-    return "success";
+function mountChild<T extends { unmount: () => void }>(
+  mountedChildren: Array<{ unmount: () => void }>,
+  host: HTMLElement | null,
+  mount: (host: HTMLElement) => T,
+): void {
+  if (!host) {
+    return;
   }
-  if (status === "unavailable") {
-    return "warning";
-  }
-  return "default";
-}
-
-function actionButtonType(action: SkillActionId): "default" | "error" | "primary" {
-  if (action === "deleteSkill") {
-    return "error";
-  }
-  if (action === "saveSkill" || action === "createSkill") {
-    return "primary";
-  }
-  return "default";
+  mountedChildren.push(mount(host));
 }
