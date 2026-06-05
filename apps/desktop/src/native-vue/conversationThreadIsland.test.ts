@@ -32,6 +32,10 @@ describe("conversation thread Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("conversation-thread");
     expect(host.className).toBe("desktop-conversation-thread");
     expect(host.getAttribute("aria-label")).toBe("Conversation");
+    expect(Array.from(host.querySelectorAll(".desktop-conversation-message")).map((message) => message.getAttribute("data-desktop-vue-island"))).toEqual([
+      "conversation-message",
+      "conversation-message",
+    ]);
     expect(Array.from(host.querySelectorAll(".desktop-conversation-meta strong")).map((author) => author.textContent)).toEqual([
       "You",
       "Tinybot",
