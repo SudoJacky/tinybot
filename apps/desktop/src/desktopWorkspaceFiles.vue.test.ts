@@ -2,6 +2,7 @@
 
 import { describe, expect, test } from "vitest";
 import { installDesktopWorkspaceFileActions } from "./desktopWorkspaceFiles";
+import { mountWorkspaceFilesSurfaceIsland } from "./native-vue/workspaceFilesSurfaceIsland";
 
 describe("desktop workspace files Vue integration", () => {
   test("mounts the recent files Vue island through the workspace action installer", async () => {
@@ -56,6 +57,46 @@ describe("desktop workspace files Vue integration", () => {
 
     expect(loaded).toEqual(["docs/notes.md"]);
     expect(document.querySelector("#desktop-workspace-active-path")?.textContent).toContain("docs/notes.md");
+  }, 20_000);
+
+  test("uses the workspace files surface island DOM with the action installer", async () => {
+    const host = document.createElement("section");
+    document.body.append(host);
+    const loaded: string[] = [];
+
+    mountWorkspaceFilesSurfaceIsland(host);
+    installDesktopWorkspaceFileActions({
+      targetDocument: document,
+      listWorkspaceFiles: async () => ({
+        items: [
+          { path: "README.md", exists: true, updated_at: "2026-06-06T10:00:00+08:00" },
+        ],
+      }),
+      loadWorkspaceFile: async (path) => {
+        loaded.push(path);
+        return {
+          path,
+          content: `# ${path}`,
+          updated_at: "2026-06-06T10:00:00+08:00",
+          exists: true,
+        };
+      },
+      saveWorkspaceFile: async () => ({}),
+      revealWorkspaceFile: async () => ({}),
+    });
+
+    await waitForWorkspaceIsland();
+
+    expect(host.getAttribute("data-desktop-vue-island")).toBe("workspace-files-surface");
+    expect(document.querySelector("#desktop-workspace-status")?.textContent).toContain("1 file");
+    expect(document.querySelector<HTMLButtonElement>("#desktop-workspace-save")?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>("#desktop-workspace-reveal")?.disabled).toBe(true);
+
+    document.querySelector<HTMLButtonElement>('[data-desktop-workspace-file="README.md"]')?.click();
+    await flushAsyncWork();
+
+    expect(loaded).toEqual(["README.md"]);
+    expect(document.querySelector("#desktop-workspace-active-path")?.textContent).toContain("README.md");
   }, 20_000);
 });
 
