@@ -2015,6 +2015,7 @@ function createKnowledgePane(
   for (const row of pane.readiness.rows) {
     readiness.append(createText(targetDocument, "p", `${row.id}: ${row.tone}`));
   }
+  mountKnowledgeReadinessVueIsland(readiness, pane);
   section.append(readiness);
 
   const documents = targetDocument.createElement("section");
@@ -2081,6 +2082,23 @@ function mountKnowledgeActionsVueIsland(
       onAction: (action) => {
         knowledgeActions.onKnowledgeAction?.({ action, pane });
       },
+    });
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountKnowledgeReadinessVueIsland(
+  readiness: HTMLElement,
+  pane: DesktopKnowledgePaneModel,
+): void {
+  if (!canMountVueIsland(readiness)) {
+    return;
+  }
+  void import("./native-vue/knowledgeReadinessIsland").then(({ mountKnowledgeReadinessIsland }) => {
+    mountKnowledgeReadinessIsland(readiness, {
+      readiness: pane.readiness,
+      configHints: pane.configHints,
     });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
