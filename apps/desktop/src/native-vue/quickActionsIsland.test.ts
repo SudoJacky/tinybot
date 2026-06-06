@@ -11,6 +11,7 @@ describe("quick actions Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("quick-actions");
     expect(host.className).toContain("desktop-quick-actions");
+    expect(host.querySelectorAll(".n-button.desktop-quick-action")).toHaveLength(3);
     expect([...host.querySelectorAll<HTMLAnchorElement>(".desktop-quick-action")].map((node) => node.textContent)).toEqual([
       "New chat",
       "Open workspace",

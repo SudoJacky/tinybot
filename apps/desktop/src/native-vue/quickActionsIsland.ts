@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider, NSpace } from "naive-ui";
+import { NButton, NConfigProvider, NSpace } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 interface QuickActionLink {
@@ -50,9 +50,12 @@ export function renderQuickActionsContent() {
     class: "desktop-quick-actions-list",
     size: 8,
   }, {
-    default: () => QUICK_ACTION_LINKS.map((link) => h("a", {
+    default: () => QUICK_ACTION_LINKS.map((link) => h(NButton, {
       class: "desktop-quick-action",
       href: link.href,
-    }, link.label)),
+      tag: "a",
+      text: true,
+      type: link.label === "New chat" ? "primary" : "default",
+    }, { default: () => link.label })),
   });
 }
