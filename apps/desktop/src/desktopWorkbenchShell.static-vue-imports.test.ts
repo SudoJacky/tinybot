@@ -109,4 +109,15 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountConversationReferenceIsland } from "./native-vue/conversationReferenceIsland";');
     expect(source).not.toContain('void import("./native-vue/conversationReferenceIsland")');
   });
+
+  test("statically imports the tool activity islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountToolActivitiesIsland } from "./native-vue/toolActivitiesIsland";');
+    expect(source).not.toContain('void import("./native-vue/toolActivitiesIsland")');
+    expect(source).toContain('import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";');
+    expect(source).not.toContain('void import("./native-vue/toolActivityIsland")');
+    expect(source).toContain('import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";');
+    expect(source).not.toContain('void import("./native-vue/toolActivitySectionIsland")');
+  });
 });

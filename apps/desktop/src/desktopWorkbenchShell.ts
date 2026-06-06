@@ -90,6 +90,9 @@ import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
 import { mountTaskCenterIsland } from "./native-vue/taskCenterIsland";
+import { mountToolActivitiesIsland } from "./native-vue/toolActivitiesIsland";
+import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";
+import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";
 import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
 
@@ -2061,11 +2064,7 @@ function mountToolActivitiesVueIsland(
   if (!canMountVueIsland(wrapper)) {
     return;
   }
-  void import("./native-vue/toolActivitiesIsland").then(({ mountToolActivitiesIsland }) => {
-    mountToolActivitiesIsland(wrapper, { activities });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountToolActivitiesIsland(wrapper, { activities });
 }
 
 function createToolActivity(
@@ -2143,11 +2142,7 @@ function mountToolActivityVueIsland(
   if (!canMountVueIsland(activity)) {
     return;
   }
-  void import("./native-vue/toolActivityIsland").then(({ mountToolActivityIsland }) => {
-    mountToolActivityIsland(activity, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountToolActivityIsland(activity, options);
 }
 
 function createToolActivitySection(
@@ -2174,11 +2169,7 @@ function mountToolActivitySectionVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/toolActivitySectionIsland").then(({ mountToolActivitySectionIsland }) => {
-    mountToolActivitySectionIsland(section, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountToolActivitySectionIsland(section, options);
 }
 
 function summarizeToolText(value: string): string {
