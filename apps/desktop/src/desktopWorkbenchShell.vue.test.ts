@@ -204,8 +204,11 @@ describe("desktop workbench shell Vue integration", () => {
 
     const workbench = document.querySelector<HTMLElement>(".desktop-chat-workbench-chrome");
     expect(workbench?.getAttribute("data-desktop-vue-island")).toBe("chat-workbench");
-    expect(workbench?.textContent).toContain("Ready for a new session");
-    expect(workbench?.textContent).toContain("Start from chat, inspect workspace, or check gateway status.");
+    expect(workbench?.textContent).toContain("Ready for a new session.");
+    expect(workbench?.textContent).toContain("Ready for a new session. Start");
+    expect(workbench?.textContent).toContain("Start from chat, inspect the workspace, or check gateway status.");
+    expect(workbench?.textContent).not.toContain("sessionStart");
+    expect(workbench?.textContent).not.toContain("session.Start");
     expect(workbench?.querySelector(".desktop-quick-actions")?.getAttribute("data-desktop-vue-island")).toBe("quick-actions");
     expect(workbench?.querySelector(".desktop-panel-controls")?.getAttribute("data-desktop-vue-island")).toBe("panel-controls");
     expect(workbench?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-pressed")).toBe("true");

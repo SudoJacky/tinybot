@@ -129,9 +129,9 @@ function renderSummaryStrip(
 ) {
   const status = runChainOverviewStatus(items);
   const summaries = [
-    { value: "gateway", label: "Gateway", text: "Gateway Connected", tab: "context" },
-    { value: "run", label: "Run", text: `Run ${status}`, tab: "tasks" },
-    { value: "items", label: "Items", text: `Items ${items.length}`, tab: "tasks" },
+    { value: "gateway", label: "Gateway", text: "Gateway: Connected", tab: "context" },
+    { value: "run", label: "Run", text: `Run: ${status}`, tab: "tasks" },
+    { value: "items", label: "Items", text: `${items.length} ${items.length === 1 ? "item" : "items"}`, tab: "tasks" },
   ] as const;
   return h(NSpace, {
     class: "desktop-run-chain-summary-strip",

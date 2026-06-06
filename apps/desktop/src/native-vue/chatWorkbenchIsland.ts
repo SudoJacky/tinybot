@@ -65,8 +65,8 @@ function createChatWorkbenchApp(options: ChatWorkbenchIslandOptions): App {
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          h(NText, { tag: "span" }, { default: () => "Ready for a new session" }),
-          h(NText, { depth: 3, tag: "span" }, { default: () => "Start from chat, inspect workspace, or check gateway status." }),
+          h(NText, { tag: "span" }, { default: () => "Ready for a new session. " }),
+          h(NText, { depth: 3, tag: "span" }, { default: () => "Start from chat, inspect the workspace, or check gateway status." }),
           h("div", { ref: quickActions }),
           h("div", { ref: panelControls }),
           options.moduleWorkItems?.length ? h("section", { ref: moduleWork }) : null,
