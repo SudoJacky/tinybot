@@ -60,6 +60,7 @@ import { mountChatMenuPopoverIsland } from "./native-vue/chatMenuPopoverIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
+import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
 import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
@@ -2341,20 +2342,16 @@ function mountComposerSurfaceVueIsland(
   if (!canMountVueIsland(composer)) {
     return;
   }
-  void import("./native-vue/composerSurfaceIsland").then(({ mountComposerSurfaceIsland }) => {
-    mountComposerSurfaceIsland(composer, {
-      activeSessionKey: chat?.activeSessionKey || null,
-      composerState: nativeComposerState(chat),
-      model: chat?.runtime?.model || null,
-      responding: chat?.responding === true,
-      tokenUsage: chat?.runtime?.tokenUsage || "-",
-      usePersistentRag: chat?.usePersistentRag !== false,
-      onAttach: () => chatActions.onAttachSessionFile?.(),
-      onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
-      onSend: (event) => chatActions.onComposerSubmit?.(event),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountComposerSurfaceIsland(composer, {
+    activeSessionKey: chat?.activeSessionKey || null,
+    composerState: nativeComposerState(chat),
+    model: chat?.runtime?.model || null,
+    responding: chat?.responding === true,
+    tokenUsage: chat?.runtime?.tokenUsage || "-",
+    usePersistentRag: chat?.usePersistentRag !== false,
+    onAttach: () => chatActions.onAttachSessionFile?.(),
+    onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
+    onSend: (event) => chatActions.onComposerSubmit?.(event),
   });
 }
 

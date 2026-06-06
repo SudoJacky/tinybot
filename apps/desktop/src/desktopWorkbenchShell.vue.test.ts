@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
 import { installDesktopWorkbenchShell, type DesktopNativeChatModel } from "./desktopWorkbenchShell";
 
@@ -376,6 +377,58 @@ describe("desktop workbench shell Vue integration", () => {
     expect(thread?.getAttribute("data-desktop-vue-island")).toBe("conversation-thread");
     expect(thread?.getAttribute("aria-label")).toBe("Conversation");
     expect(thread?.textContent).toContain("No messages in this session.");
+  });
+
+  test("renders the native composer through the Vue shell island", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const submissions: unknown[] = [];
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [],
+      runtime: {
+        model: "deepseek-chat",
+        tokenUsage: "42%",
+      },
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        title: "Live session",
+        updatedAt: "",
+      }],
+      usePersistentRag: false,
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      chatActions: {
+        onComposerSubmit: (event) => submissions.push(event),
+      },
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const composer = document.getElementById("desktop-native-composer");
+    const input = document.getElementById("desktop-native-composer-input") as HTMLTextAreaElement | null;
+    const send = document.getElementById("desktop-native-composer-send") as HTMLButtonElement | null;
+    expect(composer?.getAttribute("data-desktop-vue-island")).toBe("composer-surface");
+    expect(composer?.getAttribute("data-active-session-key")).toBe("WebSocket:chat-live");
+    expect(composer?.getAttribute("data-desktop-composer-rag")).toBe("false");
+    expect(composer?.querySelector("#desktop-native-composer-runtime")?.getAttribute("data-desktop-vue-island")).toBe("composer-runtime");
+    expect(composer?.querySelector("#desktop-native-composer-runtime")?.textContent).toContain("deepseek-chat");
+    expect(send?.getAttribute("disabled")).toBe("");
+
+    input!.value = "Run from shell";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    expect(send?.getAttribute("disabled")).toBeNull();
+    send?.click();
+
+    expect(submissions).toEqual([{ content: "Run from shell", usePersistentRag: false }]);
   });
 
   test("opens shortcut help through the Vue dialog island", () => {
