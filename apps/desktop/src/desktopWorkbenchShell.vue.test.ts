@@ -123,6 +123,33 @@ describe("desktop workbench shell Vue integration", () => {
     expect(popover?.hidden).toBe(false);
   });
 
+  test("renders chat header panel actions through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const shell = document.getElementById("desktop-workbench-shell");
+    const actions = document.querySelector<HTMLElement>(".desktop-chat-header-actions");
+    const sidebar = actions?.querySelector<HTMLButtonElement>('[data-desktop-panel-control="sidebar"]');
+    const inspector = actions?.querySelector<HTMLButtonElement>('[data-desktop-panel-control="inspector"]');
+
+    expect(actions?.getAttribute("data-desktop-vue-island")).toBe("chat-header-actions");
+    expect(sidebar?.getAttribute("aria-label")).toBe("Collapse session list");
+    expect(sidebar?.getAttribute("aria-pressed")).toBe("true");
+    expect(inspector?.getAttribute("aria-label")).toBe("Close Run Chain panel");
+    expect(inspector?.getAttribute("aria-pressed")).toBe("true");
+    expect(shell?.getAttribute("data-sidebar-visible")).toBe("true");
+
+    sidebar?.click();
+
+    expect(shell?.getAttribute("data-sidebar-visible")).toBe("false");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

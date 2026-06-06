@@ -53,6 +53,7 @@ import {
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
+import { mountChatHeaderActionsIsland } from "./native-vue/chatHeaderActionsIsland";
 import { mountChatMenuButtonIsland } from "./native-vue/chatMenuButtonIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
@@ -1330,13 +1331,9 @@ function mountChatHeaderActionsVueIsland(
   if (!canMountVueIsland(actions)) {
     return;
   }
-  void import("./native-vue/chatHeaderActionsIsland").then(({ mountChatHeaderActionsIsland }) => {
-    mountChatHeaderActionsIsland(actions, {
-      actions: [...items],
-      onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountChatHeaderActionsIsland(actions, {
+    actions: [...items],
+    onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
   });
 }
 
