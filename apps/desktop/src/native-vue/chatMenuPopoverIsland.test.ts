@@ -44,6 +44,7 @@ describe("chat menu popover Vue island", () => {
     expect(host.className).toBe("desktop-chat-menu-popover");
     expect(host.getAttribute("role")).toBe("menu");
     expect(host.getAttribute("aria-label")).toBe("Chat session actions");
+    expect(host.querySelector(".n-card.desktop-chat-menu-popover-card")).not.toBeNull();
     expect(Array.from(host.querySelectorAll(".desktop-chat-menu-action")).map((button) => button.getAttribute("data-desktop-vue-island"))).toEqual([
       "chat-menu-action",
       "chat-menu-action",

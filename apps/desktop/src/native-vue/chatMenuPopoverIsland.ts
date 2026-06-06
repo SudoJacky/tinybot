@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NCard, NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { mountChatMenuActionIsland } from "./chatMenuActionIsland";
 import { mountChatMenuEmptyIsland } from "./chatMenuEmptyIsland";
@@ -81,14 +81,20 @@ function createChatMenuPopoverApp(options: ChatMenuPopoverIslandOptions): App {
       onBeforeUnmount(unmountChildren);
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => options.actions.length
-          ? options.actions.map((action, index) => h("button", {
-            ref: (element) => {
-              actionHosts.value[index] = element as HTMLButtonElement | null;
-            },
-            "data-desktop-chat-menu-action": action.action,
-          }))
-          : h("span", { ref: emptyHost }),
+        default: () => h(NCard, {
+          class: "desktop-chat-menu-popover-card",
+          size: "small",
+          bordered: false,
+        }, {
+          default: () => options.actions.length
+            ? options.actions.map((action, index) => h("button", {
+              ref: (element) => {
+                actionHosts.value[index] = element as HTMLButtonElement | null;
+              },
+              "data-desktop-chat-menu-action": action.action,
+            }))
+            : h("span", { ref: emptyHost }),
+        }),
       });
     },
   }));
