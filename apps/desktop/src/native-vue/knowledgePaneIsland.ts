@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NSpace } from "naive-ui";
 import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import type {
   DesktopKnowledgePaneModel,
@@ -103,17 +103,23 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", "Knowledge"),
-          h("p", options.pane.status),
-          h("div", { ref: actions }),
-          options.workItems?.length ? h("section", { ref: work }) : null,
-          h("section", { ref: readiness }),
-          h("section", { ref: documents }),
-          options.pane.selectedDocument ? h("section", { ref: documentDetail }) : null,
-          h("section", { ref: query }),
-          h("section", { ref: graph }),
-        ],
+        default: () => h(NSpace, {
+          class: "desktop-knowledge-stack",
+          vertical: true,
+          size: 12,
+        }, {
+          default: () => [
+            h("h2", "Knowledge"),
+            h("p", options.pane.status),
+            h("div", { ref: actions }),
+            options.workItems?.length ? h("section", { ref: work }) : null,
+            h("section", { ref: readiness }),
+            h("section", { ref: documents }),
+            options.pane.selectedDocument ? h("section", { ref: documentDetail }) : null,
+            h("section", { ref: query }),
+            h("section", { ref: graph }),
+          ],
+        }),
       });
     },
   }));

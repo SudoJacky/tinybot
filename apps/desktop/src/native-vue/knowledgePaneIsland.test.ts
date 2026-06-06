@@ -99,6 +99,7 @@ describe("knowledge pane Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("knowledge-pane");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("knowledge");
     expect(host.getAttribute("aria-label")).toBe("Knowledge workbench");
+    expect(host.querySelector(".n-space.desktop-knowledge-stack")).not.toBeNull();
     expect(host.textContent).toContain("Knowledge");
     expect(host.textContent).toContain("2 docs / readiness 100% / graph 2 nodes / 1 edge");
 
