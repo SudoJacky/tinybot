@@ -19,6 +19,7 @@ import {
   type DesktopSidebarItem,
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
+import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 
 interface InstallDesktopRootWebUiWorkbenchOptions {
   targetDocument?: Document;
@@ -59,6 +60,12 @@ export function installRootWebUiCommandPaletteSurface(targetDocument: Document):
   }
 
   const palette = targetDocument.createElement("div");
+  if (canMountRootWebUiCommandPaletteIsland(palette)) {
+    mountCommandPaletteIsland(palette);
+    targetDocument.body.append(palette);
+    return;
+  }
+
   palette.id = "desktop-command-palette";
   palette.setAttribute("id", "desktop-command-palette");
   palette.className = "desktop-command-palette";
@@ -101,6 +108,10 @@ export function installRootWebUiCommandPaletteSurface(targetDocument: Document):
 
   palette.append(header, status, results);
   targetDocument.body.append(palette);
+}
+
+function canMountRootWebUiCommandPaletteIsland(palette: HTMLElement): boolean {
+  return typeof window !== "undefined" && palette instanceof window.HTMLElement;
 }
 
 export function installRootWebUiDesktopAppSidebar(targetDocument: Document): void {

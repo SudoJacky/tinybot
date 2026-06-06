@@ -1,5 +1,9 @@
 import { DESKTOP_CHROME_COMMANDS, DESKTOP_HELP_COMMANDS, type DesktopMenuCommand } from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
+import { mountDesktopAppMenuCommandIsland } from "./native-vue/desktopAppMenuCommandIsland";
+import { mountDesktopHelpMenuIsland } from "./native-vue/desktopHelpMenuIsland";
+import { mountOrUpdateDesktopRuntimeStatusIsland } from "./native-vue/desktopRuntimeStatusIsland";
+import { mountDesktopWindowControlsIsland } from "./native-vue/desktopWindowControlsIsland";
 
 export interface DesktopWindowHandle {
   minimize(): Promise<void>;
@@ -49,16 +53,11 @@ export function installDesktopWindowFrame({
   const appMenu = createApplicationMenu(targetDocument);
 
   const runtimeStatus = targetDocument.createElement("div");
-  runtimeStatus.id = RUNTIME_STATUS_ID;
-  runtimeStatus.setAttribute("id", RUNTIME_STATUS_ID);
-  runtimeStatus.className = "desktop-runtime-status";
-  runtimeStatus.setAttribute("role", "button");
-  runtimeStatus.setAttribute("tabindex", "0");
-  runtimeStatus.setAttribute("data-desktop-runtime-command", "refresh-gateway-status");
-  runtimeStatus.setAttribute("aria-live", "polite");
-  runtimeStatus.setAttribute("data-runtime-tone", "pending");
-  runtimeStatus.textContent = "Gateway: Starting";
-  runtimeStatus.setAttribute("title", "Waiting for Tinybot gateway readiness");
+  applyDesktopRuntimeStatusView(runtimeStatus, {
+    tone: "pending",
+    label: "Gateway: Starting",
+    detail: "Waiting for Tinybot gateway readiness",
+  });
   runtimeStatus.addEventListener("pointerdown", (event) => event.stopPropagation());
   runtimeStatus.addEventListener("dblclick", (event) => event.stopPropagation());
   runtimeStatus.addEventListener("click", (event) => {
@@ -76,11 +75,20 @@ export function installDesktopWindowFrame({
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-window-controls";
 
-  controls.append(
+  if (canMountDesktopWindowControlsIsland(controls)) {
+    mountDesktopWindowControlsIsland(controls, {
+      onMinimize: () => currentWindow.minimize(),
+      onToggleMaximize: () => currentWindow.toggleMaximize(),
+      onClose: () => currentWindow.close(),
+      onError: logWindowFrameError,
+    });
+  } else {
+    controls.append(
     createWindowButton(targetDocument, "minimize", "Minimize", "−", () => currentWindow.minimize()),
     createWindowButton(targetDocument, "maximize", "Maximize", "□", () => currentWindow.toggleMaximize()),
     createWindowButton(targetDocument, "close", "Close", "×", () => currentWindow.close()),
-  );
+    );
+  }
 
   frame.append(appMenu, runtimeStatus, controls);
   frame.addEventListener("pointerdown", () => {
@@ -125,7 +133,18 @@ function createApplicationMenu(targetDocument: Document): HTMLElement {
   return menu;
 }
 
-function createApplicationMenuCommand(targetDocument: Document, command: DesktopMenuCommand): HTMLButtonElement {
+function createApplicationMenuCommand(targetDocument: Document, command: DesktopMenuCommand): HTMLElement {
+  const host = targetDocument.createElement("span");
+  if (canMountDesktopAppMenuCommandIsland(host)) {
+    mountDesktopAppMenuCommandIsland(host, {
+      command,
+      onCommand: (id) => {
+        targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id } }));
+      },
+    });
+    return host;
+  }
+
   const button = targetDocument.createElement("button");
   button.type = "button";
   button.className = "desktop-application-menu-item";
@@ -144,6 +163,16 @@ function createApplicationMenuCommand(targetDocument: Document, command: Desktop
 
 function createHelpMenu(targetDocument: Document): HTMLElement {
   const menu = targetDocument.createElement("div");
+  if (canMountDesktopHelpMenuIsland(menu)) {
+    mountDesktopHelpMenuIsland(menu, {
+      commands: DESKTOP_HELP_COMMANDS,
+      onCommand: (id) => {
+        targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id } }));
+      },
+    });
+    return menu;
+  }
+
   menu.className = "desktop-help-menu";
 
   const trigger = targetDocument.createElement("button");
@@ -209,6 +238,10 @@ function createHelpMenu(targetDocument: Document): HTMLElement {
   return menu;
 }
 
+function canMountDesktopHelpMenuIsland(menu: HTMLElement): boolean {
+  return typeof window !== "undefined" && menu instanceof window.HTMLElement;
+}
+
 function createHelpMenuText(targetDocument: Document, className: string, text: string): HTMLElement {
   const node = targetDocument.createElement("span");
   node.className = className;
@@ -226,9 +259,7 @@ export function setDesktopWindowRuntimeStatus(
   }
 
   const view = resolveDesktopRuntimeStatusView(status);
-  statusElement.textContent = view.label;
-  statusElement.setAttribute("title", view.detail);
-  statusElement.setAttribute("data-runtime-tone", view.tone);
+  applyDesktopRuntimeStatusView(statusElement, view);
 }
 
 export function resolveDesktopRuntimeStatusView(status: GatewayRuntimeStatus | null): DesktopRuntimeStatusView {
@@ -292,6 +323,36 @@ function createWindowButton(
     void handler().catch(logWindowFrameError);
   });
   return button;
+}
+
+function canMountDesktopAppMenuCommandIsland(host: HTMLElement): boolean {
+  return typeof window !== "undefined" && host instanceof window.HTMLElement;
+}
+
+function canMountDesktopWindowControlsIsland(controls: HTMLElement): boolean {
+  return typeof window !== "undefined" && controls instanceof window.HTMLElement;
+}
+
+function applyDesktopRuntimeStatusView(statusElement: HTMLElement, view: DesktopRuntimeStatusView): void {
+  if (canMountDesktopRuntimeStatusIsland(statusElement)) {
+    mountOrUpdateDesktopRuntimeStatusIsland(statusElement, { view });
+    return;
+  }
+
+  statusElement.id = RUNTIME_STATUS_ID;
+  statusElement.setAttribute("id", RUNTIME_STATUS_ID);
+  statusElement.className = "desktop-runtime-status";
+  statusElement.setAttribute("role", "button");
+  statusElement.setAttribute("tabindex", "0");
+  statusElement.setAttribute("data-desktop-runtime-command", "refresh-gateway-status");
+  statusElement.setAttribute("aria-live", "polite");
+  statusElement.setAttribute("data-runtime-tone", view.tone);
+  statusElement.textContent = view.label;
+  statusElement.setAttribute("title", view.detail);
+}
+
+function canMountDesktopRuntimeStatusIsland(statusElement: HTMLElement): boolean {
+  return typeof window !== "undefined" && statusElement instanceof window.HTMLElement;
 }
 
 function ensureDesktopWindowFrameStyle(targetDocument: Document): void {

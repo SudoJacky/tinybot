@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, test } from "vitest";
 import { renderDesktopAppSidebar } from "./desktopAppSidebar";
 import {
@@ -5,6 +7,24 @@ import {
   buildRootWebUiWorkspaceContext,
   type DesktopSidebarItem,
 } from "./desktopSharedModels";
+
+function sidebarItems(): DesktopSidebarItem[] {
+  return [
+    {
+      id: "session:active",
+      kind: "session",
+      label: "Desktop shell planning",
+      meta: "2 min",
+      active: true,
+    },
+    {
+      id: "session:older",
+      kind: "session",
+      label: "Gateway follow-up",
+      meta: "1 day",
+    },
+  ];
+}
 
 class FakeClassList {
   constructor(private readonly element: FakeElement) {}
@@ -27,14 +47,11 @@ class FakeClassList {
 }
 
 class FakeElement {
-  public id = "";
   public className = "";
   public children: FakeElement[] = [];
   public attributes = new Map<string, string>();
   public classList = new FakeClassList(this);
-  public parent: FakeElement | null = null;
   private ownTextContent = "";
-  private eventListeners = new Map<string, Array<(event: Event) => void>>();
 
   constructor(public readonly tagName: string) {}
 
@@ -48,9 +65,6 @@ class FakeElement {
 
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
-    if (name === "id") {
-      this.id = value;
-    }
   }
 
   getAttribute(name: string): string | null {
@@ -58,51 +72,17 @@ class FakeElement {
   }
 
   append(...children: FakeElement[]): void {
-    for (const child of children) {
-      child.parent = this;
-    }
     this.children.push(...children);
   }
 
   replaceChildren(...children: FakeElement[]): void {
-    for (const child of children) {
-      child.parent = this;
-    }
     this.children = [...children];
   }
 
-  addEventListener(type: string, listener: (event: Event) => void): void {
-    const listeners = this.eventListeners.get(type) ?? [];
-    listeners.push(listener);
-    this.eventListeners.set(type, listeners);
-  }
-
-  dispatchEvent(event: Event): boolean {
-    for (const listener of this.eventListeners.get(event.type) ?? []) {
-      listener(event);
-    }
-    return true;
-  }
-
-  click(): void {
-    this.dispatchEvent(new Event("click"));
-  }
-
-  querySelector(selector: string): FakeElement | null {
-    if (matchesSelector(this, selector)) {
-      return this;
-    }
-    for (const child of this.children) {
-      const match = child.querySelector(selector);
-      if (match) {
-        return match;
-      }
-    }
-    return null;
-  }
+  addEventListener(): void {}
 
   querySelectorAll(selector: string): FakeElement[] {
-    const matches: FakeElement[] = matchesSelector(this, selector) ? [this] : [];
+    const matches = matchesFakeSelector(this, selector) ? [this] : [];
     for (const child of this.children) {
       matches.push(...child.querySelectorAll(selector));
     }
@@ -111,53 +91,26 @@ class FakeElement {
 }
 
 class FakeDocument {
-  public body = new FakeElement("body");
-  public events: Array<{ type: string; detail: unknown }> = [];
-
   createElement(tagName: string): FakeElement {
     return new FakeElement(tagName);
   }
-
-  dispatchEvent(event: Event): boolean {
-    this.events.push({ type: event.type, detail: (event as CustomEvent).detail });
-    return true;
-  }
 }
 
-function matchesSelector(element: FakeElement, selector: string): boolean {
-  const attributeMatch = selector.match(/^\[([^=\]]+)="([^"]+)"\]$/);
-  if (attributeMatch) {
-    return element.getAttribute(attributeMatch[1]) === attributeMatch[2];
-  }
+function matchesFakeSelector(element: FakeElement, selector: string): boolean {
   if (selector.startsWith(".")) {
     return element.className.split(/\s+/).includes(selector.slice(1));
+  }
+  const group = selector.match(/^\[data-sidebar-group="(.+)"\]$/);
+  if (group) {
+    return element.getAttribute("data-sidebar-group") === group[1];
   }
   return false;
 }
 
-function sidebarItems(): DesktopSidebarItem[] {
-  return [
-    {
-      id: "session:active",
-      kind: "session",
-      label: "Desktop shell planning",
-      meta: "2 min",
-      active: true,
-    },
-    {
-      id: "session:older",
-      kind: "session",
-      label: "Gateway follow-up",
-      meta: "1 day",
-    },
-  ];
-}
-
 describe("desktop app sidebar", () => {
   test("renders action, workspace, and footer groups from the shared sidebar model", () => {
-    const targetDocument = new FakeDocument();
-    const host = targetDocument.createElement("aside");
-    host.className = "sidebar";
+    const host = document.createElement("aside");
+    host.className = "sidebar desktop-app-sidebar-card";
     const model = buildRootWebUiSidebarModel({
       workspace: buildRootWebUiWorkspaceContext({
         workspaceLabel: "tinybot",
@@ -166,28 +119,28 @@ describe("desktop app sidebar", () => {
       sessions: sidebarItems(),
     });
 
-    renderDesktopAppSidebar(host as unknown as HTMLElement, model, targetDocument as unknown as Document);
+    renderDesktopAppSidebar(host, model, document);
 
+    expect(host.getAttribute("data-desktop-vue-island")).toBe("desktop-app-sidebar");
     expect(host.getAttribute("data-desktop-app-sidebar")).toBe("true");
     expect(host.classList.contains("desktop-app-sidebar")).toBe(true);
     expect(host.classList.contains("desktop-app-sidebar-card")).toBe(false);
-    expect(host.querySelectorAll(".desktop-app-sidebar-group").map((node) => node.getAttribute("data-sidebar-group"))).toEqual([
+    expect(Array.from(host.querySelectorAll(".desktop-app-sidebar-group")).map((node) => node.getAttribute("data-sidebar-group"))).toEqual([
       "actions",
       "workspace",
       "footer",
     ]);
     expect(host.querySelector('[data-sidebar-group="workspace"]')?.textContent).toContain("tinybot");
-    expect(host.querySelectorAll(".desktop-app-sidebar-item").map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("command");
-    expect(host.querySelectorAll(".desktop-app-sidebar-item").map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("link");
-    expect(host.querySelectorAll(".desktop-app-sidebar-item").map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("session");
+    expect(Array.from(host.querySelectorAll(".desktop-app-sidebar-item")).map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("command");
+    expect(Array.from(host.querySelectorAll(".desktop-app-sidebar-item")).map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("link");
+    expect(Array.from(host.querySelectorAll(".desktop-app-sidebar-item")).map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("session");
   });
 
   test("keeps command, link, and selected session metadata on sidebar items", () => {
-    const targetDocument = new FakeDocument();
-    const host = targetDocument.createElement("aside");
+    const host = document.createElement("aside");
     const model = buildRootWebUiSidebarModel({ sessions: sidebarItems() });
 
-    renderDesktopAppSidebar(host as unknown as HTMLElement, model, targetDocument as unknown as Document);
+    renderDesktopAppSidebar(host, model, document);
 
     const newChat = host.querySelector('[data-sidebar-command="new-chat"]');
     const tools = host.querySelector('[data-sidebar-href="/tools"]');
@@ -205,19 +158,40 @@ describe("desktop app sidebar", () => {
   });
 
   test("dispatches sidebar commands through the desktop menu command event path", () => {
-    const targetDocument = new FakeDocument();
-    const host = targetDocument.createElement("aside");
+    const host = document.createElement("aside");
     const model = buildRootWebUiSidebarModel({ sessions: sidebarItems() });
+    const events: Array<{ type: string; detail: unknown }> = [];
+    document.addEventListener("desktop-menu-command", (event) => {
+      events.push({ type: event.type, detail: (event as CustomEvent).detail });
+    }, { once: true });
 
-    renderDesktopAppSidebar(host as unknown as HTMLElement, model, targetDocument as unknown as Document);
+    renderDesktopAppSidebar(host, model, document);
+    host.querySelector<HTMLButtonElement>('[data-sidebar-command="new-chat"]')?.click();
 
-    host.querySelector('[data-sidebar-command="new-chat"]')?.click();
-
-    expect(targetDocument.events).toEqual([
+    expect(events).toEqual([
       {
         type: "desktop-menu-command",
         detail: { id: "new-chat", source: "desktop-sidebar" },
       },
     ]);
+  });
+
+  test("uses the static fallback when the host is not a real DOM element", () => {
+    const host = new FakeElement("aside");
+    const model = buildRootWebUiSidebarModel({
+      workspace: buildRootWebUiWorkspaceContext({ workspaceLabel: "tinybot" }),
+      sessions: sidebarItems(),
+    });
+
+    renderDesktopAppSidebar(host as unknown as HTMLElement, model, new FakeDocument() as unknown as Document);
+
+    expect(host.getAttribute("data-desktop-app-sidebar")).toBe("true");
+    expect(host.getAttribute("data-desktop-vue-island")).toBeNull();
+    expect(host.querySelectorAll(".desktop-app-sidebar-group").map((node) => node.getAttribute("data-sidebar-group"))).toEqual([
+      "actions",
+      "workspace",
+      "footer",
+    ]);
+    expect(host.querySelectorAll(".desktop-app-sidebar-item").map((node) => node.getAttribute("data-sidebar-item-kind"))).toContain("session");
   });
 });

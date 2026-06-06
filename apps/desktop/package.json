@@ -15,11 +15,14 @@
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
     "highlight.js": "^11.11.1",
-    "marked": "^18.0.4"
+    "marked": "^18.0.4",
+    "naive-ui": "^2.44.1",
+    "vue": "^3.5.35"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@types/node": "^25.9.1",
+    "happy-dom": "^20.10.1",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vitest": "^4.1.7"

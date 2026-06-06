@@ -1,15 +1,22 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, test } from "vitest";
 import {
   activateDesktopCommandPaletteResult,
   buildDesktopCommandPaletteResults,
   createDesktopCommandPaletteState,
+  installDesktopCommandPalette,
   openDesktopCommandPalette,
 } from "./desktopCommandPalette";
+import {
+  installRootWebUiCommandPaletteSurface,
+} from "./desktopRootWebUiWorkbench";
 import {
   buildDesktopCommandEntriesFromSidebar,
   buildNativeWorkbenchSidebarModel,
   buildRootWebUiSidebarModel,
 } from "./desktopSharedModels";
+import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 
 describe("desktop command palette", () => {
   test("adapts shared desktop entries into root command search destinations", () => {
@@ -174,6 +181,37 @@ describe("desktop command palette", () => {
     openDesktopCommandPalette(targetDocument as unknown as Document, "session");
 
     expect(events).toEqual([{ query: "session" }]);
+  });
+
+  test("renders installed command palette results through a Vue island", () => {
+    const host = document.createElement("section");
+    mountCommandPaletteIsland(host);
+    document.body.append(host);
+
+    installDesktopCommandPalette({
+      desktopCommands: buildDesktopCommandEntriesFromSidebar(buildRootWebUiSidebarModel()),
+      targetDocument: document,
+      targetWindow: window,
+    });
+
+    expect(document.querySelector("#desktop-command-palette-results")?.getAttribute("data-desktop-vue-island")).toBe("command-palette-results");
+    expect(document.querySelector("[data-palette-result-id]")?.textContent).toContain("New");
+
+    host.remove();
+  });
+
+  test("mounts the root WebUI command palette shell through a Vue island", () => {
+    document.body.replaceChildren();
+
+    installRootWebUiCommandPaletteSurface(document);
+    installRootWebUiCommandPaletteSurface(document);
+
+    const palette = document.getElementById("desktop-command-palette");
+    expect(document.body.querySelectorAll("#desktop-command-palette")).toHaveLength(1);
+    expect(palette?.getAttribute("data-desktop-vue-island")).toBe("command-palette");
+    expect(palette?.getAttribute("role")).toBe("dialog");
+    expect(document.getElementById("desktop-command-palette-input")?.getAttribute("aria-label")).toBe("Search commands and workbench data");
+    expect(document.getElementById("desktop-command-palette-results")?.getAttribute("aria-live")).toBe("polite");
   });
 
   test("activates quick-search results by navigating and focusing matching entities", () => {

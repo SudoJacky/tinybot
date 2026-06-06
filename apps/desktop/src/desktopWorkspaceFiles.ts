@@ -5,6 +5,11 @@ import {
 } from "./desktopFileExport";
 import { buildDesktopFileTaskOperation } from "./desktopTaskCenterSources";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
+import type { MountedWorkspaceActionsIsland } from "./native-vue/workspaceActionsIsland";
+import type { MountedWorkspaceDetailIsland } from "./native-vue/workspaceDetailIsland";
+import type { MountedWorkspaceEditorIsland } from "./native-vue/workspaceEditorIsland";
+import type { MountedWorkspaceHeaderIsland } from "./native-vue/workspaceHeaderIsland";
+import type { MountedWorkspaceRecentFilesIsland } from "./native-vue/workspaceRecentFilesIsland";
 
 export type DesktopWorkspaceSaveState = "idle" | "dirty" | "saving" | "saved" | "protected-path-error" | "conflict-error" | "error";
 
@@ -60,6 +65,12 @@ export interface DesktopWorkspaceFileActions {
   exportWorkspaceFile?: (request: DesktopFileExportRequest) => Promise<unknown>;
   onFileTaskUpdated?: (operation: DesktopTaskSourceOperation) => void;
 }
+
+const workspaceRecentFileIslands = new WeakMap<HTMLElement, MountedWorkspaceRecentFilesIsland>();
+const workspaceDetailIslands = new WeakMap<HTMLElement, MountedWorkspaceDetailIsland>();
+const workspaceActionsIslands = new WeakMap<HTMLElement, MountedWorkspaceActionsIsland>();
+const workspaceEditorIslands = new WeakMap<HTMLElement, MountedWorkspaceEditorIsland>();
+const workspaceHeaderIslands = new WeakMap<HTMLElement, MountedWorkspaceHeaderIsland>();
 
 export function buildDesktopWorkspaceFileRows(payload: unknown): DesktopWorkspaceFileRow[] {
   const items = isRecord(payload) && Array.isArray(payload.items) ? payload.items : [];
@@ -240,8 +251,7 @@ export function installDesktopWorkspaceFileActions({
   const exportButton = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-export");
 
   editor?.addEventListener("input", () => {
-    state = applyDesktopWorkspaceDraft(state, editor.value);
-    renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), Boolean(exportWorkspaceFile));
+    updateWorkspaceDraft(editor.value);
   });
 
   search?.addEventListener("input", () => {
@@ -254,6 +264,8 @@ export function installDesktopWorkspaceFileActions({
       },
       Boolean(revealWorkspaceFile),
       Boolean(exportWorkspaceFile),
+      handleWorkspaceAction,
+      updateWorkspaceDraft,
     );
   });
 
@@ -293,10 +305,12 @@ export function installDesktopWorkspaceFileActions({
         },
         Boolean(revealWorkspaceFile),
         Boolean(exportWorkspaceFile),
+        handleWorkspaceAction,
+        updateWorkspaceDraft,
       );
     } catch (error) {
       state = { ...state, saveState: "error", error: `Failed to load workspace files: ${stringifyError(error)}` };
-      renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), Boolean(exportWorkspaceFile));
+      renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), Boolean(exportWorkspaceFile), handleWorkspaceAction, updateWorkspaceDraft);
     }
   }
 
@@ -311,10 +325,12 @@ export function installDesktopWorkspaceFileActions({
         },
         Boolean(revealWorkspaceFile),
         Boolean(exportWorkspaceFile),
+        handleWorkspaceAction,
+        updateWorkspaceDraft,
       );
     } catch (error) {
       state = { ...state, saveState: "error", error: `Failed to load workspace file: ${stringifyError(error)}` };
-      renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), Boolean(exportWorkspaceFile));
+      renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), Boolean(exportWorkspaceFile), handleWorkspaceAction, updateWorkspaceDraft);
     }
   }
 
@@ -325,7 +341,7 @@ export function installDesktopWorkspaceFileActions({
     }
     state = { ...state, saveState: "saving", error: null };
     onFileTaskUpdated?.(workspaceFileOperation(request.path, "save", "saving"));
-    renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), Boolean(exportWorkspaceFile));
+    renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), Boolean(exportWorkspaceFile), handleWorkspaceAction, updateWorkspaceDraft);
     try {
       const result = await saveWorkspaceFile(request.path, request.body);
       const resultRecord = isRecord(result) ? result : {};
@@ -343,6 +359,8 @@ export function installDesktopWorkspaceFileActions({
         },
         Boolean(revealWorkspaceFile),
         Boolean(exportWorkspaceFile),
+        handleWorkspaceAction,
+        updateWorkspaceDraft,
       );
       onFileTaskUpdated?.(workspaceFileOperation(request.path, "save", "completed"));
       await loadWorkspaceFiles();
@@ -361,6 +379,8 @@ export function installDesktopWorkspaceFileActions({
         },
         Boolean(revealWorkspaceFile),
         Boolean(exportWorkspaceFile),
+        handleWorkspaceAction,
+        updateWorkspaceDraft,
       );
     }
   }
@@ -379,6 +399,8 @@ export function installDesktopWorkspaceFileActions({
       },
       true,
       Boolean(exportWorkspaceFile),
+      handleWorkspaceAction,
+      updateWorkspaceDraft,
     );
     try {
       await revealWorkspaceFile(request.path);
@@ -392,6 +414,8 @@ export function installDesktopWorkspaceFileActions({
         },
         true,
         Boolean(exportWorkspaceFile),
+        handleWorkspaceAction,
+        updateWorkspaceDraft,
       );
     }
   }
@@ -403,7 +427,7 @@ export function installDesktopWorkspaceFileActions({
     }
     state = { ...state, saveState: "saving", error: null };
     onFileTaskUpdated?.(workspaceFileOperation(state.activePath, "export", "exporting"));
-    renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), true);
+    renderWorkspaceState(targetDocument, state, undefined, Boolean(revealWorkspaceFile), true, handleWorkspaceAction, updateWorkspaceDraft);
     try {
       const result = await exportWorkspaceFile(request);
       const exportedPath = normalizeDesktopExportResult(result);
@@ -421,6 +445,8 @@ export function installDesktopWorkspaceFileActions({
         },
         Boolean(revealWorkspaceFile),
         true,
+        handleWorkspaceAction,
+        updateWorkspaceDraft,
       );
       onFileTaskUpdated?.(workspaceFileOperation(state.activePath, "export", "completed", {
         detail: exportedPath ? `Exported to ${exportedPath}` : "Export canceled",
@@ -440,8 +466,41 @@ export function installDesktopWorkspaceFileActions({
         },
         Boolean(revealWorkspaceFile),
         true,
+        handleWorkspaceAction,
+        updateWorkspaceDraft,
       );
     }
+  }
+
+  function handleWorkspaceAction(action: "save" | "reveal" | "export" | "reload"): void {
+    if (action === "save") {
+      void saveActiveWorkspaceFile();
+      return;
+    }
+    if (action === "reveal") {
+      void revealActiveWorkspaceFile();
+      return;
+    }
+    if (action === "export") {
+      void exportActiveWorkspaceFile();
+      return;
+    }
+    if (state.activePath) {
+      void loadWorkspaceFileByPath(state.activePath);
+    }
+  }
+
+  function updateWorkspaceDraft(draft: string): void {
+    state = applyDesktopWorkspaceDraft(state, draft);
+    renderWorkspaceState(
+      targetDocument,
+      state,
+      undefined,
+      Boolean(revealWorkspaceFile),
+      Boolean(exportWorkspaceFile),
+      handleWorkspaceAction,
+      updateWorkspaceDraft,
+    );
   }
 }
 
@@ -470,6 +529,8 @@ function renderWorkspaceState(
   onSelect?: (path: string) => void,
   canReveal = false,
   canExport = false,
+  onAction?: (action: "save" | "reveal" | "export" | "reload") => void,
+  onDraftInput?: (draft: string) => void,
 ): void {
   const recent = targetDocument.querySelector<HTMLElement>("#desktop-workspace-recent-files");
   if (recent) {
@@ -495,10 +556,15 @@ function renderWorkspaceState(
         return button;
       }),
     );
+    mountWorkspaceRecentFilesVueIsland(recent, state, onSelect);
   }
 
   const fileLabel = state.files.length === 1 ? "file" : "files";
   setText(targetDocument, "#desktop-workspace-status", `${state.files.length} ${fileLabel}`);
+  const header = targetDocument.querySelector<HTMLElement>(".desktop-workspace-header");
+  if (header) {
+    mountWorkspaceHeaderVueIsland(header, state);
+  }
   setText(targetDocument, "#desktop-workspace-active-path", state.activePath ? `Active path: ${state.activePath}` : "No workspace file selected.");
   setText(targetDocument, "#desktop-workspace-updated-at", state.activeUpdatedAt ? `Updated: ${state.activeUpdatedAt}` : "No timestamp");
   setText(targetDocument, "#desktop-workspace-size", typeof state.activeSizeBytes === "number" ? `Size: ${formatFileSize(state.activeSizeBytes)}` : "No size");
@@ -509,12 +575,20 @@ function renderWorkspaceState(
       ? `Workspace detail: ${state.activePath} / ${workspaceSaveStateText(state)}`
       : "No workspace file selected.",
   );
+  const detailPanel = targetDocument.querySelector<HTMLElement>(".desktop-workspace-detail-panel");
+  if (detailPanel) {
+    mountWorkspaceDetailVueIsland(detailPanel, state);
+  }
   setText(targetDocument, "#desktop-workspace-save-state", workspaceSaveStateText(state));
   setText(targetDocument, "#desktop-workspace-error", state.error ?? "");
 
   const editor = targetDocument.querySelector<HTMLTextAreaElement>("#desktop-workspace-editor");
   if (editor && editor.value !== state.draft) {
     editor.value = state.draft;
+  }
+  const editorPanel = targetDocument.querySelector<HTMLElement>(".desktop-workspace-editor-panel");
+  if (editorPanel) {
+    mountWorkspaceEditorVueIsland(editorPanel, state, onDraftInput);
   }
   const save = targetDocument.querySelector<HTMLButtonElement>("#desktop-workspace-save");
   if (save) {
@@ -532,6 +606,116 @@ function renderWorkspaceState(
   if (exportButton) {
     exportButton.disabled = !state.activePath || !canExport || state.saveState === "saving";
   }
+  const actionRail = targetDocument.querySelector<HTMLElement>(".desktop-workspace-action-rail");
+  if (actionRail) {
+    mountWorkspaceActionsVueIsland(actionRail, state, canReveal, canExport, onAction);
+  }
+}
+
+function mountWorkspaceRecentFilesVueIsland(
+  host: HTMLElement,
+  state: DesktopWorkspaceFileState,
+  onSelect: ((path: string) => void) | undefined,
+): void {
+  if (!canMountVueIsland(host)) {
+    return;
+  }
+  const mounted = workspaceRecentFileIslands.get(host);
+  if (mounted) {
+    mounted.update(state);
+    return;
+  }
+  void import("./native-vue/workspaceRecentFilesIsland").then(({ mountWorkspaceRecentFilesIsland }) => {
+    workspaceRecentFileIslands.set(host, mountWorkspaceRecentFilesIsland(host, { state, onSelect }));
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountWorkspaceDetailVueIsland(host: HTMLElement, state: DesktopWorkspaceFileState): void {
+  if (!canMountVueIsland(host)) {
+    return;
+  }
+  const mounted = workspaceDetailIslands.get(host);
+  if (mounted) {
+    mounted.update(state);
+    return;
+  }
+  void import("./native-vue/workspaceDetailIsland").then(({ mountWorkspaceDetailIsland }) => {
+    workspaceDetailIslands.set(host, mountWorkspaceDetailIsland(host, { state }));
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountWorkspaceActionsVueIsland(
+  host: HTMLElement,
+  state: DesktopWorkspaceFileState,
+  canReveal: boolean,
+  canExport: boolean,
+  onAction: ((action: "save" | "reveal" | "export" | "reload") => void) | undefined,
+): void {
+  if (!canMountVueIsland(host)) {
+    return;
+  }
+  const mounted = workspaceActionsIslands.get(host);
+  if (mounted) {
+    mounted.update(state, canReveal, canExport);
+    return;
+  }
+  void import("./native-vue/workspaceActionsIsland").then(({ mountWorkspaceActionsIsland }) => {
+    workspaceActionsIslands.set(host, mountWorkspaceActionsIsland(host, {
+      state,
+      canReveal,
+      canExport,
+      onAction,
+    }));
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountWorkspaceEditorVueIsland(
+  host: HTMLElement,
+  state: DesktopWorkspaceFileState,
+  onDraftInput: ((draft: string) => void) | undefined,
+): void {
+  if (!canMountVueIsland(host)) {
+    return;
+  }
+  const mounted = workspaceEditorIslands.get(host);
+  if (mounted) {
+    mounted.update(state);
+    return;
+  }
+  void import("./native-vue/workspaceEditorIsland").then(({ mountWorkspaceEditorIsland }) => {
+    workspaceEditorIslands.set(host, mountWorkspaceEditorIsland(host, {
+      state,
+      onDraftInput,
+    }));
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function mountWorkspaceHeaderVueIsland(host: HTMLElement, state: DesktopWorkspaceFileState): void {
+  if (!canMountVueIsland(host)) {
+    return;
+  }
+  const mounted = workspaceHeaderIslands.get(host);
+  if (mounted) {
+    mounted.update(state);
+    return;
+  }
+  void import("./native-vue/workspaceHeaderIsland").then(({ mountWorkspaceHeaderIsland }) => {
+    workspaceHeaderIslands.set(host, mountWorkspaceHeaderIsland(host, { state }));
+  }).catch(() => {
+    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  });
+}
+
+function canMountVueIsland(element: HTMLElement): boolean {
+  return typeof HTMLElement !== "undefined" && element instanceof HTMLElement;
 }
 
 function workspaceSaveStateText(state: DesktopWorkspaceFileState): string {

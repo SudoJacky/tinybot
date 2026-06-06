@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, test, vi } from "vitest";
 import {
   installDesktopWindowFrame,
@@ -309,6 +311,131 @@ describe("desktop window frame", () => {
     runtimeStatus?.click();
 
     expect(targetDocument.dispatched).toContain("desktop-menu-command");
+    expect(currentWindow.startDragging).not.toHaveBeenCalled();
+  });
+
+  test("uses a Vue island host for the real runtime status command", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+    const dispatched: string[] = [];
+    document.addEventListener("desktop-menu-command", (event) => {
+      dispatched.push((event as CustomEvent<{ id: string }>).detail.id);
+    });
+
+    installDesktopWindowFrame({
+      targetDocument: document,
+      currentWindow,
+    });
+
+    const runtimeStatus = document.getElementById("desktop-runtime-status");
+    expect(runtimeStatus?.getAttribute("data-desktop-vue-island")).toBe("desktop-runtime-status");
+    expect(runtimeStatus?.getAttribute("data-desktop-runtime-command")).toBe("refresh-gateway-status");
+    expect(runtimeStatus?.getAttribute("data-runtime-tone")).toBe("pending");
+    expect(runtimeStatus?.textContent).toContain("Gateway: Starting");
+
+    runtimeStatus?.click();
+
+    expect(dispatched).toEqual(["refresh-gateway-status"]);
+  });
+
+  test("uses a Vue island host for real window controls", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: document,
+      currentWindow,
+    });
+
+    const controls = document.body.querySelector<HTMLElement>(".desktop-window-controls");
+    expect(controls?.getAttribute("data-desktop-vue-island")).toBe("desktop-window-controls");
+    expect(controls?.querySelector('[data-window-action="minimize"]')?.getAttribute("aria-label")).toBe("Minimize");
+    expect(controls?.querySelector('[data-window-action="maximize"]')?.getAttribute("aria-label")).toBe("Maximize");
+    expect(controls?.querySelector('[data-window-action="close"]')?.getAttribute("aria-label")).toBe("Close");
+
+    controls?.querySelector<HTMLButtonElement>('[data-window-action="minimize"]')?.click();
+
+    expect(currentWindow.minimize).toHaveBeenCalledTimes(1);
+    expect(currentWindow.startDragging).not.toHaveBeenCalled();
+  });
+
+  test("uses a Vue island host for the real help menu", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+    const dispatched: string[] = [];
+    document.addEventListener("desktop-menu-command", (event) => {
+      dispatched.push((event as CustomEvent<{ id: string }>).detail.id);
+    });
+
+    installDesktopWindowFrame({
+      targetDocument: document,
+      currentWindow,
+    });
+
+    const helpMenu = document.body.querySelector<HTMLElement>(".desktop-help-menu");
+    const helpTrigger = helpMenu?.querySelector<HTMLButtonElement>(".desktop-help-menu-trigger");
+    const shortcutHelp = helpMenu?.querySelector<HTMLButtonElement>('[data-desktop-menu-command="open-shortcut-help"]');
+    expect(helpMenu?.getAttribute("data-desktop-vue-island")).toBe("desktop-help-menu");
+    expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
+
+    helpTrigger?.click();
+    await Promise.resolve();
+    expect(helpTrigger?.getAttribute("aria-expanded")).toBe("true");
+
+    shortcutHelp?.click();
+    await Promise.resolve();
+    expect(dispatched).toEqual(["open-shortcut-help"]);
+    expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("uses Vue island hosts for real app menu commands", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+    const dispatched: string[] = [];
+    document.addEventListener("desktop-menu-command", (event) => {
+      dispatched.push((event as CustomEvent<{ id: string }>).detail.id);
+    });
+
+    installDesktopWindowFrame({
+      targetDocument: document,
+      currentWindow,
+    });
+
+    const settings = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="open-settings"]');
+    const docs = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="open-docs"]');
+    const theme = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="toggle-theme"]');
+    expect(settings?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
+    expect(docs?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
+    expect(theme?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
+    expect(settings?.textContent).toContain("Settings");
+
+    settings?.click();
+
+    expect(dispatched).toEqual(["open-settings"]);
     expect(currentWindow.startDragging).not.toHaveBeenCalled();
   });
 

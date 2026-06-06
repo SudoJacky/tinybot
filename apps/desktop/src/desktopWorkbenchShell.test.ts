@@ -3140,6 +3140,7 @@ describe("desktop workbench shell", () => {
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
     expect(styleText).toContain("grid-template-columns: 92px minmax(220px, 280px) minmax(0, 1fr) minmax(280px, 340px);");
     expect(styleText).toContain('grid-template-areas: "input input input" "attach runtime send";');
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-native-composer-layout {\n      display: grid;");
     expect(styleText).not.toContain("microphone");
     expect(styleText).toContain("border-radius: 24px;");
     expect(styleText).toContain("min-height: 118px;");
@@ -3149,8 +3150,12 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("overflow-y: auto;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench {\n      align-self: stretch;");
     expect(styleText).toContain("height: 100%;");
+    expect(styleText).toContain("padding: 0 clamp(20px, 3vw, 46px);");
+    expect(styleText).toContain("width: min(1120px, 100%);");
     expect(styleText).toContain("grid-template-rows: minmax(0, 1fr) auto 0;");
     expect(styleText).toContain("margin: 0 auto 8px;");
+    expect(styleText).toContain("margin: 16px 16px 16px 0;");
+    expect(styleText).toContain("border-radius: 14px;");
     expect(styleText).toContain(".desktop-status-strip {\n      height: 0;");
     expect(styleText).toContain('html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-utility-surfaces');
     expect(styleText).toContain("[data-desktop-module-surface]");

@@ -1,3 +1,5 @@
+import { mountDesktopTaskStatusSurfaceIsland } from "./native-vue/desktopTaskStatusSurfaceIsland";
+
 const STYLE_ID = "desktop-composer-surface-style";
 
 const WORKSPACE_RUNTIME_PATTERNS = [
@@ -334,12 +336,24 @@ function ensureDesktopTaskStatusSurface(targetDocument: Document): HTMLElement {
   }
 
   const surface = targetDocument.createElement("section");
-  surface.className = "desktop-task-status-surface";
-  surface.setAttribute("data-desktop-task-status-surface", "sidebar");
-  surface.setAttribute("aria-label", "Desktop task status");
+  if (canMountDesktopTaskStatusSurfaceIsland(surface)) {
+    mountDesktopTaskStatusSurfaceIsland(surface);
+  } else {
+    applyDesktopTaskStatusSurfaceFallbackHost(surface);
+  }
   const sidebar = targetDocument.body.querySelector<HTMLElement>(".sidebar");
   (sidebar ?? targetDocument.body).append(surface);
   return surface;
+}
+
+function canMountDesktopTaskStatusSurfaceIsland(surface: HTMLElement): boolean {
+  return typeof window !== "undefined" && surface instanceof window.HTMLElement;
+}
+
+function applyDesktopTaskStatusSurfaceFallbackHost(surface: HTMLElement): void {
+  surface.className = "desktop-task-status-surface";
+  surface.setAttribute("data-desktop-task-status-surface", "sidebar");
+  surface.setAttribute("aria-label", "Desktop task status");
 }
 
 function runtimeChipName(item: HTMLElement): string {

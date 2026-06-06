@@ -3,6 +3,7 @@ import type {
   DesktopSidebarItem,
   DesktopSidebarModel,
 } from "./desktopSharedModels";
+import { mountDesktopAppSidebarIsland } from "./native-vue/desktopAppSidebarIsland";
 
 export function renderDesktopAppSidebar(
   host: HTMLElement,
@@ -15,18 +16,34 @@ export function renderDesktopAppSidebar(
   host.setAttribute("data-desktop-sidebar-mode", model.mode);
   host.setAttribute("aria-label", "Desktop navigation");
 
+  if (canMountDesktopAppSidebarIsland(host)) {
+    mountDesktopAppSidebarIsland(host, { model, targetDocument });
+    return;
+  }
+  renderStaticDesktopAppSidebar(host, model, targetDocument);
+}
+
+function canMountDesktopAppSidebarIsland(host: HTMLElement): boolean {
+  return typeof window !== "undefined" && host instanceof window.HTMLElement;
+}
+
+function renderStaticDesktopAppSidebar(
+  host: HTMLElement,
+  model: DesktopSidebarModel,
+  targetDocument: Document,
+): void {
   const content = targetDocument.createElement("nav");
   content.className = "desktop-app-sidebar-content";
   content.setAttribute("aria-label", "Desktop sidebar");
 
   for (const group of model.groups) {
-    content.append(createGroup(targetDocument, group));
+    content.append(createStaticGroup(targetDocument, group));
   }
 
   host.replaceChildren(content);
 }
 
-function createGroup(targetDocument: Document, group: DesktopSidebarGroup): HTMLElement {
+function createStaticGroup(targetDocument: Document, group: DesktopSidebarGroup): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-app-sidebar-group";
   section.setAttribute("data-sidebar-group", group.id);
@@ -40,15 +57,14 @@ function createGroup(targetDocument: Document, group: DesktopSidebarGroup): HTML
   list.className = "desktop-app-sidebar-list";
   list.setAttribute("role", "list");
   for (const item of group.items) {
-    const row = createSidebarItem(targetDocument, item);
-    list.append(row);
+    list.append(createStaticSidebarItem(targetDocument, item));
   }
   section.append(list);
 
   return section;
 }
 
-function createSidebarItem(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
+function createStaticSidebarItem(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
   const element = item.kind === "link" ? targetDocument.createElement("a") : targetDocument.createElement("button");
   element.className = "desktop-app-sidebar-item";
   element.setAttribute("data-sidebar-item-id", item.id);

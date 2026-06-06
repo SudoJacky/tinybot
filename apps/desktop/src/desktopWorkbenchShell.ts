@@ -52,6 +52,109 @@ import {
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
+import { mountAgentUiFormActionsIsland } from "./native-vue/agentUiFormActionsIsland";
+import { mountAgentUiFormCardIsland } from "./native-vue/agentUiFormCardIsland";
+import { mountAgentUiFormFieldIsland } from "./native-vue/agentUiFormFieldIsland";
+import { mountAgentUiFormsSurfaceIsland } from "./native-vue/agentUiFormsSurfaceIsland";
+import { mountBottomRegionIsland } from "./native-vue/bottomRegionIsland";
+import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
+import { mountChatHeaderActionsIsland } from "./native-vue/chatHeaderActionsIsland";
+import { mountChatMenuActionIsland } from "./native-vue/chatMenuActionIsland";
+import { mountChatMenuButtonIsland } from "./native-vue/chatMenuButtonIsland";
+import { mountChatMenuEmptyIsland } from "./native-vue/chatMenuEmptyIsland";
+import { mountChatMenuPopoverIsland } from "./native-vue/chatMenuPopoverIsland";
+import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
+import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
+import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
+import { mountComposerAttachButtonIsland } from "./native-vue/composerAttachButtonIsland";
+import { mountComposerModelControlIsland } from "./native-vue/composerModelControlIsland";
+import { mountComposerRuntimeIsland } from "./native-vue/composerRuntimeIsland";
+import { mountComposerSendButtonIsland } from "./native-vue/composerSendButtonIsland";
+import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
+import { mountConversationAttachmentIsland } from "./native-vue/conversationAttachmentIsland";
+import { mountConversationBodyIsland } from "./native-vue/conversationBodyIsland";
+import { mountConversationEmptyStateIsland } from "./native-vue/conversationEmptyStateIsland";
+import { mountConversationMessageIsland } from "./native-vue/conversationMessageIsland";
+import { mountConversationMetaIsland } from "./native-vue/conversationMetaIsland";
+import { mountConversationReasoningIsland } from "./native-vue/conversationReasoningIsland";
+import { mountConversationReferenceIsland } from "./native-vue/conversationReferenceIsland";
+import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
+import { mountCoworkActionsIsland } from "./native-vue/coworkActionsIsland";
+import { mountCoworkDataRowIsland } from "./native-vue/coworkDataRowIsland";
+import { mountCoworkGraphIsland } from "./native-vue/coworkGraphIsland";
+import { mountCoworkHeaderIsland } from "./native-vue/coworkHeaderIsland";
+import { mountCoworkInspectorIsland } from "./native-vue/coworkInspectorIsland";
+import { mountCoworkLimitStatusIsland } from "./native-vue/coworkLimitStatusIsland";
+import { mountCoworkObservabilityIsland } from "./native-vue/coworkObservabilityIsland";
+import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
+import { mountCoworkSessionsIsland } from "./native-vue/coworkSessionsIsland";
+import { mountCoworkTaskFeedIsland } from "./native-vue/coworkTaskFeedIsland";
+import { mountFileActionsSurfaceIsland } from "./native-vue/fileActionsSurfaceIsland";
+import { mountFileImportCardIsland } from "./native-vue/fileImportCardIsland";
+import { mountFileOperationStatusIsland } from "./native-vue/fileOperationStatusIsland";
+import { mountFileUploadStatusIsland } from "./native-vue/fileUploadStatusIsland";
+import { mountFormatChipListIsland } from "./native-vue/formatChipListIsland";
+import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
+import { mountHeaderPanelControlIsland } from "./native-vue/headerPanelControlIsland";
+import { mountHelpSurfaceIsland } from "./native-vue/helpSurfaceIsland";
+import { mountInspectorRegionIsland } from "./native-vue/inspectorRegionIsland";
+import { mountInspectorViewIsland } from "./native-vue/inspectorViewIsland";
+import { mountKnowledgeActionsIsland } from "./native-vue/knowledgeActionsIsland";
+import { mountKnowledgeDocumentDetailIsland } from "./native-vue/knowledgeDocumentDetailIsland";
+import { mountKnowledgeDocumentsIsland } from "./native-vue/knowledgeDocumentsIsland";
+import { mountKnowledgeGraphIsland } from "./native-vue/knowledgeGraphIsland";
+import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
+import { mountKnowledgeQueryIsland } from "./native-vue/knowledgeQueryIsland";
+import { mountKnowledgeReadinessIsland } from "./native-vue/knowledgeReadinessIsland";
+import { mountKnowledgeReferenceRowIsland } from "./native-vue/knowledgeReferenceRowIsland";
+import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
+import { mountModuleWorkSectionIsland } from "./native-vue/moduleWorkSectionIsland";
+import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
+import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
+import { mountPersistentRagToggleIsland } from "./native-vue/persistentRagToggleIsland";
+import { mountQuickActionsIsland } from "./native-vue/quickActionsIsland";
+import { mountRecentChatRowIsland } from "./native-vue/recentChatRowIsland";
+import { mountRunChainInspectorIsland } from "./native-vue/runChainInspectorIsland";
+import { mountRunChainOverviewIsland } from "./native-vue/runChainOverviewIsland";
+import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
+import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
+import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIsland";
+import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";
+import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";
+import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
+import { mountSettingsDefaultLlmIsland } from "./native-vue/settingsDefaultLlmIsland";
+import { mountSettingsGroupsIsland } from "./native-vue/settingsGroupsIsland";
+import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
+import { mountSettingsProviderDetailIsland } from "./native-vue/settingsProviderDetailIsland";
+import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProviderManagementIsland";
+import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";
+import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";
+import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";
+import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";
+import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";
+import { mountSharedSidebarCommandButtonIsland } from "./native-vue/sharedSidebarCommandButtonIsland";
+import { mountSharedSidebarCommandsIsland } from "./native-vue/sharedSidebarCommandsIsland";
+import { mountSharedSidebarLinkIsland } from "./native-vue/sharedSidebarLinkIsland";
+import { mountSharedSidebarLinksIsland } from "./native-vue/sharedSidebarLinksIsland";
+import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
+import { mountSkillEditorIsland } from "./native-vue/skillEditorIsland";
+import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";
+import { mountSkillsListIsland } from "./native-vue/skillsListIsland";
+import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
+import { mountTaskActionIsland } from "./native-vue/taskActionIsland";
+import { mountTaskCenterIsland } from "./native-vue/taskCenterIsland";
+import { mountTaskStateBadgeIsland } from "./native-vue/taskStateBadgeIsland";
+import { mountToolDetailIsland } from "./native-vue/toolDetailIsland";
+import { mountToolActivitiesIsland } from "./native-vue/toolActivitiesIsland";
+import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";
+import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";
+import { mountToolsListIsland } from "./native-vue/toolsListIsland";
+import { mountToolsSkillsActionsIsland } from "./native-vue/toolsSkillsActionsIsland";
+import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
+import { mountTokenUsageOrbIsland } from "./native-vue/tokenUsageOrbIsland";
+import { mountWorkLensIsland } from "./native-vue/workLensIsland";
+import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
+import { mountWorkspaceBrowserIsland } from "./native-vue/workspaceBrowserIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
 
@@ -276,6 +379,14 @@ const COWORK_GRAPH_EDGE_LIMIT = 12;
 const COWORK_OBSERVABILITY_ROW_LIMIT = 24;
 const COWORK_TASK_FEED_LIMIT = 20;
 type DesktopPanelControlId = "sidebar" | "inspector" | "bottom";
+
+interface DesktopPanelControlItem {
+  panel: DesktopPanelControlId;
+  label: string;
+  ariaLabel: string;
+  visible: boolean;
+  shortcut?: string;
+}
 
 export function installDesktopWorkbenchShell({
   targetDocument = document,
@@ -506,6 +617,11 @@ function createWorkbenchShell(
 
 function createActivityRail(targetDocument: Document): HTMLElement {
   const rail = targetDocument.createElement("nav");
+  if (canMountVueIsland(rail)) {
+    mountActivityRailIsland(rail);
+    return rail;
+  }
+
   rail.className = "desktop-activity-rail";
   rail.setAttribute("data-workbench-region", "activity");
   rail.setAttribute("aria-label", "Desktop workbench modules");
@@ -571,7 +687,55 @@ function createSidebar(
     createSharedSidebarLinkSection(targetDocument, workspaceGroup),
     createSharedSidebarCommandSection(targetDocument, footerGroup),
   );
+  if (chat) {
+    mountSidebarContentVueIsland(sidebar, targetDocument, chat, chatActions, workspaceGroup, footerGroup);
+  }
   return sidebar;
+}
+
+function mountSidebarContentVueIsland(
+  sidebar: HTMLElement,
+  targetDocument: Document,
+  chat: DesktopNativeChatModel,
+  chatActions: DesktopNativeChatActionOptions,
+  workspaceGroup: DesktopSidebarGroup | undefined,
+  footerGroup: DesktopSidebarGroup | undefined,
+): void {
+  if (!canMountVueIsland(sidebar)) {
+    return;
+  }
+  const pinnedSessionKeys = pinnedSessionKeysForDocument(targetDocument);
+  const recentChats = sortPinnedSessionsFirst(chat.sessions, pinnedSessionKeys).map((session) => recentChatRowModel(
+    session,
+    session.key === chat.activeSessionKey,
+    pinnedSessionKeys.has(session.key),
+  ));
+  mountSidebarContentIsland(sidebar, {
+    commandItems: sidebarCommandItems(footerGroup),
+    commandLabel: footerGroup?.label,
+    recentChats,
+    resourceItems: sidebarLinkItems(workspaceGroup),
+    resourceLabel: workspaceGroup?.label,
+    targetDocument,
+    workspaceRows: [{
+      active: true,
+      entityId: "tinybot",
+      meta: chat.activeSessionKey ? "Active session" : "Ready",
+      title: "tinybot",
+    }],
+  });
+}
+
+function sidebarLinkItems(group: DesktopSidebarGroup | undefined): Array<DesktopSidebarItem & { href: string; kind: "link" }> {
+  return (group?.items ?? []).flatMap((item) => item.kind === "link" && item.href
+    ? [{ ...item, href: item.href, kind: "link" as const }]
+    : []);
+}
+
+function sidebarCommandItems(group: DesktopSidebarGroup | undefined): Array<DesktopSidebarItem & { commandId: string; kind: "command" }> {
+  return (group?.items ?? []).flatMap((item) => item.kind === "command" && item.commandId
+    ? [{ ...item, commandId: item.commandId, kind: "command" as const }]
+    : []);
 }
 
 function createSidebarActions(targetDocument: Document): HTMLElement {
@@ -592,7 +756,15 @@ function createSidebarActions(targetDocument: Document): HTMLElement {
   search.setAttribute("placeholder", "Search");
 
   section.append(newChat, search);
+  mountSidebarActionsVueIsland(section);
   return section;
+}
+
+function mountSidebarActionsVueIsland(section: HTMLElement): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountSidebarActionsIsland(section);
 }
 
 function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
@@ -618,7 +790,28 @@ function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativ
   }
 
   section.append(list);
+  mountSidebarWorkspaceListVueIsland(section, rows.map(([name, meta, active]) => ({
+    active,
+    entityId: name,
+    meta,
+    title: name,
+  })));
   return section;
+}
+
+function mountSidebarWorkspaceListVueIsland(
+  section: HTMLElement,
+  rows: Array<{
+    active: boolean;
+    entityId: string;
+    meta: string;
+    title: string;
+  }>,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountSidebarWorkspaceListIsland(section, { rows });
 }
 
 function createSidebarRecentChats(
@@ -653,21 +846,84 @@ function createSidebarRecentChats(
       list.append(createText(targetDocument, "p", "No recent chats."));
     }
     section.append(list);
+    mountSidebarRecentChatsVueIsland(section, sessions.map((session) => recentChatRowModel(
+      session,
+      session.key === chat.activeSessionKey,
+      pinnedSessionKeys.has(session.key),
+    )), chatActions);
     return section;
   }
 
-  for (const [name, meta] of [
+  const fallbackRows = [
     ["Design native workbench", "Just now"],
     ["修复会话加载问题", "2h ago"],
     ["实现文件上传功能", "Yesterday"],
     ["项目启动优化", "2d ago"],
     ["自动化脚本建议", "3d ago"],
-  ] as const) {
+  ] as const;
+  for (const [name, meta] of fallbackRows) {
     list.append(createSidebarRow(targetDocument, name, meta, false, "chat"));
   }
 
   section.append(list);
+  mountSidebarRecentChatsVueIsland(section, fallbackRows.map(([name, meta]) => ({
+    active: false,
+    chatId: name,
+    href: `/chat/${encodeURIComponent(name)}`,
+    pinned: false,
+    routeId: name,
+    sessionKey: name,
+    title: name,
+    updatedLabel: meta,
+  })), chatActions);
   return section;
+}
+
+function recentChatRowModel(session: NativeChatSession, active: boolean, pinned: boolean): {
+  active: boolean;
+  chatId: string;
+  href: string;
+  pinned: boolean;
+  routeId: string;
+  sessionKey: string;
+  title: string;
+  updatedLabel: string;
+} {
+  const routeId = desktopChatRouteId(session);
+  const title = session.title || "New session";
+  return {
+    active,
+    chatId: session.chatId,
+    href: `/chat/${encodeURIComponent(routeId)}`,
+    pinned,
+    routeId,
+    sessionKey: session.key,
+    title,
+    updatedLabel: session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId,
+  };
+}
+
+function mountSidebarRecentChatsVueIsland(
+  section: HTMLElement,
+  rows: Array<{
+    active: boolean;
+    chatId: string;
+    href: string;
+    pinned: boolean;
+    routeId: string;
+    sessionKey: string;
+    title: string;
+    updatedLabel: string;
+  }>,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountSidebarRecentChatsIsland(section, {
+    rows,
+    onDeleteSession: chatActions.onDeleteSession,
+  });
 }
 
 function desktopChatRouteId(session: NativeChatSession): string {
@@ -701,15 +957,18 @@ function createRecentChatRow(
   row.setAttribute("data-desktop-route-id", routeId);
   row.setAttribute("data-pinned", String(pinned));
 
+  const title = session.title || "New session";
+  const href = `/chat/${encodeURIComponent(routeId)}`;
+  const updatedLabel = session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId;
+
   const link = targetDocument.createElement("a");
   link.className = "desktop-sidebar-row desktop-sidebar-row-main";
-  link.setAttribute("href", `/chat/${encodeURIComponent(routeId)}`);
+  link.setAttribute("href", href);
   link.setAttribute("data-active", String(active));
   link.setAttribute("data-sidebar-row-kind", "chat");
   link.setAttribute("data-desktop-entity-module", "chat");
   link.setAttribute("data-desktop-entity-id", routeId);
 
-  const title = session.title || "New session";
   const titleWrap = targetDocument.createElement("span");
   titleWrap.className = "desktop-sidebar-row-title";
   const label = targetDocument.createElement("span");
@@ -719,7 +978,7 @@ function createRecentChatRow(
   setSessionRowPinIcon(targetDocument, titleWrap, pinned);
   const time = targetDocument.createElement("span");
   time.className = "desktop-sidebar-row-meta";
-  time.textContent = session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId;
+  time.textContent = updatedLabel;
   link.append(titleWrap, time);
 
   const deleteButton = targetDocument.createElement("button");
@@ -750,7 +1009,38 @@ function createRecentChatRow(
   });
 
   row.append(link, deleteButton);
+  mountRecentChatRowVueIsland(row, {
+    active,
+    chatId: session.chatId,
+    href,
+    onDeleteSession: chatActions.onDeleteSession,
+    pinned,
+    routeId,
+    sessionKey: session.key,
+    title,
+    updatedLabel,
+  });
   return row;
+}
+
+function mountRecentChatRowVueIsland(
+  row: HTMLElement,
+  options: {
+    active: boolean;
+    chatId: string;
+    href: string;
+    onDeleteSession?: (event: { chatId: string; sessionKey: string; title: string }) => void;
+    pinned: boolean;
+    routeId: string;
+    sessionKey: string;
+    title: string;
+    updatedLabel: string;
+  },
+): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  mountRecentChatRowIsland(row, options);
 }
 
 function createSidebarSectionHeading(targetDocument: Document, title: string, action?: string): HTMLElement {
@@ -767,7 +1057,15 @@ function createSidebarSectionHeading(targetDocument: Document, title: string, ac
     button.textContent = action;
     heading.append(button);
   }
+  mountSidebarSectionHeadingVueIsland(heading, title, action);
   return heading;
+}
+
+function mountSidebarSectionHeadingVueIsland(heading: HTMLElement, title: string, action?: string): void {
+  if (!canMountVueIsland(heading)) {
+    return;
+  }
+  mountSidebarSectionHeadingIsland(heading, { title, action });
 }
 
 function createSidebarRow(
@@ -781,14 +1079,12 @@ function createSidebarRow(
 ): HTMLElement {
   const row = targetDocument.createElement("a");
   row.className = "desktop-sidebar-row";
-  row.setAttribute(
-    "href",
-    kind === "folder"
-      ? "/workspace"
-      : entityId
-        ? `/chat/${encodeURIComponent(entityId)}`
-        : "/chat",
-  );
+  const href = kind === "folder"
+    ? "/workspace"
+    : entityId
+      ? `/chat/${encodeURIComponent(entityId)}`
+      : "/chat";
+  row.setAttribute("href", href);
   row.setAttribute("role", "listitem");
   row.setAttribute("data-active", String(active));
   row.setAttribute("data-sidebar-row-kind", kind);
@@ -805,7 +1101,26 @@ function createSidebarRow(
   time.className = "desktop-sidebar-row-meta";
   time.textContent = meta;
   row.append(label, time);
+  mountSidebarRowVueIsland(row, { active, entityId, entityModule, href, kind, meta, title });
   return row;
+}
+
+function mountSidebarRowVueIsland(
+  row: HTMLAnchorElement,
+  options: {
+    active: boolean;
+    entityId?: string;
+    entityModule?: string;
+    href: string;
+    kind: "folder" | "chat";
+    meta: string;
+    title: string;
+  },
+): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  mountSidebarRowIsland(row, options);
 }
 
 function createMainRegion(
@@ -836,15 +1151,21 @@ function createMainRegion(
 
   const workbench = targetDocument.createElement("div");
   workbench.className = "desktop-empty-session desktop-chat-workbench";
-  workbench.append(
-    createChatHeader(targetDocument, chat, layout, chatActions),
-    createConversationThread(targetDocument, chat),
+  const workbenchChrome = targetDocument.createElement("div");
+  workbenchChrome.className = "desktop-chat-workbench-chrome";
+  workbenchChrome.append(
     createText(targetDocument, "span", "Ready for a new session"),
     createText(targetDocument, "span", "Start from chat, inspect workspace, or check gateway status."),
     createQuickActions(targetDocument),
     createPanelControls(targetDocument, layout),
-    createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
     ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
+  );
+  mountChatWorkbenchVueIsland(workbenchChrome, targetDocument, layout, chatWorkItems);
+  workbench.append(
+    createChatHeader(targetDocument, chat, layout, chatActions),
+    createConversationThread(targetDocument, chat),
+    workbenchChrome,
+    createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
   );
 
   const utilities = targetDocument.createElement("div");
@@ -860,14 +1181,122 @@ function createMainRegion(
     ...(toolsSkillsPane ? [createToolsSkillsPane(targetDocument, toolsSkillsPane, toolsSkillsActions)] : []),
     ...(coworkPane ? [createCoworkCockpitPane(targetDocument, coworkPane, coworkActions)] : []),
   );
+  mountMainUtilitiesRegionVueIsland(
+    utilities,
+    targetDocument,
+    chat,
+    agentUiForms,
+    agentUiActions,
+    taskCenterItems,
+    settingsPane,
+    settingsActions,
+    knowledgePane,
+    knowledgeActions,
+    toolsSkillsPane,
+    toolsSkillsActions,
+    coworkPane,
+    coworkActions,
+  );
 
   const status = targetDocument.createElement("div");
   status.className = "desktop-status-strip";
   status.setAttribute("data-desktop-route-status", "");
   status.textContent = `No workspace file selected · Gateway ${gatewayHttp}`;
 
+  if (canMountVueIsland(status)) {
+    mountStatusStripIsland(status, { message: status.textContent });
+  }
   main.append(workbench, createNativeComposerSurface(targetDocument, chat, chatActions), utilities, status);
   return main;
+}
+
+function mountChatWorkbenchVueIsland(
+  workbenchChrome: HTMLElement,
+  targetDocument: Document,
+  layout: WorkbenchLayoutState,
+  chatWorkItems: DesktopTaskCenterItem[],
+): void {
+  if (!canMountVueIsland(workbenchChrome)) {
+    return;
+  }
+  mountChatWorkbenchIsland(workbenchChrome, {
+    moduleWorkItems: chatWorkItems,
+    panelControls: buildDesktopPanelControls(layout),
+    onInspectWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
+    onPanelToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
+  });
+}
+
+function mountMainUtilitiesRegionVueIsland(
+  utilities: HTMLElement,
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  agentUiForms: AgentUiForm[],
+  agentUiActions: DesktopAgentUiFormActionOptions,
+  taskCenterItems: DesktopTaskCenterItem[],
+  settingsPane: DesktopSettingsPaneModel | null,
+  settingsActions: DesktopSettingsActionOptions,
+  knowledgePane: DesktopKnowledgePaneModel | null,
+  knowledgeActions: DesktopKnowledgeActionOptions,
+  toolsSkillsPane: DesktopToolsSkillsPaneModel | null,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+  coworkPane: DesktopCoworkPaneModel | null,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(utilities)) {
+    return;
+  }
+  mountMainUtilitiesRegionIsland(utilities, {
+    activeSessionKey: chat?.activeSessionKey ?? null,
+    agentUiForms,
+    coworkPane,
+    knowledgePane,
+    knowledgeWorkItems: moduleWorkItems(taskCenterItems, "knowledge"),
+    settingsPane,
+    toolsSkillsPane,
+    onAgentUiCancel: (form) => {
+      agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+    },
+    onAgentUiSubmit: (form, values) => {
+      agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
+    },
+    onCoworkAction: (event) => {
+      coworkActions.onCoworkAction?.(event);
+    },
+    onCoworkGraphSelect: (selection) => {
+      setRouteStatus(targetDocument, `Inspecting Cowork ${selection.label}`);
+    },
+    onCoworkObservabilityPanelSelected: (panel) => {
+      setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+    },
+    onCoworkSessionSelect: (session) => {
+      const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+      if (!item) {
+        return;
+      }
+      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+    },
+    onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+    onHelpAction: (action) => {
+      if (action === "shortcut-help") {
+        renderDesktopShortcutHelp(targetDocument);
+      } else if (action === "page-help") {
+        renderDesktopPageHelp(targetDocument, "Page help");
+      } else if (action === "help-tour") {
+        renderDesktopPageHelp(targetDocument, "Desktop help tour");
+      }
+    },
+    onInspectKnowledgeWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
+    onKnowledgeAction: (event) => {
+      knowledgeActions.onKnowledgeAction?.(event);
+    },
+    onSettingsAction: settingsActions.onSettingsAction,
+    onToolsSkillsAction: (event) => {
+      toolsSkillsActions.onToolsSkillsAction?.(event);
+    },
+    promptProviderId: () => promptForSettingsProviderId(targetDocument),
+  });
 }
 
 function createChatHeader(
@@ -886,6 +1315,9 @@ function createChatHeader(
   const title = targetDocument.createElement("h1");
   title.className = "desktop-chat-title";
   title.textContent = activeChatTitle(chat);
+  if (canMountVueIsland(title)) {
+    mountChatTitleIsland(title, { title: activeChatTitle(chat) });
+  }
 
   const menu = targetDocument.createElement("button");
   menu.type = "button";
@@ -897,11 +1329,7 @@ function createChatHeader(
   menu.textContent = "...";
 
   const popover = createChatMenuPopover(targetDocument, chat, activeSession, title, menu, chatActions);
-  menu.addEventListener("click", () => {
-    const expanded = menu.getAttribute("aria-expanded") === "true";
-    menu.setAttribute("aria-expanded", String(!expanded));
-    popover.hidden = expanded;
-  });
+  mountChatMenuButtonVueIsland(menu, popover);
 
   titleRow.append(title, menu, popover);
 
@@ -924,8 +1352,66 @@ function createChatHeader(
     }),
   );
 
+  mountChatHeaderActionsVueIsland(actions, targetDocument, [
+    {
+      panel: "sidebar",
+      visible: layout.sidebar.visible,
+      label: "Sidebar",
+      pressedLabel: "Collapse session list",
+      unpressedLabel: "Expand session list",
+    },
+    {
+      panel: "inspector",
+      visible: layout.inspector.visible,
+      label: "Run Chain",
+      pressedLabel: "Close Run Chain panel",
+      unpressedLabel: "Open Run Chain panel",
+    },
+  ]);
+
   header.append(titleRow, actions);
   return header;
+}
+
+function mountChatMenuButtonVueIsland(menu: HTMLElement, popover: HTMLElement): void {
+  const toggle = () => toggleChatMenuPopover(menu, popover);
+  const installFallback = () => {
+    menu.addEventListener("click", toggle);
+  };
+  if (!canMountVueIsland(menu)) {
+    installFallback();
+    return;
+  }
+  mountChatMenuButtonIsland(menu, {
+    expanded: menu.getAttribute("aria-expanded") === "true",
+    onToggle: toggle,
+  });
+}
+
+function mountChatHeaderActionsVueIsland(
+  actions: HTMLElement,
+  targetDocument: Document,
+  items: ReadonlyArray<{
+    panel: "sidebar" | "inspector";
+    visible: boolean;
+    label: string;
+    pressedLabel: string;
+    unpressedLabel: string;
+  }>,
+): void {
+  if (!canMountVueIsland(actions)) {
+    return;
+  }
+  mountChatHeaderActionsIsland(actions, {
+    actions: [...items],
+    onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
+  });
+}
+
+function toggleChatMenuPopover(menu: HTMLElement, popover: HTMLElement): void {
+  const expanded = menu.getAttribute("aria-expanded") === "true";
+  menu.setAttribute("aria-expanded", String(!expanded));
+  popover.hidden = expanded;
 }
 
 function activeChatSession(chat: DesktopNativeChatModel | null): NativeChatSession | null {
@@ -954,6 +1440,13 @@ function createChatMenuPopover(
     trigger.setAttribute("aria-expanded", "false");
   };
 
+  const popoverActions: Array<{
+    action: string;
+    disabled: boolean;
+    label: string;
+    onAction: () => string | void;
+  }> = [];
+
   const appendAction = (action: string, label: string, handler: (button: HTMLElement) => void, disabled = false) => {
     const button = targetDocument.createElement("button");
     button.type = "button";
@@ -973,7 +1466,21 @@ function createChatMenuPopover(
       handler(button);
       close();
     });
+    mountChatMenuActionVueIsland(button, { action, disabled, label });
     popover.append(button);
+    popoverActions.push({
+      action,
+      disabled,
+      label,
+      onAction: () => {
+        if (disabled) {
+          return;
+        }
+        handler(button);
+        close();
+        return button.textContent ?? undefined;
+      },
+    });
     return button;
   };
 
@@ -1012,10 +1519,50 @@ function createChatMenuPopover(
   if (!chat?.sessions.length) {
     const empty = createText(targetDocument, "span", "No active session");
     empty.className = "desktop-chat-menu-empty";
+    mountChatMenuEmptyVueIsland(empty, "No active session");
     popover.append(empty);
   }
 
+  mountChatMenuPopoverVueIsland(popover, {
+    actions: popoverActions,
+    emptyMessage: !chat?.sessions.length ? "No active session" : "",
+  });
   return popover;
+}
+
+function mountChatMenuPopoverVueIsland(
+  popover: HTMLElement,
+  options: {
+    actions: Array<{
+      action: string;
+      disabled: boolean;
+      label: string;
+      onAction: () => string | void;
+    }>;
+    emptyMessage: string;
+  },
+): void {
+  if (!canMountVueIsland(popover)) {
+    return;
+  }
+  mountChatMenuPopoverIsland(popover, options);
+}
+
+function mountChatMenuEmptyVueIsland(empty: HTMLElement, message: string): void {
+  if (!canMountVueIsland(empty)) {
+    return;
+  }
+  mountChatMenuEmptyIsland(empty, { message });
+}
+
+function mountChatMenuActionVueIsland(
+  button: HTMLElement,
+  options: { action: string; disabled: boolean; label: string },
+): void {
+  if (!canMountVueIsland(button)) {
+    return;
+  }
+  mountChatMenuActionIsland(button, options);
 }
 
 function pinnedSessionKeysForDocument(targetDocument: Document): Set<string> {
@@ -1222,23 +1769,60 @@ function createHeaderPanelControl(
   } else {
     button.textContent = label;
   }
-  button.addEventListener("click", () => {
-    toggleDesktopPanel(targetDocument, panel);
-  });
-  button.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    toggleDesktopPanel(targetDocument, panel);
+  mountHeaderPanelControlVueIsland(button, targetDocument, {
+    panel,
+    visible,
+    label,
+    pressedLabel,
+    unpressedLabel,
   });
   return button;
+}
+
+function mountHeaderPanelControlVueIsland(
+  button: HTMLElement,
+  targetDocument: Document,
+  options: {
+    panel: DesktopPanelControlId;
+    visible: boolean;
+    label: string;
+    pressedLabel: string;
+    unpressedLabel: string;
+  },
+): void {
+  const toggle = () => toggleDesktopPanel(targetDocument, options.panel);
+  const installFallback = () => {
+    button.addEventListener("click", toggle);
+    button.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      toggle();
+    });
+  };
+  if (!canMountVueIsland(button)) {
+    installFallback();
+    return;
+  }
+  mountHeaderPanelControlIsland(button, {
+    ...options,
+    onToggle: () => toggle(),
+  });
 }
 
 function createPanelIconPart(targetDocument: Document, part: "frame" | "rail"): HTMLElement {
   const node = targetDocument.createElement("span");
   node.className = `desktop-chat-header-panel-icon-${part}`;
+  mountPanelIconPartVueIsland(node, part);
   return node;
+}
+
+function mountPanelIconPartVueIsland(node: HTMLElement, part: "frame" | "rail"): void {
+  if (!canMountVueIsland(node)) {
+    return;
+  }
+  mountPanelIconPartIsland(node, { part });
 }
 
 function createConversationThread(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
@@ -1247,22 +1831,37 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
   thread.setAttribute("aria-label", "Conversation");
   if (chat) {
     if (!chat.activeSessionKey) {
-      thread.append(createText(targetDocument, "p", "No live session selected."));
+      renderConversationEmptyState(targetDocument, thread, "No live session selected.");
+      mountConversationThreadVueIsland(thread, { emptyMessage: "No live session selected.", messages: [] });
       return thread;
     }
     if (!chat.messages.length) {
-      thread.append(createText(targetDocument, "p", "No messages in this session."));
+      renderConversationEmptyState(targetDocument, thread, "No messages in this session.");
+      mountConversationThreadVueIsland(thread, { emptyMessage: "No messages in this session.", messages: [] });
       return thread;
     }
-    thread.append(...chat.messages.map((message) => createConversationMessage(targetDocument, {
+    const messages = chat.messages.map((message) => ({
       author: message.role === "user" ? "You" : "Tinybot",
       time: formatCompactTime(message.timestamp),
       tone: message.role === "user" ? "user" : "assistant",
       reasoningContent: message.reasoningContent,
       body: shouldRenderConversationBody(message) ? [message.content].filter(Boolean) : [],
-      toolActivities: message.toolActivities,
-      references: message.references,
-    })));
+      toolActivities: (message.toolActivities ?? []).map((activity) => ({
+        argsText: activity.argsText || "",
+        approvalStatus: activity.approvalStatus || "",
+        id: activity.id || "",
+        kind: activity.kind,
+        name: activity.name || "",
+        responseText: activity.responseText || "",
+      })),
+      references: (message.references ?? []).map((reference) => ({
+        detail: reference.detail ?? "",
+        kind: reference.kind,
+        title: reference.title,
+      })),
+    }));
+    thread.append(...messages.map((message) => createConversationMessage(targetDocument, message)));
+    mountConversationThreadVueIsland(thread, { emptyMessage: "", messages });
     return thread;
   }
   thread.append(
@@ -1287,6 +1886,43 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
     }),
   );
   return thread;
+}
+
+function mountConversationThreadVueIsland(
+  thread: HTMLElement,
+  options: {
+    emptyMessage: string;
+    messages: Array<{
+      attachment?: string;
+      author: string;
+      body: string[];
+      references: Array<{ detail: string; kind: string; title: string }>;
+      reasoningContent?: string;
+      time: string;
+      tone: "assistant" | "user";
+      toolActivities: Array<{
+        argsText: string;
+        approvalStatus: string;
+        id: string;
+        kind: "call" | "result";
+        name: string;
+        responseText: string;
+      }>;
+    }>;
+  },
+): void {
+  if (!canMountVueIsland(thread)) {
+    return;
+  }
+  mountConversationThreadIsland(thread, options);
+}
+
+function renderConversationEmptyState(targetDocument: Document, thread: HTMLElement, message: string): void {
+  thread.append(createText(targetDocument, "p", message));
+  if (!canMountVueIsland(thread)) {
+    return;
+  }
+  mountConversationEmptyStateIsland(thread, { message });
 }
 
 function shouldRenderConversationBody(message: NativeChatMessage): boolean {
@@ -1315,6 +1951,7 @@ function createConversationMessage(
   const meta = targetDocument.createElement("div");
   meta.className = "desktop-conversation-meta";
   meta.append(createText(targetDocument, "strong", options.author), createText(targetDocument, "span", options.time));
+  mountConversationMetaVueIsland(meta, { author: options.author, time: options.time });
   content.append(meta);
   if (options.reasoningContent?.trim()) {
     content.append(createConversationReasoning(targetDocument, options.reasoningContent));
@@ -1324,18 +1961,109 @@ function createConversationMessage(
   }
   content.append(createConversationBody(targetDocument, options.body, options.tone));
   for (const reference of options.references ?? []) {
-    const node = createText(targetDocument, "p", `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`);
+    const node = createText(targetDocument, "p", conversationReferenceText(reference));
     node.className = "desktop-conversation-reference";
+    mountConversationReferenceVueIsland(node, {
+      detail: reference.detail ?? "",
+      kind: reference.kind,
+      title: reference.title,
+    });
     content.append(node);
   }
   if (options.attachment) {
     const attachment = targetDocument.createElement("div");
     attachment.className = "desktop-conversation-attachment";
-    attachment.textContent = `${options.attachment}  1.2 MB`;
+    attachment.textContent = conversationAttachmentText(options.attachment, "1.2 MB");
+    mountConversationAttachmentVueIsland(attachment, {
+      name: options.attachment,
+      sizeLabel: "1.2 MB",
+    });
     content.append(attachment);
   }
   article.append(content);
+  mountConversationMessageVueIsland(article, {
+    attachment: options.attachment,
+    author: options.author,
+    body: options.body,
+    references: (options.references ?? []).map((reference) => ({
+      detail: reference.detail ?? "",
+      kind: reference.kind,
+      title: reference.title,
+    })),
+    reasoningContent: options.reasoningContent,
+    time: options.time,
+    tone: options.tone,
+    toolActivities: (options.toolActivities ?? []).map((activity) => ({
+      argsText: activity.argsText || "",
+      approvalStatus: activity.approvalStatus || "",
+      id: activity.id || "",
+      kind: activity.kind,
+      name: activity.name || "",
+      responseText: activity.responseText || "",
+    })),
+  });
   return article;
+}
+
+function mountConversationMessageVueIsland(
+  message: HTMLElement,
+  options: {
+    attachment?: string;
+    author: string;
+    body: string[];
+    references: Array<{ detail: string; kind: string; title: string }>;
+    reasoningContent?: string;
+    time: string;
+    tone: "assistant" | "user";
+    toolActivities: Array<{
+      argsText: string;
+      approvalStatus: string;
+      id: string;
+      kind: "call" | "result";
+      name: string;
+      responseText: string;
+    }>;
+  },
+): void {
+  if (!canMountVueIsland(message)) {
+    return;
+  }
+  mountConversationMessageIsland(message, options);
+}
+
+function mountConversationMetaVueIsland(meta: HTMLElement, options: { author: string; time: string }): void {
+  if (!canMountVueIsland(meta)) {
+    return;
+  }
+  mountConversationMetaIsland(meta, options);
+}
+
+function conversationReferenceText(reference: { detail?: string; kind: string; title: string }): string {
+  return `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`;
+}
+
+function conversationAttachmentText(name: string, sizeLabel: string): string {
+  return `${name}${sizeLabel ? `  ${sizeLabel}` : ""}`;
+}
+
+function mountConversationAttachmentVueIsland(
+  attachment: HTMLElement,
+  options: { name: string; sizeLabel: string },
+): void {
+  if (!canMountVueIsland(attachment)) {
+    return;
+  }
+  mountConversationAttachmentIsland(attachment, options);
+}
+
+function mountConversationReferenceVueIsland(
+  reference: HTMLElement,
+  options: { detail: string; kind: string; title: string },
+): void {
+  if (!canMountVueIsland(reference)) {
+    return;
+  }
+  mountConversationReferenceIsland(reference, options);
 }
 
 function createConversationReasoning(targetDocument: Document, reasoningContent: string): HTMLElement {
@@ -1351,7 +2079,15 @@ function createConversationReasoning(targetDocument: Document, reasoningContent:
   const body = createText(targetDocument, "div", reasoningContent);
   body.className = "desktop-message-reasoning-body";
   details.append(summary, body);
+  mountConversationReasoningVueIsland(details, reasoningContent);
   return details;
+}
+
+function mountConversationReasoningVueIsland(reasoning: HTMLElement, content: string): void {
+  if (!canMountVueIsland(reasoning)) {
+    return;
+  }
+  mountConversationReasoningIsland(reasoning, { content });
 }
 
 function createToolActivities(
@@ -1363,7 +2099,32 @@ function createToolActivities(
   for (const activity of activities) {
     wrapper.append(createToolActivity(targetDocument, activity));
   }
+  mountToolActivitiesVueIsland(wrapper, activities.map((activity) => ({
+    argsText: activity.argsText || "",
+    approvalStatus: activity.approvalStatus || "",
+    id: activity.id || "",
+    kind: activity.kind,
+    name: activity.name || "",
+    responseText: activity.responseText || "",
+  })));
   return wrapper;
+}
+
+function mountToolActivitiesVueIsland(
+  wrapper: HTMLElement,
+  activities: Array<{
+    argsText: string;
+    approvalStatus: string;
+    id: string;
+    kind: "call" | "result";
+    name: string;
+    responseText: string;
+  }>,
+): void {
+  if (!canMountVueIsland(wrapper)) {
+    return;
+  }
+  mountToolActivitiesIsland(wrapper, { activities });
 }
 
 function createToolActivity(
@@ -1416,7 +2177,32 @@ function createToolActivity(
     body.append(empty);
   }
   details.append(body);
+  mountToolActivityVueIsland(details, {
+    argsText: activity.argsText || "",
+    approvalStatus: activity.approvalStatus || "",
+    id: activity.id || "",
+    kind: activity.kind,
+    name: activity.name || "",
+    responseText: activity.responseText || "",
+  });
   return details;
+}
+
+function mountToolActivityVueIsland(
+  activity: HTMLElement,
+  options: {
+    argsText: string;
+    approvalStatus: string;
+    id: string;
+    kind: "call" | "result";
+    name: string;
+    responseText: string;
+  },
+): void {
+  if (!canMountVueIsland(activity)) {
+    return;
+  }
+  mountToolActivityIsland(activity, options);
 }
 
 function createToolActivitySection(
@@ -1432,7 +2218,18 @@ function createToolActivitySection(
   const pre = createText(targetDocument, "pre", text);
   pre.className = "desktop-tool-activity-pre";
   section.append(labelNode, pre);
+  mountToolActivitySectionVueIsland(section, { kind, label, text });
   return section;
+}
+
+function mountToolActivitySectionVueIsland(
+  section: HTMLElement,
+  options: { kind: "call" | "response"; label: string; text: string },
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountToolActivitySectionIsland(section, options);
 }
 
 function summarizeToolText(value: string): string {
@@ -1453,12 +2250,24 @@ function createConversationBody(
   const content = body.filter((line) => line.trim()).join("\n\n");
   if (tone === "assistant") {
     renderConversationMarkdown(node, content);
+    mountConversationBodyVueIsland(node, { body, tone });
     return node;
   }
   for (const line of body) {
     node.append(createText(targetDocument, "p", line));
   }
+  mountConversationBodyVueIsland(node, { body, tone });
   return node;
+}
+
+function mountConversationBodyVueIsland(
+  body: HTMLElement,
+  options: { body: string[]; tone: "assistant" | "user" },
+): void {
+  if (!canMountVueIsland(body)) {
+    return;
+  }
+  mountConversationBodyIsland(body, options);
 }
 
 function renderConversationMarkdown(target: HTMLElement, content: string): void {
@@ -1504,9 +2313,7 @@ function createNativeComposerSurface(
   attach.setAttribute("data-desktop-composer-action", "attach");
   attach.setAttribute("aria-label", "Attach temporary file to current session");
   attach.textContent = "+";
-  attach.addEventListener("click", () => {
-    chatActions.onAttachSessionFile?.();
-  });
+  mountComposerAttachButtonVueIsland(attach, chatActions);
 
   const input = targetDocument.createElement("textarea");
   input.id = "desktop-native-composer-input";
@@ -1525,15 +2332,7 @@ function createNativeComposerSurface(
   input.addEventListener("input", () => {
     updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat);
   });
-  send.addEventListener("click", () => {
-    if ((send as HTMLButtonElement).disabled || !input.value.trim()) {
-      return;
-    }
-    chatActions.onComposerSubmit?.({
-      content: input.value,
-      usePersistentRag: chat?.usePersistentRag !== false,
-    });
-  });
+  mountComposerSendButtonVueIsland(send, input as HTMLTextAreaElement, chat, chatActions);
 
   const runtime = targetDocument.createElement("div");
   runtime.id = "desktop-native-composer-runtime";
@@ -1545,9 +2344,101 @@ function createNativeComposerSurface(
     createPersistentRagToggle(targetDocument, chat, chatActions),
     createTokenUsageOrb(targetDocument, chat?.runtime?.tokenUsage || "-"),
   );
+  mountComposerRuntimeVueIsland(runtime, chat, chatActions);
 
   composer.append(input, attach, runtime, send);
+  mountComposerSurfaceVueIsland(composer, chat, chatActions);
   return composer;
+}
+
+function mountComposerSurfaceVueIsland(
+  composer: HTMLElement,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  if (!canMountVueIsland(composer)) {
+    return;
+  }
+  mountComposerSurfaceIsland(composer, {
+    activeSessionKey: chat?.activeSessionKey || null,
+    composerState: nativeComposerState(chat),
+    model: chat?.runtime?.model || null,
+    responding: chat?.responding === true,
+    tokenUsage: chat?.runtime?.tokenUsage || "-",
+    usePersistentRag: chat?.usePersistentRag !== false,
+    onAttach: () => chatActions.onAttachSessionFile?.(),
+    onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
+    onSend: (event) => chatActions.onComposerSubmit?.(event),
+  });
+}
+
+function mountComposerSendButtonVueIsland(
+  button: HTMLElement,
+  input: HTMLTextAreaElement,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const submit = () => submitNativeComposerMessage(button as HTMLButtonElement, input, chat, chatActions);
+  const installFallback = () => {
+    button.addEventListener("click", submit);
+  };
+  if (!canMountVueIsland(button)) {
+    installFallback();
+    return;
+  }
+  mountComposerSendButtonIsland(button, {
+    disabled: (button as HTMLButtonElement).disabled,
+    onSend: submit,
+  });
+}
+
+function submitNativeComposerMessage(
+  send: HTMLButtonElement,
+  input: HTMLTextAreaElement,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  if (send.disabled || !input.value.trim()) {
+    return;
+  }
+  chatActions.onComposerSubmit?.({
+    content: input.value,
+    usePersistentRag: chat?.usePersistentRag !== false,
+  });
+}
+
+function mountComposerAttachButtonVueIsland(
+  button: HTMLElement,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const installFallback = () => {
+    button.addEventListener("click", () => {
+      chatActions.onAttachSessionFile?.();
+    });
+  };
+  if (!canMountVueIsland(button)) {
+    installFallback();
+    return;
+  }
+  mountComposerAttachButtonIsland(button, {
+    onAttach: () => chatActions.onAttachSessionFile?.(),
+  });
+}
+
+function mountComposerRuntimeVueIsland(
+  runtime: HTMLElement,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  if (!canMountVueIsland(runtime)) {
+    return;
+  }
+  mountComposerRuntimeIsland(runtime, {
+    model: chat?.runtime?.model || null,
+    persistentRag: chat?.usePersistentRag !== false,
+    tokenUsage: chat?.runtime?.tokenUsage || "-",
+    onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
+  });
 }
 
 function updateNativeComposerSendState(
@@ -1589,7 +2480,15 @@ function createComposerModelControl(targetDocument: Document, chat: DesktopNativ
   button.className = "desktop-native-composer-model";
   button.setAttribute("aria-label", "Select model");
   button.textContent = chat?.runtime?.model || "Tinybot Pro";
+  mountComposerModelControlVueIsland(button, chat?.runtime?.model || null);
   return button;
+}
+
+function mountComposerModelControlVueIsland(button: HTMLElement, model: string | null): void {
+  if (!canMountVueIsland(button)) {
+    return;
+  }
+  mountComposerModelControlIsland(button, { model });
 }
 
 function createPersistentRagToggle(
@@ -1605,10 +2504,28 @@ function createPersistentRagToggle(
   button.setAttribute("aria-label", "Toggle persistent RAG");
   button.setAttribute("aria-pressed", String(enabled));
   button.textContent = `RAG ${enabled ? "On" : "Off"}`;
-  button.addEventListener("click", () => {
-    chatActions.onPersistentRagChange?.(!enabled);
-  });
+  mountPersistentRagToggleVueIsland(button, enabled, chatActions);
   return button;
+}
+
+function mountPersistentRagToggleVueIsland(
+  button: HTMLElement,
+  enabled: boolean,
+  chatActions: DesktopNativeChatActionOptions,
+): void {
+  const installFallback = () => {
+    button.addEventListener("click", () => {
+      chatActions.onPersistentRagChange?.(!enabled);
+    });
+  };
+  if (!canMountVueIsland(button)) {
+    installFallback();
+    return;
+  }
+  mountPersistentRagToggleIsland(button, {
+    enabled,
+    onToggle: (nextEnabled) => chatActions.onPersistentRagChange?.(nextEnabled),
+  });
 }
 
 function createTokenUsageOrb(targetDocument: Document, tokenUsage: string): HTMLElement {
@@ -1623,7 +2540,15 @@ function createTokenUsageOrb(targetDocument: Document, tokenUsage: string): HTML
   orb.setAttribute("data-token-usage", String(percent));
   orb.style.setProperty("--token-usage-fill", `${percent}%`);
   orb.textContent = `${percent}%`;
+  mountTokenUsageOrbVueIsland(orb, tokenUsage);
   return orb;
+}
+
+function mountTokenUsageOrbVueIsland(orb: HTMLElement, tokenUsage: string): void {
+  if (!canMountVueIsland(orb)) {
+    return;
+  }
+  mountTokenUsageOrbIsland(orb, { tokenUsage });
 }
 
 function parseTokenUsagePercent(tokenUsage: string): number {
@@ -1671,14 +2596,33 @@ function createModuleWorkSection(targetDocument: Document, title: string, items:
     row.setAttribute("data-desktop-module-work-source", item.source);
     row.setAttribute("aria-label", `Inspect ${item.title} in Work Lens`);
     row.textContent = `${item.title}: ${[item.status, item.detail, item.progressLabel].filter(Boolean).join(" / ")}`;
-    row.addEventListener("click", () => {
-      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
-      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
-    });
+    row.addEventListener("click", () => inspectModuleWorkItem(targetDocument, item));
     section.append(row);
   }
 
+  mountModuleWorkSectionVueIsland(section, targetDocument, title, items);
   return section;
+}
+
+function mountModuleWorkSectionVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  title: string,
+  items: DesktopTaskCenterItem[],
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountModuleWorkSectionIsland(section, {
+    title,
+    items,
+    onInspect: (item) => inspectModuleWorkItem(targetDocument, item),
+  });
+}
+
+function inspectModuleWorkItem(targetDocument: Document, item: DesktopTaskCenterItem): void {
+  const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+  setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
 }
 
 function createAgentUiFormsSurface(
@@ -1694,13 +2638,40 @@ function createAgentUiFormsSurface(
 
   if (!forms.length) {
     section.append(createText(targetDocument, "p", "No pending Agent UI forms."));
+    mountAgentUiFormsSurfaceVueIsland(section, { agentUiActions, forms });
     return section;
   }
 
   for (const form of forms) {
     section.append(createAgentUiFormCard(targetDocument, form, agentUiActions));
   }
+  mountAgentUiFormsSurfaceVueIsland(section, { agentUiActions, forms });
   return section;
+}
+
+function mountAgentUiFormsSurfaceVueIsland(
+  section: HTMLElement,
+  options: {
+    agentUiActions: DesktopAgentUiFormActionOptions;
+    forms: AgentUiForm[];
+  },
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountAgentUiFormsSurfaceIsland(section, {
+    forms: options.forms,
+    onCancel: (form) => {
+      options.agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+    },
+    onSubmit: (form, values) => {
+      options.agentUiActions.onAgentUiFormAction?.({
+        action: "submit",
+        form,
+        values,
+      });
+    },
+  });
 }
 
 function createAgentUiFormCard(
@@ -1757,11 +2728,67 @@ function createAgentUiFormCard(
       agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
     });
     actions.append(submit, cancel);
+    mountAgentUiFormActionsVueIsland(actions, {
+      cancelLabel: form.cancel_label || "Cancel",
+      onCancel: () => {
+        agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+      },
+      onSubmit: () => {
+        agentUiActions.onAgentUiFormAction?.({
+          action: "submit",
+          form,
+          values: collectAgentUiFormValues(form, formElement),
+        });
+      },
+      submitLabel: form.submit_label || "Submit",
+    });
     formElement.append(actions);
   }
 
   card.append(formElement);
+  mountAgentUiFormCardVueIsland(card, {
+    form,
+    onCancel: (nextForm) => {
+      agentUiActions.onAgentUiFormAction?.({ action: "cancel", form: nextForm });
+    },
+    onSubmit: (nextForm, values) => {
+      agentUiActions.onAgentUiFormAction?.({
+        action: "submit",
+        form: nextForm,
+        values,
+      });
+    },
+  });
   return card;
+}
+
+function mountAgentUiFormCardVueIsland(
+  card: HTMLElement,
+  options: {
+    form: AgentUiForm;
+    onCancel: (form: AgentUiForm) => void;
+    onSubmit: (form: AgentUiForm, values: Record<string, unknown>) => void;
+  },
+): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  mountAgentUiFormCardIsland(card, options);
+}
+
+function mountAgentUiFormActionsVueIsland(
+  actions: HTMLElement,
+  options: {
+    cancelLabel: string;
+    onCancel: () => void;
+    onSubmit: () => void;
+    submitLabel: string;
+  },
+): void {
+  if (!canMountVueIsland(actions)) {
+    return;
+  }
+  mountAgentUiFormActionsIsland(actions, options);
 }
 
 function createAgentUiFormField(targetDocument: Document, form: AgentUiForm, field: AgentUiFormField): HTMLElement {
@@ -1779,11 +2806,36 @@ function createAgentUiFormField(targetDocument: Document, form: AgentUiForm, fie
     errorNode.className = "desktop-agent-ui-form-error";
     wrapper.append(errorNode);
   }
+  mountAgentUiFormFieldVueIsland(wrapper, {
+    disabled: !isAgentUiFormSubmittable(form),
+    error,
+    field,
+    value: agentUiFieldValue(form, field),
+  });
   return wrapper;
 }
 
+function mountAgentUiFormFieldVueIsland(
+  wrapper: HTMLElement,
+  options: {
+    disabled: boolean;
+    error?: string;
+    field: AgentUiFormField;
+    value: unknown;
+  },
+): void {
+  if (!canMountVueIsland(wrapper)) {
+    return;
+  }
+  mountAgentUiFormFieldIsland(wrapper, options);
+}
+
+function agentUiFieldValue(form: AgentUiForm, field: AgentUiFormField): unknown {
+  return form.values?.[field.name] ?? form.initial_values?.[field.name] ?? field.default ?? "";
+}
+
 function createAgentUiFieldControl(targetDocument: Document, form: AgentUiForm, field: AgentUiFormField): HTMLElement {
-  const value = form.values?.[field.name] ?? form.initial_values?.[field.name] ?? field.default ?? "";
+  const value = agentUiFieldValue(form, field);
   const disabled = !isAgentUiFormSubmittable(form);
   if (field.type === "textarea") {
     const textarea = targetDocument.createElement("textarea");
@@ -1867,6 +2919,7 @@ function createToolsSkillsPane(
     setDesktopEntityHook(row, "tools", tool.name);
     tools.append(row);
   }
+  mountToolsListVueIsland(tools, pane);
   section.append(tools);
 
   if (pane.selectedTool) {
@@ -1887,6 +2940,7 @@ function createToolsSkillsPane(
         `${field.name}: ${field.type}${field.required ? " required" : ""}${field.description ? ` - ${field.description}` : ""}`,
       ));
     }
+    mountToolDetailVueIsland(detail, pane.selectedTool);
     section.append(detail);
   }
 
@@ -1898,12 +2952,15 @@ function createToolsSkillsPane(
     setDesktopEntityHook(row, "skills", skill.name);
     skills.append(row);
   }
+  mountSkillsListVueIsland(skills, pane);
   section.append(skills);
 
   if (pane.selectedSkill) {
     const detail = targetDocument.createElement("section");
     detail.className = "desktop-skill-detail";
-    detail.append(
+    const summary = targetDocument.createElement("section");
+    summary.className = "desktop-skill-detail-summary";
+    summary.append(
       createText(targetDocument, "h2", `Skill detail: ${pane.selectedSkill.name}`),
       createText(targetDocument, "p", pane.selectedSkill.description),
       createText(targetDocument, "p", `Source: ${pane.selectedSkill.source}`),
@@ -1914,8 +2971,9 @@ function createToolsSkillsPane(
         "p",
         `Validation: ${pane.selectedSkill.editor.validation.message || pane.selectedSkill.editor.validation.state}`,
       ),
-      createDesktopSkillEditor(targetDocument, pane, toolsSkillsActions),
     );
+    mountSkillDetailSummaryVueIsland(summary, pane.selectedSkill);
+    detail.append(summary, createDesktopSkillEditor(targetDocument, pane, toolsSkillsActions));
     const actions: Array<[DesktopToolsSkillsActionId, string, boolean]> = [
       ["createSkill", "Create skill", pane.selectedSkill.actions.create],
       ["saveSkill", "Save skill", pane.selectedSkill.actions.save],
@@ -1938,10 +2996,85 @@ function createToolsSkillsPane(
       });
       actionRow.append(button);
     }
+    mountToolsSkillsActionsVueIsland(actionRow, actions, pane, toolsSkillsActions);
     detail.append(actionRow);
     section.append(detail);
   }
+  mountToolsSkillsPaneVueIsland(section, pane, toolsSkillsActions);
   return section;
+}
+
+function mountToolsSkillsPaneVueIsland(
+  section: HTMLElement,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountToolsSkillsPaneIsland(section, {
+    pane,
+    onToolsSkillsAction: (event) => {
+      toolsSkillsActions.onToolsSkillsAction?.(event);
+    },
+  });
+}
+
+function mountToolsSkillsActionsVueIsland(
+  actionRow: HTMLElement,
+  actions: Array<[DesktopToolsSkillsActionId, string, boolean]>,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): void {
+  if (!canMountVueIsland(actionRow)) {
+    return;
+  }
+  mountToolsSkillsActionsIsland(actionRow, {
+    actions: actions.map(([action, label, enabled]) => ({ action, label, enabled })),
+    onAction: (action) => {
+      toolsSkillsActions.onToolsSkillsAction?.({ action, pane });
+    },
+  });
+}
+
+function mountToolsListVueIsland(
+  tools: HTMLElement,
+  pane: DesktopToolsSkillsPaneModel,
+): void {
+  if (!canMountVueIsland(tools)) {
+    return;
+  }
+  mountToolsListIsland(tools, { tools: pane.toolRows });
+}
+
+function mountSkillsListVueIsland(
+  skills: HTMLElement,
+  pane: DesktopToolsSkillsPaneModel,
+): void {
+  if (!canMountVueIsland(skills)) {
+    return;
+  }
+  mountSkillsListIsland(skills, { skills: pane.skillRows });
+}
+
+function mountToolDetailVueIsland(
+  detail: HTMLElement,
+  tool: NonNullable<DesktopToolsSkillsPaneModel["selectedTool"]>,
+): void {
+  if (!canMountVueIsland(detail)) {
+    return;
+  }
+  mountToolDetailIsland(detail, { tool });
+}
+
+function mountSkillDetailSummaryVueIsland(
+  summary: HTMLElement,
+  skill: NonNullable<DesktopToolsSkillsPaneModel["selectedSkill"]>,
+): void {
+  if (!canMountVueIsland(summary)) {
+    return;
+  }
+  mountSkillDetailSummaryIsland(summary, { skill });
 }
 
 function createKnowledgePane(
@@ -1978,6 +3111,7 @@ function createKnowledgePane(
     });
     actionRow.append(button);
   }
+  mountKnowledgeActionsVueIsland(actionRow, actions, pane, knowledgeActions);
   section.append(actionRow);
   if (workItems.length) {
     section.append(createModuleWorkSection(targetDocument, "Knowledge jobs", workItems));
@@ -1992,6 +3126,7 @@ function createKnowledgePane(
   for (const row of pane.readiness.rows) {
     readiness.append(createText(targetDocument, "p", `${row.id}: ${row.tone}`));
   }
+  mountKnowledgeReadinessVueIsland(readiness, pane);
   section.append(readiness);
 
   const documents = targetDocument.createElement("section");
@@ -2002,6 +3137,7 @@ function createKnowledgePane(
     setDesktopEntityHook(row, "knowledge", document.id || document.path);
     documents.append(row);
   }
+  mountKnowledgeDocumentsVueIsland(documents, pane);
   section.append(documents);
 
   if (pane.selectedDocument) {
@@ -2012,6 +3148,7 @@ function createKnowledgePane(
       createText(targetDocument, "p", pane.selectedDocument.detail),
       createText(targetDocument, "p", `Tags: ${pane.selectedDocument.tags.join(", ") || "none"}`),
     );
+    mountKnowledgeDocumentDetailVueIsland(detail, pane.selectedDocument);
     section.append(detail);
   }
 
@@ -2025,6 +3162,7 @@ function createKnowledgePane(
   for (const row of pane.query.results.rows.slice(0, 4)) {
     query.append(createText(targetDocument, "p", `${row.docName}: ${row.content}`));
   }
+  mountKnowledgeQueryVueIsland(query, pane);
   section.append(query);
 
   const graph = targetDocument.createElement("section");
@@ -2038,9 +3176,104 @@ function createKnowledgePane(
   for (const evidence of pane.graph.evidence.slice(0, 4)) {
     graph.append(createText(targetDocument, "p", `Evidence: ${evidence.title} / ${evidence.docName}`));
   }
+  mountKnowledgeGraphVueIsland(graph, pane);
   section.append(graph);
 
+  mountKnowledgePaneVueIsland(section, targetDocument, pane, knowledgeActions, workItems);
   return section;
+}
+
+function mountKnowledgePaneVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  pane: DesktopKnowledgePaneModel,
+  knowledgeActions: DesktopKnowledgeActionOptions,
+  workItems: DesktopTaskCenterItem[],
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountKnowledgePaneIsland(section, {
+    pane,
+    workItems,
+    onInspectWorkItem: (item) => renderWorkLensFromTask(targetDocument, item),
+    onKnowledgeAction: (event) => {
+      knowledgeActions.onKnowledgeAction?.(event);
+    },
+  });
+}
+
+function mountKnowledgeActionsVueIsland(
+  actionRow: HTMLElement,
+  actions: Array<[DesktopKnowledgeActionId, string, boolean]>,
+  pane: DesktopKnowledgePaneModel,
+  knowledgeActions: DesktopKnowledgeActionOptions,
+): void {
+  if (!canMountVueIsland(actionRow)) {
+    return;
+  }
+  mountKnowledgeActionsIsland(actionRow, {
+    actions: actions.map(([action, label, enabled]) => ({ action, label, enabled })),
+    onAction: (action) => {
+      knowledgeActions.onKnowledgeAction?.({ action, pane });
+    },
+  });
+}
+
+function mountKnowledgeReadinessVueIsland(
+  readiness: HTMLElement,
+  pane: DesktopKnowledgePaneModel,
+): void {
+  if (!canMountVueIsland(readiness)) {
+    return;
+  }
+  mountKnowledgeReadinessIsland(readiness, {
+    readiness: pane.readiness,
+    configHints: pane.configHints,
+  });
+}
+
+function mountKnowledgeDocumentsVueIsland(
+  documents: HTMLElement,
+  pane: DesktopKnowledgePaneModel,
+): void {
+  if (!canMountVueIsland(documents)) {
+    return;
+  }
+  mountKnowledgeDocumentsIsland(documents, { documents: pane.documentRows });
+}
+
+function mountKnowledgeDocumentDetailVueIsland(
+  detail: HTMLElement,
+  document: NonNullable<DesktopKnowledgePaneModel["selectedDocument"]>,
+): void {
+  if (!canMountVueIsland(detail)) {
+    return;
+  }
+  mountKnowledgeDocumentDetailIsland(detail, { document });
+}
+
+function mountKnowledgeQueryVueIsland(
+  query: HTMLElement,
+  pane: DesktopKnowledgePaneModel,
+): void {
+  if (!canMountVueIsland(query)) {
+    return;
+  }
+  mountKnowledgeQueryIsland(query, {
+    draft: pane.query.draft,
+    results: pane.query.results,
+  });
+}
+
+function mountKnowledgeGraphVueIsland(
+  graph: HTMLElement,
+  pane: DesktopKnowledgePaneModel,
+): void {
+  if (!canMountVueIsland(graph)) {
+    return;
+  }
+  mountKnowledgeGraphIsland(graph, { graph: pane.graph });
 }
 
 function createCoworkCockpitPane(
@@ -2077,11 +3310,13 @@ function createCoworkCockpitPane(
     });
     sessions.append(row);
   }
+  mountCoworkSessionsVueIsland(sessions, targetDocument, pane.sessionRows);
   section.append(sessions);
   section.append(createCoworkActionControls(targetDocument, pane, coworkActions));
 
   if (!pane.cockpitView) {
     section.append(createText(targetDocument, "p", "Select a Cowork session to open the cockpit."));
+    mountCoworkPaneVueIsland(section, targetDocument, pane, coworkActions);
     return section;
   }
 
@@ -2093,6 +3328,7 @@ function createCoworkCockpitPane(
     createText(targetDocument, "p", view.header.goal || "No goal provided."),
     createText(targetDocument, "p", `${view.header.status} / ${view.header.workflow}${view.header.updatedAt ? ` / ${view.header.updatedAt}` : ""}`),
   );
+  mountCoworkHeaderVueIsland(header, view.header);
   section.append(header);
 
   const inspector = createCoworkInspectorPane(targetDocument, view, pane, coworkActions);
@@ -2101,7 +3337,70 @@ function createCoworkCockpitPane(
   section.append(inspector);
   section.append(createCoworkTaskFeed(targetDocument, view));
 
+  mountCoworkPaneVueIsland(section, targetDocument, pane, coworkActions);
   return section;
+}
+
+function mountCoworkPaneVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountCoworkPaneIsland(section, {
+    pane,
+    onCoworkAction: (event) => {
+      coworkActions.onCoworkAction?.(event);
+    },
+    onGraphSelect: (selection) => {
+      setRouteStatus(targetDocument, `Inspecting Cowork ${selection.label}`);
+    },
+    onObservabilityPanelSelected: (panel) => {
+      setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+    },
+    onSessionSelect: (session) => {
+      const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+      if (!item) {
+        return;
+      }
+      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+    },
+  });
+}
+
+function mountCoworkHeaderVueIsland(
+  header: HTMLElement,
+  viewHeader: DesktopCoworkCockpitView["header"],
+): void {
+  if (!canMountVueIsland(header)) {
+    return;
+  }
+  mountCoworkHeaderIsland(header, { header: viewHeader });
+}
+
+function mountCoworkSessionsVueIsland(
+  sessions: HTMLElement,
+  targetDocument: Document,
+  sessionRows: DesktopCoworkSessionRow[],
+): void {
+  if (!canMountVueIsland(sessions)) {
+    return;
+  }
+  mountCoworkSessionsIsland(sessions, {
+    sessions: sessionRows,
+    onSelect: (session) => {
+      const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+      if (!item) {
+        return;
+      }
+      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+    },
+  });
 }
 
 function createCoworkActionControls(
@@ -2233,7 +3532,28 @@ function createCoworkActionControls(
     });
   });
   actions.append(addTask);
+  mountCoworkActionsVueIsland(actions, pane, coworkActions);
   return actions;
+}
+
+function mountCoworkActionsVueIsland(
+  actions: HTMLElement,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(actions)) {
+    return;
+  }
+  mountCoworkActionsIsland(actions, {
+    sessionId: pane.cockpitView?.header.id ?? "",
+    agents: pane.cockpitView?.agents ?? [],
+    actionStatus: pane.actionStatus,
+    summaryText: pane.summaryText,
+    blueprintDiagnostics: pane.blueprintDiagnostics,
+    onAction: (event) => {
+      coworkActions.onCoworkAction?.({ ...event, pane });
+    },
+  });
 }
 
 function createCoworkGraphPane(
@@ -2280,7 +3600,32 @@ function createCoworkGraphPane(
     graph.append(createText(targetDocument, "p", `${edge.source} -> ${edge.target}${edge.label ? ` / ${edge.label}` : ""}`));
   }
   graph.append(createCoworkLimitStatus(targetDocument, visibleEdges.length, view.graph.edges.length, "edge", "edges"));
+  mountCoworkGraphVueIsland(graph, targetDocument, view, inspector, pane, coworkActions);
   return graph;
+}
+
+function mountCoworkGraphVueIsland(
+  graph: HTMLElement,
+  targetDocument: Document,
+  view: DesktopCoworkCockpitView,
+  inspector: HTMLElement,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(graph)) {
+    return;
+  }
+  mountCoworkGraphIsland(graph, {
+    graph: view.graph,
+    onSelect: ({ type, id, label }) => {
+      const selectedView = buildDesktopCoworkCockpitView(view.raw, {
+        selected: { type, id },
+      });
+      const selectedInspector = createCoworkInspectorPane(targetDocument, selectedView, pane, coworkActions);
+      inspector.replaceChildren(...Array.from(selectedInspector.children));
+      setRouteStatus(targetDocument, `Inspecting Cowork ${label}`);
+    },
+  });
 }
 
 function coworkSelectionTypeForKind(kind: string): DesktopCoworkSelectionType {
@@ -2374,7 +3719,24 @@ function createCoworkObservabilityPane(targetDocument: Document, view: DesktopCo
   });
   section.append(createText(targetDocument, "h2", "Observability"), tabs, filter, panelHost);
   renderPanel(view.observabilityPanels[0]?.id ?? "");
+  mountCoworkObservabilityVueIsland(section, targetDocument, view);
   return section;
+}
+
+function mountCoworkObservabilityVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  view: DesktopCoworkCockpitView,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountCoworkObservabilityIsland(section, {
+    panels: view.observabilityPanels,
+    onPanelSelected: (panel) => {
+      setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+    },
+  });
 }
 
 function createCoworkInspectorPane(
@@ -2396,7 +3758,25 @@ function createCoworkInspectorPane(
     inspector.append(createText(targetDocument, "p", `Payload: ${view.inspector.payloadText}`));
   }
   appendCoworkSelectedActions(targetDocument, inspector, view, pane, coworkActions);
+  mountCoworkInspectorVueIsland(inspector, view, pane, coworkActions);
   return inspector;
+}
+
+function mountCoworkInspectorVueIsland(
+  inspector: HTMLElement,
+  view: DesktopCoworkCockpitView,
+  pane: DesktopCoworkPaneModel,
+  coworkActions: DesktopCoworkActionOptions,
+): void {
+  if (!canMountVueIsland(inspector)) {
+    return;
+  }
+  mountCoworkInspectorIsland(inspector, {
+    view,
+    onAction: (event) => {
+      coworkActions.onCoworkAction?.({ ...event, pane });
+    },
+  });
 }
 
 function appendCoworkSelectedActions(
@@ -2512,20 +3892,53 @@ function createCoworkTaskFeed(targetDocument: Document, view: DesktopCoworkCockp
   }
   feed.append(createCoworkLimitStatus(targetDocument, visibleItems.length, view.taskCenterItems.length, "task status item", "task status items"));
   feed.append(createText(targetDocument, "p", `${view.agents.length} agents / ${view.tasks.length} tasks / ${view.mailbox.length} mailbox / ${view.artifacts.length} artifacts`));
+  mountCoworkTaskFeedVueIsland(feed, view);
   return feed;
+}
+
+function mountCoworkTaskFeedVueIsland(feed: HTMLElement, view: DesktopCoworkCockpitView): void {
+  if (!canMountVueIsland(feed)) {
+    return;
+  }
+  mountCoworkTaskFeedIsland(feed, {
+    items: view.taskCenterItems,
+    totals: {
+      agents: view.agents.length,
+      tasks: view.tasks.length,
+      mailbox: view.mailbox.length,
+      artifacts: view.artifacts.length,
+    },
+  });
 }
 
 function createCoworkDataRow(targetDocument: Document, className: string, text: string): HTMLElement {
   const row = createText(targetDocument, "p", text);
   row.className = className;
+  mountCoworkDataRowVueIsland(row, className, text);
   return row;
+}
+
+function mountCoworkDataRowVueIsland(row: HTMLElement, className: string, text: string): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  mountCoworkDataRowIsland(row, { className, text });
 }
 
 function createCoworkLimitStatus(targetDocument: Document, visible: number, total: number, singular: string, plural: string): HTMLElement {
   const noun = total === 1 ? singular : plural;
-  const status = createText(targetDocument, "p", `Showing ${visible} of ${total} ${noun}`);
+  const text = `Showing ${visible} of ${total} ${noun}`;
+  const status = createText(targetDocument, "p", text);
   status.className = "desktop-cowork-limit-status";
+  mountCoworkLimitStatusVueIsland(status, text);
   return status;
+}
+
+function mountCoworkLimitStatusVueIsland(status: HTMLElement, text: string): void {
+  if (!canMountVueIsland(status)) {
+    return;
+  }
+  mountCoworkLimitStatusIsland(status, { text });
 }
 
 function createCoworkFilteredLimitStatus(
@@ -2541,8 +3954,10 @@ function createCoworkFilteredLimitStatus(
     return createCoworkLimitStatus(targetDocument, visible, total, singular, plural);
   }
   const noun = plural || singular;
-  const status = createText(targetDocument, "p", `Showing ${visible} of ${matched} matching ${noun} (${total} total)`);
+  const text = `Showing ${visible} of ${matched} matching ${noun} (${total} total)`;
+  const status = createText(targetDocument, "p", text);
   status.className = "desktop-cowork-limit-status";
+  mountCoworkLimitStatusVueIsland(status, text);
   return status;
 }
 
@@ -2553,8 +3968,24 @@ function appendKnowledgeReferenceRows(
   rows: Array<{ title: string; meta: string; text: string }>,
 ): void {
   for (const row of rows.slice(0, 4)) {
-    section.append(createText(targetDocument, "p", `${label}: ${row.title}${row.text ? ` - ${row.text}` : ""}`));
+    const element = createText(targetDocument, "p", knowledgeReferenceRowText(label, row));
+    mountKnowledgeReferenceRowVueIsland(element, { label, text: row.text, title: row.title });
+    section.append(element);
   }
+}
+
+function knowledgeReferenceRowText(label: string, row: { title: string; text: string }): string {
+  return `${label}: ${row.title}${row.text ? ` - ${row.text}` : ""}`;
+}
+
+function mountKnowledgeReferenceRowVueIsland(
+  row: HTMLElement,
+  options: { label: string; text: string; title: string },
+): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  mountKnowledgeReferenceRowIsland(row, options);
 }
 
 function createDesktopSkillEditor(
@@ -2575,7 +4006,29 @@ function createDesktopSkillEditor(
     createDesktopSkillCheckbox(targetDocument, "always", "Always load", detail.editor.draft.always, pane, toolsSkillsActions),
     createDesktopSkillTextArea(targetDocument, "content", "Skill content", detail.editor.draft.content, pane, toolsSkillsActions),
   );
+  mountSkillEditorVueIsland(editor, pane, toolsSkillsActions);
   return editor;
+}
+
+function mountSkillEditorVueIsland(
+  editor: HTMLElement,
+  pane: DesktopToolsSkillsPaneModel,
+  toolsSkillsActions: DesktopToolsSkillsActionOptions,
+): void {
+  if (!canMountVueIsland(editor) || !pane.selectedSkill) {
+    return;
+  }
+  mountSkillEditorIsland(editor, {
+    skill: pane.selectedSkill!,
+    onEdit: (field, value) => {
+      toolsSkillsActions.onToolsSkillsAction?.({
+        action: "editSkill",
+        pane,
+        field,
+        value,
+      });
+    },
+  });
 }
 
 function createDesktopSkillInput(
@@ -2727,8 +4180,41 @@ function createSettingsProvidersPane(
   }
 
   content.append(grid);
+  mountSettingsGroupsVueIsland(grid, pane, settingsActions);
   section.append(content);
+  mountSettingsPaneVueIsland(section, targetDocument, pane, settingsActions);
   return section;
+}
+
+function mountSettingsPaneVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountSettingsPaneIsland(section, {
+    pane,
+    onSettingsAction: settingsActions.onSettingsAction,
+    promptProviderId: () => promptForSettingsProviderId(targetDocument),
+    onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+  });
+}
+
+function mountSettingsGroupsVueIsland(
+  grid: HTMLElement,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): void {
+  if (!canMountVueIsland(grid)) {
+    return;
+  }
+  mountSettingsGroupsIsland(grid, {
+    pane,
+    onSettingsAction: settingsActions.onSettingsAction,
+  });
 }
 
 function createDefaultLlmSettingsCard(
@@ -2772,7 +4258,22 @@ function createDefaultLlmSettingsCard(
   copy.className = "desktop-settings-default-llm-copy";
 
   card.append(heading, form, copy);
+  mountSettingsDefaultLlmVueIsland(card, pane, settingsActions);
   return card;
+}
+
+function mountSettingsDefaultLlmVueIsland(
+  card: HTMLElement,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  mountSettingsDefaultLlmIsland(card, {
+    pane,
+    onSettingsAction: settingsActions.onSettingsAction,
+  });
 }
 
 function createProviderManagementSection(
@@ -2834,7 +4335,25 @@ function createProviderManagementSection(
   });
 
   section.append(header, cards);
+  mountSettingsProviderManagementVueIsland(section, targetDocument, pane, settingsActions);
   return section;
+}
+
+function mountSettingsProviderManagementVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  settingsActions: DesktopSettingsActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountSettingsProviderManagementIsland(section, {
+    pane,
+    onSettingsAction: settingsActions.onSettingsAction,
+    promptProviderId: () => promptForSettingsProviderId(targetDocument),
+    onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+  });
 }
 
 function createSettingsControlField(
@@ -2947,7 +4466,15 @@ function createSettingsProviderDetail(targetDocument: Document, label: string, v
   const row = targetDocument.createElement("p");
   row.className = "desktop-settings-provider-detail";
   row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
+  mountSettingsProviderDetailVueIsland(row, label, value);
   return row;
+}
+
+function mountSettingsProviderDetailVueIsland(row: HTMLElement, label: string, value: string): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  mountSettingsProviderDetailIsland(row, { label, value });
 }
 
 function filterSettingsProviderCards(cards: HTMLElement, query: string): void {
@@ -3094,7 +4621,15 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
   });
 
   sidebar.append(nav);
+  mountSettingsSidebarVueIsland(sidebar, pane);
   return sidebar;
+}
+
+function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettingsPaneModel): void {
+  if (!canMountVueIsland(sidebar)) {
+    return;
+  }
+  mountSettingsSidebarIsland(sidebar, { groups: pane.groups });
 }
 
 function createSettingsStatusCard(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
@@ -3121,14 +4656,30 @@ function createSettingsStatusCard(targetDocument: Document, pane: DesktopSetting
     createSettingsStatusItem(targetDocument, "Models", pane.providerEditor.models.join(", ") || "No models loaded"),
   );
   card.append(details);
+  mountSettingsStatusVueIsland(card, pane);
   return card;
+}
+
+function mountSettingsStatusVueIsland(card: HTMLElement, pane: DesktopSettingsPaneModel): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  mountSettingsStatusIsland(card, { pane });
 }
 
 function createSettingsStatusItem(targetDocument: Document, label: string, value: string): HTMLElement {
   const row = targetDocument.createElement("p");
   row.className = "desktop-settings-status-item";
   row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
+  mountSettingsStatusItemVueIsland(row, label, value);
   return row;
+}
+
+function mountSettingsStatusItemVueIsland(row: HTMLElement, label: string, value: string): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  mountSettingsStatusItemIsland(row, { label, value });
 }
 
 function getSettingsNavLabel(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
@@ -3251,33 +4802,7 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
   controls.className = "desktop-panel-controls";
   controls.setAttribute("aria-label", "Workbench panel controls");
 
-  const panelControls: {
-    panel: DesktopPanelControlId;
-    label: string;
-    ariaLabel: string;
-    visible: boolean;
-    shortcut?: string;
-  }[] = [
-    {
-      panel: "sidebar",
-      label: "Sidebar",
-      ariaLabel: "Toggle sidebar panel",
-      visible: layout.sidebar.visible,
-      shortcut: "Ctrl+B",
-    },
-    {
-      panel: "inspector",
-      label: "Run Chain",
-      ariaLabel: "Toggle Run Chain panel",
-      visible: layout.inspector.visible,
-    },
-    {
-      panel: "bottom",
-      label: "Tasks",
-      ariaLabel: "Toggle task and runtime panel",
-      visible: layout.bottom.visible,
-    },
-  ];
+  const panelControls = buildDesktopPanelControls(layout);
 
   for (const control of panelControls) {
     const button = targetDocument.createElement("button");
@@ -3303,7 +4828,46 @@ function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutSt
     controls.append(button);
   }
 
+  mountPanelControlsVueIsland(controls, targetDocument, panelControls);
   return controls;
+}
+
+function buildDesktopPanelControls(layout: WorkbenchLayoutState): DesktopPanelControlItem[] {
+  return [
+    {
+      panel: "sidebar",
+      label: "Sidebar",
+      ariaLabel: "Toggle sidebar panel",
+      visible: layout.sidebar.visible,
+      shortcut: "Ctrl+B",
+    },
+    {
+      panel: "inspector",
+      label: "Run Chain",
+      ariaLabel: "Toggle Run Chain panel",
+      visible: layout.inspector.visible,
+    },
+    {
+      panel: "bottom",
+      label: "Tasks",
+      ariaLabel: "Toggle task and runtime panel",
+      visible: layout.bottom.visible,
+    },
+  ];
+}
+
+function mountPanelControlsVueIsland(
+  controls: HTMLElement,
+  targetDocument: Document,
+  panelControls: DesktopPanelControlItem[],
+): void {
+  if (!canMountVueIsland(controls)) {
+    return;
+  }
+  mountPanelControlsIsland(controls, {
+    controls: panelControls,
+    onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
+  });
 }
 
 function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControlId): void {
@@ -3341,6 +4905,11 @@ function formatPanelName(panel: DesktopPanelControlId): string {
 
 function createCommandPalette(targetDocument: Document): HTMLElement {
   const palette = targetDocument.createElement("section");
+  if (canMountVueIsland(palette)) {
+    mountCommandPaletteIsland(palette);
+    return palette;
+  }
+
   palette.id = "desktop-command-palette";
   palette.className = "desktop-command-palette";
   palette.setAttribute("role", "dialog");
@@ -3396,7 +4965,50 @@ function createInspector(
   } else if (runChainItems.length) {
     inspector.append(createRunChainInspectorPane(targetDocument, runChainItems, selectedRunChainItemKey));
   }
+  mountInspectorRegionVueIsland(inspector, targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions);
   return inspector;
+}
+
+function mountInspectorRegionVueIsland(
+  inspector: HTMLElement,
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[],
+  selectedRunChainItemKey: string | null,
+  workLens: DesktopWorkLensProjection | null,
+  workLensActions: DesktopWorkLensActionOptions,
+): void {
+  if (!canMountVueIsland(inspector)) {
+    return;
+  }
+  mountInspectorRegionIsland(inspector, {
+    runChainItems,
+    selectedRunChainItemKey,
+    workLens,
+    onRunChainAction: (action) => {
+      if (action.type === "close") {
+        toggleDesktopPanel(targetDocument, "inspector");
+      } else if (action.type === "pin") {
+        setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
+      } else if (action.type === "tab" || action.type === "summary") {
+        setRouteStatus(targetDocument, `Run Chain ${action.label}`);
+      } else if (action.type === "open-task-center") {
+        toggleDesktopPanel(targetDocument, "bottom");
+      } else if (action.type === "new-item") {
+        setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+      } else if (action.type === "feed") {
+        setRouteStatus(targetDocument, `Selected ${action.title}`);
+      }
+    },
+    onRunChainItemSelected: (item) => {
+      setRouteStatus(targetDocument, `Inspecting ${item.title}`);
+    },
+    onWorkLensAction: ({ action }) => {
+      if (workLens) {
+        workLensActions.onWorkLensAction?.({ action, workLens });
+      }
+    },
+    copyText: workLensActions.copyText,
+  });
 }
 
 type RunChainOverviewTab = "context" | "files" | "tasks";
@@ -3491,6 +5103,7 @@ function createRunChainOverviewPanel(
   );
 
   section.append(header, summary, tabs, panel, actions);
+  mountRunChainOverviewVueIsland(section, targetDocument, runChainItems);
   return section;
 }
 
@@ -3632,6 +5245,34 @@ function runChainOverviewStatus(runChainItems: DesktopRunChainItem[]): string {
   return runChainItems.length ? "Completed" : "Idle";
 }
 
+function mountRunChainOverviewVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  runChainItems: DesktopRunChainItem[],
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountRunChainOverviewIsland(section, {
+    items: runChainItems,
+    onAction: (action) => {
+      if (action.type === "close") {
+        toggleDesktopPanel(targetDocument, "inspector");
+      } else if (action.type === "pin") {
+        setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
+      } else if (action.type === "tab" || action.type === "summary") {
+        setRouteStatus(targetDocument, `Run Chain ${action.label}`);
+      } else if (action.type === "open-task-center") {
+        toggleDesktopPanel(targetDocument, "bottom");
+      } else if (action.type === "new-item") {
+        setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+      } else if (action.type === "feed") {
+        setRouteStatus(targetDocument, `Selected ${action.title}`);
+      }
+    },
+  });
+}
+
 function createWorkLensPane(
   targetDocument: Document,
   workLens: DesktopWorkLensProjection,
@@ -3704,7 +5345,27 @@ function createWorkLensPane(
     section.append(actions);
   }
 
+  mountWorkLensVueIsland(section, workLens, workLensActions, placement);
   return section;
+}
+
+function mountWorkLensVueIsland(
+  section: HTMLElement,
+  workLens: DesktopWorkLensProjection,
+  workLensActions: DesktopWorkLensActionOptions,
+  placement: "inspector" | "inline",
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountWorkLensIsland(section, {
+    workLens,
+    placement,
+    onAction: ({ action }) => {
+      workLensActions.onWorkLensAction?.({ action, workLens });
+    },
+    copyText: workLensActions.copyText,
+  });
 }
 
 function createWorkLensResourceList(
@@ -3780,7 +5441,24 @@ function createRunChainInspectorPane(
 
   detail.append(renderInspectorView(targetDocument, createDesktopRunChainInspectorView(selectedItem)));
   section.append(list, detail);
+  mountRunChainInspectorVueIsland(section, targetDocument, runChainItems, selectedItem.key);
   return section;
+}
+
+function mountRunChainInspectorVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  items: DesktopRunChainItem[],
+  selectedItemKey: string,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountRunChainInspectorIsland(section, {
+    items,
+    selectedItemKey,
+    onSelect: (item) => setRouteStatus(targetDocument, `Inspecting ${item.title}`),
+  });
 }
 
 function createBottomRegion(
@@ -3797,7 +5475,33 @@ function createBottomRegion(
     createTaskCenterSurface(targetDocument, taskCenterItems, taskActions),
     createGatewayRuntimeSurface(targetDocument, runtimeStatus, gatewayHttp, gatewayActions),
   );
+  mountBottomRegionVueIsland(bottom, targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions);
   return bottom;
+}
+
+function mountBottomRegionVueIsland(
+  bottom: HTMLElement,
+  targetDocument: Document,
+  runtimeStatus: GatewayRuntimeStatus | null,
+  gatewayHttp: string,
+  taskCenterItems: DesktopTaskCenterItem[],
+  taskActions: DesktopTaskCenterActionOptions,
+  gatewayActions: DesktopGatewayRuntimeActionOptions,
+): void {
+  if (!canMountVueIsland(bottom)) {
+    return;
+  }
+  mountBottomRegionIsland(bottom, {
+    gatewayHttp,
+    gatewayStatus: runtimeStatus,
+    taskItems: taskCenterItems,
+    onGatewayAction: ({ action }) => {
+      handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
+    },
+    onTaskAction: ({ action, item }) => {
+      handleTaskActionId(targetDocument, item, action, taskCenterItems, taskActions);
+    },
+  });
 }
 
 function createGatewayRuntimeSurface(
@@ -3832,7 +5536,27 @@ function createGatewayRuntimeSurface(
     actions.append(button);
   }
   section.append(actions);
+  mountGatewayRuntimeVueIsland(section, targetDocument, runtimeStatus, gatewayHttp, gatewayActions);
   return section;
+}
+
+function mountGatewayRuntimeVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  runtimeStatus: GatewayRuntimeStatus | null,
+  gatewayHttp: string,
+  gatewayActions: DesktopGatewayRuntimeActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountGatewayRuntimeIsland(section, {
+    gatewayHttp,
+    status: runtimeStatus,
+    onAction: ({ action }) => {
+      handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
+    },
+  });
 }
 
 function handleGatewayRuntimeAction(
@@ -3844,6 +5568,16 @@ function handleGatewayRuntimeAction(
   event: Event,
 ): void {
   event.preventDefault?.();
+  handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
+}
+
+function handleGatewayRuntimeActionId(
+  targetDocument: Document,
+  runtimeStatus: GatewayRuntimeStatus | null,
+  gatewayHttp: string,
+  gatewayActions: DesktopGatewayRuntimeActionOptions,
+  action: DesktopGatewayRuntimeActionId,
+): void {
   const diagnostics = buildDesktopGatewayRuntimeDiagnostics(runtimeStatus, gatewayHttp);
   if (action === "copyDiagnostics") {
     void copyGatewayRuntimeDiagnostics(diagnostics, gatewayActions.copyText);
@@ -3856,6 +5590,10 @@ function handleGatewayRuntimeAction(
     return;
   }
   gatewayActions.onGatewayRuntimeAction?.({ action, status: runtimeStatus, diagnostics });
+}
+
+function canMountVueIsland(element: HTMLElement): boolean {
+  return typeof HTMLElement !== "undefined" && element instanceof HTMLElement;
 }
 
 async function copyGatewayRuntimeDiagnostics(text: string, copyText?: (text: string) => void | Promise<void>): Promise<void> {
@@ -3923,7 +5661,25 @@ function createTaskCenterSurface(
   }
 
   section.append(list);
+  mountTaskCenterVueIsland(section, targetDocument, items, taskActions);
   return section;
+}
+
+function mountTaskCenterVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  items: DesktopTaskCenterItem[],
+  taskActions: DesktopTaskCenterActionOptions,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountTaskCenterIsland(section, {
+    items,
+    onAction: ({ action, item }) => {
+      handleTaskActionId(targetDocument, item, action, items, taskActions);
+    },
+  });
 }
 
 function createTaskCenterItem(
@@ -3972,7 +5728,15 @@ function createTaskStateBadge(targetDocument: Document, item: DesktopTaskCenterI
   badge.className = "desktop-task-state-badge";
   badge.setAttribute("data-desktop-task-state-badge", item.state);
   badge.textContent = item.state;
+  mountTaskStateBadgeVueIsland(badge, item.state);
   return badge;
+}
+
+function mountTaskStateBadgeVueIsland(badge: HTMLElement, state: string): void {
+  if (!canMountVueIsland(badge)) {
+    return;
+  }
+  mountTaskStateBadgeIsland(badge, { state });
 }
 
 function createTaskAction(
@@ -3998,7 +5762,30 @@ function createTaskAction(
       handleTaskAction(targetDocument, item, action.id, items, taskActions, event);
     });
   }
+  mountTaskActionVueIsland(element, {
+    action: action.id,
+    href,
+    itemId: item.id,
+    itemSource: item.source,
+    label: action.label,
+  });
   return element;
+}
+
+function mountTaskActionVueIsland(
+  element: HTMLElement,
+  options: {
+    action: DesktopTaskActionId;
+    href: string;
+    itemId: string;
+    itemSource: DesktopTaskSource;
+    label: string;
+  },
+): void {
+  if (!canMountVueIsland(element)) {
+    return;
+  }
+  mountTaskActionIsland(element, options);
 }
 
 function handleTaskAction(
@@ -4010,6 +5797,16 @@ function handleTaskAction(
   event: Event,
 ): void {
   event.preventDefault?.();
+  handleTaskActionId(targetDocument, item, action, items, taskActions);
+}
+
+function handleTaskActionId(
+  targetDocument: Document,
+  item: DesktopTaskCenterItem,
+  action: DesktopTaskActionId,
+  items: DesktopTaskCenterItem[],
+  taskActions: DesktopTaskCenterActionOptions,
+): void {
   if (!item.actions.some((candidate) => candidate.id === action)) {
     return;
   }
@@ -4153,7 +5950,25 @@ function createPanel(
   panel.setAttribute("data-visible", String(state.visible));
   panel.style.setProperty("--region-size", `${state.size}px`);
   panel.append(content);
+  mountWorkbenchPanelVueIsland(panel, region, state, content);
   return panel;
+}
+
+function mountWorkbenchPanelVueIsland(
+  panel: HTMLElement,
+  region: WorkbenchPanelId,
+  state: WorkbenchPanelState,
+  content: HTMLElement,
+): void {
+  if (!canMountVueIsland(panel)) {
+    return;
+  }
+  mountWorkbenchPanelIsland(panel, {
+    content,
+    region,
+    size: state.size,
+    visible: state.visible,
+  });
 }
 
 function createQuickActions(targetDocument: Document): HTMLElement {
@@ -4166,7 +5981,15 @@ function createQuickActions(targetDocument: Document): HTMLElement {
   ]) {
     actions.append(createWorkbenchLink(targetDocument, label, href, "desktop-quick-action"));
   }
+  mountQuickActionsVueIsland(actions);
   return actions;
+}
+
+function mountQuickActionsVueIsland(actions: HTMLElement): void {
+  if (!canMountVueIsland(actions)) {
+    return;
+  }
+  mountQuickActionsIsland(actions);
 }
 
 function createFileActions(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
@@ -4223,6 +6046,7 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   sessionRefresh.textContent = "Refresh";
   sessionMeta.append(createText(targetDocument, "span", "Temporary files"), sessionCount, sessionRefresh);
   sessionCard.append(sessionLabel, sessionKey, sessionMeta);
+  mountSessionUploadCardVueIsland(sessionCard, chat?.activeSessionKey ?? null);
 
   const workspace = createFileImportCard(targetDocument, {
     id: "desktop-workspace-file-drop",
@@ -4237,12 +6061,14 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   status.setAttribute("id", "desktop-file-upload-status");
   status.setAttribute("class", "desktop-file-upload-status");
   status.textContent = "No file operation running.";
+  mountFileUploadStatusVueIsland(status, "No file operation running.");
 
   const sessionFiles = targetDocument.createElement("div");
   sessionFiles.setAttribute("id", "desktop-session-file-list");
   sessionFiles.setAttribute("class", "desktop-session-file-list");
   sessionFiles.setAttribute("aria-label", "Session temporary files");
   sessionFiles.textContent = chat?.activeSessionKey ? "Temporary files not loaded yet." : "Select a chat session to view temporary files.";
+  mountSessionFileListVueIsland(sessionFiles, chat?.activeSessionKey ?? "");
 
   const grid = targetDocument.createElement("div");
   grid.className = "desktop-file-import-grid";
@@ -4258,7 +6084,22 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   );
 
   section.append(grid, operationStrip, sessionFiles);
+  mountFileActionsSurfaceVueIsland(section, chat?.activeSessionKey ?? null);
   return section;
+}
+
+function mountFileActionsSurfaceVueIsland(section: HTMLElement, activeSessionKey: string | null): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountFileActionsSurfaceIsland(section, { activeSessionKey });
+}
+
+function mountSessionUploadCardVueIsland(card: HTMLElement, activeSessionKey: string | null): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  mountSessionUploadCardIsland(card, { activeSessionKey });
 }
 
 function createFileImportCard(
@@ -4293,7 +6134,26 @@ function createFileImportCard(
   const card = targetDocument.createElement("div");
   card.className = "desktop-file-import-card";
   card.append(control, createFormatChipList(targetDocument, options.formatsId, options.formats));
+  mountFileImportCardVueIsland(card, options);
   return card;
+}
+
+function mountFileImportCardVueIsland(
+  card: HTMLElement,
+  options: {
+    id: string;
+    label: string;
+    uploadKind?: string;
+    dropTarget: string;
+    formatsId: string;
+    formats: string[];
+    href?: string;
+  },
+): void {
+  if (!canMountVueIsland(card)) {
+    return;
+  }
+  mountFileImportCardIsland(card, options);
 }
 
 function createFormatChipList(targetDocument: Document, id: string, formats: string[]): HTMLElement {
@@ -4307,14 +6167,44 @@ function createFormatChipList(targetDocument: Document, id: string, formats: str
     chip.textContent = format;
     row.append(chip);
   }
+  mountFormatChipListVueIsland(row, id, formats);
   return row;
+}
+
+function mountFormatChipListVueIsland(row: HTMLElement, id: string, formats: string[]): void {
+  if (!canMountVueIsland(row)) {
+    return;
+  }
+  mountFormatChipListIsland(row, { id, formats });
 }
 
 function createFileOperationStatus(targetDocument: Document, label: string, status: string): HTMLElement {
   const item = targetDocument.createElement("div");
   item.className = "desktop-file-operation-status";
   item.append(createText(targetDocument, "span", label), createText(targetDocument, "strong", status));
+  mountFileOperationStatusVueIsland(item, label, status);
   return item;
+}
+
+function mountFileOperationStatusVueIsland(item: HTMLElement, label: string, status: string): void {
+  if (!canMountVueIsland(item)) {
+    return;
+  }
+  mountFileOperationStatusIsland(item, { label, status });
+}
+
+function mountFileUploadStatusVueIsland(status: HTMLElement, message: string): void {
+  if (!canMountVueIsland(status)) {
+    return;
+  }
+  mountFileUploadStatusIsland(status, { message });
+}
+
+function mountSessionFileListVueIsland(sessionFiles: HTMLElement, sessionKey: string): void {
+  if (!canMountVueIsland(sessionFiles)) {
+    return;
+  }
+  mountOrUpdateSessionFileListIsland(sessionFiles, { sessionKey, rows: [] });
 }
 
 function syncSessionFileUploadKey(targetDocument: Document, activeSessionKey: string): void {
@@ -4366,7 +6256,25 @@ function createDesktopHelpSurface(targetDocument: Document): HTMLElement {
   });
 
   section.append(docs, shortcuts, pageHelp, tour);
+  mountHelpSurfaceVueIsland(section, targetDocument);
   return section;
+}
+
+function mountHelpSurfaceVueIsland(section: HTMLElement, targetDocument: Document): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountHelpSurfaceIsland(section, {
+    onAction: (action) => {
+      if (action === "shortcut-help") {
+        renderDesktopShortcutHelp(targetDocument);
+      } else if (action === "page-help") {
+        renderDesktopPageHelp(targetDocument, "Page help");
+      } else if (action === "help-tour") {
+        renderDesktopPageHelp(targetDocument, "Desktop help tour");
+      }
+    },
+  });
 }
 
 function installDesktopHelpEventRouting(targetDocument: Document): void {
@@ -4391,6 +6299,15 @@ function renderDesktopShortcutHelp(targetDocument: Document): void {
   }
 
   const dialog = targetDocument.createElement("section");
+  if (canMountVueIsland(dialog)) {
+    targetDocument.body.append(dialog);
+    mountShortcutHelpDialogIsland(dialog, {
+      groups: groupShortcutHelpItems().map(([title, items]) => ({ title, items })),
+    });
+    setRouteStatus(targetDocument, "Opened shortcut help");
+    return;
+  }
+
   dialog.id = "desktop-shortcut-help-dialog";
   dialog.setAttribute("id", "desktop-shortcut-help-dialog");
   dialog.className = "desktop-shortcut-help-dialog";
@@ -4571,6 +6488,7 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
     search,
     recent,
   );
+  mountWorkspaceBrowserVueIsland(browser);
 
   const detailPanel = targetDocument.createElement("section");
   detailPanel.className = "desktop-workspace-detail-panel";
@@ -4650,6 +6568,13 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   return section;
 }
 
+function mountWorkspaceBrowserVueIsland(browser: HTMLElement): void {
+  if (!canMountVueIsland(browser)) {
+    return;
+  }
+  mountWorkspaceBrowserIsland(browser);
+}
+
 function renderInspectorView(targetDocument: Document, view: DesktopInspectorView): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-inspector-view";
@@ -4661,50 +6586,126 @@ function renderInspectorView(targetDocument: Document, view: DesktopInspectorVie
   }
 
   if (!view.sections.length) {
-    section.append(createText(targetDocument, "p", "Select a run-chain item, file, tool, skill, or Cowork entity."));
+    section.append(createText(targetDocument, "p", view.emptyText));
+    mountInspectorViewVueIsland(section, {
+      emptyText: view.emptyText,
+      rows: [],
+      subtitle: view.subtitle,
+      title: view.title,
+    });
     return section;
   }
 
-  for (const item of view.sections) {
+  const rows = inspectorViewRows(view);
+  for (const text of rows) {
     const row = targetDocument.createElement("p");
-    if (item.type === "browserActivity") {
-      row.textContent = `${item.activity.actionLabel}: ${[item.activity.title, item.activity.url].filter(Boolean).join(" | ")}`;
-    } else {
-      row.textContent = `${item.label}: ${item.text}`;
-    }
+    row.textContent = text;
     section.append(row);
   }
+  mountInspectorViewVueIsland(section, {
+    emptyText: view.emptyText,
+    rows,
+    subtitle: view.subtitle,
+    title: view.title,
+  });
   return section;
+}
+
+function inspectorViewRows(view: DesktopInspectorView): string[] {
+  return view.sections.map((item) => {
+    if (item.type === "browserActivity") {
+      return `${item.activity.actionLabel}: ${[item.activity.title, item.activity.url].filter(Boolean).join(" | ")}`;
+    }
+    return `${item.label}: ${item.text}`;
+  });
+}
+
+function mountInspectorViewVueIsland(
+  section: HTMLElement,
+  options: {
+    emptyText: string;
+    rows: string[];
+    subtitle?: string;
+    title: string;
+  },
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountInspectorViewIsland(section, options);
 }
 
 function createSharedSidebarLinkSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section";
   section.append(createText(targetDocument, "h2", group?.label ?? "Resources"));
+  const linkItems: Array<DesktopSidebarItem & { href: string; kind: "link" }> = [];
   for (const item of group?.items ?? []) {
     if (item.kind === "link" && item.href) {
+      linkItems.push({ ...item, href: item.href, kind: "link" });
       section.append(createSharedWorkbenchLink(targetDocument, item));
     }
   }
+  mountSharedSidebarLinksVueIsland(section, group?.label, linkItems);
   return section;
+}
+
+function mountSharedSidebarLinksVueIsland(
+  section: HTMLElement,
+  label: string | undefined,
+  items: Array<DesktopSidebarItem & { href: string; kind: "link" }>,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountSharedSidebarLinksIsland(section, { label, items });
 }
 
 function createSharedSidebarCommandSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section";
   section.append(createText(targetDocument, "h2", group?.label ?? "System"));
+  const commandItems: Array<DesktopSidebarItem & { commandId: string; kind: "command" }> = [];
   for (const item of group?.items ?? []) {
     if (item.kind === "command" && item.commandId) {
+      commandItems.push({ ...item, commandId: item.commandId, kind: "command" });
       section.append(createSharedSidebarCommandButton(targetDocument, item));
     }
   }
+  mountSharedSidebarCommandsVueIsland(section, targetDocument, group?.label, commandItems);
   return section;
+}
+
+function mountSharedSidebarCommandsVueIsland(
+  section: HTMLElement,
+  targetDocument: Document,
+  label: string | undefined,
+  items: Array<DesktopSidebarItem & { commandId: string; kind: "command" }>,
+): void {
+  if (!canMountVueIsland(section)) {
+    return;
+  }
+  mountSharedSidebarCommandsIsland(section, { label, items, targetDocument });
 }
 
 function createSharedWorkbenchLink(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
   const link = createWorkbenchLink(targetDocument, item.label, item.href ?? "#", "desktop-workbench-link");
   applySharedSidebarItemAttributes(link, item);
+  mountSharedSidebarLinkVueIsland(link, item);
   return link;
+}
+
+function mountSharedSidebarLinkVueIsland(link: HTMLElement, item: DesktopSidebarItem): void {
+  if (!canMountVueIsland(link) || item.kind !== "link" || !item.href) {
+    return;
+  }
+  mountSharedSidebarLinkIsland(link, {
+    href: item.href ?? "#",
+    icon: item.icon,
+    id: item.id,
+    kind: "link",
+    label: item.label,
+  });
 }
 
 function createSharedSidebarCommandButton(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
@@ -4721,7 +6722,21 @@ function createSharedSidebarCommandButton(targetDocument: Document, item: Deskto
       detail: { id: item.commandId, source: "native-sidebar" },
     }));
   });
+  mountSharedSidebarCommandButtonVueIsland(button, item);
   return button;
+}
+
+function mountSharedSidebarCommandButtonVueIsland(button: HTMLElement, item: DesktopSidebarItem): void {
+  if (!canMountVueIsland(button) || item.kind !== "command" || !item.commandId) {
+    return;
+  }
+  mountSharedSidebarCommandButtonIsland(button, {
+    commandId: item.commandId ?? "",
+    icon: item.icon,
+    id: item.id,
+    kind: "command",
+    label: item.label,
+  });
 }
 
 function applySharedSidebarItemAttributes(element: HTMLElement, item: DesktopSidebarItem): void {
@@ -5665,12 +7680,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer {
-      display: grid;
-      grid-template-columns: 40px minmax(0, 1fr) 44px;
-      grid-template-rows: minmax(56px, auto) auto;
-      grid-template-areas: "input input input" "attach runtime send";
-      gap: 10px 12px;
-      align-items: end;
+      display: block;
       width: min(1100px, 100%);
       min-width: 0;
       margin: 0 auto 10px;
@@ -5679,6 +7689,17 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 16px 18px 14px;
       background: var(--panel);
       box-shadow: var(--shadow-sm);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-layout {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr) 44px;
+      grid-template-rows: minmax(56px, auto) auto;
+      grid-template-areas: "input input input" "attach runtime send";
+      gap: 10px 12px;
+      align-items: end;
+      width: 100%;
+      min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-native-composer-action,
@@ -5852,7 +7873,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workbench-main,
     body.desktop-native-workbench .desktop-workbench-inspector {
       border-color: #e9e4df;
-      background: #fbfaf7;
+      background: #f7f7f5;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-inspector {
+      margin: 16px 16px 16px 0;
+      border: 1px solid #e9e4df;
+      border-radius: 14px;
+      background: #ffffff;
+      box-shadow: 0 12px 34px rgba(20, 20, 19, 0.08);
     }
 
     body.desktop-native-workbench .desktop-sidebar-content {
@@ -6073,7 +8102,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-height: 0;
       padding: 0;
       overflow: hidden;
-      background: #ffffff;
+      background: #f7f7f5;
     }
 
     body.desktop-native-workbench .desktop-chat-workbench {
@@ -6081,14 +8110,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       gap: 0;
+      justify-items: center;
       width: 100%;
       max-width: none;
       height: 100%;
       min-height: 0;
       margin: 0;
-      padding: 0;
+      padding: 0 clamp(20px, 3vw, 46px);
       overflow: hidden;
-      background: #ffffff;
+      background: #f7f7f5;
     }
 
     body.desktop-native-workbench .desktop-chat-workbench > span,
@@ -6108,6 +8138,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      width: min(1120px, 100%);
       min-width: 0;
       min-height: 54px;
       border-bottom: 1px solid #e9e4df;
@@ -6275,6 +8306,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       align-content: start;
       gap: 22px;
+      width: min(1120px, 100%);
       min-height: 0;
       padding: 32px min(8vw, 72px) 22px;
       overflow-y: auto;
@@ -6613,11 +8645,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       position: relative;
-      grid-template-columns: 40px minmax(0, 1fr) 44px;
-      grid-template-rows: minmax(64px, auto) auto;
-      grid-template-areas: "input input input" "attach runtime send";
-      gap: 10px 14px;
-      align-items: end;
       width: min(1120px, calc(100% - 40px));
       min-height: 118px;
       margin: 0 auto 8px;
@@ -6626,6 +8653,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 18px 20px 14px;
       background: #ffffff;
       box-shadow: 0 10px 28px rgba(20, 20, 19, 0.08);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-layout {
+      grid-template-columns: 40px minmax(0, 1fr) 44px;
+      grid-template-rows: minmax(64px, auto) auto;
+      grid-template-areas: "input input input" "attach runtime send";
+      gap: 10px 14px;
+      align-items: end;
     }
 
     body.desktop-native-workbench .desktop-native-composer-action {
@@ -8068,6 +10103,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-native-composer {
         width: calc(100% - 28px);
+      }
+
+      body.desktop-native-workbench .desktop-native-composer-layout {
         grid-template-columns: 36px minmax(0, 1fr) 44px;
         grid-template-rows: auto auto;
         grid-template-areas: "input input input" "attach runtime send";

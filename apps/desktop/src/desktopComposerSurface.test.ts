@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, test } from "vitest";
 import { ensureDesktopComposerSurfaceStyle, installRootWebUiComposerRuntime } from "./desktopComposerSurface";
 
@@ -217,6 +219,34 @@ function createComposerDocument(): FakeDocument {
   return targetDocument;
 }
 
+function createRealComposerDocument(): Document {
+  document.body.replaceChildren();
+  document.body.innerHTML = `
+    <div class="shell">
+      <aside class="sidebar"></aside>
+      <section class="chat-panel">
+        <form id="composer-form">
+          <div class="composer-row">
+            <button id="temporary-file-button" type="button"></button>
+            <textarea id="composer-input"></textarea>
+            <button id="send-button" type="submit"></button>
+            <button id="stop-generation-button" type="button"></button>
+          </div>
+          <section class="composer-status-panel">
+            <div class="system-status">
+              <div class="status-item"><span class="status-label">Provider</span><span class="status-value">ready</span></div>
+              <div class="status-item"><span class="status-label">Model</span><span class="status-value">ready</span></div>
+              <div class="status-item"><span class="status-label">Background tasks</span><span class="status-value">1 active</span></div>
+              <div class="status-item"><span class="status-label">Approvals</span><span class="status-value">1 active</span></div>
+            </div>
+          </section>
+        </form>
+      </section>
+    </div>
+  `;
+  return document;
+}
+
 describe("desktop composer surface", () => {
   test("keeps composer controls and contextual stop scoped to the workspace surface", () => {
     const targetDocument = createComposerDocument();
@@ -255,6 +285,18 @@ describe("desktop composer surface", () => {
       "cowork",
       "uploads",
     ]);
+  });
+
+  test("uses a Vue island host for the real task status surface", () => {
+    const targetDocument = createRealComposerDocument();
+
+    installRootWebUiComposerRuntime(targetDocument);
+
+    const taskSurface = targetDocument.body.querySelector<HTMLElement>(".desktop-task-status-surface");
+    expect(taskSurface?.getAttribute("data-desktop-vue-island")).toBe("desktop-task-status-surface");
+    expect(taskSurface?.getAttribute("data-desktop-task-status-surface")).toBe("sidebar");
+    expect(taskSurface?.getAttribute("aria-label")).toBe("Desktop task status");
+    expect(taskSurface?.querySelectorAll("[data-desktop-task-status]")).toHaveLength(2);
   });
 
   test("reports blocked sends and runtime chip selection through composer feedback", () => {
