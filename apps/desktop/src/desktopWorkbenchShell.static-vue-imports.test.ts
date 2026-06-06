@@ -271,4 +271,13 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountSharedSidebarLinksIsland } from "./native-vue/sharedSidebarLinksIsland";');
     expect(source).not.toContain('void import("./native-vue/sharedSidebarLinksIsland")');
   });
+
+  test("statically imports the task action islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountTaskActionIsland } from "./native-vue/taskActionIsland";');
+    expect(source).not.toContain('void import("./native-vue/taskActionIsland")');
+    expect(source).toContain('import { mountTaskStateBadgeIsland } from "./native-vue/taskStateBadgeIsland";');
+    expect(source).not.toContain('void import("./native-vue/taskStateBadgeIsland")');
+  });
 });

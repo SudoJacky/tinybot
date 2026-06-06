@@ -137,7 +137,9 @@ import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIs
 import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";
 import { mountSkillsListIsland } from "./native-vue/skillsListIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
+import { mountTaskActionIsland } from "./native-vue/taskActionIsland";
 import { mountTaskCenterIsland } from "./native-vue/taskCenterIsland";
+import { mountTaskStateBadgeIsland } from "./native-vue/taskStateBadgeIsland";
 import { mountToolDetailIsland } from "./native-vue/toolDetailIsland";
 import { mountToolActivitiesIsland } from "./native-vue/toolActivitiesIsland";
 import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";
@@ -5737,11 +5739,7 @@ function mountTaskStateBadgeVueIsland(badge: HTMLElement, state: string): void {
   if (!canMountVueIsland(badge)) {
     return;
   }
-  void import("./native-vue/taskStateBadgeIsland").then(({ mountTaskStateBadgeIsland }) => {
-    mountTaskStateBadgeIsland(badge, { state });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountTaskStateBadgeIsland(badge, { state });
 }
 
 function createTaskAction(
@@ -5790,11 +5788,7 @@ function mountTaskActionVueIsland(
   if (!canMountVueIsland(element)) {
     return;
   }
-  void import("./native-vue/taskActionIsland").then(({ mountTaskActionIsland }) => {
-    mountTaskActionIsland(element, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountTaskActionIsland(element, options);
 }
 
 function handleTaskAction(
