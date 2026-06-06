@@ -40,8 +40,11 @@ describe("chat workbench Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("chat-workbench");
     expect(host.className).toBe("desktop-chat-workbench-chrome");
-    expect(host.textContent).toContain("Ready for a new session");
-    expect(host.textContent).toContain("Start from chat, inspect workspace, or check gateway status.");
+    expect(host.textContent).toContain("Ready for a new session.");
+    expect(host.textContent).toContain("Ready for a new session. Start");
+    expect(host.textContent).toContain("Start from chat, inspect the workspace, or check gateway status.");
+    expect(host.textContent).not.toContain("sessionStart");
+    expect(host.textContent).not.toContain("session.Start");
     expect(host.querySelector(".desktop-quick-actions")?.getAttribute("data-desktop-vue-island")).toBe("quick-actions");
     expect(host.querySelector(".desktop-quick-actions")?.textContent).toContain("Open workspace");
     expect(host.querySelector(".desktop-panel-controls")?.getAttribute("data-desktop-vue-island")).toBe("panel-controls");

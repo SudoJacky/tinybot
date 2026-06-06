@@ -1154,8 +1154,8 @@ function createMainRegion(
   const workbenchChrome = targetDocument.createElement("div");
   workbenchChrome.className = "desktop-chat-workbench-chrome";
   workbenchChrome.append(
-    createText(targetDocument, "span", "Ready for a new session"),
-    createText(targetDocument, "span", "Start from chat, inspect workspace, or check gateway status."),
+    createText(targetDocument, "span", "Ready for a new session. "),
+    createText(targetDocument, "span", "Start from chat, inspect the workspace, or check gateway status."),
     createQuickActions(targetDocument),
     createPanelControls(targetDocument, layout),
     ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
@@ -1950,7 +1950,10 @@ function createConversationMessage(
   content.className = "desktop-conversation-content";
   const meta = targetDocument.createElement("div");
   meta.className = "desktop-conversation-meta";
-  meta.append(createText(targetDocument, "strong", options.author), createText(targetDocument, "span", options.time));
+  const separator = createText(targetDocument, "span", " · ");
+  separator.className = "desktop-conversation-meta-separator";
+  separator.setAttribute("aria-hidden", "true");
+  meta.append(createText(targetDocument, "strong", options.author), separator, createText(targetDocument, "span", options.time));
   mountConversationMetaVueIsland(meta, { author: options.author, time: options.time });
   content.append(meta);
   if (options.reasoningContent?.trim()) {
@@ -5145,15 +5148,15 @@ function createRunChainSummaryStrip(
   summary.className = "desktop-run-chain-summary-strip";
   const status = runChainOverviewStatus(runChainItems);
   for (const item of [
-    { label: "Gateway", value: "Connected", tab: "context" as const },
-    { label: "Run", value: status, tab: "tasks" as const },
-    { label: "Items", value: String(runChainItems.length), tab: "tasks" as const },
+    { label: "Gateway", text: "Gateway: Connected", tab: "context" as const },
+    { label: "Run", text: `Run: ${status}`, tab: "tasks" as const },
+    { label: "Items", text: `${runChainItems.length} ${runChainItems.length === 1 ? "item" : "items"}`, tab: "tasks" as const },
   ]) {
     const button = targetDocument.createElement("button");
     button.type = "button";
     button.className = "desktop-run-chain-summary-item";
     button.setAttribute("data-desktop-run-chain-summary", item.label.toLowerCase());
-    button.textContent = `${item.label} ${item.value}`;
+    button.textContent = item.text;
     button.addEventListener("click", () => {
       selectTab(item.tab);
       setRouteStatus(targetDocument, `Run Chain ${item.label}`);

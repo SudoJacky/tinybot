@@ -15,8 +15,10 @@ describe("conversation meta Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("conversation-meta");
     expect(host.className).toBe("desktop-conversation-meta");
     expect(host.querySelector("strong")?.textContent).toBe("Tinybot");
-    expect(host.querySelector("span")?.textContent).toBe("10:28 AM");
-    expect(host.textContent).toBe("Tinybot10:28 AM");
+    expect(host.querySelector(".desktop-conversation-meta-separator")?.textContent).toBe(" · ");
+    expect(host.querySelector(".desktop-conversation-meta-separator")?.getAttribute("aria-hidden")).toBe("true");
+    expect(Array.from(host.querySelectorAll("span")).at(-1)?.textContent).toBe("10:28 AM");
+    expect(host.textContent).toBe("Tinybot · 10:28 AM");
 
     mounted.unmount();
     expect(host.textContent).toBe("");

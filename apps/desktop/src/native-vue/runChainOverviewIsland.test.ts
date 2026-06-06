@@ -44,8 +44,9 @@ describe("run chain overview Vue island", () => {
     expect(host.className).toContain("desktop-run-chain-overview");
     expect(host.getAttribute("aria-label")).toBe("Run Chain");
     expect(host.querySelector("h2")?.textContent).toBe("Run Chain");
-    expect(host.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Run Running");
-    expect(host.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Items 2");
+    expect(host.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Gateway: Connected");
+    expect(host.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Run: Running");
+    expect(host.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("2 items");
     expect(host.querySelector(".desktop-run-chain-panel")?.getAttribute("data-desktop-run-chain-panel")).toBe("context");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-tab="files"]')?.click();

@@ -265,7 +265,11 @@ describe("desktop workbench shell", () => {
       },
     });
 
-    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session.");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session. Start");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Start from chat, inspect the workspace, or check gateway status.");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("sessionStart");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("session.Start");
     expect(targetDocument.body.querySelectorAll(".desktop-quick-action").map((node) => node.textContent)).toEqual([
       "New chat",
       "Open workspace",
@@ -1154,8 +1158,9 @@ describe("desktop workbench shell", () => {
 
     const overview = targetDocument.body.querySelector(".desktop-run-chain-overview");
     const panel = overview?.querySelector(".desktop-run-chain-panel");
-    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Gateway");
-    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Idle");
+    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Gateway: Connected");
+    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Run: Idle");
+    expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("0 items");
     expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("context");
     expect(panel?.textContent).toContain("Endpoint");
 
@@ -1240,7 +1245,8 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-run-chain-item="m-plan:planning"]')?.click();
     expect(pane?.querySelector('[data-desktop-run-chain-item="m-plan:planning"]')?.getAttribute("aria-selected")).toBe("true");
     expect(pane?.querySelector(".desktop-run-chain-detail")?.textContent).toContain("Thinking: Inspect the active context");
-    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session.");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("session.Start");
 
     targetDocument.body.querySelector('[data-desktop-run-chain-control="close"]')?.click();
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
@@ -3239,7 +3245,9 @@ describe("desktop workbench shell", () => {
 
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("without leaving");
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain(
-      "Start from chat, inspect workspace, or check gateway status.",
+      "Start from chat, inspect the workspace, or check gateway status.",
     );
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("sessionStart");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("session.Start");
   });
 });

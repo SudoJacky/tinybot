@@ -27,7 +27,8 @@ describe("conversation message Vue island", () => {
     expect(host.querySelector(".desktop-conversation-reference")?.getAttribute("data-desktop-vue-island")).toBe("conversation-reference");
     expect(host.querySelector(".desktop-conversation-attachment")?.getAttribute("data-desktop-vue-island")).toBe("conversation-attachment");
     expect(host.querySelector(".desktop-conversation-meta strong")?.textContent).toBe("Tinybot");
-    expect(host.querySelector(".desktop-conversation-meta span")?.textContent).toBe("10:28 AM");
+    expect(host.querySelector(".desktop-conversation-meta-separator")?.textContent).toBe(" · ");
+    expect(Array.from(host.querySelectorAll(".desktop-conversation-meta span")).at(-1)?.textContent).toBe("10:28 AM");
     expect(host.querySelector(".desktop-conversation-body a")?.getAttribute("target")).toBe("_blank");
     expect(host.querySelector(".desktop-conversation-reference")?.textContent).toBe("File: README.md - lines 1-4");
     expect(host.querySelector(".desktop-conversation-attachment")?.textContent).toBe("design.png  1.2 MB");

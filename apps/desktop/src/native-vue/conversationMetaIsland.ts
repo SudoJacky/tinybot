@@ -45,6 +45,7 @@ export function renderConversationMetaNode(options: ConversationMetaIslandOption
 export function renderConversationMetaChildren(options: ConversationMetaIslandOptions) {
   return [
     h(NText, { strong: true, tag: "strong" }, { default: () => options.author }),
+    h("span", { class: "desktop-conversation-meta-separator", "aria-hidden": "true" }, " · "),
     h(NText, { depth: 3, tag: "span" }, { default: () => options.time }),
   ];
 }
