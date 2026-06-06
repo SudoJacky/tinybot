@@ -44,4 +44,11 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";');
     expect(source).not.toContain('void import("./native-vue/gatewayRuntimeIsland")');
   });
+
+  test("statically imports the task center island", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountTaskCenterIsland } from "./native-vue/taskCenterIsland";');
+    expect(source).not.toContain('void import("./native-vue/taskCenterIsland")');
+  });
 });

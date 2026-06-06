@@ -75,6 +75,7 @@ import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceLi
 import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
+import { mountTaskCenterIsland } from "./native-vue/taskCenterIsland";
 import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
 
@@ -5836,15 +5837,11 @@ function mountTaskCenterVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/taskCenterIsland").then(({ mountTaskCenterIsland }) => {
-    mountTaskCenterIsland(section, {
-      items,
-      onAction: ({ action, item }) => {
-        handleTaskActionId(targetDocument, item, action, items, taskActions);
-      },
-    });
-  }).catch(() => {
-    setRouteStatus(targetDocument, "Task Center Vue surface unavailable");
+  mountTaskCenterIsland(section, {
+    items,
+    onAction: ({ action, item }) => {
+      handleTaskActionId(targetDocument, item, action, items, taskActions);
+    },
   });
 }
 
