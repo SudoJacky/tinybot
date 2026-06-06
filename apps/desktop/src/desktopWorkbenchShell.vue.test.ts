@@ -40,6 +40,23 @@ describe("desktop workbench shell Vue integration", () => {
     expect(document.getElementById("desktop-command-palette-results")?.getAttribute("aria-live")).toBe("polite");
   });
 
+  test("renders the status strip through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const status = document.querySelector<HTMLElement>(".desktop-status-strip");
+    expect(status?.getAttribute("data-desktop-vue-island")).toBe("status-strip");
+    expect(status?.getAttribute("data-desktop-route-status")).toBe("");
+    expect(status?.textContent).toContain("No workspace file selected");
+    expect(status?.textContent).toContain("http://127.0.0.1:18790");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

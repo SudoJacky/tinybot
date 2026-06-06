@@ -55,6 +55,7 @@ import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
+import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
 
@@ -1120,7 +1121,9 @@ function createMainRegion(
   status.setAttribute("data-desktop-route-status", "");
   status.textContent = `No workspace file selected · Gateway ${gatewayHttp}`;
 
-  mountStatusStripVueIsland(status, status.textContent);
+  if (canMountVueIsland(status)) {
+    mountStatusStripIsland(status, { message: status.textContent });
+  }
   main.append(workbench, createNativeComposerSurface(targetDocument, chat, chatActions), utilities, status);
   return main;
 }
@@ -1217,17 +1220,6 @@ function mountMainUtilitiesRegionVueIsland(
       },
       promptProviderId: () => promptForSettingsProviderId(targetDocument),
     });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
-}
-
-function mountStatusStripVueIsland(status: HTMLElement, message: string): void {
-  if (!canMountVueIsland(status)) {
-    return;
-  }
-  void import("./native-vue/statusStripIsland").then(({ mountStatusStripIsland }) => {
-    mountStatusStripIsland(status, { message });
   }).catch(() => {
     // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
   });
