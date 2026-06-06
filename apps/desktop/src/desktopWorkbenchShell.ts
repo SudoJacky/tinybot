@@ -52,6 +52,9 @@ import {
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
+import { mountAgentUiFormActionsIsland } from "./native-vue/agentUiFormActionsIsland";
+import { mountAgentUiFormCardIsland } from "./native-vue/agentUiFormCardIsland";
+import { mountAgentUiFormFieldIsland } from "./native-vue/agentUiFormFieldIsland";
 import { mountAgentUiFormsSurfaceIsland } from "./native-vue/agentUiFormsSurfaceIsland";
 import { mountBottomRegionIsland } from "./native-vue/bottomRegionIsland";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
@@ -2723,11 +2726,7 @@ function mountAgentUiFormCardVueIsland(
   if (!canMountVueIsland(card)) {
     return;
   }
-  void import("./native-vue/agentUiFormCardIsland").then(({ mountAgentUiFormCardIsland }) => {
-    mountAgentUiFormCardIsland(card, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountAgentUiFormCardIsland(card, options);
 }
 
 function mountAgentUiFormActionsVueIsland(
@@ -2742,11 +2741,7 @@ function mountAgentUiFormActionsVueIsland(
   if (!canMountVueIsland(actions)) {
     return;
   }
-  void import("./native-vue/agentUiFormActionsIsland").then(({ mountAgentUiFormActionsIsland }) => {
-    mountAgentUiFormActionsIsland(actions, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountAgentUiFormActionsIsland(actions, options);
 }
 
 function createAgentUiFormField(targetDocument: Document, form: AgentUiForm, field: AgentUiFormField): HTMLElement {
@@ -2785,11 +2780,7 @@ function mountAgentUiFormFieldVueIsland(
   if (!canMountVueIsland(wrapper)) {
     return;
   }
-  void import("./native-vue/agentUiFormFieldIsland").then(({ mountAgentUiFormFieldIsland }) => {
-    mountAgentUiFormFieldIsland(wrapper, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountAgentUiFormFieldIsland(wrapper, options);
 }
 
 function agentUiFieldValue(form: AgentUiForm, field: AgentUiFormField): unknown {

@@ -137,4 +137,15 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountTokenUsageOrbIsland } from "./native-vue/tokenUsageOrbIsland";');
     expect(source).not.toContain('void import("./native-vue/tokenUsageOrbIsland")');
   });
+
+  test("statically imports the Agent UI form islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountAgentUiFormActionsIsland } from "./native-vue/agentUiFormActionsIsland";');
+    expect(source).not.toContain('void import("./native-vue/agentUiFormActionsIsland")');
+    expect(source).toContain('import { mountAgentUiFormCardIsland } from "./native-vue/agentUiFormCardIsland";');
+    expect(source).not.toContain('void import("./native-vue/agentUiFormCardIsland")');
+    expect(source).toContain('import { mountAgentUiFormFieldIsland } from "./native-vue/agentUiFormFieldIsland";');
+    expect(source).not.toContain('void import("./native-vue/agentUiFormFieldIsland")');
+  });
 });
