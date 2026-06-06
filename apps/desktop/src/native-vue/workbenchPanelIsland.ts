@@ -1,4 +1,6 @@
+import { NCard, NConfigProvider } from "naive-ui";
 import { createApp, defineComponent, h, onMounted, ref, type App } from "vue";
+import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export type WorkbenchPanelIslandRegion = "bottom" | "inspector" | "sidebar";
 
@@ -41,7 +43,15 @@ function createWorkbenchPanelApp(host: HTMLElement, content: HTMLElement): App {
       onMounted(() => {
         contentHost.value?.replaceChildren(content);
       });
-      return () => h("div", { ref: contentHost, class: "desktop-workbench-panel-content" });
+      return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
+        default: () => h(NCard, {
+          class: "desktop-workbench-panel",
+          size: "small",
+          bordered: false,
+        }, {
+          default: () => h("div", { ref: contentHost, class: "desktop-workbench-panel-content" }),
+        }),
+      });
     },
   }));
 }
