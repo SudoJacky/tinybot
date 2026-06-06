@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "vitest";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
-import { installDesktopWorkbenchShell } from "./desktopWorkbenchShell";
+import { installDesktopWorkbenchShell, type DesktopNativeChatModel } from "./desktopWorkbenchShell";
 
 describe("desktop workbench shell Vue integration", () => {
   test("renders the activity rail through the Vue shell island", () => {
@@ -55,6 +55,35 @@ describe("desktop workbench shell Vue integration", () => {
     expect(status?.getAttribute("data-desktop-route-status")).toBe("");
     expect(status?.textContent).toContain("No workspace file selected");
     expect(status?.textContent).toContain("http://127.0.0.1:18790");
+  });
+
+  test("renders the active chat title through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [],
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        title: "Live session",
+        updatedAt: "",
+      }],
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const title = document.querySelector<HTMLElement>(".desktop-chat-title");
+    expect(title?.getAttribute("data-desktop-vue-island")).toBe("chat-title");
+    expect(title?.textContent).toBe("Live session");
   });
 
   test("opens shortcut help through the Vue dialog island", () => {

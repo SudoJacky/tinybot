@@ -53,6 +53,7 @@ import {
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
+import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
@@ -1241,7 +1242,9 @@ function createChatHeader(
   const title = targetDocument.createElement("h1");
   title.className = "desktop-chat-title";
   title.textContent = activeChatTitle(chat);
-  mountChatTitleVueIsland(title, activeChatTitle(chat));
+  if (canMountVueIsland(title)) {
+    mountChatTitleIsland(title, { title: activeChatTitle(chat) });
+  }
 
   const menu = targetDocument.createElement("button");
   menu.type = "button";
@@ -1295,17 +1298,6 @@ function createChatHeader(
 
   header.append(titleRow, actions);
   return header;
-}
-
-function mountChatTitleVueIsland(title: HTMLElement, text: string): void {
-  if (!canMountVueIsland(title)) {
-    return;
-  }
-  void import("./native-vue/chatTitleIsland").then(({ mountChatTitleIsland }) => {
-    mountChatTitleIsland(title, { title: text });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
 }
 
 function mountChatMenuButtonVueIsland(menu: HTMLElement, popover: HTMLElement): void {
