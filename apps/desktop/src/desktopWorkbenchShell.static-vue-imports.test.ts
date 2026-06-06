@@ -30,4 +30,11 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";');
     expect(source).not.toContain('void import("./native-vue/coworkPaneIsland")');
   });
+
+  test("statically imports the Agent UI forms surface island", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountAgentUiFormsSurfaceIsland } from "./native-vue/agentUiFormsSurfaceIsland";');
+    expect(source).not.toContain('void import("./native-vue/agentUiFormsSurfaceIsland")');
+  });
 });

@@ -52,6 +52,7 @@ import {
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
+import { mountAgentUiFormsSurfaceIsland } from "./native-vue/agentUiFormsSurfaceIsland";
 import { mountBottomRegionIsland } from "./native-vue/bottomRegionIsland";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
 import { mountChatHeaderActionsIsland } from "./native-vue/chatHeaderActionsIsland";
@@ -2671,22 +2672,18 @@ function mountAgentUiFormsSurfaceVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/agentUiFormsSurfaceIsland").then(({ mountAgentUiFormsSurfaceIsland }) => {
-    mountAgentUiFormsSurfaceIsland(section, {
-      forms: options.forms,
-      onCancel: (form) => {
-        options.agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
-      },
-      onSubmit: (form, values) => {
-        options.agentUiActions.onAgentUiFormAction?.({
-          action: "submit",
-          form,
-          values,
-        });
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountAgentUiFormsSurfaceIsland(section, {
+    forms: options.forms,
+    onCancel: (form) => {
+      options.agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+    },
+    onSubmit: (form, values) => {
+      options.agentUiActions.onAgentUiFormAction?.({
+        action: "submit",
+        form,
+        values,
+      });
+    },
   });
 }
 
