@@ -13,6 +13,7 @@ describe("workspace files surface Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("workspace-files-surface");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("workspace");
     expect(host.getAttribute("data-desktop-workspace-layout")).toBe("browser-detail-actions");
+    expect(host.querySelector(".n-grid.desktop-workspace-files-grid")).not.toBeNull();
 
     expect(host.querySelector(".desktop-workspace-header")?.textContent).toContain("Workspace files");
     expect(host.querySelector(".desktop-workspace-header")?.getAttribute("data-desktop-vue-island")).toBe("workspace-header");

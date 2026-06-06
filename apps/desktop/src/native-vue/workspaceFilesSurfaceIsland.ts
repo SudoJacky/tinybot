@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NGi, NGrid } from "naive-ui";
 import { createDesktopWorkspaceFileState } from "../desktopWorkspaceFiles";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { mountWorkspaceActionsIsland } from "./workspaceActionsIsland";
@@ -55,13 +55,26 @@ function createWorkspaceFilesSurfaceApp(): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("div", { ref: header }),
-          h("aside", { ref: browser }),
-          h("section", { ref: detail }),
-          h("section", { ref: editor }),
-          h("aside", { ref: actions }),
-        ],
+        default: () => h(NGrid, {
+          class: "desktop-workspace-files-grid",
+          xGap: 12,
+          yGap: 12,
+          cols: 3,
+          style: {
+            gridColumn: "1 / -1",
+            gridRow: "1 / -1",
+            gridTemplateAreas: "\"header header header\" \"browser detail actions\" \"browser editor actions\"",
+            gridTemplateColumns: "minmax(220px, 0.78fr) minmax(0, 1.55fr) minmax(150px, 0.48fr)",
+          },
+        }, {
+          default: () => [
+            h(NGi, { style: { gridArea: "header" } }, { default: () => h("div", { ref: header }) }),
+            h(NGi, { style: { gridArea: "browser" } }, { default: () => h("aside", { ref: browser }) }),
+            h(NGi, { style: { gridArea: "detail" } }, { default: () => h("section", { ref: detail }) }),
+            h(NGi, { style: { gridArea: "editor" } }, { default: () => h("section", { ref: editor }) }),
+            h(NGi, { style: { gridArea: "actions" } }, { default: () => h("aside", { ref: actions }) }),
+          ],
+        }),
       });
     },
   }));
