@@ -119,6 +119,7 @@ describe("tools and skills pane Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("tools-skills-pane");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("tools skills");
     expect(host.getAttribute("aria-label")).toBe("Tools and skills");
+    expect(host.querySelector(".n-space.desktop-tools-skills-stack")).not.toBeNull();
     expect(host.textContent).toContain("1 tool / 1 skill");
 
     expect(host.querySelector(".desktop-tools-list")?.getAttribute("data-desktop-vue-island")).toBe("tools-list");

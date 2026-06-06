@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NSpace } from "naive-ui";
 import type {
   DesktopSkillEditorField,
   DesktopSkillPaneDetailView,
@@ -96,20 +96,26 @@ function createToolsSkillsPaneApp(options: ToolsSkillsPaneIslandOptions): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", "Tools and skills"),
-          h("p", options.pane.status),
-          h("section", { ref: toolsList }),
-          options.pane.selectedTool ? h("section", { ref: toolDetail }) : null,
-          h("section", { ref: skillsList }),
-          options.pane.selectedSkill
-            ? h("section", { class: "desktop-skill-detail" }, [
-              h("section", { ref: skillSummary }),
-              h("div", { ref: skillEditor }),
-              h("div", { ref: skillActionsHost }),
-            ])
-            : null,
-        ],
+        default: () => h(NSpace, {
+          class: "desktop-tools-skills-stack",
+          vertical: true,
+          size: 12,
+        }, {
+          default: () => [
+            h("h2", "Tools and skills"),
+            h("p", options.pane.status),
+            h("section", { ref: toolsList }),
+            options.pane.selectedTool ? h("section", { ref: toolDetail }) : null,
+            h("section", { ref: skillsList }),
+            options.pane.selectedSkill
+              ? h("section", { class: "desktop-skill-detail" }, [
+                h("section", { ref: skillSummary }),
+                h("div", { ref: skillEditor }),
+                h("div", { ref: skillActionsHost }),
+              ])
+              : null,
+          ],
+        }),
       });
     },
   }));
