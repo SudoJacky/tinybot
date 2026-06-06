@@ -30,6 +30,7 @@ describe("tool activities Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("tool-activities");
     expect(host.className).toBe("desktop-tool-activities");
+    expect(host.querySelector(".n-space.desktop-tool-activities-list")).not.toBeNull();
     expect(Array.from(host.querySelectorAll(".desktop-tool-activity")).map((activity) => activity.getAttribute("data-desktop-vue-island"))).toEqual([
       "tool-activity",
       "tool-activity",
