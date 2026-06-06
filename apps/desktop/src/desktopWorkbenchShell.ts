@@ -66,9 +66,11 @@ import { mountConversationMessageIsland } from "./native-vue/conversationMessage
 import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
 import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
 import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
+import { mountHeaderPanelControlIsland } from "./native-vue/headerPanelControlIsland";
 import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
+import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIsland";
@@ -1749,13 +1751,9 @@ function mountHeaderPanelControlVueIsland(
     installFallback();
     return;
   }
-  void import("./native-vue/headerPanelControlIsland").then(({ mountHeaderPanelControlIsland }) => {
-    mountHeaderPanelControlIsland(button, {
-      ...options,
-      onToggle: () => toggle(),
-    });
-  }).catch(() => {
-    installFallback();
+  mountHeaderPanelControlIsland(button, {
+    ...options,
+    onToggle: () => toggle(),
   });
 }
 
@@ -1770,11 +1768,7 @@ function mountPanelIconPartVueIsland(node: HTMLElement, part: "frame" | "rail"):
   if (!canMountVueIsland(node)) {
     return;
   }
-  void import("./native-vue/panelIconPartIsland").then(({ mountPanelIconPartIsland }) => {
-    mountPanelIconPartIsland(node, { part });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountPanelIconPartIsland(node, { part });
 }
 
 function createConversationThread(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {

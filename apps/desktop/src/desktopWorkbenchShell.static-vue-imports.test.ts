@@ -58,4 +58,18 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";');
     expect(source).not.toContain('void import("./native-vue/panelControlsIsland")');
   });
+
+  test("statically imports the header panel controls island", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountHeaderPanelControlIsland } from "./native-vue/headerPanelControlIsland";');
+    expect(source).not.toContain('void import("./native-vue/headerPanelControlIsland")');
+  });
+
+  test("statically imports the panel icon part island", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";');
+    expect(source).not.toContain('void import("./native-vue/panelIconPartIsland")');
+  });
 });
