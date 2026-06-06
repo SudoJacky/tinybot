@@ -4,10 +4,10 @@ export type DesktopMenuCommandId =
   | "new-chat"
   | "stop-generation"
   | "search-sessions"
+  | "open-chat"
   | "open-workspace"
   | "open-knowledge"
-  | "open-tools"
-  | "open-automations"
+  | "open-files"
   | "open-tinybot-repo"
   | "open-settings"
   | "open-docs"
@@ -58,10 +58,10 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
   { id: "new-chat", label: "New Chat", chromeLabel: "New", chromeGroup: "primary", shortcut: "Ctrl+N" },
   { id: "stop-generation", label: "Stop Generation", chromeLabel: "Stop", chromeGroup: "primary", shortcut: "Ctrl+." },
   { id: "search-sessions", label: "Search Sessions", chromeLabel: "Search", chromeGroup: "primary", shortcut: "Ctrl+F" },
+  { id: "open-chat", label: "Chat", chromeGroup: "secondary", shortcut: "" },
   { id: "open-workspace", label: "Workspace", chromeGroup: "secondary", shortcut: "" },
   { id: "open-knowledge", label: "Knowledge", chromeGroup: "secondary", shortcut: "" },
-  { id: "open-tools", label: "Tools", chromeGroup: "secondary", shortcut: "" },
-  { id: "open-automations", label: "Automations", chromeGroup: "secondary", shortcut: "" },
+  { id: "open-files", label: "Files", chromeGroup: "secondary", shortcut: "" },
   { id: "open-tinybot-repo", label: "Tinybot repo", chromeGroup: "secondary", shortcut: "" },
   { id: "open-settings", label: "Settings", chromeGroup: "secondary", shortcut: "Ctrl+," },
   { id: "open-docs", label: "Documentation", chromeGroup: "secondary", shortcut: "F1" },
@@ -78,10 +78,11 @@ const DESKTOP_CHROME_COMMAND_IDS: DesktopMenuCommandId[] = [
 ];
 
 const DESKTOP_RESOURCE_COMMAND_IDS: DesktopMenuCommandId[] = [
+  "open-chat",
   "open-workspace",
   "open-knowledge",
-  "open-tools",
-  "open-automations",
+  "open-files",
+  "open-settings",
   "open-docs",
   "open-tinybot-repo",
 ];
@@ -131,14 +132,14 @@ export function routeDesktopMenuCommand(id: string, context: DesktopMenuCommandC
         : { kind: "unavailable", feedback: "Stop generation is unavailable without an active response." };
     case "search-sessions":
       return { kind: "action", action: "open-session-search" };
+    case "open-chat":
+      return { kind: "navigate", href: "/chat" };
     case "open-workspace":
       return { kind: "navigate", href: "/workspace" };
     case "open-knowledge":
       return { kind: "navigate", href: "/knowledge" };
-    case "open-tools":
-      return { kind: "navigate", href: "/tools" };
-    case "open-automations":
-      return { kind: "navigate", href: "/cowork" };
+    case "open-files":
+      return { kind: "navigate", href: "/files" };
     case "open-tinybot-repo":
       return { kind: "navigate", href: "https://github.com/SudoJacky/tinybot" };
     case "open-settings":

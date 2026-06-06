@@ -1,3 +1,5 @@
+import { buildWorkbenchFileScopeLabel } from "./desktopSharedModels";
+
 export interface DesktopProviderCatalogItem {
   id?: string;
   displayName?: string;
@@ -137,7 +139,18 @@ export interface DesktopSettingsPaneField {
 }
 
 export interface DesktopSettingsPaneGroup {
-  id: "agent" | "provider" | "knowledge" | "tools" | "gateway" | "channels";
+  id:
+    | "general"
+    | "provider-models"
+    | "knowledge"
+    | "tools-approvals"
+    | "files-workspace"
+    | "memory-experience"
+    | "skills"
+    | "channels"
+    | "automations"
+    | "gateway-runtime"
+    | "logs-diagnostics";
   label: string;
   fields: DesktopSettingsPaneField[];
 }
@@ -734,8 +747,8 @@ function buildDesktopSettingsPaneGroups(
   });
   return [
     {
-      id: "agent",
-      label: "Agent",
+      id: "general",
+      label: "General",
       fields: [
         field("model", "Model", state.agent.model, "model"),
         field("provider", "Provider", state.agent.provider, undefined, "select", agentProviderOptions),
@@ -744,8 +757,8 @@ function buildDesktopSettingsPaneGroups(
       ],
     },
     {
-      id: "provider",
-      label: "Provider",
+      id: "provider-models",
+      label: "Provider & Models",
       fields: [
         field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider, undefined, "select", editorProviderOptions),
         field("profileId", "Profile ID", state.providerEditor.profileId),
@@ -764,8 +777,8 @@ function buildDesktopSettingsPaneGroups(
       ],
     },
     {
-      id: "tools",
-      label: "Tools",
+      id: "tools-approvals",
+      label: "Tools & Approvals",
       fields: [
         field("webEnable", "Web tools", state.tools.webEnable, undefined, "checkbox"),
         field("execEnable", "Exec tools", state.tools.execEnable, undefined, "checkbox"),
@@ -773,12 +786,26 @@ function buildDesktopSettingsPaneGroups(
       ],
     },
     {
-      id: "gateway",
-      label: "Gateway",
+      id: "files-workspace",
+      label: "Files & Workspace",
       fields: [
-        field("host", "Host", state.gateway.host),
-        field("port", "Port", state.gateway.port, "gatewayPort", "number"),
-        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, undefined, "checkbox"),
+        field("sessionFiles", "Session files", buildWorkbenchFileScopeLabel("session").label),
+        field("knowledgeDocuments", "Knowledge documents", buildWorkbenchFileScopeLabel("knowledge").label),
+        field("workspaceFiles", "Workspace files", buildWorkbenchFileScopeLabel("workspace").label),
+      ],
+    },
+    {
+      id: "memory-experience",
+      label: "Memory & Experience",
+      fields: [
+        field("memory", "Memory", "Managed by context and experience settings"),
+      ],
+    },
+    {
+      id: "skills",
+      label: "Skills",
+      fields: [
+        field("skills", "Skills", "Managed by Tools and Skills workbench"),
       ],
     },
     {
@@ -788,6 +815,29 @@ function buildDesktopSettingsPaneGroups(
         field("sendProgress", "Progress events", state.channels.sendProgress, undefined, "checkbox"),
         field("sendToolHints", "Tool hints", state.channels.sendToolHints, undefined, "checkbox"),
         field("sendMaxRetries", "Max retries", state.channels.sendMaxRetries, undefined, "number"),
+      ],
+    },
+    {
+      id: "automations",
+      label: "Automations",
+      fields: [
+        field("automations", "Automations", "Planned after core workbench stability"),
+      ],
+    },
+    {
+      id: "gateway-runtime",
+      label: "Gateway & Runtime",
+      fields: [
+        field("host", "Host", state.gateway.host),
+        field("port", "Port", state.gateway.port, "gatewayPort", "number"),
+        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, undefined, "checkbox"),
+      ],
+    },
+    {
+      id: "logs-diagnostics",
+      label: "Logs & Diagnostics",
+      fields: [
+        field("diagnostics", "Diagnostics", "Export diagnostics and inspect runtime logs"),
       ],
     },
   ];

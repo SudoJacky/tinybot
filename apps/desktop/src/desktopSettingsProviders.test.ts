@@ -285,10 +285,34 @@ describe("desktop settings and provider helpers", () => {
       canSave: false,
     });
     expect(pane.validationErrors.map((error) => error.field)).toEqual(["model", "timezone"]);
-    expect(pane.groups.map((group) => group.id)).toEqual(["agent", "provider", "knowledge", "tools", "gateway", "channels"]);
-    expect(pane.groups.find((group) => group.id === "agent")?.fields).toEqual(expect.arrayContaining([
+    expect(pane.groups.map((group) => [group.id, group.label])).toEqual([
+      ["general", "General"],
+      ["provider-models", "Provider & Models"],
+      ["knowledge", "Knowledge"],
+      ["tools-approvals", "Tools & Approvals"],
+      ["files-workspace", "Files & Workspace"],
+      ["memory-experience", "Memory & Experience"],
+      ["skills", "Skills"],
+      ["channels", "Channels"],
+      ["automations", "Automations"],
+      ["gateway-runtime", "Gateway & Runtime"],
+      ["logs-diagnostics", "Logs & Diagnostics"],
+    ]);
+    expect(pane.groups.find((group) => group.id === "general")?.fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "model", label: "Model", value: "", state: "invalid", control: "text" }),
       expect.objectContaining({ id: "timezone", label: "Timezone", value: "Shanghai", state: "invalid", control: "text" }),
+    ]));
+    expect(pane.groups.find((group) => group.id === "provider-models")?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "selectedProvider", label: "Selected provider", control: "select" }),
+      expect.objectContaining({ id: "models", label: "Models", control: "textarea" }),
+    ]));
+    expect(pane.groups.find((group) => group.id === "files-workspace")?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "sessionFiles", label: "Session files", value: "Session file" }),
+      expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file" }),
+    ]));
+    expect(pane.groups.find((group) => group.id === "gateway-runtime")?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "host", label: "Host" }),
+      expect.objectContaining({ id: "port", label: "Port", state: "normal" }),
     ]));
     expect(pane.providerCatalog).toEqual([{ id: "openai", label: "OpenAI", status: "ready" }]);
     expect(pane.providerEditor).toMatchObject({

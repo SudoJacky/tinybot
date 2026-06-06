@@ -294,6 +294,9 @@ function desktopCommandEntryDestination(entry: DesktopCommandEntry): DesktopComm
 }
 
 function moduleForDesktopCommandHref(href: string): DesktopCommandPaletteDestinationModule {
+  if (href.startsWith("/files")) {
+    return "workspace";
+  }
   if (href.startsWith("/tools")) {
     return "tools";
   }
@@ -430,14 +433,14 @@ function coworkResults(rows: DesktopCoworkSessionRow[]): DesktopCommandPaletteRe
 
 function commandKeywords(id: DesktopMenuCommandId): string[] {
   switch (id) {
+    case "open-chat":
+      return ["chat", "conversation", "sessions"];
     case "open-workspace":
       return ["workspace", "files", "project"];
     case "open-knowledge":
       return ["knowledge", "documents", "rag"];
-    case "open-tools":
-      return ["tools", "skills"];
-    case "open-automations":
-      return ["automations", "cowork", "agents"];
+    case "open-files":
+      return ["files", "session file", "knowledge document", "workspace file", "resources"];
     case "open-tinybot-repo":
       return ["github", "repo", "repository"];
     case "open-docs":
@@ -462,6 +465,8 @@ function commandKeywords(id: DesktopMenuCommandId): string[] {
       return ["theme", "appearance"];
     case "toggle-sidebar":
       return ["sidebar", "layout"];
+    default:
+      return [];
   }
 }
 

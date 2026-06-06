@@ -2,6 +2,11 @@ import { describe, expect, test } from "vitest";
 import {
   buildDesktopCommandEntriesFromSidebar,
   buildNativeWorkbenchSidebarModel,
+  buildNativeWorkbenchRoadmap,
+  buildWorkbenchFileScopeLabel,
+  buildWorkbenchInspectorTabs,
+  buildWorkbenchSettingsSections,
+  buildWorkbenchWorkbenchAreas,
   buildRootWebUiRuntimeChips,
   buildRootWebUiSidebarModel,
   buildRootWebUiWorkspaceContext,
@@ -123,15 +128,12 @@ describe("desktop shared shell models", () => {
       group: "Actions",
     });
     expect(model.groups[1].items.map((item) => [item.label, item.href])).toEqual([
-      ["Workspace", "/workspace"],
+      ["Chat", "/chat"],
       ["Knowledge", "/knowledge"],
-      ["Tools", "/tools"],
-      ["Automations", "/cowork"],
-      ["Docs", "/docs"],
-      ["Tinybot repo", "https://github.com/SudoJacky/tinybot"],
+      ["Files", "/files"],
+      ["Settings", "/settings"],
     ]);
     expect(model.groups[2].items.map((item) => item.commandId)).toEqual([
-      "open-settings",
       "refresh-gateway-status",
       "open-docs",
     ]);
@@ -143,17 +145,87 @@ describe("desktop shared shell models", () => {
     const rootLookup = new Map(rootEntries.map((entry) => [entry.title, entry]));
     const nativeLookup = new Map(nativeEntries.map((entry) => [entry.title, entry]));
 
-    for (const title of ["New Chat", "Search Sessions", "Command Palette", "Tools", "Automations", "Settings", "Gateway Status", "Documentation"]) {
+    for (const title of ["New Chat", "Search Sessions", "Command Palette", "Settings", "Gateway Status", "Documentation"]) {
       expect(nativeLookup.get(title)).toMatchObject({
         title,
         commandId: rootLookup.get(title)?.commandId,
-        href: rootLookup.get(title)?.href,
       });
+      if (title !== "Settings") {
+        expect(nativeLookup.get(title)?.href).toBe(rootLookup.get(title)?.href);
+      }
     }
     expect(rootLookup.has("Stop Generation")).toBe(false);
     expect(nativeLookup.get("Stop Generation")).toMatchObject({
       title: "Stop Generation",
       commandId: "stop-generation",
     });
+  });
+
+  test("defines the initial native workbench IA as Chat, Knowledge, Files, and Settings", () => {
+    expect(buildWorkbenchWorkbenchAreas().map((area) => [area.id, area.label, area.href, area.owner])).toEqual([
+      ["chat", "Chat", "/chat", "Daily AI execution and conversation work items"],
+      ["knowledge", "Knowledge", "/knowledge", "Long-term documents, graph structure, retrieval, and evidence"],
+      ["files", "Files", "/files", "Session files, Knowledge documents, and workspace files"],
+      ["settings", "Settings", "/settings", "Providers, permissions, runtime, channels, and capability boundaries"],
+    ]);
+  });
+
+  test("keeps shared file scope terminology distinct across the native workbench", () => {
+    expect(buildWorkbenchFileScopeLabel("session")).toEqual({
+      id: "session",
+      label: "Session file",
+      description: "Temporary file attached to the active conversation.",
+    });
+    expect(buildWorkbenchFileScopeLabel("knowledge")).toEqual({
+      id: "knowledge",
+      label: "Knowledge document",
+      description: "Persisted document indexed for retrieval, graph, and evidence workflows.",
+    });
+    expect(buildWorkbenchFileScopeLabel("workspace")).toEqual({
+      id: "workspace",
+      label: "Workspace file",
+      description: "Local project file that can be previewed, edited, revealed, or referenced.",
+    });
+  });
+
+  test("defines stable inspector tabs with badges and page defaults", () => {
+    expect(buildWorkbenchInspectorTabs({
+      activePage: "chat",
+      activityCount: 2,
+      approvalCount: 1,
+      fileCount: 3,
+      taskCount: 4,
+    })).toEqual([
+      { id: "context", label: "Context", active: true, badge: null },
+      { id: "files", label: "Files", active: false, badge: 3 },
+      { id: "tasks", label: "Tasks", active: false, badge: 4 },
+      { id: "approvals", label: "Approvals", active: false, badge: 1 },
+      { id: "activity", label: "Activity", active: false, badge: 2 },
+    ]);
+    expect(buildWorkbenchInspectorTabs({ activePage: "knowledge" }).find((tab) => tab.active)).toMatchObject({
+      id: "activity",
+    });
+  });
+
+  test("defines final settings sections and phased roadmap gates", () => {
+    expect(buildWorkbenchSettingsSections().map((section) => [section.id, section.label, section.href])).toEqual([
+      ["general", "General", "/settings/general"],
+      ["provider-models", "Provider & Models", "/settings/provider-models"],
+      ["knowledge", "Knowledge", "/settings/knowledge"],
+      ["tools-approvals", "Tools & Approvals", "/settings/tools-approvals"],
+      ["files-workspace", "Files & Workspace", "/settings/files-workspace"],
+      ["memory-experience", "Memory & Experience", "/settings/memory-experience"],
+      ["skills", "Skills", "/settings/skills"],
+      ["channels", "Channels", "/settings/channels"],
+      ["automations", "Automations", "/settings/automations"],
+      ["gateway-runtime", "Gateway & Runtime", "/settings/gateway-runtime"],
+      ["logs-diagnostics", "Logs & Diagnostics", "/settings/logs-diagnostics"],
+    ]);
+    expect(buildNativeWorkbenchRoadmap().map((phase) => [phase.id, phase.title, phase.exitCriteria])).toEqual([
+      ["phase-1", "Skeleton", "Chat, Files, Knowledge, Settings, shell, runtime status, and provider basics are usable together."],
+      ["phase-2", "AI execution surfaces", "Tool timeline, approvals, forms, references, token usage, upload jobs, and workspace editor are inspectable."],
+      ["phase-3", "Knowledge differentiation", "2D graph, node drawer, evidence paths, conflicts, communities, and graph/table/evidence switching are usable."],
+      ["phase-4", "Advanced workbench capabilities", "Skills, channels, memory/experience, automations, Cowork, multi-window, tray, and dependency-gated features are planned after core stability."],
+    ]);
   });
 });

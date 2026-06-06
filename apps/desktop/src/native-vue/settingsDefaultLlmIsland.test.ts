@@ -15,8 +15,8 @@ const pane: DesktopSettingsPaneModel = {
   },
   groups: [
     {
-      id: "agent",
-      label: "Agent",
+      id: "general",
+      label: "General",
       fields: [
         {
           id: "model",
@@ -29,8 +29,8 @@ const pane: DesktopSettingsPaneModel = {
       ],
     },
     {
-      id: "provider",
-      label: "Provider",
+      id: "provider-models",
+      label: "Provider & Models",
       fields: [
         {
           id: "selectedProvider",

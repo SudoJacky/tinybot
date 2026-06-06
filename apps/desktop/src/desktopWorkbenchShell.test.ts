@@ -2179,11 +2179,16 @@ describe("desktop workbench shell", () => {
     expect(pane?.querySelector(".desktop-settings-search")?.getAttribute("placeholder")).toBe("Search settings...");
     expect(pane?.querySelectorAll(".desktop-settings-nav-item").map((item) => item.textContent)).toEqual([
       "General",
-      "Provider",
+      "Provider & Models",
       "Knowledge",
-      "Tools",
-      "Gateway",
+      "Tools & Approvals",
+      "Files & Workspace",
+      "Memory & Experience",
+      "Skills",
       "Channels",
+      "Automations",
+      "Gateway & Runtime",
+      "Logs & Diagnostics",
     ]);
     expect(pane?.querySelector(".desktop-settings-nav-item")?.getAttribute("data-active")).toBe("true");
     expect(pane?.querySelector(".desktop-settings-content")?.textContent).toContain("设置 / 模型");
@@ -2203,7 +2208,7 @@ describe("desktop workbench shell", () => {
       "deepseek",
       "ollama",
     ]);
-    expect(pane?.querySelector('[data-desktop-settings-group="agent"]')?.getAttribute("id")).toBe("desktop-settings-group-agent");
+    expect(pane?.querySelector('[data-desktop-settings-group="general"]')?.getAttribute("id")).toBe("desktop-settings-group-general");
     expect(pane?.textContent).toContain("设置 / 模型");
     expect(pane?.textContent).toContain("Save: HTTP 400");
     expect(pane?.textContent).toContain("Validation: model, timezone");

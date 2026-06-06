@@ -6,6 +6,65 @@ export type DesktopSidebarGroupId = "actions" | "workspace" | "footer";
 
 export type DesktopSidebarItemKind = "command" | "link" | "session" | "status";
 
+export type NativeWorkbenchAreaId = "chat" | "knowledge" | "files" | "settings";
+
+export type NativeWorkbenchFileScopeId = "session" | "knowledge" | "workspace";
+
+export type NativeWorkbenchInspectorTabId = "context" | "files" | "tasks" | "approvals" | "activity";
+
+export type NativeWorkbenchSettingsSectionId =
+  | "general"
+  | "provider-models"
+  | "knowledge"
+  | "tools-approvals"
+  | "files-workspace"
+  | "memory-experience"
+  | "skills"
+  | "channels"
+  | "automations"
+  | "gateway-runtime"
+  | "logs-diagnostics";
+
+export interface NativeWorkbenchArea {
+  id: NativeWorkbenchAreaId;
+  label: string;
+  href: string;
+  owner: string;
+}
+
+export interface NativeWorkbenchFileScopeLabel {
+  id: NativeWorkbenchFileScopeId;
+  label: string;
+  description: string;
+}
+
+export interface NativeWorkbenchInspectorTab {
+  id: NativeWorkbenchInspectorTabId;
+  label: string;
+  active: boolean;
+  badge: number | null;
+}
+
+export interface NativeWorkbenchInspectorTabOptions {
+  activePage?: NativeWorkbenchAreaId;
+  activityCount?: number;
+  approvalCount?: number;
+  fileCount?: number;
+  taskCount?: number;
+}
+
+export interface NativeWorkbenchSettingsSection {
+  id: NativeWorkbenchSettingsSectionId;
+  label: string;
+  href: string;
+}
+
+export interface NativeWorkbenchRoadmapPhase {
+  id: "phase-1" | "phase-2" | "phase-3" | "phase-4";
+  title: string;
+  exitCriteria: string;
+}
+
 export interface DesktopSidebarItem {
   id: string;
   kind: DesktopSidebarItemKind;
@@ -81,6 +140,96 @@ export interface RootWebUiRuntimeChipOptions {
 export interface NativeWorkbenchSidebarModelOptions {
   workspace?: DesktopWorkspaceContext;
 }
+
+const NATIVE_WORKBENCH_AREAS: NativeWorkbenchArea[] = [
+  {
+    id: "chat",
+    label: "Chat",
+    href: "/chat",
+    owner: "Daily AI execution and conversation work items",
+  },
+  {
+    id: "knowledge",
+    label: "Knowledge",
+    href: "/knowledge",
+    owner: "Long-term documents, graph structure, retrieval, and evidence",
+  },
+  {
+    id: "files",
+    label: "Files",
+    href: "/files",
+    owner: "Session files, Knowledge documents, and workspace files",
+  },
+  {
+    id: "settings",
+    label: "Settings",
+    href: "/settings",
+    owner: "Providers, permissions, runtime, channels, and capability boundaries",
+  },
+];
+
+const WORKBENCH_FILE_SCOPE_LABELS: Record<NativeWorkbenchFileScopeId, NativeWorkbenchFileScopeLabel> = {
+  session: {
+    id: "session",
+    label: "Session file",
+    description: "Temporary file attached to the active conversation.",
+  },
+  knowledge: {
+    id: "knowledge",
+    label: "Knowledge document",
+    description: "Persisted document indexed for retrieval, graph, and evidence workflows.",
+  },
+  workspace: {
+    id: "workspace",
+    label: "Workspace file",
+    description: "Local project file that can be previewed, edited, revealed, or referenced.",
+  },
+};
+
+const WORKBENCH_INSPECTOR_TABS: Array<{ id: NativeWorkbenchInspectorTabId; label: string }> = [
+  { id: "context", label: "Context" },
+  { id: "files", label: "Files" },
+  { id: "tasks", label: "Tasks" },
+  { id: "approvals", label: "Approvals" },
+  { id: "activity", label: "Activity" },
+];
+
+const WORKBENCH_SETTINGS_SECTIONS: NativeWorkbenchSettingsSection[] = [
+  { id: "general", label: "General", href: "/settings/general" },
+  { id: "provider-models", label: "Provider & Models", href: "/settings/provider-models" },
+  { id: "knowledge", label: "Knowledge", href: "/settings/knowledge" },
+  { id: "tools-approvals", label: "Tools & Approvals", href: "/settings/tools-approvals" },
+  { id: "files-workspace", label: "Files & Workspace", href: "/settings/files-workspace" },
+  { id: "memory-experience", label: "Memory & Experience", href: "/settings/memory-experience" },
+  { id: "skills", label: "Skills", href: "/settings/skills" },
+  { id: "channels", label: "Channels", href: "/settings/channels" },
+  { id: "automations", label: "Automations", href: "/settings/automations" },
+  { id: "gateway-runtime", label: "Gateway & Runtime", href: "/settings/gateway-runtime" },
+  { id: "logs-diagnostics", label: "Logs & Diagnostics", href: "/settings/logs-diagnostics" },
+];
+
+const NATIVE_WORKBENCH_ROADMAP: NativeWorkbenchRoadmapPhase[] = [
+  {
+    id: "phase-1",
+    title: "Skeleton",
+    exitCriteria: "Chat, Files, Knowledge, Settings, shell, runtime status, and provider basics are usable together.",
+  },
+  {
+    id: "phase-2",
+    title: "AI execution surfaces",
+    exitCriteria: "Tool timeline, approvals, forms, references, token usage, upload jobs, and workspace editor are inspectable.",
+  },
+  {
+    id: "phase-3",
+    title: "Knowledge differentiation",
+    exitCriteria: "2D graph, node drawer, evidence paths, conflicts, communities, and graph/table/evidence switching are usable.",
+  },
+  {
+    id: "phase-4",
+    title: "Advanced workbench capabilities",
+    exitCriteria: "Skills, channels, memory/experience, automations, Cowork, multi-window, tray, and dependency-gated features are planned after core stability.",
+  },
+];
 
 const ROOT_WEBUI_ACTION_COMMANDS: DesktopMenuCommandId[] = [
   "new-chat",
@@ -159,18 +308,19 @@ export function buildNativeWorkbenchSidebarModel({
       {
         id: "workspace",
         label: "Resources",
-        items: [
-          { id: "link:workspace", kind: "link", label: "Workspace", href: "/workspace", icon: "files" },
-          { id: "link:knowledge", kind: "link", label: "Knowledge", href: "/knowledge", icon: "knowledge" },
-          { id: "link:tools", kind: "link", label: "Tools", href: "/tools", icon: "tools" },
-          { id: "link:automations", kind: "link", label: "Automations", href: "/cowork", icon: "automation" },
-          { id: "link:docs", kind: "link", label: "Docs", href: "/docs", icon: "docs" },
-          { id: "link:repo", kind: "link", label: "Tinybot repo", href: "https://github.com/SudoJacky/tinybot", icon: "repo" },
-        ],
+        items: buildWorkbenchWorkbenchAreas().map((area) => ({
+          id: `link:${area.id}`,
+          kind: "link",
+          label: area.label,
+          href: area.href,
+          commandId: area.id === "settings" ? "open-settings" : undefined,
+          icon: area.id === "chat" ? "new-chat" : area.id,
+          meta: area.id === "files" ? "3 scopes" : undefined,
+        })),
       },
       {
         id: "footer",
-        items: sidebarItemsFromCommands(ROOT_WEBUI_FOOTER_COMMANDS),
+        items: sidebarItemsFromCommands(ROOT_WEBUI_FOOTER_COMMANDS.filter((commandId) => commandId !== "open-settings")),
       },
     ],
   };
@@ -229,6 +379,43 @@ export function buildDesktopCommandEntriesFromSidebar(model: DesktopSidebarModel
       href: item.href,
     })),
   );
+}
+
+export function buildWorkbenchWorkbenchAreas(): NativeWorkbenchArea[] {
+  return NATIVE_WORKBENCH_AREAS.map((area) => ({ ...area }));
+}
+
+export function buildWorkbenchFileScopeLabel(scope: NativeWorkbenchFileScopeId): NativeWorkbenchFileScopeLabel {
+  return { ...WORKBENCH_FILE_SCOPE_LABELS[scope] };
+}
+
+export function buildWorkbenchInspectorTabs({
+  activePage = "chat",
+  activityCount = 0,
+  approvalCount = 0,
+  fileCount = 0,
+  taskCount = 0,
+}: NativeWorkbenchInspectorTabOptions = {}): NativeWorkbenchInspectorTab[] {
+  const activeTab = activePage === "chat" ? "context" : "activity";
+  const badgeByTab: Partial<Record<NativeWorkbenchInspectorTabId, number>> = {
+    activity: activityCount,
+    approvals: approvalCount,
+    files: fileCount,
+    tasks: taskCount,
+  };
+  return WORKBENCH_INSPECTOR_TABS.map((tab) => ({
+    ...tab,
+    active: tab.id === activeTab,
+    badge: badgeByTab[tab.id] ? badgeByTab[tab.id] ?? null : null,
+  }));
+}
+
+export function buildWorkbenchSettingsSections(): NativeWorkbenchSettingsSection[] {
+  return WORKBENCH_SETTINGS_SECTIONS.map((section) => ({ ...section }));
+}
+
+export function buildNativeWorkbenchRoadmap(): NativeWorkbenchRoadmapPhase[] {
+  return NATIVE_WORKBENCH_ROADMAP.map((phase) => ({ ...phase }));
 }
 
 function sidebarItemsFromCommands(commandIds: DesktopMenuCommandId[]): DesktopSidebarItem[] {

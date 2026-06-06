@@ -296,10 +296,11 @@ describe("desktop window frame", () => {
     resourcesTrigger?.click();
     expect(appTrigger?.getAttribute("aria-expanded")).toBe("false");
     expect(resourcesTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-chat"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Chat");
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-workspace"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Workspace");
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-knowledge"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Knowledge");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-tools"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Tools");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-automations"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Automations");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-files"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Files");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-settings"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Settings");
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-docs"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Documentation");
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-tinybot-repo"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Tinybot repo");
 

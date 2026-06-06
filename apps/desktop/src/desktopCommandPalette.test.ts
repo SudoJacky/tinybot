@@ -55,7 +55,7 @@ describe("desktop command palette", () => {
       desktopCommands: buildDesktopCommandEntriesFromSidebar(buildNativeWorkbenchSidebarModel()),
     });
 
-    for (const query of ["tools", "automations", "settings", "runtime diagnostics"]) {
+    for (const query of ["settings", "runtime diagnostics"]) {
       const rootResult = buildDesktopCommandPaletteResults(rootState, query)[0];
       const nativeResult = buildDesktopCommandPaletteResults(nativeState, query)[0];
       expect(nativeResult).toMatchObject({
@@ -63,6 +63,15 @@ describe("desktop command palette", () => {
         destination: rootResult.destination,
       });
     }
+    expect(buildDesktopCommandPaletteResults(nativeState, "files")[0]).toMatchObject({
+      title: "Files",
+      destination: { module: "workspace", href: "/files" },
+    });
+    expect(buildDesktopCommandPaletteResults(nativeState, "session file")[0]).toMatchObject({
+      title: "Files",
+      destination: { module: "command", commandId: "open-files" },
+    });
+    expect(buildDesktopCommandPaletteResults(nativeState, "tools")[0]?.title).not.toBe("Tools");
   });
 
   test("groups searchable commands and loaded workbench data", () => {

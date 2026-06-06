@@ -5,11 +5,11 @@ import type { DesktopSettingsPaneModel } from "../desktopSettingsProviders";
 import { mountSettingsSidebarIsland } from "./settingsSidebarIsland";
 
 const groups: DesktopSettingsPaneModel["groups"] = [
-  { id: "agent", label: "Agent", fields: [] },
-  { id: "provider", label: "Provider", fields: [] },
+  { id: "general", label: "General", fields: [] },
+  { id: "provider-models", label: "Provider & Models", fields: [] },
   { id: "knowledge", label: "Knowledge", fields: [] },
-  { id: "tools", label: "Tools", fields: [] },
-  { id: "gateway", label: "Gateway", fields: [] },
+  { id: "tools-approvals", label: "Tools & Approvals", fields: [] },
+  { id: "gateway-runtime", label: "Gateway & Runtime", fields: [] },
   { id: "channels", label: "Channels", fields: [] },
 ];
 
@@ -29,15 +29,22 @@ describe("settings sidebar Vue island", () => {
 
     const links = Array.from(host.querySelectorAll<HTMLAnchorElement>("[data-desktop-settings-nav]"));
     expect(links.map((link) => link.getAttribute("data-desktop-settings-nav"))).toEqual([
-      "agent",
-      "provider",
+      "general",
+      "provider-models",
       "knowledge",
-      "tools",
-      "gateway",
+      "tools-approvals",
+      "gateway-runtime",
       "channels",
     ]);
-    expect(links.map((link) => link.textContent)).toEqual(["General", "Provider", "Knowledge", "Tools", "Gateway", "Channels"]);
-    expect(links[0]?.getAttribute("href")).toBe("#desktop-settings-group-agent");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "General",
+      "Provider & Models",
+      "Knowledge",
+      "Tools & Approvals",
+      "Gateway & Runtime",
+      "Channels",
+    ]);
+    expect(links[0]?.getAttribute("href")).toBe("#desktop-settings-group-general");
     expect(links[0]?.getAttribute("data-active")).toBe("true");
     expect(links[0]?.getAttribute("aria-current")).toBe("page");
 

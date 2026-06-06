@@ -4436,8 +4436,8 @@ function createDefaultLlmSettingsCard(
 
   const form = targetDocument.createElement("div");
   form.className = "desktop-settings-default-llm-form";
-  const provider = findSettingsPaneField(pane, "provider", "selectedProvider");
-  const model = findSettingsPaneField(pane, "agent", "model");
+  const provider = findSettingsPaneField(pane, "provider-models", "selectedProvider");
+  const model = findSettingsPaneField(pane, "general", "model");
   if (provider) {
     form.append(createSettingsControlField(targetDocument, pane, provider, "提供商", settingsActions));
   }
@@ -4748,10 +4748,10 @@ function findSettingsPaneField(
 }
 
 function getSettingsGroupDisplayFields(group: DesktopSettingsPaneGroup): DesktopSettingsPaneField[] {
-  if (group.id === "agent") {
+  if (group.id === "general") {
     return group.fields.filter((field) => !["model", "provider"].includes(field.id));
   }
-  if (group.id === "provider") {
+  if (group.id === "provider-models") {
     return group.fields.filter((field) => !["selectedProvider"].includes(field.id));
   }
   return group.fields;
@@ -4888,23 +4888,33 @@ function mountSettingsStatusItemVueIsland(row: HTMLElement, label: string, value
 
 function getSettingsNavLabel(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
   return {
-    agent: "General",
-    provider: "Provider",
+    general: "General",
+    "provider-models": "Provider & Models",
     knowledge: "Knowledge",
-    tools: "Tools",
-    gateway: "Gateway",
+    "tools-approvals": "Tools & Approvals",
+    "files-workspace": "Files & Workspace",
+    "memory-experience": "Memory & Experience",
+    skills: "Skills",
     channels: "Channels",
+    automations: "Automations",
+    "gateway-runtime": "Gateway & Runtime",
+    "logs-diagnostics": "Logs & Diagnostics",
   }[groupId];
 }
 
 function getSettingsGroupDescription(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
   return {
-    agent: "Default model, profile, and timezone used by the desktop workbench.",
-    provider: "Provider profile, endpoint, and model catalog for chat and agent runs.",
+    general: "Default model, profile, and timezone used by the desktop workbench.",
+    "provider-models": "Provider profile, endpoint, and model catalog for chat and agent runs.",
     knowledge: "Retrieval behavior for workspace knowledge and RAG context.",
-    tools: "Browser, command execution, and MCP server access.",
-    gateway: "Local gateway connection and heartbeat configuration.",
+    "tools-approvals": "Browser, command execution, approval policy, and MCP server access.",
+    "files-workspace": "Session files, Knowledge documents, and editable workspace file boundaries.",
+    "memory-experience": "Memory and experience controls for contextual continuity.",
+    skills: "Skill availability and loading policy.",
     channels: "Streaming and retry behavior for desktop channels.",
+    automations: "Automation and scheduling capabilities planned after core stability.",
+    "gateway-runtime": "Local gateway connection, heartbeat, and runtime controls.",
+    "logs-diagnostics": "Runtime logs, diagnostics export, and local state recovery.",
   }[groupId];
 }
 
@@ -4914,24 +4924,24 @@ function getSettingsFieldDescription(
   value: string,
 ): string {
   const descriptions: Record<string, string> = {
-    "agent.model": "Model used for default chat and agent responses.",
-    "agent.provider": "Provider routing for the selected model.",
-    "agent.activeProfile": "Named provider profile with credentials and endpoint settings.",
-    "agent.timezone": "Timezone used for timestamps, reminders, and scheduled work.",
-    "provider.selectedProvider": "Provider catalog entry edited by this profile.",
-    "provider.profileId": "Stable profile name saved in desktop configuration.",
-    "provider.apiBase": "OpenAI-compatible endpoint for this provider.",
-    "provider.models": "One model id per line; refresh can discover supported models.",
+    "general.model": "Model used for default chat and agent responses.",
+    "general.provider": "Provider routing for the selected model.",
+    "general.activeProfile": "Named provider profile with credentials and endpoint settings.",
+    "general.timezone": "Timezone used for timestamps, reminders, and scheduled work.",
+    "provider-models.selectedProvider": "Provider catalog entry edited by this profile.",
+    "provider-models.profileId": "Stable profile name saved in desktop configuration.",
+    "provider-models.apiBase": "OpenAI-compatible endpoint for this provider.",
+    "provider-models.models": "One model id per line; refresh can discover supported models.",
     "knowledge.enabled": "Enable retrieval from indexed workspace knowledge.",
     "knowledge.retrievalMode": "Retrieval strategy used when knowledge context is requested.",
     "knowledge.maxChunks": "Maximum number of chunks injected into context.",
     "knowledge.rerankApiBase": "Endpoint used when reranking is enabled.",
-    "tools.webEnable": "Allow browser and web search tools.",
-    "tools.execEnable": "Allow local command execution from agent workflows.",
-    "tools.mcpServers": "JSON object of MCP server definitions.",
-    "gateway.host": "Host interface where the desktop gateway listens.",
-    "gateway.port": "Port used by the local gateway endpoint.",
-    "gateway.heartbeat": "Keep the desktop gateway connection fresh.",
+    "tools-approvals.webEnable": "Allow browser and web search tools.",
+    "tools-approvals.execEnable": "Allow local command execution from agent workflows.",
+    "tools-approvals.mcpServers": "JSON object of MCP server definitions.",
+    "gateway-runtime.host": "Host interface where the desktop gateway listens.",
+    "gateway-runtime.port": "Port used by the local gateway endpoint.",
+    "gateway-runtime.heartbeat": "Keep the desktop gateway connection fresh.",
     "channels.sendProgress": "Stream progress events into the desktop session.",
     "channels.sendToolHints": "Show tool status hints during agent work.",
     "channels.sendMaxRetries": "Retry count for channel delivery failures.",

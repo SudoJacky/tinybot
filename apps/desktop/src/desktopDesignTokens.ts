@@ -66,6 +66,28 @@ export function installDesktopDesignTokens(targetDocument: Document = document):
       --muted: var(--text-muted);
       --border-soft: var(--border-subtle);
       --focus-ring: var(--accent-glow);
+      --semantic-bg: #f7f7f2;
+      --semantic-bg-subtle: #eef3f1;
+      --semantic-surface: #ffffff;
+      --semantic-surface-raised: #f9fbfa;
+      --semantic-border: #d8dfdc;
+      --semantic-text: #17201d;
+      --semantic-text-muted: #66736f;
+      --semantic-primary: #2f6f8f;
+      --semantic-primary-hover: #255a73;
+      --semantic-success: #3f8f62;
+      --semantic-warning: #b7791f;
+      --semantic-danger: #b54545;
+      --semantic-info: #4b6bdb;
+      --graph-node-entity: #2f6f8f;
+      --graph-node-document: #7b5ea7;
+      --graph-node-claim: #3f8f62;
+      --graph-node-conflict: #b54545;
+      --density-list-row: 36px;
+      --density-table-row: 40px;
+      --density-toolbar-height: 44px;
+      --density-inspector-gap: 12px;
+      --density-chat-gap: 14px;
     }
 
     [data-theme="dark"] {
@@ -102,6 +124,35 @@ export function installDesktopDesignTokens(targetDocument: Document = document):
       --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.30);
       --shadow-lg: 0 14px 36px rgba(0, 0, 0, 0.34);
       --shadow-xl: 0 22px 54px rgba(0, 0, 0, 0.38);
+      --semantic-bg: #151918;
+      --semantic-bg-subtle: #1d2522;
+      --semantic-surface: #202927;
+      --semantic-surface-raised: #26312e;
+      --semantic-border: rgba(236, 244, 241, 0.14);
+      --semantic-text: #edf5f2;
+      --semantic-text-muted: #a8b6b1;
+      --semantic-primary: #6ca9c4;
+      --semantic-primary-hover: #82bad2;
+      --semantic-success: #6fbd8d;
+      --semantic-warning: #d5a64a;
+      --semantic-danger: #e16c6c;
+      --semantic-info: #8ea2ff;
+    }
+
+    [data-density="compact"] {
+      --density-list-row: 30px;
+      --density-table-row: 34px;
+      --density-toolbar-height: 38px;
+      --density-inspector-gap: 8px;
+      --density-chat-gap: 10px;
+    }
+
+    [data-density="focus"] {
+      --density-list-row: 40px;
+      --density-table-row: 44px;
+      --density-toolbar-height: 48px;
+      --density-inspector-gap: 16px;
+      --density-chat-gap: 18px;
     }
   `;
   targetDocument.head.append(style);

@@ -93,11 +93,16 @@ function renderNavItem(group: SettingsGroup, index: number) {
 
 function getSettingsNavLabel(groupId: SettingsGroup["id"]): string {
   return {
-    agent: "General",
-    provider: "Provider",
+    general: "General",
+    "provider-models": "Provider & Models",
     knowledge: "Knowledge",
-    tools: "Tools",
-    gateway: "Gateway",
+    "tools-approvals": "Tools & Approvals",
+    "files-workspace": "Files & Workspace",
+    "memory-experience": "Memory & Experience",
+    skills: "Skills",
     channels: "Channels",
+    automations: "Automations",
+    "gateway-runtime": "Gateway & Runtime",
+    "logs-diagnostics": "Logs & Diagnostics",
   }[groupId];
 }

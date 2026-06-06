@@ -15,8 +15,8 @@ const pane: DesktopSettingsPaneModel = {
   },
   groups: [
     {
-      id: "agent",
-      label: "Agent",
+      id: "general",
+      label: "General",
       fields: [
         {
           id: "model",
@@ -37,8 +37,8 @@ const pane: DesktopSettingsPaneModel = {
       ],
     },
     {
-      id: "provider",
-      label: "Provider",
+      id: "provider-models",
+      label: "Provider & Models",
       fields: [
         {
           id: "selectedProvider",
@@ -87,8 +87,8 @@ const pane: DesktopSettingsPaneModel = {
       ],
     },
     {
-      id: "tools",
-      label: "Tools",
+      id: "tools-approvals",
+      label: "Tools & Approvals",
       fields: [
         {
           id: "mcpServers",
@@ -134,10 +134,10 @@ describe("settings groups Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("settings-groups");
     expect(host.className).toContain("desktop-settings-grid");
     expect(Array.from(host.querySelectorAll("[data-desktop-settings-group]")).map((group) => group.getAttribute("data-desktop-settings-group"))).toEqual([
-      "agent",
-      "provider",
+      "general",
+      "provider-models",
       "knowledge",
-      "tools",
+      "tools-approvals",
     ]);
     expect(host.textContent).toContain("Default model, profile, and timezone used by the desktop workbench.");
     expect(host.textContent).toContain("Retrieval behavior for workspace knowledge and RAG context.");

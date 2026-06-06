@@ -61,6 +61,16 @@ describe("desktop design tokens", () => {
     expect(style?.textContent).toContain("--primary: var(--accent);");
     expect(style?.textContent).toContain("--muted: var(--text-muted);");
     expect(style?.textContent).toContain("--focus-ring: var(--accent-glow);");
+    expect(style?.textContent).toContain("--semantic-bg: #f7f7f2;");
+    expect(style?.textContent).toContain("--semantic-surface: #ffffff;");
+    expect(style?.textContent).toContain("--semantic-primary: #2f6f8f;");
+    expect(style?.textContent).toContain("--semantic-info: #4b6bdb;");
+    expect(style?.textContent).toContain("--graph-node-entity: #2f6f8f;");
+    expect(style?.textContent).toContain("--density-list-row: 36px;");
+    expect(style?.textContent).toContain('[data-density="compact"]');
+    expect(style?.textContent).toContain("--density-list-row: 30px;");
+    expect(style?.textContent).toContain('[data-density="focus"]');
+    expect(style?.textContent).toContain("--density-inspector-gap: 16px;");
     expect(style?.textContent).toContain('[data-theme="dark"]');
   });
 });

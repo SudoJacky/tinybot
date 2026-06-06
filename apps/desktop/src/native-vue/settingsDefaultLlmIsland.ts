@@ -44,8 +44,8 @@ function createSettingsDefaultLlmApp(options: SettingsDefaultLlmIslandOptions): 
 }
 
 function renderDefaultLlmCard(options: SettingsDefaultLlmIslandOptions) {
-  const provider = findPaneField(options.pane, "provider", "selectedProvider");
-  const model = findPaneField(options.pane, "agent", "model");
+  const provider = findPaneField(options.pane, "provider-models", "selectedProvider");
+  const model = findPaneField(options.pane, "general", "model");
   return [
     h("div", { class: "desktop-settings-card-heading" }, [
       h("h2", "Default LLM"),
