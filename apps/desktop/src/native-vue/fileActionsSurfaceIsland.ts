@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NCard, NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { mountFileImportCardIsland } from "./fileImportCardIsland";
 import { mountFileOperationStatusIsland } from "./fileOperationStatusIsland";
@@ -107,22 +107,28 @@ function createFileActionsSurfaceApp(options: FileActionsSurfaceIslandOptions): 
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", "File imports"),
-          h("div", { class: "desktop-file-import-grid" }, [
-            h("div", { ref: knowledgeImport }),
-            h("div", { ref: sessionImport }),
-            h("div", { ref: sessionUpload }),
-            h("div", { ref: workspaceImport }),
-          ]),
-          h("div", { class: "desktop-file-operation-strip" }, [
-            h("div", { ref: knowledgeStatus }),
-            h("div", { ref: sessionStatus }),
-            h("div", { ref: workspaceStatus }),
-            h("p", { ref: uploadStatus }),
-          ]),
-          h("div", { ref: sessionFiles }),
-        ],
+        default: () => h(NCard, {
+          class: "desktop-file-actions-card",
+          size: "small",
+          bordered: false,
+        }, {
+          default: () => [
+            h("h2", "File imports"),
+            h("div", { class: "desktop-file-import-grid" }, [
+              h("div", { ref: knowledgeImport }),
+              h("div", { ref: sessionImport }),
+              h("div", { ref: sessionUpload }),
+              h("div", { ref: workspaceImport }),
+            ]),
+            h("div", { class: "desktop-file-operation-strip" }, [
+              h("div", { ref: knowledgeStatus }),
+              h("div", { ref: sessionStatus }),
+              h("div", { ref: workspaceStatus }),
+              h("p", { ref: uploadStatus }),
+            ]),
+            h("div", { ref: sessionFiles }),
+          ],
+        }),
       });
     },
   }));

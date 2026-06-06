@@ -14,6 +14,7 @@ describe("file actions surface Vue island", () => {
     expect(host.className).toBe("desktop-file-actions");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("file-actions-surface");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("workspace knowledge");
+    expect(host.querySelector(".n-card.desktop-file-actions-card")).not.toBeNull();
     expect(host.querySelector("h2")?.textContent).toBe("File imports");
 
     expect(host.querySelector("#desktop-knowledge-upload")?.closest(".desktop-file-import-card")?.getAttribute("data-desktop-vue-island")).toBe("file-import-card");
