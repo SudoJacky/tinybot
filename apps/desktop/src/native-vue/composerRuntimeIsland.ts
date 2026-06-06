@@ -80,7 +80,7 @@ function renderPersistentRagToggle(options: ComposerRuntimeIslandOptions) {
     "aria-label": "Toggle persistent RAG",
     "aria-pressed": String(options.persistentRag),
     onClick: () => options.onPersistentRagChange?.(!options.persistentRag),
-  }, h(NText, { strong: true }, { default: () => `RAG ${options.persistentRag ? "On" : "Off"}` }));
+  }, h(NText, { strong: true }, { default: () => "RAG" }));
 }
 
 function renderTokenUsageOrb(tokenUsage: string) {

@@ -22,7 +22,9 @@ describe("composer send button Vue island", () => {
     expect(host.getAttribute("data-desktop-composer-action")).toBe("send");
     expect(host.getAttribute("aria-label")).toBe("Send message");
     expect(host.getAttribute("disabled")).toBeNull();
-    expect(host.textContent).toContain("Send");
+    expect(host.textContent).not.toContain("Send");
+    expect(host.querySelector('[data-desktop-composer-send-icon="true"]')?.tagName).toBe("svg");
+    expect(host.querySelector('[data-desktop-composer-send-icon="true"]')?.getAttribute("aria-hidden")).toBe("true");
 
     host.click();
     expect(sendCount).toBe(1);

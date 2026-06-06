@@ -62,6 +62,7 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
     setup() {
       const content = ref("");
       const mountedChildren: Array<{ unmount: () => void }> = [];
+      const input = ref<HTMLTextAreaElement | null>(null);
       const runtime = ref<HTMLElement | null>(null);
       const canSend = () => options.composerState === "idle" && Boolean(content.value.trim());
       const send = () => {
@@ -75,6 +76,7 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
       };
 
       onMounted(() => {
+        resizeComposerInput(input.value);
         mountChild(mountedChildren, runtime.value, (host) => mountComposerRuntimeIsland(host, {
           model: options.model,
           persistentRag: options.usePersistentRag,
@@ -92,13 +94,18 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => h("div", { class: "desktop-native-composer-layout" }, [
           h("textarea", {
+            ref: input,
             id: "desktop-native-composer-input",
             class: "desktop-native-composer-input",
             "aria-label": "Native composer input",
             placeholder: "Ask Tinybot",
+            rows: 1,
+            "data-max-rows": "3",
             value: content.value,
             onInput: (event: Event) => {
-              content.value = (event.target as HTMLTextAreaElement).value;
+              const target = event.target as HTMLTextAreaElement;
+              content.value = target.value;
+              resizeComposerInput(target);
             },
           }),
           h("button", {
@@ -118,11 +125,39 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
             "aria-label": "Send message",
             disabled: canSend() ? null : "",
             onClick: send,
-          }, h(NText, { strong: true }, { default: () => "Send" })),
+          }, renderSendIcon()),
         ]),
       });
     },
   }));
+}
+
+function resizeComposerInput(input: HTMLTextAreaElement | null): void {
+  if (!input) {
+    return;
+  }
+  const lineHeight = 24;
+  const maxHeight = lineHeight * 3;
+  input.style.height = "auto";
+  input.style.height = `${Math.min(Math.max(input.scrollHeight || lineHeight, lineHeight), maxHeight)}px`;
+}
+
+function renderSendIcon() {
+  return h("svg", {
+    "data-desktop-composer-send-icon": "true",
+    "aria-hidden": "true",
+    viewBox: "0 0 20 20",
+    focusable: "false",
+  }, [
+    h("path", {
+      d: "M3 10h12m0 0-5-5m5 5-5 5",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "2",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    }),
+  ]);
 }
 
 function mountChild<T extends { unmount: () => void }>(

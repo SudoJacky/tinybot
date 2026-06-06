@@ -23,7 +23,9 @@ describe("composer runtime Vue island", () => {
 
     expect(host.querySelector(".desktop-native-composer-model")?.textContent).toContain("deepseek-chat");
     const rag = host.querySelector<HTMLElement>('[data-desktop-composer-action="rag-toggle"]');
-    expect(rag?.textContent).toContain("RAG Off");
+    expect(rag?.textContent).toBe("RAG");
+    expect(rag?.textContent).not.toContain("On");
+    expect(rag?.textContent).not.toContain("Off");
     expect(rag?.getAttribute("aria-pressed")).toBe("false");
     const token = host.querySelector<HTMLElement>(".desktop-native-token-orb");
     expect(token?.getAttribute("aria-label")).toBe("Token usage 42%");
