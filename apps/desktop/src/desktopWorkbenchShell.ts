@@ -63,6 +63,7 @@ import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
+import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
@@ -722,11 +723,7 @@ function mountSidebarWorkspaceListVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/sidebarWorkspaceListIsland").then(({ mountSidebarWorkspaceListIsland }) => {
-    mountSidebarWorkspaceListIsland(section, { rows });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSidebarWorkspaceListIsland(section, { rows });
 }
 
 function createSidebarRecentChats(

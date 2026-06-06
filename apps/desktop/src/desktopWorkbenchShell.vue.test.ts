@@ -312,6 +312,25 @@ describe("desktop workbench shell Vue integration", () => {
     expect(actions?.querySelector(".desktop-sidebar-search")?.getAttribute("type")).toBe("search");
   });
 
+  test("renders sidebar workspace list through the Vue shell island without an active chat", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const workspaces = document.querySelector<HTMLElement>(".desktop-sidebar-list-section-workspaces");
+    const row = workspaces?.querySelector<HTMLAnchorElement>(".desktop-sidebar-row");
+    expect(workspaces?.getAttribute("data-desktop-vue-island")).toBe("sidebar-workspace-list");
+    expect(workspaces?.querySelector(".desktop-sidebar-section-heading h2")?.textContent).toBe("Workspaces");
+    expect(row?.getAttribute("href")).toBe("/workspace");
+    expect(row?.getAttribute("data-desktop-entity-id")).toBe("tinybot");
+    expect(row?.getAttribute("data-active")).toBe("true");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
