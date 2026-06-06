@@ -69,6 +69,7 @@ import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIsland";
 import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
+import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
 import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
@@ -4313,15 +4314,11 @@ function mountSettingsPaneVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/settingsPaneIsland").then(({ mountSettingsPaneIsland }) => {
-    mountSettingsPaneIsland(section, {
-      pane,
-      onSettingsAction: settingsActions.onSettingsAction,
-      promptProviderId: () => promptForSettingsProviderId(targetDocument),
-      onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSettingsPaneIsland(section, {
+    pane,
+    onSettingsAction: settingsActions.onSettingsAction,
+    promptProviderId: () => promptForSettingsProviderId(targetDocument),
+    onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
   });
 }
 

@@ -16,4 +16,11 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgePaneIsland")');
   });
+
+  test("statically imports the settings pane island", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";');
+    expect(source).not.toContain('void import("./native-vue/settingsPaneIsland")');
+  });
 });
