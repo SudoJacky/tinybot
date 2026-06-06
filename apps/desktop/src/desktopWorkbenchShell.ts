@@ -71,9 +71,12 @@ import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
+import { mountRecentChatRowIsland } from "./native-vue/recentChatRowIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIsland";
+import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";
+import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";
 import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
 import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
@@ -966,11 +969,7 @@ function mountRecentChatRowVueIsland(
   if (!canMountVueIsland(row)) {
     return;
   }
-  void import("./native-vue/recentChatRowIsland").then(({ mountRecentChatRowIsland }) => {
-    mountRecentChatRowIsland(row, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountRecentChatRowIsland(row, options);
 }
 
 function createSidebarSectionHeading(targetDocument: Document, title: string, action?: string): HTMLElement {
@@ -995,11 +994,7 @@ function mountSidebarSectionHeadingVueIsland(heading: HTMLElement, title: string
   if (!canMountVueIsland(heading)) {
     return;
   }
-  void import("./native-vue/sidebarSectionHeadingIsland").then(({ mountSidebarSectionHeadingIsland }) => {
-    mountSidebarSectionHeadingIsland(heading, { title, action });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSidebarSectionHeadingIsland(heading, { title, action });
 }
 
 function createSidebarRow(
@@ -1054,11 +1049,7 @@ function mountSidebarRowVueIsland(
   if (!canMountVueIsland(row)) {
     return;
   }
-  void import("./native-vue/sidebarRowIsland").then(({ mountSidebarRowIsland }) => {
-    mountSidebarRowIsland(row, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSidebarRowIsland(row, options);
 }
 
 function createMainRegion(

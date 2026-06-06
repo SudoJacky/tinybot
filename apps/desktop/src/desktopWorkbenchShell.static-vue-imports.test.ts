@@ -72,4 +72,15 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";');
     expect(source).not.toContain('void import("./native-vue/panelIconPartIsland")');
   });
+
+  test("statically imports the sidebar row islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountRecentChatRowIsland } from "./native-vue/recentChatRowIsland";');
+    expect(source).not.toContain('void import("./native-vue/recentChatRowIsland")');
+    expect(source).toContain('import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";');
+    expect(source).not.toContain('void import("./native-vue/sidebarSectionHeadingIsland")');
+    expect(source).toContain('import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";');
+    expect(source).not.toContain('void import("./native-vue/sidebarRowIsland")');
+  });
 });
