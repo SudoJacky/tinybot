@@ -120,4 +120,21 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";');
     expect(source).not.toContain('void import("./native-vue/toolActivitySectionIsland")');
   });
+
+  test("statically imports the composer control islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountComposerAttachButtonIsland } from "./native-vue/composerAttachButtonIsland";');
+    expect(source).not.toContain('void import("./native-vue/composerAttachButtonIsland")');
+    expect(source).toContain('import { mountComposerModelControlIsland } from "./native-vue/composerModelControlIsland";');
+    expect(source).not.toContain('void import("./native-vue/composerModelControlIsland")');
+    expect(source).toContain('import { mountComposerRuntimeIsland } from "./native-vue/composerRuntimeIsland";');
+    expect(source).not.toContain('void import("./native-vue/composerRuntimeIsland")');
+    expect(source).toContain('import { mountComposerSendButtonIsland } from "./native-vue/composerSendButtonIsland";');
+    expect(source).not.toContain('void import("./native-vue/composerSendButtonIsland")');
+    expect(source).toContain('import { mountPersistentRagToggleIsland } from "./native-vue/persistentRagToggleIsland";');
+    expect(source).not.toContain('void import("./native-vue/persistentRagToggleIsland")');
+    expect(source).toContain('import { mountTokenUsageOrbIsland } from "./native-vue/tokenUsageOrbIsland";');
+    expect(source).not.toContain('void import("./native-vue/tokenUsageOrbIsland")');
+  });
 });

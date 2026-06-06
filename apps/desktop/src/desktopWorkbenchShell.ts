@@ -63,6 +63,10 @@ import { mountChatMenuPopoverIsland } from "./native-vue/chatMenuPopoverIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
+import { mountComposerAttachButtonIsland } from "./native-vue/composerAttachButtonIsland";
+import { mountComposerModelControlIsland } from "./native-vue/composerModelControlIsland";
+import { mountComposerRuntimeIsland } from "./native-vue/composerRuntimeIsland";
+import { mountComposerSendButtonIsland } from "./native-vue/composerSendButtonIsland";
 import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
 import { mountConversationAttachmentIsland } from "./native-vue/conversationAttachmentIsland";
 import { mountConversationBodyIsland } from "./native-vue/conversationBodyIsland";
@@ -79,6 +83,7 @@ import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
+import { mountPersistentRagToggleIsland } from "./native-vue/persistentRagToggleIsland";
 import { mountRecentChatRowIsland } from "./native-vue/recentChatRowIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
@@ -94,6 +99,7 @@ import { mountToolActivitiesIsland } from "./native-vue/toolActivitiesIsland";
 import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";
 import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";
 import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
+import { mountTokenUsageOrbIsland } from "./native-vue/tokenUsageOrbIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
@@ -2326,13 +2332,9 @@ function mountComposerSendButtonVueIsland(
     installFallback();
     return;
   }
-  void import("./native-vue/composerSendButtonIsland").then(({ mountComposerSendButtonIsland }) => {
-    mountComposerSendButtonIsland(button, {
-      disabled: (button as HTMLButtonElement).disabled,
-      onSend: submit,
-    });
-  }).catch(() => {
-    installFallback();
+  mountComposerSendButtonIsland(button, {
+    disabled: (button as HTMLButtonElement).disabled,
+    onSend: submit,
   });
 }
 
@@ -2364,12 +2366,8 @@ function mountComposerAttachButtonVueIsland(
     installFallback();
     return;
   }
-  void import("./native-vue/composerAttachButtonIsland").then(({ mountComposerAttachButtonIsland }) => {
-    mountComposerAttachButtonIsland(button, {
-      onAttach: () => chatActions.onAttachSessionFile?.(),
-    });
-  }).catch(() => {
-    installFallback();
+  mountComposerAttachButtonIsland(button, {
+    onAttach: () => chatActions.onAttachSessionFile?.(),
   });
 }
 
@@ -2381,15 +2379,11 @@ function mountComposerRuntimeVueIsland(
   if (!canMountVueIsland(runtime)) {
     return;
   }
-  void import("./native-vue/composerRuntimeIsland").then(({ mountComposerRuntimeIsland }) => {
-    mountComposerRuntimeIsland(runtime, {
-      model: chat?.runtime?.model || null,
-      persistentRag: chat?.usePersistentRag !== false,
-      tokenUsage: chat?.runtime?.tokenUsage || "-",
-      onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountComposerRuntimeIsland(runtime, {
+    model: chat?.runtime?.model || null,
+    persistentRag: chat?.usePersistentRag !== false,
+    tokenUsage: chat?.runtime?.tokenUsage || "-",
+    onPersistentRagChange: (enabled) => chatActions.onPersistentRagChange?.(enabled),
   });
 }
 
@@ -2440,11 +2434,7 @@ function mountComposerModelControlVueIsland(button: HTMLElement, model: string |
   if (!canMountVueIsland(button)) {
     return;
   }
-  void import("./native-vue/composerModelControlIsland").then(({ mountComposerModelControlIsland }) => {
-    mountComposerModelControlIsland(button, { model });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountComposerModelControlIsland(button, { model });
 }
 
 function createPersistentRagToggle(
@@ -2478,13 +2468,9 @@ function mountPersistentRagToggleVueIsland(
     installFallback();
     return;
   }
-  void import("./native-vue/persistentRagToggleIsland").then(({ mountPersistentRagToggleIsland }) => {
-    mountPersistentRagToggleIsland(button, {
-      enabled,
-      onToggle: (nextEnabled) => chatActions.onPersistentRagChange?.(nextEnabled),
-    });
-  }).catch(() => {
-    installFallback();
+  mountPersistentRagToggleIsland(button, {
+    enabled,
+    onToggle: (nextEnabled) => chatActions.onPersistentRagChange?.(nextEnabled),
   });
 }
 
@@ -2508,11 +2494,7 @@ function mountTokenUsageOrbVueIsland(orb: HTMLElement, tokenUsage: string): void
   if (!canMountVueIsland(orb)) {
     return;
   }
-  void import("./native-vue/tokenUsageOrbIsland").then(({ mountTokenUsageOrbIsland }) => {
-    mountTokenUsageOrbIsland(orb, { tokenUsage });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountTokenUsageOrbIsland(orb, { tokenUsage });
 }
 
 function parseTokenUsagePercent(tokenUsage: string): number {
