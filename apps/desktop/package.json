@@ -14,9 +14,13 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
+    "3d-force-graph": "^1.80.0",
+    "graphology": "^0.26.0",
     "highlight.js": "^11.11.1",
     "marked": "^18.0.4",
     "naive-ui": "^2.44.1",
+    "sigma": "^3.0.3",
+    "three": "^0.184.0",
     "vue": "^3.5.35"
   },
   "devDependencies": {
