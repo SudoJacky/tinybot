@@ -82,7 +82,14 @@ import { mountConversationThreadIsland } from "./native-vue/conversationThreadIs
 import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
 import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
 import { mountHeaderPanelControlIsland } from "./native-vue/headerPanelControlIsland";
+import { mountKnowledgeActionsIsland } from "./native-vue/knowledgeActionsIsland";
+import { mountKnowledgeDocumentDetailIsland } from "./native-vue/knowledgeDocumentDetailIsland";
+import { mountKnowledgeDocumentsIsland } from "./native-vue/knowledgeDocumentsIsland";
+import { mountKnowledgeGraphIsland } from "./native-vue/knowledgeGraphIsland";
 import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
+import { mountKnowledgeQueryIsland } from "./native-vue/knowledgeQueryIsland";
+import { mountKnowledgeReadinessIsland } from "./native-vue/knowledgeReadinessIsland";
+import { mountKnowledgeReferenceRowIsland } from "./native-vue/knowledgeReferenceRowIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
@@ -3170,15 +3177,11 @@ function mountKnowledgeActionsVueIsland(
   if (!canMountVueIsland(actionRow)) {
     return;
   }
-  void import("./native-vue/knowledgeActionsIsland").then(({ mountKnowledgeActionsIsland }) => {
-    mountKnowledgeActionsIsland(actionRow, {
-      actions: actions.map(([action, label, enabled]) => ({ action, label, enabled })),
-      onAction: (action) => {
-        knowledgeActions.onKnowledgeAction?.({ action, pane });
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountKnowledgeActionsIsland(actionRow, {
+    actions: actions.map(([action, label, enabled]) => ({ action, label, enabled })),
+    onAction: (action) => {
+      knowledgeActions.onKnowledgeAction?.({ action, pane });
+    },
   });
 }
 
@@ -3189,13 +3192,9 @@ function mountKnowledgeReadinessVueIsland(
   if (!canMountVueIsland(readiness)) {
     return;
   }
-  void import("./native-vue/knowledgeReadinessIsland").then(({ mountKnowledgeReadinessIsland }) => {
-    mountKnowledgeReadinessIsland(readiness, {
-      readiness: pane.readiness,
-      configHints: pane.configHints,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountKnowledgeReadinessIsland(readiness, {
+    readiness: pane.readiness,
+    configHints: pane.configHints,
   });
 }
 
@@ -3206,11 +3205,7 @@ function mountKnowledgeDocumentsVueIsland(
   if (!canMountVueIsland(documents)) {
     return;
   }
-  void import("./native-vue/knowledgeDocumentsIsland").then(({ mountKnowledgeDocumentsIsland }) => {
-    mountKnowledgeDocumentsIsland(documents, { documents: pane.documentRows });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountKnowledgeDocumentsIsland(documents, { documents: pane.documentRows });
 }
 
 function mountKnowledgeDocumentDetailVueIsland(
@@ -3220,11 +3215,7 @@ function mountKnowledgeDocumentDetailVueIsland(
   if (!canMountVueIsland(detail)) {
     return;
   }
-  void import("./native-vue/knowledgeDocumentDetailIsland").then(({ mountKnowledgeDocumentDetailIsland }) => {
-    mountKnowledgeDocumentDetailIsland(detail, { document });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountKnowledgeDocumentDetailIsland(detail, { document });
 }
 
 function mountKnowledgeQueryVueIsland(
@@ -3234,13 +3225,9 @@ function mountKnowledgeQueryVueIsland(
   if (!canMountVueIsland(query)) {
     return;
   }
-  void import("./native-vue/knowledgeQueryIsland").then(({ mountKnowledgeQueryIsland }) => {
-    mountKnowledgeQueryIsland(query, {
-      draft: pane.query.draft,
-      results: pane.query.results,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountKnowledgeQueryIsland(query, {
+    draft: pane.query.draft,
+    results: pane.query.results,
   });
 }
 
@@ -3251,11 +3238,7 @@ function mountKnowledgeGraphVueIsland(
   if (!canMountVueIsland(graph)) {
     return;
   }
-  void import("./native-vue/knowledgeGraphIsland").then(({ mountKnowledgeGraphIsland }) => {
-    mountKnowledgeGraphIsland(graph, { graph: pane.graph });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountKnowledgeGraphIsland(graph, { graph: pane.graph });
 }
 
 function createCoworkCockpitPane(
@@ -4003,11 +3986,7 @@ function mountKnowledgeReferenceRowVueIsland(
   if (!canMountVueIsland(row)) {
     return;
   }
-  void import("./native-vue/knowledgeReferenceRowIsland").then(({ mountKnowledgeReferenceRowIsland }) => {
-    mountKnowledgeReferenceRowIsland(row, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountKnowledgeReferenceRowIsland(row, options);
 }
 
 function createDesktopSkillEditor(
