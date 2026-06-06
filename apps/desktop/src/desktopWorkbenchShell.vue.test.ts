@@ -210,6 +210,24 @@ describe("desktop workbench shell Vue integration", () => {
     expect(workbench?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  test("renders the main utility surfaces through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const utilities = document.querySelector<HTMLElement>(".desktop-utility-surfaces");
+    expect(utilities?.getAttribute("data-desktop-vue-island")).toBe("main-utilities-region");
+    expect(utilities?.querySelector("#desktop-command-palette")?.getAttribute("data-desktop-vue-island")).toBe("command-palette");
+    expect(utilities?.querySelector(".desktop-file-actions")?.getAttribute("data-desktop-vue-island")).toBe("file-actions-surface");
+    expect(utilities?.querySelector(".desktop-help-pane")?.getAttribute("data-desktop-vue-island")).toBe("help-surface");
+    expect(utilities?.querySelector(".desktop-workspace-files")?.getAttribute("data-desktop-vue-island")).toBe("workspace-files-surface");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

@@ -59,6 +59,7 @@ import { mountChatMenuPopoverIsland } from "./native-vue/chatMenuPopoverIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
+import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
 
@@ -1169,60 +1170,56 @@ function mountMainUtilitiesRegionVueIsland(
   if (!canMountVueIsland(utilities)) {
     return;
   }
-  void import("./native-vue/mainUtilitiesRegionIsland").then(({ mountMainUtilitiesRegionIsland }) => {
-    mountMainUtilitiesRegionIsland(utilities, {
-      activeSessionKey: chat?.activeSessionKey ?? null,
-      agentUiForms,
-      coworkPane,
-      knowledgePane,
-      knowledgeWorkItems: moduleWorkItems(taskCenterItems, "knowledge"),
-      settingsPane,
-      toolsSkillsPane,
-      onAgentUiCancel: (form) => {
-        agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
-      },
-      onAgentUiSubmit: (form, values) => {
-        agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
-      },
-      onCoworkAction: (event) => {
-        coworkActions.onCoworkAction?.(event);
-      },
-      onCoworkGraphSelect: (selection) => {
-        setRouteStatus(targetDocument, `Inspecting Cowork ${selection.label}`);
-      },
-      onCoworkObservabilityPanelSelected: (panel) => {
-        setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
-      },
-      onCoworkSessionSelect: (session) => {
-        const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
-        if (!item) {
-          return;
-        }
-        const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
-        setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
-      },
-      onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
-      onHelpAction: (action) => {
-        if (action === "shortcut-help") {
-          renderDesktopShortcutHelp(targetDocument);
-        } else if (action === "page-help") {
-          renderDesktopPageHelp(targetDocument, "Page help");
-        } else if (action === "help-tour") {
-          renderDesktopPageHelp(targetDocument, "Desktop help tour");
-        }
-      },
-      onInspectKnowledgeWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
-      onKnowledgeAction: (event) => {
-        knowledgeActions.onKnowledgeAction?.(event);
-      },
-      onSettingsAction: settingsActions.onSettingsAction,
-      onToolsSkillsAction: (event) => {
-        toolsSkillsActions.onToolsSkillsAction?.(event);
-      },
-      promptProviderId: () => promptForSettingsProviderId(targetDocument),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountMainUtilitiesRegionIsland(utilities, {
+    activeSessionKey: chat?.activeSessionKey ?? null,
+    agentUiForms,
+    coworkPane,
+    knowledgePane,
+    knowledgeWorkItems: moduleWorkItems(taskCenterItems, "knowledge"),
+    settingsPane,
+    toolsSkillsPane,
+    onAgentUiCancel: (form) => {
+      agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+    },
+    onAgentUiSubmit: (form, values) => {
+      agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
+    },
+    onCoworkAction: (event) => {
+      coworkActions.onCoworkAction?.(event);
+    },
+    onCoworkGraphSelect: (selection) => {
+      setRouteStatus(targetDocument, `Inspecting Cowork ${selection.label}`);
+    },
+    onCoworkObservabilityPanelSelected: (panel) => {
+      setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+    },
+    onCoworkSessionSelect: (session) => {
+      const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+      if (!item) {
+        return;
+      }
+      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+    },
+    onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
+    onHelpAction: (action) => {
+      if (action === "shortcut-help") {
+        renderDesktopShortcutHelp(targetDocument);
+      } else if (action === "page-help") {
+        renderDesktopPageHelp(targetDocument, "Page help");
+      } else if (action === "help-tour") {
+        renderDesktopPageHelp(targetDocument, "Desktop help tour");
+      }
+    },
+    onInspectKnowledgeWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
+    onKnowledgeAction: (event) => {
+      knowledgeActions.onKnowledgeAction?.(event);
+    },
+    onSettingsAction: settingsActions.onSettingsAction,
+    onToolsSkillsAction: (event) => {
+      toolsSkillsActions.onToolsSkillsAction?.(event);
+    },
+    promptProviderId: () => promptForSettingsProviderId(targetDocument),
   });
 }
 
