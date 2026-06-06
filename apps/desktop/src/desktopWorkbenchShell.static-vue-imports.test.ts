@@ -258,4 +258,17 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";');
     expect(source).not.toContain('void import("./native-vue/sessionUploadCardIsland")');
   });
+
+  test("statically imports the shared sidebar islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountSharedSidebarCommandButtonIsland } from "./native-vue/sharedSidebarCommandButtonIsland";');
+    expect(source).not.toContain('void import("./native-vue/sharedSidebarCommandButtonIsland")');
+    expect(source).toContain('import { mountSharedSidebarCommandsIsland } from "./native-vue/sharedSidebarCommandsIsland";');
+    expect(source).not.toContain('void import("./native-vue/sharedSidebarCommandsIsland")');
+    expect(source).toContain('import { mountSharedSidebarLinkIsland } from "./native-vue/sharedSidebarLinkIsland";');
+    expect(source).not.toContain('void import("./native-vue/sharedSidebarLinkIsland")');
+    expect(source).toContain('import { mountSharedSidebarLinksIsland } from "./native-vue/sharedSidebarLinksIsland";');
+    expect(source).not.toContain('void import("./native-vue/sharedSidebarLinksIsland")');
+  });
 });

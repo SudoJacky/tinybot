@@ -129,6 +129,10 @@ import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";
 import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";
 import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";
 import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";
+import { mountSharedSidebarCommandButtonIsland } from "./native-vue/sharedSidebarCommandButtonIsland";
+import { mountSharedSidebarCommandsIsland } from "./native-vue/sharedSidebarCommandsIsland";
+import { mountSharedSidebarLinkIsland } from "./native-vue/sharedSidebarLinkIsland";
+import { mountSharedSidebarLinksIsland } from "./native-vue/sharedSidebarLinksIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";
 import { mountSkillsListIsland } from "./native-vue/skillsListIsland";
@@ -6675,11 +6679,7 @@ function mountSharedSidebarLinksVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/sharedSidebarLinksIsland").then(({ mountSharedSidebarLinksIsland }) => {
-    mountSharedSidebarLinksIsland(section, { label, items });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSharedSidebarLinksIsland(section, { label, items });
 }
 
 function createSharedSidebarCommandSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
@@ -6706,11 +6706,7 @@ function mountSharedSidebarCommandsVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/sharedSidebarCommandsIsland").then(({ mountSharedSidebarCommandsIsland }) => {
-    mountSharedSidebarCommandsIsland(section, { label, items, targetDocument });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSharedSidebarCommandsIsland(section, { label, items, targetDocument });
 }
 
 function createSharedWorkbenchLink(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
@@ -6724,16 +6720,12 @@ function mountSharedSidebarLinkVueIsland(link: HTMLElement, item: DesktopSidebar
   if (!canMountVueIsland(link) || item.kind !== "link" || !item.href) {
     return;
   }
-  void import("./native-vue/sharedSidebarLinkIsland").then(({ mountSharedSidebarLinkIsland }) => {
-    mountSharedSidebarLinkIsland(link, {
-      href: item.href ?? "#",
-      icon: item.icon,
-      id: item.id,
-      kind: "link",
-      label: item.label,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSharedSidebarLinkIsland(link, {
+    href: item.href ?? "#",
+    icon: item.icon,
+    id: item.id,
+    kind: "link",
+    label: item.label,
   });
 }
 
@@ -6759,16 +6751,12 @@ function mountSharedSidebarCommandButtonVueIsland(button: HTMLElement, item: Des
   if (!canMountVueIsland(button) || item.kind !== "command" || !item.commandId) {
     return;
   }
-  void import("./native-vue/sharedSidebarCommandButtonIsland").then(({ mountSharedSidebarCommandButtonIsland }) => {
-    mountSharedSidebarCommandButtonIsland(button, {
-      commandId: item.commandId ?? "",
-      icon: item.icon,
-      id: item.id,
-      kind: "command",
-      label: item.label,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSharedSidebarCommandButtonIsland(button, {
+    commandId: item.commandId ?? "",
+    icon: item.icon,
+    id: item.id,
+    kind: "command",
+    label: item.label,
   });
 }
 
