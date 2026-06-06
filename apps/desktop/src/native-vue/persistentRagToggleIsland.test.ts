@@ -20,7 +20,9 @@ describe("persistent RAG toggle Vue island", () => {
     expect(host.getAttribute("data-desktop-composer-action")).toBe("rag-toggle");
     expect(host.getAttribute("aria-label")).toBe("Toggle persistent RAG");
     expect(host.getAttribute("aria-pressed")).toBe("true");
-    expect(host.textContent).toContain("RAG On");
+    expect(host.textContent).toBe("RAG");
+    expect(host.textContent).not.toContain("On");
+    expect(host.textContent).not.toContain("Off");
 
     host.click();
     expect(toggled).toEqual([false]);
@@ -37,7 +39,9 @@ describe("persistent RAG toggle Vue island", () => {
     });
 
     expect(host.getAttribute("aria-pressed")).toBe("false");
-    expect(host.textContent).toContain("RAG Off");
+    expect(host.textContent).toBe("RAG");
+    expect(host.textContent).not.toContain("On");
+    expect(host.textContent).not.toContain("Off");
 
     mounted.unmount();
   });

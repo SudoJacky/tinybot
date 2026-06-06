@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider, NText } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface ComposerSendButtonIslandOptions {
@@ -43,10 +43,28 @@ function createComposerSendButtonApp(): App {
     name: "ComposerSendButtonIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NText, { strong: true }, { default: () => "Send" }),
+        default: () => renderSendIcon(),
       });
     },
   }));
+}
+
+function renderSendIcon() {
+  return h("svg", {
+    "data-desktop-composer-send-icon": "true",
+    "aria-hidden": "true",
+    viewBox: "0 0 20 20",
+    focusable: "false",
+  }, [
+    h("path", {
+      d: "M3 10h12m0 0-5-5m5 5-5 5",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "2",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    }),
+  ]);
 }
 
 function setHostDisabled(host: HTMLElement, disabled: boolean): void {

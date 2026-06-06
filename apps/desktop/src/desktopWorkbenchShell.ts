@@ -2320,6 +2320,10 @@ function createNativeComposerSurface(
   input.className = "desktop-native-composer-input";
   input.setAttribute("aria-label", "Native composer input");
   input.setAttribute("placeholder", "Ask Tinybot");
+  input.setAttribute("rows", "1");
+  input.setAttribute("data-max-rows", "3");
+  (input as HTMLTextAreaElement).rows = 1;
+  resizeNativeComposerInput(input as HTMLTextAreaElement);
 
   const send = targetDocument.createElement("button");
   send.id = "desktop-native-composer-send";
@@ -2327,9 +2331,10 @@ function createNativeComposerSurface(
   send.className = "desktop-native-composer-send";
   send.setAttribute("data-desktop-composer-action", "send");
   send.setAttribute("aria-label", "Send message");
-  send.textContent = "↑";
+  send.replaceChildren(createComposerSendIcon(targetDocument));
   updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat);
   input.addEventListener("input", () => {
+    resizeNativeComposerInput(input as HTMLTextAreaElement);
     updateNativeComposerSendState(input as HTMLTextAreaElement, send as HTMLButtonElement, chat);
   });
   mountComposerSendButtonVueIsland(send, input as HTMLTextAreaElement, chat, chatActions);
@@ -2349,6 +2354,30 @@ function createNativeComposerSurface(
   composer.append(input, attach, runtime, send);
   mountComposerSurfaceVueIsland(composer, chat, chatActions);
   return composer;
+}
+
+function resizeNativeComposerInput(input: HTMLTextAreaElement): void {
+  const lineHeight = 24;
+  const maxHeight = lineHeight * 3;
+  input.style.height = "auto";
+  input.style.height = `${Math.min(Math.max(input.scrollHeight || lineHeight, lineHeight), maxHeight)}px`;
+}
+
+function createComposerSendIcon(targetDocument: Document): SVGElement {
+  const icon = targetDocument.createElement("svg") as unknown as SVGElement;
+  icon.setAttribute("data-desktop-composer-send-icon", "true");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("viewBox", "0 0 20 20");
+  icon.setAttribute("focusable", "false");
+  const path = targetDocument.createElement("path") as unknown as SVGPathElement;
+  path.setAttribute("d", "M3 10h12m0 0-5-5m5 5-5 5");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "2");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  icon.append(path);
+  return icon;
 }
 
 function mountComposerSurfaceVueIsland(
@@ -2503,7 +2532,7 @@ function createPersistentRagToggle(
   button.setAttribute("data-desktop-composer-action", "rag-toggle");
   button.setAttribute("aria-label", "Toggle persistent RAG");
   button.setAttribute("aria-pressed", String(enabled));
-  button.textContent = `RAG ${enabled ? "On" : "Off"}`;
+  button.textContent = "RAG";
   mountPersistentRagToggleVueIsland(button, enabled, chatActions);
   return button;
 }
@@ -7686,7 +7715,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       margin: 0 auto 10px;
       border: 1px solid var(--border);
       border-radius: 24px;
-      padding: 16px 18px 14px;
+      padding: 14px 8px 8px 14px;
       background: var(--panel);
       box-shadow: var(--shadow-sm);
     }
@@ -7694,9 +7723,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-native-composer-layout {
       display: grid;
       grid-template-columns: 40px minmax(0, 1fr) 44px;
-      grid-template-rows: minmax(56px, auto) auto;
+      grid-template-rows: auto auto;
       grid-template-areas: "input input input" "attach runtime send";
-      gap: 10px 12px;
+      gap: 10px 18px;
       align-items: end;
       width: 100%;
       min-width: 0;
@@ -7740,12 +7769,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-area: input;
       min-width: 0;
       width: 100%;
-      min-height: 58px;
-      max-height: 108px;
+      min-height: 24px;
+      max-height: calc(24px * 3);
       border: 0;
       border-radius: 0;
       padding: 0;
       resize: none;
+      overflow-y: auto;
+      scrollbar-gutter: stable;
       background: transparent;
       color: var(--text);
       font: 16px/1.5 var(--font-sans);
@@ -7767,7 +7798,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-area: runtime;
       display: flex;
       flex-wrap: nowrap;
-      gap: 10px;
+      gap: 16px;
       align-items: center;
       justify-content: flex-end;
       min-width: 0;
@@ -8646,20 +8677,20 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-native-composer {
       position: relative;
       width: min(1120px, calc(100% - 40px));
-      min-height: 118px;
+      min-height: 0;
       margin: 0 auto 8px;
       border-color: #ddd5cd;
       border-radius: 24px;
-      padding: 18px 20px 14px;
+      padding: 14px 8px 8px 14px;
       background: #ffffff;
       box-shadow: 0 10px 28px rgba(20, 20, 19, 0.08);
     }
 
     body.desktop-native-workbench .desktop-native-composer-layout {
       grid-template-columns: 40px minmax(0, 1fr) 44px;
-      grid-template-rows: minmax(64px, auto) auto;
+      grid-template-rows: auto auto;
       grid-template-areas: "input input input" "attach runtime send";
-      gap: 10px 14px;
+      gap: 10px 18px;
       align-items: end;
     }
 
@@ -8681,8 +8712,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer-input {
       grid-area: input;
-      min-height: 58px;
+      min-height: 24px;
+      max-height: calc(24px * 3);
       padding: 0;
+      overflow-y: auto;
+      scrollbar-gutter: stable;
       color: #262522;
       font-size: 16px;
     }
@@ -8695,19 +8729,31 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       max-height: none;
       overflow-x: auto;
       overflow-y: visible;
+      gap: 16px;
       flex-wrap: nowrap;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-native-composer-model {
       min-height: 34px;
-      border: 1px solid #e2d9d2;
-      border-radius: 7px;
+      border: 0;
+      border-radius: 999px;
       padding: 0 14px;
-      background: #ffffff;
+      background: #fffaf6;
       color: #262522;
       font: 600 12px/1.2 var(--font-sans);
+      box-shadow: none;
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-model:focus-visible,
+    body.desktop-native-workbench .desktop-native-composer-rag-toggle[aria-pressed="true"] {
+      outline: 0;
+      box-shadow: 0 8px 20px rgba(216, 112, 72, 0.18);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-rag-toggle[aria-pressed="false"] {
+      box-shadow: none;
     }
 
     body.desktop-native-workbench .desktop-native-token-orb {
@@ -8727,7 +8773,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-radius: 999px;
       background: var(--primary);
       color: #ffffff;
-      font-size: 20px;
+      font-size: 0;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-send svg {
+      display: block;
+      width: 20px;
+      height: 20px;
     }
 
     body.desktop-native-workbench .desktop-native-composer-send:disabled {

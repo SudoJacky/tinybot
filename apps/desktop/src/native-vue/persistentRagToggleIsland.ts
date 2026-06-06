@@ -39,7 +39,7 @@ function createPersistentRagToggleApp(options: PersistentRagToggleIslandOptions)
     name: "PersistentRagToggleIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NText, { strong: true }, { default: () => `RAG ${options.enabled ? "On" : "Off"}` }),
+        default: () => h(NText, { strong: true }, { default: () => "RAG" }),
       });
     },
   }));

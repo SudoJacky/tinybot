@@ -42,7 +42,12 @@ describe("composer surface Vue island", () => {
     const send = host.querySelector<HTMLButtonElement>("#desktop-native-composer-send");
     expect(input?.getAttribute("aria-label")).toBe("Native composer input");
     expect(input?.getAttribute("placeholder")).toBe("Ask Tinybot");
+    expect(input?.getAttribute("rows")).toBe("1");
+    expect(input?.getAttribute("data-max-rows")).toBe("3");
     expect(send?.getAttribute("disabled")).toBe("");
+    expect(send?.textContent).not.toContain("Send");
+    expect(send?.querySelector('[data-desktop-composer-send-icon="true"]')?.tagName).toBe("svg");
+    expect(send?.querySelector('[data-desktop-composer-send-icon="true"]')?.getAttribute("aria-hidden")).toBe("true");
     expect(host.querySelector("#desktop-native-composer-runtime")?.getAttribute("data-desktop-vue-island")).toBe("composer-runtime");
     expect(host.querySelector("#desktop-native-composer-runtime")?.textContent).toContain("deepseek-chat");
     expect(host.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("42");
