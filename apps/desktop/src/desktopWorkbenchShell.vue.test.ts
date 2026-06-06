@@ -191,6 +191,25 @@ describe("desktop workbench shell Vue integration", () => {
     expect(shell?.getAttribute("data-sidebar-visible")).toBe("false");
   });
 
+  test("renders the chat workbench chrome through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const workbench = document.querySelector<HTMLElement>(".desktop-chat-workbench-chrome");
+    expect(workbench?.getAttribute("data-desktop-vue-island")).toBe("chat-workbench");
+    expect(workbench?.textContent).toContain("Ready for a new session");
+    expect(workbench?.textContent).toContain("Start from chat, inspect workspace, or check gateway status.");
+    expect(workbench?.querySelector(".desktop-quick-actions")?.getAttribute("data-desktop-vue-island")).toBe("quick-actions");
+    expect(workbench?.querySelector(".desktop-panel-controls")?.getAttribute("data-desktop-vue-island")).toBe("panel-controls");
+    expect(workbench?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-pressed")).toBe("true");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

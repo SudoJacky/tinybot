@@ -57,6 +57,7 @@ import { mountChatHeaderActionsIsland } from "./native-vue/chatHeaderActionsIsla
 import { mountChatMenuButtonIsland } from "./native-vue/chatMenuButtonIsland";
 import { mountChatMenuPopoverIsland } from "./native-vue/chatMenuPopoverIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
+import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
@@ -1141,15 +1142,11 @@ function mountChatWorkbenchVueIsland(
   if (!canMountVueIsland(workbenchChrome)) {
     return;
   }
-  void import("./native-vue/chatWorkbenchIsland").then(({ mountChatWorkbenchIsland }) => {
-    mountChatWorkbenchIsland(workbenchChrome, {
-      moduleWorkItems: chatWorkItems,
-      panelControls: buildDesktopPanelControls(layout),
-      onInspectWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
-      onPanelToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountChatWorkbenchIsland(workbenchChrome, {
+    moduleWorkItems: chatWorkItems,
+    panelControls: buildDesktopPanelControls(layout),
+    onInspectWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
+    onPanelToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
   });
 }
 
