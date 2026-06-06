@@ -45,6 +45,7 @@ describe("bottom region Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("bottom-region");
     expect(host.className).toBe("desktop-bottom-content");
+    expect(host.querySelector(".n-card.desktop-bottom-content-card")).not.toBeNull();
     expect(host.querySelector("#desktop-task-center")?.getAttribute("data-desktop-vue-island")).toBe("task-center");
     expect(host.querySelector("#desktop-task-center")?.getAttribute("aria-label")).toBe("Background task center");
     expect(host.querySelector("#desktop-task-center")?.textContent).toContain("Save AGENTS.md");

@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NCard, NConfigProvider } from "naive-ui";
 import type { GatewayRuntimeIslandActionEvent } from "./gatewayRuntimeIsland";
 import { mountGatewayRuntimeIsland } from "./gatewayRuntimeIsland";
 import type { TaskCenterIslandActionEvent } from "./taskCenterIsland";
@@ -63,10 +63,16 @@ function createBottomRegionApp(options: BottomRegionIslandOptions): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("section", { ref: taskCenter }),
-          h("section", { ref: gatewayRuntime }),
-        ],
+        default: () => h(NCard, {
+          class: "desktop-bottom-content-card",
+          size: "small",
+          bordered: false,
+        }, {
+          default: () => [
+            h("section", { ref: taskCenter }),
+            h("section", { ref: gatewayRuntime }),
+          ],
+        }),
       });
     },
   }));
