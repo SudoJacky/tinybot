@@ -264,6 +264,38 @@ describe("desktop workbench shell Vue integration", () => {
     }
   });
 
+  test("renders sidebar content through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [],
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        title: "Live session",
+        updatedAt: "",
+      }],
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const sidebar = document.querySelector<HTMLElement>(".desktop-sidebar-content");
+    expect(sidebar?.getAttribute("data-desktop-vue-island")).toBe("sidebar-content");
+    expect(sidebar?.querySelector(".desktop-sidebar-actions")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-actions");
+    expect(sidebar?.querySelector(".desktop-sidebar-list-section-workspaces")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-workspace-list");
+    expect(sidebar?.querySelector(".desktop-sidebar-list-section-recent")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-recent-chats");
+    expect(sidebar?.querySelector('[data-desktop-session-key="WebSocket:chat-live"]')?.textContent).toContain("Live session");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

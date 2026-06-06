@@ -61,6 +61,7 @@ import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
+import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
@@ -619,23 +620,19 @@ function mountSidebarContentVueIsland(
     session.key === chat.activeSessionKey,
     pinnedSessionKeys.has(session.key),
   ));
-  void import("./native-vue/sidebarContentIsland").then(({ mountSidebarContentIsland }) => {
-    mountSidebarContentIsland(sidebar, {
-      commandItems: sidebarCommandItems(footerGroup),
-      commandLabel: footerGroup?.label,
-      recentChats,
-      resourceItems: sidebarLinkItems(workspaceGroup),
-      resourceLabel: workspaceGroup?.label,
-      targetDocument,
-      workspaceRows: [{
-        active: true,
-        entityId: "tinybot",
-        meta: chat.activeSessionKey ? "Active session" : "Ready",
-        title: "tinybot",
-      }],
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSidebarContentIsland(sidebar, {
+    commandItems: sidebarCommandItems(footerGroup),
+    commandLabel: footerGroup?.label,
+    recentChats,
+    resourceItems: sidebarLinkItems(workspaceGroup),
+    resourceLabel: workspaceGroup?.label,
+    targetDocument,
+    workspaceRows: [{
+      active: true,
+      entityId: "tinybot",
+      meta: chat.activeSessionKey ? "Active session" : "Ready",
+      title: "tinybot",
+    }],
   });
 }
 
