@@ -37,6 +37,7 @@ describe("sidebar content Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("sidebar-content");
     expect(host.className).toBe("desktop-sidebar-content");
+    expect(host.querySelector(".n-space.desktop-sidebar-content-stack")).not.toBeNull();
     expect(host.querySelector(".desktop-sidebar-actions")?.getAttribute("data-desktop-vue-island")).toBe("sidebar-actions");
     expect(host.querySelector(".desktop-sidebar-primary-action")?.getAttribute("href")).toBe("/chat/new");
     expect(host.querySelector(".desktop-sidebar-search")?.getAttribute("type")).toBe("search");

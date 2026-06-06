@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NSpace } from "naive-ui";
 import { mountSharedSidebarCommandsIsland, type SharedSidebarCommandItem } from "./sharedSidebarCommandsIsland";
 import { mountSharedSidebarLinksIsland, type SharedSidebarLinkItem } from "./sharedSidebarLinksIsland";
 import { mountSidebarActionsIsland } from "./sidebarActionsIsland";
@@ -77,13 +77,19 @@ function createSidebarContentApp(options: Required<SidebarContentIslandOptions>)
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("section", { ref: actions }),
-          h("section", { ref: workspaces }),
-          h("section", { ref: recent }),
-          h("section", { ref: links }),
-          h("section", { ref: commands }),
-        ],
+        default: () => h(NSpace, {
+          class: "desktop-sidebar-content-stack",
+          vertical: true,
+          size: 12,
+        }, {
+          default: () => [
+            h("section", { ref: actions }),
+            h("section", { ref: workspaces }),
+            h("section", { ref: recent }),
+            h("section", { ref: links }),
+            h("section", { ref: commands }),
+          ],
+        }),
       });
     },
   }));
