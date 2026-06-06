@@ -92,4 +92,21 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountChatMenuEmptyIsland } from "./native-vue/chatMenuEmptyIsland";');
     expect(source).not.toContain('void import("./native-vue/chatMenuEmptyIsland")');
   });
+
+  test("statically imports the conversation message islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountConversationAttachmentIsland } from "./native-vue/conversationAttachmentIsland";');
+    expect(source).not.toContain('void import("./native-vue/conversationAttachmentIsland")');
+    expect(source).toContain('import { mountConversationBodyIsland } from "./native-vue/conversationBodyIsland";');
+    expect(source).not.toContain('void import("./native-vue/conversationBodyIsland")');
+    expect(source).toContain('import { mountConversationEmptyStateIsland } from "./native-vue/conversationEmptyStateIsland";');
+    expect(source).not.toContain('void import("./native-vue/conversationEmptyStateIsland")');
+    expect(source).toContain('import { mountConversationMetaIsland } from "./native-vue/conversationMetaIsland";');
+    expect(source).not.toContain('void import("./native-vue/conversationMetaIsland")');
+    expect(source).toContain('import { mountConversationReasoningIsland } from "./native-vue/conversationReasoningIsland";');
+    expect(source).not.toContain('void import("./native-vue/conversationReasoningIsland")');
+    expect(source).toContain('import { mountConversationReferenceIsland } from "./native-vue/conversationReferenceIsland";');
+    expect(source).not.toContain('void import("./native-vue/conversationReferenceIsland")');
+  });
 });

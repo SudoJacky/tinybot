@@ -64,7 +64,13 @@ import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
+import { mountConversationAttachmentIsland } from "./native-vue/conversationAttachmentIsland";
+import { mountConversationBodyIsland } from "./native-vue/conversationBodyIsland";
+import { mountConversationEmptyStateIsland } from "./native-vue/conversationEmptyStateIsland";
 import { mountConversationMessageIsland } from "./native-vue/conversationMessageIsland";
+import { mountConversationMetaIsland } from "./native-vue/conversationMetaIsland";
+import { mountConversationReasoningIsland } from "./native-vue/conversationReasoningIsland";
+import { mountConversationReferenceIsland } from "./native-vue/conversationReferenceIsland";
 import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
 import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
 import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
@@ -1853,11 +1859,7 @@ function renderConversationEmptyState(targetDocument: Document, thread: HTMLElem
   if (!canMountVueIsland(thread)) {
     return;
   }
-  void import("./native-vue/conversationEmptyStateIsland").then(({ mountConversationEmptyStateIsland }) => {
-    mountConversationEmptyStateIsland(thread, { message });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountConversationEmptyStateIsland(thread, { message });
 }
 
 function shouldRenderConversationBody(message: NativeChatMessage): boolean {
@@ -1970,11 +1972,7 @@ function mountConversationMetaVueIsland(meta: HTMLElement, options: { author: st
   if (!canMountVueIsland(meta)) {
     return;
   }
-  void import("./native-vue/conversationMetaIsland").then(({ mountConversationMetaIsland }) => {
-    mountConversationMetaIsland(meta, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountConversationMetaIsland(meta, options);
 }
 
 function conversationReferenceText(reference: { detail?: string; kind: string; title: string }): string {
@@ -1992,11 +1990,7 @@ function mountConversationAttachmentVueIsland(
   if (!canMountVueIsland(attachment)) {
     return;
   }
-  void import("./native-vue/conversationAttachmentIsland").then(({ mountConversationAttachmentIsland }) => {
-    mountConversationAttachmentIsland(attachment, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountConversationAttachmentIsland(attachment, options);
 }
 
 function mountConversationReferenceVueIsland(
@@ -2006,11 +2000,7 @@ function mountConversationReferenceVueIsland(
   if (!canMountVueIsland(reference)) {
     return;
   }
-  void import("./native-vue/conversationReferenceIsland").then(({ mountConversationReferenceIsland }) => {
-    mountConversationReferenceIsland(reference, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountConversationReferenceIsland(reference, options);
 }
 
 function createConversationReasoning(targetDocument: Document, reasoningContent: string): HTMLElement {
@@ -2034,11 +2024,7 @@ function mountConversationReasoningVueIsland(reasoning: HTMLElement, content: st
   if (!canMountVueIsland(reasoning)) {
     return;
   }
-  void import("./native-vue/conversationReasoningIsland").then(({ mountConversationReasoningIsland }) => {
-    mountConversationReasoningIsland(reasoning, { content });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountConversationReasoningIsland(reasoning, { content });
 }
 
 function createToolActivities(
@@ -2230,11 +2216,7 @@ function mountConversationBodyVueIsland(
   if (!canMountVueIsland(body)) {
     return;
   }
-  void import("./native-vue/conversationBodyIsland").then(({ mountConversationBodyIsland }) => {
-    mountConversationBodyIsland(body, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountConversationBodyIsland(body, options);
 }
 
 function renderConversationMarkdown(target: HTMLElement, content: string): void {
