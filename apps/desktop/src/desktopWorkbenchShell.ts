@@ -63,6 +63,7 @@ import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
 import { mountConversationMessageIsland } from "./native-vue/conversationMessageIsland";
 import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
+import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
@@ -3238,17 +3239,13 @@ function mountKnowledgePaneVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/knowledgePaneIsland").then(({ mountKnowledgePaneIsland }) => {
-    mountKnowledgePaneIsland(section, {
-      pane,
-      workItems,
-      onInspectWorkItem: (item) => renderWorkLensFromTask(targetDocument, item),
-      onKnowledgeAction: (event) => {
-        knowledgeActions.onKnowledgeAction?.(event);
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountKnowledgePaneIsland(section, {
+    pane,
+    workItems,
+    onInspectWorkItem: (item) => renderWorkLensFromTask(targetDocument, item),
+    onKnowledgeAction: (event) => {
+      knowledgeActions.onKnowledgeAction?.(event);
+    },
   });
 }
 
