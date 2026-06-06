@@ -20,6 +20,7 @@ describe("token usage orb Vue island", () => {
     expect(host.getAttribute("aria-valuenow")).toBe("42");
     expect(host.getAttribute("data-token-usage")).toBe("42");
     expect(host.style.getPropertyValue("--token-usage-fill")).toBe("42%");
+    expect(host.querySelector(".n-progress.desktop-native-token-progress")).not.toBeNull();
     expect(host.textContent).toContain("42%");
 
     mounted.unmount();

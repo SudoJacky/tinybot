@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NProgress } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface TokenUsageOrbIslandOptions {
@@ -31,7 +31,12 @@ function createTokenUsageOrbApp(percent: number): App {
     name: "TokenUsageOrbIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => `${percent}%`,
+        default: () => h(NProgress, {
+          class: "desktop-native-token-progress",
+          percentage: percent,
+          showIndicator: true,
+          type: "circle",
+        }),
       });
     },
   }));
