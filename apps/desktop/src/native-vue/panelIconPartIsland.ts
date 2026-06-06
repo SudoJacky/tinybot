@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NIcon } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export type PanelIconPart = "frame" | "rail";
@@ -32,7 +32,13 @@ function createPanelIconPartApp(): App {
   return createApp(defineComponent({
     name: "PanelIconPartIsland",
     setup() {
-      return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides });
+      return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
+        default: () => h(NIcon, {
+          "aria-hidden": "true",
+          class: "desktop-chat-header-panel-icon-part",
+          size: 1,
+        }),
+      });
     },
   }));
 }

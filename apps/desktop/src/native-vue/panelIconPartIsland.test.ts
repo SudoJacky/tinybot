@@ -13,6 +13,7 @@ describe("panel icon part Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("panel-icon-part");
     expect(host.className).toBe("desktop-chat-header-panel-icon-frame");
+    expect(host.querySelector(".n-icon.desktop-chat-header-panel-icon-part")).not.toBeNull();
     expect(host.textContent).toBe("");
 
     mounted.unmount();
