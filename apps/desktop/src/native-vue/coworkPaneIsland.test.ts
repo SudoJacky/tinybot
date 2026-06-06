@@ -117,6 +117,7 @@ describe("cowork pane Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("cowork-pane");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("cowork");
     expect(host.getAttribute("aria-label")).toBe("Cowork cockpit");
+    expect(host.querySelector(".n-space.desktop-cowork-stack")).not.toBeNull();
     expect(host.textContent).toContain("Cowork");
 
     expect(host.querySelector(".desktop-cowork-sessions")?.getAttribute("data-desktop-vue-island")).toBe("cowork-sessions");

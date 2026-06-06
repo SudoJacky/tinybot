@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NSpace } from "naive-ui";
 import {
   buildDesktopCoworkCockpitView,
   type DesktopCoworkObservabilityPanel,
@@ -137,20 +137,26 @@ function createCoworkPaneApp(options: CoworkPaneIslandOptions): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("h2", "Cowork"),
-          h("section", { ref: sessions }),
-          h("section", { ref: actions }),
-          selectedView.value
-            ? [
-              h("section", { ref: header }),
-              h("section", { ref: graph }),
-              h("section", { ref: observability }),
-              h("section", { ref: inspector }),
-              h("section", { ref: taskFeed }),
-            ]
-            : h("p", "Select a Cowork session to open the cockpit."),
-        ],
+        default: () => h(NSpace, {
+          class: "desktop-cowork-stack",
+          vertical: true,
+          size: 12,
+        }, {
+          default: () => [
+            h("h2", "Cowork"),
+            h("section", { ref: sessions }),
+            h("section", { ref: actions }),
+            selectedView.value
+              ? [
+                h("section", { ref: header }),
+                h("section", { ref: graph }),
+                h("section", { ref: observability }),
+                h("section", { ref: inspector }),
+                h("section", { ref: taskFeed }),
+              ]
+              : h("p", "Select a Cowork session to open the cockpit."),
+          ],
+        }),
       });
     },
   }));
