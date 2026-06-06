@@ -27,6 +27,7 @@ describe("header panel control Vue island", () => {
     expect(host.getAttribute("title")).toBe("Collapse session list");
     expect(host.getAttribute("aria-pressed")).toBe("true");
     expect(host.textContent).toBe("");
+    expect(host.querySelector(".n-icon.desktop-chat-header-panel-naive-icon")).not.toBeNull();
     expect(host.querySelector(".desktop-chat-header-panel-icon")?.getAttribute("data-panel-icon")).toBe("collapse-left");
     expect(host.querySelector(".desktop-chat-header-panel-icon-frame")).toBeTruthy();
     expect(host.querySelector(".desktop-chat-header-panel-icon-rail")).toBeTruthy();

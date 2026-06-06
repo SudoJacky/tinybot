@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NIcon } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export type HeaderPanelControlId = "sidebar" | "inspector" | "bottom";
@@ -70,12 +70,14 @@ export function renderHeaderPanelControlContent(options: HeaderPanelControlIslan
   if (!iconDirection) {
     return options.label;
   }
-  return h("span", {
-    class: "desktop-chat-header-panel-icon",
-    "data-panel-icon": iconDirection,
-    "aria-hidden": "true",
-  }, [
-    h("span", { class: "desktop-chat-header-panel-icon-frame" }),
-    h("span", { class: "desktop-chat-header-panel-icon-rail" }),
-  ]);
+  return h(NIcon, { class: "desktop-chat-header-panel-naive-icon" }, {
+    default: () => h("span", {
+      class: "desktop-chat-header-panel-icon",
+      "data-panel-icon": iconDirection,
+      "aria-hidden": "true",
+    }, [
+      h("span", { class: "desktop-chat-header-panel-icon-frame" }),
+      h("span", { class: "desktop-chat-header-panel-icon-rail" }),
+    ]),
+  });
 }
