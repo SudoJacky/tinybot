@@ -91,6 +91,8 @@ import { mountCoworkSessionsIsland } from "./native-vue/coworkSessionsIsland";
 import { mountCoworkTaskFeedIsland } from "./native-vue/coworkTaskFeedIsland";
 import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
 import { mountHeaderPanelControlIsland } from "./native-vue/headerPanelControlIsland";
+import { mountInspectorRegionIsland } from "./native-vue/inspectorRegionIsland";
+import { mountInspectorViewIsland } from "./native-vue/inspectorViewIsland";
 import { mountKnowledgeActionsIsland } from "./native-vue/knowledgeActionsIsland";
 import { mountKnowledgeDocumentDetailIsland } from "./native-vue/knowledgeDocumentDetailIsland";
 import { mountKnowledgeDocumentsIsland } from "./native-vue/knowledgeDocumentsIsland";
@@ -104,6 +106,8 @@ import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
 import { mountPersistentRagToggleIsland } from "./native-vue/persistentRagToggleIsland";
 import { mountRecentChatRowIsland } from "./native-vue/recentChatRowIsland";
+import { mountRunChainInspectorIsland } from "./native-vue/runChainInspectorIsland";
+import { mountRunChainOverviewIsland } from "./native-vue/runChainOverviewIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIsland";
@@ -124,6 +128,7 @@ import { mountToolsListIsland } from "./native-vue/toolsListIsland";
 import { mountToolsSkillsActionsIsland } from "./native-vue/toolsSkillsActionsIsland";
 import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
 import { mountTokenUsageOrbIsland } from "./native-vue/tokenUsageOrbIsland";
+import { mountWorkLensIsland } from "./native-vue/workLensIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
@@ -4986,38 +4991,34 @@ function mountInspectorRegionVueIsland(
   if (!canMountVueIsland(inspector)) {
     return;
   }
-  void import("./native-vue/inspectorRegionIsland").then(({ mountInspectorRegionIsland }) => {
-    mountInspectorRegionIsland(inspector, {
-      runChainItems,
-      selectedRunChainItemKey,
-      workLens,
-      onRunChainAction: (action) => {
-        if (action.type === "close") {
-          toggleDesktopPanel(targetDocument, "inspector");
-        } else if (action.type === "pin") {
-          setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
-        } else if (action.type === "tab" || action.type === "summary") {
-          setRouteStatus(targetDocument, `Run Chain ${action.label}`);
-        } else if (action.type === "open-task-center") {
-          toggleDesktopPanel(targetDocument, "bottom");
-        } else if (action.type === "new-item") {
-          setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
-        } else if (action.type === "feed") {
-          setRouteStatus(targetDocument, `Selected ${action.title}`);
-        }
-      },
-      onRunChainItemSelected: (item) => {
-        setRouteStatus(targetDocument, `Inspecting ${item.title}`);
-      },
-      onWorkLensAction: ({ action }) => {
-        if (workLens) {
-          workLensActions.onWorkLensAction?.({ action, workLens });
-        }
-      },
-      copyText: workLensActions.copyText,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountInspectorRegionIsland(inspector, {
+    runChainItems,
+    selectedRunChainItemKey,
+    workLens,
+    onRunChainAction: (action) => {
+      if (action.type === "close") {
+        toggleDesktopPanel(targetDocument, "inspector");
+      } else if (action.type === "pin") {
+        setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
+      } else if (action.type === "tab" || action.type === "summary") {
+        setRouteStatus(targetDocument, `Run Chain ${action.label}`);
+      } else if (action.type === "open-task-center") {
+        toggleDesktopPanel(targetDocument, "bottom");
+      } else if (action.type === "new-item") {
+        setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+      } else if (action.type === "feed") {
+        setRouteStatus(targetDocument, `Selected ${action.title}`);
+      }
+    },
+    onRunChainItemSelected: (item) => {
+      setRouteStatus(targetDocument, `Inspecting ${item.title}`);
+    },
+    onWorkLensAction: ({ action }) => {
+      if (workLens) {
+        workLensActions.onWorkLensAction?.({ action, workLens });
+      }
+    },
+    copyText: workLensActions.copyText,
   });
 }
 
@@ -5263,27 +5264,23 @@ function mountRunChainOverviewVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/runChainOverviewIsland").then(({ mountRunChainOverviewIsland }) => {
-    mountRunChainOverviewIsland(section, {
-      items: runChainItems,
-      onAction: (action) => {
-        if (action.type === "close") {
-          toggleDesktopPanel(targetDocument, "inspector");
-        } else if (action.type === "pin") {
-          setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
-        } else if (action.type === "tab" || action.type === "summary") {
-          setRouteStatus(targetDocument, `Run Chain ${action.label}`);
-        } else if (action.type === "open-task-center") {
-          toggleDesktopPanel(targetDocument, "bottom");
-        } else if (action.type === "new-item") {
-          setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
-        } else if (action.type === "feed") {
-          setRouteStatus(targetDocument, `Selected ${action.title}`);
-        }
-      },
-    });
-  }).catch(() => {
-    setRouteStatus(targetDocument, "Run Chain native UI unavailable.");
+  mountRunChainOverviewIsland(section, {
+    items: runChainItems,
+    onAction: (action) => {
+      if (action.type === "close") {
+        toggleDesktopPanel(targetDocument, "inspector");
+      } else if (action.type === "pin") {
+        setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
+      } else if (action.type === "tab" || action.type === "summary") {
+        setRouteStatus(targetDocument, `Run Chain ${action.label}`);
+      } else if (action.type === "open-task-center") {
+        toggleDesktopPanel(targetDocument, "bottom");
+      } else if (action.type === "new-item") {
+        setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+      } else if (action.type === "feed") {
+        setRouteStatus(targetDocument, `Selected ${action.title}`);
+      }
+    },
   });
 }
 
@@ -5372,17 +5369,13 @@ function mountWorkLensVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/workLensIsland").then(({ mountWorkLensIsland }) => {
-    mountWorkLensIsland(section, {
-      workLens,
-      placement,
-      onAction: ({ action }) => {
-        workLensActions.onWorkLensAction?.({ action, workLens });
-      },
-      copyText: workLensActions.copyText,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountWorkLensIsland(section, {
+    workLens,
+    placement,
+    onAction: ({ action }) => {
+      workLensActions.onWorkLensAction?.({ action, workLens });
+    },
+    copyText: workLensActions.copyText,
   });
 }
 
@@ -5472,14 +5465,10 @@ function mountRunChainInspectorVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/runChainInspectorIsland").then(({ mountRunChainInspectorIsland }) => {
-    mountRunChainInspectorIsland(section, {
-      items,
-      selectedItemKey,
-      onSelect: (item) => setRouteStatus(targetDocument, `Inspecting ${item.title}`),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountRunChainInspectorIsland(section, {
+    items,
+    selectedItemKey,
+    onSelect: (item) => setRouteStatus(targetDocument, `Inspecting ${item.title}`),
   });
 }
 
@@ -6702,11 +6691,7 @@ function mountInspectorViewVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/inspectorViewIsland").then(({ mountInspectorViewIsland }) => {
-    mountInspectorViewIsland(section, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountInspectorViewIsland(section, options);
 }
 
 function createSharedSidebarLinkSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {

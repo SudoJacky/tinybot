@@ -205,4 +205,19 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountCoworkTaskFeedIsland } from "./native-vue/coworkTaskFeedIsland";');
     expect(source).not.toContain('void import("./native-vue/coworkTaskFeedIsland")');
   });
+
+  test("statically imports the inspector and work lens islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountInspectorRegionIsland } from "./native-vue/inspectorRegionIsland";');
+    expect(source).not.toContain('void import("./native-vue/inspectorRegionIsland")');
+    expect(source).toContain('import { mountInspectorViewIsland } from "./native-vue/inspectorViewIsland";');
+    expect(source).not.toContain('void import("./native-vue/inspectorViewIsland")');
+    expect(source).toContain('import { mountRunChainInspectorIsland } from "./native-vue/runChainInspectorIsland";');
+    expect(source).not.toContain('void import("./native-vue/runChainInspectorIsland")');
+    expect(source).toContain('import { mountRunChainOverviewIsland } from "./native-vue/runChainOverviewIsland";');
+    expect(source).not.toContain('void import("./native-vue/runChainOverviewIsland")');
+    expect(source).toContain('import { mountWorkLensIsland } from "./native-vue/workLensIsland";');
+    expect(source).not.toContain('void import("./native-vue/workLensIsland")');
+  });
 });
