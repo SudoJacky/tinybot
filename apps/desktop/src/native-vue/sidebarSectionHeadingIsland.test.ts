@@ -16,6 +16,7 @@ describe("sidebar section heading Vue island", () => {
     expect(host.className).toContain("desktop-sidebar-section-heading");
     expect(host.querySelector("h2")?.textContent).toBe("Workspaces");
     const action = host.querySelector<HTMLButtonElement>(".desktop-sidebar-section-action");
+    expect(action?.className).toContain("n-button");
     expect(action?.getAttribute("type")).toBe("button");
     expect(action?.getAttribute("aria-label")).toBe("Workspaces action");
     expect(action?.textContent).toBe("+");

@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NButton, NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface SidebarSectionHeadingIslandOptions {
@@ -35,11 +35,13 @@ function createSidebarSectionHeadingApp(options: SidebarSectionHeadingIslandOpti
         default: () => [
           h("h2", options.title),
           options.action
-            ? h("button", {
-              type: "button",
+            ? h(NButton, {
               class: "desktop-sidebar-section-action",
+              focusable: false,
+              quaternary: true,
+              size: "tiny",
               "aria-label": `${options.title} action`,
-            }, options.action)
+            }, { default: () => options.action })
             : null,
         ],
       });
