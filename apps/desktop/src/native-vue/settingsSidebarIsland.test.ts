@@ -22,7 +22,8 @@ describe("settings sidebar Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("settings-sidebar");
     expect(host.className).toContain("desktop-settings-sidebar");
     expect(host.getAttribute("aria-label")).toBe("Settings navigation");
-    expect(host.querySelector<HTMLInputElement>(".desktop-settings-search")?.getAttribute("placeholder")).toBe("Search settings...");
+    expect(host.querySelector(".n-input.desktop-settings-search input")?.getAttribute("placeholder")).toBe("Search settings...");
+    expect(host.querySelector(".n-menu.desktop-settings-nav")).not.toBeNull();
     expect(host.textContent).toContain("Personal");
     expect(host.textContent).toContain("System");
 

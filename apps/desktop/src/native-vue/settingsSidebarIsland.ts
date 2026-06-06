@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NConfigProvider, NInput, NMenu, type MenuOption } from "naive-ui";
 import type { DesktopSettingsPaneModel } from "../desktopSettingsProviders";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
@@ -36,33 +36,46 @@ function createSettingsSidebarApp(options: SettingsSidebarIslandOptions): App {
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          h("input", {
+          h(NInput, {
             class: "desktop-settings-search",
-            type: "search",
             placeholder: "Search settings...",
             "aria-label": "Search settings",
           }),
-          h("nav", {
+          h(NMenu, {
             class: "desktop-settings-nav",
-            "aria-label": "Settings sections",
-          }, renderNavigation(options.groups)),
+            options: buildSettingsMenuOptions(options.groups),
+            value: options.groups[0]?.id,
+          }),
         ],
       });
     },
   }));
 }
 
-function renderNavigation(groups: SettingsGroup[]) {
-  const nodes = [
-    h("p", { class: "desktop-settings-nav-heading" }, "Personal"),
+function buildSettingsMenuOptions(groups: SettingsGroup[]): MenuOption[] {
+  const personalGroups = groups.slice(0, 3);
+  const systemGroups = groups.slice(3);
+  return [
+    {
+      key: "personal",
+      label: () => h("p", { class: "desktop-settings-nav-heading" }, "Personal"),
+      type: "group",
+      children: personalGroups.map((group, index) => renderNavOption(group, index)),
+    },
+    {
+      key: "system",
+      label: () => h("p", { class: "desktop-settings-nav-heading" }, "System"),
+      type: "group",
+      children: systemGroups.map((group, index) => renderNavOption(group, index + personalGroups.length)),
+    },
   ];
-  groups.forEach((group, index) => {
-    if (index === 3) {
-      nodes.push(h("p", { class: "desktop-settings-nav-heading" }, "System"));
-    }
-    nodes.push(renderNavItem(group, index));
-  });
-  return nodes;
+}
+
+function renderNavOption(group: SettingsGroup, index: number): MenuOption {
+  return {
+    key: group.id,
+    label: () => renderNavItem(group, index),
+  };
 }
 
 function renderNavItem(group: SettingsGroup, index: number) {
