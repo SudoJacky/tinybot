@@ -7873,7 +7873,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workbench-main,
     body.desktop-native-workbench .desktop-workbench-inspector {
       border-color: #e9e4df;
-      background: #fbfaf7;
+      background: #f7f7f5;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-inspector {
+      margin: 16px 16px 16px 0;
+      border: 1px solid #e9e4df;
+      border-radius: 14px;
+      background: #ffffff;
+      box-shadow: 0 12px 34px rgba(20, 20, 19, 0.08);
     }
 
     body.desktop-native-workbench .desktop-sidebar-content {
@@ -8094,7 +8102,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-height: 0;
       padding: 0;
       overflow: hidden;
-      background: #ffffff;
+      background: #f7f7f5;
     }
 
     body.desktop-native-workbench .desktop-chat-workbench {
@@ -8102,14 +8110,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       gap: 0;
+      justify-items: center;
       width: 100%;
       max-width: none;
       height: 100%;
       min-height: 0;
       margin: 0;
-      padding: 0;
+      padding: 0 clamp(20px, 3vw, 46px);
       overflow: hidden;
-      background: #ffffff;
+      background: #f7f7f5;
     }
 
     body.desktop-native-workbench .desktop-chat-workbench > span,
@@ -8129,6 +8138,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       justify-content: space-between;
       gap: 12px;
+      width: min(1120px, 100%);
       min-width: 0;
       min-height: 54px;
       border-bottom: 1px solid #e9e4df;
@@ -8296,6 +8306,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       align-content: start;
       gap: 22px;
+      width: min(1120px, 100%);
       min-height: 0;
       padding: 32px min(8vw, 72px) 22px;
       overflow-y: auto;
