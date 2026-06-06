@@ -296,6 +296,22 @@ describe("desktop workbench shell Vue integration", () => {
     expect(sidebar?.querySelector('[data-desktop-session-key="WebSocket:chat-live"]')?.textContent).toContain("Live session");
   });
 
+  test("renders sidebar actions through the Vue shell island without an active chat", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const actions = document.querySelector<HTMLElement>(".desktop-sidebar-actions");
+    expect(actions?.getAttribute("data-desktop-vue-island")).toBe("sidebar-actions");
+    expect(actions?.querySelector(".desktop-sidebar-primary-action")?.getAttribute("href")).toBe("/chat/new");
+    expect(actions?.querySelector(".desktop-sidebar-search")?.getAttribute("type")).toBe("search");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

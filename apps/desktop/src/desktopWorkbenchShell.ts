@@ -61,6 +61,7 @@ import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
+import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
@@ -674,11 +675,7 @@ function mountSidebarActionsVueIsland(section: HTMLElement): void {
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/sidebarActionsIsland").then(({ mountSidebarActionsIsland }) => {
-    mountSidebarActionsIsland(section);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSidebarActionsIsland(section);
 }
 
 function createSidebarWorkspaceList(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
