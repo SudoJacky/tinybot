@@ -35,6 +35,7 @@ describe("chat header actions Vue island", () => {
     const inspector = host.querySelector<HTMLElement>('[data-desktop-panel-control="inspector"]');
 
     expect(sidebar?.getAttribute("aria-label")).toBe("Collapse session list");
+    expect(sidebar?.className).toContain("n-button");
     expect(sidebar?.getAttribute("aria-pressed")).toBe("true");
     expect(sidebar?.querySelector(".desktop-chat-header-panel-icon")?.getAttribute("data-panel-icon")).toBe("collapse-left");
     expect(inspector?.getAttribute("aria-label")).toBe("Open Run Chain panel");

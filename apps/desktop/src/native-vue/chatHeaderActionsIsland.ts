@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NButton, NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { renderHeaderPanelControlContent, type HeaderPanelControlId } from "./headerPanelControlIsland";
 
@@ -51,13 +51,15 @@ function createChatHeaderActionsApp(options: ChatHeaderActionsIslandOptions): Ap
 
 function renderActionButton(action: ChatHeaderActionItem, options: ChatHeaderActionsIslandOptions) {
   const accessibleLabel = action.visible ? action.pressedLabel : action.unpressedLabel;
-  return h("button", {
-    type: "button",
+  return h(NButton, {
     class: "desktop-chat-header-panel-button",
     "data-desktop-panel-control": action.panel,
     "data-desktop-panel-label-pressed": action.pressedLabel,
     "data-desktop-panel-label-unpressed": action.unpressedLabel,
     "aria-label": accessibleLabel,
+    focusable: false,
+    quaternary: true,
+    size: "small",
     title: accessibleLabel,
     "aria-pressed": String(action.visible),
     onClick: () => options.onToggle?.(action.panel),
@@ -68,5 +70,5 @@ function renderActionButton(action: ChatHeaderActionItem, options: ChatHeaderAct
       event.preventDefault();
       options.onToggle?.(action.panel);
     },
-  }, renderHeaderPanelControlContent(action));
+  }, { default: () => renderHeaderPanelControlContent(action) });
 }
