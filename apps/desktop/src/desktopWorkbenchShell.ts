@@ -68,6 +68,7 @@ import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
 import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
 import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
+import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
 import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIsland";
@@ -5007,13 +5008,9 @@ function mountPanelControlsVueIsland(
   if (!canMountVueIsland(controls)) {
     return;
   }
-  void import("./native-vue/panelControlsIsland").then(({ mountPanelControlsIsland }) => {
-    mountPanelControlsIsland(controls, {
-      controls: panelControls,
-      onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountPanelControlsIsland(controls, {
+    controls: panelControls,
+    onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
   });
 }
 

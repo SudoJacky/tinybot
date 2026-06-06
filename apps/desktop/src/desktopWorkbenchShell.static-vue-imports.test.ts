@@ -51,4 +51,11 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountTaskCenterIsland } from "./native-vue/taskCenterIsland";');
     expect(source).not.toContain('void import("./native-vue/taskCenterIsland")');
   });
+
+  test("statically imports the panel controls island", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";');
+    expect(source).not.toContain('void import("./native-vue/panelControlsIsland")');
+  });
 });
