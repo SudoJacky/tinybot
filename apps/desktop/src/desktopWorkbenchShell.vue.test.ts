@@ -123,6 +123,47 @@ describe("desktop workbench shell Vue integration", () => {
     expect(popover?.hidden).toBe(false);
   });
 
+  test("renders the chat menu popover through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [],
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        title: "Live session",
+        updatedAt: "",
+      }],
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const popover = document.querySelector<HTMLElement>(".desktop-chat-menu-popover");
+    const actions = Array.from(document.querySelectorAll<HTMLElement>(".desktop-chat-menu-action"));
+    expect(popover?.getAttribute("data-desktop-vue-island")).toBe("chat-menu-popover");
+    expect(popover?.getAttribute("role")).toBe("menu");
+    expect(popover?.getAttribute("aria-label")).toBe("Chat session actions");
+    expect(actions.map((action) => action.getAttribute("data-desktop-vue-island"))).toEqual([
+      "chat-menu-action",
+      "chat-menu-action",
+      "chat-menu-action",
+    ]);
+    expect(actions.map((action) => action.textContent)).toEqual([
+      "Pin session",
+      "Rename session",
+      "New chat",
+    ]);
+  });
+
   test("renders chat header panel actions through the Vue shell island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

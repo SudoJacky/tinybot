@@ -55,6 +55,7 @@ import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
 import { mountChatHeaderActionsIsland } from "./native-vue/chatHeaderActionsIsland";
 import { mountChatMenuButtonIsland } from "./native-vue/chatMenuButtonIsland";
+import { mountChatMenuPopoverIsland } from "./native-vue/chatMenuPopoverIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
@@ -1474,11 +1475,7 @@ function mountChatMenuPopoverVueIsland(
   if (!canMountVueIsland(popover)) {
     return;
   }
-  void import("./native-vue/chatMenuPopoverIsland").then(({ mountChatMenuPopoverIsland }) => {
-    mountChatMenuPopoverIsland(popover, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountChatMenuPopoverIsland(popover, options);
 }
 
 function mountChatMenuEmptyVueIsland(empty: HTMLElement, message: string): void {
