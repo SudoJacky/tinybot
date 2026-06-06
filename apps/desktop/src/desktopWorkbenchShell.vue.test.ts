@@ -437,6 +437,10 @@ describe("desktop workbench shell Vue integration", () => {
     expect(composer?.getAttribute("data-desktop-vue-island")).toBe("composer-surface");
     expect(composer?.getAttribute("data-active-session-key")).toBe("WebSocket:chat-live");
     expect(composer?.getAttribute("data-desktop-composer-rag")).toBe("false");
+    const layout = composer?.querySelector(".desktop-native-composer-layout");
+    expect(layout?.querySelector(":scope > #desktop-native-composer-input")).toBe(input);
+    expect(layout?.querySelector(":scope > #desktop-native-composer-runtime")).not.toBeNull();
+    expect(layout?.querySelector(":scope > #desktop-native-composer-send")).toBe(send);
     expect(composer?.querySelector("#desktop-native-composer-runtime")?.getAttribute("data-desktop-vue-island")).toBe("composer-runtime");
     expect(composer?.querySelector("#desktop-native-composer-runtime")?.textContent).toContain("deepseek-chat");
     expect(send?.getAttribute("disabled")).toBe("");

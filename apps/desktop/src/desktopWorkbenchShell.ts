@@ -7680,12 +7680,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-native-composer {
-      display: grid;
-      grid-template-columns: 40px minmax(0, 1fr) 44px;
-      grid-template-rows: minmax(56px, auto) auto;
-      grid-template-areas: "input input input" "attach runtime send";
-      gap: 10px 12px;
-      align-items: end;
+      display: block;
       width: min(1100px, 100%);
       min-width: 0;
       margin: 0 auto 10px;
@@ -7694,6 +7689,17 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 16px 18px 14px;
       background: var(--panel);
       box-shadow: var(--shadow-sm);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-layout {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr) 44px;
+      grid-template-rows: minmax(56px, auto) auto;
+      grid-template-areas: "input input input" "attach runtime send";
+      gap: 10px 12px;
+      align-items: end;
+      width: 100%;
+      min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-native-composer-action,
@@ -8628,11 +8634,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       position: relative;
-      grid-template-columns: 40px minmax(0, 1fr) 44px;
-      grid-template-rows: minmax(64px, auto) auto;
-      grid-template-areas: "input input input" "attach runtime send";
-      gap: 10px 14px;
-      align-items: end;
       width: min(1120px, calc(100% - 40px));
       min-height: 118px;
       margin: 0 auto 8px;
@@ -8641,6 +8642,14 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 18px 20px 14px;
       background: #ffffff;
       box-shadow: 0 10px 28px rgba(20, 20, 19, 0.08);
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-layout {
+      grid-template-columns: 40px minmax(0, 1fr) 44px;
+      grid-template-rows: minmax(64px, auto) auto;
+      grid-template-areas: "input input input" "attach runtime send";
+      gap: 10px 14px;
+      align-items: end;
     }
 
     body.desktop-native-workbench .desktop-native-composer-action {
@@ -10083,6 +10092,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-native-composer {
         width: calc(100% - 28px);
+      }
+
+      body.desktop-native-workbench .desktop-native-composer-layout {
         grid-template-columns: 36px minmax(0, 1fr) 44px;
         grid-template-rows: auto auto;
         grid-template-areas: "input input input" "attach runtime send";

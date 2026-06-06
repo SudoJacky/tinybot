@@ -31,6 +31,12 @@ describe("composer surface Vue island", () => {
     expect(host.getAttribute("data-desktop-composer-responding")).toBe("false");
     expect(host.getAttribute("data-desktop-composer-rag")).toBe("false");
     expect(host.getAttribute("data-desktop-composer-state")).toBe("idle");
+    const layout = host.querySelector(".desktop-native-composer-layout");
+    expect(layout).not.toBeNull();
+    expect(layout?.querySelector(":scope > #desktop-native-composer-input")).not.toBeNull();
+    expect(layout?.querySelector(":scope > #desktop-native-composer-attach")).not.toBeNull();
+    expect(layout?.querySelector(":scope > #desktop-native-composer-runtime")).not.toBeNull();
+    expect(layout?.querySelector(":scope > #desktop-native-composer-send")).not.toBeNull();
 
     const input = host.querySelector<HTMLTextAreaElement>("#desktop-native-composer-input");
     const send = host.querySelector<HTMLButtonElement>("#desktop-native-composer-send");

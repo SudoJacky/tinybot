@@ -90,7 +90,7 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
+        default: () => h("div", { class: "desktop-native-composer-layout" }, [
           h("textarea", {
             id: "desktop-native-composer-input",
             class: "desktop-native-composer-input",
@@ -119,7 +119,7 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
             disabled: canSend() ? null : "",
             onClick: send,
           }, h(NText, { strong: true }, { default: () => "Send" })),
-        ],
+        ]),
       });
     },
   }));
