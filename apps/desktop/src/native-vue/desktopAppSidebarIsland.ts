@@ -88,10 +88,10 @@ function renderSidebarItem(options: DesktopAppSidebarIslandOptions, item: Deskto
   }
   return h(NButton, {
     ...shared,
-    disabled: item.disabled,
+    attrType: "button",
+    disabled: item.disabled ?? false,
     quaternary: true,
     tag: "button",
-    type: "button",
     onClick: () => dispatchSidebarCommand(options.targetDocument ?? document, item),
   }, { default: children });
 }

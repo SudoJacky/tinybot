@@ -77,7 +77,7 @@ function createAgentUiFormCardApp(options: AgentUiFormCardIslandOptions): App {
             class: "desktop-agent-ui-form",
             "data-agent-ui-form-id": options.form.form_id,
           }, [
-            ...options.form.fields.map((field, index) => h("label", {
+            ...options.form.fields.map((_field, index) => h("label", {
               ref: (element) => {
                 fieldHosts.value[index] = element as HTMLElement | null;
               },

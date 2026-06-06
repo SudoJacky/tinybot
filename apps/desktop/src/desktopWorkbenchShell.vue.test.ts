@@ -13,6 +13,12 @@ describe("desktop workbench shell Vue integration", () => {
     installDesktopWorkbenchShell({
       targetDocument: document,
       layout: createDefaultWorkbenchLayout(),
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
@@ -195,23 +201,28 @@ describe("desktop workbench shell Vue integration", () => {
   test("renders the chat workbench chrome through the Vue shell island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
+    const chat = {
+      sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+      activeSessionKey: "WebSocket:chat-live",
+      activeChatId: "chat-live",
+      messages: [],
+    };
 
     installDesktopWorkbenchShell({
       targetDocument: document,
       layout: createDefaultWorkbenchLayout(),
+      chat,
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
     const workbench = document.querySelector<HTMLElement>(".desktop-chat-workbench-chrome");
     expect(workbench?.getAttribute("data-desktop-vue-island")).toBe("chat-workbench");
-    expect(workbench?.textContent).toContain("Ready for a new session.");
-    expect(workbench?.textContent).toContain("Ready for a new session. Start");
-    expect(workbench?.textContent).toContain("Start from chat, inspect the workspace, or check gateway status.");
+    expect(workbench?.textContent).toContain("Start a new session");
+    expect(workbench?.textContent).toContain("Ask Tinybot about the workspace, inspect files, or create a task.");
     expect(workbench?.textContent).not.toContain("sessionStart");
     expect(workbench?.textContent).not.toContain("session.Start");
     expect(workbench?.querySelector(".desktop-quick-actions")?.getAttribute("data-desktop-vue-island")).toBe("quick-actions");
-    expect(workbench?.querySelector(".desktop-panel-controls")?.getAttribute("data-desktop-vue-island")).toBe("panel-controls");
-    expect(workbench?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(workbench?.querySelector(".desktop-panel-controls")).toBeNull();
   });
 
   test("renders the main utility surfaces through the Vue shell island", () => {
@@ -379,7 +390,8 @@ describe("desktop workbench shell Vue integration", () => {
     const thread = document.querySelector<HTMLElement>(".desktop-conversation-thread");
     expect(thread?.getAttribute("data-desktop-vue-island")).toBe("conversation-thread");
     expect(thread?.getAttribute("aria-label")).toBe("Conversation");
-    expect(thread?.textContent).toContain("No messages in this session.");
+    expect(thread?.textContent).not.toContain("No messages in this session.");
+    expect(document.querySelector(".desktop-chat-workbench-chrome")?.textContent).toContain("Start a new session");
   });
 
   test("renders fallback conversation messages through the Vue shell island without an active chat", () => {

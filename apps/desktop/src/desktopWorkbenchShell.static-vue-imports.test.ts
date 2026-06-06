@@ -52,10 +52,10 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/taskCenterIsland")');
   });
 
-  test("statically imports the panel controls island", () => {
+  test("does not lazy load the retired panel controls island", () => {
     const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
 
-    expect(source).toContain('import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";');
+    expect(source).not.toContain('import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";');
     expect(source).not.toContain('void import("./native-vue/panelControlsIsland")');
   });
 
@@ -100,7 +100,6 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/conversationAttachmentIsland")');
     expect(source).toContain('import { mountConversationBodyIsland } from "./native-vue/conversationBodyIsland";');
     expect(source).not.toContain('void import("./native-vue/conversationBodyIsland")');
-    expect(source).toContain('import { mountConversationEmptyStateIsland } from "./native-vue/conversationEmptyStateIsland";');
     expect(source).not.toContain('void import("./native-vue/conversationEmptyStateIsland")');
     expect(source).toContain('import { mountConversationMetaIsland } from "./native-vue/conversationMetaIsland";');
     expect(source).not.toContain('void import("./native-vue/conversationMetaIsland")');
@@ -160,7 +159,7 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/toolDetailIsland")');
     expect(source).toContain('import { mountToolsListIsland } from "./native-vue/toolsListIsland";');
     expect(source).not.toContain('void import("./native-vue/toolsListIsland")');
-    expect(source).toContain('import { mountToolsSkillsActionsIsland } from "./native-vue/toolsSkillsActionsIsland";');
+    expect(source).toContain('import { mountToolsSkillsActionsIsland, type ToolsSkillsActionId } from "./native-vue/toolsSkillsActionsIsland";');
     expect(source).not.toContain('void import("./native-vue/toolsSkillsActionsIsland")');
   });
 
@@ -259,16 +258,16 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/sessionUploadCardIsland")');
   });
 
-  test("statically imports the shared sidebar islands", () => {
+  test("does not import shared resource/system sidebar islands into the workbench shell", () => {
     const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
 
-    expect(source).toContain('import { mountSharedSidebarCommandButtonIsland } from "./native-vue/sharedSidebarCommandButtonIsland";');
+    expect(source).not.toContain('import { mountSharedSidebarCommandButtonIsland } from "./native-vue/sharedSidebarCommandButtonIsland";');
     expect(source).not.toContain('void import("./native-vue/sharedSidebarCommandButtonIsland")');
-    expect(source).toContain('import { mountSharedSidebarCommandsIsland } from "./native-vue/sharedSidebarCommandsIsland";');
+    expect(source).not.toContain('import { mountSharedSidebarCommandsIsland } from "./native-vue/sharedSidebarCommandsIsland";');
     expect(source).not.toContain('void import("./native-vue/sharedSidebarCommandsIsland")');
-    expect(source).toContain('import { mountSharedSidebarLinkIsland } from "./native-vue/sharedSidebarLinkIsland";');
+    expect(source).not.toContain('import { mountSharedSidebarLinkIsland } from "./native-vue/sharedSidebarLinkIsland";');
     expect(source).not.toContain('void import("./native-vue/sharedSidebarLinkIsland")');
-    expect(source).toContain('import { mountSharedSidebarLinksIsland } from "./native-vue/sharedSidebarLinksIsland";');
+    expect(source).not.toContain('import { mountSharedSidebarLinksIsland } from "./native-vue/sharedSidebarLinksIsland";');
     expect(source).not.toContain('void import("./native-vue/sharedSidebarLinksIsland")');
   });
 

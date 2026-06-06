@@ -3,6 +3,8 @@ import {
   DESKTOP_CHROME_COMMANDS,
   DESKTOP_HELP_COMMANDS,
   DESKTOP_MENU_COMMANDS,
+  DESKTOP_RESOURCE_COMMANDS,
+  DESKTOP_SYSTEM_COMMANDS,
   installDesktopMenuCommandRouting,
   resolveDesktopShortcutCommand,
   routeDesktopMenuCommand,
@@ -82,6 +84,11 @@ describe("desktop command navigation", () => {
       "new-chat",
       "stop-generation",
       "search-sessions",
+      "open-workspace",
+      "open-knowledge",
+      "open-tools",
+      "open-automations",
+      "open-tinybot-repo",
       "open-settings",
       "open-docs",
       "open-shortcut-help",
@@ -95,6 +102,11 @@ describe("desktop command navigation", () => {
       "New Chat",
       "Stop Generation",
       "Search Sessions",
+      "Workspace",
+      "Knowledge",
+      "Tools",
+      "Automations",
+      "Tinybot repo",
       "Settings",
       "Documentation",
       "Shortcut Help",
@@ -108,6 +120,11 @@ describe("desktop command navigation", () => {
       "Ctrl+N",
       "Ctrl+.",
       "Ctrl+F",
+      "",
+      "",
+      "",
+      "",
+      "",
       "Ctrl+,",
       "F1",
       "Ctrl+/",
@@ -118,14 +135,23 @@ describe("desktop command navigation", () => {
       "Ctrl+Shift+G",
     ]);
     expect(DESKTOP_CHROME_COMMANDS.map((command) => command.id)).toEqual([
-      "open-settings",
-      "open-docs",
       "toggle-theme",
     ]);
     expect(DESKTOP_CHROME_COMMANDS.map((command) => command.chromeLabel)).toEqual([
       undefined,
-      undefined,
-      undefined,
+    ]);
+    expect(DESKTOP_RESOURCE_COMMANDS.map((command) => command.id)).toEqual([
+      "open-workspace",
+      "open-knowledge",
+      "open-tools",
+      "open-automations",
+      "open-docs",
+      "open-tinybot-repo",
+    ]);
+    expect(DESKTOP_SYSTEM_COMMANDS.map((command) => command.id)).toEqual([
+      "open-settings",
+      "refresh-gateway-status",
+      "open-docs",
     ]);
     expect(DESKTOP_HELP_COMMANDS.map((command) => command.id)).toEqual([
       "open-shortcut-help",
@@ -136,6 +162,11 @@ describe("desktop command navigation", () => {
       "Page Help",
     ]);
     expect(DESKTOP_MENU_COMMANDS.filter((command) => command.chromeGroup === "secondary").map((command) => command.id)).toEqual([
+      "open-workspace",
+      "open-knowledge",
+      "open-tools",
+      "open-automations",
+      "open-tinybot-repo",
       "open-settings",
       "open-docs",
       "open-shortcut-help",
@@ -155,6 +186,14 @@ describe("desktop command navigation", () => {
 
     expect(routeDesktopMenuCommand("new-chat", context)).toMatchObject({ kind: "navigate", href: "/chat/new" });
     expect(routeDesktopMenuCommand("search-sessions", context)).toMatchObject({ kind: "action", action: "open-session-search" });
+    expect(routeDesktopMenuCommand("open-workspace", context)).toMatchObject({ kind: "navigate", href: "/workspace" });
+    expect(routeDesktopMenuCommand("open-knowledge", context)).toMatchObject({ kind: "navigate", href: "/knowledge" });
+    expect(routeDesktopMenuCommand("open-tools", context)).toMatchObject({ kind: "navigate", href: "/tools" });
+    expect(routeDesktopMenuCommand("open-automations", context)).toMatchObject({ kind: "navigate", href: "/cowork" });
+    expect(routeDesktopMenuCommand("open-tinybot-repo", context)).toMatchObject({
+      kind: "navigate",
+      href: "https://github.com/SudoJacky/tinybot",
+    });
     expect(routeDesktopMenuCommand("open-settings", context)).toMatchObject({ kind: "navigate", href: "/settings" });
     expect(routeDesktopMenuCommand("open-docs", context)).toMatchObject({ kind: "navigate", href: "/docs" });
     expect(routeDesktopMenuCommand("open-shortcut-help", context)).toMatchObject({ kind: "action", action: "open-shortcut-help" });

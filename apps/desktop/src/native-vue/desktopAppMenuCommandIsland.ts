@@ -42,7 +42,7 @@ function createDesktopAppMenuCommandApp(options: DesktopAppMenuCommandIslandOpti
         default: () => h(NButton, {
           quaternary: true,
           size: "small",
-          type: "button",
+          attrType: "button",
           class: "desktop-application-menu-item",
           "data-desktop-menu-command": command.id,
           "aria-label": `${command.label} (${command.shortcut})`,

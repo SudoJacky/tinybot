@@ -30,6 +30,33 @@ describe("tool activity Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
+  test("collapses long tool content and dispatches run-chain inspection", () => {
+    const host = document.createElement("details");
+    const inspected: string[] = [];
+    host.addEventListener("desktop-run-chain-inspect", (event) => {
+      inspected.push((event as CustomEvent).detail.itemKey);
+    });
+    const longArgs = JSON.stringify({ query: "tinybot", context: "x".repeat(180) });
+
+    mountToolActivityIsland(host, {
+      argsText: longArgs,
+      approvalStatus: "",
+      id: "tool-1",
+      kind: "call",
+      name: "web_search",
+      responseText: "",
+      runChainItemKey: "assistant-1:tool-call:tool-1",
+    });
+
+    const nestedDetails = host.querySelector(".desktop-tool-activity-content-details");
+    expect(host.getAttribute("data-desktop-run-chain-item-key")).toBe("assistant-1:tool-call:tool-1");
+    expect(nestedDetails?.querySelector(".desktop-tool-activity-content-preview")?.textContent).toContain("tinybot");
+    expect(nestedDetails?.querySelector(".desktop-tool-activity-pre")?.textContent).toBe(longArgs);
+
+    host.querySelector<HTMLElement>(".desktop-tool-activity-summary")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(inspected).toEqual(["assistant-1:tool-call:tool-1"]);
+  });
+
   test("renders empty body for activity without details", () => {
     const host = document.createElement("details");
 

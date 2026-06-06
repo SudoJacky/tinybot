@@ -34,7 +34,7 @@ export function mountPersistentRagToggleIsland(
   };
 }
 
-function createPersistentRagToggleApp(options: PersistentRagToggleIslandOptions): App {
+function createPersistentRagToggleApp(_options: PersistentRagToggleIslandOptions): App {
   return createApp(defineComponent({
     name: "PersistentRagToggleIsland",
     setup() {

@@ -12,10 +12,18 @@ describe("module work section Vue island", () => {
       id: "chat:stream:chat-1",
       source: "chat",
       title: "Streaming response",
+      state: "active",
       status: "running",
+      tone: "normal",
       detail: "Rendering tokens",
+      progress: { percent: 12 },
       progressLabel: "12 tokens",
+      destination: { module: "chat", entityId: "chat-1", href: "/chat/chat-1" },
+      diagnostics: "",
+      relatedResources: [],
+      outputs: [],
       actions: [{ id: "inspect", label: "Inspect" }],
+      updatedAt: "",
     };
 
     const mounted = mountModuleWorkSectionIsland(host, {

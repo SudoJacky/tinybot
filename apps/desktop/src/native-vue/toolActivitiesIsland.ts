@@ -59,6 +59,7 @@ function createToolActivitiesApp(options: ToolActivitiesIslandOptions): App {
             class: "desktop-tool-activity",
             "data-desktop-tool-activity-id": activity.id || undefined,
             "data-desktop-tool-activity-kind": activity.kind,
+            "data-desktop-run-chain-item-key": activity.runChainItemKey || undefined,
           })),
         }),
       });

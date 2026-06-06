@@ -57,7 +57,7 @@ function createConversationThreadApp(options: ConversationThreadIslandOptions): 
             class: "desktop-conversation-message",
             "data-message-tone": message.tone,
           }))
-          : h(NEmpty, { description: options.emptyMessage }),
+          : (options.emptyMessage ? h(NEmpty, { description: options.emptyMessage }) : null),
       });
     },
   }));

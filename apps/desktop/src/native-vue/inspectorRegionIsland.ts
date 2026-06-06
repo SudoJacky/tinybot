@@ -66,6 +66,7 @@ function createInspectorRegionApp(options: InspectorRegionIslandOptions): App {
           }));
         } else if (options.runChainItems.length) {
           mountChild(mountedChildren, inspector.value, (host) => mountRunChainInspectorIsland(host, {
+            eventTarget: host.ownerDocument,
             items: options.runChainItems,
             selectedItemKey: options.selectedRunChainItemKey,
             onSelect: options.onRunChainItemSelected,

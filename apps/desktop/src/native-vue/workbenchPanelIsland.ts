@@ -35,7 +35,7 @@ export function mountWorkbenchPanelIsland(
   };
 }
 
-function createWorkbenchPanelApp(host: HTMLElement, content: HTMLElement): App {
+function createWorkbenchPanelApp(_host: HTMLElement, content: HTMLElement): App {
   return createApp(defineComponent({
     name: "WorkbenchPanelIsland",
     setup() {

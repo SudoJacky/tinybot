@@ -265,16 +265,16 @@ describe("desktop workbench shell", () => {
       },
     });
 
-    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session.");
-    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session. Start");
-    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Start from chat, inspect the workspace, or check gateway status.");
+    expect(targetDocument.body.querySelector(".desktop-chat-workbench-chrome")?.textContent).toContain("Start a new session");
+    expect(targetDocument.body.querySelector(".desktop-chat-workbench-chrome")?.textContent).toContain("Ask Tinybot about the workspace, inspect files, or create a task.");
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("sessionStart");
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("session.Start");
     expect(targetDocument.body.querySelectorAll(".desktop-quick-action").map((node) => node.textContent)).toEqual([
-      "New chat",
+      "Ask about this project",
       "Open workspace",
-      "Gateway status",
+      "Check gateway",
     ]);
+    expect(targetDocument.body.querySelector(".desktop-panel-controls")).toBeNull();
     expect(targetDocument.body.querySelector(".desktop-status-strip")?.textContent).toContain("http://127.0.0.1:18790");
   });
 
@@ -407,6 +407,8 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.getElementById("desktop-workbench-shell")).toBe(shell);
     expect(targetDocument.body.textContent).toContain("Updated live session");
     expect(targetDocument.body.textContent).toContain("Updated without full shell reinstall.");
+    expect(targetDocument.body.textContent).not.toContain("Ready for a new session");
+    expect(targetDocument.body.querySelector(".desktop-chat-workbench-chrome")).toBeNull();
     expect(targetDocument.body.textContent).not.toContain("Updated status");
     expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-responding")).toBe("true");
     expect(targetDocument.getElementById("desktop-native-composer")?.getAttribute("data-desktop-composer-rag")).toBe("false");
@@ -470,6 +472,8 @@ describe("desktop workbench shell", () => {
     const messages = thread?.querySelectorAll(".desktop-conversation-message") ?? [];
     expect(thread?.querySelector(".desktop-conversation-avatar")).toBeNull();
     expect(messages).toHaveLength(2);
+    expect(targetDocument.body.textContent).not.toContain("Ready for a new session");
+    expect(targetDocument.body.querySelector(".desktop-chat-workbench-chrome")).toBeNull();
 
     const userBody = messages[0].querySelector(".desktop-conversation-body");
     expect(userBody?.textContent).toContain("<img src=x onerror=alert(1)>");
@@ -527,8 +531,11 @@ describe("desktop workbench shell", () => {
     const toolActivity = message?.querySelector(".desktop-tool-activity");
     const body = message?.querySelector(".desktop-conversation-body");
 
+    expect(message?.querySelector(".desktop-conversation-header")?.querySelector(".desktop-conversation-meta")?.textContent).toContain("Tinybot");
+    expect(reasoning?.querySelector(".desktop-message-reasoning-summary")?.textContent).toBe("Details");
+    expect(message?.querySelector(".desktop-conversation-content")?.children[1]).toBe(reasoning);
     expect(reasoning?.tagName).toBe("details");
-    expect(reasoning?.querySelector(".desktop-message-reasoning-title")?.textContent).toBe("Thinking");
+    expect(reasoning?.querySelector(".desktop-message-reasoning-title")).toBeNull();
     expect(reasoning?.textContent).toContain("I should inspect the workspace first.");
     expect(toolActivity?.tagName).toBe("details");
     expect(toolActivity?.querySelector(".desktop-tool-activity-title")?.textContent).toBe("shell");
@@ -643,6 +650,12 @@ describe("desktop workbench shell", () => {
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
     });
 
     const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
@@ -662,9 +675,14 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("border-radius: 999px;");
     expect(styleText).toContain("border: 0;");
     expect(styleText).toContain("box-shadow: none;");
-    expect(styleText).toContain("box-shadow: 0 8px 20px rgba(216, 112, 72, 0.18);");
+    expect(styleText).toContain("background: transparent;");
+    expect(styleText).toContain("background: #fff7ef;");
+    expect(styleText).toContain(".desktop-native-composer-model:hover");
     expect(styleText).toContain(".desktop-native-composer-model:focus-visible");
+    expect(styleText).toContain(".desktop-native-composer-rag-toggle:hover");
     expect(styleText).toContain('.desktop-native-composer-rag-toggle[aria-pressed="true"]');
+    expect(styleText).toContain('.desktop-native-composer-rag-toggle[aria-pressed="false"]:not(:hover):not(:focus-visible)');
+    expect(styleText).not.toContain("box-shadow: 0 8px 20px rgba(216, 112, 72, 0.18);");
     expect(styleText).toContain("padding: 14px 8px 8px 14px;");
     expect(styleText).toContain("grid-template-rows: auto auto;");
     expect(styleText).toContain("min-height: 0;");
@@ -744,7 +762,8 @@ describe("desktop workbench shell", () => {
     expect(workspaceList?.textContent).toContain("tinybot");
     expect(recentChats?.textContent).toContain("Design native workbench");
     const sidebarStyle = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
-    expect(sidebarStyle).toContain("grid-template-rows: auto auto auto");
+    expect(sidebarStyle).toContain("flex-direction: column;");
+    expect(sidebarStyle).toContain("overflow-y: auto;");
     expect(sidebarStyle).toContain(".desktop-sidebar-list-section-recent");
     expect(sidebarStyle).toContain("max-height: min(42vh, 360px)");
 
@@ -754,6 +773,7 @@ describe("desktop workbench shell", () => {
     expect(chatHeader).toBeTruthy();
     expect(conversationThread).toBeTruthy();
     expect(composerModel).toBeTruthy();
+    expect(chatHeader?.querySelector(".desktop-chat-context")?.textContent).toBe("tinybot");
     expect(chatHeader?.textContent).toContain("Design native workbench");
     expect(conversationThread?.textContent).toContain("这是目前的 native 界面");
     expect(composerModel?.textContent).toContain("Tinybot Pro");
@@ -761,26 +781,35 @@ describe("desktop workbench shell", () => {
     const inspector = targetDocument.body.querySelector(".desktop-inspector-content");
     const runTabs = targetDocument.body.querySelector(".desktop-run-chain-tabs");
     const runCards = targetDocument.body.querySelector(".desktop-run-chain-cards");
-    const runNewItem = targetDocument.body.querySelector(".desktop-run-chain-new-item");
     expect(inspector).toBeTruthy();
     expect(runTabs).toBeTruthy();
     expect(runCards).toBeTruthy();
-    expect(runNewItem).toBeTruthy();
     expect(inspector?.textContent).toContain("Run Chain");
     expect(runTabs?.textContent).toContain("Context");
     expect(runCards?.textContent).toContain("Gateway");
     targetDocument.body.querySelector('[data-desktop-run-chain-tab="files"]')?.click();
     expect(runCards?.textContent).toContain("Workspace");
+    expect(targetDocument.body.querySelectorAll(".desktop-run-chain-new-item")).toHaveLength(0);
+    targetDocument.body.querySelector('[data-desktop-run-chain-tab="tasks"]')?.click();
+    const runNewItem = targetDocument.body.querySelector(".desktop-run-chain-new-item");
     expect(runNewItem?.textContent).toContain("New Run Chain Item");
+    expect(runCards?.textContent).toContain("No chain items yet.");
   });
 
   test("renders explicit desktop navigation links for workbench, docs, gateway, and external routes", () => {
     const targetDocument = new FakeDocument();
+    const chat = {
+      sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+      activeSessionKey: "WebSocket:chat-live",
+      activeChatId: "chat-live",
+      messages: [],
+    };
 
     installDesktopWorkbenchShell({
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chat,
     });
 
     expect(targetDocument.body.querySelectorAll(".desktop-activity-button").map((node) => node.getAttribute("href"))).toEqual([
@@ -788,6 +817,8 @@ describe("desktop workbench shell", () => {
       "/workspace",
       "/knowledge",
       "/cowork",
+      "/docs",
+      "https://github.com/SudoJacky/tinybot",
     ]);
     expect([
       ...targetDocument.body.querySelectorAll(".desktop-activity-button"),
@@ -798,41 +829,37 @@ describe("desktop workbench shell", () => {
       "/workspace",
       "/api/status",
     ]);
-    expect(targetDocument.body.querySelectorAll(".desktop-workbench-link").map((node) => node.getAttribute("href"))).toEqual([
-      "/workspace",
-      "/knowledge",
-      "/tools",
-      "/cowork",
-      "/docs",
-      "https://github.com/SudoJacky/tinybot",
-      null,
-      null,
-      null,
+    expect(targetDocument.body.querySelectorAll(".desktop-quick-action").map((node) => node.textContent)).toEqual([
+      "Ask about this project",
+      "Open workspace",
+      "Check gateway",
     ]);
+    expect(targetDocument.body.querySelectorAll(".desktop-workbench-link")).toHaveLength(0);
+    expect(targetDocument.body.querySelectorAll("[data-sidebar-command]")).toHaveLength(0);
     expect(targetDocument.body.querySelector(".desktop-status-strip")?.getAttribute("data-desktop-route-status")).toBe("");
   });
 
-  test("renders native sidebar navigation from shared desktop item metadata", () => {
+  test("keeps resource and system navigation out of the native sidebar", () => {
     const targetDocument = new FakeDocument();
 
     installDesktopWorkbenchShell({
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
     });
 
-    expect(targetDocument.body.querySelectorAll(".desktop-workbench-link")
-      .filter((node) => node.getAttribute("href") !== null)
-      .map((node) => node.getAttribute("data-sidebar-item-id"))).toEqual([
-      "link:workspace",
-      "link:knowledge",
-      "link:tools",
-      "link:automations",
-      "link:docs",
-      "link:repo",
-    ]);
-    expect(targetDocument.body.querySelector('[data-sidebar-command="open-settings"]')?.textContent).toBe("Settings");
-    expect(targetDocument.body.querySelector('[data-sidebar-command="refresh-gateway-status"]')?.textContent).toBe("Gateway Status");
+    expect(targetDocument.body.querySelector(".desktop-sidebar-list-section-workspaces")?.textContent).toContain("tinybot");
+    expect(targetDocument.body.querySelector(".desktop-sidebar-list-section-recent")?.textContent).toContain("Live session");
+    expect(targetDocument.body.querySelectorAll(".desktop-workbench-link")).toHaveLength(0);
+    expect(targetDocument.body.querySelectorAll("[data-sidebar-command]")).toHaveLength(0);
+    expect(targetDocument.body.textContent).not.toContain("RESOURCES");
+    expect(targetDocument.body.textContent).not.toContain("SYSTEM");
   });
 
   test("renders a keyboard-accessible command palette surface", () => {
@@ -905,15 +932,24 @@ describe("desktop workbench shell", () => {
     });
 
     const activityButtons = targetDocument.body.querySelectorAll(".desktop-activity-button");
-    expect(activityButtons.map((node) => node.getAttribute("href"))).toEqual(["/chat", "/workspace", "/knowledge", "/cowork"]);
-    expect(activityButtons.map((node) => node.getAttribute("aria-label"))).toEqual(["Chat", "Files", "Knowledge", "Cowork"]);
-    expect(activityButtons.map((node) => node.textContent)).toEqual(["Chat", "Files", "Knowledge", "Cowork"]);
-    expect(activityButtons.map((node) => node.getAttribute("data-desktop-module-target"))).toEqual(["chat", "workspace", "knowledge", "cowork"]);
+    expect(activityButtons.map((node) => node.getAttribute("href"))).toEqual([
+      "/chat",
+      "/workspace",
+      "/knowledge",
+      "/cowork",
+      "/docs",
+      "https://github.com/SudoJacky/tinybot",
+    ]);
+    expect(activityButtons.map((node) => node.getAttribute("aria-label"))).toEqual(["Chat", "Files", "Knowledge", "Cowork", "Docs", "GitHub"]);
+    expect(activityButtons.map((node) => node.textContent)).toEqual(["Chat", "Files", "Knowledge", "Cowork", "Docs", "GitHub"]);
+    expect(activityButtons.map((node) => node.getAttribute("data-desktop-module-target"))).toEqual(["chat", "workspace", "knowledge", "cowork", "docs", "gateway"]);
     expect(activityButtons.map((node) => node.getAttribute("data-focus-order"))).toEqual([
       "activity-1",
       "activity-2",
       "activity-3",
       "activity-4",
+      "activity-5",
+      "activity-6",
     ]);
   });
 
@@ -1120,16 +1156,14 @@ describe("desktop workbench shell", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    const controls = targetDocument.body.querySelectorAll(".desktop-panel-control");
-    expect(controls.map((node) => node.getAttribute("data-desktop-panel-control"))).toEqual(["sidebar", "inspector", "bottom"]);
+    const controls = targetDocument.body.querySelectorAll(".desktop-chat-header-panel-button");
+    expect(controls.map((node) => node.getAttribute("data-desktop-panel-control"))).toEqual(["sidebar", "inspector"]);
     expect(controls.map((node) => node.getAttribute("aria-label"))).toEqual([
-      "Toggle sidebar panel",
-      "Toggle Run Chain panel",
-      "Toggle task and runtime panel",
+      "Collapse session list",
+      "Close Run Chain panel",
     ]);
-    expect(controls.map((node) => node.textContent)).toEqual(["Sidebar", "Run Chain", "Tasks"]);
-    expect(controls.map((node) => node.getAttribute("aria-pressed"))).toEqual(["true", "true", "false"]);
-    expect(controls[0].getAttribute("aria-keyshortcuts")).toBe("Ctrl+B");
+    expect(controls.map((node) => node.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
+    expect(controls[0].querySelector(".desktop-chat-header-panel-icon")?.getAttribute("data-panel-icon")).toBe("collapse-left");
 
     let prevented = false;
     controls[1].dispatchEvent({
@@ -1161,6 +1195,10 @@ describe("desktop workbench shell", () => {
     expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Gateway: Connected");
     expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Run: Idle");
     expect(overview?.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("0 items");
+    expect(overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.className).toContain("desktop-run-chain-status-pill");
+    expect(overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.getAttribute("data-status-tone")).toBe("connected");
+    expect(overview?.querySelector('[data-desktop-run-chain-summary="run"]')?.getAttribute("data-status-tone")).toBe("muted");
+    expect(overview?.querySelector(".desktop-run-chain-status-dot")).not.toBeNull();
     expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("context");
     expect(panel?.textContent).toContain("Endpoint");
 
@@ -1173,8 +1211,11 @@ describe("desktop workbench shell", () => {
     overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.click();
     expect(overview?.querySelector('[data-desktop-run-chain-tab="tasks"]')?.getAttribute("aria-selected")).toBe("true");
     expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("tasks");
-    expect(panel?.textContent).toContain("Current Run");
+    expect(panel?.textContent).toContain("Tasks");
+    expect(panel?.textContent).toContain("Task center: Available");
+    expect(panel?.textContent).toContain("No chain items yet.");
     expect(panel?.textContent).toContain("New Run Chain Item");
+    expect(panel?.querySelector(".desktop-run-chain-new-item")?.getAttribute("data-button-variant")).toBe("secondary");
 
     overview?.querySelector('[data-desktop-run-chain-summary="gateway"]')?.click();
     expect(overview?.querySelector('[data-desktop-run-chain-tab="context"]')?.getAttribute("aria-selected")).toBe("true");
@@ -1187,6 +1228,11 @@ describe("desktop workbench shell", () => {
     expect(panel?.getAttribute("data-desktop-run-chain-panel")).toBe("tasks");
 
     const pin = overview?.querySelector('[data-desktop-run-chain-control="pin"]');
+    expect(pin?.getAttribute("data-button-variant")).toBe("ghost");
+    expect(pin?.getAttribute("aria-label")).toBe("Pin panel");
+    expect(overview?.querySelector('[data-desktop-run-chain-control="close"]')?.getAttribute("title")).toBe("Close panel");
+    expect(overview?.querySelector('[data-desktop-run-chain-action="Open Task Center"]')?.getAttribute("data-button-variant")).toBe("primary");
+    expect(overview?.querySelector('[data-desktop-run-chain-action="New Run Chain Item"]')?.getAttribute("data-button-variant")).toBe("secondary");
     expect(pin?.getAttribute("aria-pressed")).toBe("false");
     pin?.click();
     expect(pin?.getAttribute("aria-pressed")).toBe("true");
@@ -1245,13 +1291,87 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-run-chain-item="m-plan:planning"]')?.click();
     expect(pane?.querySelector('[data-desktop-run-chain-item="m-plan:planning"]')?.getAttribute("aria-selected")).toBe("true");
     expect(pane?.querySelector(".desktop-run-chain-detail")?.textContent).toContain("Thinking: Inspect the active context");
-    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Ready for a new session.");
-    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("session.Start");
+    expect(targetDocument.body.querySelector(".desktop-chat-workbench-chrome")).toBeNull();
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("Ready for a new session.");
 
     targetDocument.body.querySelector('[data-desktop-run-chain-control="close"]')?.click();
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("false");
     expect(targetDocument.body.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test("opens the run-chain inspector detail when a conversation tool activity is selected", () => {
+    const targetDocument = new FakeDocument();
+    const layout = createDefaultWorkbenchLayout();
+    layout.inspector.visible = false;
+    const runChainItems = buildDesktopRunChainItems([
+      {
+        role: "assistant",
+        message_id: "assistant-1",
+        content: "The command finished.",
+        tool_calls: [
+          {
+            id: "call-shell",
+            type: "function",
+            function: {
+              name: "shell",
+              arguments: "{\"command\":\"pwd\"}",
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        message_id: "tool-result-1",
+        tool_call_id: "call-shell",
+        name: "shell",
+        content: "D:/code/tinybot",
+      },
+    ]);
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout,
+      gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Tool chat", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [
+          {
+            role: "assistant",
+            content: "The command finished.",
+            reasoningContent: "",
+            toolActivities: [
+              {
+                id: "call-shell",
+                name: "shell",
+                argsText: "{\"command\":\"pwd\"}",
+                responseText: "D:/code/tinybot",
+                kind: "result",
+              },
+            ],
+            timestamp: "2026-06-03T08:20:00.000Z",
+            messageId: "assistant-1",
+          },
+        ],
+        status: "Connected",
+      },
+      runChainItems,
+    });
+
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("false");
+    const toolActivity = targetDocument.body.querySelector(".desktop-tool-activity");
+    expect(toolActivity?.getAttribute("data-desktop-run-chain-item-key")).toBe("assistant-1:call-shell");
+
+    toolActivity?.querySelector(".desktop-tool-activity-summary")?.click();
+
+    expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("true");
+    expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("true");
+    const selectedRow = targetDocument.body.querySelector('[data-desktop-run-chain-item="assistant-1:call-shell"]');
+    expect(selectedRow?.getAttribute("aria-selected")).toBe("true");
+    expect(targetDocument.body.querySelector(".desktop-run-chain-detail")?.textContent).toContain("shell");
+    expect(targetDocument.body.querySelector(".desktop-run-chain-detail")?.textContent).toContain("\"command\": \"pwd\"");
   });
 
   test("renders a right-side Work Lens before generic inspector detail for running work", () => {
@@ -1495,6 +1615,12 @@ describe("desktop workbench shell", () => {
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
       taskCenterItems: items,
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
     });
 
     targetDocument.body.querySelector('[data-desktop-task-action="inspect"]')?.click();
@@ -1572,6 +1698,12 @@ describe("desktop workbench shell", () => {
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
       taskCenterItems: items,
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
     });
 
     targetDocument.body.querySelector('[data-desktop-module-work="chat:stream:chat-1"]')?.click();
@@ -2922,6 +3054,12 @@ describe("desktop workbench shell", () => {
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chat: {
+        sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+        activeSessionKey: "WebSocket:chat-live",
+        activeChatId: "chat-live",
+        messages: [],
+      },
     });
 
     expect(targetDocument.getElementById("desktop-workspace-recent-files")?.getAttribute("aria-label")).toBe("Recent workspace files");
@@ -3184,10 +3322,16 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain(".desktop-native-composer-runtime {\n      grid-area: runtime;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-thread {\n      display: grid;");
     expect(styleText).toContain("overflow-y: auto;");
-    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench {\n      align-self: stretch;");
+    expect(styleText).toContain("--desktop-chat-column-width: 840px;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench {");
+    expect(styleText).toContain("align-self: stretch;");
     expect(styleText).toContain("height: 100%;");
     expect(styleText).toContain("padding: 0 clamp(20px, 3vw, 46px);");
-    expect(styleText).toContain("width: min(1120px, 100%);");
+    expect(styleText).toContain("width: min(var(--desktop-chat-column-width), 100%);");
+    expect(styleText).toContain("width: min(var(--desktop-chat-column-width), calc(100% - 112px));");
+    expect(styleText).toContain("--desktop-composer-reserve: 152px;");
+    expect(styleText).toContain("padding: 18px 0 var(--desktop-composer-reserve);");
+    expect(styleText).toContain("gap: 10px;");
     expect(styleText).toContain("grid-template-rows: minmax(0, 1fr) auto 0;");
     expect(styleText).toContain("margin: 0 auto 8px;");
     expect(styleText).toContain("margin: 16px 16px 16px 0;");
@@ -3236,16 +3380,24 @@ describe("desktop workbench shell", () => {
 
   test("keeps empty-session support copy concise for minimum windows", () => {
     const targetDocument = new FakeDocument();
+    const chat = {
+      sessions: [{ key: "WebSocket:chat-live", chatId: "chat-live", title: "Live session", createdAt: "", updatedAt: "" }],
+      activeSessionKey: "WebSocket:chat-live",
+      activeChatId: "chat-live",
+      messages: [],
+    };
 
     installDesktopWorkbenchShell({
       targetDocument: targetDocument as unknown as Document,
       layout: createDefaultWorkbenchLayout(),
       gatewayHttp: "http://127.0.0.1:18790",
+      chat,
     });
 
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("without leaving");
+    expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain("Start a new session");
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).toContain(
-      "Start from chat, inspect the workspace, or check gateway status.",
+      "Ask Tinybot about the workspace, inspect files, or create a task.",
     );
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("sessionStart");
     expect(targetDocument.body.querySelector(".desktop-empty-session")?.textContent).not.toContain("session.Start");

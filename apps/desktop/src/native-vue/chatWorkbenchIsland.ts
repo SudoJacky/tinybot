@@ -2,15 +2,12 @@ import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type Ap
 import { NConfigProvider, NText } from "naive-ui";
 import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import { mountModuleWorkSectionIsland } from "./moduleWorkSectionIsland";
-import { mountPanelControlsIsland, type PanelControlId, type PanelControlItem } from "./panelControlsIsland";
 import { mountQuickActionsIsland } from "./quickActionsIsland";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface ChatWorkbenchIslandOptions {
   moduleWorkItems?: DesktopTaskCenterItem[];
   onInspectWorkItem?: (item: DesktopTaskCenterItem) => void;
-  onPanelToggle?: (panel: PanelControlId) => void;
-  panelControls: PanelControlItem[];
 }
 
 export interface MountedChatWorkbenchIsland {
@@ -39,15 +36,10 @@ function createChatWorkbenchApp(options: ChatWorkbenchIslandOptions): App {
     setup() {
       const mountedChildren: Array<{ unmount: () => void }> = [];
       const quickActions = ref<HTMLElement | null>(null);
-      const panelControls = ref<HTMLElement | null>(null);
       const moduleWork = ref<HTMLElement | null>(null);
 
       onMounted(() => {
         mountChild(mountedChildren, quickActions.value, (host) => mountQuickActionsIsland(host));
-        mountChild(mountedChildren, panelControls.value, (host) => mountPanelControlsIsland(host, {
-          controls: options.panelControls,
-          onToggle: options.onPanelToggle,
-        }));
         if (options.moduleWorkItems?.length) {
           mountChild(mountedChildren, moduleWork.value, (host) => mountModuleWorkSectionIsland(host, {
             title: "Chat runs",
@@ -65,10 +57,9 @@ function createChatWorkbenchApp(options: ChatWorkbenchIslandOptions): App {
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          h(NText, { tag: "span" }, { default: () => "Ready for a new session. " }),
-          h(NText, { depth: 3, tag: "span" }, { default: () => "Start from chat, inspect the workspace, or check gateway status." }),
+          h(NText, { tag: "h2" }, { default: () => "Start a new session" }),
+          h(NText, { depth: 3, tag: "p" }, { default: () => "Ask Tinybot about the workspace, inspect files, or create a task." }),
           h("div", { ref: quickActions }),
-          h("div", { ref: panelControls }),
           options.moduleWorkItems?.length ? h("section", { ref: moduleWork }) : null,
         ],
       });

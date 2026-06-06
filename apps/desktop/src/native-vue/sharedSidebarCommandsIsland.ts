@@ -16,6 +16,8 @@ export interface SharedSidebarCommandsIslandOptions {
   targetDocument?: Document;
 }
 
+type MountedSharedSidebarCommandsOptions = SharedSidebarCommandsIslandOptions & { targetDocument: Document };
+
 export interface MountedSharedSidebarCommandsIsland {
   unmount: () => void;
 }
@@ -39,7 +41,7 @@ export function mountSharedSidebarCommandsIsland(
   };
 }
 
-function createSharedSidebarCommandsApp(options: Required<SharedSidebarCommandsIslandOptions>): App {
+function createSharedSidebarCommandsApp(options: MountedSharedSidebarCommandsOptions): App {
   return createApp(defineComponent({
     name: "SharedSidebarCommandsIsland",
     setup() {
@@ -50,11 +52,11 @@ function createSharedSidebarCommandsApp(options: Required<SharedSidebarCommandsI
   }));
 }
 
-export function renderSharedSidebarCommandsSection(options: Required<SharedSidebarCommandsIslandOptions>) {
+export function renderSharedSidebarCommandsSection(options: MountedSharedSidebarCommandsOptions) {
   return h("section", { class: "desktop-workbench-section" }, renderSharedSidebarCommandsContent(options));
 }
 
-export function renderSharedSidebarCommandsContent(options: Required<SharedSidebarCommandsIslandOptions>) {
+export function renderSharedSidebarCommandsContent(options: MountedSharedSidebarCommandsOptions) {
   const dispatchCommand = (commandId: string) => {
     options.targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", {
       detail: { id: commandId, source: "native-sidebar" },
