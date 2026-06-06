@@ -23,4 +23,11 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";');
     expect(source).not.toContain('void import("./native-vue/settingsPaneIsland")');
   });
+
+  test("statically imports the Cowork pane island", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkPaneIsland")');
+  });
 });

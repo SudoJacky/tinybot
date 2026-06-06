@@ -63,6 +63,7 @@ import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
 import { mountConversationMessageIsland } from "./native-vue/conversationMessageIsland";
 import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
+import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
 import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
@@ -3421,29 +3422,25 @@ function mountCoworkPaneVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/coworkPaneIsland").then(({ mountCoworkPaneIsland }) => {
-    mountCoworkPaneIsland(section, {
-      pane,
-      onCoworkAction: (event) => {
-        coworkActions.onCoworkAction?.(event);
-      },
-      onGraphSelect: (selection) => {
-        setRouteStatus(targetDocument, `Inspecting Cowork ${selection.label}`);
-      },
-      onObservabilityPanelSelected: (panel) => {
-        setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
-      },
-      onSessionSelect: (session) => {
-        const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
-        if (!item) {
-          return;
-        }
-        const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
-        setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountCoworkPaneIsland(section, {
+    pane,
+    onCoworkAction: (event) => {
+      coworkActions.onCoworkAction?.(event);
+    },
+    onGraphSelect: (selection) => {
+      setRouteStatus(targetDocument, `Inspecting Cowork ${selection.label}`);
+    },
+    onObservabilityPanelSelected: (panel) => {
+      setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+    },
+    onSessionSelect: (session) => {
+      const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+      if (!item) {
+        return;
+      }
+      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+    },
   });
 }
 
