@@ -56,7 +56,9 @@ import { mountAgentUiFormsSurfaceIsland } from "./native-vue/agentUiFormsSurface
 import { mountBottomRegionIsland } from "./native-vue/bottomRegionIsland";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
 import { mountChatHeaderActionsIsland } from "./native-vue/chatHeaderActionsIsland";
+import { mountChatMenuActionIsland } from "./native-vue/chatMenuActionIsland";
 import { mountChatMenuButtonIsland } from "./native-vue/chatMenuButtonIsland";
+import { mountChatMenuEmptyIsland } from "./native-vue/chatMenuEmptyIsland";
 import { mountChatMenuPopoverIsland } from "./native-vue/chatMenuPopoverIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
@@ -1481,11 +1483,7 @@ function mountChatMenuEmptyVueIsland(empty: HTMLElement, message: string): void 
   if (!canMountVueIsland(empty)) {
     return;
   }
-  void import("./native-vue/chatMenuEmptyIsland").then(({ mountChatMenuEmptyIsland }) => {
-    mountChatMenuEmptyIsland(empty, { message });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountChatMenuEmptyIsland(empty, { message });
 }
 
 function mountChatMenuActionVueIsland(
@@ -1495,11 +1493,7 @@ function mountChatMenuActionVueIsland(
   if (!canMountVueIsland(button)) {
     return;
   }
-  void import("./native-vue/chatMenuActionIsland").then(({ mountChatMenuActionIsland }) => {
-    mountChatMenuActionIsland(button, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountChatMenuActionIsland(button, options);
 }
 
 function pinnedSessionKeysForDocument(targetDocument: Document): Set<string> {

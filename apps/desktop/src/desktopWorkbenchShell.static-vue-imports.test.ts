@@ -83,4 +83,13 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";');
     expect(source).not.toContain('void import("./native-vue/sidebarRowIsland")');
   });
+
+  test("statically imports the chat menu islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountChatMenuActionIsland } from "./native-vue/chatMenuActionIsland";');
+    expect(source).not.toContain('void import("./native-vue/chatMenuActionIsland")');
+    expect(source).toContain('import { mountChatMenuEmptyIsland } from "./native-vue/chatMenuEmptyIsland";');
+    expect(source).not.toContain('void import("./native-vue/chatMenuEmptyIsland")');
+  });
 });
