@@ -86,6 +86,43 @@ describe("desktop workbench shell Vue integration", () => {
     expect(title?.textContent).toBe("Live session");
   });
 
+  test("renders the chat menu trigger through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [],
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        title: "Live session",
+        updatedAt: "",
+      }],
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const menu = document.querySelector<HTMLButtonElement>(".desktop-chat-menu");
+    const popover = document.querySelector<HTMLElement>(".desktop-chat-menu-popover");
+    expect(menu?.getAttribute("data-desktop-vue-island")).toBe("chat-menu-button");
+    expect(menu?.getAttribute("aria-expanded")).toBe("false");
+    expect(menu?.textContent).toBe("...");
+    expect(popover?.hidden).toBe(true);
+
+    menu?.click();
+
+    expect(menu?.getAttribute("aria-expanded")).toBe("true");
+    expect(popover?.hidden).toBe(false);
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

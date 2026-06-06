@@ -53,6 +53,7 @@ import {
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
+import { mountChatMenuButtonIsland } from "./native-vue/chatMenuButtonIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
@@ -1309,13 +1310,9 @@ function mountChatMenuButtonVueIsland(menu: HTMLElement, popover: HTMLElement): 
     installFallback();
     return;
   }
-  void import("./native-vue/chatMenuButtonIsland").then(({ mountChatMenuButtonIsland }) => {
-    mountChatMenuButtonIsland(menu, {
-      expanded: menu.getAttribute("aria-expanded") === "true",
-      onToggle: toggle,
-    });
-  }).catch(() => {
-    installFallback();
+  mountChatMenuButtonIsland(menu, {
+    expanded: menu.getAttribute("aria-expanded") === "true",
+    onToggle: toggle,
   });
 }
 
