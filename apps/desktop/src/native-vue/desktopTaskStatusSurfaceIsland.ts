@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NCard, NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface MountedDesktopTaskStatusSurfaceIsland {
@@ -30,10 +30,16 @@ function createDesktopTaskStatusSurfaceApp(): App {
     name: "DesktopTaskStatusSurfaceIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h("span", {
-          class: "desktop-task-status-surface-sentinel",
-          "aria-hidden": "true",
-          hidden: "",
+        default: () => h(NCard, {
+          class: "desktop-task-status-surface-card",
+          size: "small",
+          bordered: false,
+        }, {
+          default: () => h("span", {
+            class: "desktop-task-status-surface-sentinel",
+            "aria-hidden": "true",
+            hidden: "",
+          }),
         }),
       });
     },
