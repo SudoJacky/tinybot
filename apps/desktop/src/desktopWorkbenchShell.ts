@@ -63,6 +63,7 @@ import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
+import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
 
@@ -6164,15 +6165,11 @@ function mountWorkbenchPanelVueIsland(
   if (!canMountVueIsland(panel)) {
     return;
   }
-  void import("./native-vue/workbenchPanelIsland").then(({ mountWorkbenchPanelIsland }) => {
-    mountWorkbenchPanelIsland(panel, {
-      content,
-      region,
-      size: state.size,
-      visible: state.visible,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountWorkbenchPanelIsland(panel, {
+    content,
+    region,
+    size: state.size,
+    visible: state.visible,
   });
 }
 
