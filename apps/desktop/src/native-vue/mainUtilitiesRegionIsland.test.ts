@@ -71,6 +71,7 @@ describe("main utilities region Vue island", () => {
 
     expect(host.className).toBe("desktop-utility-surfaces");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("main-utilities-region");
+    expect(host.querySelector(".n-space.desktop-main-utilities-region")).not.toBeNull();
     expect(host.querySelector("#desktop-command-palette")?.getAttribute("role")).toBe("dialog");
     expect(host.querySelector(".desktop-file-actions")?.textContent).toContain("Attach to session");
     expect(host.querySelector<HTMLInputElement>("#desktop-session-upload-key")?.value).toBe("session-1");

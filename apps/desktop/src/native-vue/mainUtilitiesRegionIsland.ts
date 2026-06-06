@@ -1,4 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
+import { NConfigProvider, NSpace } from "naive-ui";
 import type { AgentUiForm } from "../agentUiEvents";
 import type { DesktopKnowledgePaneModel } from "../desktopKnowledgeTraceability";
 import type { DesktopSettingsPaneModel } from "../desktopSettingsProviders";
@@ -30,6 +31,7 @@ import {
   mountToolsSkillsPaneIsland,
   type ToolsSkillsPaneActionEvent,
 } from "./toolsSkillsPaneIsland";
+import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { mountWorkspaceFilesSurfaceIsland } from "./workspaceFilesSurfaceIsland";
 
 export interface MainUtilitiesRegionIslandOptions {
@@ -151,17 +153,25 @@ function createMainUtilitiesRegionApp(options: MainUtilitiesRegionIslandOptions)
         }
       });
 
-      return () => h("div", { class: "desktop-main-utilities-region" }, [
-        h("section", { ref: commandPalette }),
-        h("section", { ref: fileActions }),
-        h("section", { ref: helpSurface }),
-        h("section", { ref: agentUiForms }),
-        h("section", { ref: workspaceFiles }),
-        options.settingsPane ? h("section", { ref: settingsPane }) : null,
-        options.knowledgePane ? h("section", { ref: knowledgePane }) : null,
-        options.toolsSkillsPane ? h("section", { ref: toolsSkillsPane }) : null,
-        options.coworkPane ? h("section", { ref: coworkPane }) : null,
-      ]);
+      return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
+        default: () => h(NSpace, {
+          class: "desktop-main-utilities-region",
+          vertical: true,
+          size: 12,
+        }, {
+          default: () => [
+            h("section", { ref: commandPalette }),
+            h("section", { ref: fileActions }),
+            h("section", { ref: helpSurface }),
+            h("section", { ref: agentUiForms }),
+            h("section", { ref: workspaceFiles }),
+            options.settingsPane ? h("section", { ref: settingsPane }) : null,
+            options.knowledgePane ? h("section", { ref: knowledgePane }) : null,
+            options.toolsSkillsPane ? h("section", { ref: toolsSkillsPane }) : null,
+            options.coworkPane ? h("section", { ref: coworkPane }) : null,
+          ],
+        }),
+      });
     },
   }));
 }
