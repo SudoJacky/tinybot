@@ -17,6 +17,8 @@ export interface SidebarContentIslandOptions {
   workspaceRows: SidebarWorkspaceListRow[];
 }
 
+type MountedSidebarContentOptions = SidebarContentIslandOptions & { targetDocument: Document };
+
 export interface MountedSidebarContentIsland {
   unmount: () => void;
 }
@@ -40,7 +42,7 @@ export function mountSidebarContentIsland(
   };
 }
 
-function createSidebarContentApp(options: Required<SidebarContentIslandOptions>): App {
+function createSidebarContentApp(options: MountedSidebarContentOptions): App {
   return createApp(defineComponent({
     name: "SidebarContentIsland",
     setup() {
@@ -59,15 +61,19 @@ function createSidebarContentApp(options: Required<SidebarContentIslandOptions>)
         mountChild(mountedChildren, recent.value, (host) => mountSidebarRecentChatsIsland(host, {
           rows: options.recentChats,
         }));
-        mountChild(mountedChildren, links.value, (host) => mountSharedSidebarLinksIsland(host, {
-          items: options.resourceItems,
-          label: options.resourceLabel,
-        }));
-        mountChild(mountedChildren, commands.value, (host) => mountSharedSidebarCommandsIsland(host, {
-          items: options.commandItems,
-          label: options.commandLabel,
-          targetDocument: options.targetDocument,
-        }));
+        if (options.resourceItems.length) {
+          mountChild(mountedChildren, links.value, (host) => mountSharedSidebarLinksIsland(host, {
+            items: options.resourceItems,
+            label: options.resourceLabel,
+          }));
+        }
+        if (options.commandItems.length) {
+          mountChild(mountedChildren, commands.value, (host) => mountSharedSidebarCommandsIsland(host, {
+            items: options.commandItems,
+            label: options.commandLabel,
+            targetDocument: options.targetDocument,
+          }));
+        }
       });
 
       onBeforeUnmount(() => {
@@ -86,8 +92,8 @@ function createSidebarContentApp(options: Required<SidebarContentIslandOptions>)
             h("section", { ref: actions }),
             h("section", { ref: workspaces }),
             h("section", { ref: recent }),
-            h("section", { ref: links }),
-            h("section", { ref: commands }),
+            options.resourceItems.length ? h("section", { ref: links }) : null,
+            options.commandItems.length ? h("section", { ref: commands }) : null,
           ],
         }),
       });

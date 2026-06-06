@@ -63,9 +63,11 @@ describe("inspector region Vue island", () => {
     const mounted = mountInspectorRegionIsland(host, {
       runChainItems,
       workLens,
-      onRunChainAction: (action) => runActions.push(`${action.type}:${action.value ?? ""}`),
+      onRunChainAction: (action) => runActions.push(`${action.type}:${"value" in action ? action.value : ""}`),
       onWorkLensAction: (event) => lensActions.push(event.action),
-      copyText: (text) => copied.push(text),
+      copyText: (text) => {
+        copied.push(text);
+      },
     });
 
     expect(host.className).toBe("desktop-inspector-content");

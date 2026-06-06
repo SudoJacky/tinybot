@@ -13,9 +13,9 @@ describe("quick actions Vue island", () => {
     expect(host.className).toContain("desktop-quick-actions");
     expect(host.querySelectorAll(".n-button.desktop-quick-action")).toHaveLength(3);
     expect([...host.querySelectorAll<HTMLAnchorElement>(".desktop-quick-action")].map((node) => node.textContent)).toEqual([
-      "New chat",
+      "Ask about this project",
       "Open workspace",
-      "Gateway status",
+      "Check gateway",
     ]);
     expect([...host.querySelectorAll<HTMLAnchorElement>(".desktop-quick-action")].map((node) => node.getAttribute("href"))).toEqual([
       "/chat/new",

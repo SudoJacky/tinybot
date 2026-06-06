@@ -16,6 +16,7 @@ export function mountConversationReasoningIsland(
 ): MountedConversationReasoningIsland {
   host.setAttribute("data-desktop-vue-island", "conversation-reasoning");
   host.className = "desktop-message-reasoning";
+  host.replaceChildren();
   const app = createConversationReasoningApp(options);
   app.mount(host);
   return {
@@ -44,8 +45,7 @@ export function renderConversationReasoningNode(options: ConversationReasoningIs
 export function renderConversationReasoningChildren(options: ConversationReasoningIslandOptions) {
   return [
     h("summary", { class: "desktop-message-reasoning-summary" }, [
-      h(NText, { class: "desktop-message-reasoning-title", tag: "span" }, { default: () => "Thinking" }),
-      h(NText, { class: "desktop-message-reasoning-meta", depth: 3, tag: "span" }, { default: () => "Show details" }),
+      h(NText, { depth: 3, tag: "span" }, { default: () => "Details" }),
     ]),
     h(NText, { class: "desktop-message-reasoning-body", tag: "div" }, { default: () => options.content }),
   ];

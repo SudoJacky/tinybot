@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, ref, type App } from "vue";
+import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
 import { NButton, NConfigProvider, NText } from "naive-ui";
 import {
   createDesktopRunChainInspectorView,
@@ -8,6 +8,7 @@ import {
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface RunChainInspectorIslandOptions {
+  eventTarget?: Pick<Document, "addEventListener" | "removeEventListener"> | null;
   items: DesktopRunChainItem[];
   selectedItemKey?: string | null;
   onSelect?: (item: DesktopRunChainItem) => void;
@@ -60,6 +61,21 @@ function createRunChainInspectorComponent(options: RunChainInspectorIslandOption
         selectedKey.value = item.key;
         options.onSelect?.(item);
       };
+      const inspectItem = (event: Event): void => {
+        const itemKey = (event as CustomEvent<{ itemKey?: string }>).detail?.itemKey;
+        const item = options.items.find((candidate) => candidate.key === itemKey);
+        if (item) {
+          selectItem(item);
+        }
+      };
+      onMounted(() => {
+        const target = options.eventTarget ?? (typeof document !== "undefined" ? document : null);
+        target?.addEventListener("desktop-run-chain-inspect", inspectItem as EventListener);
+      });
+      onBeforeUnmount(() => {
+        const target = options.eventTarget ?? (typeof document !== "undefined" ? document : null);
+        target?.removeEventListener("desktop-run-chain-inspect", inspectItem as EventListener);
+      });
 
       return () => {
         const selectedItem = options.items.find((item) => item.key === selectedKey.value) ?? resolveSelectedItem(options);

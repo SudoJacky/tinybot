@@ -90,6 +90,7 @@ class FakeDocument {
   public head = new FakeHead();
   public documentElement = { dataset: {} as Record<string, string> };
   public dispatched: string[] = [];
+  private listeners = new Map<string, Array<(event: Event) => void>>();
 
   createElement(tagName: string): FakeElement {
     return new FakeElement(tagName);
@@ -99,8 +100,15 @@ class FakeDocument {
     return this.body.querySelector(`#${id}`) ?? this.head.querySelector(`#${id}`);
   }
 
+  addEventListener(type: string, listener: (event: Event) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
   dispatchEvent(event: Event): boolean {
     this.dispatched.push(event.type);
+    for (const listener of this.listeners.get(event.type) ?? []) {
+      listener(event);
+    }
     return true;
   }
 }
@@ -123,6 +131,10 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
   const runtimeCommand = selector.match(/^\[data-desktop-runtime-command="(.+)"\]$/);
   if (runtimeCommand) {
     return element.getAttribute("data-desktop-runtime-command") === runtimeCommand[1];
+  }
+  const attribute = selector.match(/^\[([^=\]]+)="([^"]*)"\]$/);
+  if (attribute) {
+    return element.getAttribute(attribute[1]) === attribute[2];
   }
   return false;
 }
@@ -266,13 +278,45 @@ describe("desktop window frame", () => {
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="search-sessions"]')).toBeNull();
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="stop-generation"]')).toBeNull();
     expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')).toBeNull();
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-settings"]')?.textContent).toBe("Settings");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-docs"]')?.textContent).toBe("Documentation");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="toggle-theme"]')?.textContent).toBe("Toggle Theme");
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')).toBeNull();
+    const appContainer = targetDocument.body.querySelector('[data-desktop-menu-label="App"]');
+    const appTrigger = appContainer?.querySelector(".desktop-help-menu-trigger");
+    const appMenu = appContainer?.querySelector(".desktop-help-menu-popover");
+    expect(appTrigger?.textContent).toBe("App");
+    expect(appTrigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(appMenu?.hidden).toBe(true);
+    appTrigger?.click();
+    expect(appTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(appMenu?.querySelector('[data-desktop-menu-command="toggle-theme"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Toggle Theme");
+    expect(appMenu?.querySelector('[data-desktop-menu-command="open-settings"]')).toBeNull();
 
-    const helpTrigger = targetDocument.body.querySelector(".desktop-help-menu-trigger");
-    const helpMenu = targetDocument.body.querySelector(".desktop-help-menu-popover");
+    const resourcesContainer = targetDocument.body.querySelector('[data-desktop-menu-label="Resources"]');
+    const resourcesTrigger = resourcesContainer?.querySelector(".desktop-help-menu-trigger");
+    const resourcesMenu = resourcesContainer?.querySelector(".desktop-help-menu-popover");
+    expect(resourcesTrigger?.textContent).toBe("Resources");
+    resourcesTrigger?.click();
+    expect(appTrigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(resourcesTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-workspace"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Workspace");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-knowledge"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Knowledge");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-tools"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Tools");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-automations"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Automations");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-docs"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Documentation");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-tinybot-repo"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Tinybot repo");
+
+    targetDocument.dispatchEvent(new Event("click"));
+    expect(resourcesTrigger?.getAttribute("aria-expanded")).toBe("false");
+    expect(resourcesMenu?.hidden).toBe(true);
+
+    const systemContainer = targetDocument.body.querySelector('[data-desktop-menu-label="System"]');
+    const systemMenu = systemContainer?.querySelector(".desktop-help-menu-popover");
+    expect(systemContainer?.querySelector(".desktop-help-menu-trigger")?.textContent).toBe("System");
+    expect(systemMenu?.querySelector('[data-desktop-menu-command="open-settings"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Settings");
+    expect(systemMenu?.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Gateway Status");
+    expect(systemMenu?.querySelector('[data-desktop-menu-command="open-docs"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Documentation");
+
+    const helpContainer = targetDocument.body.querySelector('[data-desktop-menu-label="Help"]');
+    const helpTrigger = helpContainer?.querySelector(".desktop-help-menu-trigger");
+    const helpMenu = helpContainer?.querySelector(".desktop-help-menu-popover");
     expect(helpTrigger?.textContent).toBe("Help");
     expect(helpTrigger?.getAttribute("aria-haspopup")).toBe("menu");
     expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
@@ -390,7 +434,7 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    const helpMenu = document.body.querySelector<HTMLElement>(".desktop-help-menu");
+    const helpMenu = document.body.querySelector<HTMLElement>('[data-desktop-menu-label="Help"]');
     const helpTrigger = helpMenu?.querySelector<HTMLButtonElement>(".desktop-help-menu-trigger");
     const shortcutHelp = helpMenu?.querySelector<HTMLButtonElement>('[data-desktop-menu-command="open-shortcut-help"]');
     expect(helpMenu?.getAttribute("data-desktop-vue-island")).toBe("desktop-help-menu");
@@ -406,7 +450,7 @@ describe("desktop window frame", () => {
     expect(helpTrigger?.getAttribute("aria-expanded")).toBe("false");
   });
 
-  test("uses Vue island hosts for real app menu commands", () => {
+  test("routes real app menu commands through the compact app menu", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
     const currentWindow = {
@@ -425,12 +469,18 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    const settings = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="open-settings"]');
-    const docs = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="open-docs"]');
-    const theme = document.body.querySelector<HTMLElement>('[data-desktop-menu-command="toggle-theme"]');
-    expect(settings?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
-    expect(docs?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
-    expect(theme?.closest("[data-desktop-vue-island]")?.getAttribute("data-desktop-vue-island")).toBe("desktop-app-menu-command");
+    const appMenu = document.body.querySelector<HTMLElement>('[data-desktop-menu-label="App"]');
+    const resourcesMenu = document.body.querySelector<HTMLElement>('[data-desktop-menu-label="Resources"]');
+    const systemMenu = document.body.querySelector<HTMLElement>('[data-desktop-menu-label="System"]');
+    const theme = appMenu?.querySelector<HTMLElement>('[data-desktop-menu-command="toggle-theme"]');
+    const workspace = resourcesMenu?.querySelector<HTMLElement>('[data-desktop-menu-command="open-workspace"]');
+    const settings = systemMenu?.querySelector<HTMLElement>('[data-desktop-menu-command="open-settings"]');
+    expect(document.body.querySelector(".desktop-app-menu .desktop-help-menu-trigger")?.textContent).toBe("App");
+    expect(document.body.querySelector(".desktop-resources-menu .desktop-help-menu-trigger")?.textContent).toBe("Resources");
+    expect(document.body.querySelector(".desktop-system-menu .desktop-help-menu-trigger")?.textContent).toBe("System");
+    expect(theme?.closest(".desktop-app-menu")).not.toBeNull();
+    expect(workspace?.closest(".desktop-resources-menu")).not.toBeNull();
+    expect(settings?.closest(".desktop-system-menu")).not.toBeNull();
     expect(settings?.textContent).toContain("Settings");
 
     settings?.click();

@@ -1,6 +1,11 @@
-import { DESKTOP_CHROME_COMMANDS, DESKTOP_HELP_COMMANDS, type DesktopMenuCommand } from "./desktopCommandNavigation";
+import {
+  DESKTOP_CHROME_COMMANDS,
+  DESKTOP_HELP_COMMANDS,
+  DESKTOP_RESOURCE_COMMANDS,
+  DESKTOP_SYSTEM_COMMANDS,
+  type DesktopMenuCommand,
+} from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
-import { mountDesktopAppMenuCommandIsland } from "./native-vue/desktopAppMenuCommandIsland";
 import { mountDesktopHelpMenuIsland } from "./native-vue/desktopHelpMenuIsland";
 import { mountOrUpdateDesktopRuntimeStatusIsland } from "./native-vue/desktopRuntimeStatusIsland";
 import { mountDesktopWindowControlsIsland } from "./native-vue/desktopWindowControlsIsland";
@@ -123,49 +128,30 @@ function createApplicationMenu(targetDocument: Document): HTMLElement {
   menu.className = "desktop-application-menu";
   menu.setAttribute("aria-label", "Desktop application menu");
 
-  for (const command of DESKTOP_CHROME_COMMANDS) {
-    menu.append(createApplicationMenuCommand(targetDocument, command));
-    if (command.id === "open-docs") {
-      menu.append(createHelpMenu(targetDocument));
-    }
-  }
+  menu.append(
+    createDesktopTopMenu(targetDocument, "App", "Application menu", DESKTOP_CHROME_COMMANDS),
+    createDesktopTopMenu(targetDocument, "Resources", "Resources menu", DESKTOP_RESOURCE_COMMANDS),
+    createDesktopTopMenu(targetDocument, "System", "System menu", DESKTOP_SYSTEM_COMMANDS),
+    createDesktopTopMenu(targetDocument, "Help", "Help menu", DESKTOP_HELP_COMMANDS),
+  );
 
   return menu;
 }
 
-function createApplicationMenuCommand(targetDocument: Document, command: DesktopMenuCommand): HTMLElement {
-  const host = targetDocument.createElement("span");
-  if (canMountDesktopAppMenuCommandIsland(host)) {
-    mountDesktopAppMenuCommandIsland(host, {
-      command,
-      onCommand: (id) => {
-        targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id } }));
-      },
-    });
-    return host;
-  }
-
-  const button = targetDocument.createElement("button");
-  button.type = "button";
-  button.className = "desktop-application-menu-item";
-  button.setAttribute("data-desktop-menu-command", command.id);
-  button.setAttribute("aria-label", `${command.label} (${command.shortcut})`);
-  button.title = `${command.label} (${command.shortcut})`;
-  button.textContent = command.chromeLabel ?? command.label;
-  button.addEventListener("pointerdown", (event) => event.stopPropagation());
-  button.addEventListener("dblclick", (event) => event.stopPropagation());
-  button.addEventListener("click", (event) => {
-    event.stopPropagation();
-    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: command.id } }));
-  });
-  return button;
-}
-
-function createHelpMenu(targetDocument: Document): HTMLElement {
+function createDesktopTopMenu(
+  targetDocument: Document,
+  label: string,
+  menuLabel: string,
+  commands: DesktopMenuCommand[],
+): HTMLElement {
   const menu = targetDocument.createElement("div");
+  menu.className = `desktop-help-menu desktop-${label.toLowerCase()}-menu`;
+  menu.setAttribute("data-desktop-menu-label", label);
   if (canMountDesktopHelpMenuIsland(menu)) {
     mountDesktopHelpMenuIsland(menu, {
-      commands: DESKTOP_HELP_COMMANDS,
+      commands,
+      label,
+      menuLabel,
       onCommand: (id) => {
         targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id } }));
       },
@@ -173,19 +159,17 @@ function createHelpMenu(targetDocument: Document): HTMLElement {
     return menu;
   }
 
-  menu.className = "desktop-help-menu";
-
   const trigger = targetDocument.createElement("button");
   trigger.type = "button";
   trigger.className = "desktop-application-menu-item desktop-help-menu-trigger";
   trigger.setAttribute("aria-haspopup", "menu");
   trigger.setAttribute("aria-expanded", "false");
-  trigger.textContent = "Help";
+  trigger.textContent = label;
 
   const popover = targetDocument.createElement("div");
   popover.className = "desktop-help-menu-popover";
   popover.setAttribute("role", "menu");
-  popover.setAttribute("aria-label", "Help menu");
+  popover.setAttribute("aria-label", menuLabel);
   popover.hidden = true;
 
   const close = () => {
@@ -194,9 +178,14 @@ function createHelpMenu(targetDocument: Document): HTMLElement {
   };
   const toggle = () => {
     const expanded = trigger.getAttribute("aria-expanded") === "true";
+    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-close-all"));
     popover.hidden = expanded;
     trigger.setAttribute("aria-expanded", String(!expanded));
   };
+  const handleOutsideClick = () => close();
+  const handleCloseAll = () => close();
+  targetDocument.addEventListener("click", handleOutsideClick);
+  targetDocument.addEventListener("desktop-menu-close-all", handleCloseAll);
 
   trigger.addEventListener("pointerdown", (event) => event.stopPropagation());
   trigger.addEventListener("dblclick", (event) => event.stopPropagation());
@@ -212,30 +201,42 @@ function createHelpMenu(targetDocument: Document): HTMLElement {
     close();
   });
 
-  for (const command of DESKTOP_HELP_COMMANDS) {
-    const item = targetDocument.createElement("button");
-    item.type = "button";
-    item.className = "desktop-help-menu-item";
-    item.setAttribute("role", "menuitem");
-    item.setAttribute("data-desktop-menu-command", command.id);
-    item.setAttribute("aria-label", `${command.label} (${command.shortcut})`);
-    item.title = `${command.label} (${command.shortcut})`;
-    item.append(
-      createHelpMenuText(targetDocument, "desktop-help-menu-label", command.label),
-      createHelpMenuText(targetDocument, "desktop-help-menu-shortcut", command.shortcut),
-    );
-    item.addEventListener("pointerdown", (event) => event.stopPropagation());
-    item.addEventListener("dblclick", (event) => event.stopPropagation());
-    item.addEventListener("click", (event) => {
-      event.stopPropagation();
-      close();
-      targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: command.id } }));
-    });
-    popover.append(item);
+  for (const command of commands) {
+    popover.append(createMenuPopoverCommand(targetDocument, command, close));
   }
 
   menu.append(trigger, popover);
   return menu;
+}
+
+function createMenuPopoverCommand(
+  targetDocument: Document,
+  command: DesktopMenuCommand,
+  close: () => void,
+): HTMLElement {
+  const item = targetDocument.createElement("button");
+  item.type = "button";
+  item.className = "desktop-help-menu-item";
+  item.setAttribute("role", "menuitem");
+  item.setAttribute("data-desktop-menu-command", command.id);
+  item.setAttribute("aria-label", menuCommandAccessibleLabel(command));
+  item.title = menuCommandAccessibleLabel(command);
+  item.append(
+    createHelpMenuText(targetDocument, "desktop-help-menu-label", command.label),
+    ...(command.shortcut ? [createHelpMenuText(targetDocument, "desktop-help-menu-shortcut", command.shortcut)] : []),
+  );
+  item.addEventListener("pointerdown", (event) => event.stopPropagation());
+  item.addEventListener("dblclick", (event) => event.stopPropagation());
+  item.addEventListener("click", (event) => {
+    event.stopPropagation();
+    close();
+    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: command.id } }));
+  });
+  return item;
+}
+
+function menuCommandAccessibleLabel(command: DesktopMenuCommand): string {
+  return command.shortcut ? `${command.label} (${command.shortcut})` : command.label;
 }
 
 function canMountDesktopHelpMenuIsland(menu: HTMLElement): boolean {
@@ -323,10 +324,6 @@ function createWindowButton(
     void handler().catch(logWindowFrameError);
   });
   return button;
-}
-
-function canMountDesktopAppMenuCommandIsland(host: HTMLElement): boolean {
-  return typeof window !== "undefined" && host instanceof window.HTMLElement;
 }
 
 function canMountDesktopWindowControlsIsland(controls: HTMLElement): boolean {
@@ -446,7 +443,7 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       z-index: 1410;
       display: grid;
       gap: 2px;
-      width: 260px;
+      width: 236px;
       border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 72%, transparent);
       border-radius: 8px;
       padding: 8px 0;

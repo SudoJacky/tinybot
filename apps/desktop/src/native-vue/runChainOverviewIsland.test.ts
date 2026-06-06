@@ -37,7 +37,7 @@ describe("run chain overview Vue island", () => {
 
     const mounted = mountRunChainOverviewIsland(host, {
       items: runChainItems,
-      onAction: (action) => actions.push(`${action.type}:${action.value ?? ""}`),
+      onAction: (action) => actions.push(`${action.type}:${"value" in action ? action.value : ""}`),
     });
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("run-chain-overview");
@@ -47,6 +47,10 @@ describe("run chain overview Vue island", () => {
     expect(host.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Gateway: Connected");
     expect(host.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("Run: Running");
     expect(host.querySelector(".desktop-run-chain-summary-strip")?.textContent).toContain("2 items");
+    expect(host.querySelector('[data-desktop-run-chain-summary="gateway"]')?.className).toContain("desktop-run-chain-status-pill");
+    expect(host.querySelector('[data-desktop-run-chain-summary="gateway"]')?.getAttribute("data-status-tone")).toBe("connected");
+    expect(host.querySelector('[data-desktop-run-chain-summary="run"]')?.getAttribute("data-status-tone")).toBe("muted");
+    expect(host.querySelector(".desktop-run-chain-status-dot")).not.toBeNull();
     expect(host.querySelector(".desktop-run-chain-panel")?.getAttribute("data-desktop-run-chain-panel")).toBe("context");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-tab="files"]')?.click();
@@ -59,8 +63,10 @@ describe("run chain overview Vue island", () => {
     await Promise.resolve();
     expect(host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-tab="tasks"]')?.getAttribute("aria-selected")).toBe("true");
     expect(host.querySelector(".desktop-run-chain-panel")?.getAttribute("data-desktop-run-chain-panel")).toBe("tasks");
-    expect(host.querySelector(".desktop-run-chain-panel")?.textContent).toContain("Current Run");
+    expect(host.querySelector(".desktop-run-chain-panel")?.textContent).toContain("Tasks");
+    expect(host.querySelector(".desktop-run-chain-panel")?.textContent).toContain("Task center: Available");
     expect(host.querySelector(".desktop-run-chain-panel")?.textContent).toContain("Tool: Loaded project files");
+    expect(host.querySelector(".desktop-run-chain-new-item")?.getAttribute("data-button-variant")).toBe("secondary");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-control="pin"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-control="close"]')?.click();
@@ -70,6 +76,12 @@ describe("run chain overview Vue island", () => {
     await nextTick();
 
     expect(host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-control="pin"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-control="pin"]')?.getAttribute("aria-label")).toBe("Pin panel");
+    expect(host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-control="close"]')?.getAttribute("title")).toBe("Close panel");
+    expect(host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-control="pin"]')?.getAttribute("data-button-variant")).toBe("ghost");
+    expect(host.querySelector('[data-desktop-run-chain-action="Open Task Center"]')?.getAttribute("data-button-variant")).toBe("primary");
+    expect(host.querySelectorAll('[data-desktop-run-chain-action="New Run Chain Item"]')).toHaveLength(1);
+    expect(host.querySelector('[data-desktop-run-chain-action="New Run Chain Item"]')?.getAttribute("data-button-variant")).toBe("secondary");
     expect(actions).toEqual([
       "tab:files",
       "summary:items",
@@ -82,5 +94,22 @@ describe("run chain overview Vue island", () => {
 
     mounted.unmount();
     expect(host.textContent).toBe("");
+  });
+
+  test("shows a light empty state when the Tasks tab has no chain items", async () => {
+    const host = document.createElement("section");
+
+    const mounted = mountRunChainOverviewIsland(host, {
+      items: [],
+    });
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-run-chain-tab="tasks"]')?.click();
+    await nextTick();
+
+    expect(host.querySelector(".desktop-run-chain-panel")?.textContent).toContain("No chain items yet.");
+    expect(host.querySelector(".desktop-run-chain-empty-state")).not.toBeNull();
+    expect(host.querySelectorAll('[data-desktop-run-chain-action="New Run Chain Item"]')).toHaveLength(1);
+
+    mounted.unmount();
   });
 });

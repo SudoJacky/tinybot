@@ -13,8 +13,8 @@ describe("conversation reasoning Vue island", () => {
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("conversation-reasoning");
     expect(host.className).toBe("desktop-message-reasoning");
-    expect(host.querySelector(".desktop-message-reasoning-title")?.textContent).toBe("Thinking");
-    expect(host.querySelector(".desktop-message-reasoning-meta")?.textContent).toBe("Show details");
+    expect(host.querySelector(".desktop-message-reasoning-title")).toBeNull();
+    expect(host.querySelector(".desktop-message-reasoning-summary")?.textContent).toBe("Details");
     expect(host.querySelector(".desktop-message-reasoning-body")?.textContent).toBe("Inspected the workspace and selected the next Vue island.");
 
     mounted.unmount();

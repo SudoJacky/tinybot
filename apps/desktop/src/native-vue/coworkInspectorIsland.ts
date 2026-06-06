@@ -98,7 +98,9 @@ function selectedActionControls(
   if (type === "task") {
     return [
       h("input", {
-        ref: assignedAgentInput,
+        ref: (element) => {
+          assignedAgentInput.value = element as HTMLInputElement | null;
+        },
         class: "desktop-cowork-action-input",
         "aria-label": "Assign task to agent",
         "data-desktop-cowork-input": "assignedAgentId",

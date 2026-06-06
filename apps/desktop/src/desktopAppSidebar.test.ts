@@ -75,14 +75,14 @@ class FakeElement {
     this.children.push(...children);
   }
 
-  replaceChildren(...children: FakeElement[]): void {
+  replaceChildren(...children: this[]): void {
     this.children = [...children];
   }
 
   addEventListener(): void {}
 
   querySelectorAll(selector: string): FakeElement[] {
-    const matches = matchesFakeSelector(this, selector) ? [this] : [];
+    const matches: FakeElement[] = matchesFakeSelector(this, selector) ? [this] : [];
     for (const child of this.children) {
       matches.push(...child.querySelectorAll(selector));
     }

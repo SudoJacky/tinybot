@@ -12,9 +12,9 @@ export interface MountedQuickActionsIsland {
 }
 
 const QUICK_ACTION_LINKS: QuickActionLink[] = [
-  { label: "New chat", href: "/chat/new" },
+  { label: "Ask about this project", href: "/chat/new" },
   { label: "Open workspace", href: "/workspace" },
-  { label: "Gateway status", href: "/api/status" },
+  { label: "Check gateway", href: "/api/status" },
 ];
 
 export function mountQuickActionsIsland(host: HTMLElement): MountedQuickActionsIsland {
@@ -54,8 +54,8 @@ export function renderQuickActionsContent() {
       class: "desktop-quick-action",
       href: link.href,
       tag: "a",
-      text: true,
-      type: link.label === "New chat" ? "primary" : "default",
+      secondary: true,
+      type: "default",
     }, { default: () => link.label })),
   });
 }

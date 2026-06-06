@@ -52,8 +52,8 @@ function renderResultButton(result: DesktopCommandPaletteResult, selected: boole
     "data-palette-module": result.destination.module,
     "data-palette-result-id": result.id,
     class: "desktop-command-palette-result",
+    attrType: "button",
     tag: "button",
-    type: "button",
   }, {
     default: () => [
       h(NText, { strong: true, tag: "strong" }, { default: () => result.title }),

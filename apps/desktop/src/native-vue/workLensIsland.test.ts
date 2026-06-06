@@ -70,7 +70,9 @@ describe("work lens Vue island", () => {
       workLens: readyLens,
       placement: "inspector",
       onAction: (event) => actions.push(event.action),
-      copyText: (text) => copied.push(text),
+      copyText: (text) => {
+        copied.push(text);
+      },
     });
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("work-lens");

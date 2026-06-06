@@ -4,6 +4,11 @@ export type DesktopMenuCommandId =
   | "new-chat"
   | "stop-generation"
   | "search-sessions"
+  | "open-workspace"
+  | "open-knowledge"
+  | "open-tools"
+  | "open-automations"
+  | "open-tinybot-repo"
   | "open-settings"
   | "open-docs"
   | "open-shortcut-help"
@@ -44,6 +49,7 @@ export type DesktopMenuCommandResult =
 export interface InstallDesktopMenuCommandRoutingOptions {
   gatewayOrigin: string;
   listenToMenuCommand: (handler: (id: string) => void) => void | Promise<unknown>;
+  openExternal?: (href: string) => Promise<void> | void;
   targetDocument?: Document;
   targetWindow?: Window;
 }
@@ -52,6 +58,11 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
   { id: "new-chat", label: "New Chat", chromeLabel: "New", chromeGroup: "primary", shortcut: "Ctrl+N" },
   { id: "stop-generation", label: "Stop Generation", chromeLabel: "Stop", chromeGroup: "primary", shortcut: "Ctrl+." },
   { id: "search-sessions", label: "Search Sessions", chromeLabel: "Search", chromeGroup: "primary", shortcut: "Ctrl+F" },
+  { id: "open-workspace", label: "Workspace", chromeGroup: "secondary", shortcut: "" },
+  { id: "open-knowledge", label: "Knowledge", chromeGroup: "secondary", shortcut: "" },
+  { id: "open-tools", label: "Tools", chromeGroup: "secondary", shortcut: "" },
+  { id: "open-automations", label: "Automations", chromeGroup: "secondary", shortcut: "" },
+  { id: "open-tinybot-repo", label: "Tinybot repo", chromeGroup: "secondary", shortcut: "" },
   { id: "open-settings", label: "Settings", chromeGroup: "secondary", shortcut: "Ctrl+," },
   { id: "open-docs", label: "Documentation", chromeGroup: "secondary", shortcut: "F1" },
   { id: "open-shortcut-help", label: "Shortcut Help", chromeGroup: "secondary", shortcut: "Ctrl+/" },
@@ -63,12 +74,33 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
 ];
 
 const DESKTOP_CHROME_COMMAND_IDS: DesktopMenuCommandId[] = [
-  "open-settings",
-  "open-docs",
   "toggle-theme",
 ];
 
+const DESKTOP_RESOURCE_COMMAND_IDS: DesktopMenuCommandId[] = [
+  "open-workspace",
+  "open-knowledge",
+  "open-tools",
+  "open-automations",
+  "open-docs",
+  "open-tinybot-repo",
+];
+
+const DESKTOP_SYSTEM_COMMAND_IDS: DesktopMenuCommandId[] = [
+  "open-settings",
+  "refresh-gateway-status",
+  "open-docs",
+];
+
 export const DESKTOP_CHROME_COMMANDS: DesktopMenuCommand[] = DESKTOP_CHROME_COMMAND_IDS
+  .map((id) => DESKTOP_MENU_COMMANDS.find((command) => command.id === id))
+  .filter((command): command is DesktopMenuCommand => Boolean(command));
+
+export const DESKTOP_RESOURCE_COMMANDS: DesktopMenuCommand[] = DESKTOP_RESOURCE_COMMAND_IDS
+  .map((id) => DESKTOP_MENU_COMMANDS.find((command) => command.id === id))
+  .filter((command): command is DesktopMenuCommand => Boolean(command));
+
+export const DESKTOP_SYSTEM_COMMANDS: DesktopMenuCommand[] = DESKTOP_SYSTEM_COMMAND_IDS
   .map((id) => DESKTOP_MENU_COMMANDS.find((command) => command.id === id))
   .filter((command): command is DesktopMenuCommand => Boolean(command));
 
@@ -99,6 +131,16 @@ export function routeDesktopMenuCommand(id: string, context: DesktopMenuCommandC
         : { kind: "unavailable", feedback: "Stop generation is unavailable without an active response." };
     case "search-sessions":
       return { kind: "action", action: "open-session-search" };
+    case "open-workspace":
+      return { kind: "navigate", href: "/workspace" };
+    case "open-knowledge":
+      return { kind: "navigate", href: "/knowledge" };
+    case "open-tools":
+      return { kind: "navigate", href: "/tools" };
+    case "open-automations":
+      return { kind: "navigate", href: "/cowork" };
+    case "open-tinybot-repo":
+      return { kind: "navigate", href: "https://github.com/SudoJacky/tinybot" };
     case "open-settings":
       return { kind: "navigate", href: "/settings" };
     case "open-docs":
@@ -208,6 +250,7 @@ function readCommandContext(targetDocument: Document): DesktopMenuCommandContext
 function applyDesktopMenuCommandResult(
   result: DesktopMenuCommandResult,
   options: Pick<InstallDesktopMenuCommandRoutingOptions, "gatewayOrigin" | "targetDocument" | "targetWindow"> & {
+    openExternal?: (href: string) => Promise<void> | void;
     targetDocument: Document;
     targetWindow: Window;
   },
@@ -227,7 +270,7 @@ function applyDesktopMenuCommandResult(
 
 function routeMenuNavigation(
   href: string,
-  { gatewayOrigin, targetDocument, targetWindow }: Pick<InstallDesktopMenuCommandRoutingOptions, "gatewayOrigin"> & {
+  { gatewayOrigin, openExternal, targetDocument, targetWindow }: Pick<InstallDesktopMenuCommandRoutingOptions, "gatewayOrigin" | "openExternal"> & {
     targetDocument: Document;
     targetWindow: Window;
   },
@@ -251,6 +294,14 @@ function routeMenuNavigation(
   }
   if (target.kind === "gateway-action") {
     targetWindow.dispatchEvent(new CustomEvent("tinybot:desktop-gateway-action", { detail: target }));
+    return;
+  }
+  if (target.kind === "external-url") {
+    if (openExternal) {
+      void openExternal(target.href);
+      return;
+    }
+    targetWindow.open(target.href, "_blank", "noopener");
   }
 }
 

@@ -13,11 +13,11 @@ const PRIMARY_ACTIVITY_ITEMS: ActivityRailItem[] = [
   { href: "/workspace", label: "Files", module: "workspace" },
   { href: "/knowledge", label: "Knowledge", module: "knowledge" },
   { href: "/cowork", label: "Cowork", module: "cowork" },
+  { href: "/docs", label: "Docs", module: "docs" },
+  { href: "https://github.com/SudoJacky/tinybot", label: "GitHub", module: "gateway" },
 ];
 
 const SECONDARY_ACTIVITY_ITEMS: ActivityRailItem[] = [
-  { href: "/docs", label: "Docs", module: "docs" },
-  { href: "https://github.com/SudoJacky/tinybot", label: "GitHub", module: "gateway" },
   { href: "/settings", label: "Settings", module: "settings" },
 ];
 
@@ -45,7 +45,7 @@ function createActivityRailApp(): App {
     name: "ActivityRailIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
+        default: () => h("div", { class: "desktop-activity-rail-stack" }, [
           h(NSpace, {
             class: "desktop-activity-primary",
             vertical: true,
@@ -67,7 +67,7 @@ function createActivityRailApp(): App {
               className: "desktop-activity-secondary-button",
             })),
           }),
-        ],
+        ]),
       });
     },
   }));

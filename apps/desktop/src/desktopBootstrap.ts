@@ -1361,6 +1361,7 @@ function installTauriMenuCommandRouting(): void {
       listen<{ id: string }>("desktop-menu-command", (event) => {
         handler(event.payload.id);
       }),
+    openExternal: (href) => openUrl(href),
   });
 }
 

@@ -45,11 +45,6 @@ import {
 } from "./desktopWorkLens";
 import type { WorkbenchLayoutState, WorkbenchPanelId, WorkbenchPanelState } from "./desktopWorkbenchLayout";
 import { loadWorkbenchLayout } from "./desktopWorkbenchLayout";
-import {
-  buildNativeWorkbenchSidebarModel,
-  type DesktopSidebarGroup,
-  type DesktopSidebarItem,
-} from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
 import { mountAgentUiFormActionsIsland } from "./native-vue/agentUiFormActionsIsland";
@@ -73,7 +68,6 @@ import { mountComposerSendButtonIsland } from "./native-vue/composerSendButtonIs
 import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
 import { mountConversationAttachmentIsland } from "./native-vue/conversationAttachmentIsland";
 import { mountConversationBodyIsland } from "./native-vue/conversationBodyIsland";
-import { mountConversationEmptyStateIsland } from "./native-vue/conversationEmptyStateIsland";
 import { mountConversationMessageIsland } from "./native-vue/conversationMessageIsland";
 import { mountConversationMetaIsland } from "./native-vue/conversationMetaIsland";
 import { mountConversationReasoningIsland } from "./native-vue/conversationReasoningIsland";
@@ -109,7 +103,6 @@ import { mountKnowledgeReadinessIsland } from "./native-vue/knowledgeReadinessIs
 import { mountKnowledgeReferenceRowIsland } from "./native-vue/knowledgeReferenceRowIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountModuleWorkSectionIsland } from "./native-vue/moduleWorkSectionIsland";
-import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
 import { mountPersistentRagToggleIsland } from "./native-vue/persistentRagToggleIsland";
 import { mountQuickActionsIsland } from "./native-vue/quickActionsIsland";
@@ -132,10 +125,6 @@ import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";
 import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";
 import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";
 import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";
-import { mountSharedSidebarCommandButtonIsland } from "./native-vue/sharedSidebarCommandButtonIsland";
-import { mountSharedSidebarCommandsIsland } from "./native-vue/sharedSidebarCommandsIsland";
-import { mountSharedSidebarLinkIsland } from "./native-vue/sharedSidebarLinkIsland";
-import { mountSharedSidebarLinksIsland } from "./native-vue/sharedSidebarLinksIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountSkillEditorIsland } from "./native-vue/skillEditorIsland";
 import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";
@@ -147,9 +136,10 @@ import { mountTaskStateBadgeIsland } from "./native-vue/taskStateBadgeIsland";
 import { mountToolDetailIsland } from "./native-vue/toolDetailIsland";
 import { mountToolActivitiesIsland } from "./native-vue/toolActivitiesIsland";
 import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";
+import type { ToolActivityIslandOptions } from "./native-vue/toolActivityIsland";
 import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";
 import { mountToolsListIsland } from "./native-vue/toolsListIsland";
-import { mountToolsSkillsActionsIsland } from "./native-vue/toolsSkillsActionsIsland";
+import { mountToolsSkillsActionsIsland, type ToolsSkillsActionId } from "./native-vue/toolsSkillsActionsIsland";
 import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
 import { mountTokenUsageOrbIsland } from "./native-vue/tokenUsageOrbIsland";
 import { mountWorkLensIsland } from "./native-vue/workLensIsland";
@@ -157,6 +147,8 @@ import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
 import { mountWorkspaceBrowserIsland } from "./native-vue/workspaceBrowserIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
+
+type ConversationToolActivityRenderOptions = ToolActivityIslandOptions;
 
 export interface DesktopTaskCenterActionEvent {
   action: DesktopTaskActionId;
@@ -380,14 +372,6 @@ const COWORK_OBSERVABILITY_ROW_LIMIT = 24;
 const COWORK_TASK_FEED_LIMIT = 20;
 type DesktopPanelControlId = "sidebar" | "inspector" | "bottom";
 
-interface DesktopPanelControlItem {
-  panel: DesktopPanelControlId;
-  label: string;
-  ariaLabel: string;
-  visible: boolean;
-  shortcut?: string;
-}
-
 export function installDesktopWorkbenchShell({
   targetDocument = document,
   layout = loadWorkbenchLayout(),
@@ -535,6 +519,8 @@ export function updateDesktopNativeChat(
     thread.replaceChildren(...Array.from(next.children));
   }
 
+  syncChatWorkbenchChrome(targetDocument, chat);
+
   const workspaceList = targetDocument.querySelector<HTMLElement>(".desktop-workspace-list");
   if (workspaceList) {
     const next = createSidebarWorkspaceList(targetDocument, chat).querySelector<HTMLElement>(".desktop-workspace-list");
@@ -557,6 +543,24 @@ export function updateDesktopNativeChat(
     composer.replaceChildren(...Array.from(next.children));
   }
   syncSessionFileUploadKey(targetDocument, chat.activeSessionKey);
+}
+
+function syncChatWorkbenchChrome(targetDocument: Document, chat: DesktopNativeChatModel): void {
+  const workbench = targetDocument.querySelector<HTMLElement>(".desktop-chat-workbench");
+  if (!workbench) {
+    return;
+  }
+  const header = workbench.querySelector<HTMLElement>(".desktop-chat-header");
+  const thread = workbench.querySelector<HTMLElement>(".desktop-conversation-thread");
+  const workLens = workbench.querySelector<HTMLElement>(".desktop-work-lens-inline");
+  const children = [header, thread].filter((child): child is HTMLElement => Boolean(child));
+  if (!hasVisibleConversationMessages(chat)) {
+    children.push(createChatWorkbenchEmptyState(targetDocument, []));
+  }
+  if (workLens) {
+    children.push(workLens);
+  }
+  workbench.replaceChildren(...children);
 }
 
 function syncNativeChatDocumentState(targetDocument: Document, chat: DesktopNativeChatModel): void {
@@ -633,6 +637,8 @@ function createActivityRail(targetDocument: Document): HTMLElement {
     ["Files", "/workspace", "workspace"],
     ["Knowledge", "/knowledge", "knowledge"],
     ["Cowork", "/cowork", "cowork"],
+    ["Docs", "/docs", "docs"],
+    ["GitHub", "https://github.com/SudoJacky/tinybot", "gateway"],
   ].entries()) {
     const item = targetDocument.createElement("a");
     item.className = "desktop-activity-button";
@@ -652,8 +658,6 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   const secondary = targetDocument.createElement("div");
   secondary.className = "desktop-activity-secondary";
   for (const [label, href, module] of [
-    ["Docs", "/docs", "docs"],
-    ["GitHub", "https://github.com/SudoJacky/tinybot", "gateway"],
     ["Settings", "/settings", "settings"],
   ]) {
     const item = targetDocument.createElement("a");
@@ -675,20 +679,15 @@ function createSidebar(
   chat: DesktopNativeChatModel | null,
   chatActions: DesktopNativeChatActionOptions,
 ): HTMLElement {
-  const model = buildNativeWorkbenchSidebarModel();
-  const workspaceGroup = model.groups.find((group) => group.id === "workspace");
-  const footerGroup = model.groups.find((group) => group.id === "footer");
   const sidebar = targetDocument.createElement("div");
   sidebar.className = "desktop-sidebar-content";
   sidebar.append(
     createSidebarActions(targetDocument),
     createSidebarWorkspaceList(targetDocument, chat),
     createSidebarRecentChats(targetDocument, chat, chatActions),
-    createSharedSidebarLinkSection(targetDocument, workspaceGroup),
-    createSharedSidebarCommandSection(targetDocument, footerGroup),
   );
   if (chat) {
-    mountSidebarContentVueIsland(sidebar, targetDocument, chat, chatActions, workspaceGroup, footerGroup);
+    mountSidebarContentVueIsland(sidebar, targetDocument, chat);
   }
   return sidebar;
 }
@@ -697,9 +696,6 @@ function mountSidebarContentVueIsland(
   sidebar: HTMLElement,
   targetDocument: Document,
   chat: DesktopNativeChatModel,
-  chatActions: DesktopNativeChatActionOptions,
-  workspaceGroup: DesktopSidebarGroup | undefined,
-  footerGroup: DesktopSidebarGroup | undefined,
 ): void {
   if (!canMountVueIsland(sidebar)) {
     return;
@@ -711,11 +707,9 @@ function mountSidebarContentVueIsland(
     pinnedSessionKeys.has(session.key),
   ));
   mountSidebarContentIsland(sidebar, {
-    commandItems: sidebarCommandItems(footerGroup),
-    commandLabel: footerGroup?.label,
+    commandItems: [],
     recentChats,
-    resourceItems: sidebarLinkItems(workspaceGroup),
-    resourceLabel: workspaceGroup?.label,
+    resourceItems: [],
     targetDocument,
     workspaceRows: [{
       active: true,
@@ -724,18 +718,6 @@ function mountSidebarContentVueIsland(
       title: "tinybot",
     }],
   });
-}
-
-function sidebarLinkItems(group: DesktopSidebarGroup | undefined): Array<DesktopSidebarItem & { href: string; kind: "link" }> {
-  return (group?.items ?? []).flatMap((item) => item.kind === "link" && item.href
-    ? [{ ...item, href: item.href, kind: "link" as const }]
-    : []);
-}
-
-function sidebarCommandItems(group: DesktopSidebarGroup | undefined): Array<DesktopSidebarItem & { commandId: string; kind: "command" }> {
-  return (group?.items ?? []).flatMap((item) => item.kind === "command" && item.commandId
-    ? [{ ...item, commandId: item.commandId, kind: "command" as const }]
-    : []);
 }
 
 function createSidebarActions(targetDocument: Document): HTMLElement {
@@ -1148,25 +1130,19 @@ function createMainRegion(
   main.setAttribute("data-workbench-region", "main");
   main.setAttribute("aria-label", "Primary desktop work area");
   const chatWorkItems = moduleWorkItems(taskCenterItems, "chat");
+  const showEmptySession = chat ? !hasVisibleConversationMessages(chat) : false;
 
   const workbench = targetDocument.createElement("div");
   workbench.className = "desktop-empty-session desktop-chat-workbench";
-  const workbenchChrome = targetDocument.createElement("div");
-  workbenchChrome.className = "desktop-chat-workbench-chrome";
-  workbenchChrome.append(
-    createText(targetDocument, "span", "Ready for a new session. "),
-    createText(targetDocument, "span", "Start from chat, inspect the workspace, or check gateway status."),
-    createQuickActions(targetDocument),
-    createPanelControls(targetDocument, layout),
-    ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
-  );
-  mountChatWorkbenchVueIsland(workbenchChrome, targetDocument, layout, chatWorkItems);
-  workbench.append(
+  const workbenchChildren = [
     createChatHeader(targetDocument, chat, layout, chatActions),
     createConversationThread(targetDocument, chat),
-    workbenchChrome,
-    createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions),
-  );
+  ];
+  if (showEmptySession) {
+    workbenchChildren.push(createChatWorkbenchEmptyState(targetDocument, chatWorkItems));
+  }
+  workbenchChildren.push(createWorkLensInlineHost(targetDocument, layout.inspector.visible ? null : workLens, workLensActions));
+  workbench.append(...workbenchChildren);
 
   const utilities = targetDocument.createElement("div");
   utilities.className = "desktop-utility-surfaces";
@@ -1210,10 +1186,34 @@ function createMainRegion(
   return main;
 }
 
+function hasVisibleConversationMessages(chat: DesktopNativeChatModel): boolean {
+  if (!chat.activeSessionKey) {
+    return false;
+  }
+  return chat.messages.some((message) => Boolean(
+    message.content?.trim()
+      || message.reasoningContent?.trim()
+      || message.toolActivities?.length
+      || message.references?.length,
+  ));
+}
+
+function createChatWorkbenchEmptyState(targetDocument: Document, chatWorkItems: DesktopTaskCenterItem[]): HTMLElement {
+  const workbenchChrome = targetDocument.createElement("div");
+  workbenchChrome.className = "desktop-chat-workbench-chrome";
+  workbenchChrome.append(
+    createText(targetDocument, "h2", "Start a new session"),
+    createText(targetDocument, "p", "Ask Tinybot about the workspace, inspect files, or create a task."),
+    createQuickActions(targetDocument),
+    ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
+  );
+  mountChatWorkbenchVueIsland(workbenchChrome, targetDocument, chatWorkItems);
+  return workbenchChrome;
+}
+
 function mountChatWorkbenchVueIsland(
   workbenchChrome: HTMLElement,
   targetDocument: Document,
-  layout: WorkbenchLayoutState,
   chatWorkItems: DesktopTaskCenterItem[],
 ): void {
   if (!canMountVueIsland(workbenchChrome)) {
@@ -1221,9 +1221,7 @@ function mountChatWorkbenchVueIsland(
   }
   mountChatWorkbenchIsland(workbenchChrome, {
     moduleWorkItems: chatWorkItems,
-    panelControls: buildDesktopPanelControls(layout),
     onInspectWorkItem: (item) => inspectModuleWorkItem(targetDocument, item),
-    onPanelToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
   });
 }
 
@@ -1312,12 +1310,18 @@ function createChatHeader(
   titleRow.className = "desktop-chat-title-row";
 
   const activeSession = activeChatSession(chat);
+  const titleGroup = targetDocument.createElement("div");
+  titleGroup.className = "desktop-chat-title-group";
+  const context = targetDocument.createElement("span");
+  context.className = "desktop-chat-context";
+  context.textContent = "tinybot";
   const title = targetDocument.createElement("h1");
   title.className = "desktop-chat-title";
   title.textContent = activeChatTitle(chat);
   if (canMountVueIsland(title)) {
     mountChatTitleIsland(title, { title: activeChatTitle(chat) });
   }
+  titleGroup.append(context, title);
 
   const menu = targetDocument.createElement("button");
   menu.type = "button";
@@ -1331,7 +1335,7 @@ function createChatHeader(
   const popover = createChatMenuPopover(targetDocument, chat, activeSession, title, menu, chatActions);
   mountChatMenuButtonVueIsland(menu, popover);
 
-  titleRow.append(title, menu, popover);
+  titleRow.append(titleGroup, menu, popover);
 
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-chat-header-actions";
@@ -1831,19 +1835,17 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
   thread.setAttribute("aria-label", "Conversation");
   if (chat) {
     if (!chat.activeSessionKey) {
-      renderConversationEmptyState(targetDocument, thread, "No live session selected.");
-      mountConversationThreadVueIsland(thread, { emptyMessage: "No live session selected.", messages: [] });
+      mountConversationThreadVueIsland(thread, { emptyMessage: "", messages: [] });
       return thread;
     }
-    if (!chat.messages.length) {
-      renderConversationEmptyState(targetDocument, thread, "No messages in this session.");
-      mountConversationThreadVueIsland(thread, { emptyMessage: "No messages in this session.", messages: [] });
+    if (!hasVisibleConversationMessages(chat)) {
+      mountConversationThreadVueIsland(thread, { emptyMessage: "", messages: [] });
       return thread;
     }
     const messages = chat.messages.map((message) => ({
       author: message.role === "user" ? "You" : "Tinybot",
       time: formatCompactTime(message.timestamp),
-      tone: message.role === "user" ? "user" : "assistant",
+      tone: message.role === "user" ? "user" as const : "assistant" as const,
       reasoningContent: message.reasoningContent,
       body: shouldRenderConversationBody(message) ? [message.content].filter(Boolean) : [],
       toolActivities: (message.toolActivities ?? []).map((activity) => ({
@@ -1853,6 +1855,7 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
         kind: activity.kind,
         name: activity.name || "",
         responseText: activity.responseText || "",
+        runChainItemKey: conversationToolActivityRunChainKey(message, activity),
       })),
       references: (message.references ?? []).map((reference) => ({
         detail: reference.detail ?? "",
@@ -1907,6 +1910,7 @@ function mountConversationThreadVueIsland(
         kind: "call" | "result";
         name: string;
         responseText: string;
+        runChainItemKey?: string;
       }>;
     }>;
   },
@@ -1917,16 +1921,24 @@ function mountConversationThreadVueIsland(
   mountConversationThreadIsland(thread, options);
 }
 
-function renderConversationEmptyState(targetDocument: Document, thread: HTMLElement, message: string): void {
-  thread.append(createText(targetDocument, "p", message));
-  if (!canMountVueIsland(thread)) {
-    return;
-  }
-  mountConversationEmptyStateIsland(thread, { message });
-}
-
 function shouldRenderConversationBody(message: NativeChatMessage): boolean {
   return !((message.role === "tool" || message.role === "progress") && Boolean(message.toolActivities?.length));
+}
+
+function conversationToolActivityRunChainKey(
+  message: NativeChatMessage,
+  activity: NonNullable<NativeChatMessage["toolActivities"]>[number],
+): string | undefined {
+  if (!message.messageId) {
+    return undefined;
+  }
+  if (activity.id) {
+    return `${message.messageId}:${activity.id}`;
+  }
+  if (message.role === "tool" || activity.kind === "result") {
+    return `${message.messageId}:result`;
+  }
+  return `${message.messageId}:detail`;
 }
 
 function createConversationMessage(
@@ -1937,7 +1949,7 @@ function createConversationMessage(
     tone: "user" | "assistant";
     reasoningContent?: string;
     body: string[];
-    toolActivities?: NativeChatMessage["toolActivities"];
+    toolActivities?: ConversationToolActivityRenderOptions[];
     references?: NativeChatMessage["references"];
     attachment?: string;
   },
@@ -1948,14 +1960,18 @@ function createConversationMessage(
 
   const content = targetDocument.createElement("div");
   content.className = "desktop-conversation-content";
+  const header = targetDocument.createElement("div");
+  header.className = "desktop-conversation-header";
   const meta = targetDocument.createElement("div");
   meta.className = "desktop-conversation-meta";
   const separator = createText(targetDocument, "span", " · ");
   separator.className = "desktop-conversation-meta-separator";
+  separator.textContent = " · ";
   separator.setAttribute("aria-hidden", "true");
   meta.append(createText(targetDocument, "strong", options.author), separator, createText(targetDocument, "span", options.time));
   mountConversationMetaVueIsland(meta, { author: options.author, time: options.time });
-  content.append(meta);
+  header.append(meta);
+  content.append(header);
   if (options.reasoningContent?.trim()) {
     content.append(createConversationReasoning(targetDocument, options.reasoningContent));
   }
@@ -1963,15 +1979,9 @@ function createConversationMessage(
     content.append(createToolActivities(targetDocument, options.toolActivities));
   }
   content.append(createConversationBody(targetDocument, options.body, options.tone));
-  for (const reference of options.references ?? []) {
-    const node = createText(targetDocument, "p", conversationReferenceText(reference));
-    node.className = "desktop-conversation-reference";
-    mountConversationReferenceVueIsland(node, {
-      detail: reference.detail ?? "",
-      kind: reference.kind,
-      title: reference.title,
-    });
-    content.append(node);
+  const referenceGroups = createConversationReferenceGroups(targetDocument, options.references ?? []);
+  if (referenceGroups) {
+    content.append(referenceGroups);
   }
   if (options.attachment) {
     const attachment = targetDocument.createElement("div");
@@ -1982,6 +1992,12 @@ function createConversationMessage(
       sizeLabel: "1.2 MB",
     });
     content.append(attachment);
+  }
+  if (options.tone === "assistant") {
+    const actions = targetDocument.createElement("div");
+    actions.className = "desktop-message-actions";
+    actions.append(createConversationCopyButton(targetDocument, options.body));
+    content.append(actions);
   }
   article.append(content);
   mountConversationMessageVueIsland(article, {
@@ -2003,6 +2019,7 @@ function createConversationMessage(
       kind: activity.kind,
       name: activity.name || "",
       responseText: activity.responseText || "",
+      runChainItemKey: activity.runChainItemKey,
     })),
   });
   return article;
@@ -2025,6 +2042,7 @@ function mountConversationMessageVueIsland(
       kind: "call" | "result";
       name: string;
       responseText: string;
+      runChainItemKey?: string;
     }>;
   },
 ): void {
@@ -2041,8 +2059,122 @@ function mountConversationMetaVueIsland(meta: HTMLElement, options: { author: st
   mountConversationMetaIsland(meta, options);
 }
 
-function conversationReferenceText(reference: { detail?: string; kind: string; title: string }): string {
-  return `${reference.kind}: ${reference.title}${reference.detail ? ` - ${reference.detail}` : ""}`;
+function createConversationCopyButton(targetDocument: Document, body: string[]): HTMLElement {
+  const button = targetDocument.createElement("button");
+  button.type = "button";
+  button.className = "desktop-message-copy-button";
+  button.setAttribute("aria-label", "Copy message");
+  button.setAttribute("title", "Copy message");
+  const icon = targetDocument.createElement("span");
+  icon.className = "desktop-message-copy-icon";
+  icon.setAttribute("aria-hidden", "true");
+  button.append(icon);
+  button.addEventListener("click", () => {
+    const copyAttempt = copyDesktopText(body.filter((line) => line.trim()).join("\n\n"), targetDocument);
+    button.setAttribute("aria-label", "Copied");
+    button.setAttribute("title", "Copied");
+    void copyAttempt
+      .catch(() => {
+        button.setAttribute("aria-label", "Failed");
+        button.setAttribute("title", "Failed");
+      });
+  });
+  return button;
+}
+
+function createConversationReferenceGroups(
+  targetDocument: Document,
+  references: Array<{ detail?: string; kind: string; title: string }>,
+): HTMLElement | null {
+  const groups = groupConversationReferences(references);
+  if (!groups.length) {
+    return null;
+  }
+  const wrapper = targetDocument.createElement("div");
+  wrapper.className = "desktop-message-references";
+  for (const group of groups) {
+    const details = targetDocument.createElement("details");
+    details.className = `desktop-message-reference-group desktop-message-reference-group-${group.id}`;
+    const summary = targetDocument.createElement("summary");
+    summary.className = "desktop-message-references-summary";
+    const title = createText(targetDocument, "span", group.label);
+    title.className = "desktop-message-references-title";
+    const count = createText(targetDocument, "span", `${group.references.length} ${group.references.length === 1 ? "source" : "sources"}`);
+    count.className = "desktop-message-references-count";
+    summary.append(title, count);
+    const list = targetDocument.createElement("div");
+    list.className = "desktop-message-reference-list";
+    for (const reference of group.references) {
+      const item = targetDocument.createElement("article");
+      item.className = "desktop-message-reference-item desktop-conversation-reference";
+      item.setAttribute("data-desktop-vue-island", "conversation-reference");
+      item.setAttribute("data-desktop-reference-island", mountConversationReferenceIsland.name);
+      item.setAttribute("data-desktop-reference-kind", reference.kind);
+      const kind = createText(targetDocument, "span", `${reference.kind}: `);
+      kind.className = "desktop-message-reference-kind";
+      const referenceTitle = createText(targetDocument, "strong", reference.title);
+      referenceTitle.className = "desktop-message-reference-title";
+      item.append(kind, referenceTitle);
+      if (reference.detail) {
+        const detail = createText(targetDocument, "span", reference.detail);
+        detail.className = "desktop-message-reference-detail";
+        item.append(detail);
+      }
+      list.append(item);
+    }
+    details.append(summary, list);
+    wrapper.append(details);
+  }
+  return wrapper;
+}
+
+function groupConversationReferences(
+  references: Array<{ detail?: string; kind: string; title: string }>,
+): Array<{ id: string; label: string; references: Array<{ detail?: string; kind: string; title: string }> }> {
+  const groups: Array<{ id: string; label: string; references: Array<{ detail?: string; kind: string; title: string }> }> = [];
+  for (const reference of references) {
+    const id = normalizeConversationReferenceKind(reference.kind);
+    const group = groups.find((candidate) => candidate.id === id);
+    if (group) {
+      group.references.push(reference);
+    } else {
+      groups.push({ id, label: conversationReferenceGroupLabel(id), references: [reference] });
+    }
+  }
+  return groups;
+}
+
+function normalizeConversationReferenceKind(kind: string): string {
+  const normalized = kind.toLowerCase();
+  if (normalized.includes("memory")) {
+    return "memory";
+  }
+  if (normalized.includes("recent")) {
+    return "recent";
+  }
+  if (normalized.includes("browser")) {
+    return "browser";
+  }
+  if (normalized.includes("file") || normalized.includes("reference")) {
+    return "file";
+  }
+  return "reference";
+}
+
+function conversationReferenceGroupLabel(kind: string): string {
+  if (kind === "memory") {
+    return "Memory references";
+  }
+  if (kind === "recent") {
+    return "Recent context";
+  }
+  if (kind === "browser") {
+    return "Browser references";
+  }
+  if (kind === "file") {
+    return "File references";
+  }
+  return "References";
 }
 
 function conversationAttachmentText(name: string, sizeLabel: string): string {
@@ -2059,26 +2191,12 @@ function mountConversationAttachmentVueIsland(
   mountConversationAttachmentIsland(attachment, options);
 }
 
-function mountConversationReferenceVueIsland(
-  reference: HTMLElement,
-  options: { detail: string; kind: string; title: string },
-): void {
-  if (!canMountVueIsland(reference)) {
-    return;
-  }
-  mountConversationReferenceIsland(reference, options);
-}
-
 function createConversationReasoning(targetDocument: Document, reasoningContent: string): HTMLElement {
   const details = targetDocument.createElement("details");
   details.className = "desktop-message-reasoning";
   const summary = targetDocument.createElement("summary");
   summary.className = "desktop-message-reasoning-summary";
-  const title = createText(targetDocument, "span", "Thinking");
-  title.className = "desktop-message-reasoning-title";
-  const meta = createText(targetDocument, "span", "Show details");
-  meta.className = "desktop-message-reasoning-meta";
-  summary.append(title, meta);
+  summary.append(createText(targetDocument, "span", "Details"));
   const body = createText(targetDocument, "div", reasoningContent);
   body.className = "desktop-message-reasoning-body";
   details.append(summary, body);
@@ -2095,7 +2213,7 @@ function mountConversationReasoningVueIsland(reasoning: HTMLElement, content: st
 
 function createToolActivities(
   targetDocument: Document,
-  activities: NonNullable<NativeChatMessage["toolActivities"]>,
+  activities: ConversationToolActivityRenderOptions[],
 ): HTMLElement {
   const wrapper = targetDocument.createElement("div");
   wrapper.className = "desktop-tool-activities";
@@ -2109,6 +2227,7 @@ function createToolActivities(
     kind: activity.kind,
     name: activity.name || "",
     responseText: activity.responseText || "",
+    runChainItemKey: activity.runChainItemKey,
   })));
   return wrapper;
 }
@@ -2122,6 +2241,7 @@ function mountToolActivitiesVueIsland(
     kind: "call" | "result";
     name: string;
     responseText: string;
+    runChainItemKey?: string;
   }>,
 ): void {
   if (!canMountVueIsland(wrapper)) {
@@ -2132,7 +2252,7 @@ function mountToolActivitiesVueIsland(
 
 function createToolActivity(
   targetDocument: Document,
-  activity: NonNullable<NativeChatMessage["toolActivities"]>[number],
+  activity: ConversationToolActivityRenderOptions,
 ): HTMLElement {
   const details = targetDocument.createElement("details");
   details.className = "desktop-tool-activity";
@@ -2140,9 +2260,18 @@ function createToolActivity(
   if (activity.id) {
     details.setAttribute("data-desktop-tool-activity-id", activity.id);
   }
+  if (activity.runChainItemKey) {
+    details.setAttribute("data-desktop-run-chain-item-key", activity.runChainItemKey);
+  }
 
   const summary = targetDocument.createElement("summary");
   summary.className = "desktop-tool-activity-summary";
+  summary.addEventListener("click", () => {
+    if (activity.runChainItemKey) {
+      inspectRunChainItemFromConversation(targetDocument, activity.runChainItemKey);
+      dispatchDesktopCustomEvent(targetDocument, "desktop-run-chain-inspect", { itemKey: activity.runChainItemKey });
+    }
+  });
   const icon = createText(targetDocument, "span", ">");
   icon.className = "desktop-tool-activity-icon";
   icon.setAttribute("aria-hidden", "true");
@@ -2187,6 +2316,7 @@ function createToolActivity(
     kind: activity.kind,
     name: activity.name || "",
     responseText: activity.responseText || "",
+    runChainItemKey: activity.runChainItemKey,
   });
   return details;
 }
@@ -2200,6 +2330,7 @@ function mountToolActivityVueIsland(
     kind: "call" | "result";
     name: string;
     responseText: string;
+    runChainItemKey?: string;
   },
 ): void {
   if (!canMountVueIsland(activity)) {
@@ -2216,6 +2347,22 @@ function createToolActivitySection(
 ): HTMLElement {
   const section = targetDocument.createElement("div");
   section.className = `desktop-tool-activity-section desktop-tool-activity-section-${kind}`;
+  if (shouldCollapseToolContent(text)) {
+    const details = targetDocument.createElement("details");
+    details.className = "desktop-tool-activity-content-details";
+    const summary = targetDocument.createElement("summary");
+    summary.className = "desktop-tool-activity-content-summary";
+    const labelNode = createText(targetDocument, "span", label);
+    labelNode.className = "desktop-tool-activity-label";
+    const preview = createText(targetDocument, "span", summarizeToolText(text));
+    preview.className = "desktop-tool-activity-content-preview";
+    const pre = createText(targetDocument, "pre", text);
+    pre.className = "desktop-tool-activity-pre";
+    summary.append(labelNode, preview);
+    details.append(summary, pre);
+    section.append(details);
+    return section;
+  }
   const labelNode = createText(targetDocument, "div", label);
   labelNode.className = "desktop-tool-activity-label";
   const pre = createText(targetDocument, "pre", text);
@@ -2241,6 +2388,10 @@ function summarizeToolText(value: string): string {
     return "No details";
   }
   return normalized.length > 96 ? `${normalized.slice(0, 93)}...` : normalized;
+}
+
+function shouldCollapseToolContent(value: string): boolean {
+  return value.length > 140 || value.split(/\r?\n/).length > 6;
 }
 
 function createConversationBody(
@@ -2284,6 +2435,7 @@ function renderConversationMarkdown(target: HTMLElement, content: string): void 
     target.querySelectorAll("pre code").forEach((block) => {
       hljs.highlightElement(block as HTMLElement);
     });
+    addConversationCodeCopyButtons(target);
   } catch {
     target.textContent = content;
   }
@@ -2291,6 +2443,26 @@ function renderConversationMarkdown(target: HTMLElement, content: string): void 
 
 function addMarkdownLinkAttributes(html: string): string {
   return html.replace(/<a\s+(?![^>]*\btarget=)([^>]*href=)/gi, '<a target="_blank" rel="noreferrer" $1');
+}
+
+function addConversationCodeCopyButtons(target: HTMLElement): void {
+  target.querySelectorAll("pre").forEach((pre) => {
+    const button = target.ownerDocument.createElement("button");
+    button.type = "button";
+    button.className = "desktop-code-copy-button";
+    button.setAttribute("aria-label", "Copy code");
+    button.textContent = "Copy";
+    button.addEventListener("click", () => {
+      const code = pre.querySelector("code");
+      const copyAttempt = copyDesktopText((code?.textContent ?? pre.textContent ?? "").trimEnd(), target.ownerDocument);
+      button.textContent = "Copied";
+      void copyAttempt
+        .catch(() => {
+          button.textContent = "Failed";
+        });
+    });
+    pre.append(button);
+  });
 }
 
 function createNativeComposerSurface(
@@ -3006,7 +3178,7 @@ function createToolsSkillsPane(
     );
     mountSkillDetailSummaryVueIsland(summary, pane.selectedSkill);
     detail.append(summary, createDesktopSkillEditor(targetDocument, pane, toolsSkillsActions));
-    const actions: Array<[DesktopToolsSkillsActionId, string, boolean]> = [
+    const actions: Array<[ToolsSkillsActionId, string, boolean]> = [
       ["createSkill", "Create skill", pane.selectedSkill.actions.create],
       ["saveSkill", "Save skill", pane.selectedSkill.actions.save],
       ["validateSkill", "Validate skill", pane.selectedSkill.actions.validate],
@@ -3054,7 +3226,7 @@ function mountToolsSkillsPaneVueIsland(
 
 function mountToolsSkillsActionsVueIsland(
   actionRow: HTMLElement,
-  actions: Array<[DesktopToolsSkillsActionId, string, boolean]>,
+  actions: Array<[ToolsSkillsActionId, string, boolean]>,
   pane: DesktopToolsSkillsPaneModel,
   toolsSkillsActions: DesktopToolsSkillsActionOptions,
 ): void {
@@ -3228,7 +3400,7 @@ function mountKnowledgePaneVueIsland(
   mountKnowledgePaneIsland(section, {
     pane,
     workItems,
-    onInspectWorkItem: (item) => renderWorkLensFromTask(targetDocument, item),
+    onInspectWorkItem: (item) => renderTaskWorkLens(targetDocument, item),
     onKnowledgeAction: (event) => {
       knowledgeActions.onKnowledgeAction?.(event);
     },
@@ -4829,79 +5001,6 @@ function createDesktopSettingsControl(
   return control;
 }
 
-function createPanelControls(targetDocument: Document, layout: WorkbenchLayoutState): HTMLElement {
-  const controls = targetDocument.createElement("div");
-  controls.className = "desktop-panel-controls";
-  controls.setAttribute("aria-label", "Workbench panel controls");
-
-  const panelControls = buildDesktopPanelControls(layout);
-
-  for (const control of panelControls) {
-    const button = targetDocument.createElement("button");
-    button.className = "desktop-panel-control";
-    button.setAttribute("type", "button");
-    button.setAttribute("data-desktop-panel-control", control.panel);
-    button.setAttribute("aria-label", control.ariaLabel);
-    button.setAttribute("aria-pressed", String(control.visible));
-    if (control.shortcut) {
-      button.setAttribute("aria-keyshortcuts", control.shortcut);
-    }
-    button.textContent = control.label;
-    button.addEventListener("click", () => {
-      toggleDesktopPanel(targetDocument, control.panel);
-    });
-    button.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-      event.preventDefault();
-      toggleDesktopPanel(targetDocument, control.panel);
-    });
-    controls.append(button);
-  }
-
-  mountPanelControlsVueIsland(controls, targetDocument, panelControls);
-  return controls;
-}
-
-function buildDesktopPanelControls(layout: WorkbenchLayoutState): DesktopPanelControlItem[] {
-  return [
-    {
-      panel: "sidebar",
-      label: "Sidebar",
-      ariaLabel: "Toggle sidebar panel",
-      visible: layout.sidebar.visible,
-      shortcut: "Ctrl+B",
-    },
-    {
-      panel: "inspector",
-      label: "Run Chain",
-      ariaLabel: "Toggle Run Chain panel",
-      visible: layout.inspector.visible,
-    },
-    {
-      panel: "bottom",
-      label: "Tasks",
-      ariaLabel: "Toggle task and runtime panel",
-      visible: layout.bottom.visible,
-    },
-  ];
-}
-
-function mountPanelControlsVueIsland(
-  controls: HTMLElement,
-  targetDocument: Document,
-  panelControls: DesktopPanelControlItem[],
-): void {
-  if (!canMountVueIsland(controls)) {
-    return;
-  }
-  mountPanelControlsIsland(controls, {
-    controls: panelControls,
-    onToggle: (panel) => toggleDesktopPanel(targetDocument, panel),
-  });
-}
-
 function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControlId): void {
   const shell = targetDocument.getElementById(SHELL_ID);
   const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
@@ -5059,14 +5158,16 @@ function createRunChainOverviewPanel(
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-run-chain-header-controls";
   for (const [label, value, action] of [
-    ["Pin Run Chain", "Pin", "pin"],
-    ["Close Run Chain", "Close", "close"],
+    ["Pin panel", "Pin", "pin"],
+    ["Close panel", "Close", "close"],
   ]) {
     const button = targetDocument.createElement("button");
     button.type = "button";
     button.className = "desktop-run-chain-icon-button";
     button.setAttribute("aria-label", label);
+    button.setAttribute("title", label);
     button.setAttribute("data-desktop-run-chain-control", action);
+    button.setAttribute("data-button-variant", "ghost");
     if (action === "pin") {
       button.setAttribute("aria-pressed", "false");
     }
@@ -5128,10 +5229,7 @@ function createRunChainOverviewPanel(
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-run-chain-actions";
   actions.append(
-    createRunChainActionButton(targetDocument, "Open Task Center", () => toggleDesktopPanel(targetDocument, "bottom")),
-    createRunChainActionButton(targetDocument, "New Run Chain Item", () => {
-      setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
-    }, "desktop-run-chain-new-item"),
+    createRunChainActionButton(targetDocument, "Open Task Center", () => toggleDesktopPanel(targetDocument, "bottom"), "desktop-run-chain-panel-action", "primary"),
   );
 
   section.append(header, summary, tabs, panel, actions);
@@ -5148,15 +5246,22 @@ function createRunChainSummaryStrip(
   summary.className = "desktop-run-chain-summary-strip";
   const status = runChainOverviewStatus(runChainItems);
   for (const item of [
-    { label: "Gateway", text: "Gateway: Connected", tab: "context" as const },
-    { label: "Run", text: `Run: ${status}`, tab: "tasks" as const },
-    { label: "Items", text: `${runChainItems.length} ${runChainItems.length === 1 ? "item" : "items"}`, tab: "tasks" as const },
+    { label: "Gateway", text: "Gateway: Connected", tab: "context" as const, tone: "connected" },
+    { label: "Run", text: `Run: ${status}`, tab: "tasks" as const, tone: "muted" },
+    { label: "Items", text: `${runChainItems.length} ${runChainItems.length === 1 ? "item" : "items"}`, tab: "tasks" as const, tone: "muted" },
   ]) {
     const button = targetDocument.createElement("button");
     button.type = "button";
-    button.className = "desktop-run-chain-summary-item";
+    button.className = "desktop-run-chain-summary-item desktop-run-chain-status-pill";
     button.setAttribute("data-desktop-run-chain-summary", item.label.toLowerCase());
-    button.textContent = item.text;
+    button.setAttribute("data-status-tone", item.tone);
+    if (item.tone === "connected") {
+      const dot = targetDocument.createElement("span");
+      dot.className = "desktop-run-chain-status-dot";
+      dot.setAttribute("aria-hidden", "true");
+      button.append(dot);
+    }
+    button.append(createText(targetDocument, "span", item.text));
     button.addEventListener("click", () => {
       selectTab(item.tab);
       setRouteStatus(targetDocument, `Run Chain ${item.label}`);
@@ -5183,12 +5288,13 @@ function createRunChainOverviewPanelContent(
   if (tabId === "tasks") {
     const feed = createRunChainActivityFeed(targetDocument, runChainItems);
     return [
-      createRunChainPanelSection(targetDocument, "Current Run", [
-        ["Status", runChainOverviewStatus(runChainItems)],
+      createRunChainPanelSection(targetDocument, "Tasks", [
+        ["Task center", "Available"],
+        ["Run", runChainOverviewStatus(runChainItems)],
         ["Chain items", String(runChainItems.length)],
       ], createRunChainActionButton(targetDocument, "New Run Chain Item", () => {
         setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
-      }, "desktop-run-chain-panel-action desktop-run-chain-new-item")),
+      }, "desktop-run-chain-panel-action desktop-run-chain-new-item", "secondary"), runChainItems.length ? undefined : "No chain items yet."),
       ...(feed ? [feed] : []),
     ];
   }
@@ -5212,6 +5318,7 @@ function createRunChainPanelSection(
   title: string,
   rows: [string, string][],
   action?: HTMLElement,
+  emptyState?: string,
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-run-chain-panel-section";
@@ -5221,6 +5328,12 @@ function createRunChainPanelSection(
     row.className = "desktop-run-chain-card-row";
     row.textContent = `${label}: ${value}`;
     section.append(row);
+  }
+  if (emptyState) {
+    const empty = targetDocument.createElement("p");
+    empty.className = "desktop-run-chain-empty-state";
+    empty.textContent = emptyState;
+    section.append(empty);
   }
   if (action) {
     section.append(action);
@@ -5257,11 +5370,13 @@ function createRunChainActionButton(
   label: string,
   onClick: () => void,
   className = "desktop-run-chain-panel-action",
+  variant: "primary" | "secondary" | "ghost" = "secondary",
 ): HTMLElement {
   const button = targetDocument.createElement("button");
   button.type = "button";
   button.className = className;
   button.setAttribute("data-desktop-run-chain-action", label);
+  button.setAttribute("data-button-variant", variant);
   button.textContent = label;
   button.addEventListener("click", onClick);
   return button;
@@ -5487,6 +5602,7 @@ function mountRunChainInspectorVueIsland(
     return;
   }
   mountRunChainInspectorIsland(section, {
+    eventTarget: targetDocument,
     items,
     selectedItemKey,
     onSelect: (item) => setRouteStatus(targetDocument, `Inspecting ${item.title}`),
@@ -5626,6 +5742,34 @@ function handleGatewayRuntimeActionId(
 
 function canMountVueIsland(element: HTMLElement): boolean {
   return typeof HTMLElement !== "undefined" && element instanceof HTMLElement;
+}
+
+function inspectRunChainItemFromConversation(targetDocument: Document, itemKey: string): void {
+  const shell = targetDocument.getElementById(SHELL_ID);
+  if (shell?.getAttribute("data-inspector-visible") === "false") {
+    toggleDesktopPanel(targetDocument, "inspector");
+  }
+  const row = targetDocument.querySelector<HTMLElement>(`[data-desktop-run-chain-item="${itemKey}"]`);
+  row?.click();
+}
+
+function dispatchDesktopCustomEvent(targetDocument: Document, type: string, detail: Record<string, unknown>): void {
+  const CustomEventConstructor = targetDocument.defaultView?.CustomEvent
+    ?? (typeof CustomEvent !== "undefined" ? CustomEvent : null);
+  if (CustomEventConstructor) {
+    targetDocument.dispatchEvent(new CustomEventConstructor(type, { detail }));
+    return;
+  }
+  targetDocument.dispatchEvent({ type, detail } as unknown as Event);
+}
+
+async function copyDesktopText(text: string, targetDocument: Document): Promise<void> {
+  const clipboard = targetDocument.defaultView?.navigator?.clipboard
+    ?? (typeof navigator !== "undefined" ? navigator.clipboard : undefined);
+  if (!clipboard?.writeText) {
+    throw new Error("Clipboard is unavailable.");
+  }
+  return clipboard.writeText(text);
 }
 
 async function copyGatewayRuntimeDiagnostics(text: string, copyText?: (text: string) => void | Promise<void>): Promise<void> {
@@ -6007,9 +6151,9 @@ function createQuickActions(targetDocument: Document): HTMLElement {
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-quick-actions";
   for (const [label, href] of [
-    ["New chat", "/chat/new"],
+    ["Ask about this project", "/chat/new"],
     ["Open workspace", "/workspace"],
-    ["Gateway status", "/api/status"],
+    ["Check gateway", "/api/status"],
   ]) {
     actions.append(createWorkbenchLink(targetDocument, label, href, "desktop-quick-action"));
   }
@@ -6667,124 +6811,6 @@ function mountInspectorViewVueIsland(
   mountInspectorViewIsland(section, options);
 }
 
-function createSharedSidebarLinkSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-workbench-section";
-  section.append(createText(targetDocument, "h2", group?.label ?? "Resources"));
-  const linkItems: Array<DesktopSidebarItem & { href: string; kind: "link" }> = [];
-  for (const item of group?.items ?? []) {
-    if (item.kind === "link" && item.href) {
-      linkItems.push({ ...item, href: item.href, kind: "link" });
-      section.append(createSharedWorkbenchLink(targetDocument, item));
-    }
-  }
-  mountSharedSidebarLinksVueIsland(section, group?.label, linkItems);
-  return section;
-}
-
-function mountSharedSidebarLinksVueIsland(
-  section: HTMLElement,
-  label: string | undefined,
-  items: Array<DesktopSidebarItem & { href: string; kind: "link" }>,
-): void {
-  if (!canMountVueIsland(section)) {
-    return;
-  }
-  mountSharedSidebarLinksIsland(section, { label, items });
-}
-
-function createSharedSidebarCommandSection(targetDocument: Document, group: DesktopSidebarGroup | undefined): HTMLElement {
-  const section = targetDocument.createElement("section");
-  section.className = "desktop-workbench-section";
-  section.append(createText(targetDocument, "h2", group?.label ?? "System"));
-  const commandItems: Array<DesktopSidebarItem & { commandId: string; kind: "command" }> = [];
-  for (const item of group?.items ?? []) {
-    if (item.kind === "command" && item.commandId) {
-      commandItems.push({ ...item, commandId: item.commandId, kind: "command" });
-      section.append(createSharedSidebarCommandButton(targetDocument, item));
-    }
-  }
-  mountSharedSidebarCommandsVueIsland(section, targetDocument, group?.label, commandItems);
-  return section;
-}
-
-function mountSharedSidebarCommandsVueIsland(
-  section: HTMLElement,
-  targetDocument: Document,
-  label: string | undefined,
-  items: Array<DesktopSidebarItem & { commandId: string; kind: "command" }>,
-): void {
-  if (!canMountVueIsland(section)) {
-    return;
-  }
-  mountSharedSidebarCommandsIsland(section, { label, items, targetDocument });
-}
-
-function createSharedWorkbenchLink(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
-  const link = createWorkbenchLink(targetDocument, item.label, item.href ?? "#", "desktop-workbench-link");
-  applySharedSidebarItemAttributes(link, item);
-  mountSharedSidebarLinkVueIsland(link, item);
-  return link;
-}
-
-function mountSharedSidebarLinkVueIsland(link: HTMLElement, item: DesktopSidebarItem): void {
-  if (!canMountVueIsland(link) || item.kind !== "link" || !item.href) {
-    return;
-  }
-  mountSharedSidebarLinkIsland(link, {
-    href: item.href ?? "#",
-    icon: item.icon,
-    id: item.id,
-    kind: "link",
-    label: item.label,
-  });
-}
-
-function createSharedSidebarCommandButton(targetDocument: Document, item: DesktopSidebarItem): HTMLElement {
-  const button = targetDocument.createElement("button");
-  button.className = "desktop-workbench-link";
-  button.setAttribute("type", "button");
-  button.textContent = item.label;
-  applySharedSidebarItemAttributes(button, item);
-  button.addEventListener("click", () => {
-    if (!item.commandId) {
-      return;
-    }
-    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", {
-      detail: { id: item.commandId, source: "native-sidebar" },
-    }));
-  });
-  mountSharedSidebarCommandButtonVueIsland(button, item);
-  return button;
-}
-
-function mountSharedSidebarCommandButtonVueIsland(button: HTMLElement, item: DesktopSidebarItem): void {
-  if (!canMountVueIsland(button) || item.kind !== "command" || !item.commandId) {
-    return;
-  }
-  mountSharedSidebarCommandButtonIsland(button, {
-    commandId: item.commandId ?? "",
-    icon: item.icon,
-    id: item.id,
-    kind: "command",
-    label: item.label,
-  });
-}
-
-function applySharedSidebarItemAttributes(element: HTMLElement, item: DesktopSidebarItem): void {
-  element.setAttribute("data-sidebar-item-id", item.id);
-  element.setAttribute("data-sidebar-item-kind", item.kind);
-  if (item.href) {
-    element.setAttribute("data-sidebar-href", item.href);
-  }
-  if (item.commandId) {
-    element.setAttribute("data-sidebar-command", item.commandId);
-  }
-  if (item.icon) {
-    element.setAttribute("data-sidebar-icon", item.icon);
-  }
-}
-
 function createWorkbenchLink(targetDocument: Document, label: string, href: string, className: string): HTMLElement {
   const link = targetDocument.createElement("a");
   link.className = className;
@@ -6814,6 +6840,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
   style.id = STYLE_ID;
   style.textContent = `
     body.desktop-native-workbench {
+      --desktop-chat-column-width: 840px;
       margin: 0;
       min-height: 100vh;
       overflow: hidden;
@@ -6922,8 +6949,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-self: start;
       display: grid;
       gap: 12px;
-      width: min(820px, 100%);
-      max-width: 820px;
+      width: min(var(--desktop-chat-column-width), 100%);
+      max-width: var(--desktop-chat-column-width);
       min-width: 0;
       margin: 0 auto;
       border: 0;
@@ -7014,10 +7041,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       gap: 8px;
     }
 
-    body.desktop-native-workbench .desktop-quick-actions .desktop-quick-action:first-child {
-      border-color: var(--primary);
-      background: var(--primary);
-      color: #ffffff;
+    body.desktop-native-workbench .desktop-quick-action {
+      border-color: var(--border);
+      background: var(--panel);
+      color: var(--text-muted);
+      padding: 0 12px;
+    }
+
+    body.desktop-native-workbench .desktop-quick-action:hover,
+    body.desktop-native-workbench .desktop-quick-action:focus-visible {
+      border-color: #dfd4cc;
+      background: #fffaf5;
+      color: var(--text);
     }
 
     body.desktop-native-workbench .desktop-panel-controls {
@@ -7713,7 +7748,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       display: block;
-      width: min(1100px, 100%);
+      width: min(var(--desktop-chat-column-width), calc(100% - 112px));
       min-width: 0;
       margin: 0 auto 10px;
       border: 1px solid var(--border);
@@ -7801,7 +7836,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-area: runtime;
       display: flex;
       flex-wrap: nowrap;
-      gap: 16px;
+      gap: 10px;
       align-items: center;
       justify-content: flex-end;
       min-width: 0;
@@ -7851,9 +7886,25 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-activity-rail {
       justify-content: space-between;
-      gap: 14px;
-      padding: 16px 10px 18px;
+      gap: 12px;
+      padding: 14px 10px 16px;
       background: #fbfaf7;
+    }
+
+    body.desktop-native-workbench .desktop-activity-rail > .n-config-provider {
+      display: flex;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    body.desktop-native-workbench .desktop-activity-rail-stack {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
     }
 
     body.desktop-native-workbench .desktop-activity-primary,
@@ -7863,12 +7914,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
     }
 
+    body.desktop-native-workbench .desktop-activity-secondary {
+      margin-top: auto;
+    }
+
     body.desktop-native-workbench .desktop-activity-button,
     body.desktop-native-workbench .desktop-activity-secondary-button {
       width: 72px;
-      min-height: 48px;
+      min-height: 42px;
       border-radius: 8px;
-      color: #2f302e;
+      color: #5f5b56;
       font-size: 11px;
       font-weight: 700;
       line-height: 1.15;
@@ -7880,9 +7935,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-activity-button[data-active="true"],
     body.desktop-native-workbench .desktop-activity-secondary-button[data-active="true"] {
       border-color: #eaded8;
-      background: #ffffff;
+      background: #fff7ef;
       color: var(--primary);
-      box-shadow: 0 8px 20px rgba(20, 20, 19, 0.08);
+      box-shadow: none;
     }
 
     body.desktop-native-workbench .desktop-activity-secondary-button {
@@ -7893,6 +7948,13 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: transparent;
       text-decoration: none;
       cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-activity-secondary-button:hover,
+    body.desktop-native-workbench .desktop-activity-secondary-button:focus-visible {
+      border-color: #eaded8;
+      background: #fff7ef;
+      color: #262522;
     }
 
     body.desktop-native-workbench .desktop-workbench-link[data-active="true"] {
@@ -7919,19 +7981,30 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-sidebar-content {
-      display: grid;
-      grid-template-rows: auto auto auto;
-      align-content: start;
+      display: flex;
+      flex-direction: column;
       gap: 10px;
       height: 100%;
       min-height: 0;
       padding: 18px 14px;
-      overflow: hidden;
+      overflow-y: auto;
+      overflow-x: hidden;
       background: #fbfaf7;
     }
 
     body.desktop-native-workbench .desktop-sidebar-content > .desktop-workbench-section {
-      display: none;
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      border: 0;
+      padding: 4px 0 0;
+      background: transparent;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-content > .desktop-workbench-section:last-child {
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid #ebe3dc;
     }
 
     body.desktop-native-workbench .desktop-sidebar-actions {
@@ -8039,6 +8112,31 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       text-decoration: none;
     }
 
+    body.desktop-native-workbench .desktop-workbench-link {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      width: 100%;
+      min-height: 30px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 0 9px;
+      background: transparent;
+      color: #4d4944;
+      font: 500 12px/1.2 var(--font-sans);
+      text-align: left;
+      text-decoration: none;
+      cursor: pointer;
+      appearance: none;
+    }
+
+    body.desktop-native-workbench .desktop-workbench-link:hover,
+    body.desktop-native-workbench .desktop-workbench-link:focus-visible {
+      border-color: #eee4dd;
+      background: #fff7ef;
+      color: #262522;
+    }
+
     body.desktop-native-workbench .desktop-sidebar-chat-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -8103,7 +8201,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-sidebar-chat-row[data-active="true"],
     body.desktop-native-workbench .desktop-sidebar-row[data-active="true"] {
       border-color: #f0d8cf;
-      background: #f8e7e1;
+      background: #fff7ef;
       color: #b4533c;
     }
 
@@ -8140,6 +8238,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-workbench {
+      --desktop-composer-reserve: 152px;
       align-self: stretch;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -8167,17 +8266,44 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       white-space: nowrap;
     }
 
+    body.desktop-native-workbench .desktop-chat-workbench-chrome {
+      display: grid;
+      gap: 12px;
+      width: min(var(--desktop-chat-column-width), 100%);
+      margin: 14px auto 0;
+      padding: 24px 0;
+      background: transparent;
+    }
+
+    body.desktop-native-workbench .desktop-chat-workbench-chrome h2 {
+      margin: 0;
+      color: #1f1d1a;
+      font: 700 18px/1.25 var(--font-sans);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-workbench-chrome p {
+      max-width: 520px;
+      color: #69635d;
+      font: 500 13px/1.55 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-chat-workbench-chrome .desktop-quick-actions {
+      gap: 8px;
+    }
+
     body.desktop-native-workbench .desktop-chat-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      width: min(1120px, 100%);
+      width: min(var(--desktop-chat-column-width), 100%);
       min-width: 0;
       min-height: 54px;
-      border-bottom: 1px solid #e9e4df;
-      padding: 0 18px;
-      background: #ffffff;
+      margin: 0 auto;
+      border-bottom: 0;
+      padding: 0;
+      background: transparent;
     }
 
     body.desktop-native-workbench .desktop-chat-title-row {
@@ -8186,6 +8312,21 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       gap: 8px;
       min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-title-group {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-context {
+      overflow: hidden;
+      color: #8a8179;
+      font: 650 11px/1.1 var(--font-sans);
+      letter-spacing: 0;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     body.desktop-native-workbench .desktop-chat-header h1 {
@@ -8339,32 +8480,67 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-conversation-thread {
       display: grid;
       align-content: start;
-      gap: 22px;
-      width: min(1120px, 100%);
+      justify-items: stretch;
+      gap: 10px;
+      width: min(var(--desktop-chat-column-width), 100%);
       min-height: 0;
-      padding: 32px min(8vw, 72px) 22px;
+      margin: 0 auto;
+      padding: 18px 0 var(--desktop-composer-reserve);
       overflow-y: auto;
       overflow-x: hidden;
     }
 
     body.desktop-native-workbench .desktop-conversation-message {
       display: grid;
-      max-width: 760px;
+      justify-self: stretch;
+      width: 100%;
+      max-width: 100%;
       min-width: 0;
     }
 
+    body.desktop-native-workbench .desktop-conversation-content-card,
     body.desktop-native-workbench .desktop-conversation-content {
       display: grid;
-      gap: 10px;
+      gap: 8px;
+      width: 100%;
       min-width: 0;
+      border: 0;
+      border-radius: 0;
+      padding: 4px 0 8px;
+      background: transparent;
       color: #1f1d1a;
-      font: 14px/1.75 var(--font-sans);
+      font: 14px/1.58 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-conversation-message[data-message-tone="assistant"] .desktop-conversation-content {
+      padding: 4px 0 8px;
+      line-height: 1.62;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-content-card .n-card__content {
+      padding: 0;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-content-card {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 0;
+      min-height: 20px;
     }
 
     body.desktop-native-workbench .desktop-conversation-meta {
       display: flex;
       align-items: baseline;
-      gap: 10px;
+      gap: 6px;
       min-width: 0;
       color: #6d6964;
       font-size: 12px;
@@ -8374,6 +8550,59 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-conversation-meta strong {
       color: #1f1d1a;
       font-size: 14px;
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-message-copy-button {
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0;
+      background: transparent;
+      color: #77716a;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-message-copy-button:hover,
+    body.desktop-native-workbench .desktop-message-copy-button:focus-visible {
+      background: #f7f2ed;
+      color: #3f3a35;
+      outline: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-actions {
+      display: flex;
+      justify-content: flex-start;
+      min-height: 24px;
+      margin-top: 2px;
+    }
+
+    body.desktop-native-workbench .desktop-message-copy-icon,
+    body.desktop-native-workbench .desktop-message-copy-icon::before,
+    body.desktop-native-workbench .desktop-message-copy-icon::after {
+      box-sizing: border-box;
+      display: block;
+      width: 12px;
+      height: 12px;
+      border: 1.5px solid currentColor;
+      border-radius: 3px;
+    }
+
+    body.desktop-native-workbench .desktop-message-copy-icon {
+      position: relative;
+      transform: translate(2px, -2px);
+    }
+
+    body.desktop-native-workbench .desktop-message-copy-icon::before {
+      content: "";
+      position: absolute;
+      right: 4px;
+      top: 4px;
+      background: transparent;
     }
 
     body.desktop-native-workbench .desktop-conversation-content p {
@@ -8382,15 +8611,26 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-message-reasoning {
-      overflow: hidden;
-      border: 1px solid #e2d9d2;
-      border-radius: 8px;
-      background: #fbfaf7;
-      color: #625d57;
-      font-size: 13px;
+      display: grid;
+      justify-items: end;
+      justify-self: stretch;
+      width: 100%;
+      max-width: 100%;
+      margin-top: 0;
+      overflow: visible;
+      border: 0;
+      background: transparent;
+      color: #77716a;
+      font-size: 11px;
+      opacity: 0.86;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning[open] {
+      justify-items: stretch;
     }
 
     body.desktop-native-workbench .desktop-message-reasoning summary {
+      justify-self: end;
       list-style: none;
     }
 
@@ -8401,23 +8641,92 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-message-reasoning-summary {
       display: flex;
       align-items: center;
-      gap: 10px;
-      min-height: 36px;
-      padding: 8px 11px;
+      gap: 5px;
+      width: fit-content;
+      margin-left: auto;
+      min-height: 22px;
+      border-radius: 999px;
+      padding: 0 7px;
+      background: transparent;
+      color: #77716a;
+      font: 650 11px/1.2 var(--font-sans);
       cursor: pointer;
       user-select: none;
     }
 
+    body.desktop-native-workbench .desktop-message-reasoning-summary:hover,
+    body.desktop-native-workbench .desktop-message-reasoning-summary:focus-visible {
+      background: #f7f2ed;
+      color: #3f3a35;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-summary::before {
+      content: "";
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-summary::after {
+      content: "⌄";
+      color: #8c847c;
+      font: 700 11px/1 var(--font-sans);
+      transition: transform 150ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning[open] .desktop-message-reasoning-summary::after {
+      transform: rotate(90deg);
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-toggle {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      width: fit-content;
+      margin-left: auto;
+      min-height: 22px;
+      border: 0;
+      border-radius: 999px;
+      padding: 0 7px;
+      background: transparent;
+      color: #77716a;
+      font: 650 11px/1.2 var(--font-sans);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-toggle:hover,
+    body.desktop-native-workbench .desktop-message-reasoning-toggle:focus-visible {
+      background: #f7f2ed;
+      color: #3f3a35;
+      outline: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-toggle::before {
+      content: ">";
+      display: inline-block;
+      color: #8c847c;
+      font: 700 11px/1 var(--font-sans);
+      transition: transform 150ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-toggle[aria-expanded="true"]::before {
+      transform: rotate(90deg);
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning[data-expanded="true"] {
+      justify-items: stretch;
+    }
+
     body.desktop-native-workbench .desktop-message-reasoning-summary::before {
       content: ">";
-      display: grid;
-      place-items: center;
-      width: 16px;
-      height: 16px;
-      border-radius: 4px;
-      color: #a9583e;
-      font: 700 11px/1 var(--font-mono);
+      display: inline-block;
+      color: #8c847c;
+      font: 700 11px/1 var(--font-sans);
       transition: transform 150ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-message-reasoning-summary::after {
+      content: none;
+      display: none;
     }
 
     body.desktop-native-workbench .desktop-message-reasoning[open] .desktop-message-reasoning-summary::before {
@@ -8436,9 +8745,16 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-message-reasoning-body {
-      max-height: 320px;
+      box-sizing: border-box;
+      width: 100%;
+      max-height: 240px;
+      margin-top: 8px;
       overflow: auto;
-      padding: 0 14px 12px 37px;
+      border: 1px solid #eee6de;
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fffaf6;
+      color: #625d57;
       white-space: pre-wrap;
     }
 
@@ -8551,6 +8867,34 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       padding: 5px 0 7px;
     }
 
+    body.desktop-native-workbench .desktop-tool-activity-content-details {
+      display: grid;
+      gap: 6px;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-content-summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      color: #7a746d;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-content-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-content-preview {
+      min-width: 0;
+      overflow: hidden;
+      color: #8a847e;
+      font: 11px/1.4 var(--font-mono);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     body.desktop-native-workbench .desktop-tool-activity-label {
       color: #7a746d;
       font-size: 10px;
@@ -8608,6 +8952,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-conversation-body pre {
+      position: relative;
       margin: 12px 0;
       min-height: auto;
       max-width: 100%;
@@ -8618,6 +8963,26 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: #fbfaf7;
       color: #1f1d1a;
       font: 12px/1.55 var(--font-mono);
+    }
+
+    body.desktop-native-workbench .desktop-code-copy-button {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      border: 1px solid #e6ded6;
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: rgba(255, 253, 249, 0.92);
+      color: #6d6964;
+      font: 650 11px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-code-copy-button:hover,
+    body.desktop-native-workbench .desktop-code-copy-button:focus-visible {
+      background: #f7f2ed;
+      color: #3f3a35;
+      outline: none;
     }
 
     body.desktop-native-workbench .desktop-conversation-body code {
@@ -8653,6 +9018,83 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-bottom-color: #a9583e;
     }
 
+    body.desktop-native-workbench .desktop-message-references {
+      display: grid;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    body.desktop-native-workbench .desktop-message-reference-group {
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #6d6964;
+      font-size: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-message-references-summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: fit-content;
+      border-radius: 999px;
+      padding: 3px 8px;
+      color: #77716a;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-references-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-references-summary:hover,
+    body.desktop-native-workbench .desktop-message-references-summary:focus-visible {
+      background: #f7f2ed;
+      color: #3f3a35;
+      outline: none;
+    }
+
+    body.desktop-native-workbench .desktop-message-references-title {
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-message-references-count {
+      color: #8a847e;
+      font-size: 11px;
+    }
+
+    body.desktop-native-workbench .desktop-message-reference-list {
+      display: grid;
+      gap: 5px;
+      padding: 5px 0 0 8px;
+    }
+
+    body.desktop-native-workbench .desktop-message-reference-item {
+      display: grid;
+      gap: 2px;
+      border-left: 2px solid #eee2d7;
+      padding-left: 8px;
+      color: #625d57;
+    }
+
+    body.desktop-native-workbench .desktop-message-reference-title {
+      color: #3f3a35;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-message-reference-kind {
+      color: #8a847e;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-message-reference-detail {
+      color: #7a746d;
+      font-size: 11px;
+    }
+
     body.desktop-native-workbench .desktop-conversation-body table {
       width: 100%;
       margin: 12px 0;
@@ -8679,7 +9121,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       position: relative;
-      width: min(1120px, calc(100% - 40px));
+      width: min(var(--desktop-chat-column-width), calc(100% - 112px));
       min-height: 0;
       margin: 0 auto 8px;
       border-color: #ddd5cd;
@@ -8693,7 +9135,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-template-columns: 40px minmax(0, 1fr) 44px;
       grid-template-rows: auto auto;
       grid-template-areas: "input input input" "attach runtime send";
-      gap: 10px 18px;
+      gap: 10px 14px;
       align-items: end;
     }
 
@@ -8732,7 +9174,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       max-height: none;
       overflow-x: auto;
       overflow-y: visible;
-      gap: 16px;
+      gap: 10px;
       flex-wrap: nowrap;
       min-width: 0;
     }
@@ -8742,20 +9184,28 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border: 0;
       border-radius: 999px;
       padding: 0 14px;
-      background: #fffaf6;
+      background: transparent;
       color: #262522;
       font: 600 12px/1.2 var(--font-sans);
       box-shadow: none;
       cursor: pointer;
     }
 
-    body.desktop-native-workbench .desktop-native-composer-model:focus-visible,
-    body.desktop-native-workbench .desktop-native-composer-rag-toggle[aria-pressed="true"] {
+    body.desktop-native-workbench .desktop-native-composer-model:hover,
+    body.desktop-native-workbench .desktop-native-composer-model:focus-visible {
       outline: 0;
-      box-shadow: 0 8px 20px rgba(216, 112, 72, 0.18);
+      background: #fff7ef;
+      box-shadow: none;
     }
 
-    body.desktop-native-workbench .desktop-native-composer-rag-toggle[aria-pressed="false"] {
+    body.desktop-native-workbench .desktop-native-composer-rag-toggle:hover,
+    body.desktop-native-workbench .desktop-native-composer-rag-toggle[aria-pressed="true"] {
+      background: #fff7ef;
+      box-shadow: none;
+    }
+
+    body.desktop-native-workbench .desktop-native-composer-rag-toggle[aria-pressed="false"]:not(:hover):not(:focus-visible) {
+      background: transparent;
       box-shadow: none;
     }
 
@@ -9414,6 +9864,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       cursor: pointer;
     }
 
+    body.desktop-native-workbench .desktop-run-chain-icon-button[data-button-variant="ghost"] {
+      border-color: transparent;
+      background: transparent;
+      color: #77716a;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-icon-button[data-button-variant="ghost"]:hover,
+    body.desktop-native-workbench .desktop-run-chain-icon-button[data-button-variant="ghost"]:focus-visible {
+      background: #f2eee8;
+      color: #262522;
+    }
+
     body.desktop-native-workbench .desktop-run-chain-icon-button[aria-pressed="true"] {
       border-color: rgba(217, 104, 76, 0.35);
       background: rgba(217, 104, 76, 0.1);
@@ -9421,36 +9883,63 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-run-chain-summary-strip {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 6px;
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 7px;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-run-chain-summary-item {
-      display: grid;
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 6px;
+      flex: 1 1 0;
       min-width: 0;
-      min-height: 34px;
-      border: 1px solid #e6dfd8;
-      border-radius: 6px;
-      padding: 5px 7px;
+      min-height: 26px;
+      border: 0;
+      border-radius: 999px;
+      padding: 0 8px;
       overflow: hidden;
-      background: #fffdf9;
-      color: #3f3a35;
-      font: 700 11px/1.25 var(--font-sans);
+      background: #f4eee8;
+      color: #625d57;
+      font: 650 11px/1.2 var(--font-sans);
       text-align: left;
       text-overflow: ellipsis;
       white-space: nowrap;
       cursor: pointer;
     }
 
+    body.desktop-native-workbench .desktop-run-chain-summary-item span:last-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-status-pill[data-status-tone="connected"] {
+      background: #eff8f2;
+      color: #28694b;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-status-pill[data-status-tone="muted"] {
+      background: #f5f1ec;
+      color: #77716a;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #2f9b62;
+      box-shadow: 0 0 0 2px rgba(47, 155, 98, 0.13);
+    }
+
     body.desktop-native-workbench .desktop-run-chain-tabs {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 4px;
+      gap: 2px;
       min-width: 0;
-      border: 1px solid #e3dbd4;
-      border-radius: 7px;
+      border: 0;
+      border-radius: 8px;
       padding: 3px;
       background: #f2eee8;
     }
@@ -9459,18 +9948,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 30px;
       border: 0;
-      border-radius: 5px;
+      border-radius: 6px;
       padding: 0 8px;
       background: transparent;
-      color: #262522;
-      font: 700 12px/1.2 var(--font-sans);
+      color: #625d57;
+      font: 650 12px/1.2 var(--font-sans);
       cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-run-chain-tab[aria-selected="true"] {
       background: #ffffff;
       color: #1f1d1a;
-      box-shadow: 0 1px 2px rgba(20, 20, 19, 0.06);
+      box-shadow: 0 1px 1px rgba(20, 20, 19, 0.04);
     }
 
     body.desktop-native-workbench .desktop-run-chain-panel {
@@ -9485,22 +9974,37 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: grid;
       gap: 7px;
       min-width: 0;
-      border-top: 1px solid #e7dfd8;
-      padding: 10px 0 2px;
+      border: 1px solid #ebe3dc;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fffdf9;
     }
 
     body.desktop-native-workbench .desktop-run-chain-card-row {
       margin: 0;
-      color: #4e4943;
-      font: 12px/1.4 var(--font-sans);
+      color: #77716a;
+      font: 500 11px/1.45 var(--font-sans);
       overflow-wrap: anywhere;
     }
 
+    body.desktop-native-workbench .desktop-run-chain-empty-state {
+      margin: 2px 0 0;
+      border-radius: 7px;
+      padding: 8px 9px;
+      background: #f7f2ed;
+      color: #77716a;
+      font: 500 12px/1.35 var(--font-sans);
+    }
+
     body.desktop-native-workbench .desktop-run-chain-actions {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      display: flex;
+      justify-content: stretch;
       gap: 8px;
       min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-actions .desktop-run-chain-panel-action {
+      flex: 1 1 auto;
     }
 
     body.desktop-native-workbench .desktop-run-chain-panel-action,
@@ -9518,16 +10022,30 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       cursor: pointer;
     }
 
+    body.desktop-native-workbench .desktop-run-chain-panel-action[data-button-variant="primary"] {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-panel-action[data-button-variant="secondary"],
+    body.desktop-native-workbench .desktop-run-chain-new-item[data-button-variant="secondary"] {
+      border-color: #e2d9d2;
+      background: #ffffff;
+      color: #3f3a35;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-panel-action[data-button-variant="ghost"] {
+      border-color: transparent;
+      background: transparent;
+      color: #77716a;
+    }
+
     body.desktop-native-workbench .desktop-run-chain-feed-item {
       overflow: hidden;
       text-align: left;
       text-overflow: ellipsis;
       white-space: nowrap;
-    }
-
-    body.desktop-native-workbench .desktop-run-chain-new-item {
-      border-color: var(--primary);
-      color: var(--primary);
     }
 
     body.desktop-native-workbench .desktop-bottom-content {
@@ -10073,6 +10591,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row-meta,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-context,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-empty-session p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-section p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workspace-title-group p,
@@ -10084,16 +10603,31 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-detail,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-action-status,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-action-summary,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-empty-state,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-card-row,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-gateway-runtime-row {
       color: var(--text-muted);
     }
 
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-empty-state {
+      background: var(--panel-strong);
+    }
+
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-send:not(:disabled),
-    html[data-theme="dark"] body.desktop-native-workbench .desktop-quick-actions .desktop-quick-action:first-child {
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-panel-action[data-button-variant="primary"] {
       background: var(--accent);
       border-color: var(--accent);
       color: var(--on-primary);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-status-pill[data-status-tone="connected"] {
+      background: rgba(47, 155, 98, 0.16);
+      color: #8ed3a8;
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-status-pill[data-status-tone="muted"] {
+      background: var(--panel-strong);
+      color: var(--text-muted);
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-diagnostics:not(:empty),
@@ -10145,19 +10679,21 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-chat-header {
         min-height: 54px;
-        padding: 0 16px;
+        width: min(var(--desktop-chat-column-width), 100%);
+        padding: 0;
       }
 
       body.desktop-native-workbench .desktop-conversation-thread {
-        padding: 28px 18px 18px;
+        width: min(var(--desktop-chat-column-width), 100%);
+        padding: 18px 0 var(--desktop-composer-reserve);
       }
 
       body.desktop-native-workbench .desktop-conversation-message {
-        grid-template-columns: 48px minmax(0, 1fr);
+        width: 100%;
       }
 
       body.desktop-native-workbench .desktop-native-composer {
-        width: calc(100% - 28px);
+        width: min(var(--desktop-chat-column-width), calc(100% - 28px));
       }
 
       body.desktop-native-workbench .desktop-native-composer-layout {

@@ -430,6 +430,16 @@ function coworkResults(rows: DesktopCoworkSessionRow[]): DesktopCommandPaletteRe
 
 function commandKeywords(id: DesktopMenuCommandId): string[] {
   switch (id) {
+    case "open-workspace":
+      return ["workspace", "files", "project"];
+    case "open-knowledge":
+      return ["knowledge", "documents", "rag"];
+    case "open-tools":
+      return ["tools", "skills"];
+    case "open-automations":
+      return ["automations", "cowork", "agents"];
+    case "open-tinybot-repo":
+      return ["github", "repo", "repository"];
     case "open-docs":
       return ["desktop", "docs", "help", "documentation"];
     case "open-shortcut-help":

@@ -99,19 +99,23 @@ function renderHeader(
       default: () => [
         h(NButton, {
           class: "desktop-run-chain-icon-button",
-          "aria-label": "Pin Run Chain",
+          "aria-label": "Pin panel",
           "aria-pressed": String(pinned),
           "data-desktop-run-chain-control": "pin",
+          "data-button-variant": "ghost",
           size: "tiny",
           secondary: true,
+          title: "Pin panel",
           onClick: () => onPin(!pinned),
         }, { default: () => (pinned ? "Pinned" : "Pin") }),
         h(NButton, {
           class: "desktop-run-chain-icon-button",
-          "aria-label": "Close Run Chain",
+          "aria-label": "Close panel",
           "data-desktop-run-chain-control": "close",
+          "data-button-variant": "ghost",
           size: "tiny",
           secondary: true,
+          title: "Close panel",
           onClick: () => options.onAction?.({ type: "close" }),
         }, { default: () => "Close" }),
       ],
@@ -129,21 +133,29 @@ function renderSummaryStrip(
 ) {
   const status = runChainOverviewStatus(items);
   const summaries = [
-    { value: "gateway", label: "Gateway", text: "Gateway: Connected", tab: "context" },
-    { value: "run", label: "Run", text: `Run: ${status}`, tab: "tasks" },
-    { value: "items", label: "Items", text: `${items.length} ${items.length === 1 ? "item" : "items"}`, tab: "tasks" },
+    { value: "gateway", label: "Gateway", text: "Gateway: Connected", tab: "context", tone: "connected" },
+    { value: "run", label: "Run", text: `Run: ${status}`, tab: "tasks", tone: "muted" },
+    { value: "items", label: "Items", text: `${items.length} ${items.length === 1 ? "item" : "items"}`, tab: "tasks", tone: "muted" },
   ] as const;
   return h(NSpace, {
     class: "desktop-run-chain-summary-strip",
     size: 8,
   }, {
     default: () => summaries.map((summary) => h(NButton, {
-      class: "desktop-run-chain-summary-item",
+      class: "desktop-run-chain-summary-item desktop-run-chain-status-pill",
       "data-desktop-run-chain-summary": summary.value,
+      "data-status-tone": summary.tone,
       size: "tiny",
       secondary: true,
       onClick: () => onSelect(summary),
-    }, { default: () => summary.text })),
+    }, {
+      default: () => [
+        summary.tone === "connected"
+          ? h("span", { class: "desktop-run-chain-status-dot", "aria-hidden": "true" })
+          : null,
+        h("span", summary.text),
+      ],
+    })),
   });
 }
 
@@ -196,10 +208,11 @@ function renderPanelContent(tab: RunChainOverviewIslandTab, options: RunChainOve
 
   if (tab === "tasks") {
     return [
-      renderPanelSection("Current Run", [
-        ["Status", runChainOverviewStatus(options.items)],
+      renderPanelSection("Tasks", [
+        ["Task center", "Available"],
+        ["Run", runChainOverviewStatus(options.items)],
         ["Chain items", String(options.items.length)],
-      ], renderNewItemButton(options, "desktop-run-chain-panel-action desktop-run-chain-new-item")),
+      ], renderNewItemButton(options, "desktop-run-chain-panel-action desktop-run-chain-new-item", "secondary"), options.items.length ? undefined : "No chain items yet."),
       options.items.length ? renderActivityFeed(options.items, options) : null,
     ];
   }
@@ -225,6 +238,7 @@ function renderPanelSection(
   title: string,
   rows: [string, string][],
   action?: ReturnType<typeof h>,
+  emptyState?: string,
 ) {
   return h(NCard, {
     class: "desktop-run-chain-panel-section",
@@ -237,6 +251,7 @@ function renderPanelSection(
       ...rows.map(([label, value]) => h("p", {
         class: "desktop-run-chain-card-row",
       }, `${label}: ${value}`)),
+      emptyState ? h("p", { class: "desktop-run-chain-empty-state" }, emptyState) : null,
       action ?? null,
     ],
   });
@@ -271,19 +286,24 @@ function renderActions(options: RunChainOverviewIslandOptions) {
       h(NButton, {
         class: "desktop-run-chain-panel-action",
         "data-desktop-run-chain-action": "Open Task Center",
+        "data-button-variant": "primary",
         size: "small",
-        secondary: true,
+        type: "primary",
         onClick: () => options.onAction?.({ type: "open-task-center" }),
       }, { default: () => "Open Task Center" }),
-      renderNewItemButton(options, "desktop-run-chain-panel-action desktop-run-chain-new-item"),
     ],
   });
 }
 
-function renderNewItemButton(options: RunChainOverviewIslandOptions, className: string) {
+function renderNewItemButton(
+  options: RunChainOverviewIslandOptions,
+  className: string,
+  variant = "secondary",
+) {
   return h(NButton, {
     class: className,
     "data-desktop-run-chain-action": "New Run Chain Item",
+    "data-button-variant": variant,
     size: "small",
     secondary: true,
     onClick: () => options.onAction?.({ type: "new-item" }),
