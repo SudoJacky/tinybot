@@ -379,6 +379,25 @@ describe("desktop workbench shell Vue integration", () => {
     expect(thread?.textContent).toContain("No messages in this session.");
   });
 
+  test("renders fallback conversation messages through the Vue shell island without an active chat", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const messages = document.querySelectorAll<HTMLElement>(".desktop-conversation-message");
+    expect(messages.length).toBeGreaterThanOrEqual(2);
+    expect(messages[0]?.getAttribute("data-desktop-vue-island")).toBe("conversation-message");
+    expect(messages[0]?.getAttribute("data-message-tone")).toBe("user");
+    expect(messages[1]?.getAttribute("data-desktop-vue-island")).toBe("conversation-message");
+    expect(messages[1]?.getAttribute("data-message-tone")).toBe("assistant");
+    expect(messages[1]?.querySelector(".desktop-conversation-attachment")?.textContent).toContain("tinybot_native_workbench_design.png");
+  });
+
   test("renders the native composer through the Vue shell island", async () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
