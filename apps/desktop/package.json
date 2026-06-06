@@ -19,9 +19,11 @@
     "highlight.js": "^11.11.1",
     "marked": "^18.0.4",
     "naive-ui": "^2.44.1",
+    "pinia": "^3.0.4",
     "sigma": "^3.0.3",
     "three": "^0.184.0",
-    "vue": "^3.5.35"
+    "vue": "^3.5.35",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
