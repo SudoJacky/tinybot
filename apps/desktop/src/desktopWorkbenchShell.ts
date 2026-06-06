@@ -96,6 +96,7 @@ import { mountFileUploadStatusIsland } from "./native-vue/fileUploadStatusIsland
 import { mountFormatChipListIsland } from "./native-vue/formatChipListIsland";
 import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
 import { mountHeaderPanelControlIsland } from "./native-vue/headerPanelControlIsland";
+import { mountHelpSurfaceIsland } from "./native-vue/helpSurfaceIsland";
 import { mountInspectorRegionIsland } from "./native-vue/inspectorRegionIsland";
 import { mountInspectorViewIsland } from "./native-vue/inspectorViewIsland";
 import { mountKnowledgeActionsIsland } from "./native-vue/knowledgeActionsIsland";
@@ -107,9 +108,11 @@ import { mountKnowledgeQueryIsland } from "./native-vue/knowledgeQueryIsland";
 import { mountKnowledgeReadinessIsland } from "./native-vue/knowledgeReadinessIsland";
 import { mountKnowledgeReferenceRowIsland } from "./native-vue/knowledgeReferenceRowIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
+import { mountModuleWorkSectionIsland } from "./native-vue/moduleWorkSectionIsland";
 import { mountPanelControlsIsland } from "./native-vue/panelControlsIsland";
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
 import { mountPersistentRagToggleIsland } from "./native-vue/persistentRagToggleIsland";
+import { mountQuickActionsIsland } from "./native-vue/quickActionsIsland";
 import { mountRecentChatRowIsland } from "./native-vue/recentChatRowIsland";
 import { mountRunChainInspectorIsland } from "./native-vue/runChainInspectorIsland";
 import { mountRunChainOverviewIsland } from "./native-vue/runChainOverviewIsland";
@@ -134,6 +137,7 @@ import { mountSharedSidebarCommandsIsland } from "./native-vue/sharedSidebarComm
 import { mountSharedSidebarLinkIsland } from "./native-vue/sharedSidebarLinkIsland";
 import { mountSharedSidebarLinksIsland } from "./native-vue/sharedSidebarLinksIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
+import { mountSkillEditorIsland } from "./native-vue/skillEditorIsland";
 import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";
 import { mountSkillsListIsland } from "./native-vue/skillsListIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
@@ -150,6 +154,7 @@ import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
 import { mountTokenUsageOrbIsland } from "./native-vue/tokenUsageOrbIsland";
 import { mountWorkLensIsland } from "./native-vue/workLensIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
+import { mountWorkspaceBrowserIsland } from "./native-vue/workspaceBrowserIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
 
@@ -2608,14 +2613,10 @@ function mountModuleWorkSectionVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/moduleWorkSectionIsland").then(({ mountModuleWorkSectionIsland }) => {
-    mountModuleWorkSectionIsland(section, {
-      title,
-      items,
-      onInspect: (item) => inspectModuleWorkItem(targetDocument, item),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountModuleWorkSectionIsland(section, {
+    title,
+    items,
+    onInspect: (item) => inspectModuleWorkItem(targetDocument, item),
   });
 }
 
@@ -4017,20 +4018,16 @@ function mountSkillEditorVueIsland(
   if (!canMountVueIsland(editor) || !pane.selectedSkill) {
     return;
   }
-  void import("./native-vue/skillEditorIsland").then(({ mountSkillEditorIsland }) => {
-    mountSkillEditorIsland(editor, {
-      skill: pane.selectedSkill!,
-      onEdit: (field, value) => {
-        toolsSkillsActions.onToolsSkillsAction?.({
-          action: "editSkill",
-          pane,
-          field,
-          value,
-        });
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSkillEditorIsland(editor, {
+    skill: pane.selectedSkill!,
+    onEdit: (field, value) => {
+      toolsSkillsActions.onToolsSkillsAction?.({
+        action: "editSkill",
+        pane,
+        field,
+        value,
+      });
+    },
   });
 }
 
@@ -5992,11 +5989,7 @@ function mountQuickActionsVueIsland(actions: HTMLElement): void {
   if (!canMountVueIsland(actions)) {
     return;
   }
-  void import("./native-vue/quickActionsIsland").then(({ mountQuickActionsIsland }) => {
-    mountQuickActionsIsland(actions);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountQuickActionsIsland(actions);
 }
 
 function createFileActions(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
@@ -6271,20 +6264,16 @@ function mountHelpSurfaceVueIsland(section: HTMLElement, targetDocument: Documen
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/helpSurfaceIsland").then(({ mountHelpSurfaceIsland }) => {
-    mountHelpSurfaceIsland(section, {
-      onAction: (action) => {
-        if (action === "shortcut-help") {
-          renderDesktopShortcutHelp(targetDocument);
-        } else if (action === "page-help") {
-          renderDesktopPageHelp(targetDocument, "Page help");
-        } else if (action === "help-tour") {
-          renderDesktopPageHelp(targetDocument, "Desktop help tour");
-        }
-      },
-    });
-  }).catch(() => {
-    setRouteStatus(targetDocument, "Help Vue surface unavailable");
+  mountHelpSurfaceIsland(section, {
+    onAction: (action) => {
+      if (action === "shortcut-help") {
+        renderDesktopShortcutHelp(targetDocument);
+      } else if (action === "page-help") {
+        renderDesktopPageHelp(targetDocument, "Page help");
+      } else if (action === "help-tour") {
+        renderDesktopPageHelp(targetDocument, "Desktop help tour");
+      }
+    },
   });
 }
 
@@ -6583,11 +6572,7 @@ function mountWorkspaceBrowserVueIsland(browser: HTMLElement): void {
   if (!canMountVueIsland(browser)) {
     return;
   }
-  void import("./native-vue/workspaceBrowserIsland").then(({ mountWorkspaceBrowserIsland }) => {
-    mountWorkspaceBrowserIsland(browser);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountWorkspaceBrowserIsland(browser);
 }
 
 function renderInspectorView(targetDocument: Document, view: DesktopInspectorView): HTMLElement {
