@@ -52,6 +52,7 @@ import {
 } from "./desktopSharedModels";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
 import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
+import { mountBottomRegionIsland } from "./native-vue/bottomRegionIsland";
 import { mountActivityRailIsland } from "./native-vue/activityRailIsland";
 import { mountChatHeaderActionsIsland } from "./native-vue/chatHeaderActionsIsland";
 import { mountChatMenuButtonIsland } from "./native-vue/chatMenuButtonIsland";
@@ -5675,20 +5676,16 @@ function mountBottomRegionVueIsland(
   if (!canMountVueIsland(bottom)) {
     return;
   }
-  void import("./native-vue/bottomRegionIsland").then(({ mountBottomRegionIsland }) => {
-    mountBottomRegionIsland(bottom, {
-      gatewayHttp,
-      gatewayStatus: runtimeStatus,
-      taskItems: taskCenterItems,
-      onGatewayAction: ({ action }) => {
-        handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
-      },
-      onTaskAction: ({ action, item }) => {
-        handleTaskActionId(targetDocument, item, action, taskCenterItems, taskActions);
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountBottomRegionIsland(bottom, {
+    gatewayHttp,
+    gatewayStatus: runtimeStatus,
+    taskItems: taskCenterItems,
+    onGatewayAction: ({ action }) => {
+      handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
+    },
+    onTaskAction: ({ action, item }) => {
+      handleTaskActionId(targetDocument, item, action, taskCenterItems, taskActions);
+    },
   });
 }
 

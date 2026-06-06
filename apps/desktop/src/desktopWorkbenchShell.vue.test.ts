@@ -228,6 +228,24 @@ describe("desktop workbench shell Vue integration", () => {
     expect(utilities?.querySelector(".desktop-workspace-files")?.getAttribute("data-desktop-vue-island")).toBe("workspace-files-surface");
   });
 
+  test("renders the bottom region through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const bottom = document.querySelector<HTMLElement>(".desktop-bottom-content");
+    expect(bottom?.getAttribute("data-desktop-vue-island")).toBe("bottom-region");
+    expect(bottom?.querySelector("#desktop-task-center")?.getAttribute("data-desktop-vue-island")).toBe("task-center");
+    expect(bottom?.querySelector("#desktop-task-center")?.getAttribute("aria-label")).toBe("Background task center");
+    expect(bottom?.querySelector(".desktop-gateway-runtime")?.getAttribute("data-desktop-vue-island")).toBe("gateway-runtime");
+    expect(bottom?.querySelector(".desktop-gateway-runtime")?.getAttribute("aria-label")).toBe("Gateway runtime controls");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
