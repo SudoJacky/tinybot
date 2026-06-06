@@ -96,11 +96,16 @@ import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHea
 import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
 import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
+import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";
+import { mountSkillsListIsland } from "./native-vue/skillsListIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
 import { mountTaskCenterIsland } from "./native-vue/taskCenterIsland";
+import { mountToolDetailIsland } from "./native-vue/toolDetailIsland";
 import { mountToolActivitiesIsland } from "./native-vue/toolActivitiesIsland";
 import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";
 import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";
+import { mountToolsListIsland } from "./native-vue/toolsListIsland";
+import { mountToolsSkillsActionsIsland } from "./native-vue/toolsSkillsActionsIsland";
 import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
 import { mountTokenUsageOrbIsland } from "./native-vue/tokenUsageOrbIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
@@ -2982,15 +2987,11 @@ function mountToolsSkillsActionsVueIsland(
   if (!canMountVueIsland(actionRow)) {
     return;
   }
-  void import("./native-vue/toolsSkillsActionsIsland").then(({ mountToolsSkillsActionsIsland }) => {
-    mountToolsSkillsActionsIsland(actionRow, {
-      actions: actions.map(([action, label, enabled]) => ({ action, label, enabled })),
-      onAction: (action) => {
-        toolsSkillsActions.onToolsSkillsAction?.({ action, pane });
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountToolsSkillsActionsIsland(actionRow, {
+    actions: actions.map(([action, label, enabled]) => ({ action, label, enabled })),
+    onAction: (action) => {
+      toolsSkillsActions.onToolsSkillsAction?.({ action, pane });
+    },
   });
 }
 
@@ -3001,11 +3002,7 @@ function mountToolsListVueIsland(
   if (!canMountVueIsland(tools)) {
     return;
   }
-  void import("./native-vue/toolsListIsland").then(({ mountToolsListIsland }) => {
-    mountToolsListIsland(tools, { tools: pane.toolRows });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountToolsListIsland(tools, { tools: pane.toolRows });
 }
 
 function mountSkillsListVueIsland(
@@ -3015,11 +3012,7 @@ function mountSkillsListVueIsland(
   if (!canMountVueIsland(skills)) {
     return;
   }
-  void import("./native-vue/skillsListIsland").then(({ mountSkillsListIsland }) => {
-    mountSkillsListIsland(skills, { skills: pane.skillRows });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSkillsListIsland(skills, { skills: pane.skillRows });
 }
 
 function mountToolDetailVueIsland(
@@ -3029,11 +3022,7 @@ function mountToolDetailVueIsland(
   if (!canMountVueIsland(detail)) {
     return;
   }
-  void import("./native-vue/toolDetailIsland").then(({ mountToolDetailIsland }) => {
-    mountToolDetailIsland(detail, { tool });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountToolDetailIsland(detail, { tool });
 }
 
 function mountSkillDetailSummaryVueIsland(
@@ -3043,11 +3032,7 @@ function mountSkillDetailSummaryVueIsland(
   if (!canMountVueIsland(summary)) {
     return;
   }
-  void import("./native-vue/skillDetailSummaryIsland").then(({ mountSkillDetailSummaryIsland }) => {
-    mountSkillDetailSummaryIsland(summary, { skill });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSkillDetailSummaryIsland(summary, { skill });
 }
 
 function createKnowledgePane(

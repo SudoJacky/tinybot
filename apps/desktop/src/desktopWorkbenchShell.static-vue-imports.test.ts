@@ -148,4 +148,19 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountAgentUiFormFieldIsland } from "./native-vue/agentUiFormFieldIsland";');
     expect(source).not.toContain('void import("./native-vue/agentUiFormFieldIsland")');
   });
+
+  test("statically imports the tools and skills sub-islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountSkillsListIsland } from "./native-vue/skillsListIsland";');
+    expect(source).not.toContain('void import("./native-vue/skillsListIsland")');
+    expect(source).toContain('import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";');
+    expect(source).not.toContain('void import("./native-vue/skillDetailSummaryIsland")');
+    expect(source).toContain('import { mountToolDetailIsland } from "./native-vue/toolDetailIsland";');
+    expect(source).not.toContain('void import("./native-vue/toolDetailIsland")');
+    expect(source).toContain('import { mountToolsListIsland } from "./native-vue/toolsListIsland";');
+    expect(source).not.toContain('void import("./native-vue/toolsListIsland")');
+    expect(source).toContain('import { mountToolsSkillsActionsIsland } from "./native-vue/toolsSkillsActionsIsland";');
+    expect(source).not.toContain('void import("./native-vue/toolsSkillsActionsIsland")');
+  });
 });
