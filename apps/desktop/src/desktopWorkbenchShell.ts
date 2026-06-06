@@ -70,6 +70,7 @@ import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIs
 import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
+import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
 import { mountWorkbenchPanelIsland } from "./native-vue/workbenchPanelIsland";
 
 const desktopPinnedChatSessions = new WeakMap<Document, Set<string>>();
@@ -3036,15 +3037,11 @@ function mountToolsSkillsPaneVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/toolsSkillsPaneIsland").then(({ mountToolsSkillsPaneIsland }) => {
-    mountToolsSkillsPaneIsland(section, {
-      pane,
-      onToolsSkillsAction: (event) => {
-        toolsSkillsActions.onToolsSkillsAction?.(event);
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountToolsSkillsPaneIsland(section, {
+    pane,
+    onToolsSkillsAction: (event) => {
+      toolsSkillsActions.onToolsSkillsAction?.(event);
+    },
   });
 }
 
