@@ -239,4 +239,23 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";');
     expect(source).not.toContain('void import("./native-vue/settingsStatusItemIsland")');
   });
+
+  test("statically imports the file action islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountFileActionsSurfaceIsland } from "./native-vue/fileActionsSurfaceIsland";');
+    expect(source).not.toContain('void import("./native-vue/fileActionsSurfaceIsland")');
+    expect(source).toContain('import { mountFileImportCardIsland } from "./native-vue/fileImportCardIsland";');
+    expect(source).not.toContain('void import("./native-vue/fileImportCardIsland")');
+    expect(source).toContain('import { mountFileOperationStatusIsland } from "./native-vue/fileOperationStatusIsland";');
+    expect(source).not.toContain('void import("./native-vue/fileOperationStatusIsland")');
+    expect(source).toContain('import { mountFileUploadStatusIsland } from "./native-vue/fileUploadStatusIsland";');
+    expect(source).not.toContain('void import("./native-vue/fileUploadStatusIsland")');
+    expect(source).toContain('import { mountFormatChipListIsland } from "./native-vue/formatChipListIsland";');
+    expect(source).not.toContain('void import("./native-vue/formatChipListIsland")');
+    expect(source).toContain('import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";');
+    expect(source).not.toContain('void import("./native-vue/sessionFileListIsland")');
+    expect(source).toContain('import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";');
+    expect(source).not.toContain('void import("./native-vue/sessionUploadCardIsland")');
+  });
 });

@@ -89,6 +89,11 @@ import { mountCoworkObservabilityIsland } from "./native-vue/coworkObservability
 import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
 import { mountCoworkSessionsIsland } from "./native-vue/coworkSessionsIsland";
 import { mountCoworkTaskFeedIsland } from "./native-vue/coworkTaskFeedIsland";
+import { mountFileActionsSurfaceIsland } from "./native-vue/fileActionsSurfaceIsland";
+import { mountFileImportCardIsland } from "./native-vue/fileImportCardIsland";
+import { mountFileOperationStatusIsland } from "./native-vue/fileOperationStatusIsland";
+import { mountFileUploadStatusIsland } from "./native-vue/fileUploadStatusIsland";
+import { mountFormatChipListIsland } from "./native-vue/formatChipListIsland";
 import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
 import { mountHeaderPanelControlIsland } from "./native-vue/headerPanelControlIsland";
 import { mountInspectorRegionIsland } from "./native-vue/inspectorRegionIsland";
@@ -122,6 +127,8 @@ import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProv
 import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";
 import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";
 import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";
+import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";
+import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";
 import { mountSkillsListIsland } from "./native-vue/skillsListIsland";
@@ -6094,22 +6101,14 @@ function mountFileActionsSurfaceVueIsland(section: HTMLElement, activeSessionKey
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/fileActionsSurfaceIsland").then(({ mountFileActionsSurfaceIsland }) => {
-    mountFileActionsSurfaceIsland(section, { activeSessionKey });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountFileActionsSurfaceIsland(section, { activeSessionKey });
 }
 
 function mountSessionUploadCardVueIsland(card: HTMLElement, activeSessionKey: string | null): void {
   if (!canMountVueIsland(card)) {
     return;
   }
-  void import("./native-vue/sessionUploadCardIsland").then(({ mountSessionUploadCardIsland }) => {
-    mountSessionUploadCardIsland(card, { activeSessionKey });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSessionUploadCardIsland(card, { activeSessionKey });
 }
 
 function createFileImportCard(
@@ -6163,11 +6162,7 @@ function mountFileImportCardVueIsland(
   if (!canMountVueIsland(card)) {
     return;
   }
-  void import("./native-vue/fileImportCardIsland").then(({ mountFileImportCardIsland }) => {
-    mountFileImportCardIsland(card, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountFileImportCardIsland(card, options);
 }
 
 function createFormatChipList(targetDocument: Document, id: string, formats: string[]): HTMLElement {
@@ -6189,11 +6184,7 @@ function mountFormatChipListVueIsland(row: HTMLElement, id: string, formats: str
   if (!canMountVueIsland(row)) {
     return;
   }
-  void import("./native-vue/formatChipListIsland").then(({ mountFormatChipListIsland }) => {
-    mountFormatChipListIsland(row, { id, formats });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountFormatChipListIsland(row, { id, formats });
 }
 
 function createFileOperationStatus(targetDocument: Document, label: string, status: string): HTMLElement {
@@ -6208,33 +6199,21 @@ function mountFileOperationStatusVueIsland(item: HTMLElement, label: string, sta
   if (!canMountVueIsland(item)) {
     return;
   }
-  void import("./native-vue/fileOperationStatusIsland").then(({ mountFileOperationStatusIsland }) => {
-    mountFileOperationStatusIsland(item, { label, status });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountFileOperationStatusIsland(item, { label, status });
 }
 
 function mountFileUploadStatusVueIsland(status: HTMLElement, message: string): void {
   if (!canMountVueIsland(status)) {
     return;
   }
-  void import("./native-vue/fileUploadStatusIsland").then(({ mountFileUploadStatusIsland }) => {
-    mountFileUploadStatusIsland(status, { message });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountFileUploadStatusIsland(status, { message });
 }
 
 function mountSessionFileListVueIsland(sessionFiles: HTMLElement, sessionKey: string): void {
   if (!canMountVueIsland(sessionFiles)) {
     return;
   }
-  void import("./native-vue/sessionFileListIsland").then(({ mountOrUpdateSessionFileListIsland }) => {
-    mountOrUpdateSessionFileListIsland(sessionFiles, { sessionKey, rows: [] });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountOrUpdateSessionFileListIsland(sessionFiles, { sessionKey, rows: [] });
 }
 
 function syncSessionFileUploadKey(targetDocument: Document, activeSessionKey: string): void {
