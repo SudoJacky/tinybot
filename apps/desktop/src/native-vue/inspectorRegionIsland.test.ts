@@ -70,6 +70,7 @@ describe("inspector region Vue island", () => {
 
     expect(host.className).toBe("desktop-inspector-content");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("inspector-region");
+    expect(host.querySelector(".n-card.desktop-inspector-content-card")).not.toBeNull();
     expect(host.querySelector(".desktop-run-chain-overview")?.getAttribute("data-desktop-vue-island")).toBe("run-chain-overview");
     expect(host.querySelector(".desktop-run-chain-overview")?.textContent).toContain("Run Chain");
     expect(host.querySelector(".desktop-work-lens")?.getAttribute("data-desktop-vue-island")).toBe("work-lens");

@@ -5,7 +5,7 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { mountRunChainInspectorIsland } from "./runChainInspectorIsland";
 import { mountRunChainOverviewIsland, type RunChainOverviewIslandAction } from "./runChainOverviewIsland";
 import { mountWorkLensIsland } from "./workLensIsland";
-import { NConfigProvider } from "naive-ui";
+import { NCard, NConfigProvider } from "naive-ui";
 
 export interface InspectorRegionWorkLensActionEvent {
   action: DesktopWorkLensActionId;
@@ -80,14 +80,20 @@ function createInspectorRegionApp(options: InspectorRegionIslandOptions): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => [
-          h("section", { ref: overview }),
-          options.workLens
-            ? h("section", { ref: lens })
-            : options.runChainItems.length
-              ? h("section", { ref: inspector })
-              : null,
-        ],
+        default: () => h(NCard, {
+          class: "desktop-inspector-content-card",
+          size: "small",
+          bordered: false,
+        }, {
+          default: () => [
+            h("section", { ref: overview }),
+            options.workLens
+              ? h("section", { ref: lens })
+              : options.runChainItems.length
+                ? h("section", { ref: inspector })
+                : null,
+          ],
+        }),
       });
     },
   }));
