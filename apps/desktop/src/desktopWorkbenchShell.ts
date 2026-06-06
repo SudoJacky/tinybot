@@ -114,7 +114,14 @@ import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIs
 import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";
 import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";
 import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
+import { mountSettingsDefaultLlmIsland } from "./native-vue/settingsDefaultLlmIsland";
+import { mountSettingsGroupsIsland } from "./native-vue/settingsGroupsIsland";
 import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
+import { mountSettingsProviderDetailIsland } from "./native-vue/settingsProviderDetailIsland";
+import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProviderManagementIsland";
+import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";
+import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";
+import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountSkillDetailSummaryIsland } from "./native-vue/skillDetailSummaryIsland";
 import { mountSkillsListIsland } from "./native-vue/skillsListIsland";
@@ -4194,13 +4201,9 @@ function mountSettingsGroupsVueIsland(
   if (!canMountVueIsland(grid)) {
     return;
   }
-  void import("./native-vue/settingsGroupsIsland").then(({ mountSettingsGroupsIsland }) => {
-    mountSettingsGroupsIsland(grid, {
-      pane,
-      onSettingsAction: settingsActions.onSettingsAction,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSettingsGroupsIsland(grid, {
+    pane,
+    onSettingsAction: settingsActions.onSettingsAction,
   });
 }
 
@@ -4257,13 +4260,9 @@ function mountSettingsDefaultLlmVueIsland(
   if (!canMountVueIsland(card)) {
     return;
   }
-  void import("./native-vue/settingsDefaultLlmIsland").then(({ mountSettingsDefaultLlmIsland }) => {
-    mountSettingsDefaultLlmIsland(card, {
-      pane,
-      onSettingsAction: settingsActions.onSettingsAction,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSettingsDefaultLlmIsland(card, {
+    pane,
+    onSettingsAction: settingsActions.onSettingsAction,
   });
 }
 
@@ -4339,15 +4338,11 @@ function mountSettingsProviderManagementVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/settingsProviderManagementIsland").then(({ mountSettingsProviderManagementIsland }) => {
-    mountSettingsProviderManagementIsland(section, {
-      pane,
-      onSettingsAction: settingsActions.onSettingsAction,
-      promptProviderId: () => promptForSettingsProviderId(targetDocument),
-      onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSettingsProviderManagementIsland(section, {
+    pane,
+    onSettingsAction: settingsActions.onSettingsAction,
+    promptProviderId: () => promptForSettingsProviderId(targetDocument),
+    onFocusSettingsControl: (fieldId) => focusDesktopSettingsControl(targetDocument, fieldId),
   });
 }
 
@@ -4469,11 +4464,7 @@ function mountSettingsProviderDetailVueIsland(row: HTMLElement, label: string, v
   if (!canMountVueIsland(row)) {
     return;
   }
-  void import("./native-vue/settingsProviderDetailIsland").then(({ mountSettingsProviderDetailIsland }) => {
-    mountSettingsProviderDetailIsland(row, { label, value });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSettingsProviderDetailIsland(row, { label, value });
 }
 
 function filterSettingsProviderCards(cards: HTMLElement, query: string): void {
@@ -4628,11 +4619,7 @@ function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettin
   if (!canMountVueIsland(sidebar)) {
     return;
   }
-  void import("./native-vue/settingsSidebarIsland").then(({ mountSettingsSidebarIsland }) => {
-    mountSettingsSidebarIsland(sidebar, { groups: pane.groups });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSettingsSidebarIsland(sidebar, { groups: pane.groups });
 }
 
 function createSettingsStatusCard(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
@@ -4667,11 +4654,7 @@ function mountSettingsStatusVueIsland(card: HTMLElement, pane: DesktopSettingsPa
   if (!canMountVueIsland(card)) {
     return;
   }
-  void import("./native-vue/settingsStatusIsland").then(({ mountSettingsStatusIsland }) => {
-    mountSettingsStatusIsland(card, { pane });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSettingsStatusIsland(card, { pane });
 }
 
 function createSettingsStatusItem(targetDocument: Document, label: string, value: string): HTMLElement {
@@ -4686,11 +4669,7 @@ function mountSettingsStatusItemVueIsland(row: HTMLElement, label: string, value
   if (!canMountVueIsland(row)) {
     return;
   }
-  void import("./native-vue/settingsStatusItemIsland").then(({ mountSettingsStatusItemIsland }) => {
-    mountSettingsStatusItemIsland(row, { label, value });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountSettingsStatusItemIsland(row, { label, value });
 }
 
 function getSettingsNavLabel(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
