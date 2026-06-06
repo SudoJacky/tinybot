@@ -37,4 +37,11 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountAgentUiFormsSurfaceIsland } from "./native-vue/agentUiFormsSurfaceIsland";');
     expect(source).not.toContain('void import("./native-vue/agentUiFormsSurfaceIsland")');
   });
+
+  test("statically imports the gateway runtime island", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";');
+    expect(source).not.toContain('void import("./native-vue/gatewayRuntimeIsland")');
+  });
 });

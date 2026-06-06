@@ -65,6 +65,7 @@ import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
 import { mountConversationMessageIsland } from "./native-vue/conversationMessageIsland";
 import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
 import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
+import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
 import { mountKnowledgePaneIsland } from "./native-vue/knowledgePaneIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
@@ -5711,16 +5712,12 @@ function mountGatewayRuntimeVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/gatewayRuntimeIsland").then(({ mountGatewayRuntimeIsland }) => {
-    mountGatewayRuntimeIsland(section, {
-      gatewayHttp,
-      status: runtimeStatus,
-      onAction: ({ action }) => {
-        handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
-      },
-    });
-  }).catch(() => {
-    setRouteStatus(targetDocument, "Gateway runtime Vue surface unavailable");
+  mountGatewayRuntimeIsland(section, {
+    gatewayHttp,
+    status: runtimeStatus,
+    onAction: ({ action }) => {
+      handleGatewayRuntimeActionId(targetDocument, runtimeStatus, gatewayHttp, gatewayActions, action);
+    },
   });
 }
 
