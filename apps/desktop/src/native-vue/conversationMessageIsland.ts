@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider } from "naive-ui";
+import { NCard, NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { mountConversationAttachmentIsland, renderConversationAttachmentNode } from "./conversationAttachmentIsland";
 import { mountConversationBodyIsland, renderConversationBodyNode } from "./conversationBodyIsland";
@@ -90,25 +90,31 @@ function createConversationMessageApp(options: ConversationMessageIslandOptions)
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h("div", { class: "desktop-conversation-content" }, [
-          h("div", { ref: metaHost, class: "desktop-conversation-meta" }),
-          options.reasoningContent?.trim()
-            ? h("details", { ref: reasoningHost, class: "desktop-message-reasoning" })
-            : null,
-          options.toolActivities?.length
-            ? h("div", { ref: toolActivitiesHost, class: "desktop-tool-activities" })
-            : null,
-          h("div", { ref: bodyHost, class: "desktop-conversation-body" }),
-          ...options.references.map((reference, index) => h("p", {
-            ref: (element) => {
-              referenceHosts.value[index] = element as HTMLElement | null;
-            },
-            class: "desktop-conversation-reference",
-          })),
-          options.attachment
-            ? h("div", { ref: attachmentHost, class: "desktop-conversation-attachment" })
-            : null,
-        ]),
+        default: () => h(NCard, {
+          class: "desktop-conversation-content-card",
+          size: "small",
+          bordered: false,
+        }, {
+          default: () => h("div", { class: "desktop-conversation-content" }, [
+            h("div", { ref: metaHost, class: "desktop-conversation-meta" }),
+            options.reasoningContent?.trim()
+              ? h("details", { ref: reasoningHost, class: "desktop-message-reasoning" })
+              : null,
+            options.toolActivities?.length
+              ? h("div", { ref: toolActivitiesHost, class: "desktop-tool-activities" })
+              : null,
+            h("div", { ref: bodyHost, class: "desktop-conversation-body" }),
+            ...options.references.map((reference, index) => h("p", {
+              ref: (element) => {
+                referenceHosts.value[index] = element as HTMLElement | null;
+              },
+              class: "desktop-conversation-reference",
+            })),
+            options.attachment
+              ? h("div", { ref: attachmentHost, class: "desktop-conversation-attachment" })
+              : null,
+          ]),
+        }),
       });
     },
   }));

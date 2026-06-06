@@ -21,6 +21,7 @@ describe("conversation message Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("conversation-message");
     expect(host.className).toBe("desktop-conversation-message");
     expect(host.getAttribute("data-message-tone")).toBe("assistant");
+    expect(host.querySelector(".n-card.desktop-conversation-content-card")).not.toBeNull();
     expect(host.querySelector(".desktop-conversation-meta")?.getAttribute("data-desktop-vue-island")).toBe("conversation-meta");
     expect(host.querySelector(".desktop-conversation-body")?.getAttribute("data-desktop-vue-island")).toBe("conversation-body");
     expect(host.querySelector(".desktop-conversation-reference")?.getAttribute("data-desktop-vue-island")).toBe("conversation-reference");
