@@ -79,7 +79,16 @@ import { mountConversationMetaIsland } from "./native-vue/conversationMetaIsland
 import { mountConversationReasoningIsland } from "./native-vue/conversationReasoningIsland";
 import { mountConversationReferenceIsland } from "./native-vue/conversationReferenceIsland";
 import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
+import { mountCoworkActionsIsland } from "./native-vue/coworkActionsIsland";
+import { mountCoworkDataRowIsland } from "./native-vue/coworkDataRowIsland";
+import { mountCoworkGraphIsland } from "./native-vue/coworkGraphIsland";
+import { mountCoworkHeaderIsland } from "./native-vue/coworkHeaderIsland";
+import { mountCoworkInspectorIsland } from "./native-vue/coworkInspectorIsland";
+import { mountCoworkLimitStatusIsland } from "./native-vue/coworkLimitStatusIsland";
+import { mountCoworkObservabilityIsland } from "./native-vue/coworkObservabilityIsland";
 import { mountCoworkPaneIsland } from "./native-vue/coworkPaneIsland";
+import { mountCoworkSessionsIsland } from "./native-vue/coworkSessionsIsland";
+import { mountCoworkTaskFeedIsland } from "./native-vue/coworkTaskFeedIsland";
 import { mountGatewayRuntimeIsland } from "./native-vue/gatewayRuntimeIsland";
 import { mountHeaderPanelControlIsland } from "./native-vue/headerPanelControlIsland";
 import { mountKnowledgeActionsIsland } from "./native-vue/knowledgeActionsIsland";
@@ -3344,11 +3353,7 @@ function mountCoworkHeaderVueIsland(
   if (!canMountVueIsland(header)) {
     return;
   }
-  void import("./native-vue/coworkHeaderIsland").then(({ mountCoworkHeaderIsland }) => {
-    mountCoworkHeaderIsland(header, { header: viewHeader });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountCoworkHeaderIsland(header, { header: viewHeader });
 }
 
 function mountCoworkSessionsVueIsland(
@@ -3359,20 +3364,16 @@ function mountCoworkSessionsVueIsland(
   if (!canMountVueIsland(sessions)) {
     return;
   }
-  void import("./native-vue/coworkSessionsIsland").then(({ mountCoworkSessionsIsland }) => {
-    mountCoworkSessionsIsland(sessions, {
-      sessions: sessionRows,
-      onSelect: (session) => {
-        const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
-        if (!item) {
-          return;
-        }
-        const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
-        setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountCoworkSessionsIsland(sessions, {
+    sessions: sessionRows,
+    onSelect: (session) => {
+      const [item] = buildDesktopTaskCenterItems({ coworkRuns: [buildDesktopCoworkTaskOperation(session.raw)] });
+      if (!item) {
+        return;
+      }
+      const renderedWorkLens = renderTaskWorkLens(targetDocument, item);
+      setRouteStatus(targetDocument, renderedWorkLens ? `Inspecting ${item.title} in Work Lens` : `Inspecting ${item.title}`);
+    },
   });
 }
 
@@ -3517,19 +3518,15 @@ function mountCoworkActionsVueIsland(
   if (!canMountVueIsland(actions)) {
     return;
   }
-  void import("./native-vue/coworkActionsIsland").then(({ mountCoworkActionsIsland }) => {
-    mountCoworkActionsIsland(actions, {
-      sessionId: pane.cockpitView?.header.id ?? "",
-      agents: pane.cockpitView?.agents ?? [],
-      actionStatus: pane.actionStatus,
-      summaryText: pane.summaryText,
-      blueprintDiagnostics: pane.blueprintDiagnostics,
-      onAction: (event) => {
-        coworkActions.onCoworkAction?.({ ...event, pane });
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountCoworkActionsIsland(actions, {
+    sessionId: pane.cockpitView?.header.id ?? "",
+    agents: pane.cockpitView?.agents ?? [],
+    actionStatus: pane.actionStatus,
+    summaryText: pane.summaryText,
+    blueprintDiagnostics: pane.blueprintDiagnostics,
+    onAction: (event) => {
+      coworkActions.onCoworkAction?.({ ...event, pane });
+    },
   });
 }
 
@@ -3592,20 +3589,16 @@ function mountCoworkGraphVueIsland(
   if (!canMountVueIsland(graph)) {
     return;
   }
-  void import("./native-vue/coworkGraphIsland").then(({ mountCoworkGraphIsland }) => {
-    mountCoworkGraphIsland(graph, {
-      graph: view.graph,
-      onSelect: ({ type, id, label }) => {
-        const selectedView = buildDesktopCoworkCockpitView(view.raw, {
-          selected: { type, id },
-        });
-        const selectedInspector = createCoworkInspectorPane(targetDocument, selectedView, pane, coworkActions);
-        inspector.replaceChildren(...Array.from(selectedInspector.children));
-        setRouteStatus(targetDocument, `Inspecting Cowork ${label}`);
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountCoworkGraphIsland(graph, {
+    graph: view.graph,
+    onSelect: ({ type, id, label }) => {
+      const selectedView = buildDesktopCoworkCockpitView(view.raw, {
+        selected: { type, id },
+      });
+      const selectedInspector = createCoworkInspectorPane(targetDocument, selectedView, pane, coworkActions);
+      inspector.replaceChildren(...Array.from(selectedInspector.children));
+      setRouteStatus(targetDocument, `Inspecting Cowork ${label}`);
+    },
   });
 }
 
@@ -3712,15 +3705,11 @@ function mountCoworkObservabilityVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/coworkObservabilityIsland").then(({ mountCoworkObservabilityIsland }) => {
-    mountCoworkObservabilityIsland(section, {
-      panels: view.observabilityPanels,
-      onPanelSelected: (panel) => {
-        setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
-      },
-    });
-  }).catch(() => {
-    setRouteStatus(targetDocument, "Cowork observability native UI unavailable.");
+  mountCoworkObservabilityIsland(section, {
+    panels: view.observabilityPanels,
+    onPanelSelected: (panel) => {
+      setRouteStatus(targetDocument, `Viewing Cowork ${panel.label}`);
+    },
   });
 }
 
@@ -3756,15 +3745,11 @@ function mountCoworkInspectorVueIsland(
   if (!canMountVueIsland(inspector)) {
     return;
   }
-  void import("./native-vue/coworkInspectorIsland").then(({ mountCoworkInspectorIsland }) => {
-    mountCoworkInspectorIsland(inspector, {
-      view,
-      onAction: (event) => {
-        coworkActions.onCoworkAction?.({ ...event, pane });
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountCoworkInspectorIsland(inspector, {
+    view,
+    onAction: (event) => {
+      coworkActions.onCoworkAction?.({ ...event, pane });
+    },
   });
 }
 
@@ -3889,18 +3874,14 @@ function mountCoworkTaskFeedVueIsland(feed: HTMLElement, view: DesktopCoworkCock
   if (!canMountVueIsland(feed)) {
     return;
   }
-  void import("./native-vue/coworkTaskFeedIsland").then(({ mountCoworkTaskFeedIsland }) => {
-    mountCoworkTaskFeedIsland(feed, {
-      items: view.taskCenterItems,
-      totals: {
-        agents: view.agents.length,
-        tasks: view.tasks.length,
-        mailbox: view.mailbox.length,
-        artifacts: view.artifacts.length,
-      },
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountCoworkTaskFeedIsland(feed, {
+    items: view.taskCenterItems,
+    totals: {
+      agents: view.agents.length,
+      tasks: view.tasks.length,
+      mailbox: view.mailbox.length,
+      artifacts: view.artifacts.length,
+    },
   });
 }
 
@@ -3915,11 +3896,7 @@ function mountCoworkDataRowVueIsland(row: HTMLElement, className: string, text: 
   if (!canMountVueIsland(row)) {
     return;
   }
-  void import("./native-vue/coworkDataRowIsland").then(({ mountCoworkDataRowIsland }) => {
-    mountCoworkDataRowIsland(row, { className, text });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountCoworkDataRowIsland(row, { className, text });
 }
 
 function createCoworkLimitStatus(targetDocument: Document, visible: number, total: number, singular: string, plural: string): HTMLElement {
@@ -3935,11 +3912,7 @@ function mountCoworkLimitStatusVueIsland(status: HTMLElement, text: string): voi
   if (!canMountVueIsland(status)) {
     return;
   }
-  void import("./native-vue/coworkLimitStatusIsland").then(({ mountCoworkLimitStatusIsland }) => {
-    mountCoworkLimitStatusIsland(status, { text });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountCoworkLimitStatusIsland(status, { text });
 }
 
 function createCoworkFilteredLimitStatus(

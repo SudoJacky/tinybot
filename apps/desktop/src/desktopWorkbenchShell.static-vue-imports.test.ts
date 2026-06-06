@@ -182,4 +182,27 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).toContain('import { mountKnowledgeReferenceRowIsland } from "./native-vue/knowledgeReferenceRowIsland";');
     expect(source).not.toContain('void import("./native-vue/knowledgeReferenceRowIsland")');
   });
+
+  test("statically imports the Cowork sub-islands", () => {
+    const source = readFileSync(resolve(__dirname, "desktopWorkbenchShell.ts"), "utf8");
+
+    expect(source).toContain('import { mountCoworkActionsIsland } from "./native-vue/coworkActionsIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkActionsIsland")');
+    expect(source).toContain('import { mountCoworkDataRowIsland } from "./native-vue/coworkDataRowIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkDataRowIsland")');
+    expect(source).toContain('import { mountCoworkGraphIsland } from "./native-vue/coworkGraphIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkGraphIsland")');
+    expect(source).toContain('import { mountCoworkHeaderIsland } from "./native-vue/coworkHeaderIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkHeaderIsland")');
+    expect(source).toContain('import { mountCoworkInspectorIsland } from "./native-vue/coworkInspectorIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkInspectorIsland")');
+    expect(source).toContain('import { mountCoworkLimitStatusIsland } from "./native-vue/coworkLimitStatusIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkLimitStatusIsland")');
+    expect(source).toContain('import { mountCoworkObservabilityIsland } from "./native-vue/coworkObservabilityIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkObservabilityIsland")');
+    expect(source).toContain('import { mountCoworkSessionsIsland } from "./native-vue/coworkSessionsIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkSessionsIsland")');
+    expect(source).toContain('import { mountCoworkTaskFeedIsland } from "./native-vue/coworkTaskFeedIsland";');
+    expect(source).not.toContain('void import("./native-vue/coworkTaskFeedIsland")');
+  });
 });
