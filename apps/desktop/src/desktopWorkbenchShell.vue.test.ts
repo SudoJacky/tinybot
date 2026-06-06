@@ -348,6 +348,36 @@ describe("desktop workbench shell Vue integration", () => {
     expect(recent?.querySelector('[data-desktop-chat-id="Design native workbench"]')?.textContent).toContain("Design native workbench");
   });
 
+  test("renders an empty conversation thread through the Vue shell island", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [],
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        title: "Live session",
+        updatedAt: "",
+      }],
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const thread = document.querySelector<HTMLElement>(".desktop-conversation-thread");
+    expect(thread?.getAttribute("data-desktop-vue-island")).toBe("conversation-thread");
+    expect(thread?.getAttribute("aria-label")).toBe("Conversation");
+    expect(thread?.textContent).toContain("No messages in this session.");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

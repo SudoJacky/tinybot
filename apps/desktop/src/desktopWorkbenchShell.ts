@@ -60,6 +60,7 @@ import { mountChatMenuPopoverIsland } from "./native-vue/chatMenuPopoverIsland";
 import { mountChatTitleIsland } from "./native-vue/chatTitleIsland";
 import { mountChatWorkbenchIsland } from "./native-vue/chatWorkbenchIsland";
 import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
+import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
@@ -1855,11 +1856,7 @@ function mountConversationThreadVueIsland(
   if (!canMountVueIsland(thread)) {
     return;
   }
-  void import("./native-vue/conversationThreadIsland").then(({ mountConversationThreadIsland }) => {
-    mountConversationThreadIsland(thread, options);
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
-  });
+  mountConversationThreadIsland(thread, options);
 }
 
 function renderConversationEmptyState(targetDocument: Document, thread: HTMLElement, message: string): void {
