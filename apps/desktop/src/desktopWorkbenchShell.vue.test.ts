@@ -331,6 +331,23 @@ describe("desktop workbench shell Vue integration", () => {
     expect(row?.getAttribute("data-active")).toBe("true");
   });
 
+  test("renders sidebar recent chats through the Vue shell island without an active chat", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const recent = document.querySelector<HTMLElement>(".desktop-sidebar-list-section-recent");
+    expect(recent?.getAttribute("data-desktop-vue-island")).toBe("sidebar-recent-chats");
+    expect(recent?.querySelector(".desktop-sidebar-section-heading h2")?.textContent).toBe("Recent chats");
+    expect(recent?.querySelector(".desktop-recent-chat-list")?.getAttribute("role")).toBe("list");
+    expect(recent?.querySelector('[data-desktop-chat-id="Design native workbench"]')?.textContent).toContain("Design native workbench");
+  });
+
   test("opens shortcut help through the Vue dialog island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

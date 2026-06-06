@@ -63,6 +63,7 @@ import { mountCommandPaletteIsland } from "./native-vue/commandPaletteIsland";
 import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegionIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
+import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIsland";
 import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
 import { mountStatusStripIsland } from "./native-vue/statusStripIsland";
@@ -766,17 +767,28 @@ function createSidebarRecentChats(
     return section;
   }
 
-  for (const [name, meta] of [
+  const fallbackRows = [
     ["Design native workbench", "Just now"],
     ["修复会话加载问题", "2h ago"],
     ["实现文件上传功能", "Yesterday"],
     ["项目启动优化", "2d ago"],
     ["自动化脚本建议", "3d ago"],
-  ] as const) {
+  ] as const;
+  for (const [name, meta] of fallbackRows) {
     list.append(createSidebarRow(targetDocument, name, meta, false, "chat"));
   }
 
   section.append(list);
+  mountSidebarRecentChatsVueIsland(section, fallbackRows.map(([name, meta]) => ({
+    active: false,
+    chatId: name,
+    href: `/chat/${encodeURIComponent(name)}`,
+    pinned: false,
+    routeId: name,
+    sessionKey: name,
+    title: name,
+    updatedLabel: meta,
+  })), chatActions);
   return section;
 }
 
@@ -821,13 +833,9 @@ function mountSidebarRecentChatsVueIsland(
   if (!canMountVueIsland(section)) {
     return;
   }
-  void import("./native-vue/sidebarRecentChatsIsland").then(({ mountSidebarRecentChatsIsland }) => {
-    mountSidebarRecentChatsIsland(section, {
-      rows,
-      onDeleteSession: chatActions.onDeleteSession,
-    });
-  }).catch(() => {
-    // Keep the DOM-rendered fallback if the Vue surface cannot be loaded.
+  mountSidebarRecentChatsIsland(section, {
+    rows,
+    onDeleteSession: chatActions.onDeleteSession,
   });
 }
 
