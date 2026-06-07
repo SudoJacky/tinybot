@@ -515,8 +515,10 @@ export function updateDesktopNativeChat(
 
   const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
   if (thread) {
+    const scrollState = captureConversationThreadScroll(thread);
     const next = createConversationThread(targetDocument, chat);
     thread.replaceChildren(...Array.from(next.children));
+    restoreConversationThreadScroll(thread, scrollState);
   }
 
   syncChatWorkbenchChrome(targetDocument, chat);
@@ -571,6 +573,35 @@ function syncNativeChatDocumentState(targetDocument: Document, chat: DesktopNati
   documentElement.dataset.desktopActiveGeneration = String(chat.responding === true);
   documentElement.dataset.desktopActiveChatId = chat.activeChatId;
   documentElement.dataset.desktopActiveSessionKey = chat.activeSessionKey;
+}
+
+function captureConversationThreadScroll(thread: HTMLElement): { bottomOffset: number; scrollTop: number; wasNearBottom: boolean } {
+  const scrollTop = Number(thread.scrollTop || 0);
+  const bottomOffset = Math.max(0, Number(thread.scrollHeight || 0) - scrollTop - Number(thread.clientHeight || 0));
+  return {
+    bottomOffset,
+    scrollTop,
+    wasNearBottom: bottomOffset < 24,
+  };
+}
+
+function restoreConversationThreadScroll(
+  thread: HTMLElement,
+  scrollState: { bottomOffset: number; scrollTop: number; wasNearBottom: boolean },
+): void {
+  if (scrollState.wasNearBottom) {
+    thread.scrollTop = boundedScrollTop(
+      thread,
+      Number(thread.scrollHeight || 0) - Number(thread.clientHeight || 0) - scrollState.bottomOffset,
+    );
+    return;
+  }
+  thread.scrollTop = boundedScrollTop(thread, scrollState.scrollTop);
+}
+
+function boundedScrollTop(element: HTMLElement, value: number): number {
+  const maxScrollTop = Math.max(0, Number(element.scrollHeight || 0) - Number(element.clientHeight || 0));
+  return Math.min(Math.max(0, Number.isFinite(value) ? value : 0), maxScrollTop);
 }
 
 function createWorkbenchShell(

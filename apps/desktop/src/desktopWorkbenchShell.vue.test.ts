@@ -3,7 +3,12 @@
 import { describe, expect, test } from "vitest";
 import { nextTick } from "vue";
 import { createDefaultWorkbenchLayout } from "./desktopWorkbenchLayout";
-import { installDesktopWorkbenchShell, type DesktopNativeChatModel } from "./desktopWorkbenchShell";
+import { installDesktopWorkbenchShell, updateDesktopNativeChat, type DesktopNativeChatModel } from "./desktopWorkbenchShell";
+
+function setScrollMetrics(element: HTMLElement, metrics: { scrollHeight: number; clientHeight: number }): void {
+  Object.defineProperty(element, "scrollHeight", { configurable: true, value: metrics.scrollHeight });
+  Object.defineProperty(element, "clientHeight", { configurable: true, value: metrics.clientHeight });
+}
 
 describe("desktop workbench shell Vue integration", () => {
   test("renders the activity rail through the Vue shell island", () => {
@@ -392,6 +397,111 @@ describe("desktop workbench shell Vue integration", () => {
     expect(thread?.getAttribute("aria-label")).toBe("Conversation");
     expect(thread?.textContent).not.toContain("No messages in this session.");
     expect(document.querySelector(".desktop-chat-workbench-chrome")?.textContent).toContain("Start a new session");
+  });
+
+  test("keeps conversation scroll stable when live chat messages rerender", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [{
+        role: "user",
+        content: "查看下工作目录中有什么内容",
+        reasoningContent: "",
+        timestamp: "2026-06-07T03:04:05.000Z",
+        messageId: "user-1",
+      }],
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        title: "Live session",
+        updatedAt: "",
+      }],
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+    await nextTick();
+
+    const thread = document.querySelector<HTMLElement>(".desktop-conversation-thread");
+    expect(thread).toBeTruthy();
+    setScrollMetrics(thread!, { scrollHeight: 1600, clientHeight: 400 });
+    thread!.scrollTop = 640;
+    const originalReplaceChildren = HTMLElement.prototype.replaceChildren;
+    HTMLElement.prototype.replaceChildren = function replaceChildrenWithScrollReset(...nodes: Node[]) {
+      originalReplaceChildren.apply(this, nodes);
+      if (this.classList.contains("desktop-conversation-thread")) {
+        this.scrollTop = 0;
+      }
+    };
+    try {
+      updateDesktopNativeChat(document, {
+        ...chat,
+        messages: [
+          ...chat.messages,
+          {
+            role: "assistant",
+            content: "workspace contents are streaming",
+            reasoningContent: "",
+            timestamp: "2026-06-07T03:04:06.000Z",
+            messageId: "assistant-stream",
+          },
+        ],
+        responding: true,
+      }, "http://127.0.0.1:18790");
+    } finally {
+      HTMLElement.prototype.replaceChildren = originalReplaceChildren;
+    }
+    await nextTick();
+
+    expect(thread!.scrollTop).toBe(640);
+    expect(thread!.textContent).toContain("workspace contents are streaming");
+
+    setScrollMetrics(thread!, { scrollHeight: 1600, clientHeight: 400 });
+    thread!.scrollTop = 1190;
+    HTMLElement.prototype.replaceChildren = function replaceChildrenWithGrowingScrollReset(...nodes: Node[]) {
+      originalReplaceChildren.apply(this, nodes);
+      if (this.classList.contains("desktop-conversation-thread")) {
+        setScrollMetrics(this, { scrollHeight: 2000, clientHeight: 400 });
+        this.scrollTop = 0;
+      }
+    };
+    try {
+      updateDesktopNativeChat(document, {
+        ...chat,
+        messages: [
+          ...chat.messages,
+          {
+            role: "assistant",
+            content: "workspace contents are streaming",
+            reasoningContent: "",
+            timestamp: "2026-06-07T03:04:06.000Z",
+            messageId: "assistant-stream",
+          },
+          {
+            role: "assistant",
+            content: "second chunk",
+            reasoningContent: "",
+            timestamp: "2026-06-07T03:04:07.000Z",
+            messageId: "assistant-stream-2",
+          },
+        ],
+        responding: true,
+      }, "http://127.0.0.1:18790");
+    } finally {
+      HTMLElement.prototype.replaceChildren = originalReplaceChildren;
+    }
+    await nextTick();
+
+    expect(thread!.scrollTop).toBe(1590);
+    expect(thread!.textContent).toContain("second chunk");
   });
 
   test("renders fallback conversation messages through the Vue shell island without an active chat", () => {
