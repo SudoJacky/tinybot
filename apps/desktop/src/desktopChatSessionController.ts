@@ -11,6 +11,7 @@ import {
   type NativeChatState,
 } from "./nativeChat";
 import { createGatewaySocketMessage, type NormalizedGatewayEvent } from "./gatewayWebSocketClient";
+import { logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
@@ -61,32 +62,57 @@ export function createDesktopChatSessionController({
   let pendingMessage: { content: string; usePersistentRag: boolean } | null = null;
 
   async function loadSessions(): Promise<number> {
+    logDesktopNativeDebug("session.load.start", summarizeSessionState());
     const sessions = normalizeSessionsPayload(await api.listSessions());
     setSessions(state, sessions);
     if (!state.activeSessionKey && sessions[0]) {
       await selectSession(sessions[0].key, sessions[0].chatId);
     }
+    logDesktopNativeDebug("session.load.complete", {
+      ...summarizeSessionState(),
+      loadedCount: sessions.length,
+    });
     return sessions.length;
   }
 
   async function selectSession(sessionKey: string, chatId: string): Promise<void> {
+    logDesktopNativeDebug("session.select.start", {
+      ...summarizeSessionState(),
+      chatId,
+      sessionKey,
+    });
     activateSession(state, sessionKey, chatId);
     const payload = await api.loadMessages(sessionKey);
-    setMessages(state, sessionKey, normalizeMessagesPayload(payload));
+    const messages = normalizeMessagesPayload(payload);
+    setMessages(state, sessionKey, messages);
     sendSocketMessage(createGatewaySocketMessage.attach(chatId));
+    logDesktopNativeDebug("session.select.complete", {
+      ...summarizeSessionState(),
+      chatId,
+      messageCount: messages.length,
+      sessionKey,
+    });
   }
 
   function startNewChat(): void {
+    logDesktopNativeDebug("session.new.request", summarizeSessionState());
     sendSocketMessage(createGatewaySocketMessage.newChat());
   }
 
   async function deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult> {
     const deletedSessionKey = sessionKey;
     const target = state.sessions.find((session) => session.key === sessionKey);
+    logDesktopNativeDebug("session.delete.start", {
+      ...summarizeSessionState(),
+      found: Boolean(target),
+      sessionKey,
+    });
     if (!target) {
+      logDesktopNativeDebug("session.delete.missing", { sessionKey });
       return { status: "missing", deletedSessionKey, nextSessionKey: "" };
     }
     if (!api.deleteSession) {
+      logDesktopNativeDebug("session.delete.unavailable", { sessionKey });
       return { status: "unavailable", deletedSessionKey, nextSessionKey: "" };
     }
 
@@ -110,6 +136,11 @@ export function createDesktopChatSessionController({
         state.activeChatId = "";
       }
     }
+    logDesktopNativeDebug("session.delete.complete", {
+      ...summarizeSessionState(),
+      deletedSessionKey,
+      nextSessionKey: state.activeSessionKey,
+    });
     return {
       status: "deleted",
       deletedSessionKey,
@@ -123,37 +154,66 @@ export function createDesktopChatSessionController({
     }
     try {
       await api.deleteSession(target.key);
+      logDesktopNativeDebug("session.delete.gateway", {
+        key: target.key,
+        mode: "primary",
+      });
       return;
     } catch (error) {
       const fallbackKey = sessionKeyForChat(target.chatId);
       if (!fallbackKey || fallbackKey === target.key) {
+        logDesktopNativeDebug("session.delete.failed", {
+          error: error instanceof Error ? error.message : String(error),
+          key: target.key,
+        });
         throw error;
       }
+      logDesktopNativeDebug("session.delete.retry", {
+        fallbackKey,
+        key: target.key,
+      });
       await api.deleteSession(fallbackKey);
+      logDesktopNativeDebug("session.delete.gateway", {
+        key: fallbackKey,
+        mode: "fallback",
+      });
     }
   }
 
   function submitMessage(content: string, usePersistentRag = true): ChatSubmitResult {
     const trimmed = content.trim();
     if (!trimmed) {
+      logDesktopNativeDebug("session.message.empty", summarizeSessionState());
       return { status: "empty" };
     }
 
     if (!state.activeChatId) {
       pendingMessage = { content: trimmed, usePersistentRag };
       startNewChat();
+      logDesktopNativeDebug("session.message.queued", {
+        ...summarizeSessionState(),
+        content: summarizeDebugText(trimmed),
+        usePersistentRag,
+      });
       return { status: "creating", pendingContent: trimmed };
     }
 
     sendActiveChatMessage(trimmed, usePersistentRag);
+    logDesktopNativeDebug("session.message.sent", {
+      ...summarizeSessionState(),
+      content: summarizeDebugText(trimmed),
+      usePersistentRag,
+    });
     return { status: "sent", chatId: state.activeChatId, content: trimmed };
   }
 
   function interruptActiveChat(): boolean {
     if (!state.activeChatId) {
+      logDesktopNativeDebug("session.interrupt.skipped", summarizeSessionState());
       return false;
     }
     sendSocketMessage(createGatewaySocketMessage.interrupt(state.activeChatId));
+    logDesktopNativeDebug("session.interrupt.request", summarizeSessionState());
     return true;
   }
 
@@ -173,6 +233,11 @@ export function createDesktopChatSessionController({
         const { content, usePersistentRag } = pendingMessage;
         pendingMessage = null;
         sendActiveChatMessage(content, usePersistentRag);
+        logDesktopNativeDebug("session.message.queued.sent", {
+          ...summarizeSessionState(),
+          content: summarizeDebugText(content),
+          usePersistentRag,
+        });
         result.pendingMessageSent = true;
       }
     }
@@ -191,7 +256,13 @@ export function createDesktopChatSessionController({
       return false;
     }
     const payload = await api.loadMessages(sessionKey);
-    setMessages(state, sessionKey, normalizeMessagesPayload(payload));
+    const messages = normalizeMessagesPayload(payload);
+    setMessages(state, sessionKey, messages);
+    logDesktopNativeDebug("session.messages.loaded", {
+      chatId,
+      messageCount: messages.length,
+      sessionKey,
+    });
     return true;
   }
 
@@ -211,4 +282,13 @@ export function createDesktopChatSessionController({
     handleGatewayEvent,
     loadMessagesForChat,
   };
+
+  function summarizeSessionState(): Record<string, unknown> {
+    return {
+      activeChatId: state.activeChatId,
+      activeSessionKey: state.activeSessionKey,
+      pendingMessage: Boolean(pendingMessage),
+      sessionCount: state.sessions.length,
+    };
+  }
 }

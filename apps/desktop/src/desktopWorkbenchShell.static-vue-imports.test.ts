@@ -116,8 +116,7 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/toolActivitiesIsland")');
     expect(source).toContain('import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";');
     expect(source).not.toContain('void import("./native-vue/toolActivityIsland")');
-    expect(source).toContain('import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";');
-    expect(source).not.toContain('void import("./native-vue/toolActivitySectionIsland")');
+    expect(source).toContain('} from "./native-vue/toolActivityStatus";');
   });
 
   test("statically imports the composer control islands", () => {

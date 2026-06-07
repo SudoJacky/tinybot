@@ -4,8 +4,12 @@ import { describe, expect, test } from "vitest";
 import { mountToolActivityIsland } from "./toolActivityIsland";
 
 describe("tool activity Vue island", () => {
-  test("renders summary badges and call/response sections", () => {
-    const host = document.createElement("details");
+  test("renders a compact clickable status row without inline call and response bodies", () => {
+    const host = document.createElement("div");
+    const opened: unknown[] = [];
+    host.addEventListener("desktop-tool-detail-open", (event) => {
+      opened.push((event as CustomEvent).detail);
+    });
 
     const mounted = mountToolActivityIsland(host, {
       argsText: "{\"query\":\"tinybot\"}",
@@ -14,24 +18,41 @@ describe("tool activity Vue island", () => {
       kind: "call",
       name: "web_search",
       responseText: "Found docs",
+      status: "success",
     });
 
     expect(host.getAttribute("data-desktop-vue-island")).toBe("tool-activity");
     expect(host.className).toBe("desktop-tool-activity");
     expect(host.getAttribute("data-desktop-tool-activity-kind")).toBe("call");
     expect(host.getAttribute("data-desktop-tool-activity-id")).toBe("tool-1");
+    expect(host.getAttribute("data-desktop-tool-status")).toBe("completed");
+    expect(host.querySelector(".desktop-tool-activity-row")?.getAttribute("type")).toBe("button");
+    expect(host.querySelector(".desktop-tool-activity-row")?.getAttribute("aria-label")).toBe("Open web_search tool details, Completed");
     expect(host.querySelector(".desktop-tool-activity-title")?.textContent).toBe("web_search");
-    expect(host.querySelector(".desktop-tool-activity-preview")?.textContent).toBe("{\"query\":\"tinybot\"}");
-    expect(Array.from(host.querySelectorAll(".desktop-tool-activity-badge")).map((badge) => badge.textContent)).toEqual(["Approved", "Call"]);
-    expect(host.querySelector(".desktop-tool-activity-section-call .desktop-tool-activity-pre")?.textContent).toBe("{\"query\":\"tinybot\"}");
-    expect(host.querySelector(".desktop-tool-activity-section-response .desktop-tool-activity-pre")?.textContent).toBe("Found docs");
+    expect(host.querySelector(".desktop-tool-activity-kind")?.textContent).toBe("Tool");
+    expect(host.querySelector(".desktop-tool-activity-status-label")?.textContent).toBe("Completed");
+    expect(host.querySelector(".desktop-tool-activity-status-dot")?.getAttribute("data-tool-status-tone")).toBe("success");
+    expect(host.querySelector(".desktop-tool-activity-body")).toBeNull();
+    expect(host.textContent).not.toContain("{\"query\":\"tinybot\"}");
+    expect(host.textContent).not.toContain("Found docs");
+    host.querySelector<HTMLButtonElement>(".desktop-tool-activity-row")?.click();
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatchObject({
+      activity: {
+        argsText: "{\"query\":\"tinybot\"}",
+        id: "tool-1",
+        name: "web_search",
+        responseText: "Found docs",
+        status: "success",
+      },
+    });
 
     mounted.unmount();
     expect(host.textContent).toBe("");
   });
 
-  test("collapses long tool content and dispatches run-chain inspection", () => {
-    const host = document.createElement("details");
+  test("dispatches run-chain inspection when opening a tool row", () => {
+    const host = document.createElement("div");
     const inspected: string[] = [];
     host.addEventListener("desktop-run-chain-inspect", (event) => {
       inspected.push((event as CustomEvent).detail.itemKey);
@@ -48,17 +69,15 @@ describe("tool activity Vue island", () => {
       runChainItemKey: "assistant-1:tool-call:tool-1",
     });
 
-    const nestedDetails = host.querySelector(".desktop-tool-activity-content-details");
     expect(host.getAttribute("data-desktop-run-chain-item-key")).toBe("assistant-1:tool-call:tool-1");
-    expect(nestedDetails?.querySelector(".desktop-tool-activity-content-preview")?.textContent).toContain("tinybot");
-    expect(nestedDetails?.querySelector(".desktop-tool-activity-pre")?.textContent).toBe(longArgs);
+    expect(host.textContent).not.toContain(longArgs);
 
-    host.querySelector<HTMLElement>(".desktop-tool-activity-summary")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    host.querySelector<HTMLButtonElement>(".desktop-tool-activity-row")?.click();
     expect(inspected).toEqual(["assistant-1:tool-call:tool-1"]);
   });
 
   test("renders pending approvals as an inline approval card", () => {
-    const host = document.createElement("details");
+    const host = document.createElement("div");
     const inspected: string[] = [];
     const approvals: unknown[] = [];
     host.addEventListener("desktop-run-chain-inspect", (event) => {
@@ -82,6 +101,9 @@ describe("tool activity Vue island", () => {
 
     const card = host.querySelector(".desktop-tool-approval-card");
     expect(host.getAttribute("data-desktop-approval-status")).toBe("approval_required");
+    expect(host.getAttribute("data-desktop-tool-status")).toBe("blocked");
+    expect(host.querySelector(".desktop-tool-activity-status-label")?.textContent).toBe("Pending approval");
+    expect(host.querySelector(".desktop-tool-activity-status-dot")?.getAttribute("data-tool-status-tone")).toBe("pending");
     expect(card?.getAttribute("role")).toBe("group");
     expect(card?.getAttribute("aria-label")).toBe("Approval required for shell");
     expect(card?.getAttribute("data-desktop-chat-region")).toBe("approval-card");
@@ -109,7 +131,7 @@ describe("tool activity Vue island", () => {
   });
 
   test("renders execution status as a distinct timeline state", () => {
-    const host = document.createElement("details");
+    const host = document.createElement("div");
 
     mountToolActivityIsland(host, {
       argsText: "{\"command\":\"npm test\"}",
@@ -122,13 +144,13 @@ describe("tool activity Vue island", () => {
     });
 
     expect(host.getAttribute("data-desktop-tool-activity-status")).toBe("running");
-    expect(host.querySelector(".desktop-tool-activity-summary")?.getAttribute("aria-label")).toBe("shell tool running");
-    expect(host.querySelector(".desktop-tool-activity-status-badge")?.textContent).toBe("Running");
-    expect(Array.from(host.querySelectorAll(".desktop-tool-activity-badge")).map((badge) => badge.textContent)).toEqual(["Running", "Call"]);
+    expect(host.querySelector(".desktop-tool-activity-row")?.getAttribute("aria-label")).toBe("Open shell tool details, Running");
+    expect(host.querySelector(".desktop-tool-activity-status-label")?.textContent).toBe("Running");
+    expect(host.querySelector(".desktop-tool-activity-status-dot")?.getAttribute("data-tool-status-tone")).toBe("running");
   });
 
   test("renders empty body for activity without details", () => {
-    const host = document.createElement("details");
+    const host = document.createElement("div");
 
     mountToolActivityIsland(host, {
       argsText: "",
@@ -141,8 +163,8 @@ describe("tool activity Vue island", () => {
 
     expect(host.getAttribute("data-desktop-tool-activity-id")).toBeNull();
     expect(host.querySelector(".desktop-tool-activity-title")?.textContent).toBe("unknown");
-    expect(host.querySelector(".desktop-tool-activity-preview")?.textContent).toBe("No details");
-    expect(host.querySelector(".desktop-tool-activity-badge")?.textContent).toBe("Result");
-    expect(host.querySelector(".desktop-tool-activity-empty")?.textContent).toBe("No arguments or response.");
+    expect(host.querySelector(".desktop-tool-activity-kind")?.textContent).toBe("Tool");
+    expect(host.querySelector(".desktop-tool-activity-status-label")?.textContent).toBe("Pending");
+    expect(host.querySelector(".desktop-tool-activity-body")).toBeNull();
   });
 });

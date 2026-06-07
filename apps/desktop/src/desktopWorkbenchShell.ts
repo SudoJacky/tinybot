@@ -46,7 +46,7 @@ import {
 import type { WorkbenchLayoutState, WorkbenchPanelId, WorkbenchPanelState } from "./desktopWorkbenchLayout";
 import { loadWorkbenchLayout } from "./desktopWorkbenchLayout";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
-import { logDesktopNativeChatDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 import type { NativeChatMessage, NativeChatReference, NativeChatSession } from "./nativeChat";
 import { mountAgentUiFormActionsIsland } from "./native-vue/agentUiFormActionsIsland";
 import { mountAgentUiFormCardIsland } from "./native-vue/agentUiFormCardIsland";
@@ -107,12 +107,11 @@ import { mountModuleWorkSectionIsland } from "./native-vue/moduleWorkSectionIsla
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
 import { mountPersistentRagToggleIsland } from "./native-vue/persistentRagToggleIsland";
 import { mountRecentChatRowIsland } from "./native-vue/recentChatRowIsland";
-import type { RecentChatStatusChip } from "./native-vue/recentChatRowIsland";
 import { mountRunChainInspectorIsland } from "./native-vue/runChainInspectorIsland";
 import { mountRunChainOverviewIsland } from "./native-vue/runChainOverviewIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
 import { mountSidebarContentIsland } from "./native-vue/sidebarContentIsland";
-import { mountSidebarRecentChatsIsland } from "./native-vue/sidebarRecentChatsIsland";
+import { mountSidebarRecentChatsIsland, type SidebarRecentChatRow } from "./native-vue/sidebarRecentChatsIsland";
 import { mountSidebarRowIsland } from "./native-vue/sidebarRowIsland";
 import { mountSidebarSectionHeadingIsland } from "./native-vue/sidebarSectionHeadingIsland";
 import { mountSidebarWorkspaceListIsland } from "./native-vue/sidebarWorkspaceListIsland";
@@ -138,7 +137,12 @@ import { mountToolDetailIsland } from "./native-vue/toolDetailIsland";
 import { mountToolActivitiesIsland } from "./native-vue/toolActivitiesIsland";
 import { mountToolActivityIsland } from "./native-vue/toolActivityIsland";
 import type { ToolActivityIslandOptions } from "./native-vue/toolActivityIsland";
-import { mountToolActivitySectionIsland } from "./native-vue/toolActivitySectionIsland";
+import {
+  getToolStatusLabel,
+  getToolStatusTone,
+  isPendingToolApproval as isPendingToolApprovalState,
+  normalizeToolStatus as normalizeToolStatusModel,
+} from "./native-vue/toolActivityStatus";
 import { mountToolsListIsland } from "./native-vue/toolsListIsland";
 import { mountToolsSkillsActionsIsland, type ToolsSkillsActionId } from "./native-vue/toolsSkillsActionsIsland";
 import { mountToolsSkillsPaneIsland } from "./native-vue/toolsSkillsPaneIsland";
@@ -211,7 +215,7 @@ interface DesktopNativeChatActionOptions {
   onInterrupt?: () => void;
   onAttachSessionFile?: () => void;
   onNewChat?: () => void;
-  onDeleteSession?: (event: DesktopNativeChatDeleteSessionEvent) => void;
+  onDeleteSession?: (event: DesktopNativeChatDeleteSessionEvent) => unknown | Promise<unknown>;
   onPinSession?: (event: DesktopNativeChatPinSessionEvent) => void;
   onRenameSession?: (event: DesktopNativeChatRenameSessionEvent) => void;
   onPersistentRagChange?: (enabled: boolean) => void;
@@ -575,7 +579,10 @@ export function updateDesktopNativeChat(
   }
 
   const recentChats = targetDocument.querySelector<HTMLElement>(".desktop-recent-chat-list");
-  if (recentChats) {
+  const recentChatsSection = targetDocument.querySelector<HTMLElement>(".desktop-sidebar-list-section-recent");
+  if (recentChatsSection && canMountVueIsland(recentChatsSection)) {
+    mountSidebarRecentChatsVueIsland(recentChatsSection, recentChatRowsForChat(targetDocument, chat), chatActions);
+  } else if (recentChats) {
     const next = createSidebarRecentChats(targetDocument, chat, chatActions).querySelector<HTMLElement>(".desktop-recent-chat-list");
     recentChats.replaceChildren(...Array.from(next?.children ?? []));
   }
@@ -951,19 +958,13 @@ function createSidebarRecentChats(
         chatActions,
         routeId,
         pinnedSessionKeys.has(session.key),
-        recentChatStatusChips(session, chat),
       ));
     }
     if (!sessions.length) {
       list.append(createText(targetDocument, "p", "No recent chats."));
     }
     section.append(list);
-    mountSidebarRecentChatsVueIsland(section, sessions.map((session) => recentChatRowModel(
-      session,
-      session.key === chat.activeSessionKey,
-      pinnedSessionKeys.has(session.key),
-      recentChatStatusChips(session, chat),
-    )), chatActions);
+    mountSidebarRecentChatsVueIsland(section, recentChatRowsForChat(targetDocument, chat), chatActions);
     return section;
   }
 
@@ -996,18 +997,7 @@ function recentChatRowModel(
   session: NativeChatSession,
   active: boolean,
   pinned: boolean,
-  statusChips: RecentChatStatusChip[] = [],
-): {
-  active: boolean;
-  chatId: string;
-  href: string;
-  pinned: boolean;
-  routeId: string;
-  sessionKey: string;
-  statusChips: RecentChatStatusChip[];
-  title: string;
-  updatedLabel: string;
-} {
+): SidebarRecentChatRow {
   const routeId = desktopChatRouteId(session);
   const title = session.title || "New session";
   return {
@@ -1017,61 +1007,18 @@ function recentChatRowModel(
     pinned,
     routeId,
     sessionKey: session.key,
-    statusChips,
     title,
     updatedLabel: session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId,
   };
 }
 
-function recentChatStatusChips(session: NativeChatSession, chat: DesktopNativeChatModel): RecentChatStatusChip[] {
-  if (session.key !== chat.activeSessionKey) {
-    return [];
-  }
-  const chips: RecentChatStatusChip[] = [];
-  if (chat.responding === true || chat.composerState === "sending" || chat.composerState === "queued") {
-    chips.push({ kind: "running", label: "Running" });
-  }
-  if (chat.messages.some(messageHasPendingApproval)) {
-    chips.push({ kind: "approval", label: "Approval" });
-  }
-  const referenceCount = chat.messages.reduce((count, message) => count + (message.references?.length ?? 0), 0);
-  if (referenceCount > 0) {
-    chips.push({ kind: "files", label: `${referenceCount} ref${referenceCount === 1 ? "" : "s"}` });
-  }
-  chips.push({
-    kind: "knowledge",
-    label: chat.usePersistentRag === false ? "Knowledge Off" : "Knowledge On",
-  });
-  return chips;
-}
-
-function messageHasPendingApproval(message: NativeChatMessage): boolean {
-  return (message.toolActivities ?? []).some((activity) => {
-    const status = activity.approvalStatus?.toLowerCase() ?? "";
-    return status.includes("approval") && !status.includes("approved");
-  });
-}
-
-function createRecentChatStatus(
-  targetDocument: Document,
-  sessionKey: string,
-  chips: RecentChatStatusChip[],
-): HTMLElement | null {
-  if (!chips.length) {
-    return null;
-  }
-  const status = targetDocument.createElement("span");
-  status.className = "desktop-sidebar-row-status";
-  status.setAttribute("aria-label", "Chat status");
-  status.setAttribute("data-desktop-chat-status", sessionKey);
-  for (const chip of chips) {
-    const pill = targetDocument.createElement("span");
-    pill.className = "desktop-sidebar-status-chip";
-    pill.setAttribute("data-status-kind", chip.kind);
-    pill.textContent = chip.label;
-    status.append(pill);
-  }
-  return status;
+function recentChatRowsForChat(targetDocument: Document, chat: DesktopNativeChatModel): SidebarRecentChatRow[] {
+  const pinnedSessionKeys = pinnedSessionKeysForDocument(targetDocument);
+  return sortPinnedSessionsFirst(chat.sessions, pinnedSessionKeys).map((session) => recentChatRowModel(
+    session,
+    session.key === chat.activeSessionKey,
+    pinnedSessionKeys.has(session.key),
+  ));
 }
 
 function mountSidebarRecentChatsVueIsland(
@@ -1083,7 +1030,6 @@ function mountSidebarRecentChatsVueIsland(
     pinned: boolean;
     routeId: string;
     sessionKey: string;
-    statusChips?: RecentChatStatusChip[];
     title: string;
     updatedLabel: string;
   }>,
@@ -1118,7 +1064,6 @@ function createRecentChatRow(
   chatActions: DesktopNativeChatActionOptions,
   routeId = desktopChatRouteId(session),
   pinned = false,
-  statusChips: RecentChatStatusChip[] = [],
 ): HTMLElement {
   const row = targetDocument.createElement("div");
   row.className = "desktop-sidebar-chat-row";
@@ -1153,10 +1098,6 @@ function createRecentChatRow(
   time.className = "desktop-sidebar-row-meta";
   time.textContent = updatedLabel;
   link.append(titleWrap, time);
-  const status = createRecentChatStatus(targetDocument, session.key, statusChips);
-  if (status) {
-    link.append(status);
-  }
 
   const deleteButton = targetDocument.createElement("button");
   deleteButton.type = "button";
@@ -1194,7 +1135,6 @@ function createRecentChatRow(
     pinned,
     routeId,
     sessionKey: session.key,
-    statusChips,
     title,
     updatedLabel,
   });
@@ -1207,11 +1147,10 @@ function mountRecentChatRowVueIsland(
     active: boolean;
     chatId: string;
     href: string;
-    onDeleteSession?: (event: { chatId: string; sessionKey: string; title: string }) => void;
+    onDeleteSession?: (event: { chatId: string; sessionKey: string; title: string }) => unknown | Promise<unknown>;
     pinned: boolean;
     routeId: string;
     sessionKey: string;
-    statusChips?: RecentChatStatusChip[];
     title: string;
     updatedLabel: string;
   },
@@ -1534,6 +1473,13 @@ function createChatHeader(
   if (headerStatus) {
     titleGroup.append(headerStatus);
   }
+  const sidebarControl = createHeaderPanelControl(targetDocument, {
+    panel: "sidebar",
+    visible: layout.sidebar.visible,
+    label: "Sidebar",
+    pressedLabel: "Collapse session list",
+    unpressedLabel: "Expand session list",
+  });
 
   const menu = targetDocument.createElement("button");
   menu.type = "button";
@@ -1557,7 +1503,7 @@ function createChatHeader(
     closeChatMenuPopover(menu, popover);
   });
 
-  titleRow.append(titleGroup, menu, popover);
+  titleRow.append(sidebarControl, titleGroup, menu, popover);
 
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-chat-header-actions";
@@ -1577,15 +1523,12 @@ function createChatHeader(
       unpressedLabel: "Open Activity inspector",
     }),
   );
+  const inspectorControl = actions.querySelector<HTMLElement>('[data-desktop-panel-control="inspector"]');
+  if (inspectorControl) {
+    actions.replaceChildren(inspectorControl);
+  }
 
   mountChatHeaderActionsVueIsland(actions, targetDocument, [
-    {
-      panel: "sidebar",
-      visible: layout.sidebar.visible,
-      label: "Sidebar",
-      pressedLabel: "Collapse session list",
-      unpressedLabel: "Expand session list",
-    },
     {
       panel: "inspector",
       visible: layout.inspector.visible,
@@ -2293,19 +2236,23 @@ function createConversationMessage(
   article.setAttribute("data-message-tone", options.tone);
 
   const content = targetDocument.createElement("div");
-  content.className = "desktop-conversation-content";
-  const header = targetDocument.createElement("div");
-  header.className = "desktop-conversation-header";
-  const meta = targetDocument.createElement("div");
-  meta.className = "desktop-conversation-meta";
-  const separator = createText(targetDocument, "span", " · ");
-  separator.className = "desktop-conversation-meta-separator";
-  separator.textContent = " · ";
-  separator.setAttribute("aria-hidden", "true");
-  meta.append(createText(targetDocument, "strong", options.author), separator, createText(targetDocument, "span", options.time));
-  mountConversationMetaVueIsland(meta, { author: options.author, time: options.time });
-  header.append(meta);
-  content.append(header);
+  content.className = options.tone === "user"
+    ? "desktop-conversation-content desktop-user-message-bubble"
+    : "desktop-conversation-content";
+  if (options.tone === "assistant") {
+    const header = targetDocument.createElement("div");
+    header.className = "desktop-conversation-header";
+    const meta = targetDocument.createElement("div");
+    meta.className = "desktop-conversation-meta";
+    const separator = createText(targetDocument, "span", " · ");
+    separator.className = "desktop-conversation-meta-separator";
+    separator.textContent = " · ";
+    separator.setAttribute("aria-hidden", "true");
+    meta.append(createText(targetDocument, "strong", options.author), separator, createText(targetDocument, "span", options.time));
+    mountConversationMetaVueIsland(meta, { author: options.author, time: options.time });
+    header.append(meta);
+    content.append(header);
+  }
   if (options.reasoningContent?.trim()) {
     content.append(createConversationReasoning(targetDocument, options.reasoningContent));
   }
@@ -2536,7 +2483,7 @@ function createConversationReasoning(targetDocument: Document, reasoningContent:
   details.className = "desktop-message-reasoning";
   const summary = targetDocument.createElement("summary");
   summary.className = "desktop-message-reasoning-summary";
-  summary.append(createText(targetDocument, "span", "Details"));
+  summary.append(createText(targetDocument, "span", "Thinking complete"));
   const body = createText(targetDocument, "div", reasoningContent);
   body.className = "desktop-message-reasoning-body";
   details.append(summary, body);
@@ -2602,85 +2549,64 @@ function createToolActivity(
   targetDocument: Document,
   activity: ConversationToolActivityRenderOptions,
 ): HTMLElement {
-  const details = targetDocument.createElement("details");
-  details.className = "desktop-tool-activity";
-  details.setAttribute("data-desktop-tool-activity-kind", activity.kind);
-  const activityStatus = normalizeToolActivityStatus(activity.status);
-  if (activityStatus) {
-    details.setAttribute("data-desktop-tool-activity-status", activityStatus);
-  }
-  if (isPendingToolApproval(activity.approvalStatus || "")) {
-    details.setAttribute("data-desktop-approval-status", activity.approvalStatus || "");
+  const wrapper = targetDocument.createElement("div");
+  wrapper.className = "desktop-tool-activity";
+  wrapper.setAttribute("data-desktop-tool-activity-kind", activity.kind);
+  const activityStatus = normalizeToolStatusModel(activity);
+  wrapper.setAttribute("data-desktop-tool-activity-status", activityStatus.status);
+  wrapper.setAttribute("data-desktop-tool-status", activityStatus.status);
+  wrapper.setAttribute("data-desktop-tool-status-tone", getToolStatusTone(activityStatus));
+  if (isPendingToolApprovalState(activity)) {
+    wrapper.setAttribute("data-desktop-approval-status", activity.approvalStatus || "");
   }
   if (activity.id) {
-    details.setAttribute("data-desktop-tool-activity-id", activity.id);
+    wrapper.setAttribute("data-desktop-tool-activity-id", activity.id);
   }
   if (activity.runChainItemKey) {
-    details.setAttribute("data-desktop-run-chain-item-key", activity.runChainItemKey);
+    wrapper.setAttribute("data-desktop-run-chain-item-key", activity.runChainItemKey);
   }
 
-  const summary = targetDocument.createElement("summary");
-  summary.className = "desktop-tool-activity-summary";
-  if (activityStatus) {
-    summary.setAttribute("aria-label", `${activity.name || "unknown"} tool ${toolActivityStatusLabel(activityStatus).toLowerCase()}`);
-  }
-  summary.addEventListener("click", () => {
+  const row = targetDocument.createElement("button");
+  row.className = "desktop-tool-activity-row";
+  row.type = "button";
+  row.setAttribute("aria-label", `Open ${activity.name || "unknown"} tool details, ${getToolStatusLabel(activityStatus)}`);
+  row.setAttribute("aria-selected", "false");
+  row.addEventListener("click", () => {
     if (activity.runChainItemKey) {
       inspectRunChainItemFromConversation(targetDocument, activity.runChainItemKey);
       dispatchDesktopCustomEvent(targetDocument, "desktop-run-chain-inspect", { itemKey: activity.runChainItemKey });
     }
+    dispatchDesktopCustomEvent(targetDocument, "desktop-tool-detail-open", {
+      activity,
+      normalizedStatus: activityStatus,
+    });
   });
-  const icon = createText(targetDocument, "span", ">");
-  icon.className = "desktop-tool-activity-icon";
-  icon.setAttribute("aria-hidden", "true");
+  const dot = targetDocument.createElement("span");
+  dot.className = "desktop-tool-activity-status-dot";
+  dot.setAttribute("aria-hidden", "true");
+  dot.setAttribute("data-tool-status-tone", getToolStatusTone(activityStatus));
+  const kind = createText(targetDocument, "span", "Tool");
+  kind.className = "desktop-tool-activity-kind";
+  const separatorOne = createText(targetDocument, "span", "·");
+  separatorOne.className = "desktop-tool-activity-separator";
+  separatorOne.setAttribute("aria-hidden", "true");
   const main = targetDocument.createElement("span");
   main.className = "desktop-tool-activity-main";
   const title = createText(targetDocument, "span", activity.name || "unknown");
   title.className = "desktop-tool-activity-title";
-  const preview = createText(targetDocument, "span", summarizeToolText(activity.argsText || activity.responseText));
-  preview.className = "desktop-tool-activity-preview";
-  main.append(title, preview);
-  const badges = targetDocument.createElement("span");
-  badges.className = "desktop-tool-activity-badges";
-  if (activityStatus) {
-    const status = createText(targetDocument, "span", toolActivityStatusLabel(activityStatus));
-    status.className = `desktop-tool-activity-badge desktop-tool-activity-status-badge desktop-tool-activity-status-${activityStatus}`;
-    badges.append(status);
+  main.append(title);
+  const separatorTwo = createText(targetDocument, "span", "·");
+  separatorTwo.className = "desktop-tool-activity-separator";
+  separatorTwo.setAttribute("aria-hidden", "true");
+  const status = createText(targetDocument, "span", getToolStatusLabel(activityStatus));
+  status.className = "desktop-tool-activity-status-label";
+  status.setAttribute("data-tool-status-tone", getToolStatusTone(activityStatus));
+  row.append(dot, kind, separatorOne, main, separatorTwo, status);
+  wrapper.append(row);
+  if (isPendingToolApprovalState(activity)) {
+    wrapper.append(createToolApprovalCard(targetDocument, activity));
   }
-  if (isPendingToolApproval(activity.approvalStatus || "")) {
-    const approval = createText(targetDocument, "span", "Approval");
-    approval.className = "desktop-tool-activity-badge desktop-tool-activity-pending-approval-badge";
-    badges.append(approval);
-  }
-  if (activity.approvalStatus === "approved") {
-    const approval = createText(targetDocument, "span", "Approved");
-    approval.className = "desktop-tool-activity-badge desktop-tool-activity-approval-badge";
-    badges.append(approval);
-  }
-  const badge = createText(targetDocument, "span", activity.kind === "result" ? "Result" : "Call");
-  badge.className = "desktop-tool-activity-badge";
-  badges.append(badge);
-  summary.append(icon, main, badges);
-  details.append(summary);
-  if (isPendingToolApproval(activity.approvalStatus || "")) {
-    details.append(createToolApprovalCard(targetDocument, activity));
-  }
-
-  const body = targetDocument.createElement("div");
-  body.className = "desktop-tool-activity-body";
-  if (activity.argsText) {
-    body.append(createToolActivitySection(targetDocument, "Arguments", activity.argsText, "call"));
-  }
-  if (activity.responseText) {
-    body.append(createToolActivitySection(targetDocument, "Response", activity.responseText, "response"));
-  }
-  if (!activity.argsText && !activity.responseText) {
-    const empty = createText(targetDocument, "div", "No arguments or response.");
-    empty.className = "desktop-tool-activity-empty";
-    body.append(empty);
-  }
-  details.append(body);
-  mountToolActivityVueIsland(details, {
+  mountToolActivityVueIsland(wrapper, {
     approvalId: activity.approvalId,
     argsText: activity.argsText || "",
     approvalStatus: activity.approvalStatus || "",
@@ -2692,7 +2618,7 @@ function createToolActivity(
     sessionKey: activity.sessionKey,
     status: activity.status,
   });
-  return details;
+  return wrapper;
 }
 
 function createToolApprovalCard(
@@ -2788,102 +2714,12 @@ function mountToolActivityVueIsland(
   mountToolActivityIsland(activity, options);
 }
 
-function isPendingToolApproval(status: string): boolean {
-  const normalized = status.toLowerCase();
-  return normalized.includes("approval") && !normalized.includes("approved");
-}
-
-function normalizeToolActivityStatus(status: string | undefined): string {
-  const normalized = (status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (!normalized) {
-    return "";
-  }
-  if (["running", "in_progress", "started", "streaming"].includes(normalized)) {
-    return "running";
-  }
-  if (["pending", "queued", "created", "waiting"].includes(normalized)) {
-    return "pending";
-  }
-  if (["completed", "complete", "success", "succeeded", "done"].includes(normalized)) {
-    return "completed";
-  }
-  if (["failed", "failure", "error", "errored"].includes(normalized)) {
-    return "failed";
-  }
-  if (["blocked", "approval_required", "waiting_approval"].includes(normalized)) {
-    return "blocked";
-  }
-  if (["cancelled", "canceled", "interrupted", "stopped"].includes(normalized)) {
-    return "cancelled";
-  }
-  return normalized;
-}
-
-function toolActivityStatusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    blocked: "Blocked",
-    cancelled: "Cancelled",
-    completed: "Completed",
-    failed: "Failed",
-    pending: "Pending",
-    running: "Running",
-  };
-  return labels[status] || status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function createToolActivitySection(
-  targetDocument: Document,
-  label: string,
-  text: string,
-  kind: "call" | "response",
-): HTMLElement {
-  const section = targetDocument.createElement("div");
-  section.className = `desktop-tool-activity-section desktop-tool-activity-section-${kind}`;
-  if (shouldCollapseToolContent(text)) {
-    const details = targetDocument.createElement("details");
-    details.className = "desktop-tool-activity-content-details";
-    const summary = targetDocument.createElement("summary");
-    summary.className = "desktop-tool-activity-content-summary";
-    const labelNode = createText(targetDocument, "span", label);
-    labelNode.className = "desktop-tool-activity-label";
-    const preview = createText(targetDocument, "span", summarizeToolText(text));
-    preview.className = "desktop-tool-activity-content-preview";
-    const pre = createText(targetDocument, "pre", text);
-    pre.className = "desktop-tool-activity-pre";
-    summary.append(labelNode, preview);
-    details.append(summary, pre);
-    section.append(details);
-    return section;
-  }
-  const labelNode = createText(targetDocument, "div", label);
-  labelNode.className = "desktop-tool-activity-label";
-  const pre = createText(targetDocument, "pre", text);
-  pre.className = "desktop-tool-activity-pre";
-  section.append(labelNode, pre);
-  mountToolActivitySectionVueIsland(section, { kind, label, text });
-  return section;
-}
-
-function mountToolActivitySectionVueIsland(
-  section: HTMLElement,
-  options: { kind: "call" | "response"; label: string; text: string },
-): void {
-  if (!canMountVueIsland(section)) {
-    return;
-  }
-  mountToolActivitySectionIsland(section, options);
-}
-
 function summarizeToolText(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (!normalized) {
     return "No details";
   }
   return normalized.length > 96 ? `${normalized.slice(0, 93)}...` : normalized;
-}
-
-function shouldCollapseToolContent(value: string): boolean {
-  return value.length > 140 || value.split(/\r?\n/).length > 6;
 }
 
 function createConversationBody(
@@ -5630,6 +5466,11 @@ function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControl
   const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
   const stateAttribute = `data-${panel}-visible`;
   const currentValue = shell?.getAttribute(stateAttribute) ?? panelElement?.getAttribute("data-visible") ?? "true";
+  logDesktopNativeDebug("shell.panel.toggle", {
+    currentVisible: currentValue !== "false",
+    nextVisible: currentValue === "false",
+    panel,
+  });
   setDesktopPanelVisible(targetDocument, panel, currentValue === "false");
 }
 
@@ -5652,6 +5493,10 @@ function setDesktopPanelVisible(targetDocument: Document, panel: DesktopPanelCon
   if (status) {
     status.textContent = `${formatPanelName(panel)} panel ${nextVisible ? "shown" : "hidden"}`;
   }
+  logDesktopNativeDebug("shell.panel.visible", {
+    nextVisible,
+    panel,
+  });
 }
 
 function formatPanelName(panel: DesktopPanelControlId): string {
@@ -7620,7 +7465,9 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
   style.id = STYLE_ID;
   style.textContent = `
     body.desktop-native-workbench {
-      --desktop-chat-column-width: 840px;
+      --desktop-chat-column-width: clamp(720px, calc(100vw - 240px), 1760px);
+      --desktop-chat-gutter: clamp(16px, 2vw, 36px);
+      --desktop-chat-composer-gutter: clamp(32px, 4vw, 72px);
       margin: 0;
       min-height: 100vh;
       overflow: hidden;
@@ -8745,7 +8592,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       display: block;
-      width: min(var(--desktop-chat-column-width), calc(100% - 112px));
+      width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));
       min-width: 0;
       margin: 0 auto 10px;
       border: 1px solid var(--border);
@@ -9225,49 +9072,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font-weight: 400;
     }
 
-    body.desktop-native-workbench .desktop-sidebar-row-status {
-      grid-column: 1 / -1;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      min-width: 0;
-      margin-top: 1px;
-    }
-
-    body.desktop-native-workbench .desktop-sidebar-status-chip {
-      display: inline-flex;
-      align-items: center;
-      min-height: 18px;
-      max-width: 100%;
-      border: 1px solid #eaded8;
-      border-radius: 999px;
-      padding: 0 6px;
-      background: #fffaf5;
-      color: #6f685f;
-      font: 600 10px/1.2 var(--font-sans);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    body.desktop-native-workbench .desktop-sidebar-status-chip[data-status-kind="running"] {
-      border-color: #bfe4c4;
-      background: #effaf0;
-      color: #2f7d3e;
-    }
-
-    body.desktop-native-workbench .desktop-sidebar-status-chip[data-status-kind="approval"] {
-      border-color: #f2c8b8;
-      background: #fff2ec;
-      color: #b4533c;
-    }
-
-    body.desktop-native-workbench .desktop-sidebar-status-chip[data-status-kind="knowledge"] {
-      border-color: #d8dce8;
-      background: #f4f6fb;
-      color: #4e5d7a;
-    }
-
     body.desktop-native-workbench .desktop-workbench-main {
       grid-template-rows: minmax(0, 1fr) auto 0;
       height: 100%;
@@ -9289,7 +9093,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       height: 100%;
       min-height: 0;
       margin: 0;
-      padding: 0 clamp(20px, 3vw, 46px);
+      padding: 0 var(--desktop-chat-gutter);
       overflow: hidden;
       background: #f7f7f5;
     }
@@ -9570,23 +9374,27 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-conversation-content-card,
     body.desktop-native-workbench .desktop-conversation-content {
       display: grid;
-      gap: 8px;
+      gap: 5px;
       width: 100%;
       min-width: 0;
       border: 0;
       border-radius: 0;
-      padding: 4px 0 8px;
+      padding: 2px 0 5px;
       background: transparent;
       color: #1f1d1a;
       font: 14px/1.58 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-conversation-message[data-message-tone="assistant"] .desktop-conversation-content {
-      padding: 4px 0 8px;
+      padding: 2px 0 5px;
       line-height: 1.62;
     }
 
     body.desktop-native-workbench .desktop-conversation-content-card .n-card__content {
+      padding: 0;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-content-card .n-card-content {
       padding: 0;
     }
 
@@ -9600,8 +9408,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-conversation-header {
       display: flex;
       align-items: baseline;
-      justify-content: space-between;
-      gap: 12px;
+      justify-content: flex-start;
+      gap: 8px;
       min-width: 0;
       min-height: 20px;
     }
@@ -9681,7 +9489,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-message-reasoning {
       display: grid;
-      justify-items: end;
+      justify-items: start;
       justify-self: stretch;
       width: 100%;
       max-width: 100%;
@@ -9699,7 +9507,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-message-reasoning summary {
-      justify-self: end;
+      justify-self: start;
       list-style: none;
     }
 
@@ -9712,7 +9520,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       gap: 5px;
       width: fit-content;
-      margin-left: auto;
+      margin-left: 0;
       min-height: 22px;
       border-radius: 999px;
       padding: 0 7px;
@@ -9750,7 +9558,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-items: center;
       gap: 5px;
       width: fit-content;
-      margin-left: auto;
+      margin-left: 0;
       min-height: 22px;
       border: 0;
       border-radius: 999px;
@@ -9840,6 +9648,295 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-radius: 8px;
       background: #fbfaf7;
       color: #625d57;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: start;
+      gap: 18px;
+      min-width: 0;
+      width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-layout[data-tool-detail-visible="true"] {
+      grid-template-columns: minmax(0, 1fr) minmax(300px, var(--desktop-tool-detail-width, 50%));
+    }
+
+    body.desktop-native-workbench .desktop-conversation-timeline {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-message {
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-message[data-message-tone="user"] {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    body.desktop-native-workbench .desktop-conversation-message[data-message-tone="user"] .desktop-user-message-bubble {
+      box-sizing: border-box;
+      width: fit-content;
+      max-width: min(100%, var(--desktop-chat-column-width));
+      border: 0;
+      border-radius: 16px;
+      padding: 10px 13px;
+      background: var(--desktop-user-message-bg, #fff1bd);
+      color: var(--text-strong, #262522);
+    }
+
+    body.desktop-native-workbench .desktop-conversation-message[data-message-tone="assistant"] {
+      display: block;
+    }
+
+    body.desktop-native-workbench .desktop-assistant-step-group {
+      min-width: 0;
+      color: #77716a;
+    }
+
+    body.desktop-native-workbench .desktop-assistant-step-group summary::-webkit-details-marker {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-assistant-step-summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+      border-radius: 7px;
+      padding: 2px 0;
+      color: #77716a;
+      cursor: pointer;
+      font: 500 14px/1.45 var(--font-sans);
+      list-style: none;
+    }
+
+    body.desktop-native-workbench .desktop-assistant-step-summary::after {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-right: 1.5px solid currentColor;
+      border-bottom: 1.5px solid currentColor;
+      transform: rotate(-45deg);
+      transition: transform 160ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-assistant-step-group[open] .desktop-assistant-step-summary::after {
+      transform: rotate(45deg);
+    }
+
+    body.desktop-native-workbench .desktop-assistant-step-summary-count,
+    body.desktop-native-workbench .desktop-assistant-step-summary-time {
+      color: #918b84;
+    }
+
+    body.desktop-native-workbench .desktop-assistant-step-list {
+      display: grid;
+      gap: 6px;
+      margin: 5px 0 2px;
+      padding-left: 16px;
+      border-left: 1px solid #e3ded7;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-row {
+      display: inline-grid;
+      grid-template-columns: 10px auto auto minmax(0, auto) auto auto;
+      align-items: center;
+      gap: 6px;
+      max-width: 100%;
+      min-height: 28px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 3px 8px;
+      background: transparent;
+      color: #625d57;
+      font: 650 12px/1.35 var(--font-sans);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-row:hover,
+    body.desktop-native-workbench .desktop-tool-activity-row:focus-visible,
+    body.desktop-native-workbench .desktop-tool-activity-row[aria-selected="true"] {
+      border-color: var(--border, #e6dfd8);
+      background: var(--panel-strong, #faf9f5);
+      outline: none;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #9c9891;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-status-dot[data-tool-status-tone="running"] {
+      background: #2f77b4;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-status-dot[data-tool-status-tone="success"] {
+      background: #3b8a4d;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-status-dot[data-tool-status-tone="error"] {
+      background: #b94735;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-status-dot[data-tool-status-tone="denied"] {
+      background: #c88022;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-kind,
+    body.desktop-native-workbench .desktop-tool-activity-separator,
+    body.desktop-native-workbench .desktop-tool-activity-status-label {
+      color: #7a746d;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-title {
+      color: #3f3a35;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-panel {
+      position: sticky;
+      top: 0;
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+      min-width: 300px;
+      max-height: calc(100vh - 190px);
+      overflow: hidden;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 10px;
+      background: var(--panel, #fffdf9);
+      box-shadow: 0 18px 44px rgba(31, 29, 26, 0.12);
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-resizer {
+      position: absolute;
+      inset: 0 auto 0 -6px;
+      width: 10px;
+      cursor: col-resize;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-header,
+    body.desktop-native-workbench .desktop-tool-detail-status,
+    body.desktop-native-workbench .desktop-tool-detail-approval-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border, #e6dfd8);
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-header {
+      justify-content: space-between;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-eyebrow {
+      color: #7a746d;
+      font: 700 10px/1.2 var(--font-sans);
+      text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-title {
+      margin: 0;
+      color: #262522;
+      font: 700 15px/1.25 var(--font-mono);
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-close {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      background: transparent;
+      color: #625d57;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-body {
+      display: grid;
+      gap: 12px;
+      min-height: 0;
+      overflow: auto;
+      padding: 14px;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-meta {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      gap: 5px 10px;
+      margin: 0;
+      font-size: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-meta dt {
+      color: #7a746d;
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-meta dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: #3f3a35;
+      font-family: var(--font-mono);
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-section {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-section h4 {
+      margin: 0;
+      color: #625d57;
+      font: 800 11px/1.2 var(--font-sans);
+      text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-pre {
+      max-height: 280px;
+      margin: 0;
+      overflow: auto;
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--surface-dark-soft, #1f1e1b);
+      color: var(--on-dark, #faf9f5);
+      font: 12px/1.5 var(--font-mono);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-panel[data-tool-detail-mode="overlay"] {
+      position: fixed;
+      z-index: 40;
+      top: 72px;
+      right: 18px;
+      bottom: 92px;
+      width: min(520px, calc(100vw - 36px));
+      max-height: none;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-panel[data-tool-detail-mode="overlay"] .desktop-tool-detail-resizer {
+      display: none;
     }
 
     body.desktop-native-workbench .desktop-tool-activity summary {
@@ -10326,7 +10423,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-native-composer {
       position: relative;
-      width: min(var(--desktop-chat-column-width), calc(100% - 112px));
+      width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));
       min-height: 0;
       margin: 0 auto 8px;
       border-color: #ddd5cd;

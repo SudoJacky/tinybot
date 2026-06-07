@@ -1,6 +1,13 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider, NTag, NText } from "naive-ui";
+import { NConfigProvider, NText } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
+import {
+  getToolStatusLabel,
+  getToolStatusTone,
+  isPendingToolApproval,
+  normalizeToolStatus,
+  type NormalizedToolStatus,
+} from "./toolActivityStatus";
 
 export interface ToolActivityIslandOptions {
   approvalId?: string;
@@ -11,6 +18,7 @@ export interface ToolActivityIslandOptions {
   name: string;
   responseText: string;
   runChainItemKey?: string;
+  selected?: boolean;
   sessionKey?: string;
   status?: string;
 }
@@ -36,17 +44,15 @@ export function mountToolActivityIsland(
   } else {
     host.removeAttribute("data-desktop-run-chain-item-key");
   }
-  if (isPendingApproval(options.approvalStatus)) {
+  if (isPendingToolApproval(options)) {
     host.setAttribute("data-desktop-approval-status", options.approvalStatus);
   } else {
     host.removeAttribute("data-desktop-approval-status");
   }
-  const status = normalizeToolActivityStatus(options.status);
-  if (status) {
-    host.setAttribute("data-desktop-tool-activity-status", status);
-  } else {
-    host.removeAttribute("data-desktop-tool-activity-status");
-  }
+  const status = normalizeToolStatus(options);
+  host.setAttribute("data-desktop-tool-activity-status", status.status);
+  host.setAttribute("data-desktop-tool-status", status.status);
+  host.setAttribute("data-desktop-tool-status-tone", getToolStatusTone(status));
   const app = createToolActivityApp(options);
   app.mount(host);
   return {
@@ -79,79 +85,47 @@ export function renderToolActivityNode(options: ToolActivityIslandOptions) {
   if (options.runChainItemKey) {
     attributes["data-desktop-run-chain-item-key"] = options.runChainItemKey;
   }
-  if (isPendingApproval(options.approvalStatus)) {
+  if (isPendingToolApproval(options)) {
     attributes["data-desktop-approval-status"] = options.approvalStatus;
   }
-  const status = normalizeToolActivityStatus(options.status);
-  if (status) {
-    attributes["data-desktop-tool-activity-status"] = status;
-  }
-  return h("details", attributes, renderToolActivityChildren(options));
+  const status = normalizeToolStatus(options);
+  attributes["data-desktop-tool-activity-status"] = status.status;
+  attributes["data-desktop-tool-status"] = status.status;
+  attributes["data-desktop-tool-status-tone"] = getToolStatusTone(status);
+  return h("div", attributes, renderToolActivityChildren(options));
 }
 
 export function renderToolActivityChildren(options: ToolActivityIslandOptions) {
   return [
     renderSummary(options),
-    isPendingApproval(options.approvalStatus) ? renderApprovalCard(options) : null,
-    renderBody(options),
+    isPendingToolApproval(options) ? renderApprovalCard(options) : null,
   ];
 }
 
 function renderSummary(options: ToolActivityIslandOptions) {
-  const status = normalizeToolActivityStatus(options.status);
-  return h("summary", {
-    "aria-label": status ? `${options.name || "unknown"} tool ${statusLabel(status).toLowerCase()}` : undefined,
-    class: "desktop-tool-activity-summary",
-    onClick: (event: MouseEvent) => dispatchRunChainInspect(event, options.runChainItemKey),
+  const status = normalizeToolStatus(options);
+  const label = getToolStatusLabel(status);
+  const tone = getToolStatusTone(status);
+  return h("button", {
+    "aria-label": `Open ${options.name || "unknown"} tool details, ${label}`,
+    "aria-selected": String(Boolean(options.selected)),
+    class: "desktop-tool-activity-row",
+    onClick: (event: MouseEvent) => openToolDetails(event, options, status),
+    type: "button",
   }, [
-    h("span", { "aria-hidden": "true", class: "desktop-tool-activity-icon" }, ">"),
+    h("span", {
+      "aria-hidden": "true",
+      class: "desktop-tool-activity-status-dot",
+      "data-tool-status-tone": tone,
+    }),
+    h("span", { class: "desktop-tool-activity-kind" }, "Tool"),
+    h("span", { class: "desktop-tool-activity-separator", "aria-hidden": "true" }, "·"),
     h("span", { class: "desktop-tool-activity-main" }, [
       h(NText, { class: "desktop-tool-activity-title", tag: "span" }, { default: () => options.name || "unknown" }),
-      h(NText, { class: "desktop-tool-activity-preview", depth: 3, tag: "span" }, {
-        default: () => summarizeToolActivityText(options.argsText || options.responseText),
-      }),
     ]),
-    h("span", { class: "desktop-tool-activity-badges" }, renderBadges(options)),
+    h("span", { class: "desktop-tool-activity-separator", "aria-hidden": "true" }, "·"),
+    h("span", { class: "desktop-tool-activity-status-label", "data-tool-status-tone": tone }, label),
   ]);
-}
-
-function renderBadges(options: ToolActivityIslandOptions) {
-  const status = normalizeToolActivityStatus(options.status);
-  return [
-    status
-      ? h(NTag, {
-        bordered: false,
-        class: `desktop-tool-activity-badge desktop-tool-activity-status-badge desktop-tool-activity-status-${status}`,
-        round: true,
-        size: "small",
-        type: statusTagType(status),
-      }, { default: () => statusLabel(status) })
-      : null,
-    isPendingApproval(options.approvalStatus)
-      ? h(NTag, {
-        bordered: false,
-        class: "desktop-tool-activity-badge desktop-tool-activity-pending-approval-badge",
-        round: true,
-        size: "small",
-        type: "warning",
-      }, { default: () => "Approval" })
-      : null,
-    options.approvalStatus === "approved"
-      ? h(NTag, {
-        bordered: false,
-        class: "desktop-tool-activity-badge desktop-tool-activity-approval-badge",
-        round: true,
-        size: "small",
-        type: "success",
-      }, { default: () => "Approved" })
-      : null,
-    h(NTag, {
-      bordered: false,
-      class: "desktop-tool-activity-badge",
-      round: true,
-      size: "small",
-    }, { default: () => options.kind === "result" ? "Result" : "Call" }),
-  ];
 }
 
 function renderApprovalCard(options: ToolActivityIslandOptions) {
@@ -174,7 +148,7 @@ function renderApprovalActions(options: ToolActivityIslandOptions) {
   const review = h("button", {
     class: "desktop-tool-approval-action desktop-tool-approval-action-review",
     "data-desktop-approval-action": "review",
-    onClick: (event: MouseEvent) => dispatchRunChainInspect(event, options.runChainItemKey),
+    onClick: (event: MouseEvent) => openToolDetails(event, options, normalizeToolStatus(options)),
     type: "button",
   }, options.approvalId ? "Review details" : "Review approval");
   if (!options.approvalId) {
@@ -201,38 +175,6 @@ function renderApprovalActionButton(
   }, label);
 }
 
-function renderBody(options: ToolActivityIslandOptions) {
-  const children = [];
-  if (options.argsText) {
-    children.push(renderSection("Arguments", options.argsText, "call"));
-  }
-  if (options.responseText) {
-    children.push(renderSection("Response", options.responseText, "response"));
-  }
-  if (!children.length) {
-    children.push(h("div", { class: "desktop-tool-activity-empty" }, "No arguments or response."));
-  }
-  return h("div", { class: "desktop-tool-activity-body" }, children);
-}
-
-function renderSection(label: string, text: string, kind: "call" | "response") {
-  if (shouldCollapseToolContent(text)) {
-    return h("div", { class: `desktop-tool-activity-section desktop-tool-activity-section-${kind}` }, [
-      h("details", { class: "desktop-tool-activity-content-details" }, [
-        h("summary", { class: "desktop-tool-activity-content-summary" }, [
-          h(NText, { class: "desktop-tool-activity-label", tag: "span" }, { default: () => label }),
-          h("span", { class: "desktop-tool-activity-content-preview" }, summarizeToolActivityText(text)),
-        ]),
-        h("pre", { class: "desktop-tool-activity-pre" }, text),
-      ]),
-    ]);
-  }
-  return h("div", { class: `desktop-tool-activity-section desktop-tool-activity-section-${kind}` }, [
-    h(NText, { class: "desktop-tool-activity-label", tag: "div" }, { default: () => label }),
-    h("pre", { class: "desktop-tool-activity-pre" }, text),
-  ]);
-}
-
 function summarizeToolActivityText(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -241,67 +183,34 @@ function summarizeToolActivityText(value: string): string {
   return normalized.length > 96 ? `${normalized.slice(0, 93)}...` : normalized;
 }
 
-function shouldCollapseToolContent(value: string): boolean {
-  return value.length > 140 || value.split(/\r?\n/).length > 6;
-}
-
-function isPendingApproval(status: string): boolean {
-  const normalized = status.toLowerCase();
-  return normalized.includes("approval") && !normalized.includes("approved");
-}
-
-function normalizeToolActivityStatus(status: string | undefined): string {
-  const normalized = (status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (!normalized) {
-    return "";
+function openToolDetails(
+  event: MouseEvent,
+  options: ToolActivityIslandOptions,
+  status: NormalizedToolStatus,
+): void {
+  dispatchRunChainInspect(event, options.runChainItemKey);
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) {
+    return;
   }
-  if (["running", "in_progress", "started", "streaming"].includes(normalized)) {
-    return "running";
-  }
-  if (["pending", "queued", "created", "waiting"].includes(normalized)) {
-    return "pending";
-  }
-  if (["completed", "complete", "success", "succeeded", "done"].includes(normalized)) {
-    return "completed";
-  }
-  if (["failed", "failure", "error", "errored"].includes(normalized)) {
-    return "failed";
-  }
-  if (["blocked", "approval_required", "waiting_approval"].includes(normalized)) {
-    return "blocked";
-  }
-  if (["cancelled", "canceled", "interrupted", "stopped"].includes(normalized)) {
-    return "cancelled";
-  }
-  return normalized;
-}
-
-function statusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    blocked: "Blocked",
-    cancelled: "Cancelled",
-    completed: "Completed",
-    failed: "Failed",
-    pending: "Pending",
-    running: "Running",
-  };
-  return labels[status] || status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function statusTagType(status: string): "default" | "error" | "info" | "success" | "warning" {
-  if (status === "completed") {
-    return "success";
-  }
-  if (status === "failed") {
-    return "error";
-  }
-  if (status === "blocked" || status === "pending") {
-    return "warning";
-  }
-  if (status === "running") {
-    return "info";
-  }
-  return "default";
+  target.dispatchEvent(new CustomEvent("desktop-tool-detail-open", {
+    bubbles: true,
+    detail: {
+      activity: {
+        approvalId: options.approvalId,
+        approvalStatus: options.approvalStatus,
+        argsText: options.argsText,
+        id: options.id,
+        kind: options.kind,
+        name: options.name,
+        responseText: options.responseText,
+        runChainItemKey: options.runChainItemKey,
+        sessionKey: options.sessionKey,
+        status: options.status,
+      },
+      normalizedStatus: status,
+    },
+  }));
 }
 
 function dispatchRunChainInspect(event: MouseEvent, itemKey?: string): void {

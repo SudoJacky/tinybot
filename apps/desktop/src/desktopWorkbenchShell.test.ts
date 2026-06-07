@@ -299,7 +299,7 @@ describe("desktop workbench shell", () => {
         role: "assistant",
         content: "The native workbench is rendering gateway data.",
         reasoningContent: "Checked active session metadata.",
-        references: [{ kind: "tool", title: "read_file", detail: "docs/desktop.md" }],
+        references: [{ kind: "reference", title: "docs/desktop.md", detail: "read_file" }],
         toolActivities: [{
           argsText: "shell command",
           approvalStatus: "approval_required",
@@ -336,7 +336,7 @@ describe("desktop workbench shell", () => {
     expect(shellText).toContain("Please summarize the live runtime state.");
     expect(shellText).toContain("The native workbench is rendering gateway data.");
     expect(shellText).toContain("Checked active session metadata.");
-    expect(shellText).toContain("tool: read_file");
+    expect(shellText).toContain("reference: docs/desktop.md");
     expect(shellText).toContain("docs/desktop.md");
     expect(shellText).not.toContain("Loaded from gateway");
     expect(shellText).not.toContain("Design native workbench");
@@ -349,16 +349,10 @@ describe("desktop workbench shell", () => {
     const recentChatRow = targetDocument.body.querySelector(".desktop-sidebar-chat-row");
     expect(recentChatRow?.getAttribute("role")).toBe("listitem");
     expect(recentChatRow?.getAttribute("data-active")).toBe("true");
-    expect(recentChatRow?.querySelector(".desktop-sidebar-row-status")?.getAttribute("data-desktop-chat-status")).toBe("WebSocket:chat-live");
-    expect(recentChatRow?.querySelectorAll(".desktop-sidebar-status-chip").map((chip) => ({
-      kind: chip.getAttribute("data-status-kind"),
-      text: chip.textContent,
-    }))).toEqual([
-      { kind: "running", text: "Running" },
-      { kind: "approval", text: "Approval" },
-      { kind: "files", text: "1 ref" },
-      { kind: "knowledge", text: "Knowledge Off" },
-    ]);
+    expect(recentChatRow?.querySelector(".desktop-sidebar-row-status")).toBeNull();
+    expect(recentChatRow?.textContent).not.toContain("Running");
+    expect(recentChatRow?.textContent).not.toContain("Approval");
+    expect(recentChatRow?.textContent).not.toContain("Knowledge Off");
     const deleteButton = targetDocument.body.querySelector('[data-desktop-chat-delete="WebSocket:chat-live"]');
     expect(recentChatRow?.querySelector('[data-desktop-chat-delete="WebSocket:chat-live"]')).toBe(deleteButton);
     expect(deleteButton?.getAttribute("aria-label")).toBe("Delete chat Live gateway session");
@@ -553,20 +547,20 @@ describe("desktop workbench shell", () => {
     expect(thread?.getAttribute("role")).toBe("log");
     expect(thread?.getAttribute("aria-live")).toBe("polite");
     expect(message?.querySelector(".desktop-conversation-header")?.querySelector(".desktop-conversation-meta")?.textContent).toContain("Tinybot");
-    expect(reasoning?.querySelector(".desktop-message-reasoning-summary")?.textContent).toBe("Details");
+    expect(reasoning?.querySelector(".desktop-message-reasoning-summary")?.textContent).toBe("Thinking complete");
     expect(message?.querySelector(".desktop-conversation-content")?.children[1]).toBe(reasoning);
     expect(reasoning?.tagName).toBe("details");
     expect(reasoning?.querySelector(".desktop-message-reasoning-title")).toBeNull();
     expect(reasoning?.textContent).toContain("I should inspect the workspace first.");
     expect(message?.querySelector(".desktop-tool-activities")?.getAttribute("data-desktop-chat-region")).toBe("tool-timeline");
     expect(message?.querySelector(".desktop-tool-activities")?.getAttribute("aria-label")).toBe("Tool Timeline");
-    expect(toolActivity?.tagName).toBe("details");
+    expect(toolActivity?.tagName).toBe("div");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-row")?.getAttribute("aria-label")).toBe("Open shell tool details, Pending");
     expect(toolActivity?.querySelector(".desktop-tool-activity-title")?.textContent).toBe("shell");
-    expect(toolActivity?.querySelector(".desktop-tool-activity-badge")?.textContent).toBe("Result");
-    expect(toolActivity?.textContent).toContain("Arguments");
-    expect(toolActivity?.textContent).toContain("{\"command\":\"pwd\"}");
-    expect(toolActivity?.textContent).toContain("Response");
-    expect(toolActivity?.textContent).toContain("D:/code/tinybot/tinybot");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-kind")?.textContent).toBe("Tool");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-status-label")?.textContent).toBe("Pending");
+    expect(toolActivity?.textContent).not.toContain("{\"command\":\"pwd\"}");
+    expect(toolActivity?.textContent).not.toContain("D:/code/tinybot/tinybot");
     expect(body?.textContent).not.toContain("I should inspect the workspace first.");
     expect(body?.textContent).toContain("The command finished.");
   });
@@ -611,7 +605,8 @@ describe("desktop workbench shell", () => {
     });
 
     const message = targetDocument.body.querySelector(".desktop-conversation-message");
-    expect(message?.querySelector(".desktop-tool-activity")?.textContent).toContain("stdout: done");
+    expect(message?.querySelector(".desktop-tool-activity")?.textContent).not.toContain("stdout: done");
+    expect(message?.querySelector(".desktop-tool-activity-title")?.textContent).toBe("shell");
     expect(message?.querySelector(".desktop-conversation-body")?.textContent).not.toContain("stdout: done");
   });
 
@@ -1042,6 +1037,12 @@ describe("desktop workbench shell", () => {
     expect(targetDocument.body.querySelector(".desktop-chat-runtime-status")).toBeNull();
     expect(header?.querySelector(".desktop-chat-menu")?.getAttribute("data-desktop-chat-menu")).toBe("more");
     expect(header?.querySelector(".desktop-chat-menu")?.textContent).toBe("...");
+    const titleRow = header?.querySelector(".desktop-chat-title-row");
+    const headerActions = header?.querySelector(".desktop-chat-header-actions");
+    expect(titleRow?.children[0]?.getAttribute("data-desktop-panel-control")).toBe("sidebar");
+    expect(titleRow?.children[1]?.className).toBe("desktop-chat-title-group");
+    expect(headerActions?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
+    expect(headerActions?.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Open Activity inspector");
     expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.getAttribute("aria-label")).toBe("Collapse session list");
     expect(header?.querySelector('[data-desktop-panel-control="inspector"]')?.getAttribute("aria-label")).toBe("Open Activity inspector");
     expect(header?.querySelector('[data-desktop-panel-control="sidebar"]')?.textContent).toBe("");
@@ -1079,7 +1080,7 @@ describe("desktop workbench shell", () => {
           role: "assistant",
           content: "Used a workspace reference.",
           reasoningContent: "",
-          references: [{ kind: "tool", title: "read_file", detail: "README.md" }],
+          references: [{ kind: "reference", title: "README.md", detail: "workspace file" }],
           timestamp: "2026-06-03T08:20:00.000Z",
           messageId: "assistant-1",
         }],
@@ -1538,7 +1539,7 @@ describe("desktop workbench shell", () => {
     const toolActivity = targetDocument.body.querySelector(".desktop-tool-activity");
     expect(toolActivity?.getAttribute("data-desktop-run-chain-item-key")).toBe("assistant-1:call-shell");
 
-    toolActivity?.querySelector(".desktop-tool-activity-summary")?.click();
+    toolActivity?.querySelector(".desktop-tool-activity-row")?.click();
 
     expect(targetDocument.getElementById("desktop-workbench-shell")?.getAttribute("data-inspector-visible")).toBe("true");
     expect(targetDocument.body.querySelector('[data-workbench-region="inspector"]')?.getAttribute("data-visible")).toBe("true");
@@ -1621,7 +1622,9 @@ describe("desktop workbench shell", () => {
     expect(approvalCard?.textContent).toContain("Approval required");
     expect(approvalCard?.textContent).toContain("shell");
     expect(approvalCard?.textContent).toContain("python scripts/build_index.py");
-    expect(toolActivity?.querySelector(".desktop-tool-activity-pending-approval-badge")?.textContent).toBe("Approval");
+    expect(toolActivity?.getAttribute("data-desktop-tool-status")).toBe("blocked");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-status-label")?.textContent).toBe("Pending approval");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-status-dot")?.getAttribute("data-tool-status-tone")).toBe("pending");
 
     approvalCard?.querySelector('[data-desktop-approval-action="approveOnce"]')?.click();
     approvalCard?.querySelector('[data-desktop-approval-action="approveSession"]')?.click();
@@ -1675,9 +1678,9 @@ describe("desktop workbench shell", () => {
 
     const toolActivity = targetDocument.body.querySelector(".desktop-tool-activity");
     expect(toolActivity?.getAttribute("data-desktop-tool-activity-status")).toBe("running");
-    expect(toolActivity?.querySelector(".desktop-tool-activity-summary")?.getAttribute("aria-label")).toBe("shell tool running");
-    expect(toolActivity?.querySelector(".desktop-tool-activity-status-badge")?.textContent).toBe("Running");
-    expect(Array.from(toolActivity?.querySelectorAll(".desktop-tool-activity-badge") ?? []).map((badge) => badge.textContent)).toEqual(["Running", "Call"]);
+    expect(toolActivity?.querySelector(".desktop-tool-activity-row")?.getAttribute("aria-label")).toBe("Open shell tool details, Running");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-status-label")?.textContent).toBe("Running");
+    expect(toolActivity?.querySelector(".desktop-tool-activity-status-dot")?.getAttribute("data-tool-status-tone")).toBe("running");
   });
 
   test("renders a right-side Work Lens before generic inspector detail for running work", () => {
@@ -3795,13 +3798,25 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain(".desktop-native-composer-runtime {\n      grid-area: runtime;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-thread {\n      display: grid;");
     expect(styleText).toContain("overflow-y: auto;");
-    expect(styleText).toContain("--desktop-chat-column-width: 840px;");
+    expect(styleText).toContain("--desktop-chat-column-width: clamp(720px, calc(100vw - 240px), 1760px);");
+    expect(styleText).toContain("--desktop-chat-gutter: clamp(16px, 2vw, 36px);");
+    expect(styleText).toContain("--desktop-chat-composer-gutter: clamp(32px, 4vw, 72px);");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-chat-workbench {");
     expect(styleText).toContain("align-self: stretch;");
     expect(styleText).toContain("height: 100%;");
-    expect(styleText).toContain("padding: 0 clamp(20px, 3vw, 46px);");
+    expect(styleText).toContain("padding: 0 var(--desktop-chat-gutter);");
     expect(styleText).toContain("width: min(var(--desktop-chat-column-width), 100%);");
-    expect(styleText).toContain("width: min(var(--desktop-chat-column-width), calc(100% - 112px));");
+    expect(styleText).toContain("width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-layout {\n      display: grid;\n      grid-template-columns: minmax(0, 1fr);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-layout[data-tool-detail-visible=\"true\"] {\n      grid-template-columns: minmax(0, 1fr) minmax(300px, var(--desktop-tool-detail-width, 50%));");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-timeline {\n      display: grid;\n      gap: 6px;\n      min-width: 0;\n      width: 100%;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-message[data-message-tone=\"user\"] .desktop-user-message-bubble {\n      box-sizing: border-box;\n      width: fit-content;\n      max-width: min(100%, var(--desktop-chat-column-width));");
+    expect(styleText).not.toContain("max-width: min(75%, 640px);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-header {\n      display: flex;\n      align-items: baseline;\n      justify-content: flex-start;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-message-reasoning-toggle {\n      display: flex;\n      align-items: center;\n      gap: 5px;\n      width: fit-content;\n      margin-left: 0;");
+    expect(styleText).not.toContain("body.desktop-native-workbench .desktop-message-reasoning-toggle {\n      display: flex;\n      align-items: center;\n      gap: 5px;\n      width: fit-content;\n      margin-left: auto;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-content-card .n-card-content {\n      padding: 0;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-assistant-step-list {\n      display: grid;\n      gap: 6px;");
     expect(styleText).toContain("--desktop-composer-reserve: 36px;");
     expect(styleText).toContain("padding: 18px 0 var(--desktop-composer-reserve);");
     expect(styleText).toContain("gap: 10px;");

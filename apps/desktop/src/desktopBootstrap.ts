@@ -27,7 +27,7 @@ import {
   type DesktopKnowledgePaneModel,
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
-import { logDesktopNativeChatDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
 import {
@@ -164,6 +164,10 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function bootDesktopWebUi(): Promise<void> {
+  logDesktopNativeDebug("bootstrap.start", {
+    gatewayHttp: gatewayConfig.httpBaseUrl,
+    hasTauriRuntime,
+  });
   setStartupState(document, "Starting local gateway...", null, false);
   try {
     const status = await ensureGatewayReady(gatewayConfig, { invoke, hasTauriRuntime });
@@ -173,6 +177,11 @@ async function bootDesktopWebUi(): Promise<void> {
     document.documentElement.dataset.desktopWorkbenchMode = workbenchMode.mode;
     document.documentElement.dataset.desktopWorkbenchRequestedMode = workbenchMode.requestedMode;
     if (workbenchMode.fallbackReason) {
+      logDesktopNativeDebug("bootstrap.fallback", {
+        fallbackReason: workbenchMode.fallbackReason,
+        mode: workbenchMode.mode,
+        requestedMode: workbenchMode.requestedMode,
+      });
       console.info("Tinybot desktop loading root WebUI fallback", workbenchMode);
     }
     installDesktopGatewayBridge({ config: gatewayConfig });
@@ -232,6 +241,11 @@ async function bootDesktopWebUi(): Promise<void> {
       installTauriWindowFrame(status);
       void refreshNativeCoworkTasks();
       void refreshNativeApprovalTasks();
+      logDesktopNativeDebug("bootstrap.native.initialized", {
+        gatewayHttp: gatewayConfig.httpBaseUrl,
+        mode: workbenchMode.mode,
+        runtimeState: status?.state ?? "",
+      });
       console.info("Tinybot desktop native workbench initialized", status);
       return;
     }
@@ -246,8 +260,17 @@ async function bootDesktopWebUi(): Promise<void> {
     installRootWebUiDesktopAdapters();
     installTauriNavigation();
     installTauriWindowFrame(status);
+    logDesktopNativeDebug("bootstrap.webui.initialized", {
+      gatewayHttp: gatewayConfig.httpBaseUrl,
+      mode: workbenchMode.mode,
+      runtimeState: status?.state ?? "",
+    });
     console.info("Tinybot desktop WebUI initialized", status);
   } catch (error) {
+    logDesktopNativeDebug("bootstrap.failed", {
+      error: stringifyError(error),
+      gatewayHttp: gatewayConfig.httpBaseUrl,
+    });
     setStartupState(
       document,
       "Tinybot gateway is not ready.",
@@ -258,6 +281,9 @@ async function bootDesktopWebUi(): Promise<void> {
 }
 
 async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
+  logDesktopNativeDebug("bootstrap.nativeChat.load.start", {
+    gatewayHttp: gatewayConfig.httpBaseUrl,
+  });
   const runtime = createDesktopNativeWorkbenchRuntime({
     api: {
       listSessions: () => gatewayApi.sessions.list(),
@@ -278,8 +304,15 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
   try {
     await runtime.loadInitialChatState();
   } catch (error) {
+    logDesktopNativeDebug("bootstrap.nativeChat.load.failed", {
+      error: stringifyError(error),
+    });
     console.warn("Tinybot desktop failed to load native chat state", error);
   }
+  logDesktopNativeDebug("bootstrap.nativeChat.load.complete", {
+    activeSessionKey: runtime.chat.activeSessionKey,
+    sessionCount: runtime.chat.sessions.length,
+  });
   return runtime;
 }
 
@@ -287,6 +320,9 @@ function ensureNativeChatSocket(runtime = nativeWorkbenchRuntime): void {
   if (!runtime || (nativeChatSocket && nativeChatSocket.readyState <= WebSocket.OPEN)) {
     return;
   }
+  logDesktopNativeDebug("socket.ensure", {
+    wsUrl: nativeChatWsUrl,
+  });
   nativeChatSocket = openGatewaySocket(resolveGatewayConfig({ ...gatewayConfig, wsUrl: nativeChatWsUrl }), {
     onOpen: () => {
       logDesktopNativeChatDebug("socket.open", {
@@ -383,14 +419,15 @@ function nativeChatActions() {
     },
     onDeleteSession: (event: { sessionKey: string; title: string }) => {
       if (!nativeWorkbenchRuntime) {
-        return;
+        return Promise.resolve();
       }
-      void nativeWorkbenchRuntime.deleteChatSession(event.sessionKey).then(() => {
+      return nativeWorkbenchRuntime.deleteChatSession(event.sessionKey).then(() => {
         if (nativeWorkbenchRuntime) {
           updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
         }
       }).catch((error) => {
         console.warn("Tinybot desktop session delete failed", error);
+        throw error;
       });
     },
     onPersistentRagChange: (enabled: boolean) => {
@@ -442,10 +479,16 @@ function nativeTaskActions() {
 
 async function handleNativeTaskAction(event: DesktopTaskCenterActionEvent): Promise<void> {
   if (!["approveOnce", "approveSession", "deny"].includes(event.action)) {
+    logDesktopNativeDebug("task.action.ignored", summarizeTaskCenterAction(event));
     return;
   }
   const approvalId = event.item.approval?.approvalId || event.item.destination.entityId || "";
   const sessionKey = event.item.approval?.sessionKey || nativeWorkbenchRuntime?.chat.activeSessionKey || "";
+  logDesktopNativeDebug("task.action.start", {
+    ...summarizeTaskCenterAction(event),
+    approvalId,
+    hasSessionKey: Boolean(sessionKey),
+  });
   if (!approvalId || !sessionKey) {
     nativeApprovalTaskOperations.set(event.item.id, {
       id: event.item.id,
@@ -459,6 +502,7 @@ async function handleNativeTaskAction(event: DesktopTaskCenterActionEvent): Prom
       ...(event.item.approval ? { approval: event.item.approval } : {}),
     });
     publishNativeTaskCenterItems();
+    logDesktopNativeDebug("task.action.missingApprovalContext", summarizeTaskCenterAction(event));
     return;
   }
   try {
@@ -477,6 +521,7 @@ async function handleNativeTaskAction(event: DesktopTaskCenterActionEvent): Prom
     nativeApprovalTaskOperations.delete(event.item.id);
     publishNativeTaskCenterItems();
     await refreshNativeApprovalTasks();
+    logDesktopNativeDebug("task.action.complete", summarizeTaskCenterAction(event));
   } catch (error) {
     nativeApprovalTaskOperations.set(event.item.id, {
       id: event.item.id,
@@ -490,6 +535,10 @@ async function handleNativeTaskAction(event: DesktopTaskCenterActionEvent): Prom
       ...(event.item.approval ? { approval: event.item.approval } : {}),
     });
     publishNativeTaskCenterItems();
+    logDesktopNativeDebug("task.action.failed", {
+      ...summarizeTaskCenterAction(event),
+      error: stringifyError(error),
+    });
   }
 }
 
@@ -502,6 +551,7 @@ function refreshNativeAgentUiForms(): void {
 
 async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEvent): Promise<void> {
   const form = event.form;
+  logDesktopNativeDebug("agentUi.form.action.start", summarizeAgentUiFormAction(event));
   if (event.action === "submit") {
     const values = event.values ?? {};
     try {
@@ -518,12 +568,17 @@ async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEven
       form.submitting = false;
       refreshNativeAgentUiForms();
       publishNativeTaskCenterItems();
+      logDesktopNativeDebug("agentUi.form.submit.complete", summarizeAgentUiFormAction(event));
     } catch (error) {
       form.values = values;
       form.submitting = false;
       form.errors = { ...(form.errors ?? {}), form: stringifyError(error) };
       refreshNativeAgentUiForms();
       publishNativeTaskCenterItems();
+      logDesktopNativeDebug("agentUi.form.submit.failed", {
+        ...summarizeAgentUiFormAction(event),
+        error: stringifyError(error),
+      });
     }
     return;
   }
@@ -539,11 +594,16 @@ async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEven
     form.submitting = false;
     refreshNativeAgentUiForms();
     publishNativeTaskCenterItems();
+    logDesktopNativeDebug("agentUi.form.cancel.complete", summarizeAgentUiFormAction(event));
   } catch (error) {
     form.submitting = false;
     form.errors = { ...(form.errors ?? {}), form: stringifyError(error) };
     refreshNativeAgentUiForms();
     publishNativeTaskCenterItems();
+    logDesktopNativeDebug("agentUi.form.cancel.failed", {
+      ...summarizeAgentUiFormAction(event),
+      error: stringifyError(error),
+    });
   }
 }
 
@@ -552,7 +612,9 @@ function installNativeChatRuntimeActions(): void {
     return;
   }
   nativeChatRuntimeActionsInstalled = true;
+  logDesktopNativeDebug("runtime.actions.install");
   document.addEventListener("tinybot:desktop-stop-generation", () => {
+    logDesktopNativeDebug("runtime.actions.stopGeneration");
     nativeChatActions().onInterrupt();
   });
   document.addEventListener("desktop-tool-approval-action", (event) => {
@@ -565,6 +627,9 @@ function installNativeChatRuntimeActions(): void {
       return;
     }
     const path = new URL(href, window.location.origin).pathname;
+    logDesktopNativeDebug("route.request", {
+      path,
+    });
     applyDesktopWorkbenchRouteState(document, path);
     if (path === "/chat/new") {
       nativeChatActions().onNewChat();
@@ -579,10 +644,12 @@ function installNativeChatRuntimeActions(): void {
 async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> {
   const record = asRecord(detail);
   if (!Object.keys(record).length) {
+    logDesktopNativeDebug("inlineApproval.empty");
     return;
   }
   const action = typeof record.action === "string" ? record.action : "";
   if (!["approveOnce", "approveSession", "deny"].includes(action)) {
+    logDesktopNativeDebug("inlineApproval.ignored", { action });
     return;
   }
   const approvalId = typeof record.approvalId === "string" ? record.approvalId : "";
@@ -591,6 +658,12 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     : nativeWorkbenchRuntime?.chat.activeSessionKey || "";
   const toolName = typeof record.toolName === "string" && record.toolName ? record.toolName : "tool";
   const taskId = `approval:${approvalId || toolName}`;
+  logDesktopNativeDebug("inlineApproval.start", {
+    action,
+    approvalId,
+    hasSessionKey: Boolean(sessionKey),
+    toolName,
+  });
   if (!approvalId || !sessionKey) {
     nativeApprovalTaskOperations.set(taskId, {
       id: taskId,
@@ -604,6 +677,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
       approval: { approvalId, sessionKey },
     });
     publishNativeTaskCenterItems();
+    logDesktopNativeDebug("inlineApproval.missingContext", { action, approvalId, toolName });
     return;
   }
   try {
@@ -622,6 +696,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     nativeApprovalTaskOperations.delete(taskId);
     publishNativeTaskCenterItems();
     await refreshNativeApprovalTasks();
+    logDesktopNativeDebug("inlineApproval.complete", { action, approvalId, toolName });
   } catch (error) {
     nativeApprovalTaskOperations.set(taskId, {
       id: taskId,
@@ -635,25 +710,39 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
       approval: { approvalId, sessionKey },
     });
     publishNativeTaskCenterItems();
+    logDesktopNativeDebug("inlineApproval.failed", {
+      action,
+      approvalId,
+      error: stringifyError(error),
+      toolName,
+    });
   }
 }
 
 async function selectNativeChatFromRoute(path: string): Promise<void> {
   if (!nativeWorkbenchRuntime) {
+    logDesktopNativeDebug("route.chatSelect.skipped", { path, reason: "runtime unavailable" });
     return;
   }
   const chatId = decodeURIComponent(path.replace(/^\/chat\//, ""));
   const session = nativeWorkbenchRuntime.chat.sessions.find((item) => item.chatId === chatId || item.key === chatId);
   if (!session) {
+    logDesktopNativeDebug("route.chatSelect.missing", { chatId, path });
     return;
   }
+  logDesktopNativeDebug("route.chatSelect.start", { chatId, path, sessionKey: session.key });
   await nativeWorkbenchRuntime.selectChatSession(session.key, session.chatId);
   updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+  logDesktopNativeDebug("route.chatSelect.complete", { chatId, path, sessionKey: session.key });
 }
 
 async function loadNativeKnowledgePane(
   options: { queryResultPayload?: unknown; selectedDocumentId?: string | null } = {},
 ): Promise<DesktopKnowledgePaneModel> {
+  logDesktopNativeDebug("knowledge.load.start", {
+    hasQueryResult: options.queryResultPayload !== undefined,
+    selectedDocumentId: options.selectedDocumentId ?? "",
+  });
   const [stats, documents, config, graph, graphrag] = await Promise.all([
     gatewayApi.knowledge.stats().catch(() => ({})),
     gatewayApi.knowledge.documents().catch(() => ({ documents: [] })),
@@ -671,12 +760,20 @@ async function loadNativeKnowledgePane(
     queryResultPayload: nativeKnowledgeQueryResult,
     graphPayload: mergeNativeKnowledgeGraphPayload(graph, graphrag),
   });
+  logDesktopNativeDebug("knowledge.load.complete", {
+    documentCount: nativeKnowledgePane.documentRows.length,
+    hasQueryResult: nativeKnowledgePane.query.results.rows.length > 0,
+    selectedDocumentId: nativeKnowledgePane.selectedDocument?.id ?? "",
+  });
   return nativeKnowledgePane;
 }
 
 async function loadNativeCoworkPane(
   options: { selectedSessionId?: string | null; actionStatus?: string; summaryText?: string } = {},
 ): Promise<DesktopCoworkPaneModel> {
+  logDesktopNativeDebug("cowork.load.start", {
+    selectedSessionId: options.selectedSessionId ?? nativeCoworkSelectedSessionId,
+  });
   const sessionsPayload = await gatewayApi.cowork.sessions({ includeCompleted: true }).catch(() => ({ sessions: [] }));
   replaceNativeCoworkTasks(sessionsPayload);
   const sessionRows = buildDesktopCoworkSessionRows(sessionsPayload);
@@ -690,6 +787,11 @@ async function loadNativeCoworkPane(
       actionStatus: options.actionStatus,
       summaryText: options.summaryText,
     };
+    logDesktopNativeDebug("cowork.load.complete", {
+      hasCockpit: false,
+      selectedSessionId,
+      sessionCount: sessionRows.length,
+    });
     return nativeCoworkPane;
   }
   const session = await gatewayApi.cowork.session(selectedSessionId).catch(() => null);
@@ -699,11 +801,19 @@ async function loadNativeCoworkPane(
     actionStatus: options.actionStatus,
     summaryText: options.summaryText,
   };
+  logDesktopNativeDebug("cowork.load.complete", {
+    hasCockpit: Boolean(nativeCoworkPane.cockpitView),
+    selectedSessionId,
+    sessionCount: sessionRows.length,
+  });
   return nativeCoworkPane;
 }
 
 async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promise<void> {
   const sessionId = event.sessionId || nativeCoworkSelectedSessionId;
+  let outcome: "complete" | "blocked" | "failed" = "complete";
+  let errorMessage = "";
+  logDesktopNativeDebug("cowork.action.start", summarizeCoworkAction(event, sessionId));
   try {
     if (event.action === "validateBlueprint") {
       const blueprint = parseNativeCoworkBlueprint(event.blueprintText ?? "");
@@ -743,6 +853,7 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       return;
     }
     if (!sessionId) {
+      outcome = "blocked";
       setNativeCoworkPane({
         ...event.pane,
         actionStatus: "Select a Cowork session before running this action.",
@@ -845,6 +956,7 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
     if (event.action === "mergeBranchResults") {
       const branchIds = event.branchIds ?? [];
       if (branchIds.length < 2) {
+        outcome = "blocked";
         setNativeCoworkPane({
           ...event.pane,
           actionStatus: "Select at least two Cowork branch results before merging.",
@@ -860,9 +972,16 @@ async function handleNativeCoworkAction(event: DesktopCoworkActionEvent): Promis
       setNativeCoworkPane(await loadNativeCoworkPane({ selectedSessionId: sessionId, actionStatus: "Cowork branch results merged." }));
     }
   } catch (error) {
+    outcome = "failed";
+    errorMessage = stringifyError(error);
     setNativeCoworkPane({
       ...event.pane,
-      actionStatus: `Cowork ${event.action} failed: ${stringifyError(error)}`,
+      actionStatus: `Cowork ${event.action} failed: ${errorMessage}`,
+    });
+  } finally {
+    logDesktopNativeDebug(`cowork.action.${outcome}`, {
+      ...summarizeCoworkAction(event, sessionId),
+      ...(errorMessage ? { error: errorMessage } : {}),
     });
   }
 }
@@ -921,6 +1040,9 @@ function extractCoworkSummary(payload: unknown): string {
 }
 
 async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): Promise<void> {
+  let outcome: "complete" | "failed" | "ignored" = "complete";
+  let errorMessage = "";
+  logDesktopNativeDebug("knowledge.action.start", summarizeKnowledgeAction(event));
   try {
     if (event.action === "uploadDocument") {
       document.getElementById("desktop-knowledge-upload")?.click();
@@ -960,17 +1082,26 @@ async function handleNativeKnowledgeAction(event: DesktopKnowledgeActionEvent): 
       await gatewayApi.knowledge.deleteDocument(event.pane.selectedDocument.id);
       const pane = await loadNativeKnowledgePane({ queryResultPayload: nativeKnowledgeQueryResult });
       setNativeKnowledgePane(pane);
+      return;
     }
+    outcome = "ignored";
   } catch (error) {
+    outcome = "failed";
+    errorMessage = stringifyError(error);
     updateNativeKnowledgeTask({
       id: `knowledge:action:${event.action}`,
       title: `Knowledge ${event.action}`,
       status: "failed",
       detail: "Knowledge action failed",
       canonical: { module: "knowledge", entityId: event.pane.selectedDocument?.id, href: "/knowledge" },
-      diagnostics: stringifyError(error),
+      diagnostics: errorMessage,
       retryable: true,
       updatedAt: new Date().toISOString(),
+    });
+  } finally {
+    logDesktopNativeDebug(`knowledge.action.${outcome}`, {
+      ...summarizeKnowledgeAction(event),
+      ...(errorMessage ? { error: errorMessage } : {}),
     });
   }
 }
@@ -1003,6 +1134,9 @@ async function loadNativeToolsSkillsPane(
   selectedSkillName?: string,
   selectedSkillDetail?: unknown,
 ): Promise<DesktopToolsSkillsPaneModel> {
+  logDesktopNativeDebug("toolsSkills.load.start", {
+    selectedSkillName: selectedSkillName ?? "",
+  });
   const [tools, skills, config] = await Promise.all([
     gatewayApi.tools.list(),
     gatewayApi.skills.list(),
@@ -1020,11 +1154,20 @@ async function loadNativeToolsSkillsPane(
     selectedSkillName: firstSkill,
     selectedSkillDetail: detail,
   });
+  logDesktopNativeDebug("toolsSkills.load.complete", {
+    selectedSkillName: nativeToolsSkillsPane.selectedSkill?.name ?? "",
+    skillCount: nativeToolsSkillsPane.skillRows.length,
+    toolCount: nativeToolsSkillsPane.toolRows.length,
+  });
   return nativeToolsSkillsPane;
 }
 
 async function handleNativeToolsSkillsAction(event: DesktopToolsSkillsActionEvent): Promise<void> {
   const skill = event.pane.selectedSkill;
+  let outcome: "complete" | "failed" | "ignored" = "complete";
+  let errorMessage = "";
+  logDesktopNativeDebug("toolsSkills.action.start", summarizeToolsSkillsAction(event));
+  try {
   if (event.action === "createSkill") {
     setNativeToolsSkillsPane(buildDesktopToolsSkillsPaneModel({
       toolsPayload: nativeToolsPayload,
@@ -1039,10 +1182,10 @@ async function handleNativeToolsSkillsAction(event: DesktopToolsSkillsActionEven
     return;
   }
   if (!skill) {
+    outcome = "ignored";
     return;
   }
   const draft = skill.editor.draft;
-  try {
     if (event.action === "validateSkill") {
       const result = await gatewayApi.skills.validate(skill.name);
       setNativeToolsSkillsPane(buildNativeToolsSkillsPaneFromEditor(skill, {
@@ -1081,11 +1224,21 @@ async function handleNativeToolsSkillsAction(event: DesktopToolsSkillsActionEven
       await refreshNativeToolsSkillsPane(skill.name);
       return;
     }
+    outcome = "ignored";
   } catch (error) {
-    setNativeToolsSkillsPane(buildNativeToolsSkillsPaneFromEditor(skill, {
-      saveStatus: "failed",
-      saveError: `Skill action failed: ${stringifyError(error)}`,
-    }));
+    outcome = "failed";
+    errorMessage = stringifyError(error);
+    if (skill) {
+      setNativeToolsSkillsPane(buildNativeToolsSkillsPaneFromEditor(skill, {
+        saveStatus: "failed",
+        saveError: `Skill action failed: ${errorMessage}`,
+      }));
+    }
+  } finally {
+    logDesktopNativeDebug(`toolsSkills.action.${outcome}`, {
+      ...summarizeToolsSkillsAction(event),
+      ...(errorMessage ? { error: errorMessage } : {}),
+    });
   }
 }
 
@@ -1171,11 +1324,17 @@ async function loadNativeSettingsPane(): Promise<DesktopSettingsPaneModel> {
 
 async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Promise<void> {
   if (!nativeSettingsState) {
+    logDesktopNativeDebug("settings.action.skipped", { action: event.action, reason: "state unavailable" });
     return;
   }
+  logDesktopNativeDebug("settings.action.start", {
+    action: event.action,
+    fieldId: "fieldId" in event ? event.fieldId : undefined,
+  });
   if (event.action === "edit") {
     nativeSettingsState = applyDesktopSettingsFieldEdit(nativeSettingsState, event.fieldId, event.value);
     updateNativeSettingsPane("idle");
+    logDesktopNativeDebug("settings.action.complete", { action: event.action, fieldId: event.fieldId });
     return;
   }
   if (event.action === "save") {
@@ -1187,8 +1346,10 @@ async function handleNativeSettingsAction(event: DesktopSettingsActionEvent): Pr
 
 async function saveNativeSettingsPane(): Promise<void> {
   if (!nativeSettingsState) {
+    logDesktopNativeDebug("settings.save.skipped", { reason: "state unavailable" });
     return;
   }
+  logDesktopNativeDebug("settings.save.start");
   updateNativeSettingsPane("saving");
   try {
     const patch = createDesktopSettingsPatch(
@@ -1200,16 +1361,24 @@ async function saveNativeSettingsPane(): Promise<void> {
     nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);
     nativeSettingsLastSavedState = nativeSettingsState;
     updateNativeSettingsPane("saved");
+    logDesktopNativeDebug("settings.save.complete");
   } catch (error) {
-    updateNativeSettingsPane("failed", `Failed to save settings: ${stringifyError(error)}`);
+    const message = stringifyError(error);
+    updateNativeSettingsPane("failed", `Failed to save settings: ${message}`);
+    logDesktopNativeDebug("settings.save.failed", { error: message });
   }
 }
 
 async function refreshNativeProviderModels(): Promise<void> {
   if (!nativeSettingsState) {
+    logDesktopNativeDebug("settings.providerModels.skipped", { reason: "state unavailable" });
     return;
   }
   const request = buildDesktopProviderModelRequest(nativeSettingsState);
+  logDesktopNativeDebug("settings.providerModels.start", {
+    profile: request.profile,
+    provider: request.provider,
+  });
   updateNativeProviderTask(buildDesktopProviderModelDiscoveryTaskOperation({
     provider: request.provider,
     profile: request.profile,
@@ -1227,6 +1396,12 @@ async function refreshNativeProviderModels(): Promise<void> {
       models: applied.models,
       error: applied.status === "failed" ? applied.message : "",
     }));
+    logDesktopNativeDebug("settings.providerModels.complete", {
+      modelCount: applied.models.length,
+      profile: request.profile,
+      provider: request.provider,
+      status: applied.status,
+    });
   } catch (error) {
     const message = stringifyError(error);
     updateNativeSettingsPane("failed", `Failed to refresh provider models: ${message}`);
@@ -1236,6 +1411,11 @@ async function refreshNativeProviderModels(): Promise<void> {
       status: "failed",
       error: message,
     }));
+    logDesktopNativeDebug("settings.providerModels.failed", {
+      error: message,
+      profile: request.profile,
+      provider: request.provider,
+    });
   }
 }
 
@@ -1355,25 +1535,33 @@ function installRootWebUiDesktopAdapters(): void {
 
 function updateNativeKnowledgeTask(operation: DesktopTaskSourceOperation): void {
   nativeKnowledgeTaskOperations.set(operation.id, operation);
+  logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("knowledge", operation));
   publishNativeTaskCenterItems();
 }
 
 function updateNativeFileTask(operation: DesktopTaskSourceOperation): void {
   nativeFileTaskOperations.set(operation.id, operation);
+  logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("files", operation));
   publishNativeTaskCenterItems();
 }
 
 function updateNativeProviderTask(operation: DesktopTaskSourceOperation): void {
   nativeProviderTaskOperations.set(operation.id, operation);
+  logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("providers", operation));
   publishNativeTaskCenterItems();
 }
 
 function updateNativeGatewayTask(operation: DesktopTaskSourceOperation): void {
   nativeGatewayTaskOperations.set(operation.id, operation);
+  logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("gateway", operation));
   publishNativeTaskCenterItems();
 }
 
 async function handleNativeGatewayRuntimeAction(event: DesktopGatewayRuntimeActionEvent): Promise<void> {
+  logDesktopNativeDebug("gatewayRuntime.action.start", {
+    action: event.action,
+    currentState: event.status?.state ?? nativeRuntimeStatus?.state ?? "",
+  });
   try {
     const nextStatus = await runDesktopGatewayRuntimeCommand(event.action, event.status, {
       runCommand: (command, payload) => invokeGatewayRuntimeCommand(command, payload),
@@ -1389,8 +1577,13 @@ async function handleNativeGatewayRuntimeAction(event: DesktopGatewayRuntimeActi
     });
     setDesktopWindowRuntimeStatus(nextStatus);
     updateNativeGatewayTask(buildDesktopGatewayTaskOperation(gatewayTaskActionForRuntimeAction(event.action), nextStatus));
+    logDesktopNativeDebug("gatewayRuntime.action.complete", {
+      action: event.action,
+      nextState: nextStatus.state,
+    });
   } catch (error) {
-    const failedStatus = failedGatewayRuntimeStatus(event.status ?? nativeRuntimeStatus, stringifyError(error));
+    const message = stringifyError(error);
+    const failedStatus = failedGatewayRuntimeStatus(event.status ?? nativeRuntimeStatus, message);
     nativeRuntimeStatus = failedStatus;
     updateDesktopGatewayRuntimeStatus(document, failedStatus, gatewayConfig.httpBaseUrl, {
       onGatewayRuntimeAction: (nextEvent) => {
@@ -1399,6 +1592,10 @@ async function handleNativeGatewayRuntimeAction(event: DesktopGatewayRuntimeActi
     });
     setDesktopWindowRuntimeStatus(failedStatus);
     updateNativeGatewayTask(buildDesktopGatewayTaskOperation(gatewayTaskActionForRuntimeAction(event.action), failedStatus));
+    logDesktopNativeDebug("gatewayRuntime.action.failed", {
+      action: event.action,
+      error: message,
+    });
   }
 }
 
@@ -1439,6 +1636,7 @@ function failedGatewayRuntimeStatus(
 }
 
 async function refreshNativeApprovalTasks(): Promise<void> {
+  logDesktopNativeDebug("approvals.refresh.start");
   try {
     const payload = await gatewayApi.tools.approvals();
     nativeApprovalTaskOperations.clear();
@@ -1446,6 +1644,9 @@ async function refreshNativeApprovalTasks(): Promise<void> {
       nativeApprovalTaskOperations.set(operation.id, operation);
     }
     publishNativeTaskCenterItems();
+    logDesktopNativeDebug("approvals.refresh.complete", {
+      count: nativeApprovalTaskOperations.size,
+    });
   } catch (error) {
     nativeApprovalTaskOperations.set("approval:load", {
       id: "approval:load",
@@ -1458,13 +1659,20 @@ async function refreshNativeApprovalTasks(): Promise<void> {
       updatedAt: new Date().toISOString(),
     });
     publishNativeTaskCenterItems();
+    logDesktopNativeDebug("approvals.refresh.failed", {
+      error: stringifyError(error),
+    });
   }
 }
 
 async function refreshNativeCoworkTasks(): Promise<void> {
+  logDesktopNativeDebug("cowork.tasks.refresh.start");
   try {
     const payload = await gatewayApi.cowork.sessions({ includeCompleted: true });
     replaceNativeCoworkTasks(payload);
+    logDesktopNativeDebug("cowork.tasks.refresh.complete", {
+      count: nativeCoworkTaskOperations.size,
+    });
   } catch (error) {
     updateNativeCoworkTask({
       id: "cowork:load",
@@ -1476,6 +1684,9 @@ async function refreshNativeCoworkTasks(): Promise<void> {
       retryable: true,
       updatedAt: new Date().toISOString(),
     });
+    logDesktopNativeDebug("cowork.tasks.refresh.failed", {
+      error: stringifyError(error),
+    });
   }
 }
 
@@ -1484,11 +1695,16 @@ function replaceNativeCoworkTasks(payload: unknown): void {
   for (const operation of buildDesktopCoworkTaskOperations(payload)) {
     nativeCoworkTaskOperations.set(operation.id, operation);
   }
+  logDesktopNativeDebug("task.operations.replace", {
+    count: nativeCoworkTaskOperations.size,
+    source: "cowork",
+  });
   publishNativeTaskCenterItems();
 }
 
 function updateNativeCoworkTask(operation: DesktopTaskSourceOperation): void {
   nativeCoworkTaskOperations.set(operation.id, operation);
+  logDesktopNativeDebug("task.operation.update", summarizeTaskOperation("cowork", operation));
   publishNativeTaskCenterItems();
 }
 
@@ -1548,6 +1764,83 @@ function installTauriWindowFrame(runtimeStatus?: GatewayRuntimeStatus | null): v
   if (runtimeStatus !== undefined) {
     setDesktopWindowRuntimeStatus(runtimeStatus);
   }
+}
+
+function summarizeTaskCenterAction(event: DesktopTaskCenterActionEvent): Record<string, unknown> {
+  return {
+    action: event.action,
+    destinationEntityId: event.item.destination.entityId ?? "",
+    destinationModule: event.item.destination.module,
+    itemId: event.item.id,
+    source: event.item.source,
+    state: event.item.state,
+    status: event.item.status,
+  };
+}
+
+function summarizeAgentUiFormAction(event: DesktopAgentUiFormActionEvent): Record<string, unknown> {
+  return {
+    action: event.action,
+    fieldCount: Object.keys(event.values ?? {}).length,
+    formId: event.form.form_id,
+    title: event.form.title ?? "",
+  };
+}
+
+function summarizeCoworkAction(
+  event: DesktopCoworkActionEvent,
+  sessionId: string,
+): Record<string, unknown> {
+  return {
+    action: event.action,
+    assignedAgentId: event.assignedAgentId ?? "",
+    blueprintLength: event.blueprintText?.length ?? 0,
+    branchCount: event.branchIds?.length ?? 0,
+    branchId: event.branchId ?? "",
+    goalLength: event.goal?.length ?? 0,
+    messageLength: event.message?.length ?? 0,
+    preview: event.preview === true,
+    resultId: event.resultId ?? "",
+    sessionId,
+    taskAction: event.taskAction ?? "",
+    taskId: event.taskId ?? "",
+    taskTitleLength: event.taskTitle?.length ?? 0,
+    workUnitAction: event.workUnitAction ?? "",
+    workUnitId: event.workUnitId ?? "",
+  };
+}
+
+function summarizeKnowledgeAction(event: DesktopKnowledgeActionEvent): Record<string, unknown> {
+  return {
+    action: event.action,
+    queryLength: event.pane.query.draft.query.length,
+    resultCount: event.pane.query.results.rows.length,
+    selectedDocumentId: event.pane.selectedDocument?.id ?? "",
+  };
+}
+
+function summarizeToolsSkillsAction(event: DesktopToolsSkillsActionEvent): Record<string, unknown> {
+  return {
+    action: event.action,
+    field: event.field ?? "",
+    selectedSkillName: event.pane.selectedSkill?.name ?? "",
+    selectedToolName: event.pane.selectedTool?.name ?? "",
+    valueKind: typeof event.value,
+    valueLength: typeof event.value === "string" ? event.value.length : 0,
+  };
+}
+
+function summarizeTaskOperation(source: string, operation: DesktopTaskSourceOperation): Record<string, unknown> {
+  return {
+    destinationEntityId: operation.canonical.entityId ?? "",
+    destinationModule: operation.canonical.module,
+    id: operation.id,
+    progressPercent: operation.progress?.percent,
+    retryable: operation.retryable === true,
+    source,
+    status: operation.status,
+    title: operation.title,
+  };
 }
 
 function stringifyError(error: unknown): string {

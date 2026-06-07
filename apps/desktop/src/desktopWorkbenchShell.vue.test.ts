@@ -192,11 +192,14 @@ describe("desktop workbench shell Vue integration", () => {
     });
 
     const shell = document.getElementById("desktop-workbench-shell");
+    const titleRow = document.querySelector<HTMLElement>(".desktop-chat-title-row");
     const actions = document.querySelector<HTMLElement>(".desktop-chat-header-actions");
-    const sidebar = actions?.querySelector<HTMLButtonElement>('[data-desktop-panel-control="sidebar"]');
+    const sidebar = titleRow?.querySelector<HTMLButtonElement>('[data-desktop-panel-control="sidebar"]');
     const inspector = actions?.querySelector<HTMLButtonElement>('[data-desktop-panel-control="inspector"]');
 
     expect(actions?.getAttribute("data-desktop-vue-island")).toBe("chat-header-actions");
+    expect(actions?.querySelector('[data-desktop-panel-control="sidebar"]')).toBeNull();
+    expect(titleRow?.children[0]?.getAttribute("data-desktop-panel-control")).toBe("sidebar");
     expect(sidebar?.getAttribute("aria-label")).toBe("Collapse session list");
     expect(sidebar?.getAttribute("aria-pressed")).toBe("true");
     expect(inspector?.getAttribute("aria-label")).toBe("Open Activity inspector");
@@ -372,6 +375,48 @@ describe("desktop workbench shell Vue integration", () => {
     expect(recent?.querySelector(".desktop-sidebar-section-heading h2")?.textContent).toBe("Recent chats");
     expect(recent?.querySelector(".desktop-recent-chat-list")?.getAttribute("role")).toBe("list");
     expect(recent?.querySelector('[data-desktop-chat-id="Design native workbench"]')?.textContent).toContain("Design native workbench");
+  });
+
+  test("updates mounted sidebar recent chats when native chat sessions refresh", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat: {
+        activeChatId: "chat-1",
+        activeSessionKey: "WebSocket:chat-1",
+        messages: [],
+        sessions: [
+          { chatId: "chat-1", createdAt: "", key: "WebSocket:chat-1", title: "Session one", updatedAt: "2026-06-07T08:11:00.000Z" },
+          { chatId: "chat-2", createdAt: "", key: "WebSocket:chat-2", title: "Session two", updatedAt: "2026-06-07T08:12:00.000Z" },
+        ],
+      },
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+    await nextTick();
+
+    expect(Array.from(document.querySelectorAll(".desktop-sidebar-chat-row")).map((row) => row.getAttribute("data-desktop-session-key"))).toEqual([
+      "WebSocket:chat-1",
+      "WebSocket:chat-2",
+    ]);
+
+    updateDesktopNativeChat(document, {
+      activeChatId: "chat-1",
+      activeSessionKey: "WebSocket:chat-1",
+      messages: [],
+      sessions: [
+        { chatId: "chat-1", createdAt: "", key: "WebSocket:chat-1", title: "Session one updated", updatedAt: "2026-06-07T08:13:00.000Z" },
+      ],
+    });
+    await nextTick();
+
+    expect(Array.from(document.querySelectorAll(".desktop-sidebar-chat-row")).map((row) => row.getAttribute("data-desktop-session-key"))).toEqual([
+      "WebSocket:chat-1",
+    ]);
+    expect(document.body.textContent).toContain("Session one updated");
+    expect(document.body.textContent).not.toContain("Session two");
   });
 
   test("renders an empty conversation thread through the Vue shell island", () => {

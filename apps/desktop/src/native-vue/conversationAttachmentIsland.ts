@@ -39,7 +39,10 @@ function createConversationAttachmentApp(options: ConversationAttachmentIslandOp
 }
 
 export function renderConversationAttachmentNode(options: ConversationAttachmentIslandOptions) {
-  return h("div", { class: "desktop-conversation-attachment" }, renderConversationAttachmentChildren(options));
+  return h("div", {
+    class: "desktop-conversation-attachment",
+    "data-desktop-vue-island": "conversation-attachment",
+  }, renderConversationAttachmentChildren(options));
 }
 
 export function renderConversationAttachmentChildren(options: ConversationAttachmentIslandOptions) {

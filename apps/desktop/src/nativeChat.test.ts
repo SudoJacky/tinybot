@@ -79,8 +79,6 @@ describe("native chat state", () => {
           },
         ],
         references: [
-          { kind: "tool", title: "read_file", detail: "{\"path\":\"docs/desktop.md\"}" },
-          { kind: "tool", title: "call-read", detail: "file contents" },
           { kind: "browser", title: "Browser snapshot", detail: "https://example.com" },
           { kind: "memory", title: "mem-1", detail: "Remembered setting" },
         ],
@@ -190,6 +188,175 @@ describe("native chat state", () => {
         messageId: "tool-1",
       },
     ]);
+  });
+
+  test("normalizes assistant tool detail metadata without rendering it as assistant text", () => {
+    expect(
+      normalizeMessagesPayload({
+        messages: [
+          {
+            role: "assistant",
+            content: "list_dir(path=\"C:\\\\Users\\\\12921\\\\tinybot\\\\workspace\\\\web-articles\")",
+            _tool_hint: true,
+            _tool_detail: true,
+            _tool_name: "list_dir",
+            timestamp: "2026-05-29T08:00:02Z",
+            message_id: "tool-detail-1",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: "",
+        reasoningContent: "",
+        toolActivities: [
+          {
+            id: "tool-detail-1",
+            name: "list_dir",
+            argsText: "list_dir(path=\"C:\\\\Users\\\\12921\\\\tinybot\\\\workspace\\\\web-articles\")",
+            responseText: "",
+            kind: "call",
+            status: "running",
+          },
+        ],
+        timestamp: "2026-05-29T08:00:02Z",
+        messageId: "tool-detail-1",
+      },
+    ]);
+  });
+
+  test("coalesces persisted tool status messages with the same tool call id", () => {
+    expect(
+      normalizeMessagesPayload({
+        messages: [
+          {
+            role: "assistant",
+            content: "search_memory_notes(query=\"financial banking\")",
+            _tool_hint: true,
+            _tool_detail: true,
+            _tool_call_id: "call-search-memory",
+            _tool_name: "search_memory_notes",
+            status: "running",
+            timestamp: "2026-05-29T08:00:02Z",
+            message_id: "tool-running-1",
+          },
+          {
+            role: "assistant",
+            content: "[{\"summary\":\"User follows AI impact on financial banking.\"}]",
+            _tool_result: true,
+            tool_call_id: "call-search-memory",
+            _tool_name: "search_memory_notes",
+            status: "completed",
+            timestamp: "2026-05-29T08:00:03Z",
+            message_id: "tool-completed-1",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: "",
+        reasoningContent: "",
+        toolActivities: [
+          {
+            id: "call-search-memory",
+            name: "search_memory_notes",
+            argsText: "search_memory_notes(query=\"financial banking\")",
+            responseText: "[{\"summary\":\"User follows AI impact on financial banking.\"}]",
+            kind: "result",
+            status: "completed",
+          },
+        ],
+        timestamp: "2026-05-29T08:00:02Z",
+        messageId: "tool-running-1",
+      },
+    ]);
+  });
+
+  test("routes live tool hint messages into tool activities instead of assistant body text", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "tool-detail-1",
+      text: "list_dir(path=\"C:\\\\Users\\\\12921\\\\tinybot\\\\workspace\\\\web-articles\")",
+      raw: {
+        _tool_hint: true,
+        _tool_detail: true,
+        _tool_name: "list_dir",
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      {
+        role: "assistant",
+        content: "",
+        messageId: "tool-detail-1",
+        toolActivities: [
+          {
+            id: "tool-detail-1",
+            name: "list_dir",
+            argsText: "list_dir(path=\"C:\\\\Users\\\\12921\\\\tinybot\\\\workspace\\\\web-articles\")",
+            responseText: "",
+            kind: "call",
+            status: "running",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("updates live tool activity status instead of appending duplicate tool messages", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "tool-running-1",
+      text: "search_memory_notes(query=\"financial banking\")",
+      raw: {
+        _tool_hint: true,
+        _tool_detail: true,
+        _tool_call_id: "call-search-memory",
+        _tool_name: "search_memory_notes",
+        status: "running",
+      },
+    });
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "tool-completed-1",
+      text: "[{\"summary\":\"User follows AI impact on financial banking.\"}]",
+      raw: {
+        _tool_result: true,
+        tool_call_id: "call-search-memory",
+        _tool_name: "search_memory_notes",
+        status: "completed",
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      {
+        role: "assistant",
+        content: "",
+        messageId: "tool-running-1",
+        toolActivities: [
+          {
+            id: "call-search-memory",
+            name: "search_memory_notes",
+            argsText: "search_memory_notes(query=\"financial banking\")",
+            responseText: "[{\"summary\":\"User follows AI impact on financial banking.\"}]",
+            kind: "result",
+            status: "completed",
+          },
+        ],
+      },
+    ]);
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toHaveLength(1);
   });
 
   test("normalizes tool activity execution status for timeline rendering", () => {

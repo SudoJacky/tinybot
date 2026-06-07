@@ -1,55 +1,55 @@
-export type DesktopNativeChatDebugStage =
-  | "socket.open"
-  | "socket.close"
-  | "socket.error"
-  | "socket.send"
-  | "socket.frame"
-  | "gateway.event"
-  | "runtime.before"
-  | "runtime.after"
-  | "state.event.before"
-  | "state.event.after"
-  | "shell.update"
-  | "vue.thread.update"
-  | "vue.composer.update";
+export type DesktopNativeDebugStage = string;
+export type DesktopNativeChatDebugStage = DesktopNativeDebugStage;
 
-export interface DesktopNativeChatDebugEntry {
+export interface DesktopNativeDebugEntry {
   at: string;
   details: Record<string, unknown>;
-  stage: DesktopNativeChatDebugStage;
+  stage: DesktopNativeDebugStage;
 }
+
+export type DesktopNativeChatDebugEntry = DesktopNativeDebugEntry;
 
 declare global {
   interface Window {
-    __tinybotNativeChatDebug?: DesktopNativeChatDebugEntry[];
+    __tinybotNativeChatDebug?: DesktopNativeDebugEntry[];
+    __tinybotNativeDebug?: DesktopNativeDebugEntry[];
   }
 }
 
 const MAX_DEBUG_ENTRIES = 300;
-const DEBUG_STORAGE_KEY = "tinybot.desktop.nativeChatDebug";
+const DEBUG_STORAGE_KEY = "tinybot.desktop.nativeDebug";
+const LEGACY_DEBUG_STORAGE_KEY = "tinybot.desktop.nativeChatDebug";
 
-export function logDesktopNativeChatDebug(
-  stage: DesktopNativeChatDebugStage,
+export function logDesktopNativeDebug(
+  stage: DesktopNativeDebugStage,
   details: Record<string, unknown> = {},
 ): void {
-  if (!isDesktopNativeChatDebugEnabled()) {
+  if (!isDesktopNativeDebugEnabled()) {
     return;
   }
-  const entry: DesktopNativeChatDebugEntry = {
+  const entry: DesktopNativeDebugEntry = {
     at: new Date().toISOString(),
     stage,
     details: sanitizeDebugDetails(details),
   };
   const targetWindow = typeof window === "undefined" ? null : window;
   if (targetWindow) {
-    const entries = targetWindow.__tinybotNativeChatDebug ?? [];
+    const entries = targetWindow.__tinybotNativeDebug ?? targetWindow.__tinybotNativeChatDebug ?? [];
     entries.push(entry);
     if (entries.length > MAX_DEBUG_ENTRIES) {
       entries.splice(0, entries.length - MAX_DEBUG_ENTRIES);
     }
+    targetWindow.__tinybotNativeDebug = entries;
     targetWindow.__tinybotNativeChatDebug = entries;
   }
-  console.info("[Tinybot native chat]", stage, entry.details);
+  console.info("[Tinybot native]", stage, entry.details);
+}
+
+export function logDesktopNativeChatDebug(
+  stage: DesktopNativeChatDebugStage,
+  details: Record<string, unknown> = {},
+): void {
+  logDesktopNativeDebug(stage, details);
 }
 
 export function summarizeDebugText(value: string | undefined): { length: number; preview: string } {
@@ -60,7 +60,7 @@ export function summarizeDebugText(value: string | undefined): { length: number;
   };
 }
 
-function isDesktopNativeChatDebugEnabled(): boolean {
+function isDesktopNativeDebugEnabled(): boolean {
   const storageValue = readDebugStorageValue();
   if (/^(0|false|off)$/i.test(storageValue)) {
     return false;
@@ -73,7 +73,12 @@ function isDesktopNativeChatDebugEnabled(): boolean {
 
 function readDebugStorageValue(): string {
   try {
-    return typeof window === "undefined" ? "" : window.localStorage?.getItem(DEBUG_STORAGE_KEY) ?? "";
+    if (typeof window === "undefined") {
+      return "";
+    }
+    return window.localStorage?.getItem(DEBUG_STORAGE_KEY)
+      ?? window.localStorage?.getItem(LEGACY_DEBUG_STORAGE_KEY)
+      ?? "";
   } catch {
     return "";
   }
