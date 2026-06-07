@@ -1,17 +1,17 @@
-import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
+import { computed, createApp, defineComponent, h, ref, type App, type PropType } from "vue";
 import { NCard, NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
-import { mountConversationAttachmentIsland, renderConversationAttachmentNode } from "./conversationAttachmentIsland";
-import { mountConversationBodyIsland, renderConversationBodyNode } from "./conversationBodyIsland";
-import { mountConversationMetaIsland, renderConversationMetaNode } from "./conversationMetaIsland";
+import { renderConversationAttachmentNode } from "./conversationAttachmentIsland";
+import { renderConversationBodyNode } from "./conversationBodyIsland";
 import type { ConversationReferenceIslandOptions } from "./conversationReferenceIsland";
-import { mountToolActivitiesIsland, renderToolActivitiesNode } from "./toolActivitiesIsland";
+import { renderToolActivitiesNode } from "./toolActivitiesIsland";
 import type { ToolActivityIslandOptions } from "./toolActivityIsland";
 
 export interface ConversationMessageIslandOptions {
   attachment?: string;
   author: string;
   body: string[];
+  copyable?: boolean;
   references: ConversationReferenceIslandOptions[];
   reasoningContent?: string;
   time: string;
@@ -45,102 +45,85 @@ function createConversationMessageApp(options: ConversationMessageIslandOptions)
   return createApp(defineComponent({
     name: "ConversationMessageIsland",
     setup() {
-      const attachmentHost = ref<HTMLElement | null>(null);
-      const bodyHost = ref<HTMLElement | null>(null);
-      const metaHost = ref<HTMLElement | null>(null);
-      const toolActivitiesHost = ref<HTMLElement | null>(null);
-      const mountedChildren: Array<{ unmount: () => void }> = [];
-      const copyLabel = ref("Copy");
-      const reasoningExpanded = ref(false);
-      const hasReasoning = Boolean(options.reasoningContent?.trim());
-      const copyMessage = (event: MouseEvent): void => {
-        const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
-        const copyAttempt = writeClipboard(conversationCopyText(options), document);
-        copyLabel.value = "Copied";
-        if (button) {
-          button.setAttribute("aria-label", "Copied");
-          button.setAttribute("title", "Copied");
-        }
-        void copyAttempt
-          .catch(() => {
-            copyLabel.value = "Failed";
-            if (button) {
-              button.setAttribute("aria-label", "Failed");
-              button.setAttribute("title", "Failed");
-            }
-          });
-      };
-
-      onMounted(() => {
-        mountChild(mountedChildren, metaHost.value, (host) => mountConversationMetaIsland(host, {
-          author: options.author,
-          time: options.time,
-        }));
-        if (options.toolActivities?.length) {
-          mountChild(mountedChildren, toolActivitiesHost.value, (host) => mountToolActivitiesIsland(host, {
-            activities: options.toolActivities!,
-          }));
-        }
-        mountChild(mountedChildren, bodyHost.value, (host) => mountConversationBodyIsland(host, {
-          body: options.body,
-          tone: options.tone,
-        }));
-        if (options.attachment) {
-          mountChild(mountedChildren, attachmentHost.value, (host) => mountConversationAttachmentIsland(host, {
-            name: options.attachment!,
-            sizeLabel: "1.2 MB",
-          }));
-        }
-      });
-
-      onBeforeUnmount(() => {
-        while (mountedChildren.length) {
-          mountedChildren.pop()?.unmount();
-        }
-      });
-
-      return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NCard, {
-          class: "desktop-conversation-content-card",
-          size: "small",
-          bordered: false,
-        }, {
-          default: () => h("div", { class: "desktop-conversation-content" }, [
-            h("div", { class: "desktop-conversation-header" }, [
-              h("div", { ref: metaHost, class: "desktop-conversation-meta" }),
-              hasReasoning
-                ? renderReasoningToggle(reasoningExpanded.value, () => {
-                  reasoningExpanded.value = !reasoningExpanded.value;
-                })
-                : null,
-            ]),
-            hasReasoning && reasoningExpanded.value
-              ? renderReasoningPanel(options.reasoningContent!)
-              : null,
-            options.toolActivities?.length
-              ? h("div", {
-                ref: toolActivitiesHost,
-                "aria-label": "Tool Timeline",
-                class: "desktop-tool-activities",
-                "data-desktop-chat-region": "tool-timeline",
-              })
-              : null,
-            h("div", { ref: bodyHost, class: "desktop-conversation-body" }),
-            ...renderReferenceGroups(options.references),
-            options.attachment
-              ? h("div", { ref: attachmentHost, class: "desktop-conversation-attachment" })
-              : null,
-            options.tone === "assistant"
-              ? h("div", { class: "desktop-message-actions" }, [
-                renderCopyButton(copyLabel.value === "Copy" ? "Copy message" : copyLabel.value, copyMessage),
-              ])
-              : null,
-          ]),
-        }),
-      });
+      return () => h(ConversationMessageContent, { options });
     },
   }));
 }
+
+const ConversationMessageContent = defineComponent({
+  name: "ConversationMessageContent",
+  props: {
+    options: {
+      required: true,
+      type: Object as PropType<ConversationMessageIslandOptions>,
+    },
+  },
+  setup(props) {
+    const copyLabel = ref("Copy");
+    const manualReasoningExpanded = ref<boolean | null>(null);
+    const hasReasoning = computed(() => Boolean(props.options.reasoningContent?.trim()));
+    const hasBody = computed(() => props.options.body.some((line) => line.trim()));
+    const canCopy = computed(() => props.options.copyable !== false && hasBody.value);
+    const reasoningExpanded = computed(() => {
+      if (!hasReasoning.value) {
+        return false;
+      }
+      return manualReasoningExpanded.value ?? !hasBody.value;
+    });
+    const copyMessage = (event: MouseEvent): void => {
+      const button = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
+      const copyAttempt = writeClipboard(conversationCopyText(props.options), document);
+      copyLabel.value = "Copied";
+      if (button) {
+        button.setAttribute("aria-label", "Copied");
+        button.setAttribute("title", "Copied");
+      }
+      void copyAttempt
+        .catch(() => {
+          copyLabel.value = "Failed";
+          if (button) {
+            button.setAttribute("aria-label", "Failed");
+            button.setAttribute("title", "Failed");
+          }
+        });
+    };
+    const toggleReasoning = () => {
+      manualReasoningExpanded.value = !reasoningExpanded.value;
+    };
+
+    return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
+      default: () => props.options.tone === "user"
+        ? renderUserMessage(props.options)
+        : h(NCard, {
+          bordered: false,
+          class: "desktop-conversation-content-card",
+          size: "small",
+        }, {
+          default: () => h("div", { class: "desktop-conversation-content" }, [
+            hasReasoning.value
+              ? h("div", { class: "desktop-conversation-header" }, [
+                renderReasoningToggle(
+                  reasoningExpanded.value,
+                  hasBody.value ? "Thinking complete" : "Thinking",
+                  toggleReasoning,
+                ),
+              ])
+              : null,
+            hasReasoning.value && reasoningExpanded.value
+              ? renderReasoningPanel(props.options.reasoningContent!)
+              : null,
+            props.options.toolActivities?.length ? renderToolActivitiesNode({ activities: props.options.toolActivities }) : null,
+            renderConversationBodyNode({ body: props.options.body, tone: props.options.tone }),
+            ...renderReferenceGroups(props.options.references),
+            props.options.attachment ? renderConversationAttachmentNode({ name: props.options.attachment, sizeLabel: "1.2 MB" }) : null,
+            canCopy.value ? h("div", { class: "desktop-message-actions" }, [
+              renderCopyButton(copyLabel.value === "Copy" ? "Copy message" : copyLabel.value, copyMessage),
+            ]) : null,
+          ]),
+        }),
+    });
+  },
+});
 
 export function renderConversationMessageNode(options: ConversationMessageIslandOptions) {
   return h("article", {
@@ -151,34 +134,26 @@ export function renderConversationMessageNode(options: ConversationMessageIsland
 }
 
 export function renderConversationMessageChildren(options: ConversationMessageIslandOptions) {
-  return h("div", { class: "desktop-conversation-content" }, [
-    h("div", { class: "desktop-conversation-header" }, [
-      renderConversationMetaNode({ author: options.author, time: options.time }),
-      options.reasoningContent?.trim() ? renderReasoningToggle(false, () => {}) : null,
-    ]),
-    options.toolActivities?.length ? renderToolActivitiesNode({ activities: options.toolActivities }) : null,
+  return h(ConversationMessageContent, { options });
+}
+
+function renderUserMessage(options: ConversationMessageIslandOptions) {
+  return h("div", { class: "desktop-conversation-content desktop-user-message-bubble" }, [
     renderConversationBodyNode({ body: options.body, tone: options.tone }),
     ...renderReferenceGroups(options.references),
     options.attachment ? renderConversationAttachmentNode({ name: options.attachment, sizeLabel: "1.2 MB" }) : null,
-    options.tone === "assistant"
-      ? h("div", { class: "desktop-message-actions" }, [
-        renderCopyButton("Copy message", () => {
-          void writeClipboard(conversationCopyText(options), document);
-        }),
-      ])
-      : null,
   ]);
 }
 
-function renderReasoningToggle(expanded: boolean, onClick: (event: MouseEvent) => void) {
+function renderReasoningToggle(expanded: boolean, label: string, onClick: (event: MouseEvent) => void) {
   return h("button", {
     "aria-expanded": String(expanded),
-    "aria-label": expanded ? "Hide details" : "Show details",
+    "aria-label": expanded ? "Hide thinking" : "Show thinking",
     class: "desktop-message-reasoning-toggle",
     onClick,
-    title: expanded ? "Hide details" : "Show details",
+    title: expanded ? "Hide thinking" : "Show thinking",
     type: "button",
-  }, "Details");
+  }, label);
 }
 
 function renderReasoningPanel(content: string) {
@@ -188,17 +163,6 @@ function renderReasoningPanel(content: string) {
   }, [
     h("div", { class: "desktop-message-reasoning-body" }, content),
   ]);
-}
-
-function mountChild<T extends { unmount: () => void }>(
-  mountedChildren: Array<{ unmount: () => void }>,
-  host: HTMLElement | null,
-  mount: (host: HTMLElement) => T,
-): void {
-  if (!host) {
-    return;
-  }
-  mountedChildren.push(mount(host));
 }
 
 function renderReferenceGroups(references: ConversationReferenceIslandOptions[]) {

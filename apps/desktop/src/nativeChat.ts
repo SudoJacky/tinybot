@@ -32,7 +32,7 @@ export type NativeChatToolActivity = {
 };
 
 export type NativeChatReference = {
-  kind: "tool" | "browser" | "memory" | "reference";
+  kind: "browser" | "memory" | "reference";
   title: string;
   detail: string;
 };
@@ -91,12 +91,13 @@ export function normalizeMessagesPayload(payload: unknown): NativeChatMessage[] 
   if (!isRecord(payload) || !Array.isArray(payload.messages)) {
     return [];
   }
-  return payload.messages.filter(isRecord).map((message) => {
+  const messages = payload.messages.filter(isRecord).map((message) => {
     const references = normalizeMessageReferences(message);
     const toolActivities = normalizeToolActivities(message);
+    const content = stringValue(message.content ?? message.text);
     return {
       role: stringValue(message.role) || "assistant",
-      content: stringValue(message.content ?? message.text),
+      content: shouldSuppressToolActivityContent(message, toolActivities) ? "" : content,
       reasoningContent: stringValue(message.reasoning_content),
       ...(toolActivities.length ? { toolActivities } : {}),
       ...(references.length ? { references } : {}),
@@ -104,6 +105,7 @@ export function normalizeMessagesPayload(payload: unknown): NativeChatMessage[] 
       messageId: stringValue(message.message_id),
     };
   });
+  return coalesceToolActivityMessages(messages);
 }
 
 export function setSessions(state: NativeChatState, sessions: NativeChatSession[]) {
@@ -208,10 +210,23 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       });
       return;
     }
-    ensureMessageBucket(state, sessionKey).push({
+    const toolMessage = nativeToolMessageFromEvent(event);
+    const bucket = ensureMessageBucket(state, sessionKey);
+    if (toolMessage && upsertToolActivityMessage(bucket, toolMessage)) {
+      state.respondingSessionKeys.delete(sessionKey);
+      state.error = "";
+      logDesktopNativeChatDebug("state.event.after", {
+        event: summarizeChatEvent(event),
+        state: summarizeNativeChatState(state),
+        targetSessionKey: sessionKey,
+      });
+      return;
+    }
+    bucket.push({
       role: "assistant",
-      content: event.text,
+      content: toolMessage ? "" : event.text,
       reasoningContent: "",
+      ...(toolMessage ? { toolActivities: [toolMessage] } : {}),
       timestamp: new Date().toISOString(),
       messageId: event.messageId || "",
     });
@@ -296,6 +311,54 @@ function upsertStreamMessage(
   }
 }
 
+function upsertToolActivityMessage(bucket: NativeChatMessage[], nextActivity: NativeChatToolActivity): boolean {
+  const existingMessage = bucket.find((message) => (
+    Boolean(message.toolActivities?.some((activity) => activity.id === nextActivity.id))
+  ));
+  if (!existingMessage?.toolActivities) {
+    return false;
+  }
+  existingMessage.toolActivities = existingMessage.toolActivities.map((activity) => (
+    activity.id === nextActivity.id ? mergeToolActivity(activity, nextActivity) : activity
+  ));
+  return true;
+}
+
+function coalesceToolActivityMessages(messages: NativeChatMessage[]): NativeChatMessage[] {
+  const coalesced: NativeChatMessage[] = [];
+  for (const message of messages) {
+    const activities = message.toolActivities ?? [];
+    const canCoalesce = message.role === "assistant"
+      && activities.length > 0
+      && !message.content.trim()
+      && !message.reasoningContent.trim()
+      && !message.references?.length;
+    if (canCoalesce) {
+      let merged = false;
+      for (const activity of activities) {
+        merged = upsertToolActivityMessage(coalesced, activity) || merged;
+      }
+      if (merged) {
+        continue;
+      }
+    }
+    coalesced.push(message);
+  }
+  return coalesced;
+}
+
+function mergeToolActivity(
+  current: NativeChatToolActivity,
+  next: NativeChatToolActivity,
+): NativeChatToolActivity {
+  return {
+    ...current,
+    ...next,
+    argsText: next.argsText || current.argsText,
+    responseText: next.responseText || current.responseText,
+  };
+}
+
 function ensureMessageBucket(state: NativeChatState, sessionKey: string): NativeChatMessage[] {
   if (!state.messages.has(sessionKey)) {
     state.messages.set(sessionKey, []);
@@ -325,8 +388,6 @@ function summarizeChatEvent(event: NormalizedGatewayEvent): Record<string, unkno
 
 function normalizeMessageReferences(message: Record<string, unknown>): NativeChatReference[] {
   return [
-    ...toolCallReferenceRows(message.tool_calls),
-    ...toolResultReferenceRows(message.tool_results),
     ...referenceRows(message.browser_references, "browser"),
     ...referenceRows(message.browser_snapshots, "browser"),
     ...referenceRows(message.memory_references, "memory"),
@@ -401,7 +462,54 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
     }
   }
 
+  const toolMessage = activities.length ? null : toolActivityFromMessage(message);
+  if (toolMessage) {
+    activities.push(toolMessage);
+  }
+
   return activities;
+}
+
+function nativeToolMessageFromEvent(event: Extract<NormalizedGatewayEvent, { kind: "message.completed" }>): NativeChatToolActivity | null {
+  return toolActivityFromMessage({
+    ...event.raw,
+    content: event.text,
+    message_id: event.messageId,
+  });
+}
+
+function toolActivityFromMessage(message: Record<string, unknown>): NativeChatToolActivity | null {
+  const hasToolMetadata = booleanValue(message._tool_hint)
+    || booleanValue(message._tool_detail)
+    || booleanValue(message._tool_result);
+  const isToolRole = message.role === "tool" || message.role === "progress";
+  if (!hasToolMetadata && !isToolRole) {
+    return null;
+  }
+  const text = textValue(message.content ?? message.text);
+  if (!text) {
+    return null;
+  }
+  const isResult = booleanValue(message._tool_result) || message.role === "tool";
+  const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase);
+  return {
+    id: stringValue(message.tool_call_id ?? message._tool_call_id) || stringValue(message.message_id) || (isResult ? "tool-result" : "tool-detail"),
+    name: stringValue(message._tool_name ?? message.name) || inferToolNameFromText(text) || "tool",
+    argsText: isResult ? "" : text,
+    responseText: isResult ? text : "",
+    kind: isResult ? "result" : "call",
+    ...(stringValue(message._approval_id ?? message.approval_id) ? { approvalId: stringValue(message._approval_id ?? message.approval_id) } : {}),
+    ...(stringValue(message._approval_status ?? message.approval_status) ? { approvalStatus: stringValue(message._approval_status ?? message.approval_status) } : {}),
+    ...(status ? { status } : { status: isResult ? "completed" : "running" }),
+  };
+}
+
+function shouldSuppressToolActivityContent(message: Record<string, unknown>, activities: NativeChatToolActivity[]): boolean {
+  return activities.length > 0 && Boolean(
+    booleanValue(message._tool_hint)
+      || booleanValue(message._tool_detail)
+      || booleanValue(message._tool_result),
+  );
 }
 
 function toolCallRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "argsText"> & { approvalId?: string; approvalStatus?: string; status?: string }> {
@@ -459,20 +567,9 @@ function normalizeToolActivityStatus(value: unknown): string {
   return normalized;
 }
 
-function toolCallReferenceRows(value: unknown): NativeChatReference[] {
-  return toolCallRows(value).map((row) => ({
-    kind: "tool",
-    title: row.name || row.id || "tool",
-    detail: row.argsText,
-  }));
-}
-
-function toolResultReferenceRows(value: unknown): NativeChatReference[] {
-  return toolResultRows(value).map((row) => ({
-    kind: "tool",
-    title: row.id || row.name || "tool",
-    detail: row.responseText,
-  }));
+function inferToolNameFromText(value: string): string {
+  const match = value.trim().match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*\(/);
+  return match?.[1] ?? "";
 }
 
 function referenceRows(value: unknown, kind: NativeChatReference["kind"]): NativeChatReference[] {
@@ -517,4 +614,8 @@ function textValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function booleanValue(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
 }

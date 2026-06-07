@@ -54,7 +54,7 @@ function createToolActivitiesApp(options: ToolActivitiesIslandOptions): App {
           size: 8,
           vertical: true,
         }, {
-          default: () => options.activities.map((activity, index) => h("details", {
+          default: () => options.activities.map((activity, index) => h("div", {
             ref: (element) => {
               activityHosts.value[index] = element as HTMLElement | null;
             },

@@ -13,6 +13,7 @@ import {
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
 import { buildDesktopAgentUiApprovalTaskOperations } from "./desktopTaskCenterSources";
 import type { DesktopNativeChatModel } from "./desktopWorkbenchShell";
+import { logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 import type { NormalizedGatewayEvent } from "./gatewayWebSocketClient";
 
 export interface DesktopNativeWorkbenchRuntimeOptions {
@@ -54,37 +55,70 @@ export function createDesktopNativeWorkbenchRuntime({
   const agentUiState = createAgentUiEventState();
 
   async function loadInitialChatState(): Promise<void> {
+    logDesktopNativeDebug("runtime.load.start", summarizeRuntimeState());
     const count = await chatController.loadSessions();
     chatStatus = count ? `Loaded ${count} ${count === 1 ? "session" : "sessions"} from gateway.` : "No sessions yet.";
+    logDesktopNativeDebug("runtime.load.complete", {
+      ...summarizeRuntimeState(),
+      loadedCount: count,
+    });
   }
 
   async function selectChatSession(sessionKey: string, chatId: string): Promise<void> {
+    logDesktopNativeDebug("runtime.select.start", {
+      ...summarizeRuntimeState(),
+      chatId,
+      sessionKey,
+    });
     await chatController.selectSession(sessionKey, chatId);
     chatStatus = "Session loaded from gateway.";
+    logDesktopNativeDebug("runtime.select.complete", summarizeRuntimeState());
   }
 
   function startNewChat(): void {
     chatController.startNewChat();
     chatStatus = "Creating chat session.";
+    logDesktopNativeDebug("runtime.newChat", summarizeRuntimeState());
   }
 
   async function deleteChatSession(sessionKey: string): Promise<void> {
+    logDesktopNativeDebug("runtime.delete.start", {
+      ...summarizeRuntimeState(),
+      sessionKey,
+    });
     const result = await chatController.deleteSession(sessionKey);
     if (result.status === "deleted") {
       chatStatus = result.nextSessionKey ? "Session deleted. Next chat loaded." : "Session deleted.";
       composerState = "idle";
+      logDesktopNativeDebug("runtime.delete.complete", {
+        ...summarizeRuntimeState(),
+        deletedSessionKey: result.deletedSessionKey,
+        nextSessionKey: result.nextSessionKey,
+      });
       return;
     }
     chatStatus = result.status === "unavailable" ? "Session deletion is unavailable." : "Session not found.";
+    logDesktopNativeDebug("runtime.delete.skipped", {
+      ...summarizeRuntimeState(),
+      status: result.status,
+    });
   }
 
   function setPersistentRag(enabled: boolean): void {
     usePersistentRag = enabled;
     chatStatus = `Persistent RAG ${enabled ? "enabled" : "disabled"}.`;
+    logDesktopNativeDebug("runtime.rag.change", {
+      ...summarizeRuntimeState(),
+      enabled,
+    });
   }
 
   function setRuntimeMetadata(metadata: NonNullable<DesktopNativeChatModel["runtime"]>): void {
     runtimeMetadata = { ...runtimeMetadata, ...metadata };
+    logDesktopNativeDebug("runtime.metadata.update", {
+      keys: Object.keys(metadata),
+      runtime: runtimeMetadata,
+    });
   }
 
   function submitComposerMessage(content: string, nextUsePersistentRag = usePersistentRag): ChatSubmitResult {
@@ -100,18 +134,33 @@ export function createDesktopNativeWorkbenchRuntime({
       chatStatus = "Message sent.";
       composerState = "sending";
     }
+    logDesktopNativeDebug("runtime.submit", {
+      ...summarizeRuntimeState(),
+      content: summarizeDebugText(content.trim()),
+      resultStatus: result.status,
+      usePersistentRag,
+    });
     return result;
   }
 
   function interruptActiveChat(): boolean {
     const interrupted = chatController.interruptActiveChat();
     chatStatus = interrupted ? "Interrupt requested." : "No active chat to interrupt.";
+    logDesktopNativeDebug("runtime.interrupt", {
+      ...summarizeRuntimeState(),
+      interrupted,
+    });
     return interrupted;
   }
 
   async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
+    logDesktopNativeDebug("runtime.gatewayEvent.start", summarizeGatewayEvent(event));
     if (event.kind === "usage") {
       setRuntimeMetadata({ tokenUsage: event.tokenUsage });
+      logDesktopNativeDebug("runtime.gatewayEvent.complete", {
+        ...summarizeRuntimeState(),
+        kind: event.kind,
+      });
       return;
     }
 
@@ -120,6 +169,11 @@ export function createDesktopNativeWorkbenchRuntime({
         reduceAgentUiEventState(agentUiState, agentUiEvent);
       }
       chatStatus = agentUiState.forms.size ? "Agent UI form requested." : "Agent UI event received.";
+      logDesktopNativeDebug("runtime.gatewayEvent.complete", {
+        ...summarizeRuntimeState(),
+        formCount: agentUiState.forms.size,
+        kind: event.kind,
+      });
       return;
     }
 
@@ -127,6 +181,10 @@ export function createDesktopNativeWorkbenchRuntime({
     if (event.kind === "error") {
       chatStatus = event.message;
       composerState = "idle";
+      logDesktopNativeDebug("runtime.gatewayEvent.error", {
+        ...summarizeRuntimeState(),
+        message: event.message,
+      });
       return;
     }
     if (result.pendingMessageSent) {
@@ -153,6 +211,13 @@ export function createDesktopNativeWorkbenchRuntime({
     if (result.reloadedSessions) {
       chatStatus = "Sessions refreshed.";
     }
+    logDesktopNativeDebug("runtime.gatewayEvent.complete", {
+      ...summarizeRuntimeState(),
+      kind: event.kind,
+      loadedMessagesForChatId: result.loadedMessagesForChatId,
+      pendingMessageSent: result.pendingMessageSent,
+      reloadedSessions: result.reloadedSessions,
+    });
   }
 
   return {
@@ -187,4 +252,25 @@ export function createDesktopNativeWorkbenchRuntime({
     interruptActiveChat,
     handleGatewayEvent,
   };
+
+  function summarizeRuntimeState(): Record<string, unknown> {
+    const state = chatController.state;
+    return {
+      activeChatId: state.activeChatId,
+      activeSessionKey: state.activeSessionKey,
+      composerState,
+      responding: state.activeSessionKey ? state.respondingSessionKeys.has(state.activeSessionKey) : false,
+      sessionCount: state.sessions.length,
+      status: chatStatus,
+    };
+  }
+
+  function summarizeGatewayEvent(event: NormalizedGatewayEvent): Record<string, unknown> {
+    return {
+      chatId: "chatId" in event ? event.chatId : "",
+      kind: event.kind,
+      messageId: "messageId" in event ? event.messageId : "",
+      text: "text" in event ? summarizeDebugText(event.text) : undefined,
+    };
+  }
 }

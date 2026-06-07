@@ -39,13 +39,16 @@ describe("tool activities Vue island", () => {
       "web_search",
       "web_search",
     ]);
-    expect(Array.from(host.querySelectorAll(".desktop-tool-activity-badge")).map((badge) => badge.textContent)).toEqual([
-      "Approved",
-      "Call",
-      "Result",
+    expect(Array.from(host.querySelectorAll(".desktop-tool-activity-kind")).map((kind) => kind.textContent)).toEqual([
+      "Tool",
+      "Tool",
     ]);
-    expect(host.querySelector('[data-desktop-tool-activity-id="tool-1"] .desktop-tool-activity-section-call .desktop-tool-activity-pre')?.textContent).toBe("{\"query\":\"tinybot\"}");
-    expect(host.querySelector('[data-desktop-tool-activity-id="tool-2"] .desktop-tool-activity-section-response .desktop-tool-activity-pre')?.textContent).toBe("Found docs");
+    expect(Array.from(host.querySelectorAll(".desktop-tool-activity-status-label")).map((status) => status.textContent)).toEqual([
+      "Completed",
+      "Pending",
+    ]);
+    expect(host.textContent).not.toContain("{\"query\":\"tinybot\"}");
+    expect(host.textContent).not.toContain("Found docs");
 
     mounted.unmount();
     expect(host.textContent).toBe("");

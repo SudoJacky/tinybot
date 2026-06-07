@@ -1,18 +1,22 @@
-import { createApp, defineComponent, h, ref, type App } from "vue";
+import { createApp, defineComponent, h, ref, type App, type Ref } from "vue";
 import { NConfigProvider, NText } from "naive-ui";
 import type { RecentChatDeleteEvent, RecentChatRowIslandOptions } from "./recentChatRowIsland";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
+import { logDesktopNativeDebug } from "../desktopNativeChatDebug";
 
 export type SidebarRecentChatRow = Omit<RecentChatRowIslandOptions, "onDeleteSession">;
 
 export interface SidebarRecentChatsIslandOptions {
   rows: SidebarRecentChatRow[];
-  onDeleteSession?: (event: RecentChatDeleteEvent) => void;
+  onDeleteSession?: (event: RecentChatDeleteEvent) => unknown | Promise<unknown>;
 }
 
 export interface MountedSidebarRecentChatsIsland {
+  update: (options: SidebarRecentChatsIslandOptions) => void;
   unmount: () => void;
 }
+
+const mountedSidebarRecentChats = new WeakMap<HTMLElement, MountedSidebarRecentChatsIsland>();
 
 export function mountSidebarRecentChatsIsland(
   host: HTMLElement,
@@ -20,22 +24,34 @@ export function mountSidebarRecentChatsIsland(
 ): MountedSidebarRecentChatsIsland {
   host.setAttribute("data-desktop-vue-island", "sidebar-recent-chats");
   host.className = "desktop-sidebar-list-section desktop-sidebar-list-section-recent";
-  const app = createSidebarRecentChatsApp(options);
+  const mounted = mountedSidebarRecentChats.get(host);
+  if (mounted) {
+    mounted.update(options);
+    return mounted;
+  }
+  const state = ref(options);
+  const app = createSidebarRecentChatsApp(state);
   app.mount(host);
-  return {
+  const nextMounted = {
+    update: (nextOptions: SidebarRecentChatsIslandOptions) => {
+      state.value = nextOptions;
+    },
     unmount: () => {
+      mountedSidebarRecentChats.delete(host);
       app.unmount();
       host.replaceChildren();
     },
   };
+  mountedSidebarRecentChats.set(host, nextMounted);
+  return nextMounted;
 }
 
-function createSidebarRecentChatsApp(options: SidebarRecentChatsIslandOptions): App {
+function createSidebarRecentChatsApp(state: Ref<SidebarRecentChatsIslandOptions>): App {
   return createApp(defineComponent({
     name: "SidebarRecentChatsIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => renderSidebarRecentChatsContent(options),
+        default: () => renderSidebarRecentChatsContent(state.value),
       });
     },
   }));
@@ -74,26 +90,37 @@ function renderRecentChatRow(row: SidebarRecentChatRow, options: SidebarRecentCh
 
 const RecentChatRowComponent = defineComponent<{
   row: SidebarRecentChatRow;
-  onDeleteSession?: (event: RecentChatDeleteEvent) => void;
+  onDeleteSession?: (event: RecentChatDeleteEvent) => unknown | Promise<unknown>;
 }>({
   name: "SidebarRecentChatRow",
   props: ["row", "onDeleteSession"],
   setup(props) {
     const confirming = ref(false);
     const deleting = ref(false);
-    const onDeleteClick = (event: MouseEvent) => {
+    const onDeleteClick = async (event: MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
       if (!confirming.value) {
         confirming.value = true;
+        logDesktopNativeDebug("recentChat.delete.confirm", summarizeRecentChatRow(props.row));
         return;
       }
       deleting.value = true;
-      props.onDeleteSession?.({
-        chatId: props.row.chatId,
-        sessionKey: props.row.sessionKey,
-        title: props.row.title,
-      });
+      logDesktopNativeDebug("recentChat.delete.request", summarizeRecentChatRow(props.row));
+      try {
+        await Promise.resolve(props.onDeleteSession?.({
+          chatId: props.row.chatId,
+          sessionKey: props.row.sessionKey,
+          title: props.row.title,
+        }));
+        logDesktopNativeDebug("recentChat.delete.complete", summarizeRecentChatRow(props.row));
+      } catch {
+        logDesktopNativeDebug("recentChat.delete.failed", summarizeRecentChatRow(props.row));
+        // The shell reports deletion failures separately; the row only needs to leave its transient state.
+      } finally {
+        deleting.value = false;
+        confirming.value = false;
+      }
     };
 
     return () => h("div", {
@@ -127,7 +154,6 @@ const RecentChatRowComponent = defineComponent<{
             h(NText, { class: "desktop-sidebar-row-meta", depth: 3, tag: "span" }, {
               default: () => props.row.updatedLabel,
             }),
-            renderStatusChips(props.row.sessionKey, props.row.statusChips),
           ]),
       h("button", {
         "aria-label": confirming.value ? `Confirm delete chat ${props.row.title}` : `Delete chat ${props.row.title}`,
@@ -143,16 +169,12 @@ const RecentChatRowComponent = defineComponent<{
   },
 });
 
-function renderStatusChips(sessionKey: string, chips: SidebarRecentChatRow["statusChips"] = []) {
-  if (!chips?.length) {
-    return null;
-  }
-  return h("span", {
-    "aria-label": "Chat status",
-    class: "desktop-sidebar-row-status",
-    "data-desktop-chat-status": sessionKey,
-  }, chips.map((chip) => h("span", {
-    class: "desktop-sidebar-status-chip",
-    "data-status-kind": chip.kind,
-  }, chip.label)));
+function summarizeRecentChatRow(row: SidebarRecentChatRow): Record<string, unknown> {
+  return {
+    active: row.active,
+    chatId: row.chatId,
+    pinned: row.pinned,
+    routeId: row.routeId,
+    sessionKey: row.sessionKey,
+  };
 }

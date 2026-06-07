@@ -38,20 +38,17 @@ describe("conversation message Vue island", () => {
     expect(host.className).toBe("desktop-conversation-message");
     expect(host.getAttribute("data-message-tone")).toBe("assistant");
     expect(host.querySelector(".n-card.desktop-conversation-content-card")).not.toBeNull();
-    expect(host.querySelector(".desktop-conversation-meta")?.getAttribute("data-desktop-vue-island")).toBe("conversation-meta");
+    expect(host.querySelector(".desktop-conversation-meta")).toBeNull();
     expect(host.querySelector(".desktop-conversation-body")?.getAttribute("data-desktop-vue-island")).toBe("conversation-body");
     expect(host.querySelector(".desktop-conversation-reference")?.getAttribute("data-desktop-vue-island")).toBe("conversation-reference");
     expect(host.querySelector(".desktop-conversation-attachment")?.getAttribute("data-desktop-vue-island")).toBe("conversation-attachment");
     expect(host.querySelector(".desktop-tool-activities")?.getAttribute("data-desktop-chat-region")).toBe("tool-timeline");
     expect(host.querySelector(".desktop-tool-activities")?.getAttribute("aria-label")).toBe("Tool Timeline");
     expect(host.querySelector(".desktop-tool-activity")?.textContent).toContain("read_file");
-    expect(host.querySelector(".desktop-conversation-meta strong")?.textContent).toBe("Tinybot");
-    expect(host.querySelector(".desktop-conversation-meta-separator")?.textContent).toBe(" · ");
-    const metaSpans = Array.from(host.querySelectorAll(".desktop-conversation-meta span"));
-    expect(metaSpans[metaSpans.length - 1]?.textContent).toBe("10:28 AM");
+    expect(host.textContent).not.toContain("Tinybot");
     expect(host.querySelectorAll(".desktop-message-reasoning-summary")).toHaveLength(0);
     const reasoningToggle = host.querySelector<HTMLButtonElement>(".desktop-message-reasoning-toggle");
-    expect(reasoningToggle?.textContent).toBe("Details");
+    expect(reasoningToggle?.textContent).toBe("Thinking complete");
     expect(reasoningToggle?.getAttribute("aria-expanded")).toBe("false");
     expect(host.querySelector(".desktop-message-reasoning-body")).toBeNull();
     reasoningToggle?.click();
@@ -84,10 +81,52 @@ describe("conversation message Vue island", () => {
     });
     await nextTick();
 
+    expect(host.getAttribute("data-message-tone")).toBe("user");
+    expect(host.querySelector(".desktop-conversation-meta")).toBeNull();
+    expect(host.querySelector(".desktop-user-message-bubble")).not.toBeNull();
     expect(Array.from(host.querySelectorAll(".desktop-conversation-body p")).map((paragraph) => paragraph.textContent)).toEqual([
       "First",
       "Second",
     ]);
+  });
+
+  test("shows streaming thinking until assistant body begins, then preserves manual expansion", async () => {
+    const host = document.createElement("article");
+    const mounted = mountConversationMessageIsland(host, {
+      author: "Tinybot",
+      body: [],
+      references: [],
+      reasoningContent: "Thinking out loud",
+      time: "10:31 AM",
+      tone: "assistant",
+    });
+    await nextTick();
+
+    const streamingToggle = host.querySelector<HTMLButtonElement>(".desktop-message-reasoning-toggle");
+    expect(streamingToggle?.textContent).toBe("Thinking");
+    expect(streamingToggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector(".desktop-message-reasoning-body")?.textContent).toContain("Thinking out loud");
+
+    mounted.unmount();
+    mountConversationMessageIsland(host, {
+      author: "Tinybot",
+      body: ["Now answering"],
+      references: [],
+      reasoningContent: "Thinking out loud",
+      time: "10:31 AM",
+      tone: "assistant",
+    });
+    await nextTick();
+
+    const collapsedToggle = host.querySelector<HTMLButtonElement>(".desktop-message-reasoning-toggle");
+    expect(collapsedToggle?.textContent).toBe("Thinking complete");
+    expect(collapsedToggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector(".desktop-message-reasoning-body")).toBeNull();
+
+    collapsedToggle?.click();
+    await nextTick();
+    expect(collapsedToggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector(".desktop-message-reasoning-body")?.textContent).toContain("Thinking out loud");
   });
 
   test("renders a message-level copy action for assistant responses", async () => {
@@ -115,5 +154,50 @@ describe("conversation message Vue island", () => {
     expect(writeText).toHaveBeenCalledWith("First paragraph\n\nSecond paragraph");
     expect(copy?.getAttribute("aria-label")).toBe("Copied");
     expect(copy?.querySelector(".desktop-message-copy-icon")).not.toBeNull();
+  });
+
+  test("omits copy chrome for assistant intermediate steps without answer text", async () => {
+    const host = document.createElement("article");
+
+    mountConversationMessageIsland(host, {
+      author: "Tinybot",
+      body: [],
+      references: [],
+      time: "10:31 AM",
+      tone: "assistant",
+      toolActivities: [{
+        argsText: "{\"path\":\".\"}",
+        approvalStatus: "",
+        id: "tool-list",
+        kind: "call",
+        name: "list_dir",
+        responseText: "",
+        status: "pending",
+      }],
+    });
+    await nextTick();
+
+    expect(host.querySelector(".desktop-tool-activity-title")?.textContent).toBe("list_dir");
+    expect(host.querySelector(".desktop-message-actions")).toBeNull();
+    expect(host.querySelector(".desktop-message-copy-button")).toBeNull();
+  });
+
+  test("omits copy chrome when an assistant message is not copyable", async () => {
+    const host = document.createElement("article");
+
+    mountConversationMessageIsland(host, {
+      author: "Tinybot",
+      body: ["Intermediate update with text."],
+      copyable: false,
+      references: [{ detail: "workspace", kind: "File", title: "." }],
+      time: "10:31 AM",
+      tone: "assistant",
+    });
+    await nextTick();
+
+    expect(host.textContent).toContain("Intermediate update with text.");
+    expect(host.querySelector(".desktop-conversation-reference")?.textContent).toContain("File: .");
+    expect(host.querySelector(".desktop-message-actions")).toBeNull();
+    expect(host.querySelector(".desktop-message-copy-button")).toBeNull();
   });
 });

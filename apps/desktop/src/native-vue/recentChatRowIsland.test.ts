@@ -46,7 +46,7 @@ describe("recent chat row Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
-  test("renders compact work status chips for files, knowledge, approvals, and running state", () => {
+  test("does not render compact work status chips in the session row", () => {
     const host = document.createElement("div");
 
     mountRecentChatRowIsland(host, {
@@ -66,18 +66,11 @@ describe("recent chat row Vue island", () => {
       updatedLabel: "Updated 2m ago",
     });
 
-    const status = host.querySelector(".desktop-sidebar-row-status");
-    expect(status?.getAttribute("aria-label")).toBe("Chat status");
-    expect(status?.getAttribute("data-desktop-chat-status")).toBe("WebSocket:chat-1");
-    expect(Array.from(status?.querySelectorAll(".desktop-sidebar-status-chip") ?? []).map((chip) => ({
-      kind: chip.getAttribute("data-status-kind"),
-      text: chip.textContent,
-    }))).toEqual([
-      { kind: "running", text: "Running" },
-      { kind: "approval", text: "Approval" },
-      { kind: "files", text: "2 files" },
-      { kind: "knowledge", text: "Knowledge On" },
-    ]);
+    expect(host.querySelector(".desktop-sidebar-row-status")).toBeNull();
+    expect(host.querySelector(".desktop-sidebar-status-chip")).toBeNull();
+    expect(host.textContent).not.toContain("Running");
+    expect(host.textContent).not.toContain("Approval");
+    expect(host.textContent).not.toContain("Knowledge On");
   });
 
   test("confirms before invoking delete callback", async () => {

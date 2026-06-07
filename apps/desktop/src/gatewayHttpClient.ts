@@ -1,4 +1,5 @@
 import { DEFAULT_GATEWAY_CONFIG, type GatewayConfig } from "./gatewayConfig";
+import { logDesktopNativeDebug } from "./desktopNativeChatDebug";
 
 type FetchFn = typeof fetch;
 
@@ -259,18 +260,34 @@ async function bootstrapGateway(
 > {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  logDesktopNativeDebug("gateway.bootstrap.start", {
+    httpBaseUrl: config.httpBaseUrl,
+    timeoutMs: config.requestTimeoutMs,
+  });
   try {
     const response = await fetchFn(`${config.httpBaseUrl}/webui/bootstrap`, {
       signal: controller.signal,
     });
     if (!response.ok) {
+      logDesktopNativeDebug("gateway.bootstrap.error", {
+        status: response.status,
+      });
       return { ok: false, error: `HTTP ${response.status}` };
     }
     const payload = await response.json();
     const token = typeof payload.token === "string" ? payload.token : "";
     if (!token) {
+      logDesktopNativeDebug("gateway.bootstrap.error", {
+        error: "missing token",
+      });
       return { ok: false, error: "bootstrap response missing token" };
     }
+    logDesktopNativeDebug("gateway.bootstrap.complete", {
+      refreshTokenPath: typeof payload.refresh_token_path === "string" ? payload.refresh_token_path : "/webui/refresh-token",
+      tokenReady: true,
+      tokenTtlS: typeof payload.token_ttl_s === "number" ? payload.token_ttl_s : 300,
+      wsPath: typeof payload.ws_path === "string" ? payload.ws_path : "/ws",
+    });
     return {
       ok: true,
       session: {
@@ -282,6 +299,9 @@ async function bootstrapGateway(
       },
     };
   } catch (error) {
+    logDesktopNativeDebug("gateway.bootstrap.error", {
+      error: stringifyError(error),
+    });
     return { ok: false, error: stringifyError(error) };
   } finally {
     globalThis.clearTimeout(timeout);
@@ -289,6 +309,11 @@ async function bootstrapGateway(
 }
 
 async function requestJson(config: GatewayConfig, fetchFn: FetchFn, path: string, init?: RequestInit): Promise<unknown> {
+  const method = init?.method ?? "GET";
+  logDesktopNativeDebug("gateway.http.request", {
+    method,
+    path,
+  });
   const response = await fetchFn(`${config.httpBaseUrl}${path}`, {
     headers: {
       Accept: "application/json",
@@ -297,9 +322,20 @@ async function requestJson(config: GatewayConfig, fetchFn: FetchFn, path: string
     ...init,
   });
   if (!response.ok) {
+    logDesktopNativeDebug("gateway.http.error", {
+      method,
+      path,
+      status: response.status,
+    });
     throw new Error(`Gateway request failed: HTTP ${response.status}`);
   }
-  return response.json();
+  const payload = await response.json();
+  logDesktopNativeDebug("gateway.http.response", {
+    method,
+    path,
+    status: response.status,
+  });
+  return payload;
 }
 
 function authenticatedWsUrl(config: GatewayConfig, session: BootstrapSession): string {
