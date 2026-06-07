@@ -365,5 +365,43 @@ describe("gateway WebSocket client", () => {
       chatId: "chat-1",
       tokenUsage: "50%",
     });
+
+    expect(
+      normalizeGatewayFrame({
+        event: "cowork_stream",
+        chat_id: "chat-1",
+        session_id: "session-1",
+        agent_id: "agent-1",
+        step_id: "step-1",
+        phase: "delta",
+        status: "running",
+        sequence: 3,
+        text: "live answer",
+        completed: false,
+      }),
+    ).toMatchObject({
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "cowork:session-1:agent-1:step-1",
+      text: "live answer",
+      reasoning: false,
+    });
+
+    expect(
+      normalizeGatewayFrame({
+        event: "cowork_mailbox_stream",
+        chat_id: "chat-1",
+        session_id: "session-1",
+        draft_id: "draft-1",
+        tool_call_id: "call-1",
+        phase: "terminal",
+        status: "completed",
+        completed: true,
+      }),
+    ).toMatchObject({
+      kind: "message.stream.completed",
+      chatId: "chat-1",
+      messageId: "cowork-mailbox:draft-1",
+    });
   });
 });

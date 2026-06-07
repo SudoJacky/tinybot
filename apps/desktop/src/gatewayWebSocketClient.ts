@@ -69,6 +69,10 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
         messageId: optionalString(raw.message_id),
         raw,
       };
+    case "cowork_stream":
+      return normalizeCoworkStreamFrame(raw);
+    case "cowork_mailbox_stream":
+      return normalizeCoworkMailboxStreamFrame(raw);
     case "usage":
       return {
         kind: "usage",
@@ -197,6 +201,65 @@ function stringValue(value: unknown): string {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+function normalizeCoworkStreamFrame(raw: Record<string, unknown>): NormalizedGatewayEvent {
+  const messageId = stableMessageId(
+    "cowork",
+    optionalString(raw.session_id),
+    optionalString(raw.agent_id),
+    optionalString(raw.step_id),
+  );
+  if (isTerminalStreamFrame(raw)) {
+    return {
+      kind: "message.stream.completed",
+      chatId: optionalString(raw.chat_id),
+      messageId,
+      raw,
+    };
+  }
+  return {
+    kind: "message.delta",
+    chatId: optionalString(raw.chat_id),
+    messageId,
+    text: stringValue(raw.text),
+    reasoning: false,
+    raw,
+  };
+}
+
+function normalizeCoworkMailboxStreamFrame(raw: Record<string, unknown>): NormalizedGatewayEvent {
+  const messageId = stableMessageId(
+    "cowork-mailbox",
+    optionalString(raw.draft_id) ?? optionalString(raw.tool_call_id) ?? optionalString(raw.session_id),
+  );
+  if (isTerminalStreamFrame(raw)) {
+    return {
+      kind: "message.stream.completed",
+      chatId: optionalString(raw.chat_id),
+      messageId,
+      raw,
+    };
+  }
+  return {
+    kind: "message.delta",
+    chatId: optionalString(raw.chat_id),
+    messageId,
+    text: stringValue(raw.text),
+    reasoning: false,
+    raw,
+  };
+}
+
+function isTerminalStreamFrame(raw: Record<string, unknown>): boolean {
+  const phase = stringValue(raw.phase);
+  const status = stringValue(raw.status);
+  return raw.completed === true || phase === "complete" || phase === "terminal" || status === "completed";
+}
+
+function stableMessageId(prefix: string, ...parts: Array<string | undefined>): string {
+  const values = parts.filter((part): part is string => Boolean(part));
+  return values.length ? `${prefix}:${values.join(":")}` : prefix;
 }
 
 function formatTokenUsage(value: unknown): string {
