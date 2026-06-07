@@ -279,6 +279,45 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("gateway stream failed");
   });
 
+  test("exposes stream deltas when the active gateway session uses a bare key", async () => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "7e9e439b4487", chat_id: "chat-7e9e", title: "Bare key session" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      now: () => "2026-06-03T08:14:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Stream with bare key");
+    await runtime.handleGatewayEvent({
+      kind: "message.delta",
+      chatId: "chat-7e9e",
+      messageId: "assistant-bare-key",
+      text: "live answer",
+      reasoning: false,
+      raw: {},
+    });
+
+    expect(runtime.chat.activeSessionKey).toBe("7e9e439b4487");
+    expect(runtime.chat.responding).toBe(true);
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Stream with bare key" },
+      { role: "assistant", content: "live answer", messageId: "assistant-bare-key" },
+    ]);
+
+    await runtime.handleGatewayEvent({
+      kind: "message.stream.completed",
+      chatId: "chat-7e9e",
+      messageId: "assistant-bare-key",
+      raw: {},
+    });
+    expect(runtime.chat.responding).toBe(false);
+  });
+
   test("updates native runtime token usage from gateway usage events", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {

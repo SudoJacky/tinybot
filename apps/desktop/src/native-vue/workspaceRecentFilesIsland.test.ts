@@ -36,9 +36,14 @@ describe("workspace recent files Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("workspace-recent-files");
     expect(host.getAttribute("id")).toBe("desktop-workspace-recent-files");
     expect(host.getAttribute("aria-label")).toBe("Recent workspace files");
-    expect(Array.from(host.querySelectorAll("[data-desktop-workspace-file]")).map((row) => row.textContent)).toEqual([
-      "docs/notes.mdAvailable",
-      "AGENTS.mdUpdated 2026-05-31T10:00:00+00:00",
+    const rows = Array.from(host.querySelectorAll("[data-desktop-workspace-file]"));
+    expect(rows.map((row) => row.querySelector(".desktop-workspace-file-path")?.textContent)).toEqual([
+      "docs/notes.md",
+      "AGENTS.md",
+    ]);
+    expect(rows.map((row) => row.querySelector(".desktop-workspace-file-meta")?.textContent)).toEqual([
+      "Available",
+      "Updated 2026-05-31T10:00:00+00:00",
     ]);
     expect(host.querySelector('[data-desktop-workspace-file="AGENTS.md"]')?.getAttribute("aria-selected")).toBe("true");
 

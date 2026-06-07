@@ -23,7 +23,7 @@ const chatRun: DesktopTaskCenterItem = {
 };
 
 describe("chat workbench Vue island", () => {
-  test("renders workbench chrome, panel controls, quick actions, and module work", () => {
+  test("renders workbench chrome and contextual module work without redundant shortcuts", () => {
     const host = document.createElement("div");
     const inspected: string[] = [];
 
@@ -38,8 +38,8 @@ describe("chat workbench Vue island", () => {
     expect(host.textContent).toContain("Ask Tinybot about the workspace, inspect files, or create a task.");
     expect(host.textContent).not.toContain("sessionStart");
     expect(host.textContent).not.toContain("session.Start");
-    expect(host.querySelector(".desktop-quick-actions")?.getAttribute("data-desktop-vue-island")).toBe("quick-actions");
-    expect(host.querySelector(".desktop-quick-actions")?.textContent).toContain("Open workspace");
+    expect(host.querySelector(".desktop-quick-actions")).toBeNull();
+    expect(host.querySelectorAll(".desktop-quick-action")).toHaveLength(0);
     expect(host.querySelector(".desktop-panel-controls")).toBeNull();
     expect(host.querySelector(".desktop-module-work")?.getAttribute("data-desktop-vue-island")).toBe("module-work");
     expect(host.querySelector('[data-desktop-module-work="chat:stream:chat-1"]')?.textContent).toContain("Streaming response");

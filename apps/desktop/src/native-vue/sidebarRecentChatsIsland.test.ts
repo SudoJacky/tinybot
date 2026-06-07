@@ -18,6 +18,10 @@ describe("sidebar recent chats Vue island", () => {
           pinned: true,
           routeId: "chat-1",
           sessionKey: "WebSocket:chat-1",
+          statusChips: [
+            { kind: "running", label: "Running" },
+            { kind: "knowledge", label: "Knowledge On" },
+          ],
           title: "Session one",
           updatedLabel: "Updated 8:11:21 AM",
         },
@@ -46,6 +50,8 @@ describe("sidebar recent chats Vue island", () => {
     expect(rows.map((row) => row.getAttribute("data-pinned"))).toEqual(["true", "false"]);
     expect(rows[0]?.querySelector(".desktop-sidebar-row-label")?.textContent).toBe("Session one");
     expect(rows[0]?.querySelector("[data-desktop-session-pin-icon]")?.textContent).toBe("馃搶");
+    expect(rows[0]?.querySelector(".desktop-sidebar-row-status")?.getAttribute("data-desktop-chat-status")).toBe("WebSocket:chat-1");
+    expect(Array.from(rows[0]?.querySelectorAll(".desktop-sidebar-status-chip") ?? []).map((chip) => chip.textContent)).toEqual(["Running", "Knowledge On"]);
     expect(rows[1]?.querySelector(".desktop-sidebar-row-main")?.getAttribute("href")).toBe("/chat/custom-route");
 
     const deleteButton = rows[1]?.querySelector<HTMLButtonElement>("[data-desktop-chat-delete]");

@@ -2,7 +2,6 @@ import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type Ap
 import { NConfigProvider, NText } from "naive-ui";
 import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import { mountModuleWorkSectionIsland } from "./moduleWorkSectionIsland";
-import { mountQuickActionsIsland } from "./quickActionsIsland";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface ChatWorkbenchIslandOptions {
@@ -35,11 +34,9 @@ function createChatWorkbenchApp(options: ChatWorkbenchIslandOptions): App {
     name: "ChatWorkbenchIsland",
     setup() {
       const mountedChildren: Array<{ unmount: () => void }> = [];
-      const quickActions = ref<HTMLElement | null>(null);
       const moduleWork = ref<HTMLElement | null>(null);
 
       onMounted(() => {
-        mountChild(mountedChildren, quickActions.value, (host) => mountQuickActionsIsland(host));
         if (options.moduleWorkItems?.length) {
           mountChild(mountedChildren, moduleWork.value, (host) => mountModuleWorkSectionIsland(host, {
             title: "Chat runs",
@@ -59,7 +56,6 @@ function createChatWorkbenchApp(options: ChatWorkbenchIslandOptions): App {
         default: () => [
           h(NText, { tag: "h2" }, { default: () => "Start a new session" }),
           h(NText, { depth: 3, tag: "p" }, { default: () => "Ask Tinybot about the workspace, inspect files, or create a task." }),
-          h("div", { ref: quickActions }),
           options.moduleWorkItems?.length ? h("section", { ref: moduleWork }) : null,
         ],
       });

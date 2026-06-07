@@ -295,16 +295,13 @@ function desktopCommandEntryDestination(entry: DesktopCommandEntry): DesktopComm
 
 function moduleForDesktopCommandHref(href: string): DesktopCommandPaletteDestinationModule {
   if (href.startsWith("/files")) {
-    return "workspace";
+    return "files";
   }
   if (href.startsWith("/tools")) {
     return "tools";
   }
   if (href.startsWith("/cowork")) {
     return "cowork";
-  }
-  if (href.startsWith("/workspace")) {
-    return "workspace";
   }
   if (href.startsWith("/knowledge")) {
     return "knowledge";
@@ -379,7 +376,7 @@ function workspaceResults(rows: DesktopWorkspaceFileRow[]): DesktopCommandPalett
     title: file.path,
     secondary: file.meta,
     keywords: [file.updatedAt ?? "", file.exists ? "available" : "missing"],
-    destination: { module: "workspace", entityId: file.path, href: "/workspace" },
+    destination: { module: "files", entityId: file.path, href: "/files" },
   }));
 }
 
@@ -441,6 +438,8 @@ function commandKeywords(id: DesktopMenuCommandId): string[] {
       return ["knowledge", "documents", "rag"];
     case "open-files":
       return ["files", "session file", "knowledge document", "workspace file", "resources"];
+    case "open-cowork":
+      return ["cowork", "agents", "collaboration", "sessions"];
     case "open-tinybot-repo":
       return ["github", "repo", "repository"];
     case "open-docs":

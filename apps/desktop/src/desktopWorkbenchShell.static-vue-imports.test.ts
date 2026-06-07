@@ -287,8 +287,8 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/helpSurfaceIsland")');
     expect(source).toContain('import { mountModuleWorkSectionIsland } from "./native-vue/moduleWorkSectionIsland";');
     expect(source).not.toContain('void import("./native-vue/moduleWorkSectionIsland")');
-    expect(source).toContain('import { mountQuickActionsIsland } from "./native-vue/quickActionsIsland";');
     expect(source).not.toContain('void import("./native-vue/quickActionsIsland")');
+    expect(source).not.toContain('import { mountQuickActionsIsland } from "./native-vue/quickActionsIsland";');
     expect(source).toContain('import { mountSkillEditorIsland } from "./native-vue/skillEditorIsland";');
     expect(source).not.toContain('void import("./native-vue/skillEditorIsland")');
     expect(source).toContain('import { mountWorkspaceBrowserIsland } from "./native-vue/workspaceBrowserIsland";');

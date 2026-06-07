@@ -162,6 +162,10 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
     tools: {
       list: () => request("/api/tools"),
       approvals: () => request("/api/approvals"),
+      approveApproval: (approvalId: string, body: unknown) =>
+        request(`/api/approvals/${encodePathSegment(approvalId)}/approve`, jsonRequest("POST", body)),
+      denyApproval: (approvalId: string, body: unknown) =>
+        request(`/api/approvals/${encodePathSegment(approvalId)}/deny`, jsonRequest("POST", body)),
     },
     skills: {
       list: () => request("/api/skills"),

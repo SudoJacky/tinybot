@@ -260,7 +260,7 @@ describe("desktop window frame", () => {
     expect(targetDocument.body.querySelector('[data-window-action="close"]')).toBeTruthy();
   });
 
-  test("renders only primary desktop commands inside the compact app chrome", () => {
+  test("renders reorganized desktop commands inside the compact app chrome", () => {
     const targetDocument = new FakeDocument();
     const currentWindow = {
       minimize: vi.fn(async () => {}),
@@ -274,10 +274,6 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="new-chat"]')).toBeNull();
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="search-sessions"]')).toBeNull();
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="stop-generation"]')).toBeNull();
-    expect(targetDocument.body.querySelector('[data-desktop-menu-command="open-command-palette"]')).toBeNull();
     const appContainer = targetDocument.body.querySelector('[data-desktop-menu-label="App"]');
     const appTrigger = appContainer?.querySelector(".desktop-help-menu-trigger");
     const appMenu = appContainer?.querySelector(".desktop-help-menu-popover");
@@ -286,7 +282,12 @@ describe("desktop window frame", () => {
     expect(appMenu?.hidden).toBe(true);
     appTrigger?.click();
     expect(appTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(appMenu?.querySelector('[data-desktop-menu-command="new-chat"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("New Chat");
+    expect(appMenu?.querySelector('[data-desktop-menu-command="search-sessions"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Search Sessions");
+    expect(appMenu?.querySelector('[data-desktop-menu-command="open-command-palette"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Command Palette");
+    expect(appMenu?.querySelector('[data-desktop-menu-command="stop-generation"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Stop Generation");
     expect(appMenu?.querySelector('[data-desktop-menu-command="toggle-theme"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Toggle Theme");
+    expect(appMenu?.querySelector('[data-desktop-menu-command="toggle-sidebar"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Toggle Sidebar");
     expect(appMenu?.querySelector('[data-desktop-menu-command="open-settings"]')).toBeNull();
 
     const resourcesContainer = targetDocument.body.querySelector('[data-desktop-menu-label="Resources"]');
@@ -297,12 +298,13 @@ describe("desktop window frame", () => {
     expect(appTrigger?.getAttribute("aria-expanded")).toBe("false");
     expect(resourcesTrigger?.getAttribute("aria-expanded")).toBe("true");
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-chat"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Chat");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-workspace"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Workspace");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-knowledge"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Knowledge");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-workspace"]')).toBeNull();
     expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-files"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Files");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-settings"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Settings");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-docs"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Documentation");
-    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-tinybot-repo"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Tinybot repo");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-knowledge"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Knowledge");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-cowork"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Cowork");
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-settings"]')).toBeNull();
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-docs"]')).toBeNull();
+    expect(resourcesMenu?.querySelector('[data-desktop-menu-command="open-tinybot-repo"]')).toBeNull();
 
     targetDocument.dispatchEvent(new Event("click"));
     expect(resourcesTrigger?.getAttribute("aria-expanded")).toBe("false");
@@ -313,7 +315,7 @@ describe("desktop window frame", () => {
     expect(systemContainer?.querySelector(".desktop-help-menu-trigger")?.textContent).toBe("System");
     expect(systemMenu?.querySelector('[data-desktop-menu-command="open-settings"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Settings");
     expect(systemMenu?.querySelector('[data-desktop-menu-command="refresh-gateway-status"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Gateway Status");
-    expect(systemMenu?.querySelector('[data-desktop-menu-command="open-docs"]')?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Documentation");
+    expect(systemMenu?.querySelector('[data-desktop-menu-command="open-docs"]')).toBeNull();
 
     const helpContainer = targetDocument.body.querySelector('[data-desktop-menu-label="Help"]');
     const helpTrigger = helpContainer?.querySelector(".desktop-help-menu-trigger");
@@ -327,12 +329,16 @@ describe("desktop window frame", () => {
     helpTrigger?.click();
     expect(helpTrigger?.getAttribute("aria-expanded")).toBe("true");
     expect(helpMenu?.hidden).toBe(false);
+    const docs = helpMenu?.querySelector('[data-desktop-menu-command="open-docs"]');
     const shortcutHelp = helpMenu?.querySelector('[data-desktop-menu-command="open-shortcut-help"]');
     const pageHelp = helpMenu?.querySelector('[data-desktop-menu-command="open-page-help"]');
+    const repo = helpMenu?.querySelector('[data-desktop-menu-command="open-tinybot-repo"]');
+    expect(docs?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Documentation");
     expect(shortcutHelp?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Shortcut Help");
     expect(shortcutHelp?.querySelector(".desktop-help-menu-shortcut")?.textContent).toBe("Ctrl+/");
     expect(pageHelp?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Page Help");
     expect(pageHelp?.querySelector(".desktop-help-menu-shortcut")?.textContent).toBe("Ctrl+Shift+/");
+    expect(repo?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Tinybot repo");
   });
 
   test("routes runtime status clicks through the gateway status command", () => {
@@ -474,13 +480,15 @@ describe("desktop window frame", () => {
     const resourcesMenu = document.body.querySelector<HTMLElement>('[data-desktop-menu-label="Resources"]');
     const systemMenu = document.body.querySelector<HTMLElement>('[data-desktop-menu-label="System"]');
     const theme = appMenu?.querySelector<HTMLElement>('[data-desktop-menu-command="toggle-theme"]');
-    const workspace = resourcesMenu?.querySelector<HTMLElement>('[data-desktop-menu-command="open-workspace"]');
+    const cowork = resourcesMenu?.querySelector<HTMLElement>('[data-desktop-menu-command="open-cowork"]');
+    const docs = document.body.querySelector<HTMLElement>('[data-desktop-menu-label="Help"]')?.querySelector<HTMLElement>('[data-desktop-menu-command="open-docs"]');
     const settings = systemMenu?.querySelector<HTMLElement>('[data-desktop-menu-command="open-settings"]');
     expect(document.body.querySelector(".desktop-app-menu .desktop-help-menu-trigger")?.textContent).toBe("App");
     expect(document.body.querySelector(".desktop-resources-menu .desktop-help-menu-trigger")?.textContent).toBe("Resources");
     expect(document.body.querySelector(".desktop-system-menu .desktop-help-menu-trigger")?.textContent).toBe("System");
     expect(theme?.closest(".desktop-app-menu")).not.toBeNull();
-    expect(workspace?.closest(".desktop-resources-menu")).not.toBeNull();
+    expect(cowork?.closest(".desktop-resources-menu")).not.toBeNull();
+    expect(docs?.closest(".desktop-help-menu")).not.toBeNull();
     expect(settings?.closest(".desktop-system-menu")).not.toBeNull();
     expect(settings?.textContent).toContain("Settings");
 
@@ -543,11 +551,39 @@ describe("desktop window frame", () => {
     expect(styleText).toContain("--primary: #cc785c;");
     expect(styleText).toContain("--success: #5db872;");
     expect(styleText).toContain("--border: #e6dfd8;");
+    expect(styleText).toContain("min-height: 36px;");
+    expect(styleText).toContain("padding: 5px 16px;");
+    expect(styleText).toContain("font: 500 13px/20px var(--font-sans, system-ui, sans-serif);");
+    expect(styleText).toContain("body.desktop-custom-frame .desktop-help-menu-item .n-button__content");
+    expect(styleText).toContain("overflow: visible;");
+    expect(styleText).toContain("line-height: 20px;");
+    expect(styleText).toContain("justify-self: end;");
     const menuInteractionRule = styleText?.match(
       /body\.desktop-custom-frame \.desktop-application-menu-item:hover,[\s\S]*?body\.desktop-custom-frame \.desktop-application-menu-item:focus-visible \{[\s\S]*?\}/,
     )?.[0];
     expect(menuInteractionRule).toContain("background: #f2ede7;");
     expect(menuInteractionRule).toContain("outline: 0;");
     expect(menuInteractionRule).not.toContain("outline: 2px solid var(--primary, #cc785c);");
+  });
+
+  test("declares dark theme overrides for the custom frame", () => {
+    const targetDocument = new FakeDocument();
+    const currentWindow = {
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      startDragging: vi.fn(async () => {}),
+    };
+
+    installDesktopWindowFrame({
+      targetDocument: targetDocument as unknown as Document,
+      currentWindow,
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-window-frame-style")?.textContent;
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-window-frame');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-popover');
+    expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-window-button');
   });
 });

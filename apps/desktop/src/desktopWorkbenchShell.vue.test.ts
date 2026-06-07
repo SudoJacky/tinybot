@@ -31,7 +31,7 @@ describe("desktop workbench shell Vue integration", () => {
     expect(rail?.getAttribute("data-desktop-vue-island")).toBe("activity-rail");
     expect(rail?.getAttribute("aria-label")).toBe("Desktop workbench modules");
     expect(rail?.querySelector('[data-desktop-module-target="chat"]')?.getAttribute("aria-current")).toBe("page");
-    expect(rail?.querySelector('[data-desktop-module-target="workspace"]')?.textContent).toBe("Files");
+    expect(rail?.querySelector('[data-desktop-module-target="files"]')?.textContent).toBe("Files");
     expect(rail?.querySelector('[data-desktop-module-target="settings"]')?.getAttribute("href")).toBe("/settings");
   });
 
@@ -133,6 +133,9 @@ describe("desktop workbench shell Vue integration", () => {
 
     expect(menu?.getAttribute("aria-expanded")).toBe("true");
     expect(popover?.hidden).toBe(false);
+    document.body.click();
+    expect(menu?.getAttribute("aria-expanded")).toBe("false");
+    expect(popover?.hidden).toBe(true);
   });
 
   test("renders the chat menu popover through the Vue shell island", () => {
@@ -174,6 +177,8 @@ describe("desktop workbench shell Vue integration", () => {
       "Rename session",
       "New chat",
     ]);
+    expect(actions.every((action) => action.querySelector(".desktop-chat-menu-action") === null)).toBe(true);
+    expect(popover?.querySelector(".desktop-chat-menu-popover-card")).toBeNull();
   });
 
   test("renders chat header panel actions through the Vue shell island", () => {
@@ -194,8 +199,8 @@ describe("desktop workbench shell Vue integration", () => {
     expect(actions?.getAttribute("data-desktop-vue-island")).toBe("chat-header-actions");
     expect(sidebar?.getAttribute("aria-label")).toBe("Collapse session list");
     expect(sidebar?.getAttribute("aria-pressed")).toBe("true");
-    expect(inspector?.getAttribute("aria-label")).toBe("Close Run Chain panel");
-    expect(inspector?.getAttribute("aria-pressed")).toBe("true");
+    expect(inspector?.getAttribute("aria-label")).toBe("Open Activity inspector");
+    expect(inspector?.getAttribute("aria-pressed")).toBe("false");
     expect(shell?.getAttribute("data-sidebar-visible")).toBe("true");
 
     sidebar?.click();
@@ -226,7 +231,8 @@ describe("desktop workbench shell Vue integration", () => {
     expect(workbench?.textContent).toContain("Ask Tinybot about the workspace, inspect files, or create a task.");
     expect(workbench?.textContent).not.toContain("sessionStart");
     expect(workbench?.textContent).not.toContain("session.Start");
-    expect(workbench?.querySelector(".desktop-quick-actions")?.getAttribute("data-desktop-vue-island")).toBe("quick-actions");
+    expect(workbench?.querySelector(".desktop-quick-actions")).toBeNull();
+    expect(workbench?.querySelectorAll(".desktop-quick-action")).toHaveLength(0);
     expect(workbench?.querySelector(".desktop-panel-controls")).toBeNull();
   });
 
@@ -276,7 +282,7 @@ describe("desktop workbench shell Vue integration", () => {
       gatewayHttp: "http://127.0.0.1:18790",
     });
 
-    for (const [region, visible] of [["sidebar", "true"], ["inspector", "true"], ["bottom", "false"]]) {
+    for (const [region, visible] of [["sidebar", "true"], ["inspector", "false"], ["bottom", "false"]]) {
       const panel = document.querySelector<HTMLElement>(`[data-workbench-region="${region}"]`);
       expect(panel?.getAttribute("data-desktop-vue-island")).toBe("workbench-panel");
       expect(panel?.getAttribute("data-visible")).toBe(visible);
@@ -346,7 +352,7 @@ describe("desktop workbench shell Vue integration", () => {
     const row = workspaces?.querySelector<HTMLAnchorElement>(".desktop-sidebar-row");
     expect(workspaces?.getAttribute("data-desktop-vue-island")).toBe("sidebar-workspace-list");
     expect(workspaces?.querySelector(".desktop-sidebar-section-heading h2")?.textContent).toBe("Workspaces");
-    expect(row?.getAttribute("href")).toBe("/workspace");
+    expect(row?.getAttribute("href")).toBe("/files");
     expect(row?.getAttribute("data-desktop-entity-id")).toBe("tinybot");
     expect(row?.getAttribute("data-active")).toBe("true");
   });
@@ -394,7 +400,7 @@ describe("desktop workbench shell Vue integration", () => {
 
     const thread = document.querySelector<HTMLElement>(".desktop-conversation-thread");
     expect(thread?.getAttribute("data-desktop-vue-island")).toBe("conversation-thread");
-    expect(thread?.getAttribute("aria-label")).toBe("Conversation");
+    expect(thread?.getAttribute("aria-label")).toBe("Message Timeline");
     expect(thread?.textContent).not.toContain("No messages in this session.");
     expect(document.querySelector(".desktop-chat-workbench-chrome")?.textContent).toContain("Start a new session");
   });
@@ -466,38 +472,28 @@ describe("desktop workbench shell Vue integration", () => {
 
     setScrollMetrics(thread!, { scrollHeight: 1600, clientHeight: 400 });
     thread!.scrollTop = 1190;
-    HTMLElement.prototype.replaceChildren = function replaceChildrenWithGrowingScrollReset(...nodes: Node[]) {
-      originalReplaceChildren.apply(this, nodes);
-      if (this.classList.contains("desktop-conversation-thread")) {
-        setScrollMetrics(this, { scrollHeight: 2000, clientHeight: 400 });
-        this.scrollTop = 0;
-      }
-    };
-    try {
-      updateDesktopNativeChat(document, {
-        ...chat,
-        messages: [
-          ...chat.messages,
-          {
-            role: "assistant",
-            content: "workspace contents are streaming",
-            reasoningContent: "",
-            timestamp: "2026-06-07T03:04:06.000Z",
-            messageId: "assistant-stream",
-          },
-          {
-            role: "assistant",
-            content: "second chunk",
-            reasoningContent: "",
-            timestamp: "2026-06-07T03:04:07.000Z",
-            messageId: "assistant-stream-2",
-          },
-        ],
-        responding: true,
-      }, "http://127.0.0.1:18790");
-    } finally {
-      HTMLElement.prototype.replaceChildren = originalReplaceChildren;
-    }
+    updateDesktopNativeChat(document, {
+      ...chat,
+      messages: [
+        ...chat.messages,
+        {
+          role: "assistant",
+          content: "workspace contents are streaming",
+          reasoningContent: "",
+          timestamp: "2026-06-07T03:04:06.000Z",
+          messageId: "assistant-stream",
+        },
+        {
+          role: "assistant",
+          content: "second chunk",
+          reasoningContent: "",
+          timestamp: "2026-06-07T03:04:07.000Z",
+          messageId: "assistant-stream-2",
+        },
+      ],
+      responding: true,
+    }, "http://127.0.0.1:18790");
+    setScrollMetrics(thread!, { scrollHeight: 2000, clientHeight: 400 });
     await nextTick();
 
     expect(thread!.scrollTop).toBe(1590);
@@ -577,6 +573,78 @@ describe("desktop workbench shell Vue integration", () => {
     send?.click();
 
     expect(submissions).toEqual([{ content: "Run from shell", usePersistentRag: false }]);
+  });
+
+  test("keeps the native composer editable while chat stream updates", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    const chat: DesktopNativeChatModel = {
+      activeChatId: "chat-live",
+      activeSessionKey: "WebSocket:chat-live",
+      messages: [{
+        role: "user",
+        content: "Start",
+        reasoningContent: "",
+        timestamp: "2026-06-07T03:04:05.000Z",
+        messageId: "user-1",
+      }],
+      runtime: {
+        model: "deepseek-chat",
+        tokenUsage: "10%",
+      },
+      sessions: [{
+        chatId: "chat-live",
+        createdAt: "",
+        key: "WebSocket:chat-live",
+        title: "Live session",
+        updatedAt: "",
+      }],
+      usePersistentRag: true,
+    };
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat,
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+    await nextTick();
+
+    const composer = document.getElementById("desktop-native-composer");
+    const input = document.getElementById("desktop-native-composer-input") as HTMLTextAreaElement | null;
+    const send = document.getElementById("desktop-native-composer-send") as HTMLButtonElement | null;
+    input!.value = "Draft while streaming";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    updateDesktopNativeChat(document, {
+      ...chat,
+      messages: [
+        ...chat.messages,
+        {
+          role: "assistant",
+          content: "first streamed chunk",
+          reasoningContent: "",
+          timestamp: "2026-06-07T03:04:06.000Z",
+          messageId: "assistant-stream",
+        },
+      ],
+      responding: true,
+      composerState: "sending",
+      runtime: {
+        model: "deepseek-v4-flash",
+        tokenUsage: "57%",
+      },
+    }, "http://127.0.0.1:18790");
+    await nextTick();
+
+    expect(document.getElementById("desktop-native-composer")).toBe(composer);
+    expect(document.getElementById("desktop-native-composer-input")).toBe(input);
+    expect(input?.value).toBe("Draft while streaming");
+    expect(send?.getAttribute("disabled")).toBe("");
+    expect(composer?.querySelector("#desktop-native-composer-runtime")?.textContent).toContain("deepseek-v4-flash");
+    expect(composer?.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("57");
   });
 
   test("opens shortcut help through the Vue dialog island", () => {

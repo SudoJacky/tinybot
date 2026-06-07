@@ -18,7 +18,7 @@ describe("activity rail Vue island", () => {
     expect(primary.map((item) => item.textContent)).toEqual(["Chat", "Files", "Knowledge", "Cowork", "Docs", "GitHub"]);
     expect(primary.map((item) => item.getAttribute("href"))).toEqual([
       "/chat",
-      "/workspace",
+      "/files",
       "/knowledge",
       "/cowork",
       "/docs",
@@ -26,7 +26,7 @@ describe("activity rail Vue island", () => {
     ]);
     expect(primary.map((item) => item.getAttribute("data-desktop-module-target"))).toEqual([
       "chat",
-      "workspace",
+      "files",
       "knowledge",
       "cowork",
       "docs",

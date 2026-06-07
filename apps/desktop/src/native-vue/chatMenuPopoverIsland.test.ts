@@ -44,13 +44,16 @@ describe("chat menu popover Vue island", () => {
     expect(host.className).toBe("desktop-chat-menu-popover");
     expect(host.getAttribute("role")).toBe("menu");
     expect(host.getAttribute("aria-label")).toBe("Chat session actions");
-    expect(host.querySelector(".n-card.desktop-chat-menu-popover-card")).not.toBeNull();
-    expect(Array.from(host.querySelectorAll(".desktop-chat-menu-action")).map((button) => button.getAttribute("data-desktop-vue-island"))).toEqual([
+    expect(host.querySelector(".desktop-chat-menu-popover-card")).toBeNull();
+    const actionButtons = Array.from(host.querySelectorAll<HTMLButtonElement>(".desktop-chat-menu-action"));
+    expect(actionButtons).toHaveLength(3);
+    expect(actionButtons.map((button) => button.getAttribute("data-desktop-vue-island"))).toEqual([
       "chat-menu-action",
       "chat-menu-action",
       "chat-menu-action",
     ]);
-    expect(Array.from(host.querySelectorAll(".desktop-chat-menu-action")).map((button) => button.textContent)).toEqual([
+    expect(actionButtons.every((button) => button.querySelector(".desktop-chat-menu-action") === null)).toBe(true);
+    expect(actionButtons.map((button) => button.textContent)).toEqual([
       "Pin session",
       "Rename session",
       "New chat",

@@ -33,6 +33,8 @@ describe("composer surface Vue island", () => {
     expect(host.getAttribute("data-desktop-composer-state")).toBe("idle");
     const layout = host.querySelector(".desktop-native-composer-layout");
     expect(layout).not.toBeNull();
+    expect(layout?.querySelector(".desktop-native-composer-context")).toBeNull();
+    expect(layout?.querySelectorAll(".desktop-native-composer-chip")).toHaveLength(0);
     expect(layout?.querySelector(":scope > #desktop-native-composer-input")).not.toBeNull();
     expect(layout?.querySelector(":scope > #desktop-native-composer-attach")).not.toBeNull();
     expect(layout?.querySelector(":scope > #desktop-native-composer-runtime")).not.toBeNull();
@@ -93,5 +95,63 @@ describe("composer surface Vue island", () => {
     expect(host.getAttribute("data-desktop-composer-state")).toBe("queued");
     expect(send?.getAttribute("disabled")).toBe("");
     expect(sends).toEqual([]);
+  });
+
+  test("updates composer state without replacing editable input", async () => {
+    const host = document.createElement("form");
+    const sends: unknown[] = [];
+
+    const mounted = mountComposerSurfaceIsland(host, {
+      activeSessionKey: "session-1",
+      composerState: "idle",
+      model: "deepseek-chat",
+      responding: false,
+      tokenUsage: "10%",
+      usePersistentRag: true,
+      onSend: (event) => sends.push(event),
+    });
+
+    const input = host.querySelector<HTMLTextAreaElement>("#desktop-native-composer-input");
+    input!.value = "Keep this draft";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    mounted.update({
+      activeSessionKey: "session-1",
+      composerState: "sending",
+      model: "deepseek-v4-flash",
+      responding: true,
+      tokenUsage: "57%",
+      usePersistentRag: false,
+      onSend: (event) => sends.push(event),
+    });
+    await nextTick();
+
+    const nextInput = host.querySelector<HTMLTextAreaElement>("#desktop-native-composer-input");
+    const send = host.querySelector<HTMLButtonElement>("#desktop-native-composer-send");
+    expect(nextInput).toBe(input);
+    expect(nextInput?.value).toBe("Keep this draft");
+    expect(host.getAttribute("data-desktop-composer-state")).toBe("sending");
+    expect(host.querySelector("#desktop-native-composer-runtime")?.textContent).toContain("deepseek-v4-flash");
+    expect(host.querySelector(".desktop-native-token-orb")?.getAttribute("data-token-usage")).toBe("57");
+    expect(send?.getAttribute("disabled")).toBe("");
+    send?.click();
+    expect(sends).toEqual([]);
+
+    mounted.update({
+      activeSessionKey: "session-1",
+      composerState: "idle",
+      model: "deepseek-v4-flash",
+      responding: false,
+      tokenUsage: "58%",
+      usePersistentRag: false,
+      onSend: (event) => sends.push(event),
+    });
+    await nextTick();
+
+    expect(host.querySelector<HTMLTextAreaElement>("#desktop-native-composer-input")).toBe(input);
+    expect(send?.getAttribute("disabled")).toBeNull();
+    send?.click();
+    expect(sends).toEqual([{ content: "Keep this draft", usePersistentRag: false }]);
   });
 });

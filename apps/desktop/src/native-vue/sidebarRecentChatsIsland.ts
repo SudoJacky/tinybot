@@ -124,10 +124,11 @@ const RecentChatRowComponent = defineComponent<{
             }, "馃搶")
             : null,
         ]),
-        h(NText, { class: "desktop-sidebar-row-meta", depth: 3, tag: "span" }, {
-          default: () => props.row.updatedLabel,
-        }),
-      ]),
+            h(NText, { class: "desktop-sidebar-row-meta", depth: 3, tag: "span" }, {
+              default: () => props.row.updatedLabel,
+            }),
+            renderStatusChips(props.row.sessionKey, props.row.statusChips),
+          ]),
       h("button", {
         "aria-label": confirming.value ? `Confirm delete chat ${props.row.title}` : `Delete chat ${props.row.title}`,
         class: "desktop-sidebar-delete-session",
@@ -141,3 +142,17 @@ const RecentChatRowComponent = defineComponent<{
     ]);
   },
 });
+
+function renderStatusChips(sessionKey: string, chips: SidebarRecentChatRow["statusChips"] = []) {
+  if (!chips?.length) {
+    return null;
+  }
+  return h("span", {
+    "aria-label": "Chat status",
+    class: "desktop-sidebar-row-status",
+    "data-desktop-chat-status": sessionKey,
+  }, chips.map((chip) => h("span", {
+    class: "desktop-sidebar-status-chip",
+    "data-status-kind": chip.kind,
+  }, chip.label)));
+}

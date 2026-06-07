@@ -68,7 +68,12 @@ function createWorkspaceRecentFilesApp(
               secondary: state.value.activePath !== path,
               type: state.value.activePath === path ? "primary" : "default",
               onClick: () => onSelect?.(path),
-            }, { default: () => [h("span", path), h("span", meta)] })),
+            }, {
+              default: () => [
+                h("span", { class: "desktop-workspace-file-path" }, path),
+                h("span", { class: "desktop-workspace-file-meta" }, meta),
+              ],
+            })),
           });
         },
       });

@@ -45,7 +45,7 @@ const fileImportCards: FileImportCard[] = [
   {
     id: "desktop-workspace-file-drop",
     label: "Workspace import",
-    href: "/workspace",
+    href: "/files",
     dropTarget: "workspace-file",
     formatsId: "desktop-file-workspace-formats",
     formats: ["md", "txt", "json", "csv", "py", "js", "ts", "html", "css", "yaml", "toml"],

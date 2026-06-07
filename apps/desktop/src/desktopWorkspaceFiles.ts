@@ -551,7 +551,10 @@ function renderWorkspaceState(
         button.setAttribute("data-desktop-entity-id", path);
         button.setAttribute("aria-selected", state.activePath === path ? "true" : "false");
         const meta = state.files.find((file) => file.path === path)?.meta ?? "Recent";
-        button.textContent = `${path} ${meta}`;
+        button.append(
+          workspaceFileRowText(targetDocument, "desktop-workspace-file-path", path),
+          workspaceFileRowText(targetDocument, "desktop-workspace-file-meta", meta),
+        );
         button.addEventListener("click", () => onSelect?.(path));
         return button;
       }),
@@ -610,6 +613,13 @@ function renderWorkspaceState(
   if (actionRail) {
     mountWorkspaceActionsVueIsland(actionRail, state, canReveal, canExport, onAction);
   }
+}
+
+function workspaceFileRowText(targetDocument: Document, className: string, text: string): HTMLElement {
+  const span = targetDocument.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  return span;
 }
 
 function mountWorkspaceRecentFilesVueIsland(

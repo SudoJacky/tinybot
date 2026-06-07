@@ -10,7 +10,7 @@ interface ActivityRailItem {
 
 const PRIMARY_ACTIVITY_ITEMS: ActivityRailItem[] = [
   { href: "/chat", label: "Chat", module: "chat" },
-  { href: "/workspace", label: "Files", module: "workspace" },
+  { href: "/files", label: "Files", module: "files" },
   { href: "/knowledge", label: "Knowledge", module: "knowledge" },
   { href: "/cowork", label: "Cowork", module: "cowork" },
   { href: "/docs", label: "Docs", module: "docs" },

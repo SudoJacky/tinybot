@@ -118,7 +118,12 @@ function createConversationMessageApp(options: ConversationMessageIslandOptions)
               ? renderReasoningPanel(options.reasoningContent!)
               : null,
             options.toolActivities?.length
-              ? h("div", { ref: toolActivitiesHost, class: "desktop-tool-activities" })
+              ? h("div", {
+                ref: toolActivitiesHost,
+                "aria-label": "Tool Timeline",
+                class: "desktop-tool-activities",
+                "data-desktop-chat-region": "tool-timeline",
+              })
               : null,
             h("div", { ref: bodyHost, class: "desktop-conversation-body" }),
             ...renderReferenceGroups(options.references),
@@ -140,6 +145,7 @@ function createConversationMessageApp(options: ConversationMessageIslandOptions)
 export function renderConversationMessageNode(options: ConversationMessageIslandOptions) {
   return h("article", {
     class: "desktop-conversation-message",
+    "data-desktop-vue-island": "conversation-message",
     "data-message-tone": options.tone,
   }, renderConversationMessageChildren(options));
 }

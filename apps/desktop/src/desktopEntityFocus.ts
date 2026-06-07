@@ -1,5 +1,6 @@
 export type DesktopWorkbenchEntityModule =
   | "chat"
+  | "files"
   | "workspace"
   | "knowledge"
   | "tools"
@@ -19,8 +20,8 @@ export function moduleForDesktopWorkbenchPath(pathname: string): DesktopWorkbenc
   if (pathname === "/chat" || pathname.startsWith("/chat/")) {
     return "chat";
   }
-  if (pathname === "/workspace" || pathname.startsWith("/workspace/")) {
-    return "workspace";
+  if (pathname === "/files" || pathname.startsWith("/files/")) {
+    return "files";
   }
   if (pathname === "/knowledge" || pathname.startsWith("/knowledge/")) {
     return "knowledge";
@@ -75,6 +76,7 @@ function focusSelectorsFor(destination: DesktopEntityDestination): string[] {
   const entity = destination.entityId ? selectorValue(destination.entityId) : "";
   const generic = `[data-desktop-entity-module="${selectorValue(destination.module)}"][data-desktop-entity-id="${entity}"]`;
   switch (destination.module) {
+    case "files":
     case "workspace":
       return [generic, `[data-desktop-workspace-file="${entity}"]`];
     case "chat":

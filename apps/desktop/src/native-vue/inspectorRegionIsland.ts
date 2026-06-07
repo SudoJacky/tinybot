@@ -1,4 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
+import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import type { DesktopRunChainItem } from "../desktopRunChainInspector";
 import type { DesktopWorkLensActionId, DesktopWorkLensProjection } from "../desktopWorkLens";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
@@ -14,6 +15,7 @@ export interface InspectorRegionWorkLensActionEvent {
 
 export interface InspectorRegionIslandOptions {
   runChainItems: DesktopRunChainItem[];
+  taskItems?: DesktopTaskCenterItem[];
   selectedRunChainItemKey?: string | null;
   workLens?: DesktopWorkLensProjection | null;
   onRunChainAction?: (action: RunChainOverviewIslandAction) => void;
@@ -55,6 +57,7 @@ function createInspectorRegionApp(options: InspectorRegionIslandOptions): App {
       onMounted(() => {
         mountChild(mountedChildren, overview.value, (host) => mountRunChainOverviewIsland(host, {
           items: options.runChainItems,
+          taskItems: options.taskItems,
           onAction: options.onRunChainAction,
         }));
         if (options.workLens) {

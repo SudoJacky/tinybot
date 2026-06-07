@@ -37,7 +37,7 @@ export function mountSettingsPaneIsland(
   host.setAttribute("data-desktop-vue-island", "settings-pane");
   host.className = "desktop-workbench-section desktop-settings-pane";
   host.setAttribute("data-desktop-module-surface", "settings");
-  host.setAttribute("data-settings-layout", "codex-like");
+  host.setAttribute("data-settings-layout", "capability-center");
   host.setAttribute("aria-label", "Settings and providers");
 
   const app = createSettingsPaneApp(options);
@@ -60,6 +60,7 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
           renderSidebar(options.pane),
           h("div", { class: "desktop-settings-content" }, [
             renderHeader(),
+            renderCapabilityMap(options.pane),
             renderDefaultLlmCard(options),
             renderProviderManagement(options, providerSearch.value, (value) => {
               providerSearch.value = value;
@@ -76,9 +77,25 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
 function renderHeader() {
   return h("header", { class: "desktop-settings-header" }, [
     h("div", { class: "desktop-settings-breadcrumb" }, [
-      h("h2", "Settings / Models"),
+      h("h2", "Settings / Capability Center"),
     ]),
   ]);
+}
+
+function renderCapabilityMap(pane: DesktopSettingsPaneModel) {
+  return h("section", {
+    class: "desktop-settings-capability-map",
+    "data-desktop-settings-center": "capability-boundaries",
+    "aria-label": "Capability boundaries",
+  }, capabilityCards(pane).map((card) => h("a", {
+    class: "desktop-settings-capability-card",
+    href: `#desktop-settings-group-${card.id}`,
+    "data-desktop-settings-capability": card.id,
+  }, [
+    h("span", { class: "desktop-settings-capability-label" }, card.label),
+    h("strong", { class: "desktop-settings-capability-status" }, card.status),
+    h("span", { class: "desktop-settings-capability-detail" }, card.detail),
+  ])));
 }
 
 function renderSidebar(pane: DesktopSettingsPaneModel) {
@@ -484,6 +501,75 @@ function statusRows(pane: DesktopSettingsPaneModel): Array<{ label: string; valu
     },
     { label: "Models", value: pane.providerEditor.models.join(", ") || "No models loaded" },
   ];
+}
+
+function capabilityCards(pane: DesktopSettingsPaneModel): Array<{
+  id: DesktopSettingsPaneGroup["id"];
+  label: string;
+  status: string;
+  detail: string;
+}> {
+  const selectedProvider = pane.providerEditor.selectedProvider;
+  const providerLabel = pane.providerCatalog.find((provider) => provider.id === selectedProvider)?.label || selectedProvider || "Auto";
+  const knowledgeEnabled = checkedSettingsField(pane, "knowledge", "enabled");
+  const webEnabled = checkedSettingsField(pane, "tools-approvals", "webEnable");
+  const shellEnabled = checkedSettingsField(pane, "tools-approvals", "execEnable");
+  const gatewayHost = settingsFieldValue(pane, "gateway-runtime", "host") || "localhost";
+  const gatewayPort = settingsFieldValue(pane, "gateway-runtime", "port") || "auto";
+  return [
+    {
+      id: "provider-models",
+      label: "Provider & Models",
+      status: providerLabel,
+      detail: pane.providerEditor.models.length ? pane.providerEditor.models.slice(0, 2).join(", ") : "Model catalog not loaded",
+    },
+    {
+      id: "knowledge",
+      label: "Knowledge",
+      status: knowledgeEnabled ? "Knowledge On" : "Knowledge Off",
+      detail: `${settingsFieldValue(pane, "knowledge", "retrievalMode") || "hybrid"} retrieval / top ${settingsFieldValue(pane, "knowledge", "maxChunks") || "auto"}`,
+    },
+    {
+      id: "tools-approvals",
+      label: "Tools & Approvals",
+      status: `Web ${webEnabled ? "On" : "Off"} / Shell ${shellEnabled ? "On" : "Off"}`,
+      detail: settingsFieldValue(pane, "tools-approvals", "mcpServers") === "Configured" ? "MCP configured" : "MCP allowlist empty",
+    },
+    {
+      id: "files-workspace",
+      label: "Files & Workspace",
+      status: "Three scopes",
+      detail: "Session files / Knowledge documents / Workspace files",
+    },
+    {
+      id: "gateway-runtime",
+      label: "Gateway & Runtime",
+      status: `Gateway ${gatewayHost}:${gatewayPort}`,
+      detail: checkedSettingsField(pane, "gateway-runtime", "heartbeat") ? "Heartbeat enabled" : "Heartbeat disabled",
+    },
+    {
+      id: "logs-diagnostics",
+      label: "Logs & Diagnostics",
+      status: pane.validationErrors.length ? `${pane.validationErrors.length} issues` : "Ready",
+      detail: pane.validationErrors.length ? pane.validationErrors.map((error) => error.field).join(", ") : "Diagnostics export and runtime logs",
+    },
+  ];
+}
+
+function settingsFieldValue(
+  pane: DesktopSettingsPaneModel,
+  groupId: DesktopSettingsPaneGroup["id"],
+  fieldId: string,
+): string {
+  return findPaneField(pane, groupId, fieldId)?.value ?? "";
+}
+
+function checkedSettingsField(
+  pane: DesktopSettingsPaneModel,
+  groupId: DesktopSettingsPaneGroup["id"],
+  fieldId: string,
+): boolean {
+  return findPaneField(pane, groupId, fieldId)?.checked === true;
 }
 
 function saveLabel(pane: DesktopSettingsPaneModel): string {

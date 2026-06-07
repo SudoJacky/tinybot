@@ -158,9 +158,13 @@ describe("desktop task center source projections", () => {
 
     expect(taskItems.map((item) => [item.id, item.source, item.state, item.title, item.actions.map((action) => action.id).join(",")])).toEqual([
       ["approval:form:approval-form-1", "approval", "blocked", "Approve deployment", "open,inspect"],
-      ["approval:approval-1", "approval", "blocked", "Approve shell_command", "open,inspect"],
+      ["approval:approval-1", "approval", "blocked", "Approve shell_command", "approveOnce,approveSession,deny,open,inspect"],
       ["file:workspace:AGENTS.md:save", "file", "failed", "Save AGENTS.md", "retry,open,inspect,copyDiagnostics,dismiss"],
       ["file:workspace:AGENTS.md:save", "file", "active", "Save AGENTS.md", "open,inspect"],
     ]);
+    expect(taskItems.find((item) => item.id === "approval:approval-1")?.approval).toEqual({
+      approvalId: "approval-1",
+      sessionKey: "WebSocket:chat-1",
+    });
   });
 });

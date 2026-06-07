@@ -1,4 +1,5 @@
 import type { NormalizedGatewayEvent } from "./gatewayWebSocketClient";
+import { logDesktopNativeChatDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 
 export type NativeChatSession = {
   key: string;
@@ -19,12 +20,15 @@ export type NativeChatMessage = {
 };
 
 export type NativeChatToolActivity = {
+  approvalId?: string;
   id: string;
   name: string;
   argsText: string;
   responseText: string;
   kind: "call" | "result";
   approvalStatus?: string;
+  sessionKey?: string;
+  status?: string;
 };
 
 export type NativeChatReference = {
@@ -57,6 +61,13 @@ export function createNativeChatState(): NativeChatState {
 
 export function sessionKeyForChat(chatId: string): string {
   return chatId ? `WebSocket:${chatId}` : "";
+}
+
+export function sessionKeyForChatState(state: NativeChatState, chatId: string): string {
+  if (!chatId) {
+    return "";
+  }
+  return state.sessions.find((session) => session.chatId === chatId)?.key || sessionKeyForChat(chatId);
 }
 
 export function normalizeSessionsPayload(payload: unknown): NativeChatSession[] {
@@ -150,28 +161,51 @@ export function appendUserMessage(state: NativeChatState, content: string, times
 }
 
 export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayEvent) {
+  logDesktopNativeChatDebug("state.event.before", {
+    event: summarizeChatEvent(event),
+    state: summarizeNativeChatState(state),
+  });
   if (event.kind === "chat.created" || event.kind === "attached") {
     activateChat(state, event.chatId);
     state.error = "";
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+    });
     return;
   }
 
   if (event.kind === "message.delta") {
     const chatId = event.chatId || state.activeChatId;
-    const sessionKey = sessionKeyForChat(chatId);
+    const sessionKey = sessionKeyForChatState(state, chatId);
     if (!sessionKey) {
+      logDesktopNativeChatDebug("state.event.after", {
+        dropped: "missing session key",
+        event: summarizeChatEvent(event),
+        state: summarizeNativeChatState(state),
+      });
       return;
     }
     const messageId = event.messageId || `stream:${sessionKey}`;
     upsertStreamMessage(state, sessionKey, messageId, event.text, event.reasoning);
     state.respondingSessionKeys.add(sessionKey);
     state.error = "";
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+      targetSessionKey: sessionKey,
+    });
     return;
   }
 
   if (event.kind === "message.completed") {
-    const sessionKey = sessionKeyForChat(event.chatId || state.activeChatId);
+    const sessionKey = sessionKeyForChatState(state, event.chatId || state.activeChatId);
     if (!sessionKey) {
+      logDesktopNativeChatDebug("state.event.after", {
+        dropped: "missing session key",
+        event: summarizeChatEvent(event),
+        state: summarizeNativeChatState(state),
+      });
       return;
     }
     ensureMessageBucket(state, sessionKey).push({
@@ -183,6 +217,11 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     });
     state.respondingSessionKeys.delete(sessionKey);
     state.error = "";
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+      targetSessionKey: sessionKey,
+    });
     return;
   }
 
@@ -190,21 +229,31 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     const sessionKey =
       event.messageId && state.streamMessageKeys.has(event.messageId)
         ? state.streamMessageKeys.get(event.messageId) || ""
-        : sessionKeyForChat(event.chatId || state.activeChatId);
+        : sessionKeyForChatState(state, event.chatId || state.activeChatId);
     if (sessionKey) {
       state.respondingSessionKeys.delete(sessionKey);
     }
     if (event.messageId) {
       state.streamMessageKeys.delete(event.messageId);
     }
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+      targetSessionKey: sessionKey,
+    });
     return;
   }
 
   if (event.kind === "interrupted") {
-    const sessionKey = sessionKeyForChat(event.chatId || state.activeChatId);
+    const sessionKey = sessionKeyForChatState(state, event.chatId || state.activeChatId);
     if (sessionKey) {
       state.respondingSessionKeys.delete(sessionKey);
     }
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+      targetSessionKey: sessionKey,
+    });
     return;
   }
 
@@ -214,6 +263,10 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       state.respondingSessionKeys.delete(state.activeSessionKey);
     }
   }
+  logDesktopNativeChatDebug("state.event.after", {
+    event: summarizeChatEvent(event),
+    state: summarizeNativeChatState(state),
+  });
 }
 
 function upsertStreamMessage(
@@ -250,6 +303,26 @@ function ensureMessageBucket(state: NativeChatState, sessionKey: string): Native
   return state.messages.get(sessionKey) ?? [];
 }
 
+function summarizeNativeChatState(state: NativeChatState): Record<string, unknown> {
+  return {
+    activeChatId: state.activeChatId,
+    activeMessageCount: state.messages.get(state.activeSessionKey)?.length ?? 0,
+    activeSessionKey: state.activeSessionKey,
+    respondingSessionKeys: [...state.respondingSessionKeys],
+    sessionCount: state.sessions.length,
+    streamMessageKeys: [...state.streamMessageKeys.entries()],
+  };
+}
+
+function summarizeChatEvent(event: NormalizedGatewayEvent): Record<string, unknown> {
+  return {
+    chatId: "chatId" in event ? event.chatId : "",
+    kind: event.kind,
+    messageId: "messageId" in event ? event.messageId : "",
+    text: "text" in event ? summarizeDebugText(event.text) : undefined,
+  };
+}
+
 function normalizeMessageReferences(message: Record<string, unknown>): NativeChatReference[] {
   return [
     ...toolCallReferenceRows(message.tool_calls),
@@ -273,7 +346,12 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
       && Boolean(result.id)
       && result.id === call.id
     ));
-    const fallbackIndex = resultIndex === -1 && results[index] && !usedResultIndexes.has(index) ? index : -1;
+    const fallbackIndex = resultIndex === -1
+      && results[index]
+      && !results[index].id
+      && !usedResultIndexes.has(index)
+      ? index
+      : -1;
     const pairedIndex = resultIndex === -1 ? fallbackIndex : resultIndex;
     const result = pairedIndex === -1 ? null : results[pairedIndex];
     if (pairedIndex !== -1) {
@@ -285,7 +363,9 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
       argsText: call.argsText,
       responseText: result?.responseText || "",
       kind: result?.responseText ? "result" as const : "call" as const,
+      ...(call.approvalId || result?.approvalId ? { approvalId: call.approvalId || result?.approvalId } : {}),
       ...(call.approvalStatus || result?.approvalStatus ? { approvalStatus: call.approvalStatus || result?.approvalStatus } : {}),
+      ...(call.status || result?.status ? { status: result?.status || call.status } : {}),
     };
   });
 
@@ -299,7 +379,9 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
       argsText: "",
       responseText: result.responseText,
       kind: "result",
+      ...(result.approvalId ? { approvalId: result.approvalId } : {}),
       ...(result.approvalStatus ? { approvalStatus: result.approvalStatus } : {}),
+      ...(result.status ? { status: result.status } : {}),
     });
   });
 
@@ -312,7 +394,9 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
         argsText: "",
         responseText,
         kind: "result",
+        ...(stringValue(message._approval_id ?? message.approval_id) ? { approvalId: stringValue(message._approval_id ?? message.approval_id) } : {}),
         ...(stringValue(message._approval_status) ? { approvalStatus: stringValue(message._approval_status) } : {}),
+        ...(normalizeToolActivityStatus(message.status ?? message.state ?? message.phase) ? { status: normalizeToolActivityStatus(message.status ?? message.state ?? message.phase) } : {}),
       });
     }
   }
@@ -320,25 +404,59 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
   return activities;
 }
 
-function toolCallRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "argsText"> & { approvalStatus?: string }> {
+function toolCallRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "argsText"> & { approvalId?: string; approvalStatus?: string; status?: string }> {
   return arrayRows(value).map((row, index) => {
     const functionPayload = isRecord(row.function) ? row.function : {};
+    const status = normalizeToolActivityStatus(row.status ?? row.state ?? row.phase);
     return {
       id: stringValue(row.id ?? row.tool_call_id) || `tool-call-${index + 1}`,
       name: stringValue(functionPayload.name ?? row.name) || "unknown",
       argsText: textValue(functionPayload.arguments ?? row.arguments ?? row.detail ?? row.path),
+      ...(stringValue(row._approval_id ?? row.approval_id) ? { approvalId: stringValue(row._approval_id ?? row.approval_id) } : {}),
       ...(stringValue(row._approval_status ?? row.approval_status) ? { approvalStatus: stringValue(row._approval_status ?? row.approval_status) } : {}),
+      ...(status ? { status } : {}),
     };
   });
 }
 
-function toolResultRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "responseText"> & { approvalStatus?: string }> {
-  return arrayRows(value).map((row, index) => ({
-    id: stringValue(row.tool_call_id ?? row.id) || `tool-result-${index + 1}`,
-    name: stringValue(row.name ?? row.title ?? row.tool_name) || "",
-    responseText: textValue(row.content ?? row.response ?? row.result ?? row.output ?? row.detail ?? row.summary),
-    ...(stringValue(row._approval_status ?? row.approval_status) ? { approvalStatus: stringValue(row._approval_status ?? row.approval_status) } : {}),
-  }));
+function toolResultRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" | "name" | "responseText"> & { approvalId?: string; approvalStatus?: string; status?: string }> {
+  return arrayRows(value).map((row, index) => {
+    const status = normalizeToolActivityStatus(row.status ?? row.state ?? row.phase);
+    return {
+      id: stringValue(row.tool_call_id ?? row.id) || `tool-result-${index + 1}`,
+      name: stringValue(row.name ?? row.title ?? row.tool_name) || "",
+      responseText: textValue(row.content ?? row.response ?? row.result ?? row.output ?? row.detail ?? row.summary),
+      ...(stringValue(row._approval_id ?? row.approval_id) ? { approvalId: stringValue(row._approval_id ?? row.approval_id) } : {}),
+      ...(stringValue(row._approval_status ?? row.approval_status) ? { approvalStatus: stringValue(row._approval_status ?? row.approval_status) } : {}),
+      ...(status ? { status } : {}),
+    };
+  });
+}
+
+function normalizeToolActivityStatus(value: unknown): string {
+  const normalized = stringValue(value).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) {
+    return "";
+  }
+  if (["running", "in_progress", "started", "streaming"].includes(normalized)) {
+    return "running";
+  }
+  if (["pending", "queued", "created", "waiting"].includes(normalized)) {
+    return "pending";
+  }
+  if (["completed", "complete", "success", "succeeded", "done"].includes(normalized)) {
+    return "completed";
+  }
+  if (["failed", "failure", "error", "errored"].includes(normalized)) {
+    return "failed";
+  }
+  if (["blocked", "approval_required", "waiting_approval"].includes(normalized)) {
+    return "blocked";
+  }
+  if (["cancelled", "canceled", "interrupted", "stopped"].includes(normalized)) {
+    return "cancelled";
+  }
+  return normalized;
 }
 
 function toolCallReferenceRows(value: unknown): NativeChatReference[] {

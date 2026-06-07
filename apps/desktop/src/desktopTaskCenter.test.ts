@@ -70,6 +70,7 @@ describe("desktop task center projection", () => {
           status: "waiting",
           detail: "Shell command approval required",
           canonical: { module: "approvals", entityId: "tool-1", href: "/chat/chat-1" },
+          approval: { approvalId: "tool-1", sessionKey: "WebSocket:chat-1" },
         },
       ],
     });
@@ -99,6 +100,17 @@ describe("desktop task center projection", () => {
       "open",
       "inspect",
     ]);
+    expect(items.find((item) => item.id === "approval:tool-1")?.actions.map((action) => action.id)).toEqual([
+      "approveOnce",
+      "approveSession",
+      "deny",
+      "open",
+      "inspect",
+    ]);
+    expect(items.find((item) => item.id === "approval:tool-1")?.approval).toEqual({
+      approvalId: "tool-1",
+      sessionKey: "WebSocket:chat-1",
+    });
   });
 
   test("keeps terminal and non-cancelable tasks safe by limiting actions", () => {

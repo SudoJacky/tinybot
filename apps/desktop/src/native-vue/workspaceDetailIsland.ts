@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, ref, type App } from "vue";
-import { NCard, NConfigProvider } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 import type { DesktopWorkspaceFileState } from "../desktopWorkspaceFiles";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
@@ -38,15 +38,13 @@ function createWorkspaceDetailApp(state: { value: DesktopWorkspaceFileState }): 
     name: "WorkspaceDetailIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NCard, { size: "small", bordered: false }, {
-          default: () => [
-            h("h3", "Selection"),
-            h("p", { id: "desktop-workspace-active-path", class: "desktop-workspace-active-path" }, activePathText(state.value)),
-            h("p", { id: "desktop-workspace-updated-at", class: "desktop-workspace-updated-at" }, updatedAtText(state.value)),
-            h("p", { id: "desktop-workspace-size", class: "desktop-workspace-size" }, sizeText(state.value)),
-            h("p", { id: "desktop-workspace-detail", class: "desktop-workspace-detail" }, detailText(state.value)),
-          ],
-        }),
+        default: () => [
+          h("h3", "Selection"),
+          h("p", { id: "desktop-workspace-active-path", class: "desktop-workspace-active-path" }, activePathText(state.value)),
+          h("p", { id: "desktop-workspace-updated-at", class: "desktop-workspace-updated-at" }, updatedAtText(state.value)),
+          h("p", { id: "desktop-workspace-size", class: "desktop-workspace-size" }, sizeText(state.value)),
+          h("p", { id: "desktop-workspace-detail", class: "desktop-workspace-detail" }, detailText(state.value)),
+        ],
       });
     },
   }));

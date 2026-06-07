@@ -39,7 +39,10 @@ function createConversationMetaApp(options: ConversationMetaIslandOptions): App 
 }
 
 export function renderConversationMetaNode(options: ConversationMetaIslandOptions) {
-  return h("div", { class: "desktop-conversation-meta" }, renderConversationMetaChildren(options));
+  return h("div", {
+    class: "desktop-conversation-meta",
+    "data-desktop-vue-island": "conversation-meta",
+  }, renderConversationMetaChildren(options));
 }
 
 export function renderConversationMetaChildren(options: ConversationMetaIslandOptions) {

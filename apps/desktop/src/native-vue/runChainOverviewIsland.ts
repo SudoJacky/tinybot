@@ -1,13 +1,14 @@
 import { createApp, defineComponent, h, ref, type App } from "vue";
 import { NButton, NCard, NConfigProvider, NSpace } from "naive-ui";
+import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import type { DesktopRunChainItem } from "../desktopRunChainInspector";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
-export type RunChainOverviewIslandTab = "context" | "files" | "tasks";
+export type RunChainOverviewIslandTab = "context" | "files" | "tasks" | "approvals" | "activity";
 
 export type RunChainOverviewIslandAction =
   | { type: "tab"; value: RunChainOverviewIslandTab; label: string }
-  | { type: "summary"; value: "gateway" | "run" | "items"; label: string; tab: RunChainOverviewIslandTab }
+  | { type: "summary"; value: "gateway" | "run" | "items" | "approvals"; label: string; tab: RunChainOverviewIslandTab }
   | { type: "pin"; value: boolean }
   | { type: "close" }
   | { type: "open-task-center" }
@@ -16,6 +17,8 @@ export type RunChainOverviewIslandAction =
 
 export interface RunChainOverviewIslandOptions {
   items: DesktopRunChainItem[];
+  taskItems?: DesktopTaskCenterItem[];
+  initialTab?: RunChainOverviewIslandTab;
   onAction?: (action: RunChainOverviewIslandAction) => void;
 }
 
@@ -29,7 +32,7 @@ export function mountRunChainOverviewIsland(
 ): MountedRunChainOverviewIsland {
   host.setAttribute("data-desktop-vue-island", "run-chain-overview");
   host.className = "desktop-run-chain-overview";
-  host.setAttribute("aria-label", "Run Chain");
+  host.setAttribute("aria-label", "Activity inspector");
   const app = createRunChainOverviewApp(options);
   app.mount(host);
   return {
@@ -47,7 +50,7 @@ function createRunChainOverviewApp(options: RunChainOverviewIslandOptions): App 
 export function renderRunChainOverviewSurface(options: RunChainOverviewIslandOptions) {
   return h("section", {
     class: "desktop-run-chain-overview",
-    "aria-label": "Run Chain",
+    "aria-label": "Activity inspector",
   }, [
     h(createRunChainOverviewComponent(options)),
   ]);
@@ -57,7 +60,7 @@ function createRunChainOverviewComponent(options: RunChainOverviewIslandOptions)
   return defineComponent({
     name: "RunChainOverviewIsland",
     setup() {
-      const selectedTab = ref<RunChainOverviewIslandTab>("context");
+      const selectedTab = ref<RunChainOverviewIslandTab>(options.initialTab ?? "context");
       const pinned = ref(false);
       const selectTab = (tab: RunChainOverviewIslandTab): void => {
         selectedTab.value = tab;
@@ -69,7 +72,7 @@ function createRunChainOverviewComponent(options: RunChainOverviewIslandOptions)
             pinned.value = nextPinned;
             options.onAction?.({ type: "pin", value: nextPinned });
           }, options),
-          renderSummaryStrip(options.items, (summary) => {
+          renderSummaryStrip(options.items, pendingApprovalItems(options.taskItems ?? []), (summary) => {
             selectTab(summary.tab);
             options.onAction?.({ type: "summary", value: summary.value, label: summary.label, tab: summary.tab });
           }),
@@ -91,7 +94,7 @@ function renderHeader(
   options: RunChainOverviewIslandOptions,
 ) {
   return h("header", { class: "desktop-run-chain-header" }, [
-    h("h2", "Run Chain"),
+    h("h2", "Activity"),
     h(NSpace, {
       class: "desktop-run-chain-header-controls",
       size: 8,
@@ -125,17 +128,20 @@ function renderHeader(
 
 function renderSummaryStrip(
   items: DesktopRunChainItem[],
+  approvalItems: DesktopTaskCenterItem[],
   onSelect: (summary: {
-    value: "gateway" | "run" | "items";
+    value: "gateway" | "run" | "items" | "approvals";
     label: string;
     tab: RunChainOverviewIslandTab;
   }) => void,
 ) {
   const status = runChainOverviewStatus(items);
+  const approvalCount = approvalItems.length;
   const summaries = [
-    { value: "gateway", label: "Gateway", text: "Gateway: Connected", tab: "context", tone: "connected" },
-    { value: "run", label: "Run", text: `Run: ${status}`, tab: "tasks", tone: "muted" },
-    { value: "items", label: "Items", text: `${items.length} ${items.length === 1 ? "item" : "items"}`, tab: "tasks", tone: "muted" },
+    { value: "gateway", label: "Gateway", text: "Gateway", accessibleText: "Gateway: Connected", tab: "context", tone: "connected" },
+    { value: "run", label: "Run", text: status, accessibleText: `Run: ${status}`, tab: "activity", tone: "muted" },
+    { value: "items", label: "Items", text: `${items.length} ${items.length === 1 ? "item" : "items"}`, accessibleText: `Items: ${items.length}`, tab: "activity", tone: "muted" },
+    { value: "approvals", label: "Approvals", text: `${approvalCount} ${approvalCount === 1 ? "approval" : "approvals"}`, accessibleText: `Approvals: ${approvalCount}`, tab: "approvals", tone: approvalCount ? "attention" : "muted" },
   ] as const;
   return h(NSpace, {
     class: "desktop-run-chain-summary-strip",
@@ -145,6 +151,8 @@ function renderSummaryStrip(
       class: "desktop-run-chain-summary-item desktop-run-chain-status-pill",
       "data-desktop-run-chain-summary": summary.value,
       "data-status-tone": summary.tone,
+      "aria-label": summary.accessibleText,
+      title: summary.accessibleText,
       size: "tiny",
       secondary: true,
       onClick: () => onSelect(summary),
@@ -167,6 +175,8 @@ function renderTabs(
     { id: "context", label: "Context" },
     { id: "files", label: "Files" },
     { id: "tasks", label: "Tasks" },
+    { id: "approvals", label: "Approvals" },
+    { id: "activity", label: "Activity" },
   ] as const;
   return h(NSpace, {
     class: "desktop-run-chain-tabs",
@@ -196,13 +206,13 @@ function renderPanel(tab: RunChainOverviewIslandTab, options: RunChainOverviewIs
 function renderPanelContent(tab: RunChainOverviewIslandTab, options: RunChainOverviewIslandOptions) {
   if (tab === "files") {
     return [
-      renderPanelSection("Workspace", [
+      renderPanelSection("Files", [
         ["Project", "tinybot"],
         ["Path", "D:\\code\\tinybot\\tinybot"],
       ], h("a", {
         class: "desktop-run-chain-panel-action",
-        href: "/workspace",
-      }, "Open Workspace")),
+        href: "/files",
+      }, "Open Files")),
     ];
   }
 
@@ -213,6 +223,34 @@ function renderPanelContent(tab: RunChainOverviewIslandTab, options: RunChainOve
         ["Run", runChainOverviewStatus(options.items)],
         ["Chain items", String(options.items.length)],
       ], renderNewItemButton(options, "desktop-run-chain-panel-action desktop-run-chain-new-item", "secondary"), options.items.length ? undefined : "No chain items yet."),
+    ];
+  }
+
+  if (tab === "approvals") {
+    const approvalItems = pendingApprovalItems(options.taskItems ?? []);
+    return [
+      renderPanelSection("Approvals", [
+        ["Pending", String(approvalItems.length)],
+        ["Policy", "Ask before sensitive actions"],
+        ["Queue", approvalItems.length ? `${approvalItems.length} pending ${approvalItems.length === 1 ? "approval" : "approvals"}` : "No pending approvals"],
+      ], h(NButton, {
+        class: "desktop-run-chain-panel-action",
+        "data-desktop-run-chain-action": "Open Task Center",
+        "data-button-variant": "secondary",
+        size: "small",
+        secondary: true,
+        onClick: () => options.onAction?.({ type: "open-task-center" }),
+      }, { default: () => "Open Task Center" }), approvalItems.length ? undefined : "No pending approvals"),
+      approvalItems.length ? renderApprovalQueue(approvalItems, options) : null,
+    ];
+  }
+
+  if (tab === "activity") {
+    return [
+      renderPanelSection("Activity Feed", [
+        ["Status", runChainOverviewStatus(options.items)],
+        ["Events", String(options.items.length)],
+      ], undefined, options.items.length ? undefined : "Gateway events, tool calls, and runtime logs appear here."),
       options.items.length ? renderActivityFeed(options.items, options) : null,
     ];
   }
@@ -277,6 +315,32 @@ function renderActivityFeed(items: DesktopRunChainItem[], options: RunChainOverv
   });
 }
 
+function renderApprovalQueue(items: DesktopTaskCenterItem[], options: RunChainOverviewIslandOptions) {
+  return h(NCard, {
+    class: "desktop-run-chain-panel-section desktop-run-chain-approval-list",
+    bordered: false,
+    embedded: true,
+    contentStyle: "padding: 0;",
+  }, {
+    default: () => [
+      h("h3", "Approval Queue"),
+      ...items.slice(0, 4).map((item) => h(NButton, {
+        class: "desktop-run-chain-approval-item",
+        "data-desktop-run-chain-approval-item": item.id,
+        "data-status-tone": item.tone,
+        size: "tiny",
+        secondary: true,
+        onClick: () => options.onAction?.({ type: "open-task-center" }),
+      }, {
+        default: () => [
+          h("span", { class: "desktop-run-chain-approval-title" }, item.title),
+          item.detail ? h("span", { class: "desktop-run-chain-approval-detail" }, item.detail) : null,
+        ],
+      })),
+    ],
+  });
+}
+
 function renderActions(options: RunChainOverviewIslandOptions) {
   return h(NSpace, {
     class: "desktop-run-chain-actions",
@@ -302,12 +366,12 @@ function renderNewItemButton(
 ) {
   return h(NButton, {
     class: className,
-    "data-desktop-run-chain-action": "New Run Chain Item",
+    "data-desktop-run-chain-action": "New Activity Item",
     "data-button-variant": variant,
     size: "small",
     secondary: true,
     onClick: () => options.onAction?.({ type: "new-item" }),
-  }, { default: () => "New Run Chain Item" });
+  }, { default: () => "New Activity Item" });
 }
 
 function runChainOverviewStatus(runChainItems: DesktopRunChainItem[]): string {
@@ -318,4 +382,8 @@ function runChainOverviewStatus(runChainItems: DesktopRunChainItem[]): string {
     return "Running";
   }
   return runChainItems.length ? "Completed" : "Idle";
+}
+
+function pendingApprovalItems(items: DesktopTaskCenterItem[]): DesktopTaskCenterItem[] {
+  return items.filter((item) => item.source === "approval" && item.state !== "completed" && item.state !== "canceled");
 }

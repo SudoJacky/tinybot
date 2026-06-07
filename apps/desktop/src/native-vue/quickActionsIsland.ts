@@ -1,21 +1,10 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NButton, NConfigProvider, NSpace } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
-
-interface QuickActionLink {
-  label: string;
-  href: string;
-}
 
 export interface MountedQuickActionsIsland {
   unmount: () => void;
 }
-
-const QUICK_ACTION_LINKS: QuickActionLink[] = [
-  { label: "Ask about this project", href: "/chat/new" },
-  { label: "Open workspace", href: "/workspace" },
-  { label: "Check gateway", href: "/api/status" },
-];
 
 export function mountQuickActionsIsland(host: HTMLElement): MountedQuickActionsIsland {
   host.setAttribute("data-desktop-vue-island", "quick-actions");
@@ -42,20 +31,9 @@ function createQuickActionsApp(): App {
 }
 
 export function renderQuickActionsSurface() {
-  return h("div", { class: "desktop-quick-actions" }, renderQuickActionsContent());
+  return h("div", { class: "desktop-quick-actions" });
 }
 
 export function renderQuickActionsContent() {
-  return h(NSpace, {
-    class: "desktop-quick-actions-list",
-    size: 8,
-  }, {
-    default: () => QUICK_ACTION_LINKS.map((link) => h(NButton, {
-      class: "desktop-quick-action",
-      href: link.href,
-      tag: "a",
-      secondary: true,
-      type: "default",
-    }, { default: () => link.label })),
-  });
+  return null;
 }

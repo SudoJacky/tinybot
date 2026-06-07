@@ -1,4 +1,5 @@
 import type {
+  DesktopTaskActionId,
   DesktopTaskCenterItem,
   DesktopTaskDestination,
   DesktopTaskSource,
@@ -26,6 +27,7 @@ export type DesktopWorkLensActionId =
   | "rebuild"
   | "copyDiagnostics"
   | "dismiss";
+type DesktopWorkLensTaskActionId = Extract<DesktopWorkLensActionId, DesktopTaskActionId>;
 export type DesktopWorkLensFallbackReason = "no-selection" | "unsupported-source" | "missing-context" | "projection-failed";
 
 export interface DesktopWorkLensRelatedResourceInput {
@@ -123,14 +125,17 @@ export function buildDesktopWorkLensProjection({
     });
   }
 
-  const nextActions = task.actions
-    .filter((action) => action.id !== "dismiss")
-    .map((action) => ({
+  const nextActions: DesktopWorkLensNextAction[] = task.actions.flatMap((action) => {
+    if (action.id === "dismiss" || !isDesktopWorkLensTaskActionId(action.id)) {
+      return [];
+    }
+    return [{
       id: action.id,
       label: ACTION_LABELS[action.id],
       route: action.id === "open" || action.id === "inspect" ? task.destination : undefined,
       diagnosticText: action.id === "copyDiagnostics" ? task.diagnostics : undefined,
-    }));
+    }];
+  });
 
   return {
     mode: "ready",
@@ -178,11 +183,15 @@ function fallbackProjection({
 function fallbackActions(task: DesktopTaskCenterItem): DesktopWorkLensNextAction[] {
   return task.actions
     .filter((action) => action.id === "open")
-    .map((action) => ({
-      id: action.id,
-      label: ACTION_LABELS[action.id],
+    .map(() => ({
+      id: "open",
+      label: ACTION_LABELS.open,
       route: task.destination,
     }));
+}
+
+function isDesktopWorkLensTaskActionId(action: DesktopTaskActionId): action is DesktopWorkLensTaskActionId {
+  return Object.prototype.hasOwnProperty.call(ACTION_LABELS, action);
 }
 
 function normalizeResources(resources: DesktopWorkLensRelatedResourceInput[]): DesktopWorkLensRelatedResource[] {

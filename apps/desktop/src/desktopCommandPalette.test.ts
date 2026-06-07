@@ -65,7 +65,7 @@ describe("desktop command palette", () => {
     }
     expect(buildDesktopCommandPaletteResults(nativeState, "files")[0]).toMatchObject({
       title: "Files",
-      destination: { module: "workspace", href: "/files" },
+      destination: { module: "files", href: "/files" },
     });
     expect(buildDesktopCommandPaletteResults(nativeState, "session file")[0]).toMatchObject({
       title: "Files",
@@ -227,12 +227,12 @@ describe("desktop command palette", () => {
     const focused: string[] = [];
     const events: Array<{ type: string; detail: unknown }> = [];
     const focusTarget = {
-      focus: () => focused.push("workspace:docs/desktop-shell.md"),
+      focus: () => focused.push("files:docs/desktop-shell.md"),
     };
     const targetDocument = {
       documentElement: { dataset: {} as Record<string, string> },
       querySelector: (selector: string) =>
-        selector === '[data-desktop-entity-module="workspace"][data-desktop-entity-id="docs/desktop-shell.md"]'
+        selector === '[data-desktop-entity-module="files"][data-desktop-entity-id="docs/desktop-shell.md"]'
           ? focusTarget
           : null,
       dispatchEvent: (event: Event) => {
@@ -260,7 +260,7 @@ describe("desktop command palette", () => {
         title: "docs/desktop-shell.md",
         secondary: "Updated",
         keywords: [],
-        destination: { module: "workspace", entityId: "docs/desktop-shell.md", href: "/workspace" },
+        destination: { module: "files", entityId: "docs/desktop-shell.md", href: "/files" },
       },
       {
         gatewayOrigin: "http://127.0.0.1:18790",
@@ -269,9 +269,9 @@ describe("desktop command palette", () => {
       },
     );
 
-    expect(historyCalls).toEqual(["http://localhost:1420/workspace"]);
-    expect(focused).toEqual(["workspace:docs/desktop-shell.md"]);
-    expect(targetDocument.documentElement.dataset.desktopPaletteFocusModule).toBe("workspace");
+    expect(historyCalls).toEqual(["http://localhost:1420/files"]);
+    expect(focused).toEqual(["files:docs/desktop-shell.md"]);
+    expect(targetDocument.documentElement.dataset.desktopPaletteFocusModule).toBe("files");
     expect(targetDocument.documentElement.dataset.desktopPaletteFocusEntity).toBe("docs/desktop-shell.md");
     expect(targetDocument.documentElement.dataset.desktopCommandFeedback).toBe("Focused Workspace files: docs/desktop-shell.md");
     expect(events.map((event) => event.type)).toContain("tinybot:desktop-route");

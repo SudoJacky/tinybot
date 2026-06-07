@@ -74,11 +74,11 @@ function renderHeading() {
 function renderWorkspaceRow(row: SidebarWorkspaceListRow) {
   return h("a", {
     class: "desktop-sidebar-row",
-    href: "/workspace",
+    href: "/files",
     role: "listitem",
     "data-active": String(row.active),
     "data-sidebar-row-kind": "folder",
-    "data-desktop-entity-module": "workspace",
+    "data-desktop-entity-module": "files",
     "data-desktop-entity-id": row.entityId,
   }, [
     h(NText, { class: "desktop-sidebar-row-label", tag: "span" }, { default: () => row.title }),

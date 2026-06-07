@@ -10,12 +10,13 @@ export type DesktopTaskSource =
 
 export type DesktopTaskState = "active" | "completed" | "failed" | "canceled" | "blocked";
 export type DesktopTaskTone = "normal" | "attention" | "danger" | "complete" | "muted";
-export type DesktopTaskActionId = "retry" | "cancel" | "open" | "inspect" | "dismiss" | "copyDiagnostics";
+export type DesktopTaskActionId = "retry" | "cancel" | "open" | "inspect" | "dismiss" | "copyDiagnostics" | "approveOnce" | "approveSession" | "deny";
 export type DesktopTaskDestinationModule =
   | "chat"
   | "knowledge"
   | "cowork"
   | "settings"
+  | "files"
   | "workspace"
   | "gateway"
   | "approvals";
@@ -63,6 +64,12 @@ export interface DesktopTaskSourceOperation {
   relatedResources?: DesktopTaskRelatedResourceInput[];
   outputs?: DesktopTaskRelatedResourceInput[];
   updatedAt?: string;
+  approval?: DesktopTaskApprovalAction;
+}
+
+export interface DesktopTaskApprovalAction {
+  approvalId: string;
+  sessionKey: string;
 }
 
 export interface DesktopTaskProjectionInput {
@@ -97,6 +104,7 @@ export interface DesktopTaskCenterItem {
   outputs: DesktopTaskRelatedResourceInput[];
   actions: DesktopTaskCenterAction[];
   updatedAt: string;
+  approval?: DesktopTaskApprovalAction;
 }
 
 const ACTIVE_STATUSES = new Set(["active", "running", "streaming", "indexing", "starting", "refreshing", "saving", "uploading", "exporting", "pending"]);
@@ -111,6 +119,9 @@ const ACTION_LABELS: Record<DesktopTaskActionId, string> = {
   inspect: "Inspect",
   dismiss: "Dismiss",
   copyDiagnostics: "Copy diagnostics",
+  approveOnce: "Approve once",
+  approveSession: "Allow session",
+  deny: "Deny",
 };
 const SOURCE_ORDER: DesktopTaskSource[] = ["approval", "cowork", "file", "chat", "gateway", "knowledge", "provider", "failure"];
 const STATE_ORDER: DesktopTaskState[] = ["blocked", "failed", "active", "canceled", "completed"];
@@ -147,6 +158,7 @@ function projectOperations(source: DesktopTaskSource, operations: DesktopTaskSou
       outputs: operation.outputs ?? [],
       actions: taskActions(state, operation),
       updatedAt: operation.updatedAt ?? "",
+      ...(operation.approval ? { approval: operation.approval } : {}),
     };
   });
 }
@@ -189,6 +201,9 @@ function taskTone(state: DesktopTaskState): DesktopTaskTone {
 
 function taskActions(state: DesktopTaskState, operation: DesktopTaskSourceOperation): DesktopTaskCenterAction[] {
   const actions: DesktopTaskActionId[] = [];
+  if (state === "blocked" && operation.approval?.approvalId) {
+    actions.push("approveOnce", "approveSession", "deny");
+  }
   if ((state === "failed" || state === "canceled") && operation.retryable) {
     actions.push("retry");
   }

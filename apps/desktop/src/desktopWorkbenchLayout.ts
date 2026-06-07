@@ -20,7 +20,7 @@ export const DESKTOP_WORKBENCH_LAYOUT_STORAGE_KEY = "tinybot.desktop.workbench.l
 
 const DEFAULT_LAYOUT: WorkbenchLayoutState = {
   sidebar: { visible: true, size: 260 },
-  inspector: { visible: true, size: 360 },
+  inspector: { visible: false, size: 360 },
   bottom: { visible: false, size: 220 },
 };
 

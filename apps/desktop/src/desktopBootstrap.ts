@@ -27,6 +27,7 @@ import {
   type DesktopKnowledgePaneModel,
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
+import { logDesktopNativeChatDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
 import {
@@ -76,6 +77,7 @@ import {
   type DesktopGatewayRuntimeActionEvent,
   type DesktopKnowledgeActionEvent,
   type DesktopSettingsActionEvent,
+  type DesktopTaskCenterActionEvent,
   type DesktopToolsSkillsActionEvent,
 } from "./desktopWorkbenchShell";
 import { installDesktopWorkspaceFileActions } from "./desktopWorkspaceFiles";
@@ -190,6 +192,7 @@ async function bootDesktopWebUi(): Promise<void> {
         agentUiActions: nativeAgentUiActions(),
         gatewayHttp: gatewayConfig.httpBaseUrl,
         taskCenterItems: currentNativeTaskCenterItems(),
+        taskActions: nativeTaskActions(),
         settingsPane,
         settingsActions: {
           onSettingsAction: (event) => {
@@ -286,15 +289,21 @@ function ensureNativeChatSocket(runtime = nativeWorkbenchRuntime): void {
   }
   nativeChatSocket = openGatewaySocket(resolveGatewayConfig({ ...gatewayConfig, wsUrl: nativeChatWsUrl }), {
     onOpen: () => {
+      logDesktopNativeChatDebug("socket.open", {
+        pendingMessages: nativePendingSocketMessages.length,
+        wsUrl: nativeChatWsUrl,
+      });
       flushGatewaySocketQueue(nativeChatSocket, nativePendingSocketMessages);
       runtime.setRuntimeMetadata({ webSocket: "Connected" });
       updateDesktopNativeChat(document, runtime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
     },
     onClose: () => {
+      logDesktopNativeChatDebug("socket.close", { wsUrl: nativeChatWsUrl });
       runtime.setRuntimeMetadata({ webSocket: "Disconnected" });
       updateDesktopNativeChat(document, runtime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
     },
     onError: () => {
+      logDesktopNativeChatDebug("socket.error", { wsUrl: nativeChatWsUrl });
       runtime.setRuntimeMetadata({ webSocket: "Connection failed" });
       updateDesktopNativeChat(document, runtime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
     },
@@ -323,9 +332,18 @@ function syncNativeRuntimeMetadata(): void {
 
 async function handleNativeChatGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
   if (!nativeWorkbenchRuntime) {
+    logDesktopNativeChatDebug("gateway.event", {
+      dropped: "native runtime unavailable",
+      event: summarizeNativeGatewayEvent(event),
+    });
     return;
   }
+  logDesktopNativeChatDebug("gateway.event", {
+    event: summarizeNativeGatewayEvent(event),
+  });
+  logDesktopNativeChatDebug("runtime.before", summarizeNativeChatModel(nativeWorkbenchRuntime.chat));
   await nativeWorkbenchRuntime.handleGatewayEvent(event);
+  logDesktopNativeChatDebug("runtime.after", summarizeNativeChatModel(nativeWorkbenchRuntime.chat));
   updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
   refreshNativeAgentUiForms();
   publishNativeTaskCenterItems();
@@ -385,12 +403,94 @@ function nativeChatActions() {
   };
 }
 
+function summarizeNativeGatewayEvent(event: NormalizedGatewayEvent): Record<string, unknown> {
+  return {
+    chatId: "chatId" in event ? event.chatId : "",
+    kind: event.kind,
+    messageId: "messageId" in event ? event.messageId : "",
+    text: "text" in event ? summarizeDebugText(event.text) : undefined,
+  };
+}
+
+function summarizeNativeChatModel(chat: DesktopNativeWorkbenchRuntime["chat"]): Record<string, unknown> {
+  return {
+    activeChatId: chat.activeChatId,
+    activeSessionKey: chat.activeSessionKey,
+    composerState: chat.composerState,
+    messageCount: chat.messages.length,
+    responding: chat.responding === true,
+    sessionCount: chat.sessions.length,
+    status: chat.status,
+  };
+}
+
 function nativeAgentUiActions() {
   return {
     onAgentUiFormAction: (event: DesktopAgentUiFormActionEvent) => {
       void handleNativeAgentUiFormAction(event);
     },
   };
+}
+
+function nativeTaskActions() {
+  return {
+    onTaskAction: (event: DesktopTaskCenterActionEvent) => {
+      void handleNativeTaskAction(event);
+    },
+  };
+}
+
+async function handleNativeTaskAction(event: DesktopTaskCenterActionEvent): Promise<void> {
+  if (!["approveOnce", "approveSession", "deny"].includes(event.action)) {
+    return;
+  }
+  const approvalId = event.item.approval?.approvalId || event.item.destination.entityId || "";
+  const sessionKey = event.item.approval?.sessionKey || nativeWorkbenchRuntime?.chat.activeSessionKey || "";
+  if (!approvalId || !sessionKey) {
+    nativeApprovalTaskOperations.set(event.item.id, {
+      id: event.item.id,
+      title: event.item.title,
+      status: "failed",
+      detail: event.item.detail,
+      canonical: event.item.destination,
+      diagnostics: "Approval id or session key is missing.",
+      retryable: true,
+      updatedAt: new Date().toISOString(),
+      ...(event.item.approval ? { approval: event.item.approval } : {}),
+    });
+    publishNativeTaskCenterItems();
+    return;
+  }
+  try {
+    if (event.action === "deny") {
+      await gatewayApi.tools.denyApproval(approvalId, {
+        session_key: sessionKey,
+        auto_retry: true,
+      });
+    } else {
+      await gatewayApi.tools.approveApproval(approvalId, {
+        session_key: sessionKey,
+        scope: event.action === "approveSession" ? "session" : "once",
+        auto_retry: true,
+      });
+    }
+    nativeApprovalTaskOperations.delete(event.item.id);
+    publishNativeTaskCenterItems();
+    await refreshNativeApprovalTasks();
+  } catch (error) {
+    nativeApprovalTaskOperations.set(event.item.id, {
+      id: event.item.id,
+      title: event.item.title,
+      status: "failed",
+      detail: event.item.detail,
+      canonical: event.item.destination,
+      diagnostics: stringifyError(error),
+      retryable: true,
+      updatedAt: new Date().toISOString(),
+      ...(event.item.approval ? { approval: event.item.approval } : {}),
+    });
+    publishNativeTaskCenterItems();
+  }
 }
 
 function refreshNativeAgentUiForms(): void {
@@ -455,6 +555,9 @@ function installNativeChatRuntimeActions(): void {
   document.addEventListener("tinybot:desktop-stop-generation", () => {
     nativeChatActions().onInterrupt();
   });
+  document.addEventListener("desktop-tool-approval-action", (event) => {
+    void handleNativeInlineApprovalAction((event as CustomEvent).detail);
+  });
   window.addEventListener("tinybot:desktop-route", (event) => {
     const target = (event as CustomEvent<{ href?: unknown }>).detail;
     const href = typeof target?.href === "string" ? target.href : "";
@@ -471,6 +574,68 @@ function installNativeChatRuntimeActions(): void {
       void selectNativeChatFromRoute(path);
     }
   });
+}
+
+async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> {
+  const record = asRecord(detail);
+  if (!Object.keys(record).length) {
+    return;
+  }
+  const action = typeof record.action === "string" ? record.action : "";
+  if (!["approveOnce", "approveSession", "deny"].includes(action)) {
+    return;
+  }
+  const approvalId = typeof record.approvalId === "string" ? record.approvalId : "";
+  const sessionKey = typeof record.sessionKey === "string" && record.sessionKey
+    ? record.sessionKey
+    : nativeWorkbenchRuntime?.chat.activeSessionKey || "";
+  const toolName = typeof record.toolName === "string" && record.toolName ? record.toolName : "tool";
+  const taskId = `approval:${approvalId || toolName}`;
+  if (!approvalId || !sessionKey) {
+    nativeApprovalTaskOperations.set(taskId, {
+      id: taskId,
+      title: `Approve ${toolName}`,
+      status: "failed",
+      detail: "Approval id or session key is missing.",
+      canonical: { module: "approvals", entityId: approvalId || toolName, href: "/chat" },
+      diagnostics: "Approval id or session key is missing.",
+      retryable: true,
+      updatedAt: new Date().toISOString(),
+      approval: { approvalId, sessionKey },
+    });
+    publishNativeTaskCenterItems();
+    return;
+  }
+  try {
+    if (action === "deny") {
+      await gatewayApi.tools.denyApproval(approvalId, {
+        session_key: sessionKey,
+        auto_retry: true,
+      });
+    } else {
+      await gatewayApi.tools.approveApproval(approvalId, {
+        session_key: sessionKey,
+        scope: action === "approveSession" ? "session" : "once",
+        auto_retry: true,
+      });
+    }
+    nativeApprovalTaskOperations.delete(taskId);
+    publishNativeTaskCenterItems();
+    await refreshNativeApprovalTasks();
+  } catch (error) {
+    nativeApprovalTaskOperations.set(taskId, {
+      id: taskId,
+      title: `Approve ${toolName}`,
+      status: "failed",
+      detail: "Inline approval action failed.",
+      canonical: { module: "approvals", entityId: approvalId, href: `/chat/${encodeURIComponent(sessionKey)}` },
+      diagnostics: stringifyError(error),
+      retryable: true,
+      updatedAt: new Date().toISOString(),
+      approval: { approvalId, sessionKey },
+    });
+    publishNativeTaskCenterItems();
+  }
 }
 
 async function selectNativeChatFromRoute(path: string): Promise<void> {
@@ -1343,7 +1508,7 @@ function currentNativeTaskCenterItems() {
 
 function publishNativeTaskCenterItems(): void {
   const items = currentNativeTaskCenterItems();
-  updateDesktopTaskCenterItems(document, items);
+  updateDesktopTaskCenterItems(document, items, nativeTaskActions());
   void nativeTaskNotifications.update(items);
 }
 

@@ -11,13 +11,34 @@ describe("workspace files surface Vue island", () => {
 
     expect(host.className).toBe("desktop-workspace-files");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("workspace-files-surface");
-    expect(host.getAttribute("data-desktop-module-surface")).toBe("workspace");
-    expect(host.getAttribute("data-desktop-workspace-layout")).toBe("browser-detail-actions");
-    expect(host.querySelector(".n-grid.desktop-workspace-files-grid")).not.toBeNull();
+    expect(host.getAttribute("data-desktop-module-surface")).toBe("files workspace");
+    expect(host.getAttribute("data-desktop-workspace-layout")).toBe("source-browser-detail-actions");
+    const grid = host.querySelector<HTMLElement>(".n-grid.desktop-workspace-files-grid");
+    expect(grid).not.toBeNull();
+    expect(grid?.style.gridTemplateAreas).toContain("source browser detail actions");
+    expect(grid?.style.gridTemplateColumns).toBe("minmax(180px, 0.62fr) minmax(240px, 0.9fr) minmax(300px, 1.5fr) minmax(160px, 0.7fr)");
 
     expect(host.querySelector(".desktop-workspace-header")?.textContent).toContain("Workspace files");
     expect(host.querySelector(".desktop-workspace-header")?.getAttribute("data-desktop-vue-island")).toBe("workspace-header");
     expect(host.querySelector("#desktop-workspace-status")?.textContent).toBe("0 files");
+
+    const sourceTree = host.querySelector(".desktop-file-source-tree");
+    expect(sourceTree?.getAttribute("aria-label")).toBe("File sources");
+    expect(sourceTree?.textContent).toContain("Source Tree");
+    expect([...host.querySelectorAll("[data-desktop-file-source]")].map((node) => node.getAttribute("data-desktop-file-source"))).toEqual([
+      "session",
+      "knowledge",
+      "workspace",
+    ]);
+    expect(sourceTree?.textContent).toContain("Session Files");
+    expect(sourceTree?.textContent).toContain("Knowledge Documents");
+    expect(sourceTree?.textContent).toContain("Workspace Files");
+    expect([...host.querySelectorAll(".desktop-file-scope-chip")].map((node) => node.textContent)).toEqual([
+      "All",
+      "Session",
+      "Knowledge",
+      "Workspace",
+    ]);
 
     expect(host.querySelector(".desktop-workspace-browser")?.getAttribute("data-desktop-vue-island")).toBe("workspace-browser");
     expect(host.querySelector(".desktop-workspace-browser h3")?.textContent).toBe("Files");

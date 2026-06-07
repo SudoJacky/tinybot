@@ -88,8 +88,11 @@ function renderTaskActionContent(options: TaskActionIslandOptions) {
 }
 
 function actionType(action: string): "primary" | "default" | "error" | "warning" {
-  if (action === "retry") {
+  if (action === "retry" || action === "approveOnce" || action === "approveSession") {
     return "primary";
+  }
+  if (action === "deny") {
+    return "error";
   }
   if (action === "cancel") {
     return "warning";

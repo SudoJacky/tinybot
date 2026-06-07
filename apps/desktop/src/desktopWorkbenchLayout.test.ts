@@ -24,7 +24,7 @@ describe("desktop workbench layout state", () => {
   test("creates a stable default desktop layout", () => {
     expect(createDefaultWorkbenchLayout()).toEqual({
       sidebar: { visible: true, size: 260 },
-      inspector: { visible: true, size: 360 },
+      inspector: { visible: false, size: 360 },
       bottom: { visible: false, size: 220 },
     });
   });

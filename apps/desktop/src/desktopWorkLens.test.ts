@@ -217,4 +217,24 @@ describe("desktop work lens projection", () => {
     });
     expect(lens.nextActions.map((action) => action.id)).toEqual(["open"]);
   });
+
+  test("filters task-center approval actions from work lens projections", () => {
+    const [task] = buildDesktopTaskCenterItems({
+      approvals: [
+        {
+          id: "approval:tool-1",
+          title: "Approve shell command",
+          status: "requires_approval",
+          detail: "Tool call needs permission",
+          canonical: { module: "approvals", entityId: "tool-1", href: "/tools/approvals/tool-1" },
+          approval: { approvalId: "tool-1", sessionKey: "WebSocket:chat-1" },
+        },
+      ],
+    });
+
+    const lens = buildDesktopWorkLensProjection({ task });
+
+    expect(task.actions.map((action) => action.id)).toEqual(["approveOnce", "approveSession", "deny", "open", "inspect"]);
+    expect(lens.nextActions.map((action) => action.id)).toEqual(["open"]);
+  });
 });

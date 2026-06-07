@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, ref, type App } from "vue";
-import { NCard, NConfigProvider } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 import type { DesktopWorkspaceFileState } from "../desktopWorkspaceFiles";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
@@ -42,18 +42,16 @@ function createWorkspaceEditorApp(
     name: "WorkspaceEditorIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NCard, { size: "small", bordered: false }, {
-          default: () => [
-            h("h3", "Editor"),
-            h("textarea", {
-              id: "desktop-workspace-editor",
-              class: "desktop-workspace-editor",
-              "aria-label": "Workspace file editor",
-              value: state.value.draft,
-              onInput: (event: Event) => onDraftInput?.(String((event.target as HTMLTextAreaElement | null)?.value ?? "")),
-            }),
-          ],
-        }),
+        default: () => [
+          h("h3", "Editor"),
+          h("textarea", {
+            id: "desktop-workspace-editor",
+            class: "desktop-workspace-editor",
+            "aria-label": "Workspace file editor",
+            value: state.value.draft,
+            onInput: (event: Event) => onDraftInput?.(String((event.target as HTMLTextAreaElement | null)?.value ?? "")),
+          }),
+        ],
       });
     },
   }));

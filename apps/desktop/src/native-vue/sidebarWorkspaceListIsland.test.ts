@@ -22,9 +22,9 @@ describe("sidebar workspace list Vue island", () => {
     const list = host.querySelector(".desktop-workspace-list");
     expect(list?.getAttribute("role")).toBe("list");
     const rows = Array.from(host.querySelectorAll<HTMLAnchorElement>(".desktop-sidebar-row"));
-    expect(rows.map((row) => row.getAttribute("href"))).toEqual(["/workspace", "/workspace"]);
+    expect(rows.map((row) => row.getAttribute("href"))).toEqual(["/files", "/files"]);
     expect(rows.map((row) => row.getAttribute("data-sidebar-row-kind"))).toEqual(["folder", "folder"]);
-    expect(rows.map((row) => row.getAttribute("data-desktop-entity-module"))).toEqual(["workspace", "workspace"]);
+    expect(rows.map((row) => row.getAttribute("data-desktop-entity-module"))).toEqual(["files", "files"]);
     expect(rows.map((row) => row.getAttribute("data-desktop-entity-id"))).toEqual(["tinybot", "archive"]);
     expect(rows.map((row) => row.getAttribute("data-active"))).toEqual(["true", "false"]);
     expect(rows[0]?.querySelector(".desktop-sidebar-row-label")?.textContent).toBe("tinybot");

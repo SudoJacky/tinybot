@@ -51,6 +51,7 @@ export function renderComposerRuntimeSurface(options: ComposerRuntimeIslandOptio
   return h("div", {
     id: "desktop-native-composer-runtime",
     class: "desktop-native-composer-runtime",
+    "data-desktop-vue-island": "composer-runtime",
     "data-desktop-composer-region": "runtime-status",
     "aria-label": "Runtime status",
   }, renderComposerRuntimeContent(options));

@@ -1,6 +1,7 @@
-import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
+import { createApp, defineComponent, h, onMounted, ref, type App, type Ref } from "vue";
 import { NConfigProvider, NText } from "naive-ui";
-import { mountComposerRuntimeIsland } from "./composerRuntimeIsland";
+import { logDesktopNativeChatDebug } from "../desktopNativeChatDebug";
+import { renderComposerRuntimeSurface } from "./composerRuntimeIsland";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export type ComposerSurfaceState = "idle" | "queued" | "sending";
@@ -23,7 +24,43 @@ export interface ComposerSurfaceIslandOptions {
 }
 
 export interface MountedComposerSurfaceIsland {
+  update: (options: ComposerSurfaceIslandOptions) => void;
   unmount: () => void;
+}
+
+const mountedComposerSurfaces = new WeakMap<HTMLElement, MountedComposerSurfaceIsland>();
+
+export function mountOrUpdateComposerSurfaceIsland(
+  host: HTMLElement,
+  options: ComposerSurfaceIslandOptions,
+): MountedComposerSurfaceIsland {
+  logDesktopNativeChatDebug("vue.composer.update", summarizeComposerSurfaceOptions(options, host));
+  const mounted = mountedComposerSurfaces.get(host);
+  if (mounted) {
+    mounted.update(options);
+    return mounted;
+  }
+  const nextMounted = mountComposerSurfaceIsland(host, options);
+  mountedComposerSurfaces.set(host, nextMounted);
+  return nextMounted;
+}
+
+function summarizeComposerSurfaceOptions(
+  options: ComposerSurfaceIslandOptions,
+  host: HTMLElement,
+): Record<string, unknown> {
+  const input = host.querySelector<HTMLTextAreaElement>("#desktop-native-composer-input");
+  const send = host.querySelector<HTMLButtonElement>("#desktop-native-composer-send");
+  return {
+    activeSessionKey: options.activeSessionKey ?? "",
+    composerState: options.composerState,
+    draftLength: input?.value.length ?? 0,
+    model: options.model ?? "",
+    responding: options.responding,
+    sendDisabled: send?.disabled ?? null,
+    tokenUsage: options.tokenUsage,
+    usePersistentRag: options.usePersistentRag,
+  };
 }
 
 export function mountComposerSurfaceIsland(
@@ -31,10 +68,16 @@ export function mountComposerSurfaceIsland(
   options: ComposerSurfaceIslandOptions,
 ): MountedComposerSurfaceIsland {
   applyComposerSurfaceHost(host, options);
-  const app = createComposerSurfaceApp(options);
+  const state = ref(options);
+  const app = createComposerSurfaceApp(state);
   app.mount(host);
   return {
+    update: (nextOptions) => {
+      applyComposerSurfaceHost(host, nextOptions);
+      state.value = nextOptions;
+    },
     unmount: () => {
+      mountedComposerSurfaces.delete(host);
       app.unmount();
       host.replaceChildren();
     },
@@ -56,39 +99,27 @@ function applyComposerSurfaceHost(host: HTMLElement, options: ComposerSurfaceIsl
   host.setAttribute("data-desktop-composer-state", options.composerState);
 }
 
-function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
+function createComposerSurfaceApp(state: Ref<ComposerSurfaceIslandOptions>): App {
   return createApp(defineComponent({
     name: "ComposerSurfaceIsland",
     setup() {
       const content = ref("");
-      const mountedChildren: Array<{ unmount: () => void }> = [];
       const input = ref<HTMLTextAreaElement | null>(null);
-      const runtime = ref<HTMLElement | null>(null);
-      const canSend = () => options.composerState === "idle" && Boolean(content.value.trim());
+      const canSend = () => state.value.composerState === "idle" && Boolean(content.value.trim());
       const send = () => {
         if (!canSend()) {
           return;
         }
-        options.onSend?.({
+        state.value.onSend?.({
           content: content.value,
-          usePersistentRag: options.usePersistentRag,
+          usePersistentRag: state.value.usePersistentRag,
         });
+        content.value = "";
+        resizeComposerInput(input.value);
       };
 
       onMounted(() => {
         resizeComposerInput(input.value);
-        mountChild(mountedChildren, runtime.value, (host) => mountComposerRuntimeIsland(host, {
-          model: options.model,
-          persistentRag: options.usePersistentRag,
-          tokenUsage: options.tokenUsage,
-          onPersistentRagChange: options.onPersistentRagChange,
-        }));
-      });
-
-      onBeforeUnmount(() => {
-        while (mountedChildren.length) {
-          mountedChildren.pop()?.unmount();
-        }
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
@@ -114,9 +145,14 @@ function createComposerSurfaceApp(options: ComposerSurfaceIslandOptions): App {
             class: "desktop-native-composer-action",
             "data-desktop-composer-action": "attach",
             "aria-label": "Attach temporary file to current session",
-            onClick: () => options.onAttach?.(),
+            onClick: () => state.value.onAttach?.(),
           }, h(NText, { strong: true }, { default: () => "+" })),
-          h("div", { ref: runtime }),
+          renderComposerRuntimeSurface({
+            model: state.value.model,
+            persistentRag: state.value.usePersistentRag,
+            tokenUsage: state.value.tokenUsage,
+            onPersistentRagChange: state.value.onPersistentRagChange,
+          }),
           h("button", {
             id: "desktop-native-composer-send",
             type: "button",
@@ -158,15 +194,4 @@ function renderSendIcon() {
       "stroke-linejoin": "round",
     }),
   ]);
-}
-
-function mountChild<T extends { unmount: () => void }>(
-  mountedChildren: Array<{ unmount: () => void }>,
-  host: HTMLElement | null,
-  mount: (host: HTMLElement) => T,
-): void {
-  if (!host) {
-    return;
-  }
-  mountedChildren.push(mount(host));
 }

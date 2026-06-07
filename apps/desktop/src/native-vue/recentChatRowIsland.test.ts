@@ -46,6 +46,40 @@ describe("recent chat row Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
+  test("renders compact work status chips for files, knowledge, approvals, and running state", () => {
+    const host = document.createElement("div");
+
+    mountRecentChatRowIsland(host, {
+      active: true,
+      chatId: "chat-1",
+      href: "/chat/chat-1",
+      pinned: false,
+      routeId: "chat-1",
+      sessionKey: "WebSocket:chat-1",
+      statusChips: [
+        { kind: "running", label: "Running" },
+        { kind: "approval", label: "Approval" },
+        { kind: "files", label: "2 files" },
+        { kind: "knowledge", label: "Knowledge On" },
+      ],
+      title: "Session one",
+      updatedLabel: "Updated 2m ago",
+    });
+
+    const status = host.querySelector(".desktop-sidebar-row-status");
+    expect(status?.getAttribute("aria-label")).toBe("Chat status");
+    expect(status?.getAttribute("data-desktop-chat-status")).toBe("WebSocket:chat-1");
+    expect(Array.from(status?.querySelectorAll(".desktop-sidebar-status-chip") ?? []).map((chip) => ({
+      kind: chip.getAttribute("data-status-kind"),
+      text: chip.textContent,
+    }))).toEqual([
+      { kind: "running", text: "Running" },
+      { kind: "approval", text: "Approval" },
+      { kind: "files", text: "2 files" },
+      { kind: "knowledge", text: "Knowledge On" },
+    ]);
+  });
+
   test("confirms before invoking delete callback", async () => {
     const host = document.createElement("div");
     const deletes: unknown[] = [];

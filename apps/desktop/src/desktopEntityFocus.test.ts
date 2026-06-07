@@ -8,7 +8,8 @@ import {
 describe("desktop entity focus", () => {
   test("maps workbench routes into visible native modules", () => {
     expect(moduleForDesktopWorkbenchPath("/chat/chat-1")).toBe("chat");
-    expect(moduleForDesktopWorkbenchPath("/workspace")).toBe("workspace");
+    expect(moduleForDesktopWorkbenchPath("/files")).toBe("files");
+    expect(moduleForDesktopWorkbenchPath("/workspace")).toBe("");
     expect(moduleForDesktopWorkbenchPath("/knowledge/doc-1")).toBe("knowledge");
     expect(moduleForDesktopWorkbenchPath("/tools")).toBe("tools");
     expect(moduleForDesktopWorkbenchPath("/settings")).toBe("settings");
@@ -25,21 +26,21 @@ describe("desktop entity focus", () => {
     const targetDocument = {
       documentElement: { dataset: {} as Record<string, string> },
       querySelector: (selector: string) =>
-        selector === '[data-desktop-entity-module="workspace"][data-desktop-entity-id="docs/desktop.md"]'
+        selector === '[data-desktop-entity-module="files"][data-desktop-entity-id="docs/desktop.md"]'
           ? target
           : selector === '[data-desktop-entity-module="approvals"][data-desktop-entity-id="form-1"]'
             ? { focus: () => focused.push("form-1") }
           : null,
     };
 
-    expect(applyDesktopWorkbenchRouteState(targetDocument as unknown as Document, "/workspace")).toBe("workspace");
+    expect(applyDesktopWorkbenchRouteState(targetDocument as unknown as Document, "/files")).toBe("files");
     expect(focusDesktopEntity(targetDocument as unknown as Document, {
-      module: "workspace",
+      module: "files",
       entityId: "docs/desktop.md",
     })).toBe(true);
 
-    expect(targetDocument.documentElement.dataset.desktopActiveWorkbenchModule).toBe("workspace");
-    expect(targetDocument.documentElement.dataset.desktopPaletteFocusModule).toBe("workspace");
+    expect(targetDocument.documentElement.dataset.desktopActiveWorkbenchModule).toBe("files");
+    expect(targetDocument.documentElement.dataset.desktopPaletteFocusModule).toBe("files");
     expect(targetDocument.documentElement.dataset.desktopPaletteFocusEntity).toBe("docs/desktop.md");
     expect(targetDocument.documentElement.dataset.desktopPaletteFocused).toBe("true");
     expect(focusDesktopEntity(targetDocument as unknown as Document, {

@@ -1,4 +1,5 @@
 import { DEFAULT_GATEWAY_CONFIG, type GatewayConfig } from "./gatewayConfig";
+import { logDesktopNativeChatDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
@@ -161,8 +162,18 @@ export function openGatewaySocket(config: GatewayConfig = DEFAULT_GATEWAY_CONFIG
   socket.addEventListener("error", (event) => handlers.onError?.(event));
   socket.addEventListener("message", (event) => {
     try {
-      handlers.onEvent(normalizeGatewayFrame(JSON.parse(String(event.data))));
+      const raw = JSON.parse(String(event.data));
+      const normalized = normalizeGatewayFrame(raw);
+      logDesktopNativeChatDebug("socket.frame", {
+        chatId: "chatId" in normalized ? normalized.chatId : "",
+        event: isRecord(raw) ? stringValue(raw.event) : "",
+        kind: normalized.kind,
+        messageId: "messageId" in normalized ? normalized.messageId : "",
+        text: "text" in normalized ? summarizeDebugText(normalized.text) : undefined,
+      });
+      handlers.onEvent(normalized);
     } catch {
+      logDesktopNativeChatDebug("socket.frame", { error: "invalid websocket json" });
       handlers.onEvent({ kind: "error", message: "invalid websocket json", raw: {} });
     }
   });
@@ -172,9 +183,11 @@ export function openGatewaySocket(config: GatewayConfig = DEFAULT_GATEWAY_CONFIG
 export function sendGatewaySocketJson(socket: JsonSocket | null, message: unknown, queue: unknown[]): "sent" | "queued" {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
     queue.push(message);
+    logDesktopNativeChatDebug("socket.send", summarizeSocketMessage(message, "queued", queue.length));
     return "queued";
   }
   socket.send(JSON.stringify(message));
+  logDesktopNativeChatDebug("socket.send", summarizeSocketMessage(message, "sent", queue.length));
   return "sent";
 }
 
@@ -189,6 +202,21 @@ export function flushGatewaySocketQueue(socket: JsonSocket | null, queue: unknow
     count += 1;
   }
   return count;
+}
+
+function summarizeSocketMessage(
+  message: unknown,
+  status: "queued" | "sent",
+  queueLength: number,
+): Record<string, unknown> {
+  const payload = isRecord(message) ? message : {};
+  return {
+    chatId: stringValue(payload.chat_id),
+    content: summarizeDebugText(stringValue(payload.content)),
+    queueLength,
+    status,
+    type: stringValue(payload.type),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

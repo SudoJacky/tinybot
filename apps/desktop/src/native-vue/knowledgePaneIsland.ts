@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NConfigProvider, NSpace } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 import type { DesktopTaskCenterItem } from "../desktopTaskCenter";
 import type {
   DesktopKnowledgePaneModel,
@@ -103,23 +103,47 @@ function createKnowledgePaneApp(options: KnowledgePaneIslandOptions): App {
       });
 
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NSpace, {
-          class: "desktop-knowledge-stack",
-          vertical: true,
-          size: 12,
-        }, {
-          default: () => [
+        default: () => h("div", { class: "desktop-knowledge-workbench" }, [
+          h("div", { class: "desktop-knowledge-header" }, [
             h("h2", "Knowledge"),
             h("p", options.pane.status),
             h("div", { ref: actions }),
-            options.workItems?.length ? h("section", { ref: work }) : null,
-            h("section", { ref: readiness }),
-            h("section", { ref: documents }),
-            options.pane.selectedDocument ? h("section", { ref: documentDetail }) : null,
-            h("section", { ref: query }),
-            h("section", { ref: graph }),
-          ],
-        }),
+          ]),
+          h("div", {
+            class: "desktop-knowledge-workbench-grid",
+            "data-desktop-knowledge-layout": "filters-graph-detail-results",
+          }, [
+            h("section", {
+              class: "desktop-knowledge-region desktop-knowledge-filters",
+              "data-desktop-knowledge-region": "filters",
+              "aria-label": "Knowledge filters",
+            }, [
+              h("section", { ref: readiness }),
+              h("section", { ref: documents }),
+            ]),
+            h("section", {
+              ref: graph,
+              class: "desktop-knowledge-region desktop-knowledge-graph",
+              "data-desktop-knowledge-region": "graph",
+              "aria-label": "Knowledge graph",
+            }),
+            h("section", {
+              class: "desktop-knowledge-region desktop-knowledge-detail-drawer",
+              "data-desktop-knowledge-region": "detail",
+              "aria-label": "Knowledge detail",
+            }, [
+              options.workItems?.length ? h("section", { ref: work }) : null,
+              options.pane.selectedDocument ? h("section", { ref: documentDetail }) : null,
+            ]),
+            h("section", {
+              class: "desktop-knowledge-region desktop-knowledge-results-drawer",
+              "data-desktop-knowledge-region": "results",
+              "aria-label": "Knowledge query results",
+            }, [
+              h("section", { ref: query }),
+            ]),
+          ]),
+        ]),
       });
     },
   }));

@@ -67,11 +67,27 @@ describe("settings pane Vue island", () => {
     expect(host.className).toBe("desktop-workbench-section desktop-settings-pane");
     expect(host.getAttribute("data-desktop-vue-island")).toBe("settings-pane");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("settings");
-    expect(host.getAttribute("data-settings-layout")).toBe("codex-like");
+    expect(host.getAttribute("data-settings-layout")).toBe("capability-center");
     expect(host.getAttribute("aria-label")).toBe("Settings and providers");
 
     expect(host.querySelector(".desktop-settings-sidebar")?.textContent).toContain("General");
-    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Models");
+    expect(host.querySelector(".desktop-settings-breadcrumb")?.textContent).toContain("Settings / Capability Center");
+    expect(host.querySelector(".desktop-settings-capability-map")?.getAttribute("data-desktop-settings-center")).toBe("capability-boundaries");
+    expect(Array.from(
+      host.querySelectorAll("[data-desktop-settings-capability]"),
+      (node) => node.getAttribute("data-desktop-settings-capability"),
+    )).toEqual([
+      "provider-models",
+      "knowledge",
+      "tools-approvals",
+      "files-workspace",
+      "gateway-runtime",
+      "logs-diagnostics",
+    ]);
+    expect(host.querySelector('[data-desktop-settings-capability="provider-models"]')?.textContent).toContain("OpenAI");
+    expect(host.querySelector('[data-desktop-settings-capability="knowledge"]')?.textContent).toContain("Knowledge On");
+    expect(host.querySelector('[data-desktop-settings-capability="tools-approvals"]')?.textContent).toContain("Shell Off");
+    expect(host.querySelector('[data-desktop-settings-capability="gateway-runtime"]')?.textContent).toContain("Gateway");
     expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Default LLM");
     expect(host.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Providers");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");

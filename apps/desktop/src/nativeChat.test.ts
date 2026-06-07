@@ -191,4 +191,58 @@ describe("native chat state", () => {
       },
     ]);
   });
+
+  test("normalizes tool activity execution status for timeline rendering", () => {
+    expect(
+      normalizeMessagesPayload({
+        messages: [
+          {
+            role: "assistant",
+            content: "running tools",
+            tool_calls: [
+              {
+                id: "call-shell",
+                _approval_id: "approval-1",
+                status: "running",
+                function: { name: "shell", arguments: "npm test" },
+              },
+              {
+                id: "call-python",
+                state: "failed",
+                function: { name: "python", arguments: "raise SystemExit(1)" },
+              },
+            ],
+            tool_results: [
+              {
+                tool_call_id: "call-python",
+                name: "python",
+                status: "failed",
+                content: "Exit code 1",
+              },
+            ],
+            timestamp: "2026-05-29T08:00:03Z",
+            message_id: "m-tools",
+          },
+        ],
+      })[0].toolActivities,
+    ).toEqual([
+      {
+        id: "call-shell",
+        name: "shell",
+        argsText: "npm test",
+        responseText: "",
+        kind: "call",
+        approvalId: "approval-1",
+        status: "running",
+      },
+      {
+        id: "call-python",
+        name: "python",
+        argsText: "raise SystemExit(1)",
+        responseText: "Exit code 1",
+        kind: "result",
+        status: "failed",
+      },
+    ]);
+  });
 });

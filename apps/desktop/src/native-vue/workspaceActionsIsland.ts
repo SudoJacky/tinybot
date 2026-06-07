@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, ref, type App } from "vue";
-import { NCard, NConfigProvider, NSpace } from "naive-ui";
+import { NConfigProvider, NSpace } from "naive-ui";
 import type { DesktopWorkspaceFileState } from "../desktopWorkspaceFiles";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
@@ -61,21 +61,19 @@ function createWorkspaceActionsApp(
     name: "WorkspaceActionsIsland",
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NCard, { size: "small", bordered: false }, {
-          default: () => [
-            h("h3", "Actions"),
-            h(NSpace, { class: "desktop-workspace-actions", size: 8, wrap: true }, {
-              default: () => [
-                renderButton("desktop-workspace-save", "desktop-file-action", "Save", isSaveDisabled(state.value), onAction),
-                renderButton("desktop-workspace-reveal", "desktop-file-action", "Reveal", isRevealDisabled(state.value), onAction),
-                renderButton("desktop-workspace-export", "desktop-file-action", "Export", isExportDisabled(state.value), onAction),
-                renderButton("desktop-workspace-reload", "desktop-file-action desktop-workspace-reload", "Reload", isReloadDisabled(state.value), onAction),
-              ],
-            }),
-            h("p", { id: "desktop-workspace-save-state", class: "desktop-workspace-save-state" }, workspaceSaveStateText(state.value.fileState)),
-            h("p", { id: "desktop-workspace-error", class: "desktop-workspace-error" }, state.value.fileState.error ?? ""),
-          ],
-        }),
+        default: () => [
+          h("h3", "Actions"),
+          h(NSpace, { class: "desktop-workspace-actions", size: 8, wrap: true }, {
+            default: () => [
+              renderButton("desktop-workspace-save", "desktop-file-action", "Save", isSaveDisabled(state.value), onAction),
+              renderButton("desktop-workspace-reveal", "desktop-file-action", "Reveal", isRevealDisabled(state.value), onAction),
+              renderButton("desktop-workspace-export", "desktop-file-action", "Export", isExportDisabled(state.value), onAction),
+              renderButton("desktop-workspace-reload", "desktop-file-action desktop-workspace-reload", "Reload", isReloadDisabled(state.value), onAction),
+            ],
+          }),
+          h("p", { id: "desktop-workspace-save-state", class: "desktop-workspace-save-state" }, workspaceSaveStateText(state.value.fileState)),
+          h("p", { id: "desktop-workspace-error", class: "desktop-workspace-error" }, state.value.fileState.error ?? ""),
+        ],
       });
     },
   }));

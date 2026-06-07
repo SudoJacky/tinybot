@@ -461,14 +461,27 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
       gap: 16px;
-      min-height: 34px;
+      width: 100%;
+      height: auto;
+      min-height: 36px;
       border: 0;
-      padding: 0 16px;
+      padding: 5px 16px;
       background: transparent;
       color: var(--text, #141413);
-      font: 500 13px/1 var(--font-sans, system-ui, sans-serif);
+      font: 500 13px/20px var(--font-sans, system-ui, sans-serif);
       text-align: left;
       cursor: default;
+    }
+
+    body.desktop-custom-frame .desktop-help-menu-item .n-button__content {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content;
+      align-items: center;
+      gap: 16px;
+      width: 100%;
+      min-width: 0;
+      line-height: 20px;
+      overflow: visible;
     }
 
     body.desktop-custom-frame .desktop-help-menu-item:hover,
@@ -483,9 +496,15 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      line-height: 20px;
+    }
+
+    body.desktop-custom-frame .desktop-help-menu-label {
+      justify-self: start;
     }
 
     body.desktop-custom-frame .desktop-help-menu-shortcut {
+      justify-self: end;
       color: var(--text-muted, #6c6a64);
       font-size: 12px;
     }
@@ -578,6 +597,71 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     body.desktop-custom-frame > .shell {
       height: calc(100vh - var(--desktop-window-frame-height) - 18px);
       margin: calc(var(--desktop-window-frame-height) + 6px) 10px 10px;
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame {
+      --bg: #181715;
+      --bg-subtle: #1f1e1b;
+      --panel: #1f1e1b;
+      --panel-strong: #252320;
+      --text: #faf9f5;
+      --text-muted: #a09d96;
+      --border: rgba(250, 249, 245, 0.12);
+      --success: #5db872;
+      --warning: #e8a55a;
+      --danger: #e05b5b;
+      color-scheme: dark;
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-window-frame {
+      border-bottom-color: var(--border, rgba(250, 249, 245, 0.12));
+      background: var(--bg, #181715);
+      color: var(--text, #faf9f5);
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item,
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item,
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-window-button {
+      color: var(--text, #faf9f5);
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item:hover,
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item:focus-visible,
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item:hover,
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item:focus-visible,
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-window-button:hover {
+      background: rgba(250, 249, 245, 0.08);
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-popover {
+      border-color: var(--border, rgba(250, 249, 245, 0.12));
+      background: rgba(31, 30, 27, 0.96);
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38);
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-shortcut,
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status {
+      color: var(--text-muted, #a09d96);
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status {
+      border-color: var(--border, rgba(250, 249, 245, 0.12));
+      background: rgba(31, 30, 27, 0.72);
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="ok"] {
+      border-color: rgba(93, 184, 114, 0.46);
+      color: #8ed3a8;
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="pending"] {
+      border-color: rgba(232, 165, 90, 0.50);
+      color: #f0c37d;
+    }
+
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="warn"] {
+      border-color: rgba(224, 91, 91, 0.50);
+      color: #f08a8a;
     }
 
     @media (max-width: 760px) {

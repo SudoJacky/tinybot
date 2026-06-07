@@ -99,23 +99,41 @@ describe("knowledge pane Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("knowledge-pane");
     expect(host.getAttribute("data-desktop-module-surface")).toBe("knowledge");
     expect(host.getAttribute("aria-label")).toBe("Knowledge workbench");
-    expect(host.querySelector(".n-space.desktop-knowledge-stack")).not.toBeNull();
+    expect(host.querySelector(".desktop-knowledge-workbench-grid")?.getAttribute("data-desktop-knowledge-layout")).toBe(
+      "filters-graph-detail-results",
+    );
+    expect(Array.from(host.querySelectorAll("[data-desktop-knowledge-region]"), (node) => node.getAttribute("data-desktop-knowledge-region"))).toEqual([
+      "filters",
+      "graph",
+      "detail",
+      "results",
+    ]);
     expect(host.textContent).toContain("Knowledge");
     expect(host.textContent).toContain("2 docs / readiness 100% / graph 2 nodes / 1 edge");
 
     expect(host.querySelector(".desktop-knowledge-actions")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-actions");
     expect(host.querySelector('[data-desktop-knowledge-action="runQuery"]')?.textContent).toContain("Run query");
-    expect(host.querySelector(".desktop-knowledge-readiness")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-readiness");
-    expect(host.querySelector(".desktop-knowledge-readiness")?.textContent).toContain("Readiness");
-    expect(host.querySelector(".desktop-knowledge-documents")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-documents");
+    expect(host.querySelector('[data-desktop-knowledge-region="filters"] .desktop-knowledge-readiness')?.getAttribute("data-desktop-vue-island")).toBe(
+      "knowledge-readiness",
+    );
+    expect(host.querySelector('[data-desktop-knowledge-region="filters"] .desktop-knowledge-readiness')?.textContent).toContain("Readiness");
+    expect(host.querySelector('[data-desktop-knowledge-region="filters"] .desktop-knowledge-documents')?.getAttribute("data-desktop-vue-island")).toBe(
+      "knowledge-documents",
+    );
     expect(host.querySelector('[data-desktop-entity-module="knowledge"]')?.getAttribute("data-desktop-entity-id")).toBe("doc-1");
-    expect(host.querySelector(".desktop-knowledge-document-detail")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-document-detail");
-    expect(host.querySelector(".desktop-knowledge-document-detail")?.textContent).toContain("Document detail: Desktop UX");
-    expect(host.querySelector(".desktop-knowledge-query")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-query");
+    expect(host.querySelector('[data-desktop-knowledge-region="detail"] .desktop-knowledge-document-detail')?.getAttribute("data-desktop-vue-island")).toBe(
+      "knowledge-document-detail",
+    );
+    expect(host.querySelector('[data-desktop-knowledge-region="detail"] .desktop-knowledge-document-detail')?.textContent).toContain("Document detail: Desktop UX");
+    expect(host.querySelector('[data-desktop-knowledge-region="results"] .desktop-knowledge-query')?.getAttribute("data-desktop-vue-island")).toBe(
+      "knowledge-query",
+    );
     expect(host.querySelector('[data-desktop-knowledge-query-result]')?.textContent).toContain("Desktop panes expose graph evidence.");
-    expect(host.querySelector(".desktop-knowledge-graph")?.getAttribute("data-desktop-vue-island")).toBe("knowledge-graph");
+    expect(host.querySelector('[data-desktop-knowledge-region="graph"].desktop-knowledge-graph')?.getAttribute("data-desktop-vue-island")).toBe(
+      "knowledge-graph",
+    );
     expect(host.querySelector('[data-desktop-knowledge-graph-reference="Community:community-1"]')?.textContent).toContain("Desktop cluster");
-    expect(host.querySelector(".desktop-module-work")?.getAttribute("data-desktop-vue-island")).toBe("module-work");
+    expect(host.querySelector('[data-desktop-knowledge-region="detail"] .desktop-module-work')?.getAttribute("data-desktop-vue-island")).toBe("module-work");
     expect(host.querySelector('[data-desktop-module-work="knowledge:rebuild"]')?.textContent).toContain("Rebuild knowledge index");
 
     host.querySelector<HTMLButtonElement>('[data-desktop-knowledge-action="runQuery"]')?.click();

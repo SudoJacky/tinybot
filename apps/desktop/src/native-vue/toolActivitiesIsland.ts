@@ -17,6 +17,8 @@ export function mountToolActivitiesIsland(
 ): MountedToolActivitiesIsland {
   host.setAttribute("data-desktop-vue-island", "tool-activities");
   host.className = "desktop-tool-activities";
+  host.setAttribute("aria-label", "Tool Timeline");
+  host.setAttribute("data-desktop-chat-region", "tool-timeline");
   const app = createToolActivitiesApp(options);
   app.mount(host);
   return {
@@ -68,7 +70,11 @@ function createToolActivitiesApp(options: ToolActivitiesIslandOptions): App {
 }
 
 export function renderToolActivitiesNode(options: ToolActivitiesIslandOptions) {
-  return h("div", { class: "desktop-tool-activities" }, renderToolActivitiesChildren(options));
+  return h("div", {
+    "aria-label": "Tool Timeline",
+    class: "desktop-tool-activities",
+    "data-desktop-chat-region": "tool-timeline",
+  }, renderToolActivitiesChildren(options));
 }
 
 export function renderToolActivitiesChildren(options: ToolActivitiesIslandOptions) {

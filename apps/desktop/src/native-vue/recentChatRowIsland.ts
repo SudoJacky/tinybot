@@ -8,6 +8,11 @@ export interface RecentChatDeleteEvent {
   title: string;
 }
 
+export interface RecentChatStatusChip {
+  kind: "approval" | "files" | "knowledge" | "running";
+  label: string;
+}
+
 export interface RecentChatRowIslandOptions {
   active: boolean;
   chatId: string;
@@ -16,6 +21,7 @@ export interface RecentChatRowIslandOptions {
   pinned: boolean;
   routeId: string;
   sessionKey: string;
+  statusChips?: RecentChatStatusChip[];
   title: string;
   updatedLabel: string;
 }
@@ -91,6 +97,7 @@ function createRecentChatRowApp(options: RecentChatRowIslandOptions): App {
             h(NText, { class: "desktop-sidebar-row-meta", depth: 3, tag: "span" }, {
               default: () => options.updatedLabel,
             }),
+            renderStatusChips(options.sessionKey, options.statusChips),
           ]),
           h("button", {
             "aria-label": confirming.value ? `Confirm delete chat ${options.title}` : `Delete chat ${options.title}`,
@@ -106,4 +113,18 @@ function createRecentChatRowApp(options: RecentChatRowIslandOptions): App {
       });
     },
   }));
+}
+
+function renderStatusChips(sessionKey: string, chips: RecentChatStatusChip[] = []) {
+  if (!chips.length) {
+    return null;
+  }
+  return h("span", {
+    "aria-label": "Chat status",
+    class: "desktop-sidebar-row-status",
+    "data-desktop-chat-status": sessionKey,
+  }, chips.map((chip) => h("span", {
+    class: "desktop-sidebar-status-chip",
+    "data-status-kind": chip.kind,
+  }, chip.label)));
 }

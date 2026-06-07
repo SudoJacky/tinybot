@@ -23,6 +23,14 @@ describe("conversation message Vue island", () => {
       reasoningContent: "Inspected project context.",
       time: "10:28 AM",
       tone: "assistant",
+      toolActivities: [{
+        argsText: "README.md",
+        approvalStatus: "",
+        id: "tool-1",
+        kind: "call",
+        name: "read_file",
+        responseText: "Read README.md",
+      }],
     });
     await nextTick();
 
@@ -34,6 +42,9 @@ describe("conversation message Vue island", () => {
     expect(host.querySelector(".desktop-conversation-body")?.getAttribute("data-desktop-vue-island")).toBe("conversation-body");
     expect(host.querySelector(".desktop-conversation-reference")?.getAttribute("data-desktop-vue-island")).toBe("conversation-reference");
     expect(host.querySelector(".desktop-conversation-attachment")?.getAttribute("data-desktop-vue-island")).toBe("conversation-attachment");
+    expect(host.querySelector(".desktop-tool-activities")?.getAttribute("data-desktop-chat-region")).toBe("tool-timeline");
+    expect(host.querySelector(".desktop-tool-activities")?.getAttribute("aria-label")).toBe("Tool Timeline");
+    expect(host.querySelector(".desktop-tool-activity")?.textContent).toContain("read_file");
     expect(host.querySelector(".desktop-conversation-meta strong")?.textContent).toBe("Tinybot");
     expect(host.querySelector(".desktop-conversation-meta-separator")?.textContent).toBe(" · ");
     const metaSpans = Array.from(host.querySelectorAll(".desktop-conversation-meta span"));
@@ -61,7 +72,7 @@ describe("conversation message Vue island", () => {
     expect(host.textContent).toBe("");
   });
 
-  test("renders user message paragraphs", () => {
+  test("renders user message paragraphs", async () => {
     const host = document.createElement("article");
 
     mountConversationMessageIsland(host, {
@@ -71,6 +82,7 @@ describe("conversation message Vue island", () => {
       time: "10:29 AM",
       tone: "user",
     });
+    await nextTick();
 
     expect(Array.from(host.querySelectorAll(".desktop-conversation-body p")).map((paragraph) => paragraph.textContent)).toEqual([
       "First",

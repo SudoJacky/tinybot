@@ -8,6 +8,7 @@ export type DesktopMenuCommandId =
   | "open-workspace"
   | "open-knowledge"
   | "open-files"
+  | "open-cowork"
   | "open-tinybot-repo"
   | "open-settings"
   | "open-docs"
@@ -59,9 +60,9 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
   { id: "stop-generation", label: "Stop Generation", chromeLabel: "Stop", chromeGroup: "primary", shortcut: "Ctrl+." },
   { id: "search-sessions", label: "Search Sessions", chromeLabel: "Search", chromeGroup: "primary", shortcut: "Ctrl+F" },
   { id: "open-chat", label: "Chat", chromeGroup: "secondary", shortcut: "" },
-  { id: "open-workspace", label: "Workspace", chromeGroup: "secondary", shortcut: "" },
-  { id: "open-knowledge", label: "Knowledge", chromeGroup: "secondary", shortcut: "" },
   { id: "open-files", label: "Files", chromeGroup: "secondary", shortcut: "" },
+  { id: "open-knowledge", label: "Knowledge", chromeGroup: "secondary", shortcut: "" },
+  { id: "open-cowork", label: "Cowork", chromeGroup: "secondary", shortcut: "" },
   { id: "open-tinybot-repo", label: "Tinybot repo", chromeGroup: "secondary", shortcut: "" },
   { id: "open-settings", label: "Settings", chromeGroup: "secondary", shortcut: "Ctrl+," },
   { id: "open-docs", label: "Documentation", chromeGroup: "secondary", shortcut: "F1" },
@@ -74,23 +75,24 @@ export const DESKTOP_MENU_COMMANDS: DesktopMenuCommand[] = [
 ];
 
 const DESKTOP_CHROME_COMMAND_IDS: DesktopMenuCommandId[] = [
+  "new-chat",
+  "search-sessions",
+  "open-command-palette",
+  "stop-generation",
   "toggle-theme",
+  "toggle-sidebar",
 ];
 
 const DESKTOP_RESOURCE_COMMAND_IDS: DesktopMenuCommandId[] = [
   "open-chat",
-  "open-workspace",
-  "open-knowledge",
   "open-files",
-  "open-settings",
-  "open-docs",
-  "open-tinybot-repo",
+  "open-knowledge",
+  "open-cowork",
 ];
 
 const DESKTOP_SYSTEM_COMMAND_IDS: DesktopMenuCommandId[] = [
   "open-settings",
   "refresh-gateway-status",
-  "open-docs",
 ];
 
 export const DESKTOP_CHROME_COMMANDS: DesktopMenuCommand[] = DESKTOP_CHROME_COMMAND_IDS
@@ -106,8 +108,10 @@ export const DESKTOP_SYSTEM_COMMANDS: DesktopMenuCommand[] = DESKTOP_SYSTEM_COMM
   .filter((command): command is DesktopMenuCommand => Boolean(command));
 
 const DESKTOP_HELP_COMMAND_IDS: DesktopMenuCommandId[] = [
+  "open-docs",
   "open-shortcut-help",
   "open-page-help",
+  "open-tinybot-repo",
 ];
 
 export const DESKTOP_HELP_COMMANDS: DesktopMenuCommand[] = DESKTOP_HELP_COMMAND_IDS
@@ -135,11 +139,13 @@ export function routeDesktopMenuCommand(id: string, context: DesktopMenuCommandC
     case "open-chat":
       return { kind: "navigate", href: "/chat" };
     case "open-workspace":
-      return { kind: "navigate", href: "/workspace" };
+      return { kind: "navigate", href: "/files" };
     case "open-knowledge":
       return { kind: "navigate", href: "/knowledge" };
     case "open-files":
       return { kind: "navigate", href: "/files" };
+    case "open-cowork":
+      return { kind: "navigate", href: "/cowork" };
     case "open-tinybot-repo":
       return { kind: "navigate", href: "https://github.com/SudoJacky/tinybot" };
     case "open-settings":

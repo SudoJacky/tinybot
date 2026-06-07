@@ -1,6 +1,6 @@
 import hljs from "highlight.js";
 import { marked } from "marked";
-import { createApp, defineComponent, h, onMounted, ref, type App } from "vue";
+import { createApp, defineComponent, h, onMounted, ref, watch, type App } from "vue";
 import { NConfigProvider, NText } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
@@ -41,7 +41,10 @@ function createConversationBodyApp(options: ConversationBodyIslandOptions): App 
 }
 
 export function renderConversationBodyNode(options: ConversationBodyIslandOptions) {
-  return h("div", { class: "desktop-conversation-body" }, renderConversationBodyChildren(options));
+  return h("div", {
+    class: "desktop-conversation-body",
+    "data-desktop-vue-island": "conversation-body",
+  }, renderConversationBodyChildren(options));
 }
 
 export function renderConversationBodyChildren(options: ConversationBodyIslandOptions) {
@@ -61,11 +64,13 @@ const ConversationMarkdownBody = defineComponent({
   },
   setup(props) {
     const markdownHost = ref<HTMLElement | null>(null);
-    onMounted(() => {
+    const renderMarkdown = () => {
       if (markdownHost.value) {
         renderConversationMarkdown(markdownHost.value, props.content);
       }
-    });
+    };
+    onMounted(renderMarkdown);
+    watch(() => props.content, renderMarkdown);
     return () => h("div", { ref: markdownHost });
   },
 });

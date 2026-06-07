@@ -1,8 +1,6 @@
-import { createApp, defineComponent, h, onBeforeUnmount, onMounted, ref, type App } from "vue";
-import { NCard, NConfigProvider } from "naive-ui";
+import { createApp, defineComponent, h, ref, type App } from "vue";
+import { NButton, NConfigProvider, NText } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
-import { mountChatMenuActionIsland } from "./chatMenuActionIsland";
-import { mountChatMenuEmptyIsland } from "./chatMenuEmptyIsland";
 
 export interface ChatMenuPopoverAction {
   action: string;
@@ -43,70 +41,35 @@ function createChatMenuPopoverApp(options: ChatMenuPopoverIslandOptions): App {
     name: "ChatMenuPopoverIsland",
     setup() {
       const labels = ref(options.actions.map((action) => action.label));
-      const mountedChildren: Array<{ unmount: () => void }> = [];
-      const actionHosts = ref<Array<HTMLButtonElement | null>>([]);
-      const emptyHost = ref<HTMLElement | null>(null);
 
-      const unmountChildren = (): void => {
-        while (mountedChildren.length) {
-          mountedChildren.pop()?.unmount();
-        }
-      };
-
-      const mountActions = (): void => {
-        unmountChildren();
-        if (!options.actions.length) {
-          mountChild(mountedChildren, emptyHost.value, (host) => mountChatMenuEmptyIsland(host, {
-            message: options.emptyMessage,
-          }));
-          return;
-        }
-        options.actions.forEach((action, index) => {
-          mountChild(mountedChildren, actionHosts.value[index] ?? null, (host) => mountChatMenuActionIsland(host, {
-            action: action.action,
+      return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
+        default: () => options.actions.length
+          ? options.actions.map((action, index) => h(NButton, {
+            block: true,
+            class: "desktop-chat-menu-action",
+            "data-desktop-chat-menu-action": action.action,
+            "data-desktop-vue-island": "chat-menu-action",
             disabled: action.disabled,
-            label: labels.value[index] ?? action.label,
+            quaternary: true,
+            role: "menuitem",
+            size: "small",
             onClick: () => {
+              if (action.disabled) {
+                return;
+              }
               const nextLabel = action.onAction?.();
               if (typeof nextLabel === "string") {
                 labels.value = labels.value.map((label, labelIndex) => labelIndex === index ? nextLabel : label);
-                mountActions();
               }
             },
-          }));
-        });
-      };
-
-      onMounted(mountActions);
-      onBeforeUnmount(unmountChildren);
-
-      return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
-        default: () => h(NCard, {
-          class: "desktop-chat-menu-popover-card",
-          size: "small",
-          bordered: false,
-        }, {
-          default: () => options.actions.length
-            ? options.actions.map((action, index) => h("button", {
-              ref: (element) => {
-                actionHosts.value[index] = element as HTMLButtonElement | null;
-              },
-              "data-desktop-chat-menu-action": action.action,
-            }))
-            : h("span", { ref: emptyHost }),
-        }),
+          }, { default: () => labels.value[index] ?? action.label }))
+          : h(NText, {
+            class: "desktop-chat-menu-empty",
+            "data-desktop-vue-island": "chat-menu-empty",
+            depth: 3,
+            tag: "span",
+          }, { default: () => options.emptyMessage }),
       });
     },
   }));
-}
-
-function mountChild<T extends { unmount: () => void }>(
-  mountedChildren: Array<{ unmount: () => void }>,
-  host: HTMLElement | null,
-  mount: (host: HTMLElement) => T,
-): void {
-  if (!host) {
-    return;
-  }
-  mountedChildren.push(mount(host));
 }

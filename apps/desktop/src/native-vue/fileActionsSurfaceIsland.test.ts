@@ -20,7 +20,7 @@ describe("file actions surface Vue island", () => {
     expect(host.querySelector("#desktop-knowledge-upload")?.closest(".desktop-file-import-card")?.getAttribute("data-desktop-vue-island")).toBe("file-import-card");
     expect(host.querySelector("#desktop-knowledge-upload")?.getAttribute("data-desktop-file-upload")).toBe("knowledge-document");
     expect(host.querySelector("#desktop-session-file-upload")?.getAttribute("data-desktop-file-upload")).toBe("session-temporary-file");
-    expect(host.querySelector("#desktop-workspace-file-drop")?.getAttribute("href")).toBe("/workspace");
+    expect(host.querySelector("#desktop-workspace-file-drop")?.getAttribute("href")).toBe("/files");
     expect(host.querySelector("#desktop-file-session-formats")?.textContent).toContain("png");
 
     const sessionKey = host.querySelector<HTMLInputElement>("#desktop-session-upload-key");

@@ -85,7 +85,7 @@ export function buildDesktopFileTaskOperation(input: DesktopFileTaskInput): Desk
     title: input.title || "File operation",
     status: input.status || "active",
     detail: input.detail || (path ? path : "File operation"),
-    canonical: { module: "workspace", entityId: path || input.id, href: "/workspace" },
+    canonical: { module: "files", entityId: path || input.id, href: "/files" },
     diagnostics: stringValue(input.error),
     retryable: input.retryable ?? failed,
     updatedAt: stringValue(input.updatedAt),
@@ -106,6 +106,7 @@ export function buildDesktopApprovalTaskOperations(payload: unknown): DesktopTas
       diagnostics: firstNonEmpty(approval.diagnostics),
       retryable: false,
       updatedAt: firstNonEmpty(approval.updated_at, approval.updatedAt, approval.created_at),
+      approval: { approvalId: id, sessionKey },
     };
   });
 }

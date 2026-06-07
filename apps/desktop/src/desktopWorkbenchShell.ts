@@ -46,7 +46,8 @@ import {
 import type { WorkbenchLayoutState, WorkbenchPanelId, WorkbenchPanelState } from "./desktopWorkbenchLayout";
 import { loadWorkbenchLayout } from "./desktopWorkbenchLayout";
 import { installDesktopDesignTokens } from "./desktopDesignTokens";
-import type { NativeChatMessage, NativeChatSession } from "./nativeChat";
+import { logDesktopNativeChatDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import type { NativeChatMessage, NativeChatReference, NativeChatSession } from "./nativeChat";
 import { mountAgentUiFormActionsIsland } from "./native-vue/agentUiFormActionsIsland";
 import { mountAgentUiFormCardIsland } from "./native-vue/agentUiFormCardIsland";
 import { mountAgentUiFormFieldIsland } from "./native-vue/agentUiFormFieldIsland";
@@ -65,14 +66,14 @@ import { mountComposerAttachButtonIsland } from "./native-vue/composerAttachButt
 import { mountComposerModelControlIsland } from "./native-vue/composerModelControlIsland";
 import { mountComposerRuntimeIsland } from "./native-vue/composerRuntimeIsland";
 import { mountComposerSendButtonIsland } from "./native-vue/composerSendButtonIsland";
-import { mountComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
+import { mountOrUpdateComposerSurfaceIsland } from "./native-vue/composerSurfaceIsland";
 import { mountConversationAttachmentIsland } from "./native-vue/conversationAttachmentIsland";
 import { mountConversationBodyIsland } from "./native-vue/conversationBodyIsland";
 import { mountConversationMessageIsland } from "./native-vue/conversationMessageIsland";
 import { mountConversationMetaIsland } from "./native-vue/conversationMetaIsland";
 import { mountConversationReasoningIsland } from "./native-vue/conversationReasoningIsland";
 import { mountConversationReferenceIsland } from "./native-vue/conversationReferenceIsland";
-import { mountConversationThreadIsland } from "./native-vue/conversationThreadIsland";
+import { mountOrUpdateConversationThreadIsland } from "./native-vue/conversationThreadIsland";
 import { mountCoworkActionsIsland } from "./native-vue/coworkActionsIsland";
 import { mountCoworkDataRowIsland } from "./native-vue/coworkDataRowIsland";
 import { mountCoworkGraphIsland } from "./native-vue/coworkGraphIsland";
@@ -105,8 +106,8 @@ import { mountMainUtilitiesRegionIsland } from "./native-vue/mainUtilitiesRegion
 import { mountModuleWorkSectionIsland } from "./native-vue/moduleWorkSectionIsland";
 import { mountPanelIconPartIsland } from "./native-vue/panelIconPartIsland";
 import { mountPersistentRagToggleIsland } from "./native-vue/persistentRagToggleIsland";
-import { mountQuickActionsIsland } from "./native-vue/quickActionsIsland";
 import { mountRecentChatRowIsland } from "./native-vue/recentChatRowIsland";
+import type { RecentChatStatusChip } from "./native-vue/recentChatRowIsland";
 import { mountRunChainInspectorIsland } from "./native-vue/runChainInspectorIsland";
 import { mountRunChainOverviewIsland } from "./native-vue/runChainOverviewIsland";
 import { mountSidebarActionsIsland } from "./native-vue/sidebarActionsIsland";
@@ -371,6 +372,12 @@ const COWORK_GRAPH_EDGE_LIMIT = 12;
 const COWORK_OBSERVABILITY_ROW_LIMIT = 24;
 const COWORK_TASK_FEED_LIMIT = 20;
 type DesktopPanelControlId = "sidebar" | "inspector" | "bottom";
+interface DesktopWorkbenchLiveState {
+  runChainItems: DesktopRunChainItem[];
+  taskCenterItems: DesktopTaskCenterItem[];
+}
+
+const desktopWorkbenchLiveStates = new WeakMap<Document, DesktopWorkbenchLiveState>();
 
 export function installDesktopWorkbenchShell({
   targetDocument = document,
@@ -400,6 +407,10 @@ export function installDesktopWorkbenchShell({
   installDesktopDesignTokens(targetDocument);
   ensureDesktopWorkbenchShellStyle(targetDocument);
   targetDocument.body.classList.add("desktop-native-workbench");
+  desktopWorkbenchLiveStates.set(targetDocument, {
+    runChainItems,
+    taskCenterItems,
+  });
   targetDocument.body.replaceChildren(createWorkbenchShell(targetDocument, layout, runtimeStatus, chat, chatActions, agentUiForms, agentUiActions, gatewayHttp, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, runChainItems, selectedRunChainItemKey, workLens, workLensActions, taskActions, gatewayActions));
   if (chat) {
     syncNativeChatDocumentState(targetDocument, chat);
@@ -418,6 +429,11 @@ export function updateDesktopTaskCenterItems(
   }
   const next = createTaskCenterSurface(targetDocument, items, taskActions);
   taskCenter.replaceChildren(...Array.from(next.children));
+  const liveState = desktopWorkbenchLiveStates.get(targetDocument);
+  if (liveState) {
+    liveState.taskCenterItems = items;
+    refreshRunChainOverviewFromTaskCenter(targetDocument, liveState);
+  }
   refreshVisibleWorkLensFromTaskCenter(targetDocument, items);
 }
 
@@ -485,6 +501,26 @@ export function updateDesktopAgentUiForms(
   }
   const next = createAgentUiFormsSurface(targetDocument, forms, agentUiActions);
   surface.replaceChildren(...Array.from(next.children));
+  updateInlineAgentUiForms(targetDocument, forms, agentUiActions);
+}
+
+function updateInlineAgentUiForms(
+  targetDocument: Document,
+  forms: AgentUiForm[],
+  agentUiActions: DesktopAgentUiFormActionOptions,
+): void {
+  const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
+  if (!thread) {
+    return;
+  }
+  for (const card of Array.from(thread.querySelectorAll(".desktop-agent-ui-form-inline"))) {
+    card.remove();
+  }
+  const documentElement = (targetDocument as Document & { documentElement?: HTMLElement }).documentElement;
+  const activeChatId = documentElement?.dataset.desktopActiveChatId ?? "";
+  for (const form of forms.filter((item) => agentUiFormChatId(item) === activeChatId)) {
+    thread.append(createInlineAgentUiFormCard(targetDocument, form, agentUiActions));
+  }
 }
 
 export function updateDesktopCoworkPane(
@@ -506,6 +542,10 @@ export function updateDesktopNativeChat(
   _gatewayHttp = "",
   chatActions: DesktopNativeChatActionOptions = {},
 ): void {
+  logDesktopNativeChatDebug("shell.update", {
+    chat: summarizeDesktopNativeChatForDebug(chat),
+    dom: summarizeNativeChatDomForDebug(targetDocument),
+  });
   syncNativeChatDocumentState(targetDocument, chat);
   const header = targetDocument.querySelector<HTMLElement>(".desktop-chat-header");
   if (header) {
@@ -516,9 +556,14 @@ export function updateDesktopNativeChat(
   const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
   if (thread) {
     const scrollState = captureConversationThreadScroll(thread);
-    const next = createConversationThread(targetDocument, chat);
-    thread.replaceChildren(...Array.from(next.children));
+    if (canMountVueIsland(thread)) {
+      mountConversationThreadVueIsland(thread, conversationThreadOptions(chat));
+    } else {
+      const next = createConversationThread(targetDocument, chat);
+      thread.replaceChildren(...Array.from(next.children));
+    }
     restoreConversationThreadScroll(thread, scrollState);
+    queueConversationThreadScrollRestore(thread, scrollState);
   }
 
   syncChatWorkbenchChrome(targetDocument, chat);
@@ -537,12 +582,16 @@ export function updateDesktopNativeChat(
 
   const composer = targetDocument.getElementById("desktop-native-composer");
   if (composer) {
-    const next = createNativeComposerSurface(targetDocument, chat, chatActions);
     composer.setAttribute("data-active-session-key", chat.activeSessionKey);
     composer.setAttribute("data-desktop-composer-responding", String(chat.responding === true));
     composer.setAttribute("data-desktop-composer-rag", String(chat.usePersistentRag !== false));
     composer.setAttribute("data-desktop-composer-state", nativeComposerState(chat));
-    composer.replaceChildren(...Array.from(next.children));
+    if (canMountVueIsland(composer)) {
+      mountComposerSurfaceVueIsland(composer, chat, chatActions);
+    } else {
+      const next = createNativeComposerSurface(targetDocument, chat, chatActions);
+      composer.replaceChildren(...Array.from(next.children));
+    }
   }
   syncSessionFileUploadKey(targetDocument, chat.activeSessionKey);
 }
@@ -599,6 +648,55 @@ function restoreConversationThreadScroll(
   thread.scrollTop = boundedScrollTop(thread, scrollState.scrollTop);
 }
 
+function summarizeDesktopNativeChatForDebug(chat: DesktopNativeChatModel): Record<string, unknown> {
+  return {
+    activeChatId: chat.activeChatId,
+    activeSessionKey: chat.activeSessionKey,
+    composerState: nativeComposerState(chat),
+    hasVisibleMessages: hasVisibleConversationMessages(chat),
+    messageCount: chat.messages.length,
+    responding: chat.responding === true,
+    sessionCount: chat.sessions.length,
+    status: chat.status,
+    visibleMessagePreview: chat.messages.slice(-2).map((message) => ({
+      content: summarizeDebugText(message.content),
+      messageId: message.messageId,
+      reasoning: summarizeDebugText(message.reasoningContent),
+      role: message.role,
+      toolActivities: message.toolActivities?.length ?? 0,
+    })),
+  };
+}
+
+function summarizeNativeChatDomForDebug(targetDocument: Document): Record<string, unknown> {
+  const composer = targetDocument.getElementById("desktop-native-composer");
+  const input = targetDocument.getElementById("desktop-native-composer-input") as HTMLTextAreaElement | null;
+  const send = targetDocument.getElementById("desktop-native-composer-send") as HTMLButtonElement | null;
+  const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
+  return {
+    composerMounted: Boolean(composer),
+    composerState: composer?.getAttribute("data-desktop-composer-state") ?? "",
+    input: input ? summarizeDebugText(input.value) : undefined,
+    inputFocused: input ? targetDocument.activeElement === input : false,
+    sendDisabled: send?.disabled ?? null,
+    threadMounted: Boolean(thread),
+    threadText: thread ? summarizeDebugText(thread.textContent ?? "") : undefined,
+    vueComposer: composer?.getAttribute("data-desktop-vue-island") ?? "",
+    vueThread: thread?.getAttribute("data-desktop-vue-island") ?? "",
+  };
+}
+
+function queueConversationThreadScrollRestore(
+  thread: HTMLElement,
+  scrollState: { bottomOffset: number; scrollTop: number; wasNearBottom: boolean },
+): void {
+  const queue = thread.ownerDocument.defaultView?.queueMicrotask ?? globalThis.queueMicrotask;
+  if (typeof queue !== "function") {
+    return;
+  }
+  queue(() => restoreConversationThreadScroll(thread, scrollState));
+}
+
 function boundedScrollTop(element: HTMLElement, value: number): number {
   const maxScrollTop = Math.max(0, Number(element.scrollHeight || 0) - Number(element.clientHeight || 0));
   return Math.min(Math.max(0, Number.isFinite(value) ? value : 0), maxScrollTop);
@@ -643,7 +741,7 @@ function createWorkbenchShell(
     createActivityRail(targetDocument),
     createPanel(targetDocument, "sidebar", layout.sidebar, createSidebar(targetDocument, chat, chatActions)),
     createMainRegion(targetDocument, gatewayHttp, layout, chat, chatActions, agentUiForms, agentUiActions, taskCenterItems, settingsPane, settingsActions, knowledgePane, knowledgeActions, toolsSkillsPane, toolsSkillsActions, coworkPane, coworkActions, workLens, workLensActions),
-    createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions)),
+    createPanel(targetDocument, "inspector", layout.inspector, createInspector(targetDocument, runChainItems, taskCenterItems, selectedRunChainItemKey, workLens, workLensActions)),
     createPanel(targetDocument, "bottom", layout.bottom, createBottomRegion(targetDocument, runtimeStatus, gatewayHttp, taskCenterItems, taskActions, gatewayActions)),
   );
 
@@ -665,7 +763,7 @@ function createActivityRail(targetDocument: Document): HTMLElement {
   primary.className = "desktop-activity-primary";
   for (const [index, [label, href, module]] of [
     ["Chat", "/chat", "chat"],
-    ["Files", "/workspace", "workspace"],
+    ["Files", "/files", "files"],
     ["Knowledge", "/knowledge", "knowledge"],
     ["Cowork", "/cowork", "cowork"],
     ["Docs", "/docs", "docs"],
@@ -853,6 +951,7 @@ function createSidebarRecentChats(
         chatActions,
         routeId,
         pinnedSessionKeys.has(session.key),
+        recentChatStatusChips(session, chat),
       ));
     }
     if (!sessions.length) {
@@ -863,6 +962,7 @@ function createSidebarRecentChats(
       session,
       session.key === chat.activeSessionKey,
       pinnedSessionKeys.has(session.key),
+      recentChatStatusChips(session, chat),
     )), chatActions);
     return section;
   }
@@ -892,13 +992,19 @@ function createSidebarRecentChats(
   return section;
 }
 
-function recentChatRowModel(session: NativeChatSession, active: boolean, pinned: boolean): {
+function recentChatRowModel(
+  session: NativeChatSession,
+  active: boolean,
+  pinned: boolean,
+  statusChips: RecentChatStatusChip[] = [],
+): {
   active: boolean;
   chatId: string;
   href: string;
   pinned: boolean;
   routeId: string;
   sessionKey: string;
+  statusChips: RecentChatStatusChip[];
   title: string;
   updatedLabel: string;
 } {
@@ -911,9 +1017,61 @@ function recentChatRowModel(session: NativeChatSession, active: boolean, pinned:
     pinned,
     routeId,
     sessionKey: session.key,
+    statusChips,
     title,
     updatedLabel: session.updatedAt ? `Updated ${formatCompactTime(session.updatedAt)}` : session.chatId,
   };
+}
+
+function recentChatStatusChips(session: NativeChatSession, chat: DesktopNativeChatModel): RecentChatStatusChip[] {
+  if (session.key !== chat.activeSessionKey) {
+    return [];
+  }
+  const chips: RecentChatStatusChip[] = [];
+  if (chat.responding === true || chat.composerState === "sending" || chat.composerState === "queued") {
+    chips.push({ kind: "running", label: "Running" });
+  }
+  if (chat.messages.some(messageHasPendingApproval)) {
+    chips.push({ kind: "approval", label: "Approval" });
+  }
+  const referenceCount = chat.messages.reduce((count, message) => count + (message.references?.length ?? 0), 0);
+  if (referenceCount > 0) {
+    chips.push({ kind: "files", label: `${referenceCount} ref${referenceCount === 1 ? "" : "s"}` });
+  }
+  chips.push({
+    kind: "knowledge",
+    label: chat.usePersistentRag === false ? "Knowledge Off" : "Knowledge On",
+  });
+  return chips;
+}
+
+function messageHasPendingApproval(message: NativeChatMessage): boolean {
+  return (message.toolActivities ?? []).some((activity) => {
+    const status = activity.approvalStatus?.toLowerCase() ?? "";
+    return status.includes("approval") && !status.includes("approved");
+  });
+}
+
+function createRecentChatStatus(
+  targetDocument: Document,
+  sessionKey: string,
+  chips: RecentChatStatusChip[],
+): HTMLElement | null {
+  if (!chips.length) {
+    return null;
+  }
+  const status = targetDocument.createElement("span");
+  status.className = "desktop-sidebar-row-status";
+  status.setAttribute("aria-label", "Chat status");
+  status.setAttribute("data-desktop-chat-status", sessionKey);
+  for (const chip of chips) {
+    const pill = targetDocument.createElement("span");
+    pill.className = "desktop-sidebar-status-chip";
+    pill.setAttribute("data-status-kind", chip.kind);
+    pill.textContent = chip.label;
+    status.append(pill);
+  }
+  return status;
 }
 
 function mountSidebarRecentChatsVueIsland(
@@ -925,6 +1083,7 @@ function mountSidebarRecentChatsVueIsland(
     pinned: boolean;
     routeId: string;
     sessionKey: string;
+    statusChips?: RecentChatStatusChip[];
     title: string;
     updatedLabel: string;
   }>,
@@ -959,6 +1118,7 @@ function createRecentChatRow(
   chatActions: DesktopNativeChatActionOptions,
   routeId = desktopChatRouteId(session),
   pinned = false,
+  statusChips: RecentChatStatusChip[] = [],
 ): HTMLElement {
   const row = targetDocument.createElement("div");
   row.className = "desktop-sidebar-chat-row";
@@ -993,6 +1153,10 @@ function createRecentChatRow(
   time.className = "desktop-sidebar-row-meta";
   time.textContent = updatedLabel;
   link.append(titleWrap, time);
+  const status = createRecentChatStatus(targetDocument, session.key, statusChips);
+  if (status) {
+    link.append(status);
+  }
 
   const deleteButton = targetDocument.createElement("button");
   deleteButton.type = "button";
@@ -1030,6 +1194,7 @@ function createRecentChatRow(
     pinned,
     routeId,
     sessionKey: session.key,
+    statusChips,
     title,
     updatedLabel,
   });
@@ -1046,6 +1211,7 @@ function mountRecentChatRowVueIsland(
     pinned: boolean;
     routeId: string;
     sessionKey: string;
+    statusChips?: RecentChatStatusChip[];
     title: string;
     updatedLabel: string;
   },
@@ -1093,7 +1259,7 @@ function createSidebarRow(
   const row = targetDocument.createElement("a");
   row.className = "desktop-sidebar-row";
   const href = kind === "folder"
-    ? "/workspace"
+    ? "/files"
     : entityId
       ? `/chat/${encodeURIComponent(entityId)}`
       : "/chat";
@@ -1167,7 +1333,7 @@ function createMainRegion(
   workbench.className = "desktop-empty-session desktop-chat-workbench";
   const workbenchChildren = [
     createChatHeader(targetDocument, chat, layout, chatActions),
-    createConversationThread(targetDocument, chat),
+    createConversationThread(targetDocument, chat, activeChatAgentUiForms(chat, agentUiForms), agentUiActions),
   ];
   if (showEmptySession) {
     workbenchChildren.push(createChatWorkbenchEmptyState(targetDocument, chatWorkItems));
@@ -1229,13 +1395,24 @@ function hasVisibleConversationMessages(chat: DesktopNativeChatModel): boolean {
   ));
 }
 
+function activeChatAgentUiForms(chat: DesktopNativeChatModel | null, forms: AgentUiForm[]): AgentUiForm[] {
+  if (!chat?.activeChatId) {
+    return [];
+  }
+  return forms.filter((form) => agentUiFormChatId(form) === chat.activeChatId);
+}
+
+function agentUiFormChatId(form: AgentUiForm): string {
+  const correlated = form.correlation?.chat_id;
+  return form.chat_id || (typeof correlated === "string" ? correlated : "");
+}
+
 function createChatWorkbenchEmptyState(targetDocument: Document, chatWorkItems: DesktopTaskCenterItem[]): HTMLElement {
   const workbenchChrome = targetDocument.createElement("div");
   workbenchChrome.className = "desktop-chat-workbench-chrome";
   workbenchChrome.append(
     createText(targetDocument, "h2", "Start a new session"),
     createText(targetDocument, "p", "Ask Tinybot about the workspace, inspect files, or create a task."),
-    createQuickActions(targetDocument),
     ...(chatWorkItems.length ? [createModuleWorkSection(targetDocument, "Chat runs", chatWorkItems)] : []),
   );
   mountChatWorkbenchVueIsland(workbenchChrome, targetDocument, chatWorkItems);
@@ -1353,6 +1530,10 @@ function createChatHeader(
     mountChatTitleIsland(title, { title: activeChatTitle(chat) });
   }
   titleGroup.append(context, title);
+  const headerStatus = createChatHeaderStatus(targetDocument, chat, chatActions);
+  if (headerStatus) {
+    titleGroup.append(headerStatus);
+  }
 
   const menu = targetDocument.createElement("button");
   menu.type = "button";
@@ -1365,6 +1546,16 @@ function createChatHeader(
 
   const popover = createChatMenuPopover(targetDocument, chat, activeSession, title, menu, chatActions);
   mountChatMenuButtonVueIsland(menu, popover);
+  targetDocument.addEventListener("click", (event) => {
+    if (popover.hidden) {
+      return;
+    }
+    const target = "target" in event ? event.target : null;
+    if (isEventTargetInsideElement(target, menu) || isEventTargetInsideElement(target, popover)) {
+      return;
+    }
+    closeChatMenuPopover(menu, popover);
+  });
 
   titleRow.append(titleGroup, menu, popover);
 
@@ -1382,8 +1573,8 @@ function createChatHeader(
       panel: "inspector",
       visible: layout.inspector.visible,
       label: "▌",
-      pressedLabel: "Close Run Chain panel",
-      unpressedLabel: "Open Run Chain panel",
+      pressedLabel: "Close Activity inspector",
+      unpressedLabel: "Open Activity inspector",
     }),
   );
 
@@ -1398,14 +1589,37 @@ function createChatHeader(
     {
       panel: "inspector",
       visible: layout.inspector.visible,
-      label: "Run Chain",
-      pressedLabel: "Close Run Chain panel",
-      unpressedLabel: "Open Run Chain panel",
+      label: "Activity",
+      pressedLabel: "Close Activity inspector",
+      unpressedLabel: "Open Activity inspector",
     },
   ]);
 
   header.append(titleRow, actions);
   return header;
+}
+
+function createChatHeaderStatus(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  chatActions: DesktopNativeChatActionOptions,
+): HTMLElement | null {
+  if (chat?.responding !== true && chat?.composerState !== "sending" && chat?.composerState !== "queued") {
+    return null;
+  }
+  const status = targetDocument.createElement("div");
+  status.className = "desktop-chat-header-status";
+  status.setAttribute("aria-label", "Chat response controls");
+  status.setAttribute("data-desktop-chat-region", "header-status");
+  const stop = targetDocument.createElement("button");
+  stop.type = "button";
+  stop.className = "desktop-chat-header-stop";
+  stop.setAttribute("aria-label", "Stop current response");
+  stop.setAttribute("data-desktop-chat-action", "stop");
+  stop.textContent = "Stop";
+  stop.addEventListener("click", () => chatActions.onInterrupt?.());
+  status.append(stop);
+  return status;
 }
 
 function mountChatMenuButtonVueIsland(menu: HTMLElement, popover: HTMLElement): void {
@@ -1447,6 +1661,15 @@ function toggleChatMenuPopover(menu: HTMLElement, popover: HTMLElement): void {
   const expanded = menu.getAttribute("aria-expanded") === "true";
   menu.setAttribute("aria-expanded", String(!expanded));
   popover.hidden = expanded;
+}
+
+function closeChatMenuPopover(menu: HTMLElement, popover: HTMLElement): void {
+  menu.setAttribute("aria-expanded", "false");
+  popover.hidden = true;
+}
+
+function isEventTargetInsideElement(target: EventTarget | null, element: HTMLElement): boolean {
+  return typeof Node !== "undefined" && target instanceof Node && (target === element || element.contains(target));
 }
 
 function activeChatSession(chat: DesktopNativeChatModel | null): NativeChatSession | null {
@@ -1860,42 +2083,32 @@ function mountPanelIconPartVueIsland(node: HTMLElement, part: "frame" | "rail"):
   mountPanelIconPartIsland(node, { part });
 }
 
-function createConversationThread(targetDocument: Document, chat: DesktopNativeChatModel | null): HTMLElement {
+function createConversationThread(
+  targetDocument: Document,
+  chat: DesktopNativeChatModel | null,
+  inlineForms: AgentUiForm[] = [],
+  agentUiActions: DesktopAgentUiFormActionOptions = {},
+): HTMLElement {
   const thread = targetDocument.createElement("section");
   thread.className = "desktop-conversation-thread";
-  thread.setAttribute("aria-label", "Conversation");
+  thread.setAttribute("aria-label", "Message Timeline");
+  thread.setAttribute("aria-live", "polite");
+  thread.setAttribute("data-desktop-chat-region", "message-timeline");
+  thread.setAttribute("role", "log");
   if (chat) {
     if (!chat.activeSessionKey) {
-      mountConversationThreadVueIsland(thread, { emptyMessage: "", messages: [] });
+      mountConversationThreadVueIsland(thread, conversationThreadMountOptions({ emptyMessage: "", messages: [] }, inlineForms, agentUiActions));
       return thread;
     }
-    if (!hasVisibleConversationMessages(chat)) {
-      mountConversationThreadVueIsland(thread, { emptyMessage: "", messages: [] });
+    if (!hasVisibleConversationMessages(chat) && !inlineForms.length) {
+      mountConversationThreadVueIsland(thread, conversationThreadMountOptions({ emptyMessage: "", messages: [] }, inlineForms, agentUiActions));
       return thread;
     }
-    const messages = chat.messages.map((message) => ({
-      author: message.role === "user" ? "You" : "Tinybot",
-      time: formatCompactTime(message.timestamp),
-      tone: message.role === "user" ? "user" as const : "assistant" as const,
-      reasoningContent: message.reasoningContent,
-      body: shouldRenderConversationBody(message) ? [message.content].filter(Boolean) : [],
-      toolActivities: (message.toolActivities ?? []).map((activity) => ({
-        argsText: activity.argsText || "",
-        approvalStatus: activity.approvalStatus || "",
-        id: activity.id || "",
-        kind: activity.kind,
-        name: activity.name || "",
-        responseText: activity.responseText || "",
-        runChainItemKey: conversationToolActivityRunChainKey(message, activity),
-      })),
-      references: (message.references ?? []).map((reference) => ({
-        detail: reference.detail ?? "",
-        kind: reference.kind,
-        title: reference.title,
-      })),
-    }));
+    const options = conversationThreadOptions(chat);
+    const { messages } = options;
     thread.append(...messages.map((message) => createConversationMessage(targetDocument, message)));
-    mountConversationThreadVueIsland(thread, { emptyMessage: "", messages });
+    thread.append(...inlineForms.map((form) => createInlineAgentUiFormCard(targetDocument, form, agentUiActions)));
+    mountConversationThreadVueIsland(thread, conversationThreadMountOptions(options, inlineForms, agentUiActions));
     return thread;
   }
   thread.append(
@@ -1922,10 +2135,95 @@ function createConversationThread(targetDocument: Document, chat: DesktopNativeC
   return thread;
 }
 
+function conversationThreadMountOptions(
+  options: ReturnType<typeof conversationThreadOptions>,
+  inlineForms: AgentUiForm[],
+  agentUiActions: DesktopAgentUiFormActionOptions,
+): Parameters<typeof mountConversationThreadVueIsland>[1] {
+  return {
+    ...options,
+    inlineForms,
+    onInlineFormCancel: (form) => {
+      agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+    },
+    onInlineFormSubmit: (form, values) => {
+      agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
+    },
+  };
+}
+
+function createInlineAgentUiFormCard(
+  targetDocument: Document,
+  form: AgentUiForm,
+  agentUiActions: DesktopAgentUiFormActionOptions,
+): HTMLElement {
+  const card = createAgentUiFormCard(targetDocument, form, agentUiActions);
+  card.className = `${card.className} desktop-agent-ui-form-inline`.trim();
+  card.setAttribute("data-desktop-chat-region", "agent-form-card");
+  return card;
+}
+
+function conversationThreadOptions(chat: DesktopNativeChatModel | null): {
+  emptyMessage: string;
+  messages: Array<{
+    attachment?: string;
+    author: string;
+    body: string[];
+    references: Array<{ detail: string; kind: NativeChatReference["kind"]; title: string }>;
+    reasoningContent?: string;
+    time: string;
+    tone: "assistant" | "user";
+    toolActivities: Array<{
+      approvalId?: string;
+      argsText: string;
+      approvalStatus: string;
+      id: string;
+      kind: "call" | "result";
+      name: string;
+      responseText: string;
+      runChainItemKey?: string;
+      sessionKey?: string;
+      status?: string;
+    }>;
+  }>;
+} {
+  if (!chat?.activeSessionKey || !hasVisibleConversationMessages(chat)) {
+    return { emptyMessage: "", messages: [] };
+  }
+  return {
+    emptyMessage: "",
+    messages: chat.messages.map((message) => ({
+      author: message.role === "user" ? "You" : "Tinybot",
+      time: formatCompactTime(message.timestamp),
+      tone: message.role === "user" ? "user" as const : "assistant" as const,
+      reasoningContent: message.reasoningContent,
+      body: shouldRenderConversationBody(message) ? [message.content].filter(Boolean) : [],
+      toolActivities: (message.toolActivities ?? []).map((activity) => ({
+        approvalId: activity.approvalId,
+        argsText: activity.argsText || "",
+        approvalStatus: activity.approvalStatus || "",
+        id: activity.id || "",
+        kind: activity.kind,
+        name: activity.name || "",
+        responseText: activity.responseText || "",
+        runChainItemKey: conversationToolActivityRunChainKey(message, activity),
+        sessionKey: activity.sessionKey || chat.activeSessionKey,
+        status: activity.status,
+      })),
+      references: (message.references ?? []).map((reference) => ({
+        detail: reference.detail ?? "",
+        kind: reference.kind,
+        title: reference.title,
+      })),
+    })),
+  };
+}
+
 function mountConversationThreadVueIsland(
   thread: HTMLElement,
   options: {
     emptyMessage: string;
+    inlineForms?: AgentUiForm[];
     messages: Array<{
       attachment?: string;
       author: string;
@@ -1935,6 +2233,7 @@ function mountConversationThreadVueIsland(
       time: string;
       tone: "assistant" | "user";
       toolActivities: Array<{
+        approvalId?: string;
         argsText: string;
         approvalStatus: string;
         id: string;
@@ -1942,14 +2241,18 @@ function mountConversationThreadVueIsland(
         name: string;
         responseText: string;
         runChainItemKey?: string;
+        sessionKey?: string;
+        status?: string;
       }>;
     }>;
+    onInlineFormCancel?: (form: AgentUiForm) => void;
+    onInlineFormSubmit?: (form: AgentUiForm, values: Record<string, unknown>) => void;
   },
 ): void {
   if (!canMountVueIsland(thread)) {
     return;
   }
-  mountConversationThreadIsland(thread, options);
+  mountOrUpdateConversationThreadIsland(thread, options);
 }
 
 function shouldRenderConversationBody(message: NativeChatMessage): boolean {
@@ -2044,6 +2347,7 @@ function createConversationMessage(
     time: options.time,
     tone: options.tone,
     toolActivities: (options.toolActivities ?? []).map((activity) => ({
+      approvalId: activity.approvalId,
       argsText: activity.argsText || "",
       approvalStatus: activity.approvalStatus || "",
       id: activity.id || "",
@@ -2051,6 +2355,8 @@ function createConversationMessage(
       name: activity.name || "",
       responseText: activity.responseText || "",
       runChainItemKey: activity.runChainItemKey,
+      sessionKey: activity.sessionKey,
+      status: activity.status,
     })),
   });
   return article;
@@ -2067,6 +2373,7 @@ function mountConversationMessageVueIsland(
     time: string;
     tone: "assistant" | "user";
     toolActivities: Array<{
+      approvalId?: string;
       argsText: string;
       approvalStatus: string;
       id: string;
@@ -2074,13 +2381,15 @@ function mountConversationMessageVueIsland(
       name: string;
       responseText: string;
       runChainItemKey?: string;
+      sessionKey?: string;
+      status?: string;
     }>;
   },
 ): void {
   if (!canMountVueIsland(message)) {
     return;
   }
-  mountConversationMessageIsland(message, options);
+    mountConversationMessageIsland(message, options);
 }
 
 function mountConversationMetaVueIsland(meta: HTMLElement, options: { author: string; time: string }): void {
@@ -2248,10 +2557,13 @@ function createToolActivities(
 ): HTMLElement {
   const wrapper = targetDocument.createElement("div");
   wrapper.className = "desktop-tool-activities";
+  wrapper.setAttribute("aria-label", "Tool Timeline");
+  wrapper.setAttribute("data-desktop-chat-region", "tool-timeline");
   for (const activity of activities) {
     wrapper.append(createToolActivity(targetDocument, activity));
   }
   mountToolActivitiesVueIsland(wrapper, activities.map((activity) => ({
+    approvalId: activity.approvalId,
     argsText: activity.argsText || "",
     approvalStatus: activity.approvalStatus || "",
     id: activity.id || "",
@@ -2259,6 +2571,8 @@ function createToolActivities(
     name: activity.name || "",
     responseText: activity.responseText || "",
     runChainItemKey: activity.runChainItemKey,
+    sessionKey: activity.sessionKey,
+    status: activity.status,
   })));
   return wrapper;
 }
@@ -2266,6 +2580,7 @@ function createToolActivities(
 function mountToolActivitiesVueIsland(
   wrapper: HTMLElement,
   activities: Array<{
+    approvalId?: string;
     argsText: string;
     approvalStatus: string;
     id: string;
@@ -2273,6 +2588,8 @@ function mountToolActivitiesVueIsland(
     name: string;
     responseText: string;
     runChainItemKey?: string;
+    sessionKey?: string;
+    status?: string;
   }>,
 ): void {
   if (!canMountVueIsland(wrapper)) {
@@ -2288,6 +2605,13 @@ function createToolActivity(
   const details = targetDocument.createElement("details");
   details.className = "desktop-tool-activity";
   details.setAttribute("data-desktop-tool-activity-kind", activity.kind);
+  const activityStatus = normalizeToolActivityStatus(activity.status);
+  if (activityStatus) {
+    details.setAttribute("data-desktop-tool-activity-status", activityStatus);
+  }
+  if (isPendingToolApproval(activity.approvalStatus || "")) {
+    details.setAttribute("data-desktop-approval-status", activity.approvalStatus || "");
+  }
   if (activity.id) {
     details.setAttribute("data-desktop-tool-activity-id", activity.id);
   }
@@ -2297,6 +2621,9 @@ function createToolActivity(
 
   const summary = targetDocument.createElement("summary");
   summary.className = "desktop-tool-activity-summary";
+  if (activityStatus) {
+    summary.setAttribute("aria-label", `${activity.name || "unknown"} tool ${toolActivityStatusLabel(activityStatus).toLowerCase()}`);
+  }
   summary.addEventListener("click", () => {
     if (activity.runChainItemKey) {
       inspectRunChainItemFromConversation(targetDocument, activity.runChainItemKey);
@@ -2315,6 +2642,16 @@ function createToolActivity(
   main.append(title, preview);
   const badges = targetDocument.createElement("span");
   badges.className = "desktop-tool-activity-badges";
+  if (activityStatus) {
+    const status = createText(targetDocument, "span", toolActivityStatusLabel(activityStatus));
+    status.className = `desktop-tool-activity-badge desktop-tool-activity-status-badge desktop-tool-activity-status-${activityStatus}`;
+    badges.append(status);
+  }
+  if (isPendingToolApproval(activity.approvalStatus || "")) {
+    const approval = createText(targetDocument, "span", "Approval");
+    approval.className = "desktop-tool-activity-badge desktop-tool-activity-pending-approval-badge";
+    badges.append(approval);
+  }
   if (activity.approvalStatus === "approved") {
     const approval = createText(targetDocument, "span", "Approved");
     approval.className = "desktop-tool-activity-badge desktop-tool-activity-approval-badge";
@@ -2325,6 +2662,9 @@ function createToolActivity(
   badges.append(badge);
   summary.append(icon, main, badges);
   details.append(summary);
+  if (isPendingToolApproval(activity.approvalStatus || "")) {
+    details.append(createToolApprovalCard(targetDocument, activity));
+  }
 
   const body = targetDocument.createElement("div");
   body.className = "desktop-tool-activity-body";
@@ -2341,6 +2681,7 @@ function createToolActivity(
   }
   details.append(body);
   mountToolActivityVueIsland(details, {
+    approvalId: activity.approvalId,
     argsText: activity.argsText || "",
     approvalStatus: activity.approvalStatus || "",
     id: activity.id || "",
@@ -2348,13 +2689,88 @@ function createToolActivity(
     name: activity.name || "",
     responseText: activity.responseText || "",
     runChainItemKey: activity.runChainItemKey,
+    sessionKey: activity.sessionKey,
+    status: activity.status,
   });
   return details;
+}
+
+function createToolApprovalCard(
+  targetDocument: Document,
+  activity: ConversationToolActivityRenderOptions,
+): HTMLElement {
+  const card = targetDocument.createElement("section");
+  card.className = "desktop-tool-approval-card";
+  card.setAttribute("aria-label", `Approval required for ${activity.name || "tool"}`);
+  card.setAttribute("data-desktop-chat-region", "approval-card");
+  card.setAttribute("role", "group");
+
+  const header = targetDocument.createElement("div");
+  header.className = "desktop-tool-approval-card-header";
+  const title = createText(targetDocument, "strong", "Approval required");
+  title.className = "desktop-tool-approval-title";
+  const tool = createText(targetDocument, "span", activity.name || "unknown");
+  tool.className = "desktop-tool-approval-tool";
+  header.append(title, tool);
+
+  const command = createText(targetDocument, "pre", summarizeToolText(activity.argsText || activity.responseText));
+  command.className = "desktop-tool-approval-command";
+
+  const actions = targetDocument.createElement("div");
+  actions.className = "desktop-tool-approval-actions";
+  if (activity.approvalId) {
+    actions.append(
+      createToolApprovalActionButton(targetDocument, activity, "approveOnce", "Approve once"),
+      createToolApprovalActionButton(targetDocument, activity, "approveSession", "Allow session"),
+      createToolApprovalActionButton(targetDocument, activity, "deny", "Deny"),
+    );
+  }
+  const action = createText(targetDocument, "button", activity.approvalId ? "Review details" : "Review approval") as HTMLButtonElement;
+  action.className = "desktop-tool-approval-action desktop-tool-approval-action-review";
+  action.setAttribute("data-desktop-approval-action", "review");
+  action.type = "button";
+  action.addEventListener("click", () => {
+    if (activity.runChainItemKey) {
+      inspectRunChainItemFromConversation(targetDocument, activity.runChainItemKey);
+      dispatchDesktopCustomEvent(targetDocument, "desktop-run-chain-inspect", { itemKey: activity.runChainItemKey });
+    }
+  });
+  actions.append(action);
+
+  card.append(header, command, actions);
+  return card;
+}
+
+function createToolApprovalActionButton(
+  targetDocument: Document,
+  activity: ConversationToolActivityRenderOptions,
+  action: "approveOnce" | "approveSession" | "deny",
+  label: string,
+): HTMLButtonElement {
+  const button = createText(targetDocument, "button", label) as HTMLButtonElement;
+  button.className = `desktop-tool-approval-action desktop-tool-approval-action-${action}`;
+  button.setAttribute("data-desktop-approval-action", action);
+  button.type = "button";
+  button.addEventListener("click", () => {
+    if (!activity.approvalId) {
+      return;
+    }
+    dispatchDesktopCustomEvent(targetDocument, "desktop-tool-approval-action", {
+      action,
+      approvalId: activity.approvalId,
+      runChainItemKey: activity.runChainItemKey,
+      sessionKey: activity.sessionKey,
+      toolActivityId: activity.id,
+      toolName: activity.name || "unknown",
+    });
+  });
+  return button;
 }
 
 function mountToolActivityVueIsland(
   activity: HTMLElement,
   options: {
+    approvalId?: string;
     argsText: string;
     approvalStatus: string;
     id: string;
@@ -2362,12 +2778,57 @@ function mountToolActivityVueIsland(
     name: string;
     responseText: string;
     runChainItemKey?: string;
+    sessionKey?: string;
+    status?: string;
   },
 ): void {
   if (!canMountVueIsland(activity)) {
     return;
   }
   mountToolActivityIsland(activity, options);
+}
+
+function isPendingToolApproval(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return normalized.includes("approval") && !normalized.includes("approved");
+}
+
+function normalizeToolActivityStatus(status: string | undefined): string {
+  const normalized = (status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!normalized) {
+    return "";
+  }
+  if (["running", "in_progress", "started", "streaming"].includes(normalized)) {
+    return "running";
+  }
+  if (["pending", "queued", "created", "waiting"].includes(normalized)) {
+    return "pending";
+  }
+  if (["completed", "complete", "success", "succeeded", "done"].includes(normalized)) {
+    return "completed";
+  }
+  if (["failed", "failure", "error", "errored"].includes(normalized)) {
+    return "failed";
+  }
+  if (["blocked", "approval_required", "waiting_approval"].includes(normalized)) {
+    return "blocked";
+  }
+  if (["cancelled", "canceled", "interrupted", "stopped"].includes(normalized)) {
+    return "cancelled";
+  }
+  return normalized;
+}
+
+function toolActivityStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    blocked: "Blocked",
+    cancelled: "Cancelled",
+    completed: "Completed",
+    failed: "Failed",
+    pending: "Pending",
+    running: "Running",
+  };
+  return labels[status] || status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function createToolActivitySection(
@@ -2594,7 +3055,7 @@ function mountComposerSurfaceVueIsland(
   if (!canMountVueIsland(composer)) {
     return;
   }
-  mountComposerSurfaceIsland(composer, {
+  mountOrUpdateComposerSurfaceIsland(composer, {
     activeSessionKey: chat?.activeSessionKey || null,
     composerState: nativeComposerState(chat),
     model: chat?.runtime?.model || null,
@@ -3322,7 +3783,9 @@ function createKnowledgePane(
   section.className = "desktop-workbench-section desktop-knowledge-pane";
   section.setAttribute("data-desktop-module-surface", "knowledge");
   section.setAttribute("aria-label", "Knowledge workbench");
-  section.append(createText(targetDocument, "h2", "Knowledge"), createText(targetDocument, "p", pane.status));
+  const header = targetDocument.createElement("div");
+  header.className = "desktop-knowledge-header";
+  header.append(createText(targetDocument, "h2", "Knowledge"), createText(targetDocument, "p", pane.status));
 
   const actions: Array<[DesktopKnowledgeActionId, string, boolean]> = [
     ["uploadDocument", "Upload document", pane.actions.upload],
@@ -3347,10 +3810,12 @@ function createKnowledgePane(
     actionRow.append(button);
   }
   mountKnowledgeActionsVueIsland(actionRow, actions, pane, knowledgeActions);
-  section.append(actionRow);
-  if (workItems.length) {
-    section.append(createModuleWorkSection(targetDocument, "Knowledge jobs", workItems));
-  }
+  header.append(actionRow);
+  section.append(header);
+
+  const grid = targetDocument.createElement("div");
+  grid.className = "desktop-knowledge-workbench-grid";
+  grid.setAttribute("data-desktop-knowledge-layout", "filters-graph-detail-results");
 
   const readiness = targetDocument.createElement("section");
   readiness.className = "desktop-knowledge-readiness";
@@ -3362,7 +3827,6 @@ function createKnowledgePane(
     readiness.append(createText(targetDocument, "p", `${row.id}: ${row.tone}`));
   }
   mountKnowledgeReadinessVueIsland(readiness, pane);
-  section.append(readiness);
 
   const documents = targetDocument.createElement("section");
   documents.className = "desktop-knowledge-documents";
@@ -3373,7 +3837,37 @@ function createKnowledgePane(
     documents.append(row);
   }
   mountKnowledgeDocumentsVueIsland(documents, pane);
-  section.append(documents);
+
+  const filters = targetDocument.createElement("section");
+  filters.className = "desktop-knowledge-region desktop-knowledge-filters";
+  filters.setAttribute("data-desktop-knowledge-region", "filters");
+  filters.setAttribute("aria-label", "Knowledge filters");
+  filters.append(readiness, documents);
+  grid.append(filters);
+
+  const graph = targetDocument.createElement("section");
+  graph.className = "desktop-knowledge-region desktop-knowledge-graph";
+  graph.setAttribute("data-desktop-knowledge-region", "graph");
+  graph.setAttribute("aria-label", "Knowledge graph");
+  graph.append(createText(targetDocument, "h2", `Graph: ${pane.graph.summary}`));
+  appendKnowledgeReferenceRows(targetDocument, graph, "Community", pane.graph.communities);
+  appendKnowledgeReferenceRows(targetDocument, graph, "Report", pane.graph.reports);
+  appendKnowledgeReferenceRows(targetDocument, graph, "Claim", pane.graph.claims);
+  appendKnowledgeReferenceRows(targetDocument, graph, "Relation", pane.graph.relations);
+  appendKnowledgeReferenceRows(targetDocument, graph, "Conflict", pane.graph.conflicts);
+  for (const evidence of pane.graph.evidence.slice(0, 4)) {
+    graph.append(createText(targetDocument, "p", `Evidence: ${evidence.title} / ${evidence.docName}`));
+  }
+  mountKnowledgeGraphVueIsland(graph, pane);
+  grid.append(graph);
+
+  const detailRegion = targetDocument.createElement("section");
+  detailRegion.className = "desktop-knowledge-region desktop-knowledge-detail-drawer";
+  detailRegion.setAttribute("data-desktop-knowledge-region", "detail");
+  detailRegion.setAttribute("aria-label", "Knowledge detail");
+  if (workItems.length) {
+    detailRegion.append(createModuleWorkSection(targetDocument, "Knowledge jobs", workItems));
+  }
 
   if (pane.selectedDocument) {
     const detail = targetDocument.createElement("section");
@@ -3384,9 +3878,14 @@ function createKnowledgePane(
       createText(targetDocument, "p", `Tags: ${pane.selectedDocument.tags.join(", ") || "none"}`),
     );
     mountKnowledgeDocumentDetailVueIsland(detail, pane.selectedDocument);
-    section.append(detail);
+    detailRegion.append(detail);
   }
+  grid.append(detailRegion);
 
+  const results = targetDocument.createElement("section");
+  results.className = "desktop-knowledge-region desktop-knowledge-results-drawer";
+  results.setAttribute("data-desktop-knowledge-region", "results");
+  results.setAttribute("aria-label", "Knowledge query results");
   const query = targetDocument.createElement("section");
   query.className = "desktop-knowledge-query";
   query.append(
@@ -3398,21 +3897,9 @@ function createKnowledgePane(
     query.append(createText(targetDocument, "p", `${row.docName}: ${row.content}`));
   }
   mountKnowledgeQueryVueIsland(query, pane);
-  section.append(query);
-
-  const graph = targetDocument.createElement("section");
-  graph.className = "desktop-knowledge-graph";
-  graph.append(createText(targetDocument, "h2", `Graph: ${pane.graph.summary}`));
-  appendKnowledgeReferenceRows(targetDocument, graph, "Community", pane.graph.communities);
-  appendKnowledgeReferenceRows(targetDocument, graph, "Report", pane.graph.reports);
-  appendKnowledgeReferenceRows(targetDocument, graph, "Claim", pane.graph.claims);
-  appendKnowledgeReferenceRows(targetDocument, graph, "Relation", pane.graph.relations);
-  appendKnowledgeReferenceRows(targetDocument, graph, "Conflict", pane.graph.conflicts);
-  for (const evidence of pane.graph.evidence.slice(0, 4)) {
-    graph.append(createText(targetDocument, "p", `Evidence: ${evidence.title} / ${evidence.docName}`));
-  }
-  mountKnowledgeGraphVueIsland(graph, pane);
-  section.append(graph);
+  results.append(query);
+  grid.append(results);
+  section.append(grid);
 
   mountKnowledgePaneVueIsland(section, targetDocument, pane, knowledgeActions, workItems);
   return section;
@@ -4355,7 +4842,7 @@ function createSettingsProvidersPane(
   const section = targetDocument.createElement("section");
   section.className = "desktop-workbench-section desktop-settings-pane";
   section.setAttribute("data-desktop-module-surface", "settings");
-  section.setAttribute("data-settings-layout", "codex-like");
+  section.setAttribute("data-settings-layout", "capability-center");
   section.setAttribute("aria-label", "Settings and providers");
 
   section.append(createSettingsSidebar(targetDocument, pane));
@@ -4367,10 +4854,11 @@ function createSettingsProvidersPane(
   header.className = "desktop-settings-header";
   const breadcrumb = targetDocument.createElement("div");
   breadcrumb.className = "desktop-settings-breadcrumb";
-  breadcrumb.append(createText(targetDocument, "h2", "设置 / 模型"));
+  breadcrumb.append(createText(targetDocument, "h2", "Settings / Capability Center"));
   header.append(breadcrumb);
   content.append(header);
 
+  content.append(createSettingsCapabilityMap(targetDocument, pane));
   content.append(createDefaultLlmSettingsCard(targetDocument, pane, settingsActions));
   content.append(createProviderManagementSection(targetDocument, pane, settingsActions));
   content.append(createSettingsStatusCard(targetDocument, pane));
@@ -4788,6 +5276,101 @@ function getSettingsGroupDisplayFields(group: DesktopSettingsPaneGroup): Desktop
   return group.fields;
 }
 
+function createSettingsCapabilityMap(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-settings-capability-map";
+  section.setAttribute("data-desktop-settings-center", "capability-boundaries");
+  section.setAttribute("aria-label", "Capability boundaries");
+  for (const card of getSettingsCapabilityCards(pane)) {
+    const link = targetDocument.createElement("a");
+    link.className = "desktop-settings-capability-card";
+    link.setAttribute("href", `#desktop-settings-group-${card.id}`);
+    link.setAttribute("data-desktop-settings-capability", card.id);
+
+    const label = targetDocument.createElement("span");
+    label.className = "desktop-settings-capability-label";
+    label.textContent = card.label;
+    const status = targetDocument.createElement("strong");
+    status.className = "desktop-settings-capability-status";
+    status.textContent = card.status;
+    const detail = targetDocument.createElement("span");
+    detail.className = "desktop-settings-capability-detail";
+    detail.textContent = card.detail;
+    link.append(label, status, detail);
+    section.append(link);
+  }
+  return section;
+}
+
+function getSettingsCapabilityCards(pane: DesktopSettingsPaneModel): Array<{
+  id: DesktopSettingsPaneGroup["id"];
+  label: string;
+  status: string;
+  detail: string;
+}> {
+  const selectedProvider = pane.providerEditor.selectedProvider;
+  const providerLabel = pane.providerCatalog.find((provider) => provider.id === selectedProvider)?.label || selectedProvider || "Auto";
+  const knowledgeEnabled = isSettingsFieldChecked(pane, "knowledge", "enabled");
+  const webEnabled = isSettingsFieldChecked(pane, "tools-approvals", "webEnable");
+  const shellEnabled = isSettingsFieldChecked(pane, "tools-approvals", "execEnable");
+  const gatewayHost = getSettingsFieldValue(pane, "gateway-runtime", "host") || "localhost";
+  const gatewayPort = getSettingsFieldValue(pane, "gateway-runtime", "port") || "auto";
+  return [
+    {
+      id: "provider-models",
+      label: "Provider & Models",
+      status: providerLabel,
+      detail: pane.providerEditor.models.length ? pane.providerEditor.models.slice(0, 2).join(", ") : "Model catalog not loaded",
+    },
+    {
+      id: "knowledge",
+      label: "Knowledge",
+      status: knowledgeEnabled ? "Knowledge On" : "Knowledge Off",
+      detail: `${getSettingsFieldValue(pane, "knowledge", "retrievalMode") || "hybrid"} retrieval / top ${getSettingsFieldValue(pane, "knowledge", "maxChunks") || "auto"}`,
+    },
+    {
+      id: "tools-approvals",
+      label: "Tools & Approvals",
+      status: `Web ${webEnabled ? "On" : "Off"} / Shell ${shellEnabled ? "On" : "Off"}`,
+      detail: getSettingsFieldValue(pane, "tools-approvals", "mcpServers") === "Configured" ? "MCP configured" : "MCP allowlist empty",
+    },
+    {
+      id: "files-workspace",
+      label: "Files & Workspace",
+      status: "Three scopes",
+      detail: "Session files / Knowledge documents / Workspace files",
+    },
+    {
+      id: "gateway-runtime",
+      label: "Gateway & Runtime",
+      status: `Gateway ${gatewayHost}:${gatewayPort}`,
+      detail: isSettingsFieldChecked(pane, "gateway-runtime", "heartbeat") ? "Heartbeat enabled" : "Heartbeat disabled",
+    },
+    {
+      id: "logs-diagnostics",
+      label: "Logs & Diagnostics",
+      status: pane.validationErrors.length ? `${pane.validationErrors.length} issues` : "Ready",
+      detail: pane.validationErrors.length ? pane.validationErrors.map((error) => error.field).join(", ") : "Diagnostics export and runtime logs",
+    },
+  ];
+}
+
+function getSettingsFieldValue(
+  pane: DesktopSettingsPaneModel,
+  groupId: DesktopSettingsPaneGroup["id"],
+  fieldId: string,
+): string {
+  return findSettingsPaneField(pane, groupId, fieldId)?.value ?? "";
+}
+
+function isSettingsFieldChecked(
+  pane: DesktopSettingsPaneModel,
+  groupId: DesktopSettingsPaneGroup["id"],
+  fieldId: string,
+): boolean {
+  return findSettingsPaneField(pane, groupId, fieldId)?.checked === true;
+}
+
 function getProviderCards(pane: DesktopSettingsPaneModel): DesktopProviderCardModel[] {
   const selectedProvider = pane.providerEditor.selectedProvider || "provider";
   const catalog = pane.providerCatalog.length
@@ -5047,7 +5630,13 @@ function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControl
   const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
   const stateAttribute = `data-${panel}-visible`;
   const currentValue = shell?.getAttribute(stateAttribute) ?? panelElement?.getAttribute("data-visible") ?? "true";
-  const nextVisible = currentValue === "false";
+  setDesktopPanelVisible(targetDocument, panel, currentValue === "false");
+}
+
+function setDesktopPanelVisible(targetDocument: Document, panel: DesktopPanelControlId, nextVisible: boolean): void {
+  const shell = targetDocument.getElementById(SHELL_ID);
+  const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
+  const stateAttribute = `data-${panel}-visible`;
   shell?.setAttribute(stateAttribute, String(nextVisible));
   panelElement?.setAttribute("data-visible", String(nextVisible));
   for (const control of targetDocument.querySelectorAll<HTMLElement>(`[data-desktop-panel-control="${panel}"]`)) {
@@ -5067,7 +5656,7 @@ function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControl
 
 function formatPanelName(panel: DesktopPanelControlId): string {
   if (panel === "inspector") {
-    return "Run Chain";
+    return "Activity inspector";
   }
   if (panel === "bottom") {
     return "Task and runtime";
@@ -5125,19 +5714,20 @@ function createCommandPalette(targetDocument: Document): HTMLElement {
 function createInspector(
   targetDocument: Document,
   runChainItems: DesktopRunChainItem[] = [],
+  taskCenterItems: DesktopTaskCenterItem[] = [],
   selectedRunChainItemKey: string | null = null,
   workLens: DesktopWorkLensProjection | null = null,
   workLensActions: DesktopWorkLensActionOptions = {},
 ): HTMLElement {
   const inspector = targetDocument.createElement("aside");
   inspector.className = "desktop-inspector-content";
-  inspector.append(createRunChainOverviewPanel(targetDocument, runChainItems));
+  inspector.append(createRunChainOverviewPanel(targetDocument, runChainItems, taskCenterItems));
   if (workLens) {
     inspector.append(createWorkLensPane(targetDocument, workLens, workLensActions));
   } else if (runChainItems.length) {
     inspector.append(createRunChainInspectorPane(targetDocument, runChainItems, selectedRunChainItemKey));
   }
-  mountInspectorRegionVueIsland(inspector, targetDocument, runChainItems, selectedRunChainItemKey, workLens, workLensActions);
+  mountInspectorRegionVueIsland(inspector, targetDocument, runChainItems, taskCenterItems, selectedRunChainItemKey, workLens, workLensActions);
   return inspector;
 }
 
@@ -5145,6 +5735,7 @@ function mountInspectorRegionVueIsland(
   inspector: HTMLElement,
   targetDocument: Document,
   runChainItems: DesktopRunChainItem[],
+  taskCenterItems: DesktopTaskCenterItem[],
   selectedRunChainItemKey: string | null,
   workLens: DesktopWorkLensProjection | null,
   workLensActions: DesktopWorkLensActionOptions,
@@ -5154,19 +5745,20 @@ function mountInspectorRegionVueIsland(
   }
   mountInspectorRegionIsland(inspector, {
     runChainItems,
+    taskItems: taskCenterItems,
     selectedRunChainItemKey,
     workLens,
     onRunChainAction: (action) => {
       if (action.type === "close") {
-        toggleDesktopPanel(targetDocument, "inspector");
+        setDesktopPanelVisible(targetDocument, "inspector", false);
       } else if (action.type === "pin") {
-        setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
+        setRouteStatus(targetDocument, action.value ? "Activity inspector pinned" : "Activity inspector unpinned");
       } else if (action.type === "tab" || action.type === "summary") {
-        setRouteStatus(targetDocument, `Run Chain ${action.label}`);
+        setRouteStatus(targetDocument, `Activity ${action.label}`);
       } else if (action.type === "open-task-center") {
         toggleDesktopPanel(targetDocument, "bottom");
       } else if (action.type === "new-item") {
-        setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+        setRouteStatus(targetDocument, "Open Cowork to create an activity item.");
       } else if (action.type === "feed") {
         setRouteStatus(targetDocument, `Selected ${action.title}`);
       }
@@ -5183,19 +5775,21 @@ function mountInspectorRegionVueIsland(
   });
 }
 
-type RunChainOverviewTab = "context" | "files" | "tasks";
+type RunChainOverviewTab = "context" | "files" | "tasks" | "approvals" | "activity";
 
 function createRunChainOverviewPanel(
   targetDocument: Document,
   runChainItems: DesktopRunChainItem[] = [],
+  taskCenterItems: DesktopTaskCenterItem[] = [],
+  initialTab: RunChainOverviewTab = "context",
 ): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-run-chain-overview";
-  section.setAttribute("aria-label", "Run Chain");
+  section.setAttribute("aria-label", "Activity inspector");
 
   const header = targetDocument.createElement("header");
   header.className = "desktop-run-chain-header";
-  header.append(createText(targetDocument, "h2", "Run Chain"));
+  header.append(createText(targetDocument, "h2", "Activity"));
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-run-chain-header-controls";
   for (const [label, value, action] of [
@@ -5215,13 +5809,13 @@ function createRunChainOverviewPanel(
     button.textContent = value;
     button.addEventListener("click", () => {
       if (action === "close") {
-        toggleDesktopPanel(targetDocument, "inspector");
+        setDesktopPanelVisible(targetDocument, "inspector", false);
         return;
       }
       const nextPressed = button.getAttribute("aria-pressed") !== "true";
       button.setAttribute("aria-pressed", String(nextPressed));
       button.textContent = nextPressed ? "Pinned" : "Pin";
-      setRouteStatus(targetDocument, nextPressed ? "Run Chain pinned" : "Run Chain unpinned");
+      setRouteStatus(targetDocument, nextPressed ? "Activity inspector pinned" : "Activity inspector unpinned");
     });
     controls.append(button);
   }
@@ -5236,7 +5830,7 @@ function createRunChainOverviewPanel(
   tabs.setAttribute("role", "tablist");
   const renderPanel = (tabId: RunChainOverviewTab): void => {
     panel.setAttribute("data-desktop-run-chain-panel", tabId);
-    panel.replaceChildren(...createRunChainOverviewPanelContent(targetDocument, tabId, runChainItems));
+    panel.replaceChildren(...createRunChainOverviewPanelContent(targetDocument, tabId, runChainItems, taskCenterItems));
   };
   const selectTab = (tabId: RunChainOverviewTab): void => {
     for (const sibling of Array.from(tabs.children)) {
@@ -5249,6 +5843,8 @@ function createRunChainOverviewPanel(
     { id: "context", label: "Context" },
     { id: "files", label: "Files" },
     { id: "tasks", label: "Tasks" },
+    { id: "approvals", label: "Approvals" },
+    { id: "activity", label: "Activity" },
   ] as Array<{ id: RunChainOverviewTab; label: string }>).entries()) {
     const tab = targetDocument.createElement("button");
     tab.type = "button";
@@ -5259,13 +5855,13 @@ function createRunChainOverviewPanel(
     tab.textContent = tabInfo.label;
     tab.addEventListener("click", () => {
       selectTab(tabInfo.id);
-      setRouteStatus(targetDocument, `Run Chain ${tabInfo.label}`);
+      setRouteStatus(targetDocument, `Activity ${tabInfo.label}`);
     });
     tabs.append(tab);
   }
 
-  const summary = createRunChainSummaryStrip(targetDocument, runChainItems, selectTab);
-  selectTab("context");
+  const summary = createRunChainSummaryStrip(targetDocument, runChainItems, taskCenterItems, selectTab);
+  selectTab(initialTab);
 
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-run-chain-actions";
@@ -5274,28 +5870,66 @@ function createRunChainOverviewPanel(
   );
 
   section.append(header, summary, tabs, panel, actions);
-  mountRunChainOverviewVueIsland(section, targetDocument, runChainItems);
+  mountRunChainOverviewVueIsland(section, targetDocument, runChainItems, taskCenterItems, initialTab);
   return section;
+}
+
+function refreshRunChainOverviewFromTaskCenter(
+  targetDocument: Document,
+  liveState: DesktopWorkbenchLiveState,
+): void {
+  const current = targetDocument.querySelector<HTMLElement>(".desktop-run-chain-overview");
+  if (!current) {
+    return;
+  }
+  const selectedTab = currentRunChainOverviewTab(current);
+  const next = createRunChainOverviewPanel(targetDocument, liveState.runChainItems, liveState.taskCenterItems, selectedTab);
+  if (typeof current.replaceWith === "function") {
+    current.replaceWith(next);
+    return;
+  }
+  current.replaceChildren(...Array.from(next.children));
+}
+
+function currentRunChainOverviewTab(overview: HTMLElement): RunChainOverviewTab {
+  const panelTab = overview.querySelector<HTMLElement>(".desktop-run-chain-panel")?.getAttribute("data-desktop-run-chain-panel");
+  if (isRunChainOverviewTab(panelTab)) {
+    return panelTab;
+  }
+  const selectedTab = overview.querySelector<HTMLElement>('[data-desktop-run-chain-tab][aria-selected="true"]')?.getAttribute("data-desktop-run-chain-tab");
+  if (isRunChainOverviewTab(selectedTab)) {
+    return selectedTab;
+  }
+  return "context";
+}
+
+function isRunChainOverviewTab(value: string | null | undefined): value is RunChainOverviewTab {
+  return value === "context" || value === "files" || value === "tasks" || value === "approvals" || value === "activity";
 }
 
 function createRunChainSummaryStrip(
   targetDocument: Document,
   runChainItems: DesktopRunChainItem[],
+  taskCenterItems: DesktopTaskCenterItem[],
   selectTab: (tabId: RunChainOverviewTab) => void,
 ): HTMLElement {
   const summary = targetDocument.createElement("div");
   summary.className = "desktop-run-chain-summary-strip";
   const status = runChainOverviewStatus(runChainItems);
+  const approvalCount = pendingApprovalItems(taskCenterItems).length;
   for (const item of [
-    { label: "Gateway", text: "Gateway: Connected", tab: "context" as const, tone: "connected" },
-    { label: "Run", text: `Run: ${status}`, tab: "tasks" as const, tone: "muted" },
-    { label: "Items", text: `${runChainItems.length} ${runChainItems.length === 1 ? "item" : "items"}`, tab: "tasks" as const, tone: "muted" },
+    { label: "Gateway", text: "Gateway", accessibleText: "Gateway: Connected", tab: "context" as const, tone: "connected" },
+    { label: "Run", text: status, accessibleText: `Run: ${status}`, tab: "activity" as const, tone: "muted" },
+    { label: "Items", text: `${runChainItems.length} ${runChainItems.length === 1 ? "item" : "items"}`, accessibleText: `Items: ${runChainItems.length}`, tab: "activity" as const, tone: "muted" },
+    { label: "Approvals", text: `${approvalCount} ${approvalCount === 1 ? "approval" : "approvals"}`, accessibleText: `Approvals: ${approvalCount}`, tab: "approvals" as const, tone: approvalCount ? "attention" : "muted" },
   ]) {
     const button = targetDocument.createElement("button");
     button.type = "button";
     button.className = "desktop-run-chain-summary-item desktop-run-chain-status-pill";
     button.setAttribute("data-desktop-run-chain-summary", item.label.toLowerCase());
     button.setAttribute("data-status-tone", item.tone);
+    button.setAttribute("aria-label", item.accessibleText);
+    button.setAttribute("title", item.accessibleText);
     if (item.tone === "connected") {
       const dot = targetDocument.createElement("span");
       dot.className = "desktop-run-chain-status-dot";
@@ -5305,7 +5939,7 @@ function createRunChainSummaryStrip(
     button.append(createText(targetDocument, "span", item.text));
     button.addEventListener("click", () => {
       selectTab(item.tab);
-      setRouteStatus(targetDocument, `Run Chain ${item.label}`);
+      setRouteStatus(targetDocument, `Activity ${item.label}`);
     });
     summary.append(button);
   }
@@ -5316,26 +5950,48 @@ function createRunChainOverviewPanelContent(
   targetDocument: Document,
   tabId: RunChainOverviewTab,
   runChainItems: DesktopRunChainItem[],
+  taskCenterItems: DesktopTaskCenterItem[],
 ): HTMLElement[] {
   if (tabId === "files") {
     return [
-      createRunChainPanelSection(targetDocument, "Workspace", [
+      createRunChainPanelSection(targetDocument, "Files", [
         ["Project", "tinybot"],
         ["Path", "D:\\code\\tinybot\\tinybot"],
-      ], createWorkbenchLink(targetDocument, "Open Workspace", "/workspace", "desktop-run-chain-panel-action")),
+      ], createWorkbenchLink(targetDocument, "Open Files", "/files", "desktop-run-chain-panel-action")),
     ];
   }
 
   if (tabId === "tasks") {
-    const feed = createRunChainActivityFeed(targetDocument, runChainItems);
     return [
       createRunChainPanelSection(targetDocument, "Tasks", [
         ["Task center", "Available"],
         ["Run", runChainOverviewStatus(runChainItems)],
         ["Chain items", String(runChainItems.length)],
-      ], createRunChainActionButton(targetDocument, "New Run Chain Item", () => {
-        setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+      ], createRunChainActionButton(targetDocument, "New Activity Item", () => {
+        setRouteStatus(targetDocument, "Open Cowork to create an activity item.");
       }, "desktop-run-chain-panel-action desktop-run-chain-new-item", "secondary"), runChainItems.length ? undefined : "No chain items yet."),
+    ];
+  }
+
+  if (tabId === "approvals") {
+    const approvals = pendingApprovalItems(taskCenterItems);
+    return [
+      createRunChainPanelSection(targetDocument, "Approvals", [
+        ["Pending", String(approvals.length)],
+        ["Policy", "Ask before sensitive actions"],
+        ["Queue", approvals.length ? `${approvals.length} pending ${approvals.length === 1 ? "approval" : "approvals"}` : "No pending approvals"],
+      ], createRunChainActionButton(targetDocument, "Open Task Center", () => toggleDesktopPanel(targetDocument, "bottom"), "desktop-run-chain-panel-action", "secondary"), approvals.length ? undefined : "No pending approvals"),
+      ...createRunChainApprovalQueue(targetDocument, approvals),
+    ];
+  }
+
+  if (tabId === "activity") {
+    const feed = createRunChainActivityFeed(targetDocument, runChainItems);
+    return [
+      createRunChainPanelSection(targetDocument, "Activity Feed", [
+        ["Status", runChainOverviewStatus(runChainItems)],
+        ["Events", String(runChainItems.length)],
+      ], undefined, runChainItems.length ? undefined : "Gateway events, tool calls, and runtime logs appear here."),
       ...(feed ? [feed] : []),
     ];
   }
@@ -5380,6 +6036,40 @@ function createRunChainPanelSection(
     section.append(action);
   }
   return section;
+}
+
+function createRunChainApprovalQueue(
+  targetDocument: Document,
+  approvals: DesktopTaskCenterItem[],
+): HTMLElement[] {
+  if (!approvals.length) {
+    return [];
+  }
+  const section = targetDocument.createElement("section");
+  section.className = "desktop-run-chain-panel-section desktop-run-chain-approval-list";
+  section.append(createText(targetDocument, "h3", "Approval Queue"));
+  for (const item of approvals.slice(0, 4)) {
+    const row = targetDocument.createElement("button");
+    row.type = "button";
+    row.className = "desktop-run-chain-approval-item";
+    row.setAttribute("data-desktop-run-chain-approval-item", item.id);
+    row.setAttribute("data-status-tone", item.tone);
+    const title = targetDocument.createElement("span");
+    title.className = "desktop-run-chain-approval-title";
+    title.textContent = item.title;
+    row.append(title);
+    if (item.detail) {
+      const detail = targetDocument.createElement("span");
+      detail.className = "desktop-run-chain-approval-detail";
+      detail.textContent = item.detail;
+      row.append(detail);
+    }
+    row.addEventListener("click", () => {
+      toggleDesktopPanel(targetDocument, "bottom");
+    });
+    section.append(row);
+  }
+  return [section];
 }
 
 function createRunChainActivityFeed(
@@ -5433,27 +6123,35 @@ function runChainOverviewStatus(runChainItems: DesktopRunChainItem[]): string {
   return runChainItems.length ? "Completed" : "Idle";
 }
 
+function pendingApprovalItems(items: DesktopTaskCenterItem[]): DesktopTaskCenterItem[] {
+  return items.filter((item) => item.source === "approval" && item.state !== "completed" && item.state !== "canceled");
+}
+
 function mountRunChainOverviewVueIsland(
   section: HTMLElement,
   targetDocument: Document,
   runChainItems: DesktopRunChainItem[],
+  taskCenterItems: DesktopTaskCenterItem[],
+  initialTab: RunChainOverviewTab,
 ): void {
   if (!canMountVueIsland(section)) {
     return;
   }
   mountRunChainOverviewIsland(section, {
     items: runChainItems,
+    taskItems: taskCenterItems,
+    initialTab,
     onAction: (action) => {
       if (action.type === "close") {
-        toggleDesktopPanel(targetDocument, "inspector");
+        setDesktopPanelVisible(targetDocument, "inspector", false);
       } else if (action.type === "pin") {
-        setRouteStatus(targetDocument, action.value ? "Run Chain pinned" : "Run Chain unpinned");
+        setRouteStatus(targetDocument, action.value ? "Activity inspector pinned" : "Activity inspector unpinned");
       } else if (action.type === "tab" || action.type === "summary") {
-        setRouteStatus(targetDocument, `Run Chain ${action.label}`);
+        setRouteStatus(targetDocument, `Activity ${action.label}`);
       } else if (action.type === "open-task-center") {
         toggleDesktopPanel(targetDocument, "bottom");
       } else if (action.type === "new-item") {
-        setRouteStatus(targetDocument, "Open Cowork to create a run chain item.");
+        setRouteStatus(targetDocument, "Open Cowork to create an activity item.");
       } else if (action.type === "feed") {
         setRouteStatus(targetDocument, `Selected ${action.title}`);
       }
@@ -6041,6 +6739,12 @@ function handleTaskActionId(
     setRouteStatus(targetDocument, `Retry requested for ${item.title}`);
   } else if (action === "cancel") {
     setRouteStatus(targetDocument, `Cancel requested for ${item.title}`);
+  } else if (action === "approveOnce") {
+    setRouteStatus(targetDocument, `Approval granted once for ${item.title}`);
+  } else if (action === "approveSession") {
+    setRouteStatus(targetDocument, `Approval granted for this session for ${item.title}`);
+  } else if (action === "deny") {
+    setRouteStatus(targetDocument, `Approval denied for ${item.title}`);
   }
 }
 
@@ -6063,7 +6767,19 @@ function renderTaskInspector(targetDocument: Document, item: DesktopTaskCenterIt
 }
 
 function renderTaskWorkLens(targetDocument: Document, item: DesktopTaskCenterItem): boolean {
+  ensureDesktopPanelVisible(targetDocument, "inspector");
   return renderWorkLensProjection(targetDocument, buildDesktopWorkLensProjection({ task: item }), item);
+}
+
+function ensureDesktopPanelVisible(targetDocument: Document, panel: DesktopPanelControlId): void {
+  const shell = targetDocument.getElementById(SHELL_ID);
+  const panelElement = targetDocument.querySelector<HTMLElement>(`[data-workbench-region="${panel}"]`);
+  const stateAttribute = `data-${panel}-visible`;
+  const currentValue = shell?.getAttribute(stateAttribute) ?? panelElement?.getAttribute("data-visible") ?? "true";
+  if (currentValue !== "false") {
+    return;
+  }
+  setDesktopPanelVisible(targetDocument, panel, true);
 }
 
 function refreshVisibleWorkLensFromTaskCenter(targetDocument: Document, items: DesktopTaskCenterItem[]): void {
@@ -6188,27 +6904,6 @@ function mountWorkbenchPanelVueIsland(
   });
 }
 
-function createQuickActions(targetDocument: Document): HTMLElement {
-  const actions = targetDocument.createElement("div");
-  actions.className = "desktop-quick-actions";
-  for (const [label, href] of [
-    ["Ask about this project", "/chat/new"],
-    ["Open workspace", "/workspace"],
-    ["Check gateway", "/api/status"],
-  ]) {
-    actions.append(createWorkbenchLink(targetDocument, label, href, "desktop-quick-action"));
-  }
-  mountQuickActionsVueIsland(actions);
-  return actions;
-}
-
-function mountQuickActionsVueIsland(actions: HTMLElement): void {
-  if (!canMountVueIsland(actions)) {
-    return;
-  }
-  mountQuickActionsIsland(actions);
-}
-
 function createFileActions(targetDocument: Document, chat: DesktopNativeChatModel | null = null): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-file-actions";
@@ -6268,7 +6963,7 @@ function createFileActions(targetDocument: Document, chat: DesktopNativeChatMode
   const workspace = createFileImportCard(targetDocument, {
     id: "desktop-workspace-file-drop",
     label: "Workspace import",
-    href: "/workspace",
+    href: "/files",
     dropTarget: "workspace-file",
     formatsId: "desktop-file-workspace-formats",
     formats: ["md", "txt", "json", "csv", "py", "js", "ts", "html", "css", "yaml", "toml"],
@@ -6648,8 +7343,8 @@ function renderDesktopPageHelp(targetDocument: Document, title: string): void {
 function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
   const section = targetDocument.createElement("section");
   section.className = "desktop-workspace-files";
-  section.setAttribute("data-desktop-module-surface", "workspace");
-  section.setAttribute("data-desktop-workspace-layout", "browser-detail-actions");
+  section.setAttribute("data-desktop-module-surface", "files workspace");
+  section.setAttribute("data-desktop-workspace-layout", "source-browser-detail-actions");
 
   const header = targetDocument.createElement("div");
   header.className = "desktop-workspace-header";
@@ -6706,6 +7401,8 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
     recent,
   );
   mountWorkspaceBrowserVueIsland(browser);
+
+  const sourceTree = createFileSourceTree(targetDocument);
 
   const detailPanel = targetDocument.createElement("section");
   detailPanel.className = "desktop-workspace-detail-panel";
@@ -6781,8 +7478,50 @@ function createWorkspaceFilesSurface(targetDocument: Document): HTMLElement {
     error,
   );
 
-  section.append(header, browser, detailPanel, editorPanel, actionRail);
+  section.append(header, sourceTree, browser, detailPanel, editorPanel, actionRail);
   return section;
+}
+
+function createFileSourceTree(targetDocument: Document): HTMLElement {
+  const sourceTree = targetDocument.createElement("aside");
+  sourceTree.className = "desktop-file-source-tree";
+  sourceTree.setAttribute("aria-label", "File sources");
+  sourceTree.append(createText(targetDocument, "h3", "Source Tree"));
+
+  const chips = targetDocument.createElement("div");
+  chips.className = "desktop-file-scope-chips";
+  chips.setAttribute("aria-label", "File scope filters");
+  for (const label of ["All", "Session", "Knowledge", "Workspace"]) {
+    const chip = targetDocument.createElement("button");
+    chip.type = "button";
+    chip.className = "desktop-file-scope-chip";
+    chip.setAttribute("data-desktop-file-scope", label.toLowerCase());
+    chip.textContent = label;
+    chips.append(chip);
+  }
+  sourceTree.append(chips);
+
+  for (const [id, title, detail] of [
+    ["session", "Session Files", "Current chat and recent chats"],
+    ["knowledge", "Knowledge Documents", "Persistent RAG and graph sources"],
+    ["workspace", "Workspace Files", "Editable project files"],
+  ]) {
+    const row = targetDocument.createElement("button");
+    row.type = "button";
+    row.className = "desktop-file-source-row";
+    row.setAttribute("data-desktop-file-source", id);
+    const titleNode = createText(targetDocument, "span", title);
+    titleNode.className = "desktop-file-source-title";
+    const detailNode = createText(targetDocument, "span", detail);
+    detailNode.className = "desktop-file-source-detail";
+    const count = createText(targetDocument, "span", "0");
+    count.className = "desktop-file-source-count";
+    count.setAttribute("aria-label", `${title} count`);
+    row.append(titleNode, detailNode, count);
+    sourceTree.append(row);
+  }
+
+  return sourceTree;
 }
 
 function mountWorkspaceBrowserVueIsland(browser: HTMLElement): void {
@@ -6928,8 +7667,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: var(--bg);
     }
 
-    body.desktop-native-workbench .desktop-activity-button,
-    body.desktop-native-workbench .desktop-quick-action {
+    body.desktop-native-workbench .desktop-activity-button {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -7069,31 +7807,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workbench-link:focus-visible,
-    body.desktop-native-workbench .desktop-activity-button:focus-visible,
-    body.desktop-native-workbench .desktop-quick-action:focus-visible {
+    body.desktop-native-workbench .desktop-activity-button:focus-visible {
       outline: 2px solid var(--primary);
       outline-offset: 2px;
       box-shadow: 0 0 0 4px var(--focus-ring);
-    }
-
-    body.desktop-native-workbench .desktop-quick-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    body.desktop-native-workbench .desktop-quick-action {
-      border-color: var(--border);
-      background: var(--panel);
-      color: var(--text-muted);
-      padding: 0 12px;
-    }
-
-    body.desktop-native-workbench .desktop-quick-action:hover,
-    body.desktop-native-workbench .desktop-quick-action:focus-visible {
-      border-color: #dfd4cc;
-      background: #fffaf5;
-      color: var(--text);
     }
 
     body.desktop-native-workbench .desktop-panel-controls {
@@ -7254,17 +7971,19 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-workspace-file-row:focus-visible,
     body.desktop-native-workbench .desktop-workspace-editor:focus-visible,
     body.desktop-native-workbench .desktop-inspector-restore:focus-visible,
+    body.desktop-native-workbench .desktop-chat-header-stop:focus-visible,
     body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible,
+    body.desktop-native-workbench .desktop-tool-approval-action:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-icon-button:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-summary-item:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-tab:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-panel-action:focus-visible,
+    body.desktop-native-workbench .desktop-run-chain-approval-item:focus-visible,
     body.desktop-native-workbench .desktop-run-chain-feed-item:focus-visible {
       outline: 2px solid var(--primary, #cc785c);
       outline-offset: 2px;
     }
 
-    body.desktop-native-workbench .desktop-quick-action,
     body.desktop-native-workbench .desktop-file-action {
       padding: 0 12px;
     }
@@ -7590,19 +8309,152 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font: 12px/1.2 var(--font-sans, system-ui, sans-serif);
     }
 
-    body.desktop-native-workbench .desktop-workspace-files {
-      display: grid;
-      grid-template-columns: minmax(220px, 0.78fr) minmax(0, 1.55fr) minmax(150px, 0.48fr);
-      grid-template-areas:
-        "header header header"
-        "browser detail actions"
-        "browser editor actions";
+    body.desktop-native-workbench .desktop-knowledge-pane {
+      align-content: start;
       gap: 12px;
-      align-items: stretch;
       min-width: 0;
     }
 
+    body.desktop-native-workbench .desktop-knowledge-workbench,
+    body.desktop-native-workbench .desktop-knowledge-header {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-header {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-header h2,
+    body.desktop-native-workbench .desktop-knowledge-header p {
+      grid-column: 1;
+      margin: 0;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-actions {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: end;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-actions button {
+      min-height: 32px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      font: 700 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-actions button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-workbench-grid {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.62fr) minmax(320px, 1.35fr) minmax(220px, 0.78fr);
+      grid-template-areas:
+        "filters graph detail"
+        "filters graph results";
+      gap: 12px;
+      align-items: stretch;
+      min-width: 0;
+      width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-region,
+    body.desktop-native-workbench .desktop-knowledge-graph[data-desktop-knowledge-region="graph"] {
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--panel, #faf9f5);
+      color: var(--text, #141413);
+      overflow: auto;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-filters {
+      grid-area: filters;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-graph {
+      grid-area: graph;
+      min-height: 360px;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-detail-drawer {
+      grid-area: detail;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-results-drawer {
+      grid-area: results;
+    }
+
+    body.desktop-native-workbench .desktop-knowledge-readiness,
+    body.desktop-native-workbench .desktop-knowledge-documents,
+    body.desktop-native-workbench .desktop-knowledge-document-detail,
+    body.desktop-native-workbench .desktop-knowledge-query {
+      min-width: 0;
+    }
+
+    @media (max-width: 1180px) {
+      body.desktop-native-workbench .desktop-knowledge-header {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.desktop-native-workbench .desktop-knowledge-actions {
+        grid-column: 1;
+        grid-row: auto;
+        justify-content: start;
+      }
+
+      body.desktop-native-workbench .desktop-knowledge-workbench-grid {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+          "filters"
+          "graph"
+          "detail"
+          "results";
+      }
+    }
+
+    body.desktop-native-workbench .desktop-workspace-files {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.62fr) minmax(240px, 0.9fr) minmax(300px, 1.5fr) minmax(160px, 0.7fr);
+      grid-template-areas:
+        "header header header header"
+        "source browser detail actions"
+        "source browser editor actions";
+      gap: 12px;
+      align-items: stretch;
+      min-width: 0;
+      width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-files-grid {
+      width: 100%;
+      min-width: 0;
+      align-items: stretch;
+    }
+
     body.desktop-native-workbench .desktop-workspace-header,
+    body.desktop-native-workbench .desktop-file-source-tree,
     body.desktop-native-workbench .desktop-workspace-browser,
     body.desktop-native-workbench .desktop-workspace-detail-panel,
     body.desktop-native-workbench .desktop-workspace-editor-panel,
@@ -7632,6 +8484,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-workspace-title-group h2,
     body.desktop-native-workbench .desktop-workspace-title-group p,
+    body.desktop-native-workbench .desktop-file-source-tree h3,
     body.desktop-native-workbench .desktop-workspace-browser h3,
     body.desktop-native-workbench .desktop-workspace-detail-panel h3,
     body.desktop-native-workbench .desktop-workspace-editor-panel h3,
@@ -7663,6 +8516,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-area: browser;
     }
 
+    body.desktop-native-workbench .desktop-file-source-tree {
+      grid-area: source;
+    }
+
     body.desktop-native-workbench .desktop-workspace-detail-panel {
       grid-area: detail;
     }
@@ -7675,6 +8532,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       grid-area: actions;
     }
 
+    body.desktop-native-workbench .desktop-file-source-tree,
     body.desktop-native-workbench .desktop-workspace-browser,
     body.desktop-native-workbench .desktop-workspace-detail-panel,
     body.desktop-native-workbench .desktop-workspace-editor-panel,
@@ -7683,6 +8541,83 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       align-content: start;
       gap: 10px;
       padding: 10px;
+    }
+
+    body.desktop-native-workbench .desktop-file-source-tree h3 {
+      color: var(--text-strong, #141413);
+      font: 700 12px/1.2 var(--font-sans, system-ui, sans-serif);
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-file-scope-chips {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-file-scope-chip,
+    body.desktop-native-workbench .desktop-file-source-row {
+      min-width: 0;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 7px;
+      background: var(--panel-strong, #fffdfa);
+      color: var(--text, #141413);
+      font-family: var(--font-sans, system-ui, sans-serif);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-file-scope-chip {
+      min-height: 30px;
+      padding: 0 8px;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    body.desktop-native-workbench .desktop-file-source-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 2px 8px;
+      align-items: center;
+      min-height: 58px;
+      padding: 8px 9px;
+      text-align: left;
+    }
+
+    body.desktop-native-workbench .desktop-file-source-title {
+      min-width: 0;
+      color: var(--text-strong, #141413);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    body.desktop-native-workbench .desktop-file-source-detail {
+      grid-column: 1 / -1;
+      min-width: 0;
+      color: var(--text-muted, #6f685f);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    body.desktop-native-workbench .desktop-file-source-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      background: var(--bg, #f4efe8);
+      color: var(--text-muted, #6f685f);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-file-scope-chip:focus-visible,
+    body.desktop-native-workbench .desktop-file-source-row:focus-visible {
+      outline: 2px solid var(--primary, #cc785c);
+      outline-offset: 2px;
     }
 
     body.desktop-native-workbench .desktop-workspace-search {
@@ -7722,6 +8657,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-workspace-file-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
       min-width: 0;
       min-height: 46px;
       border: 1px solid var(--border, #e6dfd8);
@@ -7732,9 +8671,26 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: var(--text, #141413);
       font: 12px/1.2 var(--font-sans, system-ui, sans-serif);
       text-align: left;
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-file-row > span {
+      min-width: 0;
+      overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-file-path {
+      color: var(--text-strong, #141413);
+      font-weight: 650;
+    }
+
+    body.desktop-native-workbench .desktop-workspace-file-meta {
+      max-width: 18ch;
+      color: var(--text-muted, #6f685f);
+      font-size: 11px;
+      text-align: right;
     }
 
     body.desktop-native-workbench .desktop-file-import-button {
@@ -8269,6 +9225,49 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font-weight: 400;
     }
 
+    body.desktop-native-workbench .desktop-sidebar-row-status {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-width: 0;
+      margin-top: 1px;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-status-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 18px;
+      max-width: 100%;
+      border: 1px solid #eaded8;
+      border-radius: 999px;
+      padding: 0 6px;
+      background: #fffaf5;
+      color: #6f685f;
+      font: 600 10px/1.2 var(--font-sans);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-status-chip[data-status-kind="running"] {
+      border-color: #bfe4c4;
+      background: #effaf0;
+      color: #2f7d3e;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-status-chip[data-status-kind="approval"] {
+      border-color: #f2c8b8;
+      background: #fff2ec;
+      color: #b4533c;
+    }
+
+    body.desktop-native-workbench .desktop-sidebar-status-chip[data-status-kind="knowledge"] {
+      border-color: #d8dce8;
+      background: #f4f6fb;
+      color: #4e5d7a;
+    }
+
     body.desktop-native-workbench .desktop-workbench-main {
       grid-template-rows: minmax(0, 1fr) auto 0;
       height: 100%;
@@ -8279,7 +9278,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-workbench {
-      --desktop-composer-reserve: 152px;
+      --desktop-composer-reserve: 36px;
       align-self: stretch;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -8296,7 +9295,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-chat-workbench > span,
-    body.desktop-native-workbench .desktop-chat-workbench > .desktop-quick-actions,
     body.desktop-native-workbench .desktop-chat-workbench > .desktop-panel-controls {
       position: absolute;
       width: 1px;
@@ -8327,10 +9325,6 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       max-width: 520px;
       color: #69635d;
       font: 500 13px/1.55 var(--font-sans);
-    }
-
-    body.desktop-native-workbench .desktop-chat-workbench-chrome .desktop-quick-actions {
-      gap: 8px;
     }
 
     body.desktop-native-workbench .desktop-chat-header {
@@ -8378,6 +9372,40 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       font-weight: 650;
       line-height: 1.2;
       letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-status {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      margin-top: 2px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-stop {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 20px;
+      max-width: 100%;
+      border: 1px solid #eaded8;
+      border-radius: 999px;
+      padding: 0 7px;
+      background: #fffaf5;
+      color: #6f685f;
+      font: 650 10px/1.2 var(--font-sans);
+      letter-spacing: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-chat-header-stop {
+      border-color: #e6b8a8;
+      background: #fff0ea;
+      color: #b4533c;
+      cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-chat-title-editor {
@@ -8894,6 +9922,142 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #3b8a4d;
     }
 
+    body.desktop-native-workbench .desktop-tool-activity-status-completed {
+      border-color: rgba(93, 184, 114, 0.4);
+      background: rgba(93, 184, 114, 0.12);
+      color: #3b8a4d;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-status-running {
+      border-color: rgba(56, 128, 194, 0.38);
+      background: rgba(56, 128, 194, 0.12);
+      color: #2f6798;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-status-pending,
+    body.desktop-native-workbench .desktop-tool-activity-status-blocked {
+      border-color: rgba(191, 124, 47, 0.42);
+      background: rgba(191, 124, 47, 0.13);
+      color: #925d1f;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-status-failed,
+    body.desktop-native-workbench .desktop-tool-activity-status-cancelled {
+      border-color: rgba(194, 76, 56, 0.4);
+      background: rgba(194, 76, 56, 0.12);
+      color: #9a3b2f;
+    }
+
+    body.desktop-native-workbench .desktop-tool-activity-pending-approval-badge {
+      border-color: rgba(191, 124, 47, 0.42);
+      background: rgba(191, 124, 47, 0.13);
+      color: #925d1f;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-card {
+      display: grid;
+      gap: 8px;
+      border-top: 1px solid rgba(191, 124, 47, 0.22);
+      padding: 10px 11px 11px 35px;
+      background: #fff7eb;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-title {
+      min-width: 0;
+      overflow: hidden;
+      color: #4a3424;
+      font: 700 12px/1.3 var(--font-sans);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-tool {
+      flex: 0 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      color: #7c5f42;
+      font: 650 11px/1.3 var(--font-mono);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-command {
+      overflow: hidden;
+      margin: 0;
+      border: 1px solid rgba(191, 124, 47, 0.24);
+      border-radius: 6px;
+      padding: 7px 8px;
+      background: rgba(255, 255, 255, 0.62);
+      color: #554235;
+      font: 11px/1.45 var(--font-mono);
+      text-overflow: ellipsis;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-action {
+      min-height: 30px;
+      border: 1px solid rgba(191, 124, 47, 0.32);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: #fffaf4;
+      color: #5d3f23;
+      font: 700 11px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-action-approveOnce,
+    body.desktop-native-workbench .desktop-tool-approval-action-approveSession {
+      border-color: rgba(79, 143, 91, 0.36);
+      background: #f2fbf4;
+      color: #315f3a;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-action-deny {
+      border-color: rgba(194, 76, 56, 0.36);
+      background: #fff4f1;
+      color: #8d3529;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-action:hover,
+    body.desktop-native-workbench .desktop-tool-approval-action:focus-visible {
+      border-color: rgba(191, 124, 47, 0.5);
+      background: #fff2dd;
+      color: #3f2b18;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-action-approveOnce:hover,
+    body.desktop-native-workbench .desktop-tool-approval-action-approveOnce:focus-visible,
+    body.desktop-native-workbench .desktop-tool-approval-action-approveSession:hover,
+    body.desktop-native-workbench .desktop-tool-approval-action-approveSession:focus-visible {
+      border-color: rgba(79, 143, 91, 0.56);
+      background: #e7f7eb;
+      color: #214929;
+    }
+
+    body.desktop-native-workbench .desktop-tool-approval-action-deny:hover,
+    body.desktop-native-workbench .desktop-tool-approval-action-deny:focus-visible {
+      border-color: rgba(194, 76, 56, 0.56);
+      background: #ffe7e0;
+      color: #67281f;
+    }
+
     body.desktop-native-workbench .desktop-tool-activity-body {
       display: grid;
       gap: 0;
@@ -9293,7 +10457,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: none;
     }
 
-    html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-chat-workbench,
+    html[data-desktop-active-workbench-module="files"] body.desktop-native-workbench .desktop-chat-workbench,
     html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench .desktop-chat-workbench,
     html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench .desktop-chat-workbench,
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-chat-workbench,
@@ -9301,7 +10465,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: none;
     }
 
-    html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-native-composer,
+    html[data-desktop-active-workbench-module="files"] body.desktop-native-workbench .desktop-native-composer,
     html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench .desktop-native-composer,
     html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench .desktop-native-composer,
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-native-composer,
@@ -9317,7 +10481,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       display: none;
     }
 
-    html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench .desktop-utility-surfaces,
+    html[data-desktop-active-workbench-module="files"] body.desktop-native-workbench .desktop-utility-surfaces,
     html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench .desktop-utility-surfaces,
     html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench .desktop-utility-surfaces,
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-utility-surfaces,
@@ -9329,7 +10493,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       overflow: auto;
     }
 
-    html[data-desktop-active-workbench-module="workspace"] body.desktop-native-workbench [data-desktop-module-surface~="workspace"],
+    html[data-desktop-active-workbench-module="files"] body.desktop-native-workbench [data-desktop-module-surface~="workspace"],
     html[data-desktop-active-workbench-module="knowledge"] body.desktop-native-workbench [data-desktop-module-surface~="knowledge"],
     html[data-desktop-active-workbench-module="cowork"] body.desktop-native-workbench [data-desktop-module-surface~="cowork"],
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench [data-desktop-module-surface~="settings"],
@@ -9429,9 +10593,59 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #8c847c;
     }
 
+    body.desktop-native-workbench .desktop-settings-capability-map,
     body.desktop-native-workbench .desktop-settings-default-llm-card,
     body.desktop-native-workbench .desktop-settings-provider-section {
       min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-capability-map {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    body.desktop-native-workbench .desktop-settings-capability-card {
+      display: grid;
+      align-content: start;
+      gap: 5px;
+      min-width: 0;
+      min-height: 92px;
+      border: 1px solid #ebe4dd;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fffdfa;
+      color: #25211d;
+      text-decoration: none;
+    }
+
+    body.desktop-native-workbench .desktop-settings-capability-card:hover,
+    body.desktop-native-workbench .desktop-settings-capability-card:focus-visible {
+      border-color: #d8d0c8;
+      background: #f8f6f2;
+      outline: 2px solid transparent;
+    }
+
+    body.desktop-native-workbench .desktop-settings-capability-label {
+      color: #7a7068;
+      font: 700 11px/1.2 var(--font-sans);
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-capability-status {
+      min-width: 0;
+      color: #1f1d1a;
+      font: 750 14px/1.25 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-capability-detail {
+      min-width: 0;
+      color: #6b635c;
+      font: 500 12px/1.35 var(--font-sans);
+      overflow-wrap: anywhere;
     }
 
     body.desktop-native-workbench .desktop-settings-default-llm-card {
@@ -9794,6 +11008,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-provider-icon-button:focus-visible,
     body.desktop-native-workbench .desktop-settings-provider-add:focus-visible,
     body.desktop-native-workbench .desktop-settings-provider-card-actions button:focus-visible,
+    body.desktop-native-workbench .desktop-settings-capability-card:focus-visible,
     body.desktop-native-workbench .desktop-settings-nav-item:focus-visible,
     body.desktop-native-workbench .desktop-settings-inline-field select:focus-visible,
     body.desktop-native-workbench .desktop-settings-inline-field input:focus-visible,
@@ -9822,6 +11037,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
         padding: 24px;
       }
 
+      body.desktop-native-workbench .desktop-settings-capability-map {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       body.desktop-native-workbench .desktop-settings-default-llm-form,
       body.desktop-native-workbench .desktop-settings-provider-grid,
       body.desktop-native-workbench .desktop-settings-provider-tools {
@@ -9835,6 +11054,12 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
       body.desktop-native-workbench .desktop-settings-field input[type="checkbox"] {
         justify-self: start;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body.desktop-native-workbench .desktop-settings-capability-map {
+        grid-template-columns: minmax(0, 1fr);
       }
     }
 
@@ -9926,25 +11151,42 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-run-chain-summary-strip {
       display: flex;
       flex-wrap: nowrap;
-      gap: 7px;
+      flex-flow: row nowrap !important;
+      gap: 4px;
       min-width: 0;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-summary-strip::-webkit-scrollbar {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-summary-strip .n-space-item {
+      margin-bottom: 0 !important;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-summary-strip > * {
+      flex: 0 0 auto;
     }
 
     body.desktop-native-workbench .desktop-run-chain-summary-item {
       display: inline-flex;
       align-items: center;
       justify-content: flex-start;
-      gap: 6px;
-      flex: 1 1 0;
-      min-width: 0;
-      min-height: 26px;
+      gap: 5px;
+      flex: 0 0 auto;
+      min-width: max-content;
+      min-height: 24px;
       border: 0;
       border-radius: 999px;
-      padding: 0 8px;
+      padding: 0 7px;
       overflow: hidden;
       background: #f4eee8;
       color: #625d57;
-      font: 650 11px/1.2 var(--font-sans);
+      font: 650 10px/1.2 var(--font-sans);
       text-align: left;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -9966,6 +11208,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       color: #77716a;
     }
 
+    body.desktop-native-workbench .desktop-run-chain-status-pill[data-status-tone="attention"] {
+      background: #fff4e0;
+      color: #8a5520;
+    }
+
     body.desktop-native-workbench .desktop-run-chain-status-dot {
       width: 7px;
       height: 7px;
@@ -9975,25 +11222,44 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-run-chain-tabs {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 2px;
+      display: flex;
+      flex-wrap: nowrap;
+      flex-flow: row nowrap !important;
+      gap: 3px;
       min-width: 0;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
       border: 0;
       border-radius: 8px;
       padding: 3px;
       background: #f2eee8;
     }
 
+    body.desktop-native-workbench .desktop-run-chain-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-tabs .n-space-item {
+      margin-bottom: 0 !important;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-tabs > * {
+      flex: 0 0 auto;
+    }
+
     body.desktop-native-workbench .desktop-run-chain-tab {
-      min-width: 0;
+      flex: 0 0 auto;
+      min-width: max-content;
       min-height: 30px;
       border: 0;
       border-radius: 6px;
-      padding: 0 8px;
+      padding: 0 7px;
       background: transparent;
       color: #625d57;
-      font: 650 12px/1.2 var(--font-sans);
+      font: 650 11px/1.2 var(--font-sans);
+      white-space: nowrap;
       cursor: pointer;
     }
 
@@ -10049,6 +11315,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-run-chain-panel-action,
+    body.desktop-native-workbench .desktop-run-chain-approval-item,
     body.desktop-native-workbench .desktop-run-chain-feed-item,
     body.desktop-native-workbench .desktop-run-chain-new-item {
       min-height: 32px;
@@ -10087,6 +11354,38 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       text-align: left;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-approval-list {
+      gap: 8px;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-approval-item {
+      display: grid;
+      gap: 3px;
+      justify-items: start;
+      width: 100%;
+      min-height: 46px;
+      padding: 8px 10px;
+      text-align: left;
+      white-space: normal;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-approval-title,
+    body.desktop-native-workbench .desktop-run-chain-approval-detail {
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-approval-title {
+      color: #262522;
+      font: 700 12px/1.25 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-run-chain-approval-detail {
+      color: #77716a;
+      font: 500 11px/1.35 var(--font-sans);
     }
 
     body.desktop-native-workbench .desktop-bottom-content {
@@ -10482,6 +11781,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-rail,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-main,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-workbench {
+      color-scheme: dark;
       background: var(--bg);
       color: var(--text);
       border-color: var(--border);
@@ -10564,6 +11864,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-card,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-group,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-capability-card,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-default-llm-card,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-card {
       background: var(--panel-strong);
@@ -10646,12 +11947,97 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-cowork-action-summary,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-empty-state,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-card-row,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-approval-detail,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-gateway-runtime-row {
       color: var(--text-muted);
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-empty-state {
       background: var(--panel-strong);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-workbench-chrome h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header h1,
+    html[data-theme="dark"] body.desktop-native-workbench .n-text,
+    html[data-theme="dark"] body.desktop-native-workbench .n-ellipsis,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-row-label,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-conversation-content,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-conversation-meta strong,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-input,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-message-references-title {
+      color: var(--text);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-workbench-chrome p,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-section-heading h2,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-section-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-conversation-meta,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-message-copy-button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-action,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-token-orb {
+      color: var(--text-muted);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .n-card,
+    html[data-theme="dark"] body.desktop-native-workbench .n-card > .n-card__content {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .n-button {
+      color: var(--text);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-search,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-title-editor,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-popover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-token-orb {
+      background: var(--panel-strong);
+      color: var(--text);
+      border-color: var(--border);
+      box-shadow: none;
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action {
+      color: var(--text);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-empty {
+      color: var(--text-muted);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-secondary-button:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-secondary-button:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-link:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-link:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-action:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-header-panel-button:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model:focus-visible,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-rag-toggle:hover,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-rag-toggle[aria-pressed="true"] {
+      background: var(--accent-soft);
+      color: var(--text-strong);
+      border-color: var(--accent);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-workbench-link[data-active="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-button[data-active="true"],
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-activity-secondary-button[data-active="true"] {
+      background: var(--accent-soft);
+      color: var(--text-strong);
+      border-color: var(--accent);
+      box-shadow: none;
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-send:not(:disabled),
@@ -10669,6 +12055,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-status-pill[data-status-tone="muted"] {
       background: var(--panel-strong);
       color: var(--text-muted);
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-status-pill[data-status-tone="attention"] {
+      background: rgba(217, 104, 76, 0.18);
+      color: #f0aa8a;
+    }
+
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-approval-title {
+      color: var(--text-strong);
     }
 
     html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-diagnostics:not(:empty),

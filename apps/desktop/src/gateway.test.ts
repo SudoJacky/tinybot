@@ -237,6 +237,58 @@ describe("gateway HTTP client", () => {
       });
     }
   });
+
+  test("constructs approval resolution requests", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+    });
+
+    await client.tools.approveApproval("approval/1", {
+      session_key: "WebSocket:chat-1",
+      scope: "session",
+      auto_retry: true,
+    });
+    await client.tools.denyApproval("approval/1", {
+      session_key: "WebSocket:chat-1",
+      auto_retry: true,
+    });
+
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/approvals/approval%2F1/approve",
+      "http://127.0.0.1:18790/api/approvals/approval%2F1/deny",
+    ]);
+    expect(fetchFn.mock.calls[1][1]).toMatchObject({
+      method: "POST",
+      headers: expect.objectContaining({
+        Authorization: "Bearer token-1",
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({
+        session_key: "WebSocket:chat-1",
+        scope: "session",
+        auto_retry: true,
+      }),
+    });
+    expect(fetchFn.mock.calls[2][1]).toMatchObject({
+      method: "POST",
+      headers: expect.objectContaining({
+        Authorization: "Bearer token-1",
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({
+        session_key: "WebSocket:chat-1",
+        auto_retry: true,
+      }),
+    });
+  });
 });
 
 describe("gateway WebSocket client", () => {
