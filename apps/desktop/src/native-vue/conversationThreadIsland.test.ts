@@ -181,7 +181,7 @@ describe("conversation thread Vue island", () => {
     inspector?.querySelector<HTMLButtonElement>(".desktop-cowork-agent-detail-close")?.click();
     await nextTick();
     expect(host.querySelector(".desktop-cowork-agent-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
-    vi.advanceTimersByTime(260);
+    vi.advanceTimersByTime(360);
     await nextTick();
     vi.useRealTimers();
     expect(host.querySelector(".desktop-cowork-agent-detail-panel")).toBeNull();
@@ -232,7 +232,7 @@ describe("conversation thread Vue island", () => {
     panel?.querySelector<HTMLButtonElement>(".desktop-reference-detail-close")?.click();
     await nextTick();
     expect(host.querySelector(".desktop-reference-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
-    vi.advanceTimersByTime(260);
+    vi.advanceTimersByTime(360);
     await nextTick();
     vi.useRealTimers();
     expect(host.querySelector(".desktop-reference-detail-panel")).toBeNull();
@@ -510,6 +510,10 @@ describe("conversation thread Vue island", () => {
 
       vi.advanceTimersByTime(260);
       await nextTick();
+      expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+
+      vi.advanceTimersByTime(100);
+      await nextTick();
       expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();
       expect(layout?.getAttribute("data-detail-panel-state")).toBe("closed");
     } finally {
@@ -606,7 +610,7 @@ describe("conversation thread Vue island", () => {
     host.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
     await nextTick();
     expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
-    vi.advanceTimersByTime(260);
+    vi.advanceTimersByTime(360);
     await nextTick();
     vi.useRealTimers();
     expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();

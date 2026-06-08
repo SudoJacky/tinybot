@@ -59,7 +59,7 @@ export interface MountedConversationThreadIsland {
 }
 
 const mountedConversationThreads = new WeakMap<HTMLElement, MountedConversationThreadIsland>();
-const DETAIL_PANEL_MOTION_MS = 220;
+const DETAIL_PANEL_MOTION_MS = 360;
 type DetailPanelState = "closed" | "open" | "closing";
 
 export function mountOrUpdateConversationThreadIsland(
