@@ -1,5 +1,5 @@
 import { createApp, defineComponent, h, type App } from "vue";
-import { NConfigProvider, NText } from "naive-ui";
+import { NConfigProvider } from "naive-ui";
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface SettingsProviderDetailIslandOptions {
@@ -33,8 +33,14 @@ function createSettingsProviderDetailApp(options: SettingsProviderDetailIslandOp
     setup() {
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          h(NText, { tag: "span" }, { default: () => `${options.label}: ` }),
-          h(NText, { strong: true, tag: "strong" }, { default: () => options.value }),
+          h("span", `${options.label}: `),
+          h("input", {
+            readonly: true,
+            tabindex: -1,
+            value: options.value,
+            "aria-label": `${options.label}: ${options.value}`,
+          }),
+          h("span", { class: "desktop-settings-provider-detail-text" }, `${options.label}: ${options.value}`),
         ],
       });
     },

@@ -8,6 +8,8 @@ interface ProviderCardModel {
   id: string;
   label: string;
   badge: string;
+  initials: string;
+  connected: boolean;
   statusLabel: string;
   statusTone: "default" | "error" | "success" | "warning";
   baseUrl: string;
@@ -121,26 +123,50 @@ function renderProviderCard(
   }, {
     default: () => [
       h("header", { class: "desktop-settings-provider-card-header" }, [
-        h("div", { class: "desktop-settings-provider-title" }, [
-          h("h3", provider.label),
-          provider.badge ? h(NTag, {
-            class: "desktop-settings-provider-badge",
-            size: "small",
-            round: true,
-            type: "success",
-          }, { default: () => provider.badge }) : null,
+        h("div", { class: "desktop-settings-provider-identity" }, [
+          h("span", {
+            class: "desktop-settings-provider-mark",
+            "aria-hidden": "true",
+            "data-provider-id": provider.id,
+          }, provider.initials),
+          h("div", { class: "desktop-settings-provider-title" }, [
+            h("h3", provider.label),
+            h("div", { class: "desktop-settings-provider-status-row" }, [
+              provider.badge ? h(NTag, {
+                class: "desktop-settings-provider-badge",
+                size: "small",
+                round: true,
+                type: "success",
+              }, { default: () => provider.badge }) : null,
+              h(NTag, {
+                class: "desktop-settings-provider-status",
+                size: "small",
+                round: true,
+                type: provider.statusTone,
+              }, { default: () => provider.statusLabel }),
+            ]),
+          ]),
         ]),
-        h(NTag, {
-          class: "desktop-settings-provider-status",
-          size: "small",
-          round: true,
-          type: provider.statusTone,
-        }, { default: () => provider.statusLabel }),
+        h("span", {
+          class: "desktop-settings-provider-switch",
+          role: "switch",
+          "aria-checked": provider.connected ? "true" : "false",
+          "data-state": provider.connected ? "on" : "off",
+        }),
       ]),
       h("div", { class: "desktop-settings-provider-details" }, [
         renderProviderDetail("Base URL", provider.baseUrl),
         renderProviderDetail("API Key", provider.apiKey),
         renderProviderDetail("Model", provider.models),
+      ]),
+      h("button", {
+        class: "desktop-settings-provider-advanced",
+        type: "button",
+        "data-desktop-settings-provider-action": "settings",
+        onClick: () => handleProviderCardAction(options, provider.id, "settings"),
+      }, [
+        h("span", "Advanced settings"),
+        h("span", { "aria-hidden": "true" }, "v"),
       ]),
       h(NSpace, { class: "desktop-settings-provider-card-actions", size: 8 }, {
         default: () => [
@@ -161,9 +187,15 @@ function renderProviderCard(
 }
 
 function renderProviderDetail(label: string, value: string) {
-  return h("p", { class: "desktop-settings-provider-detail" }, [
+  return h("label", { class: "desktop-settings-provider-detail" }, [
     h("span", `${label}: `),
-    h("strong", value),
+    h("input", {
+      readonly: true,
+      tabindex: -1,
+      value,
+      "aria-label": `${label}: ${value}`,
+    }),
+    h("span", { class: "desktop-settings-provider-detail-text" }, `${label}: ${value}`),
   ]);
 }
 
@@ -209,6 +241,8 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
       id: provider.id,
       label: provider.label || provider.id,
       badge: isSelected ? "Current" : "",
+      initials: providerInitials(provider.label || provider.id),
+      connected: provider.status === "ready",
       statusLabel: formatProviderStatus(provider.status),
       statusTone: providerStatusTone(provider.status),
       baseUrl: isSelected ? pane.providerEditor.apiBase || "Not configured" : "Not configured",
@@ -216,6 +250,17 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
       models: models || "No models",
     };
   });
+}
+
+function providerInitials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return "AI";
+  }
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }
 
 function formatProviderStatus(status: string): string {

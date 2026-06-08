@@ -15,7 +15,8 @@ describe("settings provider detail Vue island", () => {
     expect(host.getAttribute("data-desktop-vue-island")).toBe("settings-provider-detail");
     expect(host.className).toBe("desktop-settings-provider-detail");
     expect(host.querySelector("span")?.textContent).toBe("Base URL: ");
-    expect(host.querySelector("strong")?.textContent).toBe("http://localhost:11434");
+    expect(host.querySelector("input")?.value).toBe("http://localhost:11434");
+    expect(host.textContent).toContain("Base URL: http://localhost:11434");
 
     mounted.unmount();
     expect(host.textContent).toBe("");
@@ -30,6 +31,6 @@ describe("settings provider detail Vue island", () => {
     });
 
     expect(host.querySelector("span")?.textContent).toBe("API Key: ");
-    expect(host.querySelector("strong")?.textContent).toBe("");
+    expect(host.querySelector("input")?.value).toBe("");
   });
 });
