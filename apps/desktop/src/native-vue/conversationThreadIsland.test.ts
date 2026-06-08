@@ -191,7 +191,7 @@ describe("conversation thread Vue island", () => {
     inspector?.querySelector<HTMLButtonElement>(".desktop-cowork-agent-detail-close")?.click();
     await nextTick();
     expect(host.querySelector(".desktop-cowork-agent-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
-    vi.advanceTimersByTime(360);
+    vi.advanceTimersByTime(560);
     await nextTick();
     vi.useRealTimers();
     expect(host.querySelector(".desktop-cowork-agent-detail-panel")).toBeNull();
@@ -243,7 +243,7 @@ describe("conversation thread Vue island", () => {
     panel?.querySelector<HTMLButtonElement>(".desktop-reference-detail-close")?.click();
     await nextTick();
     expect(host.querySelector(".desktop-reference-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
-    vi.advanceTimersByTime(360);
+    vi.advanceTimersByTime(560);
     await nextTick();
     vi.useRealTimers();
     expect(host.querySelector(".desktop-reference-detail-panel")).toBeNull();
@@ -526,11 +526,11 @@ describe("conversation thread Vue island", () => {
       expect(host.querySelector(".desktop-detail-panel-slot")?.getAttribute("data-detail-panel-state")).toBe("closing");
       expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
 
-      vi.advanceTimersByTime(260);
+      vi.advanceTimersByTime(420);
       await nextTick();
       expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
 
-      vi.advanceTimersByTime(100);
+      vi.advanceTimersByTime(140);
       await nextTick();
       expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();
       expect(layout?.getAttribute("data-detail-panel-state")).toBe("closed");
@@ -629,7 +629,7 @@ describe("conversation thread Vue island", () => {
     host.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
     await nextTick();
     expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
-    vi.advanceTimersByTime(360);
+    vi.advanceTimersByTime(560);
     await nextTick();
     vi.useRealTimers();
     expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();

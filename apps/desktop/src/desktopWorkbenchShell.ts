@@ -9970,8 +9970,8 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       width: 100%;
       transition:
-        column-gap 320ms cubic-bezier(0.16, 1, 0.3, 1),
-        grid-template-columns 320ms cubic-bezier(0.16, 1, 0.3, 1);
+        column-gap 520ms cubic-bezier(0.16, 1, 0.3, 1),
+        grid-template-columns 520ms cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     body.desktop-native-workbench .desktop-conversation-layout[data-detail-panel-state="open"] {
@@ -10000,27 +10000,27 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       opacity: 0;
       overflow: visible;
       pointer-events: none;
-      transform: translateX(36px) scale(0.97);
+      transform: translateX(56px);
       transform-origin: right center;
       transition:
-        opacity 260ms cubic-bezier(0.33, 0, 0.2, 1),
-        transform 360ms cubic-bezier(0.16, 1, 0.3, 1);
+        opacity 420ms cubic-bezier(0.33, 0, 0.2, 1),
+        transform 540ms cubic-bezier(0.16, 1, 0.3, 1);
       will-change: opacity, transform;
     }
 
     body.desktop-native-workbench .desktop-detail-panel-slot[data-detail-panel-state="open"] {
       opacity: 1;
       pointer-events: auto;
-      transform: translateX(0) scale(1);
+      transform: translateX(0);
     }
 
     body.desktop-native-workbench .desktop-detail-panel-slot[data-detail-panel-state="closing"] {
       opacity: 0;
       pointer-events: none;
-      transform: translateX(36px) scale(0.97);
+      transform: translateX(56px);
       transition:
-        opacity 260ms cubic-bezier(0.7, 0, 0.84, 0),
-        transform 340ms cubic-bezier(0.7, 0, 0.84, 0);
+        opacity 420ms cubic-bezier(0.7, 0, 0.84, 0),
+        transform 500ms cubic-bezier(0.7, 0, 0.84, 0);
     }
 
     body.desktop-native-workbench .desktop-conversation-message {
@@ -10326,19 +10326,19 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       opacity: 1;
       transform: translateX(0);
       transition:
-        opacity 260ms cubic-bezier(0.33, 0, 0.2, 1),
-        transform 360ms cubic-bezier(0.16, 1, 0.3, 1),
-        box-shadow 360ms cubic-bezier(0.16, 1, 0.3, 1);
+        opacity 420ms cubic-bezier(0.33, 0, 0.2, 1),
+        transform 540ms cubic-bezier(0.16, 1, 0.3, 1),
+        box-shadow 540ms cubic-bezier(0.16, 1, 0.3, 1);
       will-change: opacity, transform;
     }
 
     body.desktop-native-workbench .desktop-tool-detail-panel[data-tool-detail-motion="closing"] {
       opacity: 0;
-      transform: translateX(36px) scale(0.97);
+      transform: translateX(56px);
       transition:
-        opacity 260ms cubic-bezier(0.7, 0, 0.84, 0),
-        transform 340ms cubic-bezier(0.7, 0, 0.84, 0),
-        box-shadow 340ms cubic-bezier(0.7, 0, 0.84, 0);
+        opacity 420ms cubic-bezier(0.7, 0, 0.84, 0),
+        transform 500ms cubic-bezier(0.7, 0, 0.84, 0),
+        box-shadow 500ms cubic-bezier(0.7, 0, 0.84, 0);
     }
 
     body.desktop-native-workbench .desktop-tool-detail-resizer {
