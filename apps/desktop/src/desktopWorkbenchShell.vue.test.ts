@@ -11,6 +11,25 @@ function setScrollMetrics(element: HTMLElement, metrics: { scrollHeight: number;
 }
 
 describe("desktop workbench shell Vue integration", () => {
+  test("installs nonlinear tool detail panel motion styles", () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = document.head.textContent ?? "";
+    expect(styleText).toContain(".desktop-detail-panel-slot");
+    expect(styleText).toContain("data-detail-panel-state=\"open\"");
+    expect(styleText).toContain("data-detail-panel-state=\"closing\"");
+    expect(styleText).toContain("grid-template-columns");
+    expect(styleText).toContain("cubic-bezier");
+    expect(styleText).toContain("prefers-reduced-motion");
+  });
+
   test("renders the activity rail through the Vue shell island", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

@@ -9907,15 +9907,24 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-conversation-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) 0;
       align-items: start;
-      gap: 18px;
+      gap: 18px 0;
       min-width: 0;
       width: 100%;
+      transition:
+        column-gap 240ms cubic-bezier(0.2, 0.82, 0.22, 1),
+        grid-template-columns 240ms cubic-bezier(0.2, 0.82, 0.22, 1);
     }
 
-    body.desktop-native-workbench .desktop-conversation-layout[data-tool-detail-visible="true"] {
+    body.desktop-native-workbench .desktop-conversation-layout[data-detail-panel-state="open"] {
+      column-gap: 18px;
       grid-template-columns: minmax(0, 1fr) minmax(300px, var(--desktop-tool-detail-width, 50%));
+    }
+
+    body.desktop-native-workbench .desktop-conversation-layout[data-detail-panel-state="closing"] {
+      column-gap: 0;
+      grid-template-columns: minmax(0, 1fr) 0;
     }
 
     body.desktop-native-workbench .desktop-conversation-timeline {
@@ -9923,6 +9932,38 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       gap: 6px;
       min-width: 0;
       width: 100%;
+    }
+
+    body.desktop-native-workbench .desktop-detail-panel-slot {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      z-index: 3;
+      min-width: 0;
+      opacity: 0;
+      overflow: visible;
+      pointer-events: none;
+      transform: translateX(22px) scale(0.985);
+      transform-origin: right center;
+      transition:
+        opacity 190ms cubic-bezier(0.33, 0, 0.2, 1),
+        transform 240ms cubic-bezier(0.2, 0.82, 0.22, 1);
+      will-change: opacity, transform;
+    }
+
+    body.desktop-native-workbench .desktop-detail-panel-slot[data-detail-panel-state="open"] {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0) scale(1);
+    }
+
+    body.desktop-native-workbench .desktop-detail-panel-slot[data-detail-panel-state="closing"] {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(22px) scale(0.985);
+      transition:
+        opacity 160ms cubic-bezier(0.4, 0, 1, 1),
+        transform 220ms cubic-bezier(0.4, 0, 1, 1);
     }
 
     body.desktop-native-workbench .desktop-conversation-message {
@@ -10214,10 +10255,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     body.desktop-native-workbench .desktop-tool-detail-panel {
-      position: sticky;
-      top: 0;
+      position: relative;
       display: grid;
       grid-template-rows: auto auto auto minmax(0, 1fr);
+      width: 100%;
       min-width: 300px;
       max-height: calc(100vh - 190px);
       overflow: hidden;
@@ -10225,6 +10266,22 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-radius: 10px;
       background: var(--panel, #fffdf9);
       box-shadow: 0 18px 44px rgba(31, 29, 26, 0.12);
+      opacity: 1;
+      transform: translateX(0);
+      transition:
+        opacity 190ms cubic-bezier(0.33, 0, 0.2, 1),
+        transform 240ms cubic-bezier(0.2, 0.82, 0.22, 1),
+        box-shadow 240ms cubic-bezier(0.2, 0.82, 0.22, 1);
+      will-change: opacity, transform;
+    }
+
+    body.desktop-native-workbench .desktop-tool-detail-panel[data-tool-detail-motion="closing"] {
+      opacity: 0;
+      transform: translateX(22px) scale(0.985);
+      transition:
+        opacity 160ms cubic-bezier(0.4, 0, 1, 1),
+        transform 220ms cubic-bezier(0.4, 0, 1, 1),
+        box-shadow 220ms cubic-bezier(0.4, 0, 1, 1);
     }
 
     body.desktop-native-workbench .desktop-tool-detail-resizer {
@@ -12762,6 +12819,20 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-task-center-diagnostics:not(:empty) p,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-run-chain-detail p {
       color: var(--on-dark-soft);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body.desktop-native-workbench .desktop-conversation-layout,
+      body.desktop-native-workbench .desktop-detail-panel-slot,
+      body.desktop-native-workbench .desktop-tool-detail-panel {
+        transition: none;
+      }
+
+      body.desktop-native-workbench .desktop-detail-panel-slot,
+      body.desktop-native-workbench .desktop-tool-detail-panel,
+      body.desktop-native-workbench .desktop-tool-detail-panel[data-tool-detail-motion="closing"] {
+        transform: none;
+      }
     }
 
     @media (max-width: 1020px) {

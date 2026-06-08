@@ -3865,8 +3865,13 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain("padding: 0 var(--desktop-chat-gutter);");
     expect(styleText).toContain("width: min(var(--desktop-chat-column-width), 100%);");
     expect(styleText).toContain("width: min(var(--desktop-chat-column-width), calc(100% - var(--desktop-chat-composer-gutter)));");
-    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-layout {\n      display: grid;\n      grid-template-columns: minmax(0, 1fr);");
-    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-layout[data-tool-detail-visible=\"true\"] {\n      grid-template-columns: minmax(0, 1fr) minmax(300px, var(--desktop-tool-detail-width, 50%));");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-layout {\n      display: grid;\n      grid-template-columns: minmax(0, 1fr) 0;");
+    expect(styleText).toContain("grid-template-columns 240ms cubic-bezier(0.2, 0.82, 0.22, 1);");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-layout[data-detail-panel-state=\"open\"] {\n      column-gap: 18px;\n      grid-template-columns: minmax(0, 1fr) minmax(300px, var(--desktop-tool-detail-width, 50%));");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-layout[data-detail-panel-state=\"closing\"] {\n      column-gap: 0;\n      grid-template-columns: minmax(0, 1fr) 0;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-detail-panel-slot {\n      position: sticky;\n      top: 0;");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-detail-panel-slot[data-detail-panel-state=\"closing\"] {");
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-tool-detail-panel {\n      position: relative;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-timeline {\n      display: grid;\n      gap: 6px;\n      min-width: 0;\n      width: 100%;");
     expect(styleText).toContain("body.desktop-native-workbench .desktop-conversation-message[data-message-tone=\"user\"] .desktop-user-message-bubble {\n      box-sizing: border-box;\n      width: fit-content;\n      max-width: min(100%, var(--desktop-chat-column-width));");
     expect(styleText).not.toContain("max-width: min(75%, 640px);");

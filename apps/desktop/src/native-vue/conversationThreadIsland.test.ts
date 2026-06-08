@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { nextTick } from "vue";
 import { mountConversationThreadIsland } from "./conversationThreadIsland";
 
@@ -177,8 +177,13 @@ describe("conversation thread Vue island", () => {
     expect(inspector?.textContent).toContain("reply needed");
     expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-cowork-agent-detail-visible")).toBe("true");
 
+    vi.useFakeTimers();
     inspector?.querySelector<HTMLButtonElement>(".desktop-cowork-agent-detail-close")?.click();
     await nextTick();
+    expect(host.querySelector(".desktop-cowork-agent-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+    vi.advanceTimersByTime(260);
+    await nextTick();
+    vi.useRealTimers();
     expect(host.querySelector(".desktop-cowork-agent-detail-panel")).toBeNull();
   });
 
@@ -223,8 +228,13 @@ describe("conversation thread Vue island", () => {
     expect(panel?.textContent).toContain("Saved preference");
     expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-reference-detail-visible")).toBe("true");
 
+    vi.useFakeTimers();
     panel?.querySelector<HTMLButtonElement>(".desktop-reference-detail-close")?.click();
     await nextTick();
+    expect(host.querySelector(".desktop-reference-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+    vi.advanceTimersByTime(260);
+    await nextTick();
+    vi.useRealTimers();
     expect(host.querySelector(".desktop-reference-detail-panel")).toBeNull();
   });
 
@@ -408,6 +418,62 @@ describe("conversation thread Vue island", () => {
     expect(host.textContent).toContain("list_dir");
   });
 
+  test("closes an open tool detail panel from outside click with exit motion state", async () => {
+    vi.useFakeTimers();
+    try {
+      const host = document.createElement("section");
+
+      mountConversationThreadIsland(host, {
+        emptyMessage: "",
+        messages: [{
+          author: "Tinybot",
+          body: ["I used a tool."],
+          references: [],
+          time: "10:31 AM",
+          tone: "assistant",
+          toolActivities: [{
+            approvalStatus: "",
+            argsText: "{\"path\":\"README.md\"}",
+            id: "tool-read",
+            kind: "call",
+            name: "read_file",
+            responseText: "{\"ok\":true}",
+            runChainItemKey: "assistant-1:tool-read",
+            sessionKey: "WebSocket:chat-1",
+            status: "running",
+          }],
+        }],
+      });
+      await nextTick();
+      await nextTick();
+
+      host.querySelector<HTMLButtonElement>('[data-desktop-tool-activity-id="tool-read"] .desktop-tool-activity-row')?.click();
+      await nextTick();
+
+      const layout = host.querySelector<HTMLElement>(".desktop-conversation-layout");
+      const timeline = host.querySelector<HTMLElement>(".desktop-conversation-timeline");
+      expect(layout?.getAttribute("data-detail-panel-state")).toBe("open");
+      expect(layout?.getAttribute("data-tool-detail-visible")).toBe("true");
+      expect(host.querySelector(".desktop-detail-panel-slot")?.getAttribute("data-detail-panel-state")).toBe("open");
+      expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("open");
+
+      timeline?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await nextTick();
+
+      expect(layout?.getAttribute("data-detail-panel-state")).toBe("closing");
+      expect(layout?.getAttribute("data-tool-detail-visible")).toBe("false");
+      expect(host.querySelector(".desktop-detail-panel-slot")?.getAttribute("data-detail-panel-state")).toBe("closing");
+      expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+
+      vi.advanceTimersByTime(260);
+      await nextTick();
+      expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();
+      expect(layout?.getAttribute("data-detail-panel-state")).toBe("closed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("opens one resizable tool detail panel and switches selected tool rows", async () => {
     const host = document.createElement("section");
     const approvals: unknown[] = [];
@@ -493,8 +559,13 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector('[data-desktop-tool-activity-id="tool-shell"] .desktop-tool-activity-row')?.getAttribute("aria-selected")).toBe("true");
     expect(host.querySelectorAll(".desktop-tool-detail-panel")).toHaveLength(1);
 
+    vi.useFakeTimers();
     host.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
     await nextTick();
+    expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+    vi.advanceTimersByTime(260);
+    await nextTick();
+    vi.useRealTimers();
     expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();
     expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-tool-detail-visible")).toBe("false");
     expect(host.querySelector<HTMLElement>(".desktop-conversation-layout")?.style.getPropertyValue("--desktop-tool-detail-width")).toBe("");
