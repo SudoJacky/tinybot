@@ -17,6 +17,10 @@ type BootstrapSession = {
   tokenTtlS: number;
 };
 
+type TrackedSession = BootstrapSession & {
+  expiresAtMs: number;
+};
+
 type ProbeResult =
   | {
       ok: true;
@@ -43,6 +47,8 @@ type HealthOptions = {
   fetchFn?: FetchFn;
   webSocketProbe?: WebSocketProbe;
 };
+
+const TOKEN_REFRESH_MARGIN_MS = 60_000;
 
 export async function checkGatewayHealth(options: HealthOptions = {}): Promise<GatewayHealth> {
   const config = options.config ?? DEFAULT_GATEWAY_CONFIG;
@@ -124,19 +130,52 @@ export async function probeWebSocket(url: string, timeoutMs: number): Promise<Pr
 export function createGatewayApiClient(options: ClientOptions = {}) {
   const config = options.config ?? DEFAULT_GATEWAY_CONFIG;
   const fetchFn = options.fetchFn ?? fetch;
-  let sessionPromise: Promise<BootstrapSession> | null = null;
-  const getSession = async () => {
-    sessionPromise ??= bootstrapGateway(config, fetchFn).then((result) => {
+  let sessionPromise: Promise<TrackedSession> | null = null;
+  let refreshPromise: Promise<TrackedSession> | null = null;
+  const startBootstrap = () =>
+    bootstrapGateway(config, fetchFn).then((result) => {
       if (!result.ok) {
         throw new Error(`Gateway bootstrap failed: ${result.error}`);
       }
-      return result.session;
+      return trackSession(result.session);
     });
-    return sessionPromise;
+  const getSession = async (options: { forceBootstrap?: boolean } = {}) => {
+    if (options.forceBootstrap) {
+      sessionPromise = startBootstrap();
+      return sessionPromise;
+    }
+    sessionPromise ??= startBootstrap();
+    const session = await sessionPromise;
+    if (!shouldRefreshSession(session)) {
+      return session;
+    }
+    refreshPromise ??= refreshGateway(config, fetchFn, session)
+      .then((result) => {
+        if (result.ok) {
+          return trackSession(result.session);
+        }
+        return startBootstrap();
+      })
+      .then((nextSession) => {
+        sessionPromise = Promise.resolve(nextSession);
+        return nextSession;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+    return refreshPromise;
   };
   const request = async (path: string, init?: RequestInit) => {
     const session = await getSession();
-    return requestJson(config, fetchFn, path, withAuth(init, session.token));
+    try {
+      return await requestJson(config, fetchFn, path, withAuth(init, session.token));
+    } catch (error) {
+      if (!isGatewayUnauthorizedError(error)) {
+        throw error;
+      }
+      const freshSession = await getSession({ forceBootstrap: true });
+      return requestJson(config, fetchFn, path, withAuth(init, freshSession.token));
+    }
   };
 
   return {
@@ -308,6 +347,73 @@ async function bootstrapGateway(
   }
 }
 
+async function refreshGateway(
+  config: GatewayConfig,
+  fetchFn: FetchFn,
+  session: BootstrapSession,
+): Promise<
+  | {
+      ok: true;
+      session: BootstrapSession;
+    }
+  | {
+      ok: false;
+      error: string;
+    }
+> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  logDesktopNativeDebug("gateway.refresh.start", {
+    refreshTokenPath: session.refreshTokenPath,
+    timeoutMs: config.requestTimeoutMs,
+  });
+  try {
+    const response = await fetchFn(`${config.httpBaseUrl}${session.refreshTokenPath}`, {
+      method: "POST",
+      headers: authHeaders(session.token),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      logDesktopNativeDebug("gateway.refresh.error", {
+        status: response.status,
+      });
+      return { ok: false, error: `HTTP ${response.status}` };
+    }
+    const payload = await response.json();
+    const token = typeof payload.token === "string" ? payload.token : "";
+    if (!token) {
+      logDesktopNativeDebug("gateway.refresh.error", {
+        error: "missing token",
+      });
+      return { ok: false, error: "refresh response missing token" };
+    }
+    const nextSession = {
+      token,
+      wsPath: typeof payload.ws_path === "string" ? payload.ws_path : session.wsPath,
+      refreshTokenPath:
+        typeof payload.refresh_token_path === "string" ? payload.refresh_token_path : session.refreshTokenPath,
+      tokenTtlS: typeof payload.token_ttl_s === "number" ? payload.token_ttl_s : session.tokenTtlS,
+    };
+    logDesktopNativeDebug("gateway.refresh.complete", {
+      refreshTokenPath: nextSession.refreshTokenPath,
+      tokenReady: true,
+      tokenTtlS: nextSession.tokenTtlS,
+      wsPath: nextSession.wsPath,
+    });
+    return {
+      ok: true,
+      session: nextSession,
+    };
+  } catch (error) {
+    logDesktopNativeDebug("gateway.refresh.error", {
+      error: stringifyError(error),
+    });
+    return { ok: false, error: stringifyError(error) };
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
 async function requestJson(config: GatewayConfig, fetchFn: FetchFn, path: string, init?: RequestInit): Promise<unknown> {
   const method = init?.method ?? "GET";
   logDesktopNativeDebug("gateway.http.request", {
@@ -327,7 +433,7 @@ async function requestJson(config: GatewayConfig, fetchFn: FetchFn, path: string
       path,
       status: response.status,
     });
-    throw new Error(`Gateway request failed: HTTP ${response.status}`);
+    throw new GatewayRequestError(response.status);
   }
   const payload = await response.json();
   logDesktopNativeDebug("gateway.http.response", {
@@ -336,6 +442,27 @@ async function requestJson(config: GatewayConfig, fetchFn: FetchFn, path: string
     status: response.status,
   });
   return payload;
+}
+
+class GatewayRequestError extends Error {
+  constructor(readonly status: number) {
+    super(`Gateway request failed: HTTP ${status}`);
+  }
+}
+
+function isGatewayUnauthorizedError(error: unknown): boolean {
+  return error instanceof GatewayRequestError && error.status === 401;
+}
+
+function trackSession(session: BootstrapSession): TrackedSession {
+  return {
+    ...session,
+    expiresAtMs: Date.now() + session.tokenTtlS * 1000,
+  };
+}
+
+function shouldRefreshSession(session: TrackedSession): boolean {
+  return Date.now() + TOKEN_REFRESH_MARGIN_MS >= session.expiresAtMs;
 }
 
 function authenticatedWsUrl(config: GatewayConfig, session: BootstrapSession): string {
