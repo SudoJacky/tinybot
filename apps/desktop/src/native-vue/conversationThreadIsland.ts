@@ -60,7 +60,7 @@ export interface MountedConversationThreadIsland {
 
 const mountedConversationThreads = new WeakMap<HTMLElement, MountedConversationThreadIsland>();
 const DETAIL_PANEL_MOTION_MS = 360;
-type DetailPanelState = "closed" | "open" | "closing";
+type DetailPanelState = "closed" | "opening" | "open" | "closing";
 
 export function mountOrUpdateConversationThreadIsland(
   host: HTMLElement,
@@ -122,6 +122,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
       const panelWidth = ref(50);
       const overlayMode = ref(isToolDetailOverlayMode());
       let closePanelTimer: number | null = null;
+      let openPanelFrame: number | null = null;
       const selectedTool = computed(() => selectedToolKey.value ? findToolActivity(state.value.messages, selectedToolKey.value) : null);
       const hasDetailPanelSelection = () => Boolean(selectedToolKey.value || selectedReference.value || selectedCoworkAgent.value);
       const clearClosePanelTimer = () => {
@@ -130,12 +131,19 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         }
         closePanelTimer = null;
       };
+      const clearOpenPanelFrame = () => {
+        if (openPanelFrame !== null && typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+          window.cancelAnimationFrame(openPanelFrame);
+        }
+        openPanelFrame = null;
+      };
       const clearPanelSelection = () => {
         selectedToolKey.value = "";
         selectedReference.value = null;
         selectedCoworkAgent.value = null;
         detailPanelState.value = "closed";
         clearClosePanelTimer();
+        clearOpenPanelFrame();
       };
       const closePanel = () => {
         if (!hasDetailPanelSelection() || detailPanelState.value === "closing") {
@@ -145,6 +153,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
           logDesktopNativeDebug("toolDetail.close", summarizeToolActivity(selectedTool.value));
         }
         detailPanelState.value = "closing";
+        clearOpenPanelFrame();
         clearClosePanelTimer();
         if (typeof window === "undefined") {
           clearPanelSelection();
@@ -154,26 +163,42 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
       };
       const openPanel = () => {
         clearClosePanelTimer();
-        detailPanelState.value = "open";
+        if (detailPanelState.value === "open") {
+          return;
+        }
+        clearOpenPanelFrame();
+        detailPanelState.value = "opening";
+        if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+          detailPanelState.value = "open";
+          return;
+        }
+        openPanelFrame = window.requestAnimationFrame(() => {
+          openPanelFrame = window.requestAnimationFrame(() => {
+            openPanelFrame = null;
+            if (detailPanelState.value === "opening" && hasDetailPanelSelection()) {
+              detailPanelState.value = "open";
+            }
+          });
+        });
       };
       const handleLayoutClick = (event: MouseEvent) => {
-        if (detailPanelState.value !== "open" || isDetailPanelPreservingClickTarget(event.target)) {
+        if ((detailPanelState.value !== "open" && detailPanelState.value !== "opening") || isDetailPanelPreservingClickTarget(event.target)) {
           return;
         }
         closePanel();
       };
       const openReferenceDetail = (reference: ConversationReferenceIslandOptions) => {
-        openPanel();
         selectedToolKey.value = "";
         selectedReference.value = reference;
         selectedCoworkAgent.value = null;
+        openPanel();
         state.value.onReferenceInspect?.(reference);
       };
       const openCoworkAgentDetail = (run: ConversationCoworkRunOptions, agent: ConversationCoworkAgentOptions) => {
-        openPanel();
         selectedToolKey.value = "";
         selectedReference.value = null;
         selectedCoworkAgent.value = { agent, run };
+        openPanel();
         state.value.onCoworkAgentInspect?.({ agentId: agent.id, sessionId: run.id });
       };
       const openToolDetail = (event: Event) => {
@@ -182,10 +207,10 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         if (!activity) {
           return;
         }
-        openPanel();
         selectedReference.value = null;
         selectedCoworkAgent.value = null;
         selectedToolKey.value = toolActivitySelectionKey(activity);
+        openPanel();
         logDesktopNativeDebug("toolDetail.open", summarizeToolActivity(activity));
       };
       const handleKeydown = (event: KeyboardEvent) => {
@@ -206,6 +231,7 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         }
         host.removeEventListener("keydown", handleKeydown);
         clearClosePanelTimer();
+        clearOpenPanelFrame();
       });
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => {
