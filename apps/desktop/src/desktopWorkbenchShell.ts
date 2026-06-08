@@ -121,8 +121,6 @@ import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountSettingsProviderDetailIsland } from "./native-vue/settingsProviderDetailIsland";
 import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProviderManagementIsland";
 import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";
-import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";
-import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";
 import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";
 import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
@@ -4697,7 +4695,6 @@ function createSettingsProvidersPane(
   content.append(createSettingsCapabilityMap(targetDocument, pane));
   content.append(createDefaultLlmSettingsCard(targetDocument, pane, settingsActions));
   content.append(createProviderManagementSection(targetDocument, pane, settingsActions));
-  content.append(createSettingsStatusCard(targetDocument, pane));
 
   const grid = targetDocument.createElement("div");
   grid.className = "desktop-settings-grid";
@@ -4718,22 +4715,19 @@ function createSettingsProvidersPane(
       copy.className = "desktop-settings-group-description";
       groupSection.append(copy);
     }
-    for (const field of fields) {
-      const row = targetDocument.createElement("div");
-      row.className = "desktop-settings-field";
-      row.setAttribute("data-desktop-settings-field", field.id);
-      row.setAttribute("data-state", field.state);
-      const copy = targetDocument.createElement("div");
-      copy.className = "desktop-settings-field-copy";
-      const label = targetDocument.createElement("label");
-      label.textContent = `${field.label}: `;
-      label.setAttribute("for", `desktop-settings-${field.id}`);
-      const help = createText(targetDocument, "span", getSettingsFieldDescription(group.id, field.id, field.value));
-      help.className = "desktop-settings-field-description";
-      const control = createDesktopSettingsControl(targetDocument, pane, field, settingsActions);
-      copy.append(label, help);
-      row.append(copy, control);
-      groupSection.append(row);
+    const primaryFields = fields.filter((field) => !field.advanced);
+    const advancedFields = fields.filter((field) => field.advanced);
+    for (const field of primaryFields) {
+      groupSection.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+    }
+    if (advancedFields.length) {
+      const details = targetDocument.createElement("details");
+      details.className = "desktop-settings-advanced-fields";
+      details.append(createText(targetDocument, "summary", "Advanced"));
+      for (const field of advancedFields) {
+        details.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+      }
+      groupSection.append(details);
     }
     grid.append(groupSection);
   }
@@ -4791,7 +4785,7 @@ function createDefaultLlmSettingsCard(
 
   const form = targetDocument.createElement("div");
   form.className = "desktop-settings-default-llm-form";
-  const provider = findSettingsPaneField(pane, "provider-models", "selectedProvider");
+  const provider = findSettingsPaneField(pane, "general", "provider");
   const model = findSettingsPaneField(pane, "general", "model");
   if (provider) {
     form.append(createSettingsControlField(targetDocument, pane, provider, "提供商", settingsActions));
@@ -4925,7 +4919,7 @@ function createSettingsControlField(
   const wrapper = targetDocument.createElement("label");
   wrapper.className = "desktop-settings-inline-field";
   wrapper.append(createText(targetDocument, "span", labelText));
-  wrapper.append(field.id === "model" && pane.providerEditor.models.length > 0
+  wrapper.append(field.id === "model" && getDefaultLlmModelOptions(pane).length > 0
     ? createDesktopSettingsModelSelect(targetDocument, pane, field, settingsActions)
     : createDesktopSettingsControl(targetDocument, pane, field, settingsActions));
   return wrapper;
@@ -4944,7 +4938,8 @@ function createDesktopSettingsModelSelect(
   if (field.state === "invalid") {
     select.setAttribute("aria-invalid", "true");
   }
-  const values = [field.inputValue, ...pane.providerEditor.models].filter(Boolean);
+  const optionValues = field.options?.map((option) => option.value) ?? getDefaultLlmModelOptions(pane);
+  const values = [field.inputValue, ...optionValues].filter(Boolean);
   const uniqueValues = Array.from(new Set(values));
   if (!uniqueValues.length) {
     uniqueValues.push("");
@@ -4969,6 +4964,14 @@ function createDesktopSettingsModelSelect(
   return select;
 }
 
+function getDefaultLlmModelOptions(pane: DesktopSettingsPaneModel): string[] {
+  const defaultProvider = findSettingsPaneField(pane, "general", "provider")?.inputValue;
+  if (!defaultProvider || defaultProvider === "auto") {
+    return pane.providerEditor.models;
+  }
+  return pane.providerCatalog.find((provider) => provider.id === defaultProvider)?.models ?? [];
+}
+
 function createProviderManagementCard(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
@@ -4981,17 +4984,44 @@ function createProviderManagementCard(
 
   const header = targetDocument.createElement("header");
   header.className = "desktop-settings-provider-card-header";
+  const identity = targetDocument.createElement("div");
+  identity.className = "desktop-settings-provider-identity";
+  const mark = createText(targetDocument, "span", provider.initials);
+  mark.className = "desktop-settings-provider-mark";
+  mark.setAttribute("aria-hidden", "true");
+  mark.setAttribute("data-provider-id", provider.id);
   const title = targetDocument.createElement("div");
   title.className = "desktop-settings-provider-title";
   title.append(createText(targetDocument, "h3", provider.label));
+  const statusRow = targetDocument.createElement("div");
+  statusRow.className = "desktop-settings-provider-status-row";
   if (provider.badge) {
     const badge = createText(targetDocument, "span", provider.badge);
     badge.className = "desktop-settings-provider-badge";
-    title.append(badge);
+    statusRow.append(badge);
   }
   const status = createText(targetDocument, "span", provider.statusLabel);
   status.className = "desktop-settings-provider-status";
-  header.append(title, status);
+  statusRow.append(status);
+  title.append(statusRow);
+  identity.append(mark, title);
+  const toggle = targetDocument.createElement("button");
+  toggle.className = "desktop-settings-provider-switch";
+  toggle.setAttribute("type", "button");
+  toggle.setAttribute("role", "switch");
+  toggle.setAttribute("aria-checked", provider.connected ? "true" : "false");
+  toggle.setAttribute("aria-label", `${provider.connected ? "Disable" : "Enable"} ${provider.label}`);
+  toggle.setAttribute("data-desktop-settings-provider-action", "toggle");
+  toggle.setAttribute("data-state", provider.connected ? "on" : "off");
+  toggle.addEventListener("click", () => {
+    settingsActions.onSettingsAction?.({
+      action: "edit",
+      pane,
+      fieldId: `providerEnabled:${provider.id}`,
+      value: !provider.connected,
+    });
+  });
+  header.append(identity, toggle);
 
   const details = targetDocument.createElement("div");
   details.className = "desktop-settings-provider-details";
@@ -5001,13 +5031,22 @@ function createProviderManagementCard(
     createSettingsProviderDetail(targetDocument, "Model", provider.models),
   );
 
+  const advanced = targetDocument.createElement("button");
+  advanced.className = "desktop-settings-provider-advanced";
+  advanced.setAttribute("type", "button");
+  advanced.setAttribute("data-desktop-settings-provider-action", "settings");
+  advanced.append(createText(targetDocument, "span", "Advanced settings"), createText(targetDocument, "span", "v"));
+  advanced.addEventListener("click", () => {
+    handleSettingsProviderCardAction(targetDocument, pane, settingsActions, provider.id, "settings");
+  });
+
   const actions = targetDocument.createElement("div");
   actions.className = "desktop-settings-provider-card-actions";
   const modelAction = createText(targetDocument, "button", "\u6a21\u578b");
   modelAction.setAttribute("type", "button");
   modelAction.setAttribute("data-desktop-settings-provider-action", "models");
   modelAction.addEventListener("click", () => {
-    handleSettingsProviderCardAction(targetDocument, pane, settingsActions, provider.id, "model");
+    handleSettingsProviderCardAction(targetDocument, pane, settingsActions, provider.id, "models");
   });
   const settingsAction = createText(targetDocument, "button", "\u8bbe\u7f6e");
   settingsAction.setAttribute("type", "button");
@@ -5017,14 +5056,22 @@ function createProviderManagementCard(
   });
   actions.replaceChildren(modelAction, settingsAction);
 
-  card.append(header, details, actions);
+  card.append(header, details, advanced, actions);
   return card;
 }
 
 function createSettingsProviderDetail(targetDocument: Document, label: string, value: string): HTMLElement {
-  const row = targetDocument.createElement("p");
+  const row = targetDocument.createElement("label");
   row.className = "desktop-settings-provider-detail";
-  row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
+  const input = targetDocument.createElement("input");
+  input.setAttribute("readonly", "true");
+  input.setAttribute("tabindex", "-1");
+  input.setAttribute("value", value);
+  input.setAttribute("aria-label", `${label}: ${value}`);
+  (input as HTMLInputElement).value = value;
+  const text = createText(targetDocument, "span", `${label}: ${value}`);
+  text.className = "desktop-settings-provider-detail-text";
+  row.append(createText(targetDocument, "span", `${label}: `), input, text);
   mountSettingsProviderDetailVueIsland(row, label, value);
   return row;
 }
@@ -5054,14 +5101,14 @@ function handleSettingsProviderCardAction(
   pane: DesktopSettingsPaneModel,
   settingsActions: DesktopSettingsActionOptions,
   providerId: string,
-  target: "model" | "settings",
+  target: "models" | "settings",
 ): void {
   if (providerId !== pane.providerEditor.selectedProvider) {
     selectSettingsProvider(pane, settingsActions, providerId);
-    focusDesktopSettingsControl(targetDocument, "selectedProvider");
+    focusDesktopSettingsControl(targetDocument, target === "models" ? "models" : "apiBase");
     return;
   }
-  focusDesktopSettingsControl(targetDocument, target === "model" ? "model" : "apiBase");
+  focusDesktopSettingsControl(targetDocument, target === "models" ? "models" : "apiBase");
 }
 
 function selectSettingsProvider(
@@ -5088,6 +5135,8 @@ interface DesktopProviderCardModel {
   id: string;
   label: string;
   badge: string;
+  initials: string;
+  connected: boolean;
   statusLabel: string;
   baseUrl: string;
   apiKey: string;
@@ -5122,6 +5171,9 @@ function createSettingsCapabilityMap(targetDocument: Document, pane: DesktopSett
     link.className = "desktop-settings-capability-card";
     link.setAttribute("href", `#desktop-settings-group-${card.id}`);
     link.setAttribute("data-desktop-settings-capability", card.id);
+    link.addEventListener("click", (event) => {
+      scrollToDesktopSettingsGroup(event, targetDocument, card.id);
+    });
 
     const label = targetDocument.createElement("span");
     label.className = "desktop-settings-capability-label";
@@ -5211,25 +5263,53 @@ function getProviderCards(pane: DesktopSettingsPaneModel): DesktopProviderCardMo
   const selectedProvider = pane.providerEditor.selectedProvider || "provider";
   const catalog = pane.providerCatalog.length
     ? pane.providerCatalog
-    : [{ id: selectedProvider, label: selectedProvider, status: "not_configured" }];
+    : [{
+      id: selectedProvider,
+      label: selectedProvider,
+      profileId: selectedProvider,
+      status: "not_configured",
+      enabled: false,
+      baseUrl: null,
+      apiKey: { value: "", displayValue: "", masked: false, empty: true },
+      models: [],
+      canDiscoverModels: true,
+    }];
   return catalog.map((provider) => {
     const isSelected = provider.id === selectedProvider;
-    const models = isSelected ? pane.providerEditor.models.join(", ") : "";
+    const providerModels = provider.models ?? (isSelected ? pane.providerEditor.models : []);
+    const models = providerModels.join(", ");
+    const apiKey = provider.apiKey ?? (isSelected ? pane.providerEditor.apiKey : { displayValue: "" });
     return {
       id: provider.id,
       label: provider.label || provider.id,
       badge: isSelected ? "当前" : "",
-      statusLabel: formatProviderStatus(provider.status),
-      baseUrl: isSelected ? pane.providerEditor.apiBase || "未设置" : "未设置",
-      apiKey: isSelected ? pane.providerEditor.apiKey.displayValue || "未设置" : "未设置",
+      initials: getProviderInitials(provider.label || provider.id),
+      connected: provider.enabled ?? (provider.status === "ready" || provider.status === "available"),
+      statusLabel: formatProviderStatus(provider.enabled === false ? "disabled" : provider.status),
+      baseUrl: provider.baseUrl || "未设置",
+      apiKey: apiKey.displayValue || "未设置",
       models: models || "暂无模型",
     };
   });
 }
 
+function getProviderInitials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return "AI";
+  }
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
 function formatProviderStatus(status: string): string {
   return {
     ready: "已连接",
+    available: "已连接",
+    disabled: "已禁用",
+    no_models: "无模型",
     needs_key: "未就绪",
     unavailable: "不可用",
     not_configured: "未配置",
@@ -5266,6 +5346,9 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
     item.className = "desktop-settings-nav-item";
     item.setAttribute("href", `#desktop-settings-group-${group.id}`);
     item.setAttribute("data-desktop-settings-nav", group.id);
+    item.addEventListener("click", (event) => {
+      scrollToDesktopSettingsGroup(event, targetDocument, group.id);
+    });
     if (index === 0) {
       item.setAttribute("data-active", "true");
       item.setAttribute("aria-current", "page");
@@ -5279,61 +5362,30 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
   return sidebar;
 }
 
+function scrollToDesktopSettingsGroup(event: Event, targetDocument: Document, groupId: string): void {
+  event.preventDefault();
+  setDesktopSettingsActiveNav(targetDocument, groupId);
+  targetDocument.getElementById(`desktop-settings-group-${groupId}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+function setDesktopSettingsActiveNav(targetDocument: Document, groupId: string): void {
+  for (const item of targetDocument.querySelectorAll<HTMLElement>("[data-desktop-settings-nav]")) {
+    const active = item.getAttribute("data-desktop-settings-nav") === groupId;
+    if (active) {
+      item.setAttribute("data-active", "true");
+      item.setAttribute("aria-current", "page");
+    } else {
+      item.removeAttribute("data-active");
+      item.removeAttribute("aria-current");
+    }
+  }
+}
+
 function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettingsPaneModel): void {
   if (!canMountVueIsland(sidebar)) {
     return;
   }
   mountSettingsSidebarIsland(sidebar, { groups: pane.groups });
-}
-
-function createSettingsStatusCard(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
-  const card = targetDocument.createElement("section");
-  card.className = "desktop-settings-status-card";
-  card.setAttribute("aria-label", "Settings status");
-
-  const details = targetDocument.createElement("div");
-  details.className = "desktop-settings-summary";
-  details.append(
-    createSettingsStatusItem(targetDocument, "Save", pane.save.message),
-    createSettingsStatusItem(
-      targetDocument,
-      "Validation",
-      pane.validationErrors.length ? pane.validationErrors.map((error) => error.field).join(", ") : "ready",
-    ),
-    createSettingsStatusItem(targetDocument, "Provider profile", pane.providerEditor.profileId || "default"),
-    createSettingsStatusItem(targetDocument, "API key", pane.providerEditor.apiKey.displayValue || "Not configured"),
-    createSettingsStatusItem(
-      targetDocument,
-      "Catalog",
-      pane.providerCatalog.map((provider) => `${provider.label} (${provider.status})`).join(", ") || "No providers loaded",
-    ),
-    createSettingsStatusItem(targetDocument, "Models", pane.providerEditor.models.join(", ") || "No models loaded"),
-  );
-  card.append(details);
-  mountSettingsStatusVueIsland(card, pane);
-  return card;
-}
-
-function mountSettingsStatusVueIsland(card: HTMLElement, pane: DesktopSettingsPaneModel): void {
-  if (!canMountVueIsland(card)) {
-    return;
-  }
-  mountSettingsStatusIsland(card, { pane });
-}
-
-function createSettingsStatusItem(targetDocument: Document, label: string, value: string): HTMLElement {
-  const row = targetDocument.createElement("p");
-  row.className = "desktop-settings-status-item";
-  row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
-  mountSettingsStatusItemVueIsland(row, label, value);
-  return row;
-}
-
-function mountSettingsStatusItemVueIsland(row: HTMLElement, label: string, value: string): void {
-  if (!canMountVueIsland(row)) {
-    return;
-  }
-  mountSettingsStatusItemIsland(row, { label, value });
 }
 
 function getSettingsNavLabel(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {
@@ -5399,12 +5451,55 @@ function getSettingsFieldDescription(
   return descriptions[`${groupId}.${fieldId}`] ?? `Current value: ${value || "Not configured"}.`;
 }
 
+function createDesktopSettingsFieldRow(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  group: DesktopSettingsPaneGroup,
+  field: DesktopSettingsPaneField,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const row = targetDocument.createElement("div");
+  row.className = "desktop-settings-field";
+  row.setAttribute("data-desktop-settings-field", field.id);
+  row.setAttribute("data-state", field.state);
+  const copy = targetDocument.createElement("div");
+  copy.className = "desktop-settings-field-copy";
+  const label = targetDocument.createElement("label");
+  label.textContent = `${field.label}: `;
+  label.setAttribute("for", `desktop-settings-${field.id}`);
+  const help = createText(targetDocument, "span", getSettingsFieldDescription(group.id, field.id, field.value));
+  help.className = "desktop-settings-field-description";
+  copy.append(label, help, createDesktopSettingsFieldMeta(targetDocument, field));
+  row.append(copy, createDesktopSettingsControl(targetDocument, pane, field, settingsActions));
+  return row;
+}
+
+function createDesktopSettingsFieldMeta(targetDocument: Document, field: DesktopSettingsPaneField): HTMLElement {
+  const meta = targetDocument.createElement("span");
+  meta.className = "desktop-settings-field-meta";
+  const requirement = createText(targetDocument, "span", desktopSettingsRequirementLabel(field.requirement));
+  requirement.className = "desktop-settings-field-chip";
+  requirement.setAttribute("data-kind", field.requirement);
+  const mode = createText(targetDocument, "span", desktopSettingsConfigurationModeLabel(field.configurationMode));
+  mode.className = "desktop-settings-field-chip";
+  mode.setAttribute("data-kind", field.configurationMode);
+  meta.append(requirement, mode);
+  return meta;
+}
+
 function createDesktopSettingsControl(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
   field: DesktopSettingsPaneModel["groups"][number]["fields"][number],
   settingsActions: DesktopSettingsActionOptions,
 ): HTMLElement {
+  if (field.control === "readonly") {
+    const output = targetDocument.createElement("output");
+    output.className = "desktop-settings-readonly-value";
+    output.setAttribute("id", `desktop-settings-${field.id}`);
+    output.textContent = field.value || "Not configured";
+    return output;
+  }
   const tagName = field.control === "textarea" ? "textarea" : field.control === "select" ? "select" : "input";
   const control = targetDocument.createElement(tagName);
   control.setAttribute("id", `desktop-settings-${field.id}`);
@@ -5412,6 +5507,18 @@ function createDesktopSettingsControl(
   control.setAttribute("data-state", field.state);
   if (field.state === "invalid") {
     control.setAttribute("aria-invalid", "true");
+  }
+  if (field.placeholder) {
+    control.setAttribute("placeholder", field.placeholder);
+  }
+  if (field.min !== undefined) {
+    control.setAttribute("min", String(field.min));
+  }
+  if (field.max !== undefined) {
+    control.setAttribute("max", String(field.max));
+  }
+  if (field.step !== undefined) {
+    control.setAttribute("step", String(field.step));
   }
 
   if (field.control === "checkbox") {
@@ -5430,6 +5537,8 @@ function createDesktopSettingsControl(
 
   if (field.control === "number") {
     (control as HTMLInputElement).type = "number";
+  } else if (field.control === "password") {
+    (control as HTMLInputElement).type = "password";
   } else if (field.control === "text") {
     (control as HTMLInputElement).type = "text";
   }
@@ -5459,6 +5568,28 @@ function createDesktopSettingsControl(
     });
   });
   return control;
+}
+
+function desktopSettingsRequirementLabel(requirement: DesktopSettingsPaneField["requirement"]): string {
+  return {
+    required: "Required",
+    optional: "Optional",
+    readonly: "Read only",
+  }[requirement];
+}
+
+function desktopSettingsConfigurationModeLabel(mode: DesktopSettingsPaneField["configurationMode"]): string {
+  return {
+    fixed: "Fixed options",
+    freeform: "Free text",
+    json: "JSON object",
+    list: "List",
+    numeric: "Number",
+    readonly: "Status",
+    secret: "Secret",
+    toggle: "Toggle",
+    url: "URL",
+  }[mode];
 }
 
 function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControlId): void {
@@ -10571,7 +10702,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell {
-      grid-template-columns: 56px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;
+      grid-template-columns: 92px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;
+    }
+
+    html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] {
+      grid-template-columns: 92px 0 minmax(0, 1fr) 0;
     }
 
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-inspector {
@@ -10607,6 +10742,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 100%;
       max-width: 1180px;
       margin: 0 auto;
+    }
+
+    body.desktop-native-workbench .desktop-settings-pane > .n-config-provider {
+      display: contents;
     }
 
     body.desktop-native-workbench .desktop-settings-sidebar {
@@ -10872,43 +11011,73 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-provider-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(250px, 1fr));
       gap: 16px;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-card {
       display: grid;
-      align-content: space-between;
-      gap: 20px;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
+      align-content: start;
+      gap: 14px;
       min-width: 0;
-      min-height: 250px;
+      min-height: 246px;
       border: 1px solid #ebe4dd;
       border-radius: 8px;
-      padding: 28px 26px 18px;
+      padding: 14px;
       background: #fffdfa;
+      box-shadow: 0 1px 2px rgba(20, 20, 19, 0.04);
     }
 
     body.desktop-native-workbench .desktop-settings-provider-card-header {
       display: flex;
-      align-items: start;
+      align-items: center;
       justify-content: space-between;
       gap: 12px;
       min-width: 0;
     }
 
-    body.desktop-native-workbench .desktop-settings-provider-title {
+    body.desktop-native-workbench .desktop-settings-provider-identity {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-mark {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #5f6df2, #7db7ff);
+      color: #ffffff;
+      font: 800 14px/1 var(--font-sans);
+      letter-spacing: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-title {
+      display: grid;
+      gap: 5px;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-title h3 {
       margin: 0;
       color: #141413;
-      font: 750 20px/1.2 var(--font-sans);
+      font: 750 15px/1.2 var(--font-sans);
       letter-spacing: 0;
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-status-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-badge {
@@ -10921,26 +11090,104 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-provider-status {
       color: #8c847c;
-      font: 700 12px/1.2 var(--font-sans);
+      font: 700 11px/1.2 var(--font-sans);
       white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-switch {
+      position: relative;
+      flex: 0 0 auto;
+      width: 34px;
+      height: 20px;
+      border: 0;
+      border-radius: 999px;
+      appearance: none;
+      background: #d9dfe5;
+      box-shadow: inset 0 0 0 1px rgba(20, 20, 19, 0.05);
+      cursor: pointer;
+      padding: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-switch:focus-visible {
+      outline: 2px solid #5c55f5;
+      outline-offset: 2px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-switch::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(20, 20, 19, 0.18);
+      transition: transform 160ms ease;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-switch[data-state="on"] {
+      background: #5c55f5;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-switch[data-state="on"]::after {
+      transform: translateX(14px);
     }
 
     body.desktop-native-workbench .desktop-settings-provider-details {
       display: grid;
-      gap: 8px;
+      gap: 10px;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-detail {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
       margin: 0;
-      color: #8a827a;
-      font: 500 12px/1.45 var(--font-sans);
-      overflow-wrap: anywhere;
+      color: #6f665e;
+      font: 650 11px/1.2 var(--font-sans);
     }
 
-    body.desktop-native-workbench .desktop-settings-provider-detail strong {
-      color: #4a433d;
-      font-weight: 600;
+    body.desktop-native-workbench .desktop-settings-provider-detail input {
+      width: 100%;
+      min-width: 0;
+      min-height: 30px;
+      border: 1px solid #e0d8d0;
+      border-radius: 6px;
+      padding: 0 9px;
+      background: #fffdfa;
+      color: #3a332e;
+      font: 500 12px/1.25 var(--font-sans);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: default;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-detail-text {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-advanced {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+      min-height: 28px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: #6b635c;
+      font: 650 12px/1.2 var(--font-sans);
+      cursor: pointer;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-card-actions {
@@ -10994,6 +11241,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-radius: 8px;
       background: #fffdfa;
       overflow: hidden;
+      scroll-margin-top: 12px;
     }
 
     body.desktop-native-workbench .desktop-settings-summary {
@@ -11062,12 +11310,57 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-field-copy {
       display: grid;
+      gap: 5px;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-field label {
       color: #2d2924;
       font: 650 13px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-chip {
+      width: max-content;
+      max-width: 100%;
+      border: 1px solid #e6ddd4;
+      border-radius: 999px;
+      padding: 2px 7px;
+      background: #fbf8f3;
+      color: #71675e;
+      font: 650 11px/1.2 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-chip[data-kind="required"] {
+      border-color: #f3caa6;
+      color: #985314;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-chip[data-kind="readonly"],
+    body.desktop-native-workbench .desktop-settings-field-chip[data-kind="readonly"] + .desktop-settings-field-chip {
+      color: #81776f;
+    }
+
+    body.desktop-native-workbench .desktop-settings-advanced-fields {
+      display: grid;
+      min-width: 0;
+      border-top: 1px solid #eee8e1;
+    }
+
+    body.desktop-native-workbench .desktop-settings-advanced-fields summary {
+      min-height: 38px;
+      padding: 10px 18px;
+      color: #4b443d;
+      font: 700 12px/1.3 var(--font-sans);
+      cursor: pointer;
+      list-style-position: inside;
     }
 
     body.desktop-native-workbench .desktop-settings-field input,
@@ -11077,6 +11370,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 34px;
       padding: 7px 9px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-readonly-value {
+      min-width: 0;
+      color: #5f574f;
+      font: 650 13px/1.35 var(--font-sans);
+      overflow-wrap: anywhere;
+      justify-self: end;
+      text-align: right;
     }
 
     body.desktop-native-workbench .desktop-settings-field input[type="checkbox"] {
@@ -11104,6 +11406,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-settings-provider-search:focus-visible,
     body.desktop-native-workbench .desktop-settings-provider-icon-button:focus-visible,
     body.desktop-native-workbench .desktop-settings-provider-add:focus-visible,
+    body.desktop-native-workbench .desktop-settings-provider-advanced:focus-visible,
     body.desktop-native-workbench .desktop-settings-provider-card-actions button:focus-visible,
     body.desktop-native-workbench .desktop-settings-capability-card:focus-visible,
     body.desktop-native-workbench .desktop-settings-nav-item:focus-visible,
@@ -11929,6 +12232,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-icon-button,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-add,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-card-actions button,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-detail input,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field input,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field select,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-field textarea,
@@ -11992,6 +12296,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-default-llm-copy,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-status,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-detail,
+    html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-provider-advanced,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-status-item,
     html[data-theme="dark"] body.desktop-native-workbench .desktop-settings-nav-heading {
       color: var(--muted);

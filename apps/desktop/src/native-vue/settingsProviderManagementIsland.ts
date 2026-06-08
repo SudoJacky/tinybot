@@ -8,6 +8,8 @@ interface ProviderCardModel {
   id: string;
   label: string;
   badge: string;
+  initials: string;
+  connected: boolean;
   statusLabel: string;
   statusTone: "default" | "error" | "success" | "warning";
   baseUrl: string;
@@ -62,7 +64,7 @@ function renderProviderManagement(
   searchQuery: string,
   updateSearchQuery: (value: string) => void,
 ) {
-  const cards = getProviderCards(options.pane);
+  const cards = getProviderCards(options.pane).filter((provider) => !shouldHideProviderCard(provider, searchQuery));
   return [
     h("header", { class: "desktop-settings-provider-header" }, [
       h("h2", "Providers"),
@@ -99,55 +101,77 @@ function renderProviderManagement(
         }, { default: () => "+ Add provider" }),
       ]),
     ]),
-    h("div", { class: "desktop-settings-provider-grid" }, cards.map((provider) => renderProviderCard(
-      options,
-      provider,
-      shouldHideProviderCard(provider, searchQuery),
-    ))),
+    h("div", { class: "desktop-settings-provider-grid" }, cards.map((provider) => renderProviderCard(options, provider))),
   ];
 }
 
 function renderProviderCard(
   options: SettingsProviderManagementIslandOptions,
   provider: ProviderCardModel,
-  hidden: boolean,
 ) {
   return h(NCard, {
     class: "desktop-settings-provider-card",
     "data-desktop-settings-provider-card": provider.id,
-    hidden,
     size: "small",
     bordered: false,
   }, {
     default: () => [
       h("header", { class: "desktop-settings-provider-card-header" }, [
-        h("div", { class: "desktop-settings-provider-title" }, [
-          h("h3", provider.label),
-          provider.badge ? h(NTag, {
-            class: "desktop-settings-provider-badge",
-            size: "small",
-            round: true,
-            type: "success",
-          }, { default: () => provider.badge }) : null,
+        h("div", { class: "desktop-settings-provider-identity" }, [
+          h("span", {
+            class: "desktop-settings-provider-mark",
+            "aria-hidden": "true",
+            "data-provider-id": provider.id,
+          }, provider.initials),
+          h("div", { class: "desktop-settings-provider-title" }, [
+            h("h3", provider.label),
+            h("div", { class: "desktop-settings-provider-status-row" }, [
+              provider.badge ? h(NTag, {
+                class: "desktop-settings-provider-badge",
+                size: "small",
+                round: true,
+                type: "success",
+              }, { default: () => provider.badge }) : null,
+              h(NTag, {
+                class: "desktop-settings-provider-status",
+                size: "small",
+                round: true,
+                type: provider.statusTone,
+              }, { default: () => provider.statusLabel }),
+            ]),
+          ]),
         ]),
-        h(NTag, {
-          class: "desktop-settings-provider-status",
-          size: "small",
-          round: true,
-          type: provider.statusTone,
-        }, { default: () => provider.statusLabel }),
+        h("button", {
+          class: "desktop-settings-provider-switch",
+          type: "button",
+          role: "switch",
+          "aria-checked": provider.connected ? "true" : "false",
+          "aria-label": `${provider.connected ? "Disable" : "Enable"} ${provider.label}`,
+          "data-desktop-settings-provider-action": "toggle",
+          "data-state": provider.connected ? "on" : "off",
+          onClick: () => toggleProvider(options, provider),
+        }),
       ]),
       h("div", { class: "desktop-settings-provider-details" }, [
         renderProviderDetail("Base URL", provider.baseUrl),
         renderProviderDetail("API Key", provider.apiKey),
         renderProviderDetail("Model", provider.models),
       ]),
+      h("button", {
+        class: "desktop-settings-provider-advanced",
+        type: "button",
+        "data-desktop-settings-provider-action": "settings",
+        onClick: () => handleProviderCardAction(options, provider.id, "settings"),
+      }, [
+        h("span", "Advanced settings"),
+        h("span", { "aria-hidden": "true" }, "v"),
+      ]),
       h(NSpace, { class: "desktop-settings-provider-card-actions", size: 8 }, {
         default: () => [
           h(NButton, {
             size: "small",
             "data-desktop-settings-provider-action": "models",
-            onClick: () => handleProviderCardAction(options, provider.id, "model"),
+            onClick: () => handleProviderCardAction(options, provider.id, "models"),
           }, { default: () => "Models" }),
           h(NButton, {
             size: "small",
@@ -161,9 +185,15 @@ function renderProviderCard(
 }
 
 function renderProviderDetail(label: string, value: string) {
-  return h("p", { class: "desktop-settings-provider-detail" }, [
+  return h("label", { class: "desktop-settings-provider-detail" }, [
     h("span", `${label}: `),
-    h("strong", value),
+    h("input", {
+      readonly: true,
+      tabindex: -1,
+      value,
+      "aria-label": `${label}: ${value}`,
+    }),
+    h("span", { class: "desktop-settings-provider-detail-text" }, `${label}: ${value}`),
   ]);
 }
 
@@ -178,14 +208,14 @@ function shouldHideProviderCard(provider: ProviderCardModel, query: string): boo
 function handleProviderCardAction(
   options: SettingsProviderManagementIslandOptions,
   providerId: string,
-  target: "model" | "settings",
+  target: "models" | "settings",
 ): void {
   if (providerId !== options.pane.providerEditor.selectedProvider) {
     selectProvider(options, providerId);
-    options.onFocusSettingsControl?.("selectedProvider");
+    options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
     return;
   }
-  options.onFocusSettingsControl?.(target === "model" ? "model" : "apiBase");
+  options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
 }
 
 function selectProvider(options: SettingsProviderManagementIslandOptions, providerId: string): void {
@@ -201,26 +231,63 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
   const selectedProvider = pane.providerEditor.selectedProvider || "provider";
   const catalog = pane.providerCatalog.length
     ? pane.providerCatalog
-    : [{ id: selectedProvider, label: selectedProvider, status: "not_configured" }];
+    : [{
+      id: selectedProvider,
+      label: selectedProvider,
+      profileId: selectedProvider,
+      status: "not_configured",
+      enabled: false,
+      baseUrl: null,
+      apiKey: { value: "", displayValue: "", masked: false, empty: true },
+      models: [],
+      canDiscoverModels: true,
+    }];
   return catalog.map((provider) => {
     const isSelected = provider.id === selectedProvider;
-    const models = isSelected ? pane.providerEditor.models.join(", ") : "";
+    const providerModels = provider.models ?? (isSelected ? pane.providerEditor.models : []);
+    const models = providerModels.join(", ");
+    const apiKey = provider.apiKey ?? (isSelected ? pane.providerEditor.apiKey : { displayValue: "" });
     return {
       id: provider.id,
       label: provider.label || provider.id,
       badge: isSelected ? "Current" : "",
-      statusLabel: formatProviderStatus(provider.status),
-      statusTone: providerStatusTone(provider.status),
-      baseUrl: isSelected ? pane.providerEditor.apiBase || "Not configured" : "Not configured",
-      apiKey: isSelected ? pane.providerEditor.apiKey.displayValue || "Not configured" : "Not configured",
+      initials: providerInitials(provider.label || provider.id),
+      connected: provider.enabled ?? (provider.status === "ready" || provider.status === "available"),
+      statusLabel: formatProviderStatus(provider.enabled === false ? "disabled" : provider.status),
+      statusTone: providerStatusTone(provider.enabled === false ? "disabled" : provider.status),
+      baseUrl: provider.baseUrl || (isSelected ? pane.providerEditor.apiBase : "") || "Not configured",
+      apiKey: apiKey.displayValue || "Not configured",
       models: models || "No models",
     };
   });
 }
 
+function toggleProvider(options: SettingsProviderManagementIslandOptions, provider: ProviderCardModel): void {
+  options.onSettingsAction?.({
+    action: "edit",
+    pane: options.pane,
+    fieldId: `providerEnabled:${provider.id}`,
+    value: !provider.connected,
+  });
+}
+
+function providerInitials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return "AI";
+  }
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
 function formatProviderStatus(status: string): string {
   return {
     ready: "Ready",
+    available: "Ready",
+    disabled: "Disabled",
+    no_models: "No models",
     needs_key: "Needs key",
     unavailable: "Unavailable",
     not_configured: "Not configured",
@@ -228,10 +295,10 @@ function formatProviderStatus(status: string): string {
 }
 
 function providerStatusTone(status: string): "default" | "error" | "success" | "warning" {
-  if (status === "ready") {
+  if (status === "ready" || status === "available") {
     return "success";
   }
-  if (status === "needs_key" || status === "not_configured") {
+  if (status === "needs_key" || status === "not_configured" || status === "no_models") {
     return "warning";
   }
   if (status === "unavailable") {

@@ -2514,6 +2514,44 @@ describe("desktop workbench shell", () => {
           modelsText: "gpt-4.1\ngpt-4.1-mini",
           supportsModelDiscovery: true,
         },
+        providerSummaries: [
+          {
+            id: "openai",
+            label: "OpenAI",
+            profileId: "work",
+            apiKey: "sk-live",
+            apiBase: "https://api.openai.com/v1",
+            modelsText: "gpt-4.1\ngpt-4.1-mini",
+            supportsModelDiscovery: true,
+            status: "ready",
+            enabled: true,
+            enabledConfigured: false,
+          },
+          {
+            id: "deepseek",
+            label: "DeepSeek",
+            profileId: "deepseek",
+            apiKey: "sk-deepseek",
+            apiBase: "https://api.deepseek.com",
+            modelsText: "deepseek-chat",
+            supportsModelDiscovery: true,
+            status: "ready",
+            enabled: true,
+            enabledConfigured: false,
+          },
+          {
+            id: "ollama",
+            label: "Ollama",
+            profileId: "ollama",
+            apiKey: "",
+            apiBase: null,
+            modelsText: "",
+            supportsModelDiscovery: true,
+            status: "not_configured",
+            enabled: false,
+            enabledConfigured: false,
+          },
+        ],
       },
       {
         lastSavedState: null,
@@ -2586,6 +2624,8 @@ describe("desktop workbench shell", () => {
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("Base URL: https://api.openai.com/v1");
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("API Key: ********");
     expect(pane?.querySelector(".desktop-settings-provider-card")?.textContent).toContain("Model: gpt-4.1, gpt-4.1-mini");
+    expect(pane?.querySelector('[data-desktop-settings-provider-card="deepseek"]')?.textContent).toContain("Base URL: https://api.deepseek.com");
+    expect(pane?.querySelector('[data-desktop-settings-provider-card="deepseek"]')?.textContent).toContain("Model: deepseek-chat");
     expect(pane?.querySelectorAll(".desktop-settings-provider-card").map((card) => card.getAttribute("data-desktop-settings-provider-card"))).toEqual([
       "openai",
       "deepseek",
@@ -2593,13 +2633,10 @@ describe("desktop workbench shell", () => {
     ]);
     expect(pane?.querySelector('[data-desktop-settings-group="general"]')?.getAttribute("id")).toBe("desktop-settings-group-general");
     expect(pane?.textContent).toContain("Settings / Capability Center");
-    expect(pane?.textContent).toContain("Save: HTTP 400");
-    expect(pane?.textContent).toContain("Validation: model, timezone");
     expect(pane?.textContent).toContain("Model: ");
-    expect(pane?.textContent).toContain("Provider profile: work");
-    expect(pane?.textContent).toContain("API key: ********");
-    expect(pane?.textContent).toContain("Catalog: OpenAI (ready)");
-    expect(pane?.textContent).toContain("Models: gpt-4.1, gpt-4.1-mini");
+    expect(pane?.querySelector(".desktop-settings-status-card")).toBeNull();
+    expect(pane?.textContent).not.toContain("Save: HTTP 400");
+    expect(pane?.textContent).not.toContain("Catalog: OpenAI (ready)");
     expect(pane?.textContent).not.toContain("Open docs");
     expect(pane?.textContent).not.toContain("Shortcut help");
     expect(pane?.querySelector('[data-desktop-settings-control="model"]')?.getAttribute("aria-invalid")).toBe("true");
@@ -2622,10 +2659,10 @@ describe("desktop workbench shell", () => {
     pane?.querySelector('[data-desktop-settings-action="discoverModels"]')?.click();
     expect(settingsActions).toEqual(["edit:model:gpt-4.1", "edit:enabled:false", "save", "discoverModels"]);
 
-    const providerSelect = pane?.querySelector('[data-desktop-settings-control="selectedProvider"]');
-    providerSelect!.value = "deepseek";
-    providerSelect?.dispatchEvent({ type: "change", target: providerSelect });
-    expect(settingsActions[settingsActions.length - 1]).toBe("edit:selectedProvider:deepseek");
+    const defaultProviderSelect = pane?.querySelector('[data-desktop-settings-control="provider"]');
+    defaultProviderSelect!.value = "deepseek";
+    defaultProviderSelect?.dispatchEvent({ type: "change", target: defaultProviderSelect });
+    expect(settingsActions[settingsActions.length - 1]).toBe("edit:provider:deepseek");
 
     const providerSearch = pane?.querySelector(".desktop-settings-provider-search");
     providerSearch!.value = "deep";
@@ -2643,10 +2680,16 @@ describe("desktop workbench shell", () => {
       ?.click();
     expect(settingsActions).toEqual(["edit:selectedProvider:deepseek"]);
 
+    settingsActions.length = 0;
+    pane?.querySelector('[data-desktop-settings-provider-card="deepseek"]')
+      ?.querySelector('[data-desktop-settings-provider-action="toggle"]')
+      ?.click();
+    expect(settingsActions).toEqual(["edit:providerEnabled:deepseek:false"]);
+
     pane?.querySelector('[data-desktop-settings-provider-card="openai"]')
       ?.querySelector('[data-desktop-settings-provider-action="models"]')
       ?.click();
-    expect(targetDocument.activeElement).toBe(modelInput);
+    expect(targetDocument.activeElement).toBe(pane?.querySelector('[data-desktop-settings-control="models"]'));
 
     const apiBaseInput = pane?.querySelector('[data-desktop-settings-control="apiBase"]');
     pane?.querySelector('[data-desktop-settings-provider-card="openai"]')
@@ -2714,9 +2757,9 @@ describe("desktop workbench shell", () => {
     updateDesktopSettingsPane(targetDocument as unknown as Document, nextPane);
 
     const pane = targetDocument.body.querySelector(".desktop-settings-pane");
-    expect(pane?.textContent).toContain("Save: Settings saved");
-    expect(pane?.textContent).toContain("Provider profile: work");
-    expect(pane?.textContent).toContain("Catalog: OpenAI (ready)");
+    expect(pane?.querySelector(".desktop-settings-status-card")).toBeNull();
+    expect(pane?.querySelector(".desktop-settings-default-llm-card")).not.toBeNull();
+    expect(pane?.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
   });
 
   test("renders tools and skills list-detail pane in the desktop workbench", () => {
@@ -3740,6 +3783,21 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-chat-menu-popover');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-sidebar-search');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model');
+  });
+
+  test("keeps settings module chrome and content columns from overlapping", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toContain('html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell {\n      grid-template-columns: 92px');
+    expect(styleText).toContain('html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] {\n      grid-template-columns: 92px 0');
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-pane > .n-config-provider {\n      display: contents;");
   });
 
   test("renders a bottom composer-like surface for native visual parity", () => {
