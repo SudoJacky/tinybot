@@ -91,7 +91,7 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Default LLM");
     expect(host.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Providers");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
-    expect(host.querySelector(".desktop-settings-status-card")?.textContent).toContain("Unsaved changes");
+    expect(host.querySelector(".desktop-settings-status-card")).toBeNull();
     expect(host.querySelector('[data-desktop-settings-group="knowledge"]')?.textContent).toContain("Knowledge");
 
     const model = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="model"]');

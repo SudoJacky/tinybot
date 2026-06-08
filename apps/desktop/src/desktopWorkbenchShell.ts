@@ -121,8 +121,6 @@ import { mountSettingsPaneIsland } from "./native-vue/settingsPaneIsland";
 import { mountSettingsProviderDetailIsland } from "./native-vue/settingsProviderDetailIsland";
 import { mountSettingsProviderManagementIsland } from "./native-vue/settingsProviderManagementIsland";
 import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";
-import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";
-import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";
 import { mountOrUpdateSessionFileListIsland } from "./native-vue/sessionFileListIsland";
 import { mountSessionUploadCardIsland } from "./native-vue/sessionUploadCardIsland";
 import { mountShortcutHelpDialogIsland } from "./native-vue/shortcutHelpDialogIsland";
@@ -4697,7 +4695,6 @@ function createSettingsProvidersPane(
   content.append(createSettingsCapabilityMap(targetDocument, pane));
   content.append(createDefaultLlmSettingsCard(targetDocument, pane, settingsActions));
   content.append(createProviderManagementSection(targetDocument, pane, settingsActions));
-  content.append(createSettingsStatusCard(targetDocument, pane));
 
   const grid = targetDocument.createElement("div");
   grid.className = "desktop-settings-grid";
@@ -5364,56 +5361,6 @@ function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettin
     return;
   }
   mountSettingsSidebarIsland(sidebar, { groups: pane.groups });
-}
-
-function createSettingsStatusCard(targetDocument: Document, pane: DesktopSettingsPaneModel): HTMLElement {
-  const card = targetDocument.createElement("section");
-  card.className = "desktop-settings-status-card";
-  card.setAttribute("aria-label", "Settings status");
-
-  const details = targetDocument.createElement("div");
-  details.className = "desktop-settings-summary";
-  details.append(
-    createSettingsStatusItem(targetDocument, "Save", pane.save.message),
-    createSettingsStatusItem(
-      targetDocument,
-      "Validation",
-      pane.validationErrors.length ? pane.validationErrors.map((error) => error.field).join(", ") : "ready",
-    ),
-    createSettingsStatusItem(targetDocument, "Provider profile", pane.providerEditor.profileId || "default"),
-    createSettingsStatusItem(targetDocument, "API key", pane.providerEditor.apiKey.displayValue || "Not configured"),
-    createSettingsStatusItem(
-      targetDocument,
-      "Catalog",
-      pane.providerCatalog.map((provider) => `${provider.label} (${provider.status})`).join(", ") || "No providers loaded",
-    ),
-    createSettingsStatusItem(targetDocument, "Models", pane.providerEditor.models.join(", ") || "No models loaded"),
-  );
-  card.append(details);
-  mountSettingsStatusVueIsland(card, pane);
-  return card;
-}
-
-function mountSettingsStatusVueIsland(card: HTMLElement, pane: DesktopSettingsPaneModel): void {
-  if (!canMountVueIsland(card)) {
-    return;
-  }
-  mountSettingsStatusIsland(card, { pane });
-}
-
-function createSettingsStatusItem(targetDocument: Document, label: string, value: string): HTMLElement {
-  const row = targetDocument.createElement("p");
-  row.className = "desktop-settings-status-item";
-  row.append(createText(targetDocument, "span", `${label}: `), createText(targetDocument, "strong", value));
-  mountSettingsStatusItemVueIsland(row, label, value);
-  return row;
-}
-
-function mountSettingsStatusItemVueIsland(row: HTMLElement, label: string, value: string): void {
-  if (!canMountVueIsland(row)) {
-    return;
-  }
-  mountSettingsStatusItemIsland(row, { label, value });
 }
 
 function getSettingsNavLabel(groupId: DesktopSettingsPaneModel["groups"][number]["id"]): string {

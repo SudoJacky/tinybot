@@ -2630,13 +2630,10 @@ describe("desktop workbench shell", () => {
     ]);
     expect(pane?.querySelector('[data-desktop-settings-group="general"]')?.getAttribute("id")).toBe("desktop-settings-group-general");
     expect(pane?.textContent).toContain("Settings / Capability Center");
-    expect(pane?.textContent).toContain("Save: HTTP 400");
-    expect(pane?.textContent).toContain("Validation: model, timezone");
     expect(pane?.textContent).toContain("Model: ");
-    expect(pane?.textContent).toContain("Provider profile: work");
-    expect(pane?.textContent).toContain("API key: ********");
-    expect(pane?.textContent).toContain("Catalog: OpenAI (ready)");
-    expect(pane?.textContent).toContain("Models: gpt-4.1, gpt-4.1-mini");
+    expect(pane?.querySelector(".desktop-settings-status-card")).toBeNull();
+    expect(pane?.textContent).not.toContain("Save: HTTP 400");
+    expect(pane?.textContent).not.toContain("Catalog: OpenAI (ready)");
     expect(pane?.textContent).not.toContain("Open docs");
     expect(pane?.textContent).not.toContain("Shortcut help");
     expect(pane?.querySelector('[data-desktop-settings-control="model"]')?.getAttribute("aria-invalid")).toBe("true");
@@ -2751,9 +2748,9 @@ describe("desktop workbench shell", () => {
     updateDesktopSettingsPane(targetDocument as unknown as Document, nextPane);
 
     const pane = targetDocument.body.querySelector(".desktop-settings-pane");
-    expect(pane?.textContent).toContain("Save: Settings saved");
-    expect(pane?.textContent).toContain("Provider profile: work");
-    expect(pane?.textContent).toContain("Catalog: OpenAI (ready)");
+    expect(pane?.querySelector(".desktop-settings-status-card")).toBeNull();
+    expect(pane?.querySelector(".desktop-settings-default-llm-card")).not.toBeNull();
+    expect(pane?.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
   });
 
   test("renders tools and skills list-detail pane in the desktop workbench", () => {
