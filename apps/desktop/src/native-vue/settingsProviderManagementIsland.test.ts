@@ -114,7 +114,9 @@ describe("settings provider management Vue island", () => {
     search?.dispatchEvent(new Event("input", { bubbles: true }));
     await nextTick();
 
-    expect(cards.map((card) => card.hidden)).toEqual([true, false, true]);
+    expect(Array.from(host.querySelectorAll<HTMLElement>(".desktop-settings-provider-card")).map((card) => card.getAttribute("data-desktop-settings-provider-card"))).toEqual([
+      "deepseek",
+    ]);
 
     mounted.unmount();
     expect(host.textContent).toBe("");
@@ -141,11 +143,15 @@ describe("settings provider management Vue island", () => {
     host.querySelector<HTMLElement>('[data-desktop-settings-provider-card="deepseek"]')
       ?.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="settings"]')
       ?.click();
+    host.querySelector<HTMLElement>('[data-desktop-settings-provider-card="deepseek"]')
+      ?.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="toggle"]')
+      ?.click();
 
     expect(actions).toEqual([
       "discoverModels",
       "edit:selectedProvider:custom-openai",
       "edit:selectedProvider:deepseek",
+      "edit:providerEnabled:deepseek:false",
     ]);
 
     mounted.unmount();

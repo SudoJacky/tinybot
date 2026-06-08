@@ -2525,6 +2525,7 @@ describe("desktop workbench shell", () => {
             supportsModelDiscovery: true,
             status: "ready",
             enabled: true,
+            enabledConfigured: false,
           },
           {
             id: "deepseek",
@@ -2536,6 +2537,7 @@ describe("desktop workbench shell", () => {
             supportsModelDiscovery: true,
             status: "ready",
             enabled: true,
+            enabledConfigured: false,
           },
           {
             id: "ollama",
@@ -2547,6 +2549,7 @@ describe("desktop workbench shell", () => {
             supportsModelDiscovery: true,
             status: "not_configured",
             enabled: false,
+            enabledConfigured: false,
           },
         ],
       },
@@ -2676,6 +2679,12 @@ describe("desktop workbench shell", () => {
       ?.querySelector('[data-desktop-settings-provider-action="settings"]')
       ?.click();
     expect(settingsActions).toEqual(["edit:selectedProvider:deepseek"]);
+
+    settingsActions.length = 0;
+    pane?.querySelector('[data-desktop-settings-provider-card="deepseek"]')
+      ?.querySelector('[data-desktop-settings-provider-action="toggle"]')
+      ?.click();
+    expect(settingsActions).toEqual(["edit:providerEnabled:deepseek:false"]);
 
     pane?.querySelector('[data-desktop-settings-provider-card="openai"]')
       ?.querySelector('[data-desktop-settings-provider-action="models"]')

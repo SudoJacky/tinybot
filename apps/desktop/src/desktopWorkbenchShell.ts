@@ -5007,11 +5007,22 @@ function createProviderManagementCard(
   statusRow.append(status);
   title.append(statusRow);
   identity.append(mark, title);
-  const toggle = targetDocument.createElement("span");
+  const toggle = targetDocument.createElement("button");
   toggle.className = "desktop-settings-provider-switch";
+  toggle.setAttribute("type", "button");
   toggle.setAttribute("role", "switch");
   toggle.setAttribute("aria-checked", provider.connected ? "true" : "false");
+  toggle.setAttribute("aria-label", `${provider.connected ? "Disable" : "Enable"} ${provider.label}`);
+  toggle.setAttribute("data-desktop-settings-provider-action", "toggle");
   toggle.setAttribute("data-state", provider.connected ? "on" : "off");
+  toggle.addEventListener("click", () => {
+    settingsActions.onSettingsAction?.({
+      action: "edit",
+      pane,
+      fieldId: `providerEnabled:${provider.id}`,
+      value: !provider.connected,
+    });
+  });
   header.append(identity, toggle);
 
   const details = targetDocument.createElement("div");
@@ -5276,7 +5287,7 @@ function getProviderCards(pane: DesktopSettingsPaneModel): DesktopProviderCardMo
       badge: isSelected ? "当前" : "",
       initials: getProviderInitials(provider.label || provider.id),
       connected: provider.enabled ?? (provider.status === "ready" || provider.status === "available"),
-      statusLabel: formatProviderStatus(provider.status),
+      statusLabel: formatProviderStatus(provider.enabled === false ? "disabled" : provider.status),
       baseUrl: provider.baseUrl || "未设置",
       apiKey: apiKey.displayValue || "未设置",
       models: models || "暂无模型",
@@ -5299,6 +5310,8 @@ function formatProviderStatus(status: string): string {
   return {
     ready: "已连接",
     available: "已连接",
+    disabled: "已禁用",
+    no_models: "无模型",
     needs_key: "未就绪",
     unavailable: "不可用",
     not_configured: "未配置",
@@ -10995,9 +11008,18 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       flex: 0 0 auto;
       width: 34px;
       height: 20px;
+      border: 0;
       border-radius: 999px;
+      appearance: none;
       background: #d9dfe5;
       box-shadow: inset 0 0 0 1px rgba(20, 20, 19, 0.05);
+      cursor: pointer;
+      padding: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-provider-switch:focus-visible {
+      outline: 2px solid #5c55f5;
+      outline-offset: 2px;
     }
 
     body.desktop-native-workbench .desktop-settings-provider-switch::after {

@@ -5,6 +5,7 @@ export interface DesktopProviderCatalogItem {
   displayName?: string;
   baseUrl?: string;
   status?: string;
+  enabled?: boolean | null;
 }
 
 export interface DesktopSettingsProviderEditorState {
@@ -26,6 +27,7 @@ export interface DesktopSettingsProviderSummary {
   supportsModelDiscovery: boolean;
   status: string;
   enabled: boolean;
+  enabledConfigured: boolean;
 }
 
 export interface DesktopSettingsFormState {
@@ -183,6 +185,7 @@ export interface DesktopSettingsPaneModel {
     profileId?: string;
     status: string;
     enabled?: boolean;
+    enabledConfigured?: boolean;
     baseUrl?: string | null;
     apiKey?: DesktopSecretField;
     models?: string[];
@@ -320,6 +323,7 @@ export function buildDesktopProviderCatalogItems(payload: unknown): DesktopProvi
     displayName: stringValue(pick(provider, "displayName", "display_name")),
     baseUrl: stringValue(pick(provider, "baseUrl", "base_url")),
     status: stringValue(provider.status),
+    enabled: typeof provider.enabled === "boolean" ? provider.enabled : null,
   }));
 }
 
@@ -380,6 +384,9 @@ export function buildDesktopProviderSummaries(
       ...parseDesktopProviderModelList(pick(legacyProvider, "manualModels", "manual_models")),
     ];
     const status = stringValue(catalogProvider?.status) || (apiKey || apiBase || models.length ? "ready" : "not_configured");
+    const explicitEnabled = pick(profile, "enabled") ?? pick(legacyProvider, "enabled") ?? catalogProvider?.enabled;
+    const enabledConfigured = typeof explicitEnabled === "boolean";
+    const enabled = enabledConfigured ? explicitEnabled : isDesktopProviderEnabledStatus(status);
     return {
       id,
       label: stringValue(catalogProvider?.displayName) || id,
@@ -390,7 +397,8 @@ export function buildDesktopProviderSummaries(
       supportsModelDiscovery: pick(profile, "supportsModelDiscovery", "supports_model_discovery") !== false
         && pick(legacyProvider, "supportsModelDiscovery", "supports_model_discovery") !== false,
       status,
-      enabled: isDesktopProviderEnabledStatus(status),
+      enabled,
+      enabledConfigured,
     };
   });
 }
@@ -413,6 +421,7 @@ export function createDesktopSettingsPatch(
       ...existingProfiles,
       [profileId]: {
         provider: providerName,
+        enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
         api_key: state.providerEditor.apiKey || "",
         api_base: state.providerEditor.apiBase,
         models: parseDesktopProviderModelList(state.providerEditor.modelsText),
@@ -422,9 +431,36 @@ export function createDesktopSettingsPatch(
   }
 
   providers[providerName] = {
+    enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
     api_key: state.providerEditor.apiKey || "",
     api_base: state.providerEditor.apiBase,
   };
+
+  for (const provider of state.providerSummaries) {
+    if (!provider.enabledConfigured || provider.id === providerName) {
+      continue;
+    }
+    providers[provider.id] = {
+      ...asRecord(providers[provider.id]),
+      enabled: provider.enabled,
+      api_key: provider.apiKey || "",
+      api_base: provider.apiBase,
+    };
+    if (provider.profileId) {
+      providers.profiles = {
+        ...asRecord(providers.profiles),
+        [provider.profileId]: {
+          ...asRecord(asRecord(providers.profiles)[provider.profileId]),
+          provider: provider.id,
+          enabled: provider.enabled,
+          api_key: provider.apiKey || "",
+          api_base: provider.apiBase,
+          models: parseDesktopProviderModelList(provider.modelsText),
+          supports_model_discovery: provider.supportsModelDiscovery,
+        },
+      };
+    }
+  }
 
   return {
     agents: {
@@ -558,6 +594,7 @@ export function buildDesktopSettingsPaneModel(
       profileId: provider.profileId,
       status: provider.status || "unknown",
       enabled: provider.enabled,
+      enabledConfigured: provider.enabledConfigured,
       baseUrl: provider.apiBase,
       apiKey: buildDesktopSecretField(provider.apiKey),
       models: parseDesktopProviderModelList(provider.modelsText),
@@ -624,6 +661,10 @@ export function applyDesktopSettingsFieldEdit(
 ): DesktopSettingsFormState {
   const nextState = cloneSettingsState(state);
   const text = String(value);
+  if (fieldId.startsWith("providerEnabled:")) {
+    setDesktopProviderEnabled(nextState, fieldId.slice("providerEnabled:".length), Boolean(value));
+    return nextState;
+  }
   switch (fieldId) {
     case "model":
       nextState.agent.model = stringOrNullInput(text);
@@ -844,6 +885,7 @@ function getDesktopStateProviderSummaries(
       supportsModelDiscovery: isSelected ? state.providerEditor.supportsModelDiscovery : true,
       status,
       enabled: isDesktopProviderEnabledStatus(status),
+      enabledConfigured: false,
     };
   }).filter((provider) => provider.id);
 }
@@ -867,6 +909,7 @@ function selectDesktopProviderEditor(state: DesktopSettingsFormState, providerId
       supportsModelDiscovery: true,
       status: "not_configured",
       enabled: false,
+      enabledConfigured: true,
     });
     return;
   }
@@ -891,6 +934,7 @@ function syncDesktopProviderSummaryFromEditor(state: DesktopSettingsFormState): 
       supportsModelDiscovery: state.providerEditor.supportsModelDiscovery,
       status: "not_configured",
       enabled: false,
+      enabledConfigured: true,
     });
     return;
   }
@@ -901,8 +945,37 @@ function syncDesktopProviderSummaryFromEditor(state: DesktopSettingsFormState): 
   summary.supportsModelDiscovery = state.providerEditor.supportsModelDiscovery;
 }
 
+function setDesktopProviderEnabled(state: DesktopSettingsFormState, providerId: string, enabled: boolean): void {
+  const normalizedProviderId = providerId.trim();
+  if (!normalizedProviderId) {
+    return;
+  }
+  let summary = state.providerSummaries.find((provider) => provider.id === normalizedProviderId);
+  if (!summary) {
+    summary = {
+      id: normalizedProviderId,
+      label: normalizedProviderId,
+      profileId: normalizedProviderId,
+      apiKey: "",
+      apiBase: null,
+      modelsText: "",
+      supportsModelDiscovery: true,
+      status: "not_configured",
+      enabled,
+      enabledConfigured: true,
+    };
+    state.providerSummaries.push(summary);
+  }
+  summary.enabled = enabled;
+  summary.enabledConfigured = true;
+}
+
 function isDesktopProviderEnabledStatus(status: string): boolean {
-  return ["ready", "available"].includes(status);
+  return ["ready", "available", "no_models"].includes(status);
+}
+
+function isDesktopProviderDefaultSelectableStatus(status: string): boolean {
+  return ["ready", "available", "no_models"].includes(status);
 }
 
 function buildDesktopSettingsPaneGroups(
@@ -922,7 +995,7 @@ function buildDesktopSettingsPaneGroups(
   }
   const agentProviderOptions = [
     { value: "auto", label: "Auto" },
-    ...providerSummaries.filter((provider) => provider.enabled).map((provider) => ({
+    ...providerSummaries.filter((provider) => provider.enabled && isDesktopProviderDefaultSelectableStatus(provider.status)).map((provider) => ({
       value: provider.id,
       label: provider.label || provider.id,
     })),

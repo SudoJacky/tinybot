@@ -166,7 +166,7 @@ function renderProviderManagement(
   searchQuery: string,
   updateSearchQuery: (value: string) => void,
 ) {
-  const cards = getProviderCards(options.pane);
+  const cards = getProviderCards(options.pane).filter((provider) => !shouldHideProviderCard(provider, searchQuery));
   return h("section", {
     class: "desktop-settings-provider-section",
     "aria-label": "Provider management",
@@ -206,23 +206,17 @@ function renderProviderManagement(
         }, { default: () => "+ Add provider" }),
       ]),
     ]),
-    h("div", { class: "desktop-settings-provider-grid" }, cards.map((provider) => renderProviderCard(
-      options,
-      provider,
-      shouldHideProviderCard(provider, searchQuery),
-    ))),
+    h("div", { class: "desktop-settings-provider-grid" }, cards.map((provider) => renderProviderCard(options, provider))),
   ]);
 }
 
 function renderProviderCard(
   options: SettingsPaneIslandOptions,
   provider: ProviderCardModel,
-  hidden: boolean,
 ) {
   return h(NCard, {
     class: "desktop-settings-provider-card",
     "data-desktop-settings-provider-card": provider.id,
-    hidden,
     size: "small",
     bordered: false,
   }, {
@@ -252,11 +246,15 @@ function renderProviderCard(
             ]),
           ]),
         ]),
-        h("span", {
+        h("button", {
           class: "desktop-settings-provider-switch",
+          type: "button",
           role: "switch",
           "aria-checked": provider.connected ? "true" : "false",
+          "aria-label": `${provider.connected ? "Disable" : "Enable"} ${provider.label}`,
+          "data-desktop-settings-provider-action": "toggle",
           "data-state": provider.connected ? "on" : "off",
+          onClick: () => toggleProvider(options, provider),
         }),
       ]),
       h("div", { class: "desktop-settings-provider-details" }, [
@@ -504,13 +502,17 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
       badge: isSelected ? "Current" : "",
       initials: providerInitials(provider.label || provider.id),
       connected: provider.enabled ?? (provider.status === "ready" || provider.status === "available"),
-      statusLabel: formatProviderStatus(provider.status),
-      statusTone: providerStatusTone(provider.status),
+      statusLabel: formatProviderStatus(provider.enabled === false ? "disabled" : provider.status),
+      statusTone: providerStatusTone(provider.enabled === false ? "disabled" : provider.status),
       baseUrl: provider.baseUrl || (isSelected ? pane.providerEditor.apiBase : "") || "Not configured",
       apiKey: apiKey.displayValue || "Not configured",
       models: models || "No models",
     };
   });
+}
+
+function toggleProvider(options: SettingsPaneIslandOptions, provider: ProviderCardModel): void {
+  emitEdit(options, `providerEnabled:${provider.id}`, !provider.connected);
 }
 
 function scrollToSettingsGroup(event: Event, groupId: string): void {
@@ -623,6 +625,8 @@ function formatProviderStatus(status: string): string {
   return {
     ready: "Ready",
     available: "Ready",
+    disabled: "Disabled",
+    no_models: "No models",
     needs_key: "Needs key",
     unavailable: "Unavailable",
     not_configured: "Not configured",
@@ -633,7 +637,7 @@ function providerStatusTone(status: string): "default" | "error" | "success" | "
   if (status === "ready" || status === "available") {
     return "success";
   }
-  if (status === "needs_key" || status === "not_configured") {
+  if (status === "needs_key" || status === "not_configured" || status === "no_models") {
     return "warning";
   }
   if (status === "unavailable") {

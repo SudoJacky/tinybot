@@ -197,18 +197,18 @@ describe("desktop settings and provider helpers", () => {
   test("normalizes provider catalog payloads for workbench settings panes", () => {
     expect(buildDesktopProviderCatalogItems({
       providers: [
-        { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready" },
+        { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready", enabled: false },
         { id: "deepseek", display_name: "DeepSeek", base_url: "https://api.deepseek.com", status: "available" },
         null,
       ],
     })).toEqual([
-      { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready" },
-      { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", status: "available" },
+      { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready", enabled: false },
+      { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", status: "available", enabled: null },
     ]);
     expect(buildDesktopProviderCatalogItems([
       { id: "local", display_name: "Local" },
     ])).toEqual([
-      { id: "local", displayName: "Local", baseUrl: "", status: "" },
+      { id: "local", displayName: "Local", baseUrl: "", status: "", enabled: null },
     ]);
   });
 
@@ -410,6 +410,34 @@ describe("desktop settings and provider helpers", () => {
       apiKey: "sk-deepseek",
       apiBase: "https://api.deepseek.com",
       modelsText: "deepseek-chat",
+    });
+
+    const disabledDeepSeek = applyDesktopSettingsFieldEdit(state, "providerEnabled:deepseek", false);
+    const disabledPane = buildDesktopSettingsPaneModel(disabledDeepSeek, {
+      providerCatalog: [
+        { id: "openai", displayName: "OpenAI", status: "ready" },
+        { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+        { id: "ollama", displayName: "Ollama", status: "not_configured" },
+      ],
+    });
+    expect(disabledPane.providerCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "deepseek", enabled: false, enabledConfigured: true }),
+    ]));
+    expect(disabledPane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "provider")?.options).toEqual([
+      { value: "auto", label: "Auto" },
+      { value: "openai", label: "OpenAI" },
+    ]);
+    expect(createDesktopSettingsPatch(disabledDeepSeek, {}, [
+      { id: "openai", displayName: "OpenAI", status: "ready" },
+      { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+    ])).toMatchObject({
+      providers: {
+        deepseek: {
+          enabled: false,
+          api_base: "https://api.deepseek.com",
+          api_key: "sk-deepseek",
+        },
+      },
     });
   });
 });
