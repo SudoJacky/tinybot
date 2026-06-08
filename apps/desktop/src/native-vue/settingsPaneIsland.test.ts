@@ -93,6 +93,14 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
     expect(host.querySelector(".desktop-settings-status-card")).toBeNull();
     expect(host.querySelector('[data-desktop-settings-group="knowledge"]')?.textContent).toContain("Knowledge");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Required");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Free text");
+    expect(host.querySelector('[data-desktop-settings-field="apiKey"] input')?.getAttribute("type")).toBe("password");
+    expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]')?.value).toBe("********");
+    expect(host.querySelector('[data-desktop-settings-group="general"] details.desktop-settings-advanced-fields summary')?.textContent).toContain("Advanced");
+    expect(host.querySelector('[data-desktop-settings-field="temperature"]')?.closest("details")?.className).toContain("desktop-settings-advanced-fields");
+    expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] output')?.textContent).toContain("Session file");
+    expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] [data-desktop-settings-control="sessionFiles"]')).toBeNull();
 
     const model = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="model"]');
     model!.value = "gpt-4.1-mini";
@@ -100,11 +108,15 @@ describe("settings pane Vue island", () => {
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="settings"]')?.click();
+    const apiKey = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]');
+    apiKey!.value = "sk-replacement";
+    apiKey?.dispatchEvent(new Event("input", { bubbles: true }));
 
     expect(actions).toEqual([
       "edit:model:gpt-4.1-mini",
       "save",
       "discoverModels",
+      "edit:apiKey:sk-replacement",
     ]);
     expect(focused).toEqual(["apiBase"]);
 

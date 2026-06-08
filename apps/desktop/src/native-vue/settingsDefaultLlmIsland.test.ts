@@ -25,6 +25,8 @@ const pane: DesktopSettingsPaneModel = {
           state: "normal",
           control: "select",
           inputValue: "openai",
+          requirement: "optional",
+          configurationMode: "fixed",
           options: [
             { value: "auto", label: "Auto" },
             { value: "openai", label: "OpenAI" },
@@ -38,6 +40,8 @@ const pane: DesktopSettingsPaneModel = {
           state: "normal",
           control: "text",
           inputValue: "gpt-4.1-mini",
+          requirement: "required",
+          configurationMode: "freeform",
         },
       ],
     },
@@ -52,6 +56,8 @@ const pane: DesktopSettingsPaneModel = {
           state: "normal",
           control: "select",
           inputValue: "openai",
+          requirement: "required",
+          configurationMode: "fixed",
           options: [
             { value: "auto", label: "Auto" },
             { value: "openai", label: "OpenAI" },

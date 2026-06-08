@@ -300,6 +300,8 @@ function renderSettingsGroup(options: SettingsPaneIslandOptions, group: DesktopS
   if (!fields.length) {
     return null;
   }
+  const primaryFields = fields.filter((field) => !field.advanced);
+  const advancedFields = fields.filter((field) => field.advanced);
   return h(NCard, {
     class: "desktop-settings-group",
     id: `desktop-settings-group-${group.id}`,
@@ -310,7 +312,11 @@ function renderSettingsGroup(options: SettingsPaneIslandOptions, group: DesktopS
     default: () => [
       h("h2", group.label),
       h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group.id)),
-      ...fields.map((field) => renderSettingsField(options, group, field)),
+      ...primaryFields.map((field) => renderSettingsField(options, group, field)),
+      advancedFields.length ? h("details", { class: "desktop-settings-advanced-fields" }, [
+        h("summary", "Advanced"),
+        ...advancedFields.map((field) => renderSettingsField(options, group, field)),
+      ]) : null,
     ],
   });
 }
@@ -328,6 +334,7 @@ function renderSettingsField(
     h("div", { class: "desktop-settings-field-copy" }, [
       h("label", { for: `desktop-settings-${field.id}` }, `${field.label}: `),
       h("span", { class: "desktop-settings-field-description" }, getSettingsFieldDescription(group.id, field.id, field.value)),
+      renderSettingsFieldMeta(field),
     ]),
     renderSettingsControl(options, field),
   ]);
@@ -347,7 +354,8 @@ function renderInlineField(
 }
 
 function renderModelSelect(options: SettingsPaneIslandOptions, field: DesktopSettingsPaneField) {
-  const values = Array.from(new Set([field.inputValue, ...getDefaultLlmModelOptions(options.pane)].filter(Boolean)));
+  const optionValues = field.options?.map((option) => option.value) ?? getDefaultLlmModelOptions(options.pane);
+  const values = Array.from(new Set([field.inputValue, ...optionValues].filter(Boolean)));
   if (!values.length) {
     values.push("");
   }
@@ -365,11 +373,21 @@ function renderModelSelect(options: SettingsPaneIslandOptions, field: DesktopSet
 }
 
 function renderSettingsControl(options: SettingsPaneIslandOptions, field: DesktopSettingsPaneField) {
+  if (field.control === "readonly") {
+    return h("output", {
+      id: `desktop-settings-${field.id}`,
+      class: "desktop-settings-readonly-value",
+    }, field.value || "Not configured");
+  }
   const commonAttrs = {
     id: `desktop-settings-${field.id}`,
     "data-desktop-settings-control": field.id,
     "data-state": field.state,
     "aria-invalid": field.state === "invalid" ? "true" : undefined,
+    placeholder: field.placeholder,
+    min: field.min,
+    max: field.max,
+    step: field.step,
   };
   if (field.control === "checkbox") {
     return h("input", {
@@ -399,10 +417,17 @@ function renderSettingsControl(options: SettingsPaneIslandOptions, field: Deskto
   }
   return h("input", {
     ...commonAttrs,
-    type: field.control === "number" ? "number" : "text",
+    type: field.control === "number" ? "number" : field.control === "password" ? "password" : "text",
     value: field.inputValue,
     onInput: (event: Event) => emitEdit(options, field.id, String((event.target as HTMLInputElement | null)?.value ?? "")),
   });
+}
+
+function renderSettingsFieldMeta(field: DesktopSettingsPaneField) {
+  return h("span", { class: "desktop-settings-field-meta" }, [
+    h("span", { class: "desktop-settings-field-chip", "data-kind": field.requirement }, requirementLabel(field.requirement)),
+    h("span", { class: "desktop-settings-field-chip", "data-kind": field.configurationMode }, configurationModeLabel(field.configurationMode)),
+  ]);
 }
 
 function renderSaveButton(options: SettingsPaneIslandOptions) {
@@ -707,4 +732,26 @@ function getSettingsFieldDescription(
     "channels.sendMaxRetries": "Retry count for channel delivery failures.",
   };
   return descriptions[`${groupId}.${fieldId}`] ?? `Current value: ${value || "Not configured"}.`;
+}
+
+function requirementLabel(requirement: DesktopSettingsPaneField["requirement"]): string {
+  return {
+    required: "Required",
+    optional: "Optional",
+    readonly: "Read only",
+  }[requirement];
+}
+
+function configurationModeLabel(mode: DesktopSettingsPaneField["configurationMode"]): string {
+  return {
+    fixed: "Fixed options",
+    freeform: "Free text",
+    json: "JSON object",
+    list: "List",
+    numeric: "Number",
+    readonly: "Status",
+    secret: "Secret",
+    toggle: "Toggle",
+    url: "URL",
+  }[mode];
 }

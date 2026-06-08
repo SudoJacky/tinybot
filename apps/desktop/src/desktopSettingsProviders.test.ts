@@ -299,20 +299,21 @@ describe("desktop settings and provider helpers", () => {
       ["logs-diagnostics", "Logs & Diagnostics"],
     ]);
     expect(pane.groups.find((group) => group.id === "general")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "model", label: "Model", value: "", state: "invalid", control: "text" }),
-      expect.objectContaining({ id: "timezone", label: "Timezone", value: "Shanghai", state: "invalid", control: "text" }),
+      expect.objectContaining({ id: "model", label: "Model", value: "", state: "invalid", control: "select", requirement: "required", configurationMode: "fixed" }),
+      expect.objectContaining({ id: "timezone", label: "Timezone", value: "Shanghai", state: "invalid", control: "text", requirement: "required", configurationMode: "freeform" }),
     ]));
     expect(pane.groups.find((group) => group.id === "provider-models")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "selectedProvider", label: "Selected provider", control: "select" }),
-      expect.objectContaining({ id: "models", label: "Models", control: "textarea" }),
+      expect.objectContaining({ id: "selectedProvider", label: "Selected provider", control: "select", requirement: "required", configurationMode: "fixed" }),
+      expect.objectContaining({ id: "apiKey", label: "API key", control: "password", requirement: "optional", configurationMode: "secret" }),
+      expect.objectContaining({ id: "models", label: "Models", control: "textarea", requirement: "optional", configurationMode: "list" }),
     ]));
     expect(pane.groups.find((group) => group.id === "files-workspace")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "sessionFiles", label: "Session files", value: "Session file" }),
-      expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file" }),
+      expect.objectContaining({ id: "sessionFiles", label: "Session files", value: "Session file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
+      expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
     ]));
     expect(pane.groups.find((group) => group.id === "gateway-runtime")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "host", label: "Host" }),
-      expect.objectContaining({ id: "port", label: "Port", state: "normal" }),
+      expect.objectContaining({ id: "host", label: "Host", requirement: "required", configurationMode: "freeform" }),
+      expect.objectContaining({ id: "port", label: "Port", state: "normal", requirement: "required", configurationMode: "numeric" }),
     ]));
     expect(pane.providerCatalog).toEqual([
       expect.objectContaining({
@@ -343,13 +344,66 @@ describe("desktop settings and provider helpers", () => {
     }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     const withModel = applyDesktopSettingsFieldEdit(state, "model", "gpt-4.1");
-    const withoutKnowledge = applyDesktopSettingsFieldEdit(withModel, "enabled", false);
+    const withApiKey = applyDesktopSettingsFieldEdit(withModel, "apiKey", "********");
+    const withReplacementKey = applyDesktopSettingsFieldEdit(withApiKey, "apiKey", "sk-replacement");
+    const withoutKnowledge = applyDesktopSettingsFieldEdit(withReplacementKey, "enabled", false);
     const withPort = applyDesktopSettingsFieldEdit(withoutKnowledge, "port", "18888");
     const patch = createDesktopSettingsPatch(withPort, {}, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     expect(patch.agents).toMatchObject({ defaults: { model: "gpt-4.1" } });
+    expect(patch.providers).toMatchObject({ openai: { api_key: "sk-replacement" } });
     expect(patch.knowledge).toMatchObject({ enabled: false });
     expect(patch.gateway).toMatchObject({ port: 18888 });
+  });
+
+  test("classifies settings fields by requirement, input mode, and advanced visibility", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: {
+        defaults: {
+          model: "deepseek-chat",
+          provider: "deepseek",
+          active_profile: "deepseek",
+          temperature: 0.2,
+          max_tokens: 4096,
+          reasoning_effort: "medium",
+        },
+      },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-live",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat", "deepseek-reasoner"],
+          },
+        },
+      },
+      tools: {
+        web: { enable: true, proxy: "http://127.0.0.1:7890", search: { provider: "duckduckgo" } },
+        exec: { enable: true, timeout: 120 },
+      },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }],
+    });
+    const fields = Object.fromEntries(pane.groups.flatMap((group) => group.fields.map((field) => [`${group.id}.${field.id}`, field])));
+
+    expect(fields["general.model"]).toMatchObject({
+      control: "select",
+      requirement: "required",
+      configurationMode: "fixed",
+      options: [
+        { value: "deepseek-chat", label: "deepseek-chat" },
+        { value: "deepseek-reasoner", label: "deepseek-reasoner" },
+      ],
+    });
+    expect(fields["general.temperature"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
+    expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
+    expect(fields["tools-approvals.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
+    expect(fields["tools-approvals.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
+    expect(fields["knowledge.retrievalMode"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed" });
+    expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 
   test("keeps provider editing separate from the default LLM provider", () => {

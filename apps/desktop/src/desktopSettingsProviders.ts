@@ -134,7 +134,18 @@ export interface DesktopSecretField {
 }
 
 export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed";
-export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select";
+export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select" | "password" | "readonly";
+export type DesktopSettingsPaneFieldRequirement = "required" | "optional" | "readonly";
+export type DesktopSettingsPaneFieldConfigurationMode =
+  | "fixed"
+  | "freeform"
+  | "json"
+  | "list"
+  | "numeric"
+  | "readonly"
+  | "secret"
+  | "toggle"
+  | "url";
 export type DesktopSettingsEditableValue = string | boolean;
 
 export interface DesktopSettingsPaneFieldOption {
@@ -151,6 +162,13 @@ export interface DesktopSettingsPaneField {
   inputValue: string;
   checked?: boolean;
   options?: DesktopSettingsPaneFieldOption[];
+  requirement: DesktopSettingsPaneFieldRequirement;
+  configurationMode: DesktopSettingsPaneFieldConfigurationMode;
+  advanced?: boolean;
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 export interface DesktopSettingsPaneGroup {
@@ -675,6 +693,24 @@ export function applyDesktopSettingsFieldEdit(
     case "activeProfile":
       nextState.agent.activeProfile = stringOrNullInput(text);
       break;
+    case "workspace":
+      nextState.agent.workspace = stringOrNullInput(text);
+      break;
+    case "temperature":
+      nextState.agent.temperature = numberOrNullInput(text);
+      break;
+    case "maxTokens":
+      nextState.agent.maxTokens = numberOrNullInput(text);
+      break;
+    case "contextWindowTokens":
+      nextState.agent.contextWindowTokens = numberOrNullInput(text);
+      break;
+    case "maxToolIterations":
+      nextState.agent.maxToolIterations = numberOrNullInput(text);
+      break;
+    case "reasoningEffort":
+      nextState.agent.reasoningEffort = stringOrNullInput(text);
+      break;
     case "timezone":
       nextState.agent.timezone = stringOrNullInput(text);
       break;
@@ -684,6 +720,10 @@ export function applyDesktopSettingsFieldEdit(
     case "profileId":
       nextState.providerEditor.profileId = text.trim();
       nextState.agent.activeProfile = stringOrNullInput(text);
+      syncDesktopProviderSummaryFromEditor(nextState);
+      break;
+    case "apiKey":
+      nextState.providerEditor.apiKey = resolveDesktopSecretValue(text, nextState.providerEditor.apiKey);
       syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "apiBase":
@@ -697,23 +737,53 @@ export function applyDesktopSettingsFieldEdit(
     case "enabled":
       nextState.knowledge.enabled = Boolean(value);
       break;
+    case "autoRetrieve":
+      nextState.knowledge.autoRetrieve = Boolean(value);
+      break;
     case "retrievalMode":
       nextState.knowledge.retrievalMode = stringOrNullInput(text);
       break;
     case "maxChunks":
       nextState.knowledge.maxChunks = numberOrNullInput(text);
       break;
+    case "chunkSize":
+      nextState.knowledge.chunkSize = numberOrNullInput(text);
+      break;
+    case "chunkOverlap":
+      nextState.knowledge.chunkOverlap = numberOrNullInput(text);
+      break;
+    case "rerankEnabled":
+      nextState.knowledge.rerankEnabled = Boolean(value);
+      break;
+    case "rerankModel":
+      nextState.knowledge.rerankModel = stringOrNullInput(text);
+      break;
     case "rerankApiBase":
       nextState.knowledge.rerankApiBase = stringOrNullInput(text);
+      break;
+    case "rerankTopN":
+      nextState.knowledge.rerankTopN = numberOrNullInput(text);
       break;
     case "webEnable":
       nextState.tools.webEnable = Boolean(value);
       break;
+    case "webProxy":
+      nextState.tools.webProxy = stringOrNullInput(text);
+      break;
+    case "searchProvider":
+      nextState.tools.searchProvider = stringOrNullInput(text);
+      break;
     case "execEnable":
       nextState.tools.execEnable = Boolean(value);
       break;
+    case "execTimeout":
+      nextState.tools.execTimeout = numberOrNullInput(text);
+      break;
     case "mcpServers":
       nextState.tools.mcpServersText = text;
+      break;
+    case "restrictToWorkspace":
+      nextState.tools.restrictToWorkspace = Boolean(value);
       break;
     case "host":
       nextState.gateway.host = stringOrNullInput(text);
@@ -723,6 +793,9 @@ export function applyDesktopSettingsFieldEdit(
       break;
     case "heartbeat":
       nextState.gateway.heartbeatEnabled = Boolean(value);
+      break;
+    case "heartbeatIntervalS":
+      nextState.gateway.heartbeatIntervalS = numberOrNullInput(text);
       break;
     case "sendProgress":
       nextState.channels.sendProgress = Boolean(value);
@@ -978,12 +1051,29 @@ function isDesktopProviderDefaultSelectableStatus(status: string): boolean {
   return ["ready", "available", "no_models"].includes(status);
 }
 
+function buildDesktopDefaultModelOptions(
+  state: DesktopSettingsFormState,
+  providerSummaries: DesktopSettingsProviderSummary[],
+): DesktopSettingsPaneFieldOption[] {
+  const providerId = state.agent.provider && state.agent.provider !== "auto"
+    ? state.agent.provider
+    : state.providerEditor.selectedProvider;
+  const provider = providerSummaries.find((summary) => summary.id === providerId);
+  const models = parseDesktopProviderModelList(provider?.modelsText || state.providerEditor.modelsText);
+  const selectedModel = stringOrNull(state.agent.model);
+  if (selectedModel && !models.includes(selectedModel)) {
+    models.unshift(selectedModel);
+  }
+  return models.map((model) => ({ value: model, label: model }));
+}
+
 function buildDesktopSettingsPaneGroups(
   state: DesktopSettingsFormState,
   validationErrors: DesktopSettingsValidationError[],
   providerSummaries: DesktopSettingsProviderSummary[] = state.providerSummaries ?? [],
 ): DesktopSettingsPaneGroup[] {
   const invalidFields = new Set(validationErrors.map((error) => error.field));
+  const modelOptions = buildDesktopDefaultModelOptions(state, providerSummaries);
   const editorProviderOptions = providerSummaries.map((provider) => ({
       value: provider.id,
       label: provider.label || provider.id,
@@ -1000,117 +1090,335 @@ function buildDesktopSettingsPaneGroups(
       label: provider.label || provider.id,
     })),
   ];
+  const fixedOptions = (values: string[]): DesktopSettingsPaneFieldOption[] => values.map((value) => ({
+    value,
+    label: value || "None",
+  }));
+  const fieldModeForControl = (control: DesktopSettingsPaneFieldControl): DesktopSettingsPaneFieldConfigurationMode => {
+    switch (control) {
+      case "checkbox":
+        return "toggle";
+      case "number":
+        return "numeric";
+      case "password":
+        return "secret";
+      case "readonly":
+        return "readonly";
+      case "select":
+        return "fixed";
+      case "textarea":
+        return "freeform";
+      default:
+        return "freeform";
+    }
+  };
+  const fieldRequirementForControl = (control: DesktopSettingsPaneFieldControl): DesktopSettingsPaneFieldRequirement => (
+    control === "readonly" ? "readonly" : "optional"
+  );
   const field = (
     id: string,
     label: string,
     value: unknown,
-    validationField?: DesktopSettingsValidationField,
-    control: DesktopSettingsPaneFieldControl = "text",
-    options?: DesktopSettingsPaneFieldOption[],
-    inputValue = stringValue(value),
+    config: {
+      validationField?: DesktopSettingsValidationField;
+      control?: DesktopSettingsPaneFieldControl;
+      options?: DesktopSettingsPaneFieldOption[];
+      inputValue?: string;
+      requirement?: DesktopSettingsPaneFieldRequirement;
+      configurationMode?: DesktopSettingsPaneFieldConfigurationMode;
+      advanced?: boolean;
+      placeholder?: string;
+      min?: number;
+      max?: number;
+      step?: number;
+    } = {},
   ): DesktopSettingsPaneField => ({
     id,
     label,
     value: formatDesktopSettingsFieldValue(value),
-    state: validationField && invalidFields.has(validationField) ? "invalid" : "normal",
-    control,
-    inputValue,
-    checked: control === "checkbox" ? value === true : undefined,
-    options,
+    state: config.validationField && invalidFields.has(config.validationField) ? "invalid" : "normal",
+    control: config.control ?? "text",
+    inputValue: config.inputValue ?? stringValue(value),
+    checked: config.control === "checkbox" ? value === true : undefined,
+    options: config.options,
+    requirement: config.requirement ?? fieldRequirementForControl(config.control ?? "text"),
+    configurationMode: config.configurationMode ?? fieldModeForControl(config.control ?? "text"),
+    advanced: config.advanced,
+    placeholder: config.placeholder,
+    min: config.min,
+    max: config.max,
+    step: config.step,
   });
+  const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
   return [
     {
       id: "general",
       label: "General",
       fields: [
-        field("model", "Model", state.agent.model, "model"),
-        field("provider", "Provider", state.agent.provider, undefined, "select", agentProviderOptions),
-        field("activeProfile", "Profile", state.agent.activeProfile),
-        field("timezone", "Timezone", state.agent.timezone, "timezone"),
+        field("model", "Model", state.agent.model, {
+          validationField: "model",
+          control: modelOptions.length ? "select" : "text",
+          options: modelOptions.length ? modelOptions : undefined,
+          requirement: "required",
+          configurationMode: modelOptions.length ? "fixed" : "freeform",
+        }),
+        field("provider", "Provider", state.agent.provider, {
+          control: "select",
+          options: agentProviderOptions,
+          requirement: "optional",
+          configurationMode: "fixed",
+        }),
+        field("activeProfile", "Profile", state.agent.activeProfile, {
+          requirement: "optional",
+          configurationMode: "freeform",
+        }),
+        field("timezone", "Timezone", state.agent.timezone, {
+          validationField: "timezone",
+          requirement: "required",
+          configurationMode: "freeform",
+          placeholder: "Asia/Shanghai",
+        }),
+        field("workspace", "Workspace", state.agent.workspace, {
+          requirement: "required",
+          configurationMode: "freeform",
+          advanced: true,
+          placeholder: "~/.tinybot/workspace",
+        }),
+        field("temperature", "Temperature", state.agent.temperature, {
+          control: "number",
+          requirement: "optional",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 0,
+          max: 2,
+          step: 0.1,
+        }),
+        field("maxTokens", "Max tokens", state.agent.maxTokens, {
+          control: "number",
+          requirement: "optional",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("contextWindowTokens", "Context window tokens", state.agent.contextWindowTokens, {
+          control: "number",
+          requirement: "optional",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("maxToolIterations", "Max tool iterations", state.agent.maxToolIterations, {
+          control: "number",
+          requirement: "optional",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("reasoningEffort", "Reasoning effort", state.agent.reasoningEffort, {
+          control: "select",
+          options: fixedOptions(["", "low", "medium", "high"]),
+          requirement: "optional",
+          configurationMode: "fixed",
+          advanced: true,
+        }),
       ],
     },
     {
       id: "provider-models",
       label: "Provider & Models",
       fields: [
-        field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider, undefined, "select", editorProviderOptions),
-        field("profileId", "Profile ID", state.providerEditor.profileId),
-        field("apiBase", "API base", state.providerEditor.apiBase, "providerApiBase"),
-        field("models", "Models", parseDesktopProviderModelList(state.providerEditor.modelsText).join(", "), undefined, "textarea", undefined, state.providerEditor.modelsText),
+        field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider, {
+          control: "select",
+          options: editorProviderOptions,
+          requirement: "required",
+          configurationMode: "fixed",
+        }),
+        field("profileId", "Profile ID", state.providerEditor.profileId, {
+          requirement: "required",
+          configurationMode: "freeform",
+        }),
+        field("apiKey", "API key", secretField.empty ? "" : "Configured", {
+          control: "password",
+          inputValue: secretField.displayValue,
+          requirement: "optional",
+          configurationMode: "secret",
+        }),
+        field("apiBase", "API base", state.providerEditor.apiBase, {
+          validationField: "providerApiBase",
+          requirement: "optional",
+          configurationMode: "url",
+          placeholder: "https://api.example.com/v1",
+        }),
+        field("models", "Models", parseDesktopProviderModelList(state.providerEditor.modelsText).join(", "), {
+          control: "textarea",
+          inputValue: state.providerEditor.modelsText,
+          requirement: "optional",
+          configurationMode: "list",
+          placeholder: "one-model-id-per-line",
+        }),
       ],
     },
     {
       id: "knowledge",
       label: "Knowledge",
       fields: [
-        field("enabled", "Enabled", state.knowledge.enabled, undefined, "checkbox"),
-        field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode),
-        field("maxChunks", "Max chunks", state.knowledge.maxChunks, undefined, "number"),
-        field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, "rerankApiBase"),
+        field("enabled", "Enabled", state.knowledge.enabled, { control: "checkbox" }),
+        field("autoRetrieve", "Auto retrieve", state.knowledge.autoRetrieve, { control: "checkbox" }),
+        field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode, {
+          control: "select",
+          options: fixedOptions(["dense", "sparse", "hybrid"]),
+        }),
+        field("maxChunks", "Max chunks", state.knowledge.maxChunks, {
+          control: "number",
+          configurationMode: "numeric",
+          min: 1,
+          step: 1,
+        }),
+        field("chunkSize", "Chunk size", state.knowledge.chunkSize, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("chunkOverlap", "Chunk overlap", state.knowledge.chunkOverlap, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 0,
+          step: 1,
+        }),
+        field("rerankEnabled", "Rerank", state.knowledge.rerankEnabled, { control: "checkbox", advanced: true }),
+        field("rerankModel", "Rerank model", state.knowledge.rerankModel, { advanced: true }),
+        field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, {
+          validationField: "rerankApiBase",
+          requirement: "optional",
+          configurationMode: "url",
+          advanced: true,
+        }),
+        field("rerankTopN", "Rerank top N", state.knowledge.rerankTopN, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 0,
+          step: 1,
+        }),
       ],
     },
     {
       id: "tools-approvals",
       label: "Tools & Approvals",
       fields: [
-        field("webEnable", "Web tools", state.tools.webEnable, undefined, "checkbox"),
-        field("execEnable", "Exec tools", state.tools.execEnable, undefined, "checkbox"),
-        field("mcpServers", "MCP servers", state.tools.mcpServersText ? "Configured" : "None", "mcpServers", "textarea", undefined, state.tools.mcpServersText),
+        field("webEnable", "Web tools", state.tools.webEnable, { control: "checkbox" }),
+        field("execEnable", "Exec tools", state.tools.execEnable, { control: "checkbox" }),
+        field("webProxy", "Web proxy", state.tools.webProxy, {
+          advanced: true,
+          placeholder: "http://127.0.0.1:7890",
+        }),
+        field("searchProvider", "Search provider", state.tools.searchProvider, {
+          control: "select",
+          options: fixedOptions(["duckduckgo", "brave", "tavily", "searxng", "jina"]),
+          advanced: true,
+        }),
+        field("execTimeout", "Exec timeout", state.tools.execTimeout, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("restrictToWorkspace", "Restrict to workspace", state.tools.restrictToWorkspace, {
+          control: "checkbox",
+          advanced: true,
+        }),
+        field("mcpServers", "MCP servers", state.tools.mcpServersText ? "Configured" : "None", {
+          validationField: "mcpServers",
+          control: "textarea",
+          inputValue: state.tools.mcpServersText,
+          requirement: "optional",
+          configurationMode: "json",
+          advanced: true,
+          placeholder: "{\"server\":{\"command\":\"npx\",\"args\":[]}}",
+        }),
       ],
     },
     {
       id: "files-workspace",
       label: "Files & Workspace",
       fields: [
-        field("sessionFiles", "Session files", buildWorkbenchFileScopeLabel("session").label),
-        field("knowledgeDocuments", "Knowledge documents", buildWorkbenchFileScopeLabel("knowledge").label),
-        field("workspaceFiles", "Workspace files", buildWorkbenchFileScopeLabel("workspace").label),
+        field("sessionFiles", "Session files", buildWorkbenchFileScopeLabel("session").label, { control: "readonly" }),
+        field("knowledgeDocuments", "Knowledge documents", buildWorkbenchFileScopeLabel("knowledge").label, { control: "readonly" }),
+        field("workspaceFiles", "Workspace files", buildWorkbenchFileScopeLabel("workspace").label, { control: "readonly" }),
       ],
     },
     {
       id: "memory-experience",
       label: "Memory & Experience",
       fields: [
-        field("memory", "Memory", "Managed by context and experience settings"),
+        field("memory", "Memory", "Managed by context and experience settings", { control: "readonly" }),
       ],
     },
     {
       id: "skills",
       label: "Skills",
       fields: [
-        field("skills", "Skills", "Managed by Tools and Skills workbench"),
+        field("skills", "Skills", "Managed by Tools and Skills workbench", { control: "readonly" }),
       ],
     },
     {
       id: "channels",
       label: "Channels",
       fields: [
-        field("sendProgress", "Progress events", state.channels.sendProgress, undefined, "checkbox"),
-        field("sendToolHints", "Tool hints", state.channels.sendToolHints, undefined, "checkbox"),
-        field("sendMaxRetries", "Max retries", state.channels.sendMaxRetries, undefined, "number"),
+        field("sendProgress", "Progress events", state.channels.sendProgress, { control: "checkbox" }),
+        field("sendToolHints", "Tool hints", state.channels.sendToolHints, { control: "checkbox" }),
+        field("sendMaxRetries", "Max retries", state.channels.sendMaxRetries, {
+          control: "number",
+          configurationMode: "numeric",
+          min: 0,
+          max: 10,
+          step: 1,
+        }),
       ],
     },
     {
       id: "automations",
       label: "Automations",
       fields: [
-        field("automations", "Automations", "Planned after core workbench stability"),
+        field("automations", "Automations", "Planned after core workbench stability", { control: "readonly" }),
       ],
     },
     {
       id: "gateway-runtime",
       label: "Gateway & Runtime",
       fields: [
-        field("host", "Host", state.gateway.host),
-        field("port", "Port", state.gateway.port, "gatewayPort", "number"),
-        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, undefined, "checkbox"),
+        field("host", "Host", state.gateway.host, { requirement: "required", configurationMode: "freeform" }),
+        field("port", "Port", state.gateway.port, {
+          validationField: "gatewayPort",
+          control: "number",
+          requirement: "required",
+          configurationMode: "numeric",
+          min: 1,
+          max: 65535,
+          step: 1,
+        }),
+        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, { control: "checkbox" }),
+        field("heartbeatIntervalS", "Heartbeat interval", state.gateway.heartbeatIntervalS, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
       ],
     },
     {
       id: "logs-diagnostics",
       label: "Logs & Diagnostics",
       fields: [
-        field("diagnostics", "Diagnostics", "Export diagnostics and inspect runtime logs"),
+        field("diagnostics", "Diagnostics", "Export diagnostics and inspect runtime logs", { control: "readonly" }),
       ],
     },
   ];

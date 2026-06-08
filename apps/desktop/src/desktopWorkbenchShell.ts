@@ -4715,22 +4715,19 @@ function createSettingsProvidersPane(
       copy.className = "desktop-settings-group-description";
       groupSection.append(copy);
     }
-    for (const field of fields) {
-      const row = targetDocument.createElement("div");
-      row.className = "desktop-settings-field";
-      row.setAttribute("data-desktop-settings-field", field.id);
-      row.setAttribute("data-state", field.state);
-      const copy = targetDocument.createElement("div");
-      copy.className = "desktop-settings-field-copy";
-      const label = targetDocument.createElement("label");
-      label.textContent = `${field.label}: `;
-      label.setAttribute("for", `desktop-settings-${field.id}`);
-      const help = createText(targetDocument, "span", getSettingsFieldDescription(group.id, field.id, field.value));
-      help.className = "desktop-settings-field-description";
-      const control = createDesktopSettingsControl(targetDocument, pane, field, settingsActions);
-      copy.append(label, help);
-      row.append(copy, control);
-      groupSection.append(row);
+    const primaryFields = fields.filter((field) => !field.advanced);
+    const advancedFields = fields.filter((field) => field.advanced);
+    for (const field of primaryFields) {
+      groupSection.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+    }
+    if (advancedFields.length) {
+      const details = targetDocument.createElement("details");
+      details.className = "desktop-settings-advanced-fields";
+      details.append(createText(targetDocument, "summary", "Advanced"));
+      for (const field of advancedFields) {
+        details.append(createDesktopSettingsFieldRow(targetDocument, pane, group, field, settingsActions));
+      }
+      groupSection.append(details);
     }
     grid.append(groupSection);
   }
@@ -4941,7 +4938,8 @@ function createDesktopSettingsModelSelect(
   if (field.state === "invalid") {
     select.setAttribute("aria-invalid", "true");
   }
-  const values = [field.inputValue, ...getDefaultLlmModelOptions(pane)].filter(Boolean);
+  const optionValues = field.options?.map((option) => option.value) ?? getDefaultLlmModelOptions(pane);
+  const values = [field.inputValue, ...optionValues].filter(Boolean);
   const uniqueValues = Array.from(new Set(values));
   if (!uniqueValues.length) {
     uniqueValues.push("");
@@ -5439,12 +5437,55 @@ function getSettingsFieldDescription(
   return descriptions[`${groupId}.${fieldId}`] ?? `Current value: ${value || "Not configured"}.`;
 }
 
+function createDesktopSettingsFieldRow(
+  targetDocument: Document,
+  pane: DesktopSettingsPaneModel,
+  group: DesktopSettingsPaneGroup,
+  field: DesktopSettingsPaneField,
+  settingsActions: DesktopSettingsActionOptions,
+): HTMLElement {
+  const row = targetDocument.createElement("div");
+  row.className = "desktop-settings-field";
+  row.setAttribute("data-desktop-settings-field", field.id);
+  row.setAttribute("data-state", field.state);
+  const copy = targetDocument.createElement("div");
+  copy.className = "desktop-settings-field-copy";
+  const label = targetDocument.createElement("label");
+  label.textContent = `${field.label}: `;
+  label.setAttribute("for", `desktop-settings-${field.id}`);
+  const help = createText(targetDocument, "span", getSettingsFieldDescription(group.id, field.id, field.value));
+  help.className = "desktop-settings-field-description";
+  copy.append(label, help, createDesktopSettingsFieldMeta(targetDocument, field));
+  row.append(copy, createDesktopSettingsControl(targetDocument, pane, field, settingsActions));
+  return row;
+}
+
+function createDesktopSettingsFieldMeta(targetDocument: Document, field: DesktopSettingsPaneField): HTMLElement {
+  const meta = targetDocument.createElement("span");
+  meta.className = "desktop-settings-field-meta";
+  const requirement = createText(targetDocument, "span", desktopSettingsRequirementLabel(field.requirement));
+  requirement.className = "desktop-settings-field-chip";
+  requirement.setAttribute("data-kind", field.requirement);
+  const mode = createText(targetDocument, "span", desktopSettingsConfigurationModeLabel(field.configurationMode));
+  mode.className = "desktop-settings-field-chip";
+  mode.setAttribute("data-kind", field.configurationMode);
+  meta.append(requirement, mode);
+  return meta;
+}
+
 function createDesktopSettingsControl(
   targetDocument: Document,
   pane: DesktopSettingsPaneModel,
   field: DesktopSettingsPaneModel["groups"][number]["fields"][number],
   settingsActions: DesktopSettingsActionOptions,
 ): HTMLElement {
+  if (field.control === "readonly") {
+    const output = targetDocument.createElement("output");
+    output.className = "desktop-settings-readonly-value";
+    output.setAttribute("id", `desktop-settings-${field.id}`);
+    output.textContent = field.value || "Not configured";
+    return output;
+  }
   const tagName = field.control === "textarea" ? "textarea" : field.control === "select" ? "select" : "input";
   const control = targetDocument.createElement(tagName);
   control.setAttribute("id", `desktop-settings-${field.id}`);
@@ -5452,6 +5493,18 @@ function createDesktopSettingsControl(
   control.setAttribute("data-state", field.state);
   if (field.state === "invalid") {
     control.setAttribute("aria-invalid", "true");
+  }
+  if (field.placeholder) {
+    control.setAttribute("placeholder", field.placeholder);
+  }
+  if (field.min !== undefined) {
+    control.setAttribute("min", String(field.min));
+  }
+  if (field.max !== undefined) {
+    control.setAttribute("max", String(field.max));
+  }
+  if (field.step !== undefined) {
+    control.setAttribute("step", String(field.step));
   }
 
   if (field.control === "checkbox") {
@@ -5470,6 +5523,8 @@ function createDesktopSettingsControl(
 
   if (field.control === "number") {
     (control as HTMLInputElement).type = "number";
+  } else if (field.control === "password") {
+    (control as HTMLInputElement).type = "password";
   } else if (field.control === "text") {
     (control as HTMLInputElement).type = "text";
   }
@@ -5499,6 +5554,28 @@ function createDesktopSettingsControl(
     });
   });
   return control;
+}
+
+function desktopSettingsRequirementLabel(requirement: DesktopSettingsPaneField["requirement"]): string {
+  return {
+    required: "Required",
+    optional: "Optional",
+    readonly: "Read only",
+  }[requirement];
+}
+
+function desktopSettingsConfigurationModeLabel(mode: DesktopSettingsPaneField["configurationMode"]): string {
+  return {
+    fixed: "Fixed options",
+    freeform: "Free text",
+    json: "JSON object",
+    list: "List",
+    numeric: "Number",
+    readonly: "Status",
+    secret: "Secret",
+    toggle: "Toggle",
+    url: "URL",
+  }[mode];
 }
 
 function toggleDesktopPanel(targetDocument: Document, panel: DesktopPanelControlId): void {
@@ -11219,12 +11296,57 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
 
     body.desktop-native-workbench .desktop-settings-field-copy {
       display: grid;
+      gap: 5px;
       min-width: 0;
     }
 
     body.desktop-native-workbench .desktop-settings-field label {
       color: #2d2924;
       font: 650 13px/1.35 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-chip {
+      width: max-content;
+      max-width: 100%;
+      border: 1px solid #e6ddd4;
+      border-radius: 999px;
+      padding: 2px 7px;
+      background: #fbf8f3;
+      color: #71675e;
+      font: 650 11px/1.2 var(--font-sans);
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-chip[data-kind="required"] {
+      border-color: #f3caa6;
+      color: #985314;
+    }
+
+    body.desktop-native-workbench .desktop-settings-field-chip[data-kind="readonly"],
+    body.desktop-native-workbench .desktop-settings-field-chip[data-kind="readonly"] + .desktop-settings-field-chip {
+      color: #81776f;
+    }
+
+    body.desktop-native-workbench .desktop-settings-advanced-fields {
+      display: grid;
+      min-width: 0;
+      border-top: 1px solid #eee8e1;
+    }
+
+    body.desktop-native-workbench .desktop-settings-advanced-fields summary {
+      min-height: 38px;
+      padding: 10px 18px;
+      color: #4b443d;
+      font: 700 12px/1.3 var(--font-sans);
+      cursor: pointer;
+      list-style-position: inside;
     }
 
     body.desktop-native-workbench .desktop-settings-field input,
@@ -11234,6 +11356,15 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       min-width: 0;
       min-height: 34px;
       padding: 7px 9px;
+    }
+
+    body.desktop-native-workbench .desktop-settings-readonly-value {
+      min-width: 0;
+      color: #5f574f;
+      font: 650 13px/1.35 var(--font-sans);
+      overflow-wrap: anywhere;
+      justify-self: end;
+      text-align: right;
     }
 
     body.desktop-native-workbench .desktop-settings-field input[type="checkbox"] {
