@@ -1569,6 +1569,50 @@ async def test_webui_control_provider_catalog_includes_custom_config(api_workspa
 
 
 @pytest.mark.asyncio
+async def test_webui_control_provider_catalog_marks_disabled_provider(api_workspace):
+    token_manager = WebTokenManager(ttl_s=300)
+    config = Config.model_validate(
+        {
+            "providers": {
+                "deepseek": {
+                    "enabled": False,
+                    "api_key": "deepseek-key",
+                },
+                "my_gateway": {
+                    "enabled": False,
+                    "api_key": "custom-key",
+                    "api_base": "https://gateway.example.test/v1",
+                },
+            },
+        }
+    )
+    app = web.Application()
+    register_webui_control_routes(
+        app,
+        WebUIControlRuntime(
+            token_manager=token_manager,
+            workspace=api_workspace,
+            config=config,
+        ),
+    )
+    client = await _client(app)
+    try:
+        headers = _authorized_headers(token_manager)
+        response = await client.get("/api/providers", headers=headers)
+        assert response.status == 200
+        payload = await response.json()
+        deepseek = next(item for item in payload["providers"] if item["id"] == "deepseek")
+        custom = next(item for item in payload["providers"] if item["id"] == "my_gateway")
+
+        assert deepseek["status"] == "disabled"
+        assert deepseek["enabled"] is False
+        assert custom["status"] == "disabled"
+        assert custom["enabled"] is False
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_webui_control_config_patch_saves_catalog_provider_without_deleting_existing(api_workspace):
     token_manager = WebTokenManager(ttl_s=300)
     config = Config.model_validate(

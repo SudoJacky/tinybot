@@ -23,6 +23,8 @@ interface ProviderCardModel {
   id: string;
   label: string;
   badge: string;
+  initials: string;
+  connected: boolean;
   statusLabel: string;
   statusTone: "default" | "error" | "success" | "warning";
   baseUrl: string;
@@ -55,17 +57,20 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
     name: "SettingsPaneIsland",
     setup() {
       const providerSearch = ref("");
+      const activeGroupId = ref(options.pane.groups[0]?.id ?? "general");
+      const setActiveGroupId = (groupId: DesktopSettingsPaneGroup["id"]) => {
+        activeGroupId.value = groupId;
+      };
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          renderSidebar(options.pane),
+          renderSidebar(options.pane, activeGroupId.value, setActiveGroupId),
           h("div", { class: "desktop-settings-content" }, [
             renderHeader(),
-            renderCapabilityMap(options.pane),
+            renderCapabilityMap(options.pane, setActiveGroupId),
             renderDefaultLlmCard(options),
             renderProviderManagement(options, providerSearch.value, (value) => {
               providerSearch.value = value;
             }),
-            renderStatusCard(options.pane),
             renderSettingsGroups(options),
           ]),
         ],
@@ -82,7 +87,10 @@ function renderHeader() {
   ]);
 }
 
-function renderCapabilityMap(pane: DesktopSettingsPaneModel) {
+function renderCapabilityMap(
+  pane: DesktopSettingsPaneModel,
+  setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+) {
   return h("section", {
     class: "desktop-settings-capability-map",
     "data-desktop-settings-center": "capability-boundaries",
@@ -91,6 +99,7 @@ function renderCapabilityMap(pane: DesktopSettingsPaneModel) {
     class: "desktop-settings-capability-card",
     href: `#desktop-settings-group-${card.id}`,
     "data-desktop-settings-capability": card.id,
+    onClick: (event: Event) => scrollToSettingsGroup(event, card.id, setActiveGroupId),
   }, [
     h("span", { class: "desktop-settings-capability-label" }, card.label),
     h("strong", { class: "desktop-settings-capability-status" }, card.status),
@@ -98,7 +107,11 @@ function renderCapabilityMap(pane: DesktopSettingsPaneModel) {
   ])));
 }
 
-function renderSidebar(pane: DesktopSettingsPaneModel) {
+function renderSidebar(
+  pane: DesktopSettingsPaneModel,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+  setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+) {
   return h("aside", {
     class: "desktop-settings-sidebar",
     "aria-label": "Settings navigation",
@@ -112,11 +125,15 @@ function renderSidebar(pane: DesktopSettingsPaneModel) {
     h("nav", {
       class: "desktop-settings-nav",
       "aria-label": "Settings sections",
-    }, renderNavigation(pane.groups)),
+    }, renderNavigation(pane.groups, activeGroupId, setActiveGroupId)),
   ]);
 }
 
-function renderNavigation(groups: DesktopSettingsPaneGroup[]) {
+function renderNavigation(
+  groups: DesktopSettingsPaneGroup[],
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+  setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+) {
   const nodes = [
     h("p", { class: "desktop-settings-nav-heading" }, "Personal"),
   ];
@@ -128,15 +145,16 @@ function renderNavigation(groups: DesktopSettingsPaneGroup[]) {
       class: "desktop-settings-nav-item",
       href: `#desktop-settings-group-${group.id}`,
       "data-desktop-settings-nav": group.id,
-      "data-active": index === 0 ? "true" : undefined,
-      "aria-current": index === 0 ? "page" : undefined,
+      "data-active": group.id === activeGroupId ? "true" : undefined,
+      "aria-current": group.id === activeGroupId ? "page" : undefined,
+      onClick: (event: Event) => scrollToSettingsGroup(event, group.id, setActiveGroupId),
     }, getSettingsNavLabel(group.id)));
   });
   return nodes;
 }
 
 function renderDefaultLlmCard(options: SettingsPaneIslandOptions) {
-  const provider = findPaneField(options.pane, "provider-models", "selectedProvider");
+  const provider = findPaneField(options.pane, "general", "provider");
   const model = findPaneField(options.pane, "general", "model");
   return h("section", {
     class: "desktop-settings-default-llm-card",
@@ -163,7 +181,7 @@ function renderProviderManagement(
   searchQuery: string,
   updateSearchQuery: (value: string) => void,
 ) {
-  const cards = getProviderCards(options.pane);
+  const cards = getProviderCards(options.pane).filter((provider) => !shouldHideProviderCard(provider, searchQuery));
   return h("section", {
     class: "desktop-settings-provider-section",
     "aria-label": "Provider management",
@@ -203,55 +221,77 @@ function renderProviderManagement(
         }, { default: () => "+ Add provider" }),
       ]),
     ]),
-    h("div", { class: "desktop-settings-provider-grid" }, cards.map((provider) => renderProviderCard(
-      options,
-      provider,
-      shouldHideProviderCard(provider, searchQuery),
-    ))),
+    h("div", { class: "desktop-settings-provider-grid" }, cards.map((provider) => renderProviderCard(options, provider))),
   ]);
 }
 
 function renderProviderCard(
   options: SettingsPaneIslandOptions,
   provider: ProviderCardModel,
-  hidden: boolean,
 ) {
   return h(NCard, {
     class: "desktop-settings-provider-card",
     "data-desktop-settings-provider-card": provider.id,
-    hidden,
     size: "small",
     bordered: false,
   }, {
     default: () => [
       h("header", { class: "desktop-settings-provider-card-header" }, [
-        h("div", { class: "desktop-settings-provider-title" }, [
-          h("h3", provider.label),
-          provider.badge ? h(NTag, {
-            class: "desktop-settings-provider-badge",
-            size: "small",
-            round: true,
-            type: "success",
-          }, { default: () => provider.badge }) : null,
+        h("div", { class: "desktop-settings-provider-identity" }, [
+          h("span", {
+            class: "desktop-settings-provider-mark",
+            "aria-hidden": "true",
+            "data-provider-id": provider.id,
+          }, provider.initials),
+          h("div", { class: "desktop-settings-provider-title" }, [
+            h("h3", provider.label),
+            h("div", { class: "desktop-settings-provider-status-row" }, [
+              provider.badge ? h(NTag, {
+                class: "desktop-settings-provider-badge",
+                size: "small",
+                round: true,
+                type: "success",
+              }, { default: () => provider.badge }) : null,
+              h(NTag, {
+                class: "desktop-settings-provider-status",
+                size: "small",
+                round: true,
+                type: provider.statusTone,
+              }, { default: () => provider.statusLabel }),
+            ]),
+          ]),
         ]),
-        h(NTag, {
-          class: "desktop-settings-provider-status",
-          size: "small",
-          round: true,
-          type: provider.statusTone,
-        }, { default: () => provider.statusLabel }),
+        h("button", {
+          class: "desktop-settings-provider-switch",
+          type: "button",
+          role: "switch",
+          "aria-checked": provider.connected ? "true" : "false",
+          "aria-label": `${provider.connected ? "Disable" : "Enable"} ${provider.label}`,
+          "data-desktop-settings-provider-action": "toggle",
+          "data-state": provider.connected ? "on" : "off",
+          onClick: () => toggleProvider(options, provider),
+        }),
       ]),
       h("div", { class: "desktop-settings-provider-details" }, [
         renderProviderDetail("Base URL", provider.baseUrl),
         renderProviderDetail("API Key", provider.apiKey),
         renderProviderDetail("Model", provider.models),
       ]),
+      h("button", {
+        class: "desktop-settings-provider-advanced",
+        type: "button",
+        "data-desktop-settings-provider-action": "settings",
+        onClick: () => handleProviderCardAction(options, provider.id, "settings"),
+      }, [
+        h("span", "Advanced settings"),
+        h("span", { "aria-hidden": "true" }, "v"),
+      ]),
       h(NSpace, { class: "desktop-settings-provider-card-actions", size: 8 }, {
         default: () => [
           h(NButton, {
             size: "small",
             "data-desktop-settings-provider-action": "models",
-            onClick: () => handleProviderCardAction(options, provider.id, "model"),
+            onClick: () => handleProviderCardAction(options, provider.id, "models"),
           }, { default: () => "Models" }),
           h(NButton, {
             size: "small",
@@ -275,6 +315,8 @@ function renderSettingsGroup(options: SettingsPaneIslandOptions, group: DesktopS
   if (!fields.length) {
     return null;
   }
+  const primaryFields = fields.filter((field) => !field.advanced);
+  const advancedFields = fields.filter((field) => field.advanced);
   return h(NCard, {
     class: "desktop-settings-group",
     id: `desktop-settings-group-${group.id}`,
@@ -285,7 +327,11 @@ function renderSettingsGroup(options: SettingsPaneIslandOptions, group: DesktopS
     default: () => [
       h("h2", group.label),
       h("p", { class: "desktop-settings-group-description" }, getSettingsGroupDescription(group.id)),
-      ...fields.map((field) => renderSettingsField(options, group, field)),
+      ...primaryFields.map((field) => renderSettingsField(options, group, field)),
+      advancedFields.length ? h("details", { class: "desktop-settings-advanced-fields" }, [
+        h("summary", "Advanced"),
+        ...advancedFields.map((field) => renderSettingsField(options, group, field)),
+      ]) : null,
     ],
   });
 }
@@ -303,27 +349,9 @@ function renderSettingsField(
     h("div", { class: "desktop-settings-field-copy" }, [
       h("label", { for: `desktop-settings-${field.id}` }, `${field.label}: `),
       h("span", { class: "desktop-settings-field-description" }, getSettingsFieldDescription(group.id, field.id, field.value)),
+      renderSettingsFieldMeta(field),
     ]),
     renderSettingsControl(options, field),
-  ]);
-}
-
-function renderStatusCard(pane: DesktopSettingsPaneModel) {
-  return h("section", {
-    class: "desktop-settings-status-card",
-    "aria-label": "Settings status",
-  }, [
-    h(NCard, { size: "small", bordered: false }, {
-      default: () => h("div", { class: "desktop-settings-summary" }, statusRows(pane).map((row) => h("p", {
-        class: "desktop-settings-status-item",
-      }, [
-        h("span", `${row.label}: `),
-        h("strong", row.value),
-        row.tone ? h(NSpace, { size: 4, inline: true }, {
-          default: () => h(NTag, { size: "small", round: true, type: row.tone }, { default: () => row.value }),
-        }) : null,
-      ]))),
-    }),
   ]);
 }
 
@@ -334,14 +362,15 @@ function renderInlineField(
 ) {
   return h("label", { class: "desktop-settings-inline-field" }, [
     h("span", label),
-    field.id === "model" && options.pane.providerEditor.models.length > 0
+    field.id === "model" && getDefaultLlmModelOptions(options.pane).length > 0
       ? renderModelSelect(options, field)
       : renderSettingsControl(options, field),
   ]);
 }
 
 function renderModelSelect(options: SettingsPaneIslandOptions, field: DesktopSettingsPaneField) {
-  const values = Array.from(new Set([field.inputValue, ...options.pane.providerEditor.models].filter(Boolean)));
+  const optionValues = field.options?.map((option) => option.value) ?? getDefaultLlmModelOptions(options.pane);
+  const values = Array.from(new Set([field.inputValue, ...optionValues].filter(Boolean)));
   if (!values.length) {
     values.push("");
   }
@@ -359,11 +388,21 @@ function renderModelSelect(options: SettingsPaneIslandOptions, field: DesktopSet
 }
 
 function renderSettingsControl(options: SettingsPaneIslandOptions, field: DesktopSettingsPaneField) {
+  if (field.control === "readonly") {
+    return h("output", {
+      id: `desktop-settings-${field.id}`,
+      class: "desktop-settings-readonly-value",
+    }, field.value || "Not configured");
+  }
   const commonAttrs = {
     id: `desktop-settings-${field.id}`,
     "data-desktop-settings-control": field.id,
     "data-state": field.state,
     "aria-invalid": field.state === "invalid" ? "true" : undefined,
+    placeholder: field.placeholder,
+    min: field.min,
+    max: field.max,
+    step: field.step,
   };
   if (field.control === "checkbox") {
     return h("input", {
@@ -393,10 +432,17 @@ function renderSettingsControl(options: SettingsPaneIslandOptions, field: Deskto
   }
   return h("input", {
     ...commonAttrs,
-    type: field.control === "number" ? "number" : "text",
+    type: field.control === "number" ? "number" : field.control === "password" ? "password" : "text",
     value: field.inputValue,
     onInput: (event: Event) => emitEdit(options, field.id, String((event.target as HTMLInputElement | null)?.value ?? "")),
   });
+}
+
+function renderSettingsFieldMeta(field: DesktopSettingsPaneField) {
+  return h("span", { class: "desktop-settings-field-meta" }, [
+    h("span", { class: "desktop-settings-field-chip", "data-kind": field.requirement }, requirementLabel(field.requirement)),
+    h("span", { class: "desktop-settings-field-chip", "data-kind": field.configurationMode }, configurationModeLabel(field.configurationMode)),
+  ]);
 }
 
 function renderSaveButton(options: SettingsPaneIslandOptions) {
@@ -410,23 +456,37 @@ function renderSaveButton(options: SettingsPaneIslandOptions) {
 }
 
 function renderProviderDetail(label: string, value: string) {
-  return h("p", { class: "desktop-settings-provider-detail" }, [
+  return h("label", { class: "desktop-settings-provider-detail" }, [
     h("span", `${label}: `),
-    h("strong", value),
+    h("input", {
+      readonly: true,
+      tabindex: -1,
+      value,
+      "aria-label": `${label}: ${value}`,
+    }),
+    h("span", { class: "desktop-settings-provider-detail-text" }, `${label}: ${value}`),
   ]);
+}
+
+function getDefaultLlmModelOptions(pane: DesktopSettingsPaneModel): string[] {
+  const defaultProvider = findPaneField(pane, "general", "provider")?.inputValue;
+  if (!defaultProvider || defaultProvider === "auto") {
+    return pane.providerEditor.models;
+  }
+  return pane.providerCatalog.find((provider) => provider.id === defaultProvider)?.models ?? [];
 }
 
 function handleProviderCardAction(
   options: SettingsPaneIslandOptions,
   providerId: string,
-  target: "model" | "settings",
+  target: "models" | "settings",
 ): void {
   if (providerId !== options.pane.providerEditor.selectedProvider) {
     emitEdit(options, "selectedProvider", providerId);
-    options.onFocusSettingsControl?.("selectedProvider");
+    options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
     return;
   }
-  options.onFocusSettingsControl?.(target === "model" ? "model" : "apiBase");
+  options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
 }
 
 function emitEdit(options: SettingsPaneIslandOptions, fieldId: string, value: string | boolean): void {
@@ -460,21 +520,63 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
   const selectedProvider = pane.providerEditor.selectedProvider || "provider";
   const catalog = pane.providerCatalog.length
     ? pane.providerCatalog
-    : [{ id: selectedProvider, label: selectedProvider, status: "not_configured" }];
+    : [{
+      id: selectedProvider,
+      label: selectedProvider,
+      profileId: selectedProvider,
+      status: "not_configured",
+      enabled: false,
+      baseUrl: null,
+      apiKey: { value: "", displayValue: "", masked: false, empty: true },
+      models: [],
+      canDiscoverModels: true,
+    }];
   return catalog.map((provider) => {
     const isSelected = provider.id === selectedProvider;
-    const models = isSelected ? pane.providerEditor.models.join(", ") : "";
+    const providerModels = provider.models ?? (isSelected ? pane.providerEditor.models : []);
+    const models = providerModels.join(", ");
+    const apiKey = provider.apiKey ?? (isSelected ? pane.providerEditor.apiKey : { displayValue: "" });
     return {
       id: provider.id,
       label: provider.label || provider.id,
       badge: isSelected ? "Current" : "",
-      statusLabel: formatProviderStatus(provider.status),
-      statusTone: providerStatusTone(provider.status),
-      baseUrl: isSelected ? pane.providerEditor.apiBase || "Not configured" : "Not configured",
-      apiKey: isSelected ? pane.providerEditor.apiKey.displayValue || "Not configured" : "Not configured",
+      initials: providerInitials(provider.label || provider.id),
+      connected: provider.enabled ?? (provider.status === "ready" || provider.status === "available"),
+      statusLabel: formatProviderStatus(provider.enabled === false ? "disabled" : provider.status),
+      statusTone: providerStatusTone(provider.enabled === false ? "disabled" : provider.status),
+      baseUrl: provider.baseUrl || (isSelected ? pane.providerEditor.apiBase : "") || "Not configured",
+      apiKey: apiKey.displayValue || "Not configured",
       models: models || "No models",
     };
   });
+}
+
+function toggleProvider(options: SettingsPaneIslandOptions, provider: ProviderCardModel): void {
+  emitEdit(options, `providerEnabled:${provider.id}`, !provider.connected);
+}
+
+function scrollToSettingsGroup(
+  event: Event,
+  groupId: DesktopSettingsPaneGroup["id"],
+  setActiveGroupId?: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+): void {
+  event.preventDefault();
+  setActiveGroupId?.(groupId);
+  const link = event.currentTarget as HTMLElement | null;
+  const document = link?.ownerDocument;
+  const target = document?.getElementById(`desktop-settings-group-${groupId}`);
+  target?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+function providerInitials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return "AI";
+  }
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }
 
 function shouldHideProviderCard(provider: ProviderCardModel, query: string): boolean {
@@ -483,24 +585,6 @@ function shouldHideProviderCard(provider: ProviderCardModel, query: string): boo
     return false;
   }
   return !`${provider.id} ${provider.label} ${provider.statusLabel} ${provider.baseUrl} ${provider.apiKey} ${provider.models}`.toLowerCase().includes(normalizedQuery);
-}
-
-function statusRows(pane: DesktopSettingsPaneModel): Array<{ label: string; value: string; tone?: "default" | "error" | "success" | "warning" }> {
-  return [
-    { label: "Save", value: pane.save.message, tone: saveTone(pane.save.status) },
-    {
-      label: "Validation",
-      value: pane.validationErrors.length ? pane.validationErrors.map((error) => error.field).join(", ") : "ready",
-      tone: pane.validationErrors.length ? "error" : "success",
-    },
-    { label: "Provider profile", value: pane.providerEditor.profileId || "default" },
-    { label: "API key", value: pane.providerEditor.apiKey.displayValue || "Not configured" },
-    {
-      label: "Catalog",
-      value: pane.providerCatalog.map((provider) => `${provider.label} (${provider.status})`).join(", ") || "No providers loaded",
-    },
-    { label: "Models", value: pane.providerEditor.models.join(", ") || "No models loaded" },
-  ];
 }
 
 function capabilityCards(pane: DesktopSettingsPaneModel): Array<{
@@ -582,22 +666,12 @@ function saveLabel(pane: DesktopSettingsPaneModel): string {
   return "Save settings";
 }
 
-function saveTone(status: DesktopSettingsPaneModel["save"]["status"]): "default" | "error" | "success" | "warning" {
-  if (status === "saved") {
-    return "success";
-  }
-  if (status === "failed") {
-    return "error";
-  }
-  if (status === "saving") {
-    return "warning";
-  }
-  return "default";
-}
-
 function formatProviderStatus(status: string): string {
   return {
     ready: "Ready",
+    available: "Ready",
+    disabled: "Disabled",
+    no_models: "No models",
     needs_key: "Needs key",
     unavailable: "Unavailable",
     not_configured: "Not configured",
@@ -605,10 +679,10 @@ function formatProviderStatus(status: string): string {
 }
 
 function providerStatusTone(status: string): "default" | "error" | "success" | "warning" {
-  if (status === "ready") {
+  if (status === "ready" || status === "available") {
     return "success";
   }
-  if (status === "needs_key" || status === "not_configured") {
+  if (status === "needs_key" || status === "not_configured" || status === "no_models") {
     return "warning";
   }
   if (status === "unavailable") {
@@ -678,4 +752,26 @@ function getSettingsFieldDescription(
     "channels.sendMaxRetries": "Retry count for channel delivery failures.",
   };
   return descriptions[`${groupId}.${fieldId}`] ?? `Current value: ${value || "Not configured"}.`;
+}
+
+function requirementLabel(requirement: DesktopSettingsPaneField["requirement"]): string {
+  return {
+    required: "Required",
+    optional: "Optional",
+    readonly: "Read only",
+  }[requirement];
+}
+
+function configurationModeLabel(mode: DesktopSettingsPaneField["configurationMode"]): string {
+  return {
+    fixed: "Fixed options",
+    freeform: "Free text",
+    json: "JSON object",
+    list: "List",
+    numeric: "Number",
+    readonly: "Status",
+    secret: "Secret",
+    toggle: "Toggle",
+    url: "URL",
+  }[mode];
 }

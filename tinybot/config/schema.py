@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
-from pydantic.alias_generators import to_camel
+from pydantic.alias_generators import to_camel, to_snake
 from pydantic_settings import BaseSettings
 
 from tinybot.cron.types import CronSchedule
@@ -221,6 +221,7 @@ class AgentsConfig(Base):
 class ProviderConfig(Base):
     """LLM provider configuration."""
 
+    enabled: bool | None = None
     api_key: str = ""
     api_base: str | None = None
     enable_search: bool = False  # DashScope/Qwen online search switch via OpenAI-compatible extra_body

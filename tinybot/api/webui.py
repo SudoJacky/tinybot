@@ -1548,12 +1548,15 @@ def _credential_state(entry: Any, api_key: str | None, api_key_source: str | Non
 
 def _provider_status(
     *,
+    enabled: bool | None,
     api_mode: str | None,
     credential: dict[str, Any],
     model_count: int,
     base_url: str | None,
     is_custom: bool,
 ) -> str:
+    if enabled is False:
+        return "disabled"
     if api_mode and api_mode != ApiMode.OPENAI_CHAT_COMPLETIONS:
         return "unsupported"
     if credential["state"] == "missing":
@@ -1566,10 +1569,12 @@ def _provider_status(
 
 
 async def _serialize_provider_status(config: Any, entry: Any) -> dict[str, Any]:
+    provider_config = _provider_config_for_status(config, entry.id)
     resolved = resolve_runtime_provider(config, provider=entry.id)
     models = await list_provider_models(config, provider_id=entry.id)
     credential = _credential_state(entry, resolved.api_key, resolved.api_key_source)
     status = _provider_status(
+        enabled=getattr(provider_config, "enabled", None),
         api_mode=entry.api_mode,
         credential=credential,
         model_count=len(models.models),
@@ -1586,6 +1591,7 @@ async def _serialize_provider_status(config: Any, entry: Any) -> dict[str, Any]:
         "local": ProviderCategory.LOCAL in entry.categories,
         "custom": ProviderCategory.CUSTOM in entry.categories,
         "status": status,
+        "enabled": getattr(provider_config, "enabled", None),
         "baseUrl": resolved.api_base,
         "credential": credential,
         "models": {
@@ -1615,6 +1621,7 @@ async def _serialize_custom_provider_status(config: Any, provider_id: str, provi
         "required": False,
     }
     status = _provider_status(
+        enabled=getattr(provider_config, "enabled", None),
         api_mode=ApiMode.OPENAI_CHAT_COMPLETIONS,
         credential=credential,
         model_count=model_count,
@@ -1630,6 +1637,7 @@ async def _serialize_custom_provider_status(config: Any, provider_id: str, provi
         "local": False,
         "custom": True,
         "status": status,
+        "enabled": getattr(provider_config, "enabled", None),
         "baseUrl": provider_config.api_base,
         "credential": credential,
         "models": {"count": model_count, "sources": {"curated": 0, "profile": 0, "live": 0, "manual": 0}, "warning": None},

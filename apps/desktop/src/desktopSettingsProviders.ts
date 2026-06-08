@@ -5,6 +5,7 @@ export interface DesktopProviderCatalogItem {
   displayName?: string;
   baseUrl?: string;
   status?: string;
+  enabled?: boolean | null;
 }
 
 export interface DesktopSettingsProviderEditorState {
@@ -14,6 +15,19 @@ export interface DesktopSettingsProviderEditorState {
   apiBase: string | null;
   modelsText: string;
   supportsModelDiscovery: boolean;
+}
+
+export interface DesktopSettingsProviderSummary {
+  id: string;
+  label: string;
+  profileId: string;
+  apiKey: string;
+  apiBase: string | null;
+  modelsText: string;
+  supportsModelDiscovery: boolean;
+  status: string;
+  enabled: boolean;
+  enabledConfigured: boolean;
 }
 
 export interface DesktopSettingsFormState {
@@ -79,6 +93,7 @@ export interface DesktopSettingsFormState {
     sendMaxRetries: number | null;
   };
   providerEditor: DesktopSettingsProviderEditorState;
+  providerSummaries: DesktopSettingsProviderSummary[];
 }
 
 export type DesktopSettingsValidationField =
@@ -119,7 +134,18 @@ export interface DesktopSecretField {
 }
 
 export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed";
-export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select";
+export type DesktopSettingsPaneFieldControl = "text" | "number" | "checkbox" | "textarea" | "select" | "password" | "readonly";
+export type DesktopSettingsPaneFieldRequirement = "required" | "optional" | "readonly";
+export type DesktopSettingsPaneFieldConfigurationMode =
+  | "fixed"
+  | "freeform"
+  | "json"
+  | "list"
+  | "numeric"
+  | "readonly"
+  | "secret"
+  | "toggle"
+  | "url";
 export type DesktopSettingsEditableValue = string | boolean;
 
 export interface DesktopSettingsPaneFieldOption {
@@ -136,6 +162,13 @@ export interface DesktopSettingsPaneField {
   inputValue: string;
   checked?: boolean;
   options?: DesktopSettingsPaneFieldOption[];
+  requirement: DesktopSettingsPaneFieldRequirement;
+  configurationMode: DesktopSettingsPaneFieldConfigurationMode;
+  advanced?: boolean;
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 export interface DesktopSettingsPaneGroup {
@@ -164,7 +197,18 @@ export interface DesktopSettingsPaneModel {
     canSave: boolean;
   };
   groups: DesktopSettingsPaneGroup[];
-  providerCatalog: Array<{ id: string; label: string; status: string }>;
+  providerCatalog: Array<{
+    id: string;
+    label: string;
+    profileId?: string;
+    status: string;
+    enabled?: boolean;
+    enabledConfigured?: boolean;
+    baseUrl?: string | null;
+    apiKey?: DesktopSecretField;
+    models?: string[];
+    canDiscoverModels?: boolean;
+  }>;
   providerEditor: {
     selectedProvider: string;
     profileId: string;
@@ -194,8 +238,12 @@ export function buildDesktopSettingsFormState(
   const heartbeat = asRecord(gateway.heartbeat);
   const channels = asRecord(root.channels);
   const providers = asRecord(root.providers);
-  const providerIds = providerCatalog.map((provider) => stringValue(provider.id)).filter(Boolean);
   const rawProvider = stringValue(pick(defaults, "provider")) || "auto";
+  const preliminaryDisplayProvider = rawProvider === "auto" ? "deepseek" : rawProvider;
+  const preliminaryProfileId = stringValue(pick(defaults, "activeProfile", "active_profile"))
+    || findDesktopProfileIdForProvider(providers, preliminaryDisplayProvider);
+  const providerSummaries = buildDesktopProviderSummaries(providers, providerCatalog, preliminaryDisplayProvider, preliminaryProfileId);
+  const providerIds = providerSummaries.map((provider) => provider.id).filter(Boolean);
   const selectedProvider = rawProvider === "auto" || providerIds.includes(rawProvider) ? rawProvider : "auto";
   const displayProvider = selectedProvider === "auto" ? "deepseek" : selectedProvider;
   const profileId = stringValue(pick(defaults, "activeProfile", "active_profile")) || findDesktopProfileIdForProvider(providers, displayProvider);
@@ -277,6 +325,7 @@ export function buildDesktopSettingsFormState(
       modelsText: parseDesktopProviderModelList(providerProfile.models).join("\n"),
       supportsModelDiscovery: pick(providerProfile, "supportsModelDiscovery", "supports_model_discovery") !== false,
     },
+    providerSummaries,
   };
 }
 
@@ -292,7 +341,84 @@ export function buildDesktopProviderCatalogItems(payload: unknown): DesktopProvi
     displayName: stringValue(pick(provider, "displayName", "display_name")),
     baseUrl: stringValue(pick(provider, "baseUrl", "base_url")),
     status: stringValue(provider.status),
+    enabled: typeof provider.enabled === "boolean" ? provider.enabled : null,
   }));
+}
+
+export function buildDesktopProviderSummaries(
+  providers: unknown,
+  providerCatalog: DesktopProviderCatalogItem[] = [],
+  displayProvider = "deepseek",
+  activeProfileId = "",
+): DesktopSettingsProviderSummary[] {
+  const providerRoot = asRecord(providers);
+  const profiles = getDesktopProviderProfiles(providerRoot);
+  const providerIds = new Set<string>();
+  for (const provider of providerCatalog) {
+    const id = stringValue(provider.id);
+    if (id) {
+      providerIds.add(id);
+    }
+  }
+  for (const key of Object.keys(providerRoot)) {
+    if (key !== "profiles" && !isRecordValue(providerRoot[key])) {
+      continue;
+    }
+    if (key !== "profiles") {
+      providerIds.add(key);
+    }
+  }
+  for (const profile of Object.values(profiles)) {
+    const providerId = stringValue(asRecord(profile).provider);
+    if (providerId) {
+      providerIds.add(providerId);
+    }
+  }
+  if (!providerIds.size) {
+    providerIds.add(displayProvider || "deepseek");
+  }
+
+  return Array.from(providerIds).map((id) => {
+    const catalogProvider = providerCatalog.find((provider) => stringValue(provider.id) === id);
+    const matchedProfiles = Object.entries(profiles).filter(([, profile]) => stringValue(asRecord(profile).provider) === id);
+    const activeProfile = activeProfileId
+      ? matchedProfiles.find(([profileId]) => profileId === activeProfileId)
+      : undefined;
+    const namedProfile = matchedProfiles.find(([profileId]) => profileId === id);
+    const profileEntry = activeProfile ?? namedProfile ?? matchedProfiles[0];
+    const profileId = profileEntry?.[0] ?? findDesktopProfileIdForProvider(providerRoot, id);
+    const profile = asRecord(profileEntry?.[1]);
+    const legacyProvider = asRecord(providerRoot[id]);
+    const apiKey = stringValue(pick(profile, "apiKey", "api_key")) || stringValue(pick(legacyProvider, "apiKey", "api_key"));
+    const apiBase = stringOrNull(
+      pick(profile, "apiBase", "api_base")
+      || pick(legacyProvider, "apiBase", "api_base")
+      || catalogProvider?.baseUrl,
+    );
+    const models = [
+      ...parseDesktopProviderModelList(pick(profile, "models")),
+      ...parseDesktopProviderModelList(pick(profile, "manualModels", "manual_models")),
+      ...parseDesktopProviderModelList(pick(legacyProvider, "models")),
+      ...parseDesktopProviderModelList(pick(legacyProvider, "manualModels", "manual_models")),
+    ];
+    const status = stringValue(catalogProvider?.status) || (apiKey || apiBase || models.length ? "ready" : "not_configured");
+    const explicitEnabled = pick(profile, "enabled") ?? pick(legacyProvider, "enabled") ?? catalogProvider?.enabled;
+    const enabledConfigured = typeof explicitEnabled === "boolean";
+    const enabled = enabledConfigured ? explicitEnabled : isDesktopProviderEnabledStatus(status);
+    return {
+      id,
+      label: stringValue(catalogProvider?.displayName) || id,
+      profileId,
+      apiKey,
+      apiBase,
+      modelsText: parseDesktopProviderModelList(models).join("\n"),
+      supportsModelDiscovery: pick(profile, "supportsModelDiscovery", "supports_model_discovery") !== false
+        && pick(legacyProvider, "supportsModelDiscovery", "supports_model_discovery") !== false,
+      status,
+      enabled,
+      enabledConfigured,
+    };
+  });
 }
 
 export function createDesktopSettingsPatch(
@@ -313,6 +439,7 @@ export function createDesktopSettingsPatch(
       ...existingProfiles,
       [profileId]: {
         provider: providerName,
+        enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
         api_key: state.providerEditor.apiKey || "",
         api_base: state.providerEditor.apiBase,
         models: parseDesktopProviderModelList(state.providerEditor.modelsText),
@@ -322,9 +449,36 @@ export function createDesktopSettingsPatch(
   }
 
   providers[providerName] = {
+    enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
     api_key: state.providerEditor.apiKey || "",
     api_base: state.providerEditor.apiBase,
   };
+
+  for (const provider of state.providerSummaries) {
+    if (!provider.enabledConfigured || provider.id === providerName) {
+      continue;
+    }
+    providers[provider.id] = {
+      ...asRecord(providers[provider.id]),
+      enabled: provider.enabled,
+      api_key: provider.apiKey || "",
+      api_base: provider.apiBase,
+    };
+    if (provider.profileId) {
+      providers.profiles = {
+        ...asRecord(providers.profiles),
+        [provider.profileId]: {
+          ...asRecord(asRecord(providers.profiles)[provider.profileId]),
+          provider: provider.id,
+          enabled: provider.enabled,
+          api_key: provider.apiKey || "",
+          api_base: provider.apiBase,
+          models: parseDesktopProviderModelList(provider.modelsText),
+          supports_model_discovery: provider.supportsModelDiscovery,
+        },
+      };
+    }
+  }
 
   return {
     agents: {
@@ -438,6 +592,7 @@ export function buildDesktopSettingsPaneModel(
   } = {},
 ): DesktopSettingsPaneModel {
   const validationErrors = validateDesktopSettingsForm(state);
+  const providerSummaries = getDesktopStateProviderSummaries(state, options.providerCatalog ?? []);
   const dirty = options.lastSavedState
     ? JSON.stringify(createDesktopSettingsPatch(state)) !== JSON.stringify(createDesktopSettingsPatch(options.lastSavedState))
     : false;
@@ -450,11 +605,18 @@ export function buildDesktopSettingsPaneModel(
       message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty),
       canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
     },
-    groups: buildDesktopSettingsPaneGroups(state, validationErrors, options.providerCatalog ?? []),
-    providerCatalog: (options.providerCatalog ?? []).map((provider) => ({
-      id: stringValue(provider.id),
-      label: stringValue(provider.displayName) || stringValue(provider.id),
-      status: stringValue(provider.status) || "unknown",
+    groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
+    providerCatalog: providerSummaries.map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+      profileId: provider.profileId,
+      status: provider.status || "unknown",
+      enabled: provider.enabled,
+      enabledConfigured: provider.enabledConfigured,
+      baseUrl: provider.apiBase,
+      apiKey: buildDesktopSecretField(provider.apiKey),
+      models: parseDesktopProviderModelList(provider.modelsText),
+      canDiscoverModels: provider.supportsModelDiscovery,
     })).filter((provider) => provider.id),
     providerEditor: {
       selectedProvider: state.providerEditor.selectedProvider,
@@ -497,6 +659,7 @@ export function applyDesktopProviderModels(
     };
   }
   nextState.providerEditor.modelsText = models.join("\n");
+  syncDesktopProviderSummaryFromEditor(nextState);
   if (!nextState.agent.model && models[0]) {
     nextState.agent.model = models[0];
   }
@@ -516,6 +679,10 @@ export function applyDesktopSettingsFieldEdit(
 ): DesktopSettingsFormState {
   const nextState = cloneSettingsState(state);
   const text = String(value);
+  if (fieldId.startsWith("providerEnabled:")) {
+    setDesktopProviderEnabled(nextState, fieldId.slice("providerEnabled:".length), Boolean(value));
+    return nextState;
+  }
   switch (fieldId) {
     case "model":
       nextState.agent.model = stringOrNullInput(text);
@@ -526,25 +693,52 @@ export function applyDesktopSettingsFieldEdit(
     case "activeProfile":
       nextState.agent.activeProfile = stringOrNullInput(text);
       break;
+    case "workspace":
+      nextState.agent.workspace = stringOrNullInput(text);
+      break;
+    case "temperature":
+      nextState.agent.temperature = numberOrNullInput(text);
+      break;
+    case "maxTokens":
+      nextState.agent.maxTokens = numberOrNullInput(text);
+      break;
+    case "contextWindowTokens":
+      nextState.agent.contextWindowTokens = numberOrNullInput(text);
+      break;
+    case "maxToolIterations":
+      nextState.agent.maxToolIterations = numberOrNullInput(text);
+      break;
+    case "reasoningEffort":
+      nextState.agent.reasoningEffort = stringOrNullInput(text);
+      break;
     case "timezone":
       nextState.agent.timezone = stringOrNullInput(text);
       break;
     case "selectedProvider":
-      nextState.providerEditor.selectedProvider = stringOrNullInput(text) || "deepseek";
-      nextState.agent.provider = nextState.providerEditor.selectedProvider;
+      selectDesktopProviderEditor(nextState, stringOrNullInput(text) || "deepseek");
       break;
     case "profileId":
       nextState.providerEditor.profileId = text.trim();
       nextState.agent.activeProfile = stringOrNullInput(text);
+      syncDesktopProviderSummaryFromEditor(nextState);
+      break;
+    case "apiKey":
+      nextState.providerEditor.apiKey = resolveDesktopSecretValue(text, nextState.providerEditor.apiKey);
+      syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "apiBase":
       nextState.providerEditor.apiBase = stringOrNullInput(text);
+      syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "models":
       nextState.providerEditor.modelsText = text;
+      syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "enabled":
       nextState.knowledge.enabled = Boolean(value);
+      break;
+    case "autoRetrieve":
+      nextState.knowledge.autoRetrieve = Boolean(value);
       break;
     case "retrievalMode":
       nextState.knowledge.retrievalMode = stringOrNullInput(text);
@@ -552,17 +746,44 @@ export function applyDesktopSettingsFieldEdit(
     case "maxChunks":
       nextState.knowledge.maxChunks = numberOrNullInput(text);
       break;
+    case "chunkSize":
+      nextState.knowledge.chunkSize = numberOrNullInput(text);
+      break;
+    case "chunkOverlap":
+      nextState.knowledge.chunkOverlap = numberOrNullInput(text);
+      break;
+    case "rerankEnabled":
+      nextState.knowledge.rerankEnabled = Boolean(value);
+      break;
+    case "rerankModel":
+      nextState.knowledge.rerankModel = stringOrNullInput(text);
+      break;
     case "rerankApiBase":
       nextState.knowledge.rerankApiBase = stringOrNullInput(text);
+      break;
+    case "rerankTopN":
+      nextState.knowledge.rerankTopN = numberOrNullInput(text);
       break;
     case "webEnable":
       nextState.tools.webEnable = Boolean(value);
       break;
+    case "webProxy":
+      nextState.tools.webProxy = stringOrNullInput(text);
+      break;
+    case "searchProvider":
+      nextState.tools.searchProvider = stringOrNullInput(text);
+      break;
     case "execEnable":
       nextState.tools.execEnable = Boolean(value);
       break;
+    case "execTimeout":
+      nextState.tools.execTimeout = numberOrNullInput(text);
+      break;
     case "mcpServers":
       nextState.tools.mcpServersText = text;
+      break;
+    case "restrictToWorkspace":
+      nextState.tools.restrictToWorkspace = Boolean(value);
       break;
     case "host":
       nextState.gateway.host = stringOrNullInput(text);
@@ -572,6 +793,9 @@ export function applyDesktopSettingsFieldEdit(
       break;
     case "heartbeat":
       nextState.gateway.heartbeatEnabled = Boolean(value);
+      break;
+    case "heartbeatIntervalS":
+      nextState.gateway.heartbeatIntervalS = numberOrNullInput(text);
       break;
     case "sendProgress":
       nextState.channels.sendProgress = Boolean(value);
@@ -705,18 +929,154 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     gateway: { ...state.gateway },
     channels: { ...state.channels },
     providerEditor: { ...state.providerEditor },
+    providerSummaries: (state.providerSummaries ?? []).map((provider) => ({ ...provider })),
   };
+}
+
+function getDesktopStateProviderSummaries(
+  state: DesktopSettingsFormState,
+  providerCatalog: DesktopProviderCatalogItem[],
+): DesktopSettingsProviderSummary[] {
+  if (state.providerSummaries?.length) {
+    return state.providerSummaries;
+  }
+  const selectedProvider = state.providerEditor.selectedProvider || "deepseek";
+  const catalog = providerCatalog.length
+    ? providerCatalog
+    : [{ id: selectedProvider, displayName: selectedProvider, status: "not_configured" }];
+  return catalog.map((provider) => {
+    const id = stringValue(provider.id);
+    const status = stringValue(provider.status) || "not_configured";
+    const isSelected = id === selectedProvider;
+    return {
+      id,
+      label: stringValue(provider.displayName) || id,
+      profileId: isSelected ? state.providerEditor.profileId : id,
+      apiKey: isSelected ? state.providerEditor.apiKey : "",
+      apiBase: isSelected ? state.providerEditor.apiBase : stringOrNull(provider.baseUrl),
+      modelsText: isSelected ? state.providerEditor.modelsText : "",
+      supportsModelDiscovery: isSelected ? state.providerEditor.supportsModelDiscovery : true,
+      status,
+      enabled: isDesktopProviderEnabledStatus(status),
+      enabledConfigured: false,
+    };
+  }).filter((provider) => provider.id);
+}
+
+function selectDesktopProviderEditor(state: DesktopSettingsFormState, providerId: string): void {
+  const summary = state.providerSummaries.find((provider) => provider.id === providerId);
+  state.providerEditor.selectedProvider = providerId;
+  if (!summary) {
+    state.providerEditor.profileId = providerId;
+    state.providerEditor.apiKey = "";
+    state.providerEditor.apiBase = null;
+    state.providerEditor.modelsText = "";
+    state.providerEditor.supportsModelDiscovery = true;
+    state.providerSummaries.push({
+      id: providerId,
+      label: providerId,
+      profileId: providerId,
+      apiKey: "",
+      apiBase: null,
+      modelsText: "",
+      supportsModelDiscovery: true,
+      status: "not_configured",
+      enabled: false,
+      enabledConfigured: true,
+    });
+    return;
+  }
+  state.providerEditor.profileId = summary.profileId;
+  state.providerEditor.apiKey = summary.apiKey;
+  state.providerEditor.apiBase = summary.apiBase;
+  state.providerEditor.modelsText = summary.modelsText;
+  state.providerEditor.supportsModelDiscovery = summary.supportsModelDiscovery;
+}
+
+function syncDesktopProviderSummaryFromEditor(state: DesktopSettingsFormState): void {
+  const selectedProvider = state.providerEditor.selectedProvider || "deepseek";
+  const summary = state.providerSummaries.find((provider) => provider.id === selectedProvider);
+  if (!summary) {
+    state.providerSummaries.push({
+      id: selectedProvider,
+      label: selectedProvider,
+      profileId: state.providerEditor.profileId || selectedProvider,
+      apiKey: state.providerEditor.apiKey,
+      apiBase: state.providerEditor.apiBase,
+      modelsText: state.providerEditor.modelsText,
+      supportsModelDiscovery: state.providerEditor.supportsModelDiscovery,
+      status: "not_configured",
+      enabled: false,
+      enabledConfigured: true,
+    });
+    return;
+  }
+  summary.profileId = state.providerEditor.profileId || selectedProvider;
+  summary.apiKey = state.providerEditor.apiKey;
+  summary.apiBase = state.providerEditor.apiBase;
+  summary.modelsText = state.providerEditor.modelsText;
+  summary.supportsModelDiscovery = state.providerEditor.supportsModelDiscovery;
+}
+
+function setDesktopProviderEnabled(state: DesktopSettingsFormState, providerId: string, enabled: boolean): void {
+  const normalizedProviderId = providerId.trim();
+  if (!normalizedProviderId) {
+    return;
+  }
+  let summary = state.providerSummaries.find((provider) => provider.id === normalizedProviderId);
+  if (!summary) {
+    summary = {
+      id: normalizedProviderId,
+      label: normalizedProviderId,
+      profileId: normalizedProviderId,
+      apiKey: "",
+      apiBase: null,
+      modelsText: "",
+      supportsModelDiscovery: true,
+      status: "not_configured",
+      enabled,
+      enabledConfigured: true,
+    };
+    state.providerSummaries.push(summary);
+  }
+  summary.enabled = enabled;
+  summary.enabledConfigured = true;
+}
+
+function isDesktopProviderEnabledStatus(status: string): boolean {
+  return ["ready", "available", "no_models"].includes(status);
+}
+
+function isDesktopProviderDefaultSelectableStatus(status: string): boolean {
+  return ["ready", "available", "no_models"].includes(status);
+}
+
+function buildDesktopDefaultModelOptions(
+  state: DesktopSettingsFormState,
+  providerSummaries: DesktopSettingsProviderSummary[],
+): DesktopSettingsPaneFieldOption[] {
+  const providerId = state.agent.provider && state.agent.provider !== "auto"
+    ? state.agent.provider
+    : state.providerEditor.selectedProvider;
+  const provider = providerSummaries.find((summary) => summary.id === providerId);
+  const models = parseDesktopProviderModelList(provider?.modelsText || state.providerEditor.modelsText);
+  const selectedModel = stringOrNull(state.agent.model);
+  if (selectedModel && !models.includes(selectedModel)) {
+    models.unshift(selectedModel);
+  }
+  return models.map((model) => ({ value: model, label: model }));
 }
 
 function buildDesktopSettingsPaneGroups(
   state: DesktopSettingsFormState,
   validationErrors: DesktopSettingsValidationError[],
-  providerCatalog: DesktopProviderCatalogItem[] = [],
+  providerSummaries: DesktopSettingsProviderSummary[] = state.providerSummaries ?? [],
 ): DesktopSettingsPaneGroup[] {
   const invalidFields = new Set(validationErrors.map((error) => error.field));
-  const editorProviderOptions = providerCatalog.map((provider) => ({
-      value: stringValue(provider.id),
-      label: stringValue(provider.displayName) || stringValue(provider.id),
+  const modelOptions = buildDesktopDefaultModelOptions(state, providerSummaries);
+  const editorProviderOptions = providerSummaries.map((provider) => ({
+      value: provider.id,
+      label: provider.label || provider.id,
     })).filter((provider) => provider.value);
   for (const value of [state.providerEditor.selectedProvider, "deepseek"].filter(Boolean)) {
     if (!editorProviderOptions.some((option) => option.value === value)) {
@@ -725,119 +1085,340 @@ function buildDesktopSettingsPaneGroups(
   }
   const agentProviderOptions = [
     { value: "auto", label: "Auto" },
-    ...editorProviderOptions,
+    ...providerSummaries.filter((provider) => provider.enabled && isDesktopProviderDefaultSelectableStatus(provider.status)).map((provider) => ({
+      value: provider.id,
+      label: provider.label || provider.id,
+    })),
   ];
+  const fixedOptions = (values: string[]): DesktopSettingsPaneFieldOption[] => values.map((value) => ({
+    value,
+    label: value || "None",
+  }));
+  const fieldModeForControl = (control: DesktopSettingsPaneFieldControl): DesktopSettingsPaneFieldConfigurationMode => {
+    switch (control) {
+      case "checkbox":
+        return "toggle";
+      case "number":
+        return "numeric";
+      case "password":
+        return "secret";
+      case "readonly":
+        return "readonly";
+      case "select":
+        return "fixed";
+      case "textarea":
+        return "freeform";
+      default:
+        return "freeform";
+    }
+  };
+  const fieldRequirementForControl = (control: DesktopSettingsPaneFieldControl): DesktopSettingsPaneFieldRequirement => (
+    control === "readonly" ? "readonly" : "optional"
+  );
   const field = (
     id: string,
     label: string,
     value: unknown,
-    validationField?: DesktopSettingsValidationField,
-    control: DesktopSettingsPaneFieldControl = "text",
-    options?: DesktopSettingsPaneFieldOption[],
-    inputValue = stringValue(value),
+    config: {
+      validationField?: DesktopSettingsValidationField;
+      control?: DesktopSettingsPaneFieldControl;
+      options?: DesktopSettingsPaneFieldOption[];
+      inputValue?: string;
+      requirement?: DesktopSettingsPaneFieldRequirement;
+      configurationMode?: DesktopSettingsPaneFieldConfigurationMode;
+      advanced?: boolean;
+      placeholder?: string;
+      min?: number;
+      max?: number;
+      step?: number;
+    } = {},
   ): DesktopSettingsPaneField => ({
     id,
     label,
     value: formatDesktopSettingsFieldValue(value),
-    state: validationField && invalidFields.has(validationField) ? "invalid" : "normal",
-    control,
-    inputValue,
-    checked: control === "checkbox" ? value === true : undefined,
-    options,
+    state: config.validationField && invalidFields.has(config.validationField) ? "invalid" : "normal",
+    control: config.control ?? "text",
+    inputValue: config.inputValue ?? stringValue(value),
+    checked: config.control === "checkbox" ? value === true : undefined,
+    options: config.options,
+    requirement: config.requirement ?? fieldRequirementForControl(config.control ?? "text"),
+    configurationMode: config.configurationMode ?? fieldModeForControl(config.control ?? "text"),
+    advanced: config.advanced,
+    placeholder: config.placeholder,
+    min: config.min,
+    max: config.max,
+    step: config.step,
   });
+  const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
   return [
     {
       id: "general",
       label: "General",
       fields: [
-        field("model", "Model", state.agent.model, "model"),
-        field("provider", "Provider", state.agent.provider, undefined, "select", agentProviderOptions),
-        field("activeProfile", "Profile", state.agent.activeProfile),
-        field("timezone", "Timezone", state.agent.timezone, "timezone"),
+        field("model", "Model", state.agent.model, {
+          validationField: "model",
+          control: modelOptions.length ? "select" : "text",
+          options: modelOptions.length ? modelOptions : undefined,
+          requirement: "required",
+          configurationMode: modelOptions.length ? "fixed" : "freeform",
+        }),
+        field("provider", "Provider", state.agent.provider, {
+          control: "select",
+          options: agentProviderOptions,
+          requirement: "optional",
+          configurationMode: "fixed",
+        }),
+        field("activeProfile", "Profile", state.agent.activeProfile, {
+          requirement: "optional",
+          configurationMode: "freeform",
+        }),
+        field("timezone", "Timezone", state.agent.timezone, {
+          validationField: "timezone",
+          requirement: "required",
+          configurationMode: "freeform",
+          placeholder: "Asia/Shanghai",
+        }),
+        field("workspace", "Workspace", state.agent.workspace, {
+          requirement: "required",
+          configurationMode: "freeform",
+          advanced: true,
+          placeholder: "~/.tinybot/workspace",
+        }),
+        field("temperature", "Temperature", state.agent.temperature, {
+          control: "number",
+          requirement: "optional",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 0,
+          max: 2,
+          step: 0.1,
+        }),
+        field("maxTokens", "Max tokens", state.agent.maxTokens, {
+          control: "number",
+          requirement: "optional",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("contextWindowTokens", "Context window tokens", state.agent.contextWindowTokens, {
+          control: "number",
+          requirement: "optional",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("maxToolIterations", "Max tool iterations", state.agent.maxToolIterations, {
+          control: "number",
+          requirement: "optional",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("reasoningEffort", "Reasoning effort", state.agent.reasoningEffort, {
+          control: "select",
+          options: fixedOptions(["", "low", "medium", "high"]),
+          requirement: "optional",
+          configurationMode: "fixed",
+          advanced: true,
+        }),
       ],
     },
     {
       id: "provider-models",
       label: "Provider & Models",
       fields: [
-        field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider, undefined, "select", editorProviderOptions),
-        field("profileId", "Profile ID", state.providerEditor.profileId),
-        field("apiBase", "API base", state.providerEditor.apiBase, "providerApiBase"),
-        field("models", "Models", parseDesktopProviderModelList(state.providerEditor.modelsText).join(", "), undefined, "textarea", undefined, state.providerEditor.modelsText),
+        field("selectedProvider", "Selected provider", state.providerEditor.selectedProvider, {
+          control: "select",
+          options: editorProviderOptions,
+          requirement: "required",
+          configurationMode: "fixed",
+        }),
+        field("profileId", "Profile ID", state.providerEditor.profileId, {
+          requirement: "required",
+          configurationMode: "freeform",
+        }),
+        field("apiKey", "API key", secretField.empty ? "" : "Configured", {
+          control: "password",
+          inputValue: secretField.displayValue,
+          requirement: "optional",
+          configurationMode: "secret",
+        }),
+        field("apiBase", "API base", state.providerEditor.apiBase, {
+          validationField: "providerApiBase",
+          requirement: "optional",
+          configurationMode: "url",
+          placeholder: "https://api.example.com/v1",
+        }),
+        field("models", "Models", parseDesktopProviderModelList(state.providerEditor.modelsText).join(", "), {
+          control: "textarea",
+          inputValue: state.providerEditor.modelsText,
+          requirement: "optional",
+          configurationMode: "list",
+          placeholder: "one-model-id-per-line",
+        }),
       ],
     },
     {
       id: "knowledge",
       label: "Knowledge",
       fields: [
-        field("enabled", "Enabled", state.knowledge.enabled, undefined, "checkbox"),
-        field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode),
-        field("maxChunks", "Max chunks", state.knowledge.maxChunks, undefined, "number"),
-        field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, "rerankApiBase"),
+        field("enabled", "Enabled", state.knowledge.enabled, { control: "checkbox" }),
+        field("autoRetrieve", "Auto retrieve", state.knowledge.autoRetrieve, { control: "checkbox" }),
+        field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode, {
+          control: "select",
+          options: fixedOptions(["dense", "sparse", "hybrid"]),
+        }),
+        field("maxChunks", "Max chunks", state.knowledge.maxChunks, {
+          control: "number",
+          configurationMode: "numeric",
+          min: 1,
+          step: 1,
+        }),
+        field("chunkSize", "Chunk size", state.knowledge.chunkSize, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("chunkOverlap", "Chunk overlap", state.knowledge.chunkOverlap, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 0,
+          step: 1,
+        }),
+        field("rerankEnabled", "Rerank", state.knowledge.rerankEnabled, { control: "checkbox", advanced: true }),
+        field("rerankModel", "Rerank model", state.knowledge.rerankModel, { advanced: true }),
+        field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, {
+          validationField: "rerankApiBase",
+          requirement: "optional",
+          configurationMode: "url",
+          advanced: true,
+        }),
+        field("rerankTopN", "Rerank top N", state.knowledge.rerankTopN, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 0,
+          step: 1,
+        }),
       ],
     },
     {
       id: "tools-approvals",
       label: "Tools & Approvals",
       fields: [
-        field("webEnable", "Web tools", state.tools.webEnable, undefined, "checkbox"),
-        field("execEnable", "Exec tools", state.tools.execEnable, undefined, "checkbox"),
-        field("mcpServers", "MCP servers", state.tools.mcpServersText ? "Configured" : "None", "mcpServers", "textarea", undefined, state.tools.mcpServersText),
+        field("webEnable", "Web tools", state.tools.webEnable, { control: "checkbox" }),
+        field("execEnable", "Exec tools", state.tools.execEnable, { control: "checkbox" }),
+        field("webProxy", "Web proxy", state.tools.webProxy, {
+          advanced: true,
+          placeholder: "http://127.0.0.1:7890",
+        }),
+        field("searchProvider", "Search provider", state.tools.searchProvider, {
+          control: "select",
+          options: fixedOptions(["duckduckgo", "brave", "tavily", "searxng", "jina"]),
+          advanced: true,
+        }),
+        field("execTimeout", "Exec timeout", state.tools.execTimeout, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
+        field("restrictToWorkspace", "Restrict to workspace", state.tools.restrictToWorkspace, {
+          control: "checkbox",
+          advanced: true,
+        }),
+        field("mcpServers", "MCP servers", state.tools.mcpServersText ? "Configured" : "None", {
+          validationField: "mcpServers",
+          control: "textarea",
+          inputValue: state.tools.mcpServersText,
+          requirement: "optional",
+          configurationMode: "json",
+          advanced: true,
+          placeholder: "{\"server\":{\"command\":\"npx\",\"args\":[]}}",
+        }),
       ],
     },
     {
       id: "files-workspace",
       label: "Files & Workspace",
       fields: [
-        field("sessionFiles", "Session files", buildWorkbenchFileScopeLabel("session").label),
-        field("knowledgeDocuments", "Knowledge documents", buildWorkbenchFileScopeLabel("knowledge").label),
-        field("workspaceFiles", "Workspace files", buildWorkbenchFileScopeLabel("workspace").label),
+        field("sessionFiles", "Session files", buildWorkbenchFileScopeLabel("session").label, { control: "readonly" }),
+        field("knowledgeDocuments", "Knowledge documents", buildWorkbenchFileScopeLabel("knowledge").label, { control: "readonly" }),
+        field("workspaceFiles", "Workspace files", buildWorkbenchFileScopeLabel("workspace").label, { control: "readonly" }),
       ],
     },
     {
       id: "memory-experience",
       label: "Memory & Experience",
       fields: [
-        field("memory", "Memory", "Managed by context and experience settings"),
+        field("memory", "Memory", "Managed by context and experience settings", { control: "readonly" }),
       ],
     },
     {
       id: "skills",
       label: "Skills",
       fields: [
-        field("skills", "Skills", "Managed by Tools and Skills workbench"),
+        field("skills", "Skills", "Managed by Tools and Skills workbench", { control: "readonly" }),
       ],
     },
     {
       id: "channels",
       label: "Channels",
       fields: [
-        field("sendProgress", "Progress events", state.channels.sendProgress, undefined, "checkbox"),
-        field("sendToolHints", "Tool hints", state.channels.sendToolHints, undefined, "checkbox"),
-        field("sendMaxRetries", "Max retries", state.channels.sendMaxRetries, undefined, "number"),
+        field("sendProgress", "Progress events", state.channels.sendProgress, { control: "checkbox" }),
+        field("sendToolHints", "Tool hints", state.channels.sendToolHints, { control: "checkbox" }),
+        field("sendMaxRetries", "Max retries", state.channels.sendMaxRetries, {
+          control: "number",
+          configurationMode: "numeric",
+          min: 0,
+          max: 10,
+          step: 1,
+        }),
       ],
     },
     {
       id: "automations",
       label: "Automations",
       fields: [
-        field("automations", "Automations", "Planned after core workbench stability"),
+        field("automations", "Automations", "Planned after core workbench stability", { control: "readonly" }),
       ],
     },
     {
       id: "gateway-runtime",
       label: "Gateway & Runtime",
       fields: [
-        field("host", "Host", state.gateway.host),
-        field("port", "Port", state.gateway.port, "gatewayPort", "number"),
-        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, undefined, "checkbox"),
+        field("host", "Host", state.gateway.host, { requirement: "required", configurationMode: "freeform" }),
+        field("port", "Port", state.gateway.port, {
+          validationField: "gatewayPort",
+          control: "number",
+          requirement: "required",
+          configurationMode: "numeric",
+          min: 1,
+          max: 65535,
+          step: 1,
+        }),
+        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, { control: "checkbox" }),
+        field("heartbeatIntervalS", "Heartbeat interval", state.gateway.heartbeatIntervalS, {
+          control: "number",
+          configurationMode: "numeric",
+          advanced: true,
+          min: 1,
+          step: 1,
+        }),
       ],
     },
     {
       id: "logs-diagnostics",
       label: "Logs & Diagnostics",
       fields: [
-        field("diagnostics", "Diagnostics", "Export diagnostics and inspect runtime logs"),
+        field("diagnostics", "Diagnostics", "Export diagnostics and inspect runtime logs", { control: "readonly" }),
       ],
     },
   ];
@@ -874,6 +1455,10 @@ function pick(record: UnknownRecord, ...keys: string[]): unknown {
 
 function asRecord(value: unknown): UnknownRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as UnknownRecord) : {};
+}
+
+function isRecordValue(value: unknown): value is UnknownRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stringValue(value: unknown): string {

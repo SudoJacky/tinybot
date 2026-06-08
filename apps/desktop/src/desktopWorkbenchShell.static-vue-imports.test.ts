@@ -232,10 +232,8 @@ describe("desktop workbench shell static Vue imports", () => {
     expect(source).not.toContain('void import("./native-vue/settingsProviderManagementIsland")');
     expect(source).toContain('import { mountSettingsSidebarIsland } from "./native-vue/settingsSidebarIsland";');
     expect(source).not.toContain('void import("./native-vue/settingsSidebarIsland")');
-    expect(source).toContain('import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";');
-    expect(source).not.toContain('void import("./native-vue/settingsStatusIsland")');
-    expect(source).toContain('import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";');
-    expect(source).not.toContain('void import("./native-vue/settingsStatusItemIsland")');
+    expect(source).not.toContain('import { mountSettingsStatusIsland } from "./native-vue/settingsStatusIsland";');
+    expect(source).not.toContain('import { mountSettingsStatusItemIsland } from "./native-vue/settingsStatusItemIsland";');
   });
 
   test("statically imports the file action islands", () => {

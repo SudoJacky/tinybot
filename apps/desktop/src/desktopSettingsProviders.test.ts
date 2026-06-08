@@ -197,18 +197,18 @@ describe("desktop settings and provider helpers", () => {
   test("normalizes provider catalog payloads for workbench settings panes", () => {
     expect(buildDesktopProviderCatalogItems({
       providers: [
-        { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready" },
+        { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready", enabled: false },
         { id: "deepseek", display_name: "DeepSeek", base_url: "https://api.deepseek.com", status: "available" },
         null,
       ],
     })).toEqual([
-      { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready" },
-      { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", status: "available" },
+      { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready", enabled: false },
+      { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", status: "available", enabled: null },
     ]);
     expect(buildDesktopProviderCatalogItems([
       { id: "local", display_name: "Local" },
     ])).toEqual([
-      { id: "local", displayName: "Local", baseUrl: "", status: "" },
+      { id: "local", displayName: "Local", baseUrl: "", status: "", enabled: null },
     ]);
   });
 
@@ -299,22 +299,33 @@ describe("desktop settings and provider helpers", () => {
       ["logs-diagnostics", "Logs & Diagnostics"],
     ]);
     expect(pane.groups.find((group) => group.id === "general")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "model", label: "Model", value: "", state: "invalid", control: "text" }),
-      expect.objectContaining({ id: "timezone", label: "Timezone", value: "Shanghai", state: "invalid", control: "text" }),
+      expect.objectContaining({ id: "model", label: "Model", value: "", state: "invalid", control: "select", requirement: "required", configurationMode: "fixed" }),
+      expect.objectContaining({ id: "timezone", label: "Timezone", value: "Shanghai", state: "invalid", control: "text", requirement: "required", configurationMode: "freeform" }),
     ]));
     expect(pane.groups.find((group) => group.id === "provider-models")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "selectedProvider", label: "Selected provider", control: "select" }),
-      expect.objectContaining({ id: "models", label: "Models", control: "textarea" }),
+      expect.objectContaining({ id: "selectedProvider", label: "Selected provider", control: "select", requirement: "required", configurationMode: "fixed" }),
+      expect.objectContaining({ id: "apiKey", label: "API key", control: "password", requirement: "optional", configurationMode: "secret" }),
+      expect.objectContaining({ id: "models", label: "Models", control: "textarea", requirement: "optional", configurationMode: "list" }),
     ]));
     expect(pane.groups.find((group) => group.id === "files-workspace")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "sessionFiles", label: "Session files", value: "Session file" }),
-      expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file" }),
+      expect.objectContaining({ id: "sessionFiles", label: "Session files", value: "Session file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
+      expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
     ]));
     expect(pane.groups.find((group) => group.id === "gateway-runtime")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "host", label: "Host" }),
-      expect.objectContaining({ id: "port", label: "Port", state: "normal" }),
+      expect.objectContaining({ id: "host", label: "Host", requirement: "required", configurationMode: "freeform" }),
+      expect.objectContaining({ id: "port", label: "Port", state: "normal", requirement: "required", configurationMode: "numeric" }),
     ]));
-    expect(pane.providerCatalog).toEqual([{ id: "openai", label: "OpenAI", status: "ready" }]);
+    expect(pane.providerCatalog).toEqual([
+      expect.objectContaining({
+        id: "openai",
+        label: "OpenAI",
+        profileId: "work",
+        status: "ready",
+        enabled: true,
+        baseUrl: "https://api.openai.com/v1",
+        models: ["gpt-4.1", "gpt-4.1-mini"],
+      }),
+    ]);
     expect(pane.providerEditor).toMatchObject({
       profileId: "work",
       selectedProvider: "openai",
@@ -333,12 +344,154 @@ describe("desktop settings and provider helpers", () => {
     }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     const withModel = applyDesktopSettingsFieldEdit(state, "model", "gpt-4.1");
-    const withoutKnowledge = applyDesktopSettingsFieldEdit(withModel, "enabled", false);
+    const withApiKey = applyDesktopSettingsFieldEdit(withModel, "apiKey", "********");
+    const withReplacementKey = applyDesktopSettingsFieldEdit(withApiKey, "apiKey", "sk-replacement");
+    const withoutKnowledge = applyDesktopSettingsFieldEdit(withReplacementKey, "enabled", false);
     const withPort = applyDesktopSettingsFieldEdit(withoutKnowledge, "port", "18888");
     const patch = createDesktopSettingsPatch(withPort, {}, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     expect(patch.agents).toMatchObject({ defaults: { model: "gpt-4.1" } });
+    expect(patch.providers).toMatchObject({ openai: { api_key: "sk-replacement" } });
     expect(patch.knowledge).toMatchObject({ enabled: false });
     expect(patch.gateway).toMatchObject({ port: 18888 });
+  });
+
+  test("classifies settings fields by requirement, input mode, and advanced visibility", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: {
+        defaults: {
+          model: "deepseek-chat",
+          provider: "deepseek",
+          active_profile: "deepseek",
+          temperature: 0.2,
+          max_tokens: 4096,
+          reasoning_effort: "medium",
+        },
+      },
+      providers: {
+        profiles: {
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-live",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat", "deepseek-reasoner"],
+          },
+        },
+      },
+      tools: {
+        web: { enable: true, proxy: "http://127.0.0.1:7890", search: { provider: "duckduckgo" } },
+        exec: { enable: true, timeout: 120 },
+      },
+    }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }],
+    });
+    const fields = Object.fromEntries(pane.groups.flatMap((group) => group.fields.map((field) => [`${group.id}.${field.id}`, field])));
+
+    expect(fields["general.model"]).toMatchObject({
+      control: "select",
+      requirement: "required",
+      configurationMode: "fixed",
+      options: [
+        { value: "deepseek-chat", label: "deepseek-chat" },
+        { value: "deepseek-reasoner", label: "deepseek-reasoner" },
+      ],
+    });
+    expect(fields["general.temperature"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
+    expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
+    expect(fields["tools-approvals.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
+    expect(fields["tools-approvals.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
+    expect(fields["knowledge.retrievalMode"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed" });
+    expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
+  });
+
+  test("keeps provider editing separate from the default LLM provider", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-openai",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1"],
+          },
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-deepseek",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+    }, [
+      { id: "openai", displayName: "OpenAI", status: "ready" },
+      { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+      { id: "ollama", displayName: "Ollama", status: "not_configured" },
+    ]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [
+        { id: "openai", displayName: "OpenAI", status: "ready" },
+        { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+        { id: "ollama", displayName: "Ollama", status: "not_configured" },
+      ],
+    });
+    expect(pane.providerCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "deepseek",
+        enabled: true,
+        baseUrl: "https://api.deepseek.com",
+        models: ["deepseek-chat"],
+      }),
+      expect.objectContaining({
+        id: "ollama",
+        enabled: false,
+      }),
+    ]));
+    expect(pane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "provider")?.options).toEqual([
+      { value: "auto", label: "Auto" },
+      { value: "openai", label: "OpenAI" },
+      { value: "deepseek", label: "DeepSeek" },
+    ]);
+
+    const editingDeepSeek = applyDesktopSettingsFieldEdit(state, "selectedProvider", "deepseek");
+    expect(editingDeepSeek.agent.provider).toBe("openai");
+    expect(editingDeepSeek.providerEditor).toMatchObject({
+      selectedProvider: "deepseek",
+      profileId: "deepseek",
+      apiKey: "sk-deepseek",
+      apiBase: "https://api.deepseek.com",
+      modelsText: "deepseek-chat",
+    });
+
+    const disabledDeepSeek = applyDesktopSettingsFieldEdit(state, "providerEnabled:deepseek", false);
+    const disabledPane = buildDesktopSettingsPaneModel(disabledDeepSeek, {
+      providerCatalog: [
+        { id: "openai", displayName: "OpenAI", status: "ready" },
+        { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+        { id: "ollama", displayName: "Ollama", status: "not_configured" },
+      ],
+    });
+    expect(disabledPane.providerCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "deepseek", enabled: false, enabledConfigured: true }),
+    ]));
+    expect(disabledPane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "provider")?.options).toEqual([
+      { value: "auto", label: "Auto" },
+      { value: "openai", label: "OpenAI" },
+    ]);
+    expect(createDesktopSettingsPatch(disabledDeepSeek, {}, [
+      { id: "openai", displayName: "OpenAI", status: "ready" },
+      { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+    ])).toMatchObject({
+      providers: {
+        deepseek: {
+          enabled: false,
+          api_base: "https://api.deepseek.com",
+          api_key: "sk-deepseek",
+        },
+      },
+    });
   });
 });

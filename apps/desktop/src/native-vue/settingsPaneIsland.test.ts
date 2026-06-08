@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import {
   buildDesktopSettingsFormState,
   buildDesktopSettingsPaneModel,
@@ -46,7 +47,7 @@ const pane = buildDesktopSettingsPaneModel(draftState, {
 });
 
 describe("settings pane Vue island", () => {
-  test("renders settings shell and forwards settings actions", () => {
+  test("renders settings shell and forwards settings actions", async () => {
     const host = document.createElement("section");
     const focused: string[] = [];
     const actions: string[] = [];
@@ -91,8 +92,23 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector(".desktop-settings-default-llm-card")?.textContent).toContain("Default LLM");
     expect(host.querySelector(".desktop-settings-provider-section")?.textContent).toContain("Providers");
     expect(host.querySelector('[data-desktop-settings-provider-card="openai"]')?.textContent).toContain("OpenAI");
-    expect(host.querySelector(".desktop-settings-status-card")?.textContent).toContain("Unsaved changes");
+    expect(host.querySelector(".desktop-settings-status-card")).toBeNull();
     expect(host.querySelector('[data-desktop-settings-group="knowledge"]')?.textContent).toContain("Knowledge");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Required");
+    expect(host.querySelector('[data-desktop-settings-field="timezone"] .desktop-settings-field-meta')?.textContent).toContain("Free text");
+    expect(host.querySelector('[data-desktop-settings-field="apiKey"] input')?.getAttribute("type")).toBe("password");
+    expect(host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]')?.value).toBe("********");
+    expect(host.querySelector('[data-desktop-settings-group="general"] details.desktop-settings-advanced-fields summary')?.textContent).toContain("Advanced");
+    expect(host.querySelector('[data-desktop-settings-field="temperature"]')?.closest("details")?.className).toContain("desktop-settings-advanced-fields");
+    expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] output')?.textContent).toContain("Session file");
+    expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] [data-desktop-settings-control="sessionFiles"]')).toBeNull();
+    const navFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
+    navFiles?.click();
+    await nextTick();
+    expect(host.querySelector('[data-desktop-settings-nav="general"]')?.getAttribute("data-active")).toBeNull();
+    const activeNavFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
+    expect(activeNavFiles?.getAttribute("data-active")).toBe("true");
+    expect(activeNavFiles?.getAttribute("aria-current")).toBe("page");
 
     const model = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="model"]');
     model!.value = "gpt-4.1-mini";
@@ -100,11 +116,15 @@ describe("settings pane Vue island", () => {
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="discoverModels"]')?.click();
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-provider-action="settings"]')?.click();
+    const apiKey = host.querySelector<HTMLInputElement>('[data-desktop-settings-control="apiKey"]');
+    apiKey!.value = "sk-replacement";
+    apiKey?.dispatchEvent(new Event("input", { bubbles: true }));
 
     expect(actions).toEqual([
       "edit:model:gpt-4.1-mini",
       "save",
       "discoverModels",
+      "edit:apiKey:sk-replacement",
     ]);
     expect(focused).toEqual(["apiBase"]);
 

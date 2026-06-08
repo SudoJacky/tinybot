@@ -19,12 +19,29 @@ const pane: DesktopSettingsPaneModel = {
       label: "General",
       fields: [
         {
+          id: "provider",
+          label: "Provider",
+          value: "openai",
+          state: "normal",
+          control: "select",
+          inputValue: "openai",
+          requirement: "optional",
+          configurationMode: "fixed",
+          options: [
+            { value: "auto", label: "Auto" },
+            { value: "openai", label: "OpenAI" },
+            { value: "deepseek", label: "DeepSeek" },
+          ],
+        },
+        {
           id: "model",
           label: "Model",
           value: "gpt-4.1-mini",
           state: "normal",
           control: "text",
           inputValue: "gpt-4.1-mini",
+          requirement: "required",
+          configurationMode: "freeform",
         },
       ],
     },
@@ -39,6 +56,8 @@ const pane: DesktopSettingsPaneModel = {
           state: "normal",
           control: "select",
           inputValue: "openai",
+          requirement: "required",
+          configurationMode: "fixed",
           options: [
             { value: "auto", label: "Auto" },
             { value: "openai", label: "OpenAI" },
@@ -48,7 +67,40 @@ const pane: DesktopSettingsPaneModel = {
       ],
     },
   ],
-  providerCatalog: [],
+  providerCatalog: [
+    {
+      id: "openai",
+      label: "OpenAI",
+      profileId: "work",
+      status: "ready",
+      enabled: true,
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: {
+        value: "",
+        displayValue: "sk-...123",
+        masked: true,
+        empty: false,
+      },
+      models: ["gpt-4.1", "gpt-4.1-mini"],
+      canDiscoverModels: true,
+    },
+    {
+      id: "deepseek",
+      label: "DeepSeek",
+      profileId: "deepseek",
+      status: "ready",
+      enabled: true,
+      baseUrl: "https://api.deepseek.com",
+      apiKey: {
+        value: "",
+        displayValue: "sk-...deep",
+        masked: true,
+        empty: false,
+      },
+      models: ["deepseek-chat"],
+      canDiscoverModels: true,
+    },
+  ],
   providerEditor: {
     selectedProvider: "openai",
     profileId: "work",
@@ -88,7 +140,7 @@ describe("settings default LLM Vue island", () => {
     expect(host.textContent).toContain("Model");
     expect(host.textContent).toContain("global default LLM model");
 
-    const provider = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="selectedProvider"]');
+    const provider = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="provider"]');
     expect(provider?.tagName).toBe("SELECT");
     expect(Array.from(provider?.querySelectorAll("option") ?? []).map((option) => option.textContent)).toEqual([
       "Auto",
@@ -108,7 +160,7 @@ describe("settings default LLM Vue island", () => {
     model?.dispatchEvent(new Event("change", { bubbles: true }));
 
     host.querySelector<HTMLButtonElement>('[data-desktop-settings-action="save"]')?.click();
-    expect(actions).toEqual(["edit:selectedProvider:deepseek", "edit:model:gpt-4.1", "save"]);
+    expect(actions).toEqual(["edit:provider:deepseek", "edit:model:gpt-4.1", "save"]);
 
     mounted.unmount();
     expect(host.textContent).toBe("");
@@ -131,6 +183,7 @@ describe("settings default LLM Vue island", () => {
           ...pane.providerEditor,
           models: [],
         },
+        providerCatalog: pane.providerCatalog.map((provider) => ({ ...provider, models: [] })),
       },
       onSettingsAction: (event: DesktopSettingsActionEvent) => {
         if (event.action === "edit") {

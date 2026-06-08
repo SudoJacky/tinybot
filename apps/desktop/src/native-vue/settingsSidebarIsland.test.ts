@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import type { DesktopSettingsPaneModel } from "../desktopSettingsProviders";
 import { mountSettingsSidebarIsland } from "./settingsSidebarIsland";
 
@@ -14,7 +15,7 @@ const groups: DesktopSettingsPaneModel["groups"] = [
 ];
 
 describe("settings sidebar Vue island", () => {
-  test("renders settings navigation with existing desktop hooks and active first item", () => {
+  test("renders settings navigation with existing desktop hooks and active first item", async () => {
     const host = document.createElement("aside");
 
     const mounted = mountSettingsSidebarIsland(host, { groups });
@@ -47,6 +48,13 @@ describe("settings sidebar Vue island", () => {
     expect(links[0]?.getAttribute("href")).toBe("#desktop-settings-group-general");
     expect(links[0]?.getAttribute("data-active")).toBe("true");
     expect(links[0]?.getAttribute("aria-current")).toBe("page");
+    links[4]?.click();
+    await nextTick();
+    const updatedLinks = Array.from(host.querySelectorAll<HTMLAnchorElement>("[data-desktop-settings-nav]"));
+    expect(updatedLinks[0]?.getAttribute("data-active")).toBeNull();
+    expect(updatedLinks[0]?.getAttribute("aria-current")).toBeNull();
+    expect(updatedLinks[4]?.getAttribute("data-active")).toBe("true");
+    expect(updatedLinks[4]?.getAttribute("aria-current")).toBe("page");
 
     mounted.unmount();
     expect(host.textContent).toBe("");
