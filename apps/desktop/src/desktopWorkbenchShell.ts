@@ -2230,7 +2230,20 @@ function conversationThreadOptions(targetDocument: Document, chat: DesktopNative
     attachment?: string;
     author: string;
     body: string[];
-    references: Array<{ detail: string; kind: NativeChatReference["kind"]; title: string }>;
+    references: Array<{
+      detail: string;
+      evidenceId?: string;
+      kind: NativeChatReference["kind"];
+      noteId?: string;
+      rawLine?: number;
+      rawPath?: string;
+      scope?: string;
+      sourceLine?: number;
+      sourcePath?: string;
+      sourceText?: string;
+      title: string;
+      type?: string;
+    }>;
     reasoningContent?: string;
     time: string;
     tone: "assistant" | "user";
@@ -2274,8 +2287,17 @@ function conversationThreadOptions(targetDocument: Document, chat: DesktopNative
       })),
       references: (message.references ?? []).map((reference) => ({
         detail: reference.detail ?? "",
+        evidenceId: reference.evidenceId,
         kind: reference.kind,
+        noteId: reference.noteId,
+        rawLine: reference.rawLine,
+        rawPath: reference.rawPath,
+        scope: reference.scope,
+        sourceLine: reference.sourceLine,
+        sourcePath: reference.sourcePath,
+        sourceText: reference.sourceText,
         title: reference.title,
+        type: reference.type,
       })),
     })),
   };
@@ -2291,7 +2313,20 @@ function mountConversationThreadVueIsland(
       attachment?: string;
       author: string;
       body: string[];
-      references: Array<{ detail: string; kind: string; title: string }>;
+      references: Array<{
+        detail: string;
+        evidenceId?: string;
+        kind: string;
+        noteId?: string;
+        rawLine?: number;
+        rawPath?: string;
+        scope?: string;
+        sourceLine?: number;
+        sourcePath?: string;
+        sourceText?: string;
+        title: string;
+        type?: string;
+      }>;
       reasoningContent?: string;
       time: string;
       tone: "assistant" | "user";
@@ -2311,7 +2346,20 @@ function mountConversationThreadVueIsland(
     onCoworkAgentInspect?: (selection: { agentId: string; sessionId: string }) => void;
     onInlineFormCancel?: (form: AgentUiForm) => void;
     onInlineFormSubmit?: (form: AgentUiForm, values: Record<string, unknown>) => void;
-    onReferenceInspect?: (reference: { detail: string; kind: string; title: string }) => void;
+    onReferenceInspect?: (reference: {
+      detail: string;
+      evidenceId?: string;
+      kind: string;
+      noteId?: string;
+      rawLine?: number;
+      rawPath?: string;
+      scope?: string;
+      sourceLine?: number;
+      sourcePath?: string;
+      sourceText?: string;
+      title: string;
+      type?: string;
+    }) => void;
   },
 ): void {
   if (!canMountVueIsland(thread)) {
@@ -2409,8 +2457,17 @@ function createConversationMessage(
     body: options.body,
     references: (options.references ?? []).map((reference) => ({
       detail: reference.detail ?? "",
+      evidenceId: reference.evidenceId,
       kind: reference.kind,
+      noteId: reference.noteId,
+      rawLine: reference.rawLine,
+      rawPath: reference.rawPath,
+      scope: reference.scope,
+      sourceLine: reference.sourceLine,
+      sourcePath: reference.sourcePath,
+      sourceText: reference.sourceText,
       title: reference.title,
+      type: reference.type,
     })),
     reasoningContent: options.reasoningContent,
     time: options.time,
@@ -10380,6 +10437,55 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       background: var(--surface-dark-soft, #1f1e1b);
       color: var(--on-dark, #faf9f5);
       font: 12px/1.5 var(--font-mono);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    body.desktop-native-workbench .desktop-reference-source-section {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-reference-source-section h4 {
+      margin: 0;
+      color: #625d57;
+      font: 800 11px/1.2 var(--font-sans);
+      text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-reference-source-preview {
+      display: grid;
+      max-height: 320px;
+      overflow: auto;
+      border-radius: 8px;
+      padding: 8px 0;
+      background: var(--surface-dark-soft, #1f1e1b);
+      color: var(--on-dark, #faf9f5);
+      font: 12px/1.5 var(--font-mono);
+    }
+
+    body.desktop-native-workbench .desktop-reference-source-line {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr);
+      gap: 10px;
+      min-width: 0;
+      padding: 1px 12px;
+    }
+
+    body.desktop-native-workbench .desktop-reference-source-line.highlighted {
+      background: rgba(224, 97, 67, 0.24);
+      color: #fff7ed;
+    }
+
+    body.desktop-native-workbench .desktop-reference-source-line-number {
+      color: rgba(250, 249, 245, 0.52);
+      text-align: right;
+      user-select: none;
+    }
+
+    body.desktop-native-workbench .desktop-reference-source-line code {
+      min-width: 0;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }

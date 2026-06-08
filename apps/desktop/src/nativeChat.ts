@@ -35,6 +35,15 @@ export type NativeChatReference = {
   kind: "browser" | "memory" | "recent" | "reference";
   title: string;
   detail: string;
+  sourcePath?: string;
+  sourceLine?: number;
+  sourceText?: string;
+  rawPath?: string;
+  rawLine?: number;
+  noteId?: string;
+  evidenceId?: string;
+  scope?: string;
+  type?: string;
 };
 
 export type NativeChatState = {
@@ -595,9 +604,8 @@ function inferToolNameFromText(value: string): string {
 }
 
 function referenceRows(value: unknown, kind: NativeChatReference["kind"]): NativeChatReference[] {
-  return arrayRows(value).map((row) => ({
-    kind,
-    title: stringValue(
+  return arrayRows(value).map((row) => {
+    const title = stringValue(
       row.title ??
         row.name ??
         row.note_id ??
@@ -605,8 +613,8 @@ function referenceRows(value: unknown, kind: NativeChatReference["kind"]): Nativ
         row.id ??
         row.file ??
         row.url,
-    ) || kind,
-    detail: stringValue(
+    ) || kind;
+    const detail = stringValue(
       row.detail ??
         row.summary ??
         row.excerpt ??
@@ -614,8 +622,34 @@ function referenceRows(value: unknown, kind: NativeChatReference["kind"]): Nativ
         row.path ??
         row.file ??
         row.url,
-    ),
-  }));
+    );
+    const canTraceSource = kind === "memory" || kind === "recent";
+    const sourcePath = canTraceSource ? stringValue(row.view_file ?? row.source_file ?? row.file ?? row.path) : "";
+    const rawPath = canTraceSource ? stringValue(row.file ?? row.path) : "";
+    const sourceLine = numberValue(row.view_line ?? row.line ?? row.cursor);
+    const rawLine = numberValue(row.line ?? row.cursor);
+    const sourceText = sourcePath || sourceLine
+      ? stringValue(row.source_text ?? row.excerpt ?? row.content ?? row.summary ?? row.detail)
+      : "";
+    const noteId = stringValue(row.note_id);
+    const evidenceId = stringValue(row.evidence_id);
+    const scope = stringValue(row.scope);
+    const type = stringValue(row.type);
+    return {
+      kind,
+      title,
+      detail,
+      ...(sourcePath ? { sourcePath } : {}),
+      ...(sourceLine ? { sourceLine } : {}),
+      ...(sourceText ? { sourceText } : {}),
+      ...(rawPath && rawPath !== sourcePath ? { rawPath } : {}),
+      ...(rawLine && rawLine !== sourceLine ? { rawLine } : {}),
+      ...(noteId ? { noteId } : {}),
+      ...(evidenceId ? { evidenceId } : {}),
+      ...(scope ? { scope } : {}),
+      ...(type ? { type } : {}),
+    };
+  });
 }
 
 function arrayRows(value: unknown): Record<string, unknown>[] {
@@ -635,6 +669,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 function textValue(value: unknown): string {

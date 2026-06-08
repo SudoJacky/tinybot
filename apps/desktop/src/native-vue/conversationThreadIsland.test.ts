@@ -238,6 +238,49 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector(".desktop-reference-detail-panel")).toBeNull();
   });
 
+  test("shows memory reference source path and highlighted original text in the right detail panel", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I used memory."],
+        references: [{
+          detail: "Use uv for Python commands.",
+          kind: "memory",
+          noteId: "note_1",
+          rawLine: 4,
+          rawPath: "memory/notes.jsonl",
+          scope: "project",
+          sourceLine: 18,
+          sourcePath: "memory/MEMORY.md",
+          sourceText: "Use uv for Python commands.",
+          title: "note_1",
+          type: "instruction",
+        }],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [],
+      }],
+    });
+    await nextTick();
+    await nextTick();
+
+    host.querySelector<HTMLElement>(".desktop-message-reference-item")?.click();
+    await nextTick();
+
+    const panel = host.querySelector<HTMLElement>(".desktop-reference-detail-panel");
+    expect(panel?.getAttribute("data-tool-detail-mode")).toBe("push");
+    expect(panel?.textContent).toContain("memory/MEMORY.md:18");
+    expect(panel?.textContent).toContain("memory/notes.jsonl:4");
+    expect(panel?.textContent).toContain("project");
+    expect(panel?.textContent).toContain("instruction");
+    const highlighted = panel?.querySelector<HTMLElement>(".desktop-reference-source-line.highlighted");
+    expect(highlighted?.getAttribute("data-line")).toBe("18");
+    expect(highlighted?.textContent).toContain("Use uv for Python commands.");
+  });
+
   test("updates streamed messages without remounting the thread root", async () => {
     const host = document.createElement("section");
 

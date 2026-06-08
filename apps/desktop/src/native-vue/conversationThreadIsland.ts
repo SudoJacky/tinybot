@@ -584,10 +584,95 @@ function renderReferenceDetailPanel(options: {
       }, "x"),
     ]),
     h("div", { class: "desktop-tool-detail-body" }, [
-      renderToolDetailText("Source", reference.title || "Reference", "Source unavailable"),
+      renderToolDetailText("Source", referenceSourceLocationLabel(reference) || reference.title || "Reference", "Source unavailable"),
+      referenceRawLocationLabel(reference)
+        ? renderToolDetailText("Raw source", referenceRawLocationLabel(reference), "Raw source unavailable")
+        : null,
+      renderReferenceMetadata(reference),
       renderToolDetailText("Detail", reference.detail || "", "No detail available"),
+      renderReferenceSourcePreview(reference),
     ]),
   ]);
+}
+
+function referenceSourceLocationLabel(reference: ConversationReferenceIslandOptions): string {
+  return referenceLocationLabel(reference.sourcePath || reference.rawPath || reference.title, reference.sourceLine || reference.rawLine);
+}
+
+function referenceRawLocationLabel(reference: ConversationReferenceIslandOptions): string {
+  if (!reference.rawPath || (reference.rawPath === reference.sourcePath && reference.rawLine === reference.sourceLine)) {
+    return "";
+  }
+  return referenceLocationLabel(reference.rawPath, reference.rawLine);
+}
+
+function referenceLocationLabel(path: string | undefined, line: number | undefined): string {
+  if (!path) {
+    return "";
+  }
+  return line ? `${path}:${line}` : path;
+}
+
+function renderReferenceMetadata(reference: ConversationReferenceIslandOptions) {
+  const entries = [
+    ["Kind", reference.kind],
+    ["Note", reference.noteId],
+    ["Evidence", reference.evidenceId],
+    ["Scope", reference.scope],
+    ["Type", reference.type],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+  if (!entries.length) {
+    return null;
+  }
+  return h("dl", { class: "desktop-tool-detail-meta desktop-reference-detail-meta" }, entries.flatMap(([label, value]) => [
+    h("dt", label),
+    h("dd", value),
+  ]));
+}
+
+function renderReferenceSourcePreview(reference: ConversationReferenceIslandOptions) {
+  const sourceText = reference.sourceText || reference.detail;
+  if (!sourceText.trim()) {
+    return null;
+  }
+  const startLine = reference.sourceLine || reference.rawLine || 1;
+  const lines = sourceText.split(/\r?\n/);
+  const highlightLine = resolveReferenceHighlightLine(lines, startLine, reference);
+  return h("section", { class: "desktop-reference-source-section" }, [
+    h("h4", "Original text"),
+    h("div", {
+      class: "desktop-reference-source-preview",
+      "data-highlight-line": String(highlightLine),
+    }, lines.map((line, index) => {
+      const lineNumber = startLine + index;
+      return h("div", {
+        class: [
+          "desktop-reference-source-line",
+          lineNumber === highlightLine ? "highlighted" : "",
+        ].filter(Boolean).join(" "),
+        "data-line": String(lineNumber),
+      }, [
+        h("span", { class: "desktop-reference-source-line-number" }, String(lineNumber)),
+        h("code", line || " "),
+      ]);
+    })),
+  ]);
+}
+
+function resolveReferenceHighlightLine(
+  lines: string[],
+  startLine: number,
+  reference: ConversationReferenceIslandOptions,
+): number {
+  const needles = [reference.noteId, reference.evidenceId, reference.sourceText, reference.detail]
+    .filter((value): value is string => Boolean(value?.trim()));
+  for (const needle of needles) {
+    const matchIndex = lines.findIndex((line) => line.includes(needle));
+    if (matchIndex >= 0) {
+      return startLine + matchIndex;
+    }
+  }
+  return startLine;
 }
 
 function renderCoworkAgentDetailPanel(options: {

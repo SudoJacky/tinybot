@@ -162,13 +162,58 @@ describe("native chat state", () => {
         kind: "memory",
         title: "note_1",
         detail: "Use uv for Python commands.",
+        sourcePath: "memory/notes.jsonl",
+        sourceLine: 4,
+        sourceText: "Use uv for Python commands.",
+        noteId: "note_1",
       },
       {
         kind: "recent",
         title: "ev_1",
         detail: "Earlier turn mentioned native chat references.",
+        sourcePath: "memory/conversations/2026-06-08.jsonl",
+        sourceLine: 12,
+        sourceText: "Earlier turn mentioned native chat references.",
+        evidenceId: "ev_1",
       },
     ]);
+  });
+
+  test("preserves memory reference source location and original excerpt metadata", () => {
+    expect(
+      normalizeMessagesPayload({
+        messages: [
+          {
+            role: "assistant",
+            content: "Memory-backed answer",
+            _memory_references: [{
+              note_id: "note_1",
+              content: "Use uv for Python commands.",
+              file: "memory/notes.jsonl",
+              line: 4,
+              view_file: "memory/MEMORY.md",
+              view_line: 18,
+              scope: "project",
+              type: "instruction",
+            }],
+            timestamp: "2026-06-08T08:00:01Z",
+            message_id: "m-memory-source",
+          },
+        ],
+      })[0].references,
+    ).toEqual([{
+      kind: "memory",
+      title: "note_1",
+      detail: "Use uv for Python commands.",
+      sourcePath: "memory/MEMORY.md",
+      sourceLine: 18,
+      sourceText: "Use uv for Python commands.",
+      rawPath: "memory/notes.jsonl",
+      rawLine: 4,
+      noteId: "note_1",
+      scope: "project",
+      type: "instruction",
+    }]);
   });
 
   test("attaches backend references from live completed and streamed messages", () => {
