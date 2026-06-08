@@ -10619,7 +10619,11 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     }
 
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell {
-      grid-template-columns: 56px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;
+      grid-template-columns: 92px minmax(220px, var(--desktop-sidebar-size, 260px)) minmax(0, 1fr) 0;
+    }
+
+    html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] {
+      grid-template-columns: 92px 0 minmax(0, 1fr) 0;
     }
 
     html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-inspector {
@@ -10655,6 +10659,10 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       width: 100%;
       max-width: 1180px;
       margin: 0 auto;
+    }
+
+    body.desktop-native-workbench .desktop-settings-pane > .n-config-provider {
+      display: contents;
     }
 
     body.desktop-native-workbench .desktop-settings-sidebar {

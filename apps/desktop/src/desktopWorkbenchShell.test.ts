@@ -3742,6 +3742,21 @@ describe("desktop workbench shell", () => {
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-native-workbench .desktop-native-composer-model');
   });
 
+  test("keeps settings module chrome and content columns from overlapping", () => {
+    const targetDocument = new FakeDocument();
+
+    installDesktopWorkbenchShell({
+      targetDocument: targetDocument as unknown as Document,
+      layout: createDefaultWorkbenchLayout(),
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+
+    const styleText = targetDocument.head.querySelector("#desktop-workbench-shell-style")?.textContent ?? "";
+    expect(styleText).toContain('html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell {\n      grid-template-columns: 92px');
+    expect(styleText).toContain('html[data-desktop-active-workbench-module="settings"] body.desktop-native-workbench .desktop-workbench-shell[data-sidebar-visible="false"] {\n      grid-template-columns: 92px 0');
+    expect(styleText).toContain("body.desktop-native-workbench .desktop-settings-pane > .n-config-provider {\n      display: contents;");
+  });
+
   test("renders a bottom composer-like surface for native visual parity", () => {
     const targetDocument = new FakeDocument();
 
