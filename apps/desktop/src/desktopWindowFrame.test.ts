@@ -162,9 +162,13 @@ describe("desktop window frame", () => {
     expect(targetDocument.body.querySelector(".desktop-window-title-group")).toBeNull();
     expect(targetDocument.body.querySelector(".desktop-window-title")).toBeNull();
     expect(targetDocument.body.querySelector(".desktop-window-context")).toBeNull();
-    expect(targetDocument.body.querySelector('[data-window-action="minimize"]')?.textContent).toBe("−");
-    expect(targetDocument.body.querySelector('[data-window-action="maximize"]')?.textContent).toBe("□");
-    expect(targetDocument.body.querySelector('[data-window-action="close"]')?.textContent).toBe("×");
+    expect(targetDocument.body.querySelector('[data-desktop-runtime-command="refresh-gateway-status"]')).toBeNull();
+    expect(targetDocument.body.querySelector('[data-window-action="minimize"]')?.textContent).toBe("");
+    expect(targetDocument.body.querySelector('[data-window-action="maximize"]')?.textContent).toBe("");
+    expect(targetDocument.body.querySelector('[data-window-action="close"]')?.textContent).toBe("");
+    expect(targetDocument.body.querySelector('[data-window-action="minimize"]')?.className).toContain("desktop-window-traffic-light");
+    expect(targetDocument.body.querySelector('[data-window-action="maximize"]')?.className).toContain("desktop-window-traffic-light");
+    expect(targetDocument.body.querySelector('[data-window-action="close"]')?.className).toContain("desktop-window-traffic-light");
 
     targetDocument.body.querySelector('[data-window-action="minimize"]')?.click();
     targetDocument.body.querySelector('[data-window-action="maximize"]')?.click();
@@ -224,7 +228,7 @@ describe("desktop window frame", () => {
     expect(currentWindow.setIcon).toHaveBeenCalledWith("tinybot-window-icon");
   });
 
-  test("updates the installed frame runtime status without replacing window controls", () => {
+  test("ignores runtime status updates after removing the gateway badge", () => {
     const targetDocument = new FakeDocument();
     const currentWindow = {
       minimize: vi.fn(async () => {}),
@@ -253,10 +257,8 @@ describe("desktop window frame", () => {
       targetDocument as unknown as Document,
     );
 
-    const status = targetDocument.getElementById("desktop-runtime-status");
-    expect(status?.textContent).toBe("Gateway: Starting");
-    expect(status?.getAttribute("title")).toBe("Starting shell gateway at http://127.0.0.1:18790");
-    expect(status?.getAttribute("data-runtime-tone")).toBe("pending");
+    expect(targetDocument.getElementById("desktop-runtime-status")).toBeNull();
+    expect(targetDocument.body.querySelector('[data-desktop-runtime-command="refresh-gateway-status"]')).toBeNull();
     expect(targetDocument.body.querySelector('[data-window-action="close"]')).toBeTruthy();
   });
 
@@ -341,7 +343,7 @@ describe("desktop window frame", () => {
     expect(repo?.querySelector(".desktop-help-menu-label")?.textContent).toBe("Tinybot repo");
   });
 
-  test("routes runtime status clicks through the gateway status command", () => {
+  test("does not render the gateway status command in the compact app chrome", () => {
     const targetDocument = new FakeDocument();
     const currentWindow = {
       minimize: vi.fn(async () => {}),
@@ -355,17 +357,13 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    const runtimeStatus = targetDocument.body.querySelector('[data-desktop-runtime-command="refresh-gateway-status"]');
-    expect(runtimeStatus?.getAttribute("role")).toBe("button");
-    expect(runtimeStatus?.getAttribute("tabindex")).toBe("0");
-
-    runtimeStatus?.click();
-
-    expect(targetDocument.dispatched).toContain("desktop-menu-command");
+    expect(targetDocument.body.querySelector('[data-desktop-runtime-command="refresh-gateway-status"]')).toBeNull();
+    expect(targetDocument.getElementById("desktop-runtime-status")).toBeNull();
+    expect(targetDocument.dispatched).not.toContain("desktop-menu-command");
     expect(currentWindow.startDragging).not.toHaveBeenCalled();
   });
 
-  test("uses a Vue island host for the real runtime status command", () => {
+  test("does not mount a real Vue runtime status badge", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
     const currentWindow = {
@@ -384,18 +382,12 @@ describe("desktop window frame", () => {
       currentWindow,
     });
 
-    const runtimeStatus = document.getElementById("desktop-runtime-status");
-    expect(runtimeStatus?.getAttribute("data-desktop-vue-island")).toBe("desktop-runtime-status");
-    expect(runtimeStatus?.getAttribute("data-desktop-runtime-command")).toBe("refresh-gateway-status");
-    expect(runtimeStatus?.getAttribute("data-runtime-tone")).toBe("pending");
-    expect(runtimeStatus?.textContent).toContain("Gateway: Starting");
-
-    runtimeStatus?.click();
-
-    expect(dispatched).toEqual(["refresh-gateway-status"]);
+    expect(document.getElementById("desktop-runtime-status")).toBeNull();
+    expect(document.body.querySelector('[data-desktop-runtime-command="refresh-gateway-status"]')).toBeNull();
+    expect(dispatched).toEqual([]);
   });
 
-  test("uses a Vue island host for real window controls", () => {
+  test("uses native titlebar buttons for real window controls", () => {
     document.body.replaceChildren();
     document.head.replaceChildren();
     const currentWindow = {
@@ -411,10 +403,13 @@ describe("desktop window frame", () => {
     });
 
     const controls = document.body.querySelector<HTMLElement>(".desktop-window-controls");
-    expect(controls?.getAttribute("data-desktop-vue-island")).toBe("desktop-window-controls");
+    expect(controls?.getAttribute("data-desktop-vue-island")).toBeNull();
     expect(controls?.querySelector('[data-window-action="minimize"]')?.getAttribute("aria-label")).toBe("Minimize");
     expect(controls?.querySelector('[data-window-action="maximize"]')?.getAttribute("aria-label")).toBe("Maximize");
     expect(controls?.querySelector('[data-window-action="close"]')?.getAttribute("aria-label")).toBe("Close");
+    expect(controls?.querySelector('[data-window-action="minimize"]')?.textContent).toBe("");
+    expect(controls?.querySelector('[data-window-action="maximize"]')?.textContent).toBe("");
+    expect(controls?.querySelector('[data-window-action="close"]')?.textContent).toBe("");
 
     controls?.querySelector<HTMLButtonElement>('[data-window-action="minimize"]')?.click();
 
@@ -545,7 +540,19 @@ describe("desktop window frame", () => {
     const styleText = targetDocument.head.querySelector("#desktop-window-frame-style")?.textContent;
     expect(styleText).toContain("--desktop-window-frame-height: 38px;");
     expect(styleText).toContain("height: 28px;");
-    expect(styleText).toContain("width: 28px;");
+    expect(styleText).toContain("width: 12px !important;");
+    expect(styleText).toContain("height: 12px !important;");
+    expect(styleText).toContain("border-radius: 999px;");
+    expect(styleText).toContain("right: 18px;");
+    expect(styleText).toContain("grid-template-columns: repeat(3, 12px);");
+    expect(styleText).toContain("radial-gradient(circle at 6px 6px, #ff5f57 0 5px, transparent 6px)");
+    expect(styleText).toContain(".desktop-window-button-close");
+    expect(styleText).toContain("background: #ff5f57;");
+    expect(styleText).toContain(".desktop-window-button-minimize");
+    expect(styleText).toContain("background: #ffbd2e;");
+    expect(styleText).toContain(".desktop-window-button-maximize");
+    expect(styleText).toContain("background: #28c840;");
+    expect(styleText).not.toContain(".desktop-runtime-status");
     expect(styleText).toContain("--bg: #faf9f5;");
     expect(styleText).toContain("--panel-strong: #efe9de;");
     expect(styleText).toContain("--primary: #cc785c;");
@@ -584,6 +591,6 @@ describe("desktop window frame", () => {
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-window-frame');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item');
     expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-popover');
-    expect(styleText).toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-window-button');
+    expect(styleText).not.toContain('html[data-theme="dark"] body.desktop-custom-frame .desktop-window-button');
   });
 });
