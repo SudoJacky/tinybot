@@ -106,6 +106,128 @@ describe("conversation thread Vue island", () => {
     expect(actions).toEqual(["submit:form-1:production", "cancel:form-1"]);
   });
 
+  test("renders chat Cowork runs inline with selectable agent rows", async () => {
+    const host = document.createElement("section");
+    const selections: unknown[] = [];
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      coworkRuns: [{
+        activeAgentCount: 1,
+        agentCount: 2,
+        agents: [
+          {
+            attentionLabel: "",
+            id: "agent-1",
+            label: "Planner",
+            latestActivity: "drafted plan",
+            roleOrTask: "Plan workspace changes",
+            status: "running",
+          },
+          {
+            attentionLabel: "reply needed",
+            id: "agent-2",
+            label: "Reviewer",
+            latestActivity: "waiting",
+            roleOrTask: "Review output",
+            status: "blocked",
+          },
+        ],
+        attentionLabel: "reply needed",
+        finalOutput: "Implementation summary ready.",
+        id: "cowork-1",
+        status: "running",
+        taskProgress: "1/3",
+        title: "Native chat parity",
+        workflow: "Adaptive Starter",
+      }],
+      messages: [{
+        author: "Tinybot",
+        body: ["I started a Cowork run."],
+        references: [],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [],
+      }],
+      onCoworkAgentInspect: (selection) => selections.push(selection),
+    });
+    await nextTick();
+    await nextTick();
+
+    const surface = host.querySelector(".desktop-chat-cowork-surface");
+    expect(surface?.getAttribute("data-desktop-chat-region")).toBe("chat-cowork-surface");
+    expect(surface?.textContent).toContain("Cowork run");
+    expect(surface?.textContent).toContain("Native chat parity");
+    expect(surface?.textContent).toContain("Agents");
+    expect(surface?.textContent).toContain("2");
+    expect(surface?.textContent).toContain("Tasks");
+    expect(surface?.textContent).toContain("1/3");
+    expect(surface?.textContent).toContain("Final output");
+    expect(surface?.textContent).toContain("Implementation summary ready.");
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-agent-id="agent-2"]')?.click();
+    expect(selections).toEqual([{ agentId: "agent-2", sessionId: "cowork-1" }]);
+    await nextTick();
+
+    const inspector = host.querySelector<HTMLElement>(".desktop-cowork-agent-detail-panel");
+    expect(inspector?.getAttribute("aria-label")).toBe("Cowork agent details");
+    expect(inspector?.getAttribute("data-desktop-cowork-agent-id")).toBe("agent-2");
+    expect(inspector?.textContent).toContain("Reviewer");
+    expect(inspector?.textContent).toContain("Review output");
+    expect(inspector?.textContent).toContain("reply needed");
+    expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-cowork-agent-detail-visible")).toBe("true");
+
+    inspector?.querySelector<HTMLButtonElement>(".desktop-cowork-agent-detail-close")?.click();
+    await nextTick();
+    expect(host.querySelector(".desktop-cowork-agent-detail-panel")).toBeNull();
+  });
+
+  test("dispatches memory reference inspection from reference cards", async () => {
+    const host = document.createElement("section");
+    const inspections: unknown[] = [];
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I used memory."],
+        references: [{
+          detail: "Saved preference",
+          kind: "memory",
+          title: "memory/MEMORY.md:42",
+        }],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [],
+      }],
+      onReferenceInspect: (reference) => inspections.push(reference),
+    });
+    await nextTick();
+    await nextTick();
+
+    const reference = host.querySelector<HTMLElement>(".desktop-message-reference-item");
+    expect(reference?.getAttribute("role")).toBe("button");
+    expect(reference?.getAttribute("tabindex")).toBe("0");
+    reference?.click();
+
+    expect(inspections).toEqual([{
+      detail: "Saved preference",
+      kind: "memory",
+      title: "memory/MEMORY.md:42",
+    }]);
+    await nextTick();
+
+    const panel = host.querySelector<HTMLElement>(".desktop-reference-detail-panel");
+    expect(panel?.getAttribute("aria-label")).toBe("Reference details");
+    expect(panel?.textContent).toContain("memory/MEMORY.md:42");
+    expect(panel?.textContent).toContain("Saved preference");
+    expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-reference-detail-visible")).toBe("true");
+
+    panel?.querySelector<HTMLButtonElement>(".desktop-reference-detail-close")?.click();
+    await nextTick();
+    expect(host.querySelector(".desktop-reference-detail-panel")).toBeNull();
+  });
+
   test("updates streamed messages without remounting the thread root", async () => {
     const host = document.createElement("section");
 

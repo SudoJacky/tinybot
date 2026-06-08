@@ -450,6 +450,149 @@ describe("desktop workbench shell Vue integration", () => {
     expect(document.querySelector(".desktop-chat-workbench-chrome")?.textContent).toContain("Start a new session");
   });
 
+  test("embeds active chat Cowork runs and inspectable references in the native chat timeline", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat: {
+        activeChatId: "chat-live",
+        activeSessionKey: "WebSocket:chat-live",
+        messages: [{
+          role: "assistant",
+          content: "I used memory and started Cowork.",
+          reasoningContent: "",
+          timestamp: "2026-06-07T03:04:06.000Z",
+          messageId: "assistant-1",
+          references: [{ kind: "memory", title: "memory/MEMORY.md:42", detail: "Saved preference" }],
+        }],
+        sessions: [{ chatId: "chat-live", createdAt: "", key: "WebSocket:chat-live", title: "Live session", updatedAt: "" }],
+      },
+      coworkPane: {
+        sessionRows: [{
+          activeAgentCount: 1,
+          agentCount: 1,
+          attention: {
+            agentIssues: 0,
+            approvals: 0,
+            blockers: 0,
+            interventions: 0,
+            label: "No attention needed",
+            pendingReplies: 0,
+            taskIssues: 0,
+            tone: "normal",
+            total: 0,
+            workUnitIssues: 0,
+          },
+          finalOutput: "Cowork summary ready.",
+          goal: "Match WebUI chat flow",
+          id: "cowork-1",
+          meta: "",
+          raw: { id: "cowork-1", origin_chat_id: "chat-live" },
+          status: "running",
+          taskProgress: { blocked: 0, completed: 1, failed: 0, total: 2 },
+          title: "Native chat parity",
+          updatedAt: "",
+          workflow: "Adaptive Starter",
+        }],
+        cockpitView: {
+          agents: [{
+            attention: { label: "", state: "normal", tone: "normal" },
+            id: "agent-1",
+            label: "Planner",
+            latestActivity: "drafted plan",
+            meta: "",
+            raw: { id: "agent-1" },
+            roleOrTask: "Plan desktop changes",
+            status: "running",
+          }],
+          artifacts: [],
+          branches: [],
+          graph: { caption: "", edges: [], nodes: [] },
+          header: {
+            goal: "Match WebUI chat flow",
+            id: "cowork-1",
+            status: "running",
+            title: "Native chat parity",
+            updatedAt: "",
+            workflow: "Adaptive Starter",
+          },
+          inspector: { body: "", id: "cowork-1", payloadText: "", raw: null, rows: [], title: "", type: "session" },
+          mailbox: [],
+          observabilityPanels: [],
+          raw: { id: "cowork-1", origin_chat_id: "chat-live" },
+          taskCenterItems: [],
+          tasks: [],
+          threads: [],
+          trace: [],
+          workUnits: [],
+        },
+      },
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+    await nextTick();
+    await nextTick();
+
+    const thread = document.querySelector<HTMLElement>(".desktop-conversation-thread");
+    expect(thread?.querySelector(".desktop-chat-cowork-surface")?.textContent).toContain("Native chat parity");
+    expect(thread?.querySelector(".desktop-chat-cowork-surface")?.textContent).toContain("Cowork summary ready.");
+    expect(thread?.querySelector('[data-desktop-cowork-agent-id="agent-1"]')?.textContent).toContain("Planner");
+    expect(thread?.querySelector(".desktop-message-reference-item")?.getAttribute("role")).toBe("button");
+    expect(thread?.querySelector(".desktop-message-reference-item")?.getAttribute("tabindex")).toBe("0");
+  });
+
+  test("uses inline Cowork runs as chat timeline content instead of showing the empty chat prompt", async () => {
+    document.body.replaceChildren();
+    document.head.replaceChildren();
+
+    installDesktopWorkbenchShell({
+      targetDocument: document,
+      layout: createDefaultWorkbenchLayout(),
+      chat: {
+        activeChatId: "chat-live",
+        activeSessionKey: "WebSocket:chat-live",
+        messages: [],
+        sessions: [{ chatId: "chat-live", createdAt: "", key: "WebSocket:chat-live", title: "Live session", updatedAt: "" }],
+      },
+      coworkPane: {
+        sessionRows: [{
+          activeAgentCount: 0,
+          agentCount: 0,
+          attention: {
+            agentIssues: 0,
+            approvals: 0,
+            blockers: 0,
+            interventions: 0,
+            label: "No attention needed",
+            pendingReplies: 0,
+            taskIssues: 0,
+            tone: "normal",
+            total: 0,
+            workUnitIssues: 0,
+          },
+          finalOutput: "",
+          goal: "Match WebUI chat flow",
+          id: "cowork-1",
+          meta: "",
+          raw: { id: "cowork-1", origin_chat_id: "chat-live" },
+          status: "running",
+          taskProgress: { blocked: 0, completed: 0, failed: 0, total: 0 },
+          title: "Native chat parity",
+          updatedAt: "",
+          workflow: "Adaptive Starter",
+        }],
+      },
+      gatewayHttp: "http://127.0.0.1:18790",
+    });
+    await nextTick();
+    await nextTick();
+
+    expect(document.querySelector(".desktop-conversation-thread")?.textContent).toContain("Native chat parity");
+    expect(document.querySelector(".desktop-chat-workbench")?.textContent).not.toContain("Start a new session");
+  });
+
   test("keeps conversation scroll stable when live chat messages rerender", async () => {
     document.body.replaceChildren();
     document.head.replaceChildren();

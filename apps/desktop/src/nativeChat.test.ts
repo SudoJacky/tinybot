@@ -133,6 +133,86 @@ describe("native chat state", () => {
     expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
   });
 
+  test("normalizes backend memory and recent context references from persisted messages", () => {
+    expect(
+      normalizeMessagesPayload({
+        messages: [
+          {
+            role: "assistant",
+            content: "Memory-backed answer",
+            _memory_references: [{
+              note_id: "note_1",
+              content: "Use uv for Python commands.",
+              file: "memory/notes.jsonl",
+              line: 4,
+            }],
+            _recent_context_references: [{
+              evidence_id: "ev_1",
+              excerpt: "Earlier turn mentioned native chat references.",
+              file: "memory/conversations/2026-06-08.jsonl",
+              line: 12,
+            }],
+            timestamp: "2026-06-08T08:00:01Z",
+            message_id: "m-memory",
+          },
+        ],
+      })[0].references,
+    ).toEqual([
+      {
+        kind: "memory",
+        title: "note_1",
+        detail: "Use uv for Python commands.",
+      },
+      {
+        kind: "recent",
+        title: "ev_1",
+        detail: "Earlier turn mentioned native chat references.",
+      },
+    ]);
+  });
+
+  test("attaches backend references from live completed and streamed messages", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+
+    applyChatEvent(state, {
+      kind: "message.completed",
+      chatId: "chat-1",
+      messageId: "m-complete",
+      text: "Complete answer",
+      raw: {
+        _memory_references: [{ note_id: "note_complete", content: "Complete memory" }],
+      },
+    });
+    applyChatEvent(state, {
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "m-stream",
+      text: "Streamed answer",
+      reasoning: false,
+      raw: {},
+    });
+    applyChatEvent(state, {
+      kind: "message.stream.completed",
+      chatId: "chat-1",
+      messageId: "m-stream",
+      raw: {
+        _recent_context_references: [{ evidence_id: "ev_stream", excerpt: "Stream context" }],
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      {
+        messageId: "m-complete",
+        references: [{ kind: "memory", title: "note_complete", detail: "Complete memory" }],
+      },
+      {
+        messageId: "m-stream",
+        references: [{ kind: "recent", title: "ev_stream", detail: "Stream context" }],
+      },
+    ]);
+  });
+
   test("clears responding state when a stream is interrupted or errors", () => {
     const state = createNativeChatState();
     applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });

@@ -73,7 +73,10 @@ import { mountConversationMessageIsland } from "./native-vue/conversationMessage
 import { mountConversationMetaIsland } from "./native-vue/conversationMetaIsland";
 import { mountConversationReasoningIsland } from "./native-vue/conversationReasoningIsland";
 import { mountConversationReferenceIsland } from "./native-vue/conversationReferenceIsland";
-import { mountOrUpdateConversationThreadIsland } from "./native-vue/conversationThreadIsland";
+import {
+  mountOrUpdateConversationThreadIsland,
+  type ConversationCoworkRunOptions,
+} from "./native-vue/conversationThreadIsland";
 import { mountCoworkActionsIsland } from "./native-vue/coworkActionsIsland";
 import { mountCoworkDataRowIsland } from "./native-vue/coworkDataRowIsland";
 import { mountCoworkGraphIsland } from "./native-vue/coworkGraphIsland";
@@ -380,6 +383,13 @@ interface DesktopWorkbenchLiveState {
 }
 
 const desktopWorkbenchLiveStates = new WeakMap<Document, DesktopWorkbenchLiveState>();
+const desktopNativeChatModels = new WeakMap<Document, DesktopNativeChatModel>();
+const desktopChatTimelineContexts = new WeakMap<Document, {
+  agentUiActions: DesktopAgentUiFormActionOptions;
+  agentUiForms: AgentUiForm[];
+  coworkActions: DesktopCoworkActionOptions;
+  coworkPane: DesktopCoworkPaneModel | null;
+}>();
 
 export function installDesktopWorkbenchShell({
   targetDocument = document,
@@ -408,6 +418,15 @@ export function installDesktopWorkbenchShell({
 }: InstallDesktopWorkbenchShellOptions): void {
   installDesktopDesignTokens(targetDocument);
   ensureDesktopWorkbenchShellStyle(targetDocument);
+  if (chat) {
+    desktopNativeChatModels.set(targetDocument, chat);
+  }
+  desktopChatTimelineContexts.set(targetDocument, {
+    agentUiActions,
+    agentUiForms,
+    coworkActions,
+    coworkPane,
+  });
   targetDocument.body.classList.add("desktop-native-workbench");
   desktopWorkbenchLiveStates.set(targetDocument, {
     runChainItems,
@@ -497,6 +516,10 @@ export function updateDesktopAgentUiForms(
   forms: AgentUiForm[],
   agentUiActions: DesktopAgentUiFormActionOptions = {},
 ): void {
+  updateDesktopChatTimelineContext(targetDocument, {
+    agentUiActions,
+    agentUiForms: forms,
+  });
   const surface = targetDocument.querySelector<HTMLElement>(".desktop-agent-ui-forms");
   if (!surface) {
     return;
@@ -508,21 +531,15 @@ export function updateDesktopAgentUiForms(
 
 function updateInlineAgentUiForms(
   targetDocument: Document,
-  forms: AgentUiForm[],
-  agentUiActions: DesktopAgentUiFormActionOptions,
+  _forms: AgentUiForm[],
+  _agentUiActions: DesktopAgentUiFormActionOptions,
 ): void {
   const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
-  if (!thread) {
+  const chat = desktopNativeChatModels.get(targetDocument);
+  if (!thread || !chat) {
     return;
   }
-  for (const card of Array.from(thread.querySelectorAll(".desktop-agent-ui-form-inline"))) {
-    card.remove();
-  }
-  const documentElement = (targetDocument as Document & { documentElement?: HTMLElement }).documentElement;
-  const activeChatId = documentElement?.dataset.desktopActiveChatId ?? "";
-  for (const form of forms.filter((item) => agentUiFormChatId(item) === activeChatId)) {
-    thread.append(createInlineAgentUiFormCard(targetDocument, form, agentUiActions));
-  }
+  mountConversationThreadVueIsland(thread, conversationThreadOptions(targetDocument, chat));
 }
 
 export function updateDesktopCoworkPane(
@@ -530,12 +547,39 @@ export function updateDesktopCoworkPane(
   coworkPane: DesktopCoworkPaneModel,
   coworkActions: DesktopCoworkActionOptions = {},
 ): void {
+  updateDesktopChatTimelineContext(targetDocument, {
+    coworkActions,
+    coworkPane,
+  });
   const pane = targetDocument.querySelector<HTMLElement>(".desktop-cowork-cockpit");
   if (!pane) {
     return;
   }
   const next = createCoworkCockpitPane(targetDocument, coworkPane, coworkActions);
   pane.replaceChildren(...Array.from(next.children));
+  const thread = targetDocument.querySelector<HTMLElement>(".desktop-conversation-thread");
+  const chat = desktopNativeChatModels.get(targetDocument);
+  if (thread && chat) {
+    mountConversationThreadVueIsland(thread, conversationThreadOptions(targetDocument, chat));
+  }
+}
+
+function updateDesktopChatTimelineContext(
+  targetDocument: Document,
+  patch: Partial<{
+    agentUiActions: DesktopAgentUiFormActionOptions;
+    agentUiForms: AgentUiForm[];
+    coworkActions: DesktopCoworkActionOptions;
+    coworkPane: DesktopCoworkPaneModel | null;
+  }>,
+): void {
+  const current = desktopChatTimelineContexts.get(targetDocument) ?? {
+    agentUiActions: {},
+    agentUiForms: [],
+    coworkActions: {},
+    coworkPane: null,
+  };
+  desktopChatTimelineContexts.set(targetDocument, { ...current, ...patch });
 }
 
 export function updateDesktopNativeChat(
@@ -544,6 +588,7 @@ export function updateDesktopNativeChat(
   _gatewayHttp = "",
   chatActions: DesktopNativeChatActionOptions = {},
 ): void {
+  desktopNativeChatModels.set(targetDocument, chat);
   logDesktopNativeChatDebug("shell.update", {
     chat: summarizeDesktopNativeChatForDebug(chat),
     dom: summarizeNativeChatDomForDebug(targetDocument),
@@ -559,7 +604,7 @@ export function updateDesktopNativeChat(
   if (thread) {
     const scrollState = captureConversationThreadScroll(thread);
     if (canMountVueIsland(thread)) {
-      mountConversationThreadVueIsland(thread, conversationThreadOptions(chat));
+      mountConversationThreadVueIsland(thread, conversationThreadOptions(targetDocument, chat));
     } else {
       const next = createConversationThread(targetDocument, chat);
       thread.replaceChildren(...Array.from(next.children));
@@ -610,7 +655,7 @@ function syncChatWorkbenchChrome(targetDocument: Document, chat: DesktopNativeCh
   const thread = workbench.querySelector<HTMLElement>(".desktop-conversation-thread");
   const workLens = workbench.querySelector<HTMLElement>(".desktop-work-lens-inline");
   const children = [header, thread].filter((child): child is HTMLElement => Boolean(child));
-  if (!hasVisibleConversationMessages(chat)) {
+  if (!hasChatTimelineContent(targetDocument, chat)) {
     children.push(createChatWorkbenchEmptyState(targetDocument, []));
   }
   if (workLens) {
@@ -1264,13 +1309,13 @@ function createMainRegion(
   main.setAttribute("data-workbench-region", "main");
   main.setAttribute("aria-label", "Primary desktop work area");
   const chatWorkItems = moduleWorkItems(taskCenterItems, "chat");
-  const showEmptySession = chat ? !hasVisibleConversationMessages(chat) : false;
+  const showEmptySession = chat ? !hasChatTimelineContent(targetDocument, chat) : false;
 
   const workbench = targetDocument.createElement("div");
   workbench.className = "desktop-empty-session desktop-chat-workbench";
   const workbenchChildren = [
     createChatHeader(targetDocument, chat, layout, chatActions),
-    createConversationThread(targetDocument, chat, activeChatAgentUiForms(chat, agentUiForms), agentUiActions),
+    createConversationThread(targetDocument, chat),
   ];
   if (showEmptySession) {
     workbenchChildren.push(createChatWorkbenchEmptyState(targetDocument, chatWorkItems));
@@ -1332,11 +1377,72 @@ function hasVisibleConversationMessages(chat: DesktopNativeChatModel): boolean {
   ));
 }
 
+function hasChatTimelineContent(targetDocument: Document, chat: DesktopNativeChatModel): boolean {
+  return hasVisibleConversationMessages(chat)
+    || activeChatAgentUiForms(chat, desktopChatTimelineContexts.get(targetDocument)?.agentUiForms ?? []).length > 0
+    || chatCoworkRuns(targetDocument, chat).length > 0;
+}
+
 function activeChatAgentUiForms(chat: DesktopNativeChatModel | null, forms: AgentUiForm[]): AgentUiForm[] {
   if (!chat?.activeChatId) {
     return [];
   }
   return forms.filter((form) => agentUiFormChatId(form) === chat.activeChatId);
+}
+
+function chatCoworkRuns(targetDocument: Document, chat: DesktopNativeChatModel | null): ConversationCoworkRunOptions[] {
+  const coworkPane = desktopChatTimelineContexts.get(targetDocument)?.coworkPane;
+  if (!chat?.activeChatId || !coworkPane) {
+    return [];
+  }
+  const rows = coworkPane.sessionRows.filter((row) => coworkSessionOriginChatId(row.raw) === chat.activeChatId);
+  const visible = rows.sort(compareCoworkRowsForChat)[0];
+  if (!visible) {
+    return [];
+  }
+  const cockpit = coworkPane.cockpitView?.header.id === visible.id ? coworkPane.cockpitView : null;
+  return [{
+    activeAgentCount: visible.activeAgentCount,
+    agentCount: visible.agentCount,
+    agents: (cockpit?.agents ?? []).map((agent) => ({
+      attentionLabel: agent.attention.label,
+      id: agent.id,
+      label: agent.label,
+      latestActivity: agent.latestActivity,
+      roleOrTask: agent.roleOrTask,
+      status: agent.status,
+    })),
+    attentionLabel: visible.attention.label,
+    finalOutput: visible.finalOutput,
+    id: visible.id,
+    status: visible.status,
+    taskProgress: visible.taskProgress.total
+      ? `${visible.taskProgress.completed}/${visible.taskProgress.total}`
+      : "0/0",
+    title: visible.title,
+    workflow: visible.workflow,
+  }];
+}
+
+function coworkSessionOriginChatId(raw: Record<string, unknown> | null | undefined): string {
+  if (!raw) {
+    return "";
+  }
+  const value = raw.origin_chat_id ?? raw.originChatId ?? raw.source_chat_id ?? raw.chat_id;
+  return typeof value === "string" ? value : "";
+}
+
+function compareCoworkRowsForChat(left: DesktopCoworkSessionRow, right: DesktopCoworkSessionRow): number {
+  const leftActive = isActiveCoworkStatus(left.status) ? 1 : 0;
+  const rightActive = isActiveCoworkStatus(right.status) ? 1 : 0;
+  if (leftActive !== rightActive) {
+    return rightActive - leftActive;
+  }
+  return Date.parse(right.updatedAt || "") - Date.parse(left.updatedAt || "");
+}
+
+function isActiveCoworkStatus(status: string): boolean {
+  return ["active", "running", "paused", "blocked"].includes(status.toLowerCase());
 }
 
 function agentUiFormChatId(form: AgentUiForm): string {
@@ -2027,8 +2133,8 @@ function mountPanelIconPartVueIsland(node: HTMLElement, part: "frame" | "rail"):
 function createConversationThread(
   targetDocument: Document,
   chat: DesktopNativeChatModel | null,
-  inlineForms: AgentUiForm[] = [],
-  agentUiActions: DesktopAgentUiFormActionOptions = {},
+  _inlineForms: AgentUiForm[] = [],
+  _agentUiActions: DesktopAgentUiFormActionOptions = {},
 ): HTMLElement {
   const thread = targetDocument.createElement("section");
   thread.className = "desktop-conversation-thread";
@@ -2037,19 +2143,21 @@ function createConversationThread(
   thread.setAttribute("data-desktop-chat-region", "message-timeline");
   thread.setAttribute("role", "log");
   if (chat) {
+    const activeForms = activeChatAgentUiForms(chat, desktopChatTimelineContexts.get(targetDocument)?.agentUiForms ?? []);
+    const activeCoworkRuns = chatCoworkRuns(targetDocument, chat);
     if (!chat.activeSessionKey) {
-      mountConversationThreadVueIsland(thread, conversationThreadMountOptions({ emptyMessage: "", messages: [] }, inlineForms, agentUiActions));
+      mountConversationThreadVueIsland(thread, conversationThreadMountOptions(targetDocument, { coworkRuns: [], emptyMessage: "", messages: [] }));
       return thread;
     }
-    if (!hasVisibleConversationMessages(chat) && !inlineForms.length) {
-      mountConversationThreadVueIsland(thread, conversationThreadMountOptions({ emptyMessage: "", messages: [] }, inlineForms, agentUiActions));
+    if (!hasVisibleConversationMessages(chat) && !activeForms.length && !activeCoworkRuns.length) {
+      mountConversationThreadVueIsland(thread, conversationThreadMountOptions(targetDocument, { coworkRuns: [], emptyMessage: "", messages: [] }));
       return thread;
     }
-    const options = conversationThreadOptions(chat);
+    const options = conversationThreadOptions(targetDocument, chat);
     const { messages } = options;
     thread.append(...messages.map((message) => createConversationMessage(targetDocument, message)));
-    thread.append(...inlineForms.map((form) => createInlineAgentUiFormCard(targetDocument, form, agentUiActions)));
-    mountConversationThreadVueIsland(thread, conversationThreadMountOptions(options, inlineForms, agentUiActions));
+    thread.append(...activeForms.map((form) => createInlineAgentUiFormCard(targetDocument, form, desktopChatTimelineContexts.get(targetDocument)?.agentUiActions ?? {})));
+    mountConversationThreadVueIsland(thread, conversationThreadMountOptions(targetDocument, options));
     return thread;
   }
   thread.append(
@@ -2077,18 +2185,29 @@ function createConversationThread(
 }
 
 function conversationThreadMountOptions(
+  targetDocument: Document,
   options: ReturnType<typeof conversationThreadOptions>,
-  inlineForms: AgentUiForm[],
-  agentUiActions: DesktopAgentUiFormActionOptions,
 ): Parameters<typeof mountConversationThreadVueIsland>[1] {
+  const context = desktopChatTimelineContexts.get(targetDocument) ?? {
+    agentUiActions: {},
+    agentUiForms: [],
+    coworkActions: {},
+    coworkPane: null,
+  };
   return {
     ...options,
-    inlineForms,
+    inlineForms: activeChatAgentUiForms(desktopNativeChatModels.get(targetDocument) ?? null, context.agentUiForms),
+    onCoworkAgentInspect: (selection) => {
+      setRouteStatus(targetDocument, `Inspecting Cowork agent ${selection.agentId}`);
+    },
     onInlineFormCancel: (form) => {
-      agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
+      context.agentUiActions.onAgentUiFormAction?.({ action: "cancel", form });
     },
     onInlineFormSubmit: (form, values) => {
-      agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
+      context.agentUiActions.onAgentUiFormAction?.({ action: "submit", form, values });
+    },
+    onReferenceInspect: (reference) => {
+      setRouteStatus(targetDocument, `Inspecting ${reference.kind} reference ${reference.title}`);
     },
   };
 }
@@ -2104,7 +2223,8 @@ function createInlineAgentUiFormCard(
   return card;
 }
 
-function conversationThreadOptions(chat: DesktopNativeChatModel | null): {
+function conversationThreadOptions(targetDocument: Document, chat: DesktopNativeChatModel | null): {
+  coworkRuns: ConversationCoworkRunOptions[];
   emptyMessage: string;
   messages: Array<{
     attachment?: string;
@@ -2129,9 +2249,10 @@ function conversationThreadOptions(chat: DesktopNativeChatModel | null): {
   }>;
 } {
   if (!chat?.activeSessionKey || !hasVisibleConversationMessages(chat)) {
-    return { emptyMessage: "", messages: [] };
+    return { coworkRuns: chatCoworkRuns(targetDocument, chat), emptyMessage: "", messages: [] };
   }
   return {
+    coworkRuns: chatCoworkRuns(targetDocument, chat),
     emptyMessage: "",
     messages: chat.messages.map((message) => ({
       author: message.role === "user" ? "You" : "Tinybot",
@@ -2163,6 +2284,7 @@ function conversationThreadOptions(chat: DesktopNativeChatModel | null): {
 function mountConversationThreadVueIsland(
   thread: HTMLElement,
   options: {
+    coworkRuns?: ConversationCoworkRunOptions[];
     emptyMessage: string;
     inlineForms?: AgentUiForm[];
     messages: Array<{
@@ -2186,8 +2308,10 @@ function mountConversationThreadVueIsland(
         status?: string;
       }>;
     }>;
+    onCoworkAgentInspect?: (selection: { agentId: string; sessionId: string }) => void;
     onInlineFormCancel?: (form: AgentUiForm) => void;
     onInlineFormSubmit?: (form: AgentUiForm, values: Record<string, unknown>) => void;
+    onReferenceInspect?: (reference: { detail: string; kind: string; title: string }) => void;
   },
 ): void {
   if (!canMountVueIsland(thread)) {
@@ -9874,6 +9998,153 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-left: 1px solid #e3ded7;
     }
 
+    body.desktop-native-workbench .desktop-chat-cowork-surface {
+      display: grid;
+      gap: 12px;
+      width: min(100%, 820px);
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 8px;
+      padding: 14px;
+      background: var(--panel, #fffdf9);
+      color: var(--text, #2f2a25);
+      box-shadow: 0 12px 30px rgba(31, 27, 22, 0.06);
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-title,
+    body.desktop-native-workbench .desktop-chat-cowork-agent-main,
+    body.desktop-native-workbench .desktop-chat-cowork-agent-aside {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-eyebrow {
+      color: #8a847e;
+      font: 700 11px/1.2 var(--font-sans);
+      text-transform: uppercase;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-title strong {
+      color: var(--text-strong, #211d19);
+      font: 750 15px/1.3 var(--font-sans);
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-title small {
+      color: var(--text-muted, #77716a);
+      font-size: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-metrics {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-metric,
+    body.desktop-native-workbench .desktop-chat-cowork-progress,
+    body.desktop-native-workbench .desktop-chat-cowork-attention,
+    body.desktop-native-workbench .desktop-chat-cowork-agent-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: var(--panel-strong, #faf9f5);
+      color: #625d57;
+      font: 650 11px/1.2 var(--font-sans);
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-metric strong {
+      color: var(--text-strong, #211d19);
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-agent-list {
+      display: grid;
+      gap: 7px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-agent-row {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      border: 1px solid var(--border, #e6dfd8);
+      border-radius: 8px;
+      padding: 8px;
+      background: var(--surface, #fffaf4);
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-agent-row:hover,
+    body.desktop-native-workbench .desktop-chat-cowork-agent-row:focus-visible {
+      border-color: var(--accent, #8f6d49);
+      background: var(--accent-soft, #f5eadf);
+      outline: none;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-agent-avatar {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      background: var(--panel-strong, #f7f2ed);
+      color: var(--text-strong, #211d19);
+      font-weight: 800;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-agent-main strong {
+      color: var(--text-strong, #211d19);
+      font-size: 13px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-agent-main span,
+    body.desktop-native-workbench .desktop-chat-cowork-agent-aside small {
+      overflow: hidden;
+      color: var(--text-muted, #77716a);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-agent-attention {
+      color: #a9583e;
+      font-weight: 700;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-final {
+      display: grid;
+      gap: 3px;
+      border-top: 1px solid var(--border, #e6dfd8);
+      padding-top: 10px;
+      color: #625d57;
+      font-size: 12px;
+    }
+
+    body.desktop-native-workbench .desktop-chat-cowork-final strong {
+      color: var(--text-strong, #211d19);
+      font-size: 12px;
+    }
+
     body.desktop-native-workbench .desktop-tool-activity {
       border: 0;
       border-radius: 0;
@@ -10506,9 +10777,23 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
     body.desktop-native-workbench .desktop-message-reference-item {
       display: grid;
       gap: 2px;
+      width: 100%;
       border-left: 2px solid #eee2d7;
+      border-top: 0;
+      border-right: 0;
+      border-bottom: 0;
       padding-left: 8px;
+      background: transparent;
       color: #625d57;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    body.desktop-native-workbench .desktop-message-reference-item:hover,
+    body.desktop-native-workbench .desktop-message-reference-item:focus-visible {
+      border-left-color: var(--accent, #8f6d49);
+      color: #3f3a35;
+      outline: none;
     }
 
     body.desktop-native-workbench .desktop-message-reference-title {

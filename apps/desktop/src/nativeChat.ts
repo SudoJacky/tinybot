@@ -32,7 +32,7 @@ export type NativeChatToolActivity = {
 };
 
 export type NativeChatReference = {
-  kind: "browser" | "memory" | "reference";
+  kind: "browser" | "memory" | "recent" | "reference";
   title: string;
   detail: string;
 };
@@ -211,6 +211,7 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       return;
     }
     const toolMessage = nativeToolMessageFromEvent(event);
+    const references = normalizeMessageReferences(event.raw);
     const bucket = ensureMessageBucket(state, sessionKey);
     if (toolMessage && upsertToolActivityMessage(bucket, toolMessage)) {
       state.respondingSessionKeys.delete(sessionKey);
@@ -227,6 +228,7 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       content: toolMessage ? "" : event.text,
       reasoningContent: "",
       ...(toolMessage ? { toolActivities: [toolMessage] } : {}),
+      ...(references.length ? { references } : {}),
       timestamp: new Date().toISOString(),
       messageId: event.messageId || "",
     });
@@ -247,6 +249,10 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
         : sessionKeyForChatState(state, event.chatId || state.activeChatId);
     if (sessionKey) {
       state.respondingSessionKeys.delete(sessionKey);
+      const references = normalizeMessageReferences(event.raw);
+      if (references.length && event.messageId) {
+        attachMessageReferences(state, sessionKey, event.messageId, references);
+      }
     }
     if (event.messageId) {
       state.streamMessageKeys.delete(event.messageId);
@@ -324,6 +330,19 @@ function upsertToolActivityMessage(bucket: NativeChatMessage[], nextActivity: Na
   return true;
 }
 
+function attachMessageReferences(
+  state: NativeChatState,
+  sessionKey: string,
+  messageId: string,
+  references: NativeChatReference[],
+) {
+  const message = ensureMessageBucket(state, sessionKey).find((item) => item.messageId === messageId);
+  if (!message) {
+    return;
+  }
+  message.references = [...(message.references ?? []), ...references];
+}
+
 function coalesceToolActivityMessages(messages: NativeChatMessage[]): NativeChatMessage[] {
   const coalesced: NativeChatMessage[] = [];
   for (const message of messages) {
@@ -390,8 +409,11 @@ function normalizeMessageReferences(message: Record<string, unknown>): NativeCha
   return [
     ...referenceRows(message.browser_references, "browser"),
     ...referenceRows(message.browser_snapshots, "browser"),
+    ...referenceRows(message._memory_references, "memory"),
     ...referenceRows(message.memory_references, "memory"),
     ...referenceRows(message.memories, "memory"),
+    ...referenceRows(message._recent_context_references, "recent"),
+    ...referenceRows(message.recent_context_references, "recent"),
     ...referenceRows(message.references, "reference"),
     ...referenceRows(message.citations, "reference"),
   ];
@@ -575,8 +597,24 @@ function inferToolNameFromText(value: string): string {
 function referenceRows(value: unknown, kind: NativeChatReference["kind"]): NativeChatReference[] {
   return arrayRows(value).map((row) => ({
     kind,
-    title: stringValue(row.title ?? row.name ?? row.id ?? row.url) || kind,
-    detail: stringValue(row.detail ?? row.summary ?? row.path ?? row.url ?? row.content),
+    title: stringValue(
+      row.title ??
+        row.name ??
+        row.note_id ??
+        row.evidence_id ??
+        row.id ??
+        row.file ??
+        row.url,
+    ) || kind,
+    detail: stringValue(
+      row.detail ??
+        row.summary ??
+        row.excerpt ??
+        row.content ??
+        row.path ??
+        row.file ??
+        row.url,
+    ),
   }));
 }
 
