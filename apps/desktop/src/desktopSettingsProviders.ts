@@ -16,6 +16,18 @@ export interface DesktopSettingsProviderEditorState {
   supportsModelDiscovery: boolean;
 }
 
+export interface DesktopSettingsProviderSummary {
+  id: string;
+  label: string;
+  profileId: string;
+  apiKey: string;
+  apiBase: string | null;
+  modelsText: string;
+  supportsModelDiscovery: boolean;
+  status: string;
+  enabled: boolean;
+}
+
 export interface DesktopSettingsFormState {
   agent: {
     workspace: string | null;
@@ -79,6 +91,7 @@ export interface DesktopSettingsFormState {
     sendMaxRetries: number | null;
   };
   providerEditor: DesktopSettingsProviderEditorState;
+  providerSummaries: DesktopSettingsProviderSummary[];
 }
 
 export type DesktopSettingsValidationField =
@@ -164,7 +177,17 @@ export interface DesktopSettingsPaneModel {
     canSave: boolean;
   };
   groups: DesktopSettingsPaneGroup[];
-  providerCatalog: Array<{ id: string; label: string; status: string }>;
+  providerCatalog: Array<{
+    id: string;
+    label: string;
+    profileId?: string;
+    status: string;
+    enabled?: boolean;
+    baseUrl?: string | null;
+    apiKey?: DesktopSecretField;
+    models?: string[];
+    canDiscoverModels?: boolean;
+  }>;
   providerEditor: {
     selectedProvider: string;
     profileId: string;
@@ -194,8 +217,12 @@ export function buildDesktopSettingsFormState(
   const heartbeat = asRecord(gateway.heartbeat);
   const channels = asRecord(root.channels);
   const providers = asRecord(root.providers);
-  const providerIds = providerCatalog.map((provider) => stringValue(provider.id)).filter(Boolean);
   const rawProvider = stringValue(pick(defaults, "provider")) || "auto";
+  const preliminaryDisplayProvider = rawProvider === "auto" ? "deepseek" : rawProvider;
+  const preliminaryProfileId = stringValue(pick(defaults, "activeProfile", "active_profile"))
+    || findDesktopProfileIdForProvider(providers, preliminaryDisplayProvider);
+  const providerSummaries = buildDesktopProviderSummaries(providers, providerCatalog, preliminaryDisplayProvider, preliminaryProfileId);
+  const providerIds = providerSummaries.map((provider) => provider.id).filter(Boolean);
   const selectedProvider = rawProvider === "auto" || providerIds.includes(rawProvider) ? rawProvider : "auto";
   const displayProvider = selectedProvider === "auto" ? "deepseek" : selectedProvider;
   const profileId = stringValue(pick(defaults, "activeProfile", "active_profile")) || findDesktopProfileIdForProvider(providers, displayProvider);
@@ -277,6 +304,7 @@ export function buildDesktopSettingsFormState(
       modelsText: parseDesktopProviderModelList(providerProfile.models).join("\n"),
       supportsModelDiscovery: pick(providerProfile, "supportsModelDiscovery", "supports_model_discovery") !== false,
     },
+    providerSummaries,
   };
 }
 
@@ -293,6 +321,78 @@ export function buildDesktopProviderCatalogItems(payload: unknown): DesktopProvi
     baseUrl: stringValue(pick(provider, "baseUrl", "base_url")),
     status: stringValue(provider.status),
   }));
+}
+
+export function buildDesktopProviderSummaries(
+  providers: unknown,
+  providerCatalog: DesktopProviderCatalogItem[] = [],
+  displayProvider = "deepseek",
+  activeProfileId = "",
+): DesktopSettingsProviderSummary[] {
+  const providerRoot = asRecord(providers);
+  const profiles = getDesktopProviderProfiles(providerRoot);
+  const providerIds = new Set<string>();
+  for (const provider of providerCatalog) {
+    const id = stringValue(provider.id);
+    if (id) {
+      providerIds.add(id);
+    }
+  }
+  for (const key of Object.keys(providerRoot)) {
+    if (key !== "profiles" && !isRecordValue(providerRoot[key])) {
+      continue;
+    }
+    if (key !== "profiles") {
+      providerIds.add(key);
+    }
+  }
+  for (const profile of Object.values(profiles)) {
+    const providerId = stringValue(asRecord(profile).provider);
+    if (providerId) {
+      providerIds.add(providerId);
+    }
+  }
+  if (!providerIds.size) {
+    providerIds.add(displayProvider || "deepseek");
+  }
+
+  return Array.from(providerIds).map((id) => {
+    const catalogProvider = providerCatalog.find((provider) => stringValue(provider.id) === id);
+    const matchedProfiles = Object.entries(profiles).filter(([, profile]) => stringValue(asRecord(profile).provider) === id);
+    const activeProfile = activeProfileId
+      ? matchedProfiles.find(([profileId]) => profileId === activeProfileId)
+      : undefined;
+    const namedProfile = matchedProfiles.find(([profileId]) => profileId === id);
+    const profileEntry = activeProfile ?? namedProfile ?? matchedProfiles[0];
+    const profileId = profileEntry?.[0] ?? findDesktopProfileIdForProvider(providerRoot, id);
+    const profile = asRecord(profileEntry?.[1]);
+    const legacyProvider = asRecord(providerRoot[id]);
+    const apiKey = stringValue(pick(profile, "apiKey", "api_key")) || stringValue(pick(legacyProvider, "apiKey", "api_key"));
+    const apiBase = stringOrNull(
+      pick(profile, "apiBase", "api_base")
+      || pick(legacyProvider, "apiBase", "api_base")
+      || catalogProvider?.baseUrl,
+    );
+    const models = [
+      ...parseDesktopProviderModelList(pick(profile, "models")),
+      ...parseDesktopProviderModelList(pick(profile, "manualModels", "manual_models")),
+      ...parseDesktopProviderModelList(pick(legacyProvider, "models")),
+      ...parseDesktopProviderModelList(pick(legacyProvider, "manualModels", "manual_models")),
+    ];
+    const status = stringValue(catalogProvider?.status) || (apiKey || apiBase || models.length ? "ready" : "not_configured");
+    return {
+      id,
+      label: stringValue(catalogProvider?.displayName) || id,
+      profileId,
+      apiKey,
+      apiBase,
+      modelsText: parseDesktopProviderModelList(models).join("\n"),
+      supportsModelDiscovery: pick(profile, "supportsModelDiscovery", "supports_model_discovery") !== false
+        && pick(legacyProvider, "supportsModelDiscovery", "supports_model_discovery") !== false,
+      status,
+      enabled: isDesktopProviderEnabledStatus(status),
+    };
+  });
 }
 
 export function createDesktopSettingsPatch(
@@ -438,6 +538,7 @@ export function buildDesktopSettingsPaneModel(
   } = {},
 ): DesktopSettingsPaneModel {
   const validationErrors = validateDesktopSettingsForm(state);
+  const providerSummaries = getDesktopStateProviderSummaries(state, options.providerCatalog ?? []);
   const dirty = options.lastSavedState
     ? JSON.stringify(createDesktopSettingsPatch(state)) !== JSON.stringify(createDesktopSettingsPatch(options.lastSavedState))
     : false;
@@ -450,11 +551,17 @@ export function buildDesktopSettingsPaneModel(
       message: saveStatus === "failed" ? options.saveError || "Save failed" : formatDesktopSettingsSaveMessage(saveStatus, dirty),
       canSave: dirty && validationErrors.length === 0 && saveStatus !== "saving",
     },
-    groups: buildDesktopSettingsPaneGroups(state, validationErrors, options.providerCatalog ?? []),
-    providerCatalog: (options.providerCatalog ?? []).map((provider) => ({
-      id: stringValue(provider.id),
-      label: stringValue(provider.displayName) || stringValue(provider.id),
-      status: stringValue(provider.status) || "unknown",
+    groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
+    providerCatalog: providerSummaries.map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+      profileId: provider.profileId,
+      status: provider.status || "unknown",
+      enabled: provider.enabled,
+      baseUrl: provider.apiBase,
+      apiKey: buildDesktopSecretField(provider.apiKey),
+      models: parseDesktopProviderModelList(provider.modelsText),
+      canDiscoverModels: provider.supportsModelDiscovery,
     })).filter((provider) => provider.id),
     providerEditor: {
       selectedProvider: state.providerEditor.selectedProvider,
@@ -497,6 +604,7 @@ export function applyDesktopProviderModels(
     };
   }
   nextState.providerEditor.modelsText = models.join("\n");
+  syncDesktopProviderSummaryFromEditor(nextState);
   if (!nextState.agent.model && models[0]) {
     nextState.agent.model = models[0];
   }
@@ -530,18 +638,20 @@ export function applyDesktopSettingsFieldEdit(
       nextState.agent.timezone = stringOrNullInput(text);
       break;
     case "selectedProvider":
-      nextState.providerEditor.selectedProvider = stringOrNullInput(text) || "deepseek";
-      nextState.agent.provider = nextState.providerEditor.selectedProvider;
+      selectDesktopProviderEditor(nextState, stringOrNullInput(text) || "deepseek");
       break;
     case "profileId":
       nextState.providerEditor.profileId = text.trim();
       nextState.agent.activeProfile = stringOrNullInput(text);
+      syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "apiBase":
       nextState.providerEditor.apiBase = stringOrNullInput(text);
+      syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "models":
       nextState.providerEditor.modelsText = text;
+      syncDesktopProviderSummaryFromEditor(nextState);
       break;
     case "enabled":
       nextState.knowledge.enabled = Boolean(value);
@@ -705,18 +815,105 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     gateway: { ...state.gateway },
     channels: { ...state.channels },
     providerEditor: { ...state.providerEditor },
+    providerSummaries: (state.providerSummaries ?? []).map((provider) => ({ ...provider })),
   };
+}
+
+function getDesktopStateProviderSummaries(
+  state: DesktopSettingsFormState,
+  providerCatalog: DesktopProviderCatalogItem[],
+): DesktopSettingsProviderSummary[] {
+  if (state.providerSummaries?.length) {
+    return state.providerSummaries;
+  }
+  const selectedProvider = state.providerEditor.selectedProvider || "deepseek";
+  const catalog = providerCatalog.length
+    ? providerCatalog
+    : [{ id: selectedProvider, displayName: selectedProvider, status: "not_configured" }];
+  return catalog.map((provider) => {
+    const id = stringValue(provider.id);
+    const status = stringValue(provider.status) || "not_configured";
+    const isSelected = id === selectedProvider;
+    return {
+      id,
+      label: stringValue(provider.displayName) || id,
+      profileId: isSelected ? state.providerEditor.profileId : id,
+      apiKey: isSelected ? state.providerEditor.apiKey : "",
+      apiBase: isSelected ? state.providerEditor.apiBase : stringOrNull(provider.baseUrl),
+      modelsText: isSelected ? state.providerEditor.modelsText : "",
+      supportsModelDiscovery: isSelected ? state.providerEditor.supportsModelDiscovery : true,
+      status,
+      enabled: isDesktopProviderEnabledStatus(status),
+    };
+  }).filter((provider) => provider.id);
+}
+
+function selectDesktopProviderEditor(state: DesktopSettingsFormState, providerId: string): void {
+  const summary = state.providerSummaries.find((provider) => provider.id === providerId);
+  state.providerEditor.selectedProvider = providerId;
+  if (!summary) {
+    state.providerEditor.profileId = providerId;
+    state.providerEditor.apiKey = "";
+    state.providerEditor.apiBase = null;
+    state.providerEditor.modelsText = "";
+    state.providerEditor.supportsModelDiscovery = true;
+    state.providerSummaries.push({
+      id: providerId,
+      label: providerId,
+      profileId: providerId,
+      apiKey: "",
+      apiBase: null,
+      modelsText: "",
+      supportsModelDiscovery: true,
+      status: "not_configured",
+      enabled: false,
+    });
+    return;
+  }
+  state.providerEditor.profileId = summary.profileId;
+  state.providerEditor.apiKey = summary.apiKey;
+  state.providerEditor.apiBase = summary.apiBase;
+  state.providerEditor.modelsText = summary.modelsText;
+  state.providerEditor.supportsModelDiscovery = summary.supportsModelDiscovery;
+}
+
+function syncDesktopProviderSummaryFromEditor(state: DesktopSettingsFormState): void {
+  const selectedProvider = state.providerEditor.selectedProvider || "deepseek";
+  const summary = state.providerSummaries.find((provider) => provider.id === selectedProvider);
+  if (!summary) {
+    state.providerSummaries.push({
+      id: selectedProvider,
+      label: selectedProvider,
+      profileId: state.providerEditor.profileId || selectedProvider,
+      apiKey: state.providerEditor.apiKey,
+      apiBase: state.providerEditor.apiBase,
+      modelsText: state.providerEditor.modelsText,
+      supportsModelDiscovery: state.providerEditor.supportsModelDiscovery,
+      status: "not_configured",
+      enabled: false,
+    });
+    return;
+  }
+  summary.profileId = state.providerEditor.profileId || selectedProvider;
+  summary.apiKey = state.providerEditor.apiKey;
+  summary.apiBase = state.providerEditor.apiBase;
+  summary.modelsText = state.providerEditor.modelsText;
+  summary.supportsModelDiscovery = state.providerEditor.supportsModelDiscovery;
+}
+
+function isDesktopProviderEnabledStatus(status: string): boolean {
+  return ["ready", "available"].includes(status);
 }
 
 function buildDesktopSettingsPaneGroups(
   state: DesktopSettingsFormState,
   validationErrors: DesktopSettingsValidationError[],
-  providerCatalog: DesktopProviderCatalogItem[] = [],
+  providerSummaries: DesktopSettingsProviderSummary[] = state.providerSummaries ?? [],
 ): DesktopSettingsPaneGroup[] {
   const invalidFields = new Set(validationErrors.map((error) => error.field));
-  const editorProviderOptions = providerCatalog.map((provider) => ({
-      value: stringValue(provider.id),
-      label: stringValue(provider.displayName) || stringValue(provider.id),
+  const editorProviderOptions = providerSummaries.map((provider) => ({
+      value: provider.id,
+      label: provider.label || provider.id,
     })).filter((provider) => provider.value);
   for (const value of [state.providerEditor.selectedProvider, "deepseek"].filter(Boolean)) {
     if (!editorProviderOptions.some((option) => option.value === value)) {
@@ -725,7 +922,10 @@ function buildDesktopSettingsPaneGroups(
   }
   const agentProviderOptions = [
     { value: "auto", label: "Auto" },
-    ...editorProviderOptions,
+    ...providerSummaries.filter((provider) => provider.enabled).map((provider) => ({
+      value: provider.id,
+      label: provider.label || provider.id,
+    })),
   ];
   const field = (
     id: string,
@@ -874,6 +1074,10 @@ function pick(record: UnknownRecord, ...keys: string[]): unknown {
 
 function asRecord(value: unknown): UnknownRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as UnknownRecord) : {};
+}
+
+function isRecordValue(value: unknown): value is UnknownRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stringValue(value: unknown): string {

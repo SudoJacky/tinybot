@@ -314,7 +314,17 @@ describe("desktop settings and provider helpers", () => {
       expect.objectContaining({ id: "host", label: "Host" }),
       expect.objectContaining({ id: "port", label: "Port", state: "normal" }),
     ]));
-    expect(pane.providerCatalog).toEqual([{ id: "openai", label: "OpenAI", status: "ready" }]);
+    expect(pane.providerCatalog).toEqual([
+      expect.objectContaining({
+        id: "openai",
+        label: "OpenAI",
+        profileId: "work",
+        status: "ready",
+        enabled: true,
+        baseUrl: "https://api.openai.com/v1",
+        models: ["gpt-4.1", "gpt-4.1-mini"],
+      }),
+    ]);
     expect(pane.providerEditor).toMatchObject({
       profileId: "work",
       selectedProvider: "openai",
@@ -340,5 +350,66 @@ describe("desktop settings and provider helpers", () => {
     expect(patch.agents).toMatchObject({ defaults: { model: "gpt-4.1" } });
     expect(patch.knowledge).toMatchObject({ enabled: false });
     expect(patch.gateway).toMatchObject({ port: 18888 });
+  });
+
+  test("keeps provider editing separate from the default LLM provider", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1", provider: "openai", active_profile: "work" } },
+      providers: {
+        profiles: {
+          work: {
+            provider: "openai",
+            api_key: "sk-openai",
+            api_base: "https://api.openai.com/v1",
+            models: ["gpt-4.1"],
+          },
+          deepseek: {
+            provider: "deepseek",
+            api_key: "sk-deepseek",
+            api_base: "https://api.deepseek.com",
+            models: ["deepseek-chat"],
+          },
+        },
+      },
+    }, [
+      { id: "openai", displayName: "OpenAI", status: "ready" },
+      { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+      { id: "ollama", displayName: "Ollama", status: "not_configured" },
+    ]);
+
+    const pane = buildDesktopSettingsPaneModel(state, {
+      providerCatalog: [
+        { id: "openai", displayName: "OpenAI", status: "ready" },
+        { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+        { id: "ollama", displayName: "Ollama", status: "not_configured" },
+      ],
+    });
+    expect(pane.providerCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "deepseek",
+        enabled: true,
+        baseUrl: "https://api.deepseek.com",
+        models: ["deepseek-chat"],
+      }),
+      expect.objectContaining({
+        id: "ollama",
+        enabled: false,
+      }),
+    ]));
+    expect(pane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "provider")?.options).toEqual([
+      { value: "auto", label: "Auto" },
+      { value: "openai", label: "OpenAI" },
+      { value: "deepseek", label: "DeepSeek" },
+    ]);
+
+    const editingDeepSeek = applyDesktopSettingsFieldEdit(state, "selectedProvider", "deepseek");
+    expect(editingDeepSeek.agent.provider).toBe("openai");
+    expect(editingDeepSeek.providerEditor).toMatchObject({
+      selectedProvider: "deepseek",
+      profileId: "deepseek",
+      apiKey: "sk-deepseek",
+      apiBase: "https://api.deepseek.com",
+      modelsText: "deepseek-chat",
+    });
   });
 });

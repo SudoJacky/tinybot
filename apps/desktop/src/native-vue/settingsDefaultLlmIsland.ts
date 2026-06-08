@@ -44,7 +44,7 @@ function createSettingsDefaultLlmApp(options: SettingsDefaultLlmIslandOptions): 
 }
 
 function renderDefaultLlmCard(options: SettingsDefaultLlmIslandOptions) {
-  const provider = findPaneField(options.pane, "provider-models", "selectedProvider");
+  const provider = findPaneField(options.pane, "general", "provider");
   const model = findPaneField(options.pane, "general", "model");
   return [
     h("div", { class: "desktop-settings-card-heading" }, [
@@ -66,14 +66,14 @@ function renderInlineField(
 ) {
   return h("label", { class: "desktop-settings-inline-field" }, [
     h("span", label),
-    field.id === "model" && options.pane.providerEditor.models.length > 0
+    field.id === "model" && getDefaultLlmModelOptions(options.pane).length > 0
       ? renderModelSelect(options, field)
       : renderControl(options, field),
   ]);
 }
 
 function renderModelSelect(options: SettingsDefaultLlmIslandOptions, field: DesktopSettingsPaneField) {
-  const values = Array.from(new Set([field.inputValue, ...options.pane.providerEditor.models].filter(Boolean)));
+  const values = Array.from(new Set([field.inputValue, ...getDefaultLlmModelOptions(options.pane)].filter(Boolean)));
   if (!values.length) {
     values.push("");
   }
@@ -88,6 +88,14 @@ function renderModelSelect(options: SettingsDefaultLlmIslandOptions, field: Desk
     value,
     selected: value === field.inputValue ? "true" : undefined,
   }, value || "No model selected")));
+}
+
+function getDefaultLlmModelOptions(pane: DesktopSettingsPaneModel): string[] {
+  const defaultProvider = findPaneField(pane, "general", "provider")?.inputValue;
+  if (!defaultProvider || defaultProvider === "auto") {
+    return pane.providerEditor.models;
+  }
+  return pane.providerCatalog.find((provider) => provider.id === defaultProvider)?.models ?? [];
 }
 
 function renderControl(options: SettingsDefaultLlmIslandOptions, field: DesktopSettingsPaneField) {

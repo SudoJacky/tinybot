@@ -173,7 +173,7 @@ function renderProviderCard(
           h(NButton, {
             size: "small",
             "data-desktop-settings-provider-action": "models",
-            onClick: () => handleProviderCardAction(options, provider.id, "model"),
+            onClick: () => handleProviderCardAction(options, provider.id, "models"),
           }, { default: () => "Models" }),
           h(NButton, {
             size: "small",
@@ -210,14 +210,14 @@ function shouldHideProviderCard(provider: ProviderCardModel, query: string): boo
 function handleProviderCardAction(
   options: SettingsProviderManagementIslandOptions,
   providerId: string,
-  target: "model" | "settings",
+  target: "models" | "settings",
 ): void {
   if (providerId !== options.pane.providerEditor.selectedProvider) {
     selectProvider(options, providerId);
-    options.onFocusSettingsControl?.("selectedProvider");
+    options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
     return;
   }
-  options.onFocusSettingsControl?.(target === "model" ? "model" : "apiBase");
+  options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
 }
 
 function selectProvider(options: SettingsProviderManagementIslandOptions, providerId: string): void {
@@ -233,20 +233,32 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
   const selectedProvider = pane.providerEditor.selectedProvider || "provider";
   const catalog = pane.providerCatalog.length
     ? pane.providerCatalog
-    : [{ id: selectedProvider, label: selectedProvider, status: "not_configured" }];
+    : [{
+      id: selectedProvider,
+      label: selectedProvider,
+      profileId: selectedProvider,
+      status: "not_configured",
+      enabled: false,
+      baseUrl: null,
+      apiKey: { value: "", displayValue: "", masked: false, empty: true },
+      models: [],
+      canDiscoverModels: true,
+    }];
   return catalog.map((provider) => {
     const isSelected = provider.id === selectedProvider;
-    const models = isSelected ? pane.providerEditor.models.join(", ") : "";
+    const providerModels = provider.models ?? (isSelected ? pane.providerEditor.models : []);
+    const models = providerModels.join(", ");
+    const apiKey = provider.apiKey ?? (isSelected ? pane.providerEditor.apiKey : { displayValue: "" });
     return {
       id: provider.id,
       label: provider.label || provider.id,
       badge: isSelected ? "Current" : "",
       initials: providerInitials(provider.label || provider.id),
-      connected: provider.status === "ready",
+      connected: provider.enabled ?? (provider.status === "ready" || provider.status === "available"),
       statusLabel: formatProviderStatus(provider.status),
       statusTone: providerStatusTone(provider.status),
-      baseUrl: isSelected ? pane.providerEditor.apiBase || "Not configured" : "Not configured",
-      apiKey: isSelected ? pane.providerEditor.apiKey.displayValue || "Not configured" : "Not configured",
+      baseUrl: provider.baseUrl || (isSelected ? pane.providerEditor.apiBase : "") || "Not configured",
+      apiKey: apiKey.displayValue || "Not configured",
       models: models || "No models",
     };
   });
@@ -266,6 +278,7 @@ function providerInitials(label: string): string {
 function formatProviderStatus(status: string): string {
   return {
     ready: "Ready",
+    available: "Ready",
     needs_key: "Needs key",
     unavailable: "Unavailable",
     not_configured: "Not configured",
@@ -273,7 +286,7 @@ function formatProviderStatus(status: string): string {
 }
 
 function providerStatusTone(status: string): "default" | "error" | "success" | "warning" {
-  if (status === "ready") {
+  if (status === "ready" || status === "available") {
     return "success";
   }
   if (status === "needs_key" || status === "not_configured") {

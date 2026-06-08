@@ -79,16 +79,24 @@ function renderNavOption(group: SettingsGroup, index: number): MenuOption {
 }
 
 function renderNavItem(group: SettingsGroup, index: number) {
-  const attrs: Record<string, string> = {
+  const attrs: Record<string, string | ((event: Event) => void)> = {
     class: "desktop-settings-nav-item",
     href: `#desktop-settings-group-${group.id}`,
     "data-desktop-settings-nav": group.id,
+    onClick: (event: Event) => scrollToSettingsGroup(event, group.id),
   };
   if (index === 0) {
     attrs["data-active"] = "true";
     attrs["aria-current"] = "page";
   }
   return h("a", attrs, getSettingsNavLabel(group.id));
+}
+
+function scrollToSettingsGroup(event: Event, groupId: string): void {
+  event.preventDefault();
+  const link = event.currentTarget as HTMLElement | null;
+  const target = link?.ownerDocument.getElementById(`desktop-settings-group-${groupId}`);
+  target?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 function getSettingsNavLabel(groupId: SettingsGroup["id"]): string {

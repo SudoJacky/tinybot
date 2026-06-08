@@ -4791,7 +4791,7 @@ function createDefaultLlmSettingsCard(
 
   const form = targetDocument.createElement("div");
   form.className = "desktop-settings-default-llm-form";
-  const provider = findSettingsPaneField(pane, "provider-models", "selectedProvider");
+  const provider = findSettingsPaneField(pane, "general", "provider");
   const model = findSettingsPaneField(pane, "general", "model");
   if (provider) {
     form.append(createSettingsControlField(targetDocument, pane, provider, "提供商", settingsActions));
@@ -4925,7 +4925,7 @@ function createSettingsControlField(
   const wrapper = targetDocument.createElement("label");
   wrapper.className = "desktop-settings-inline-field";
   wrapper.append(createText(targetDocument, "span", labelText));
-  wrapper.append(field.id === "model" && pane.providerEditor.models.length > 0
+  wrapper.append(field.id === "model" && getDefaultLlmModelOptions(pane).length > 0
     ? createDesktopSettingsModelSelect(targetDocument, pane, field, settingsActions)
     : createDesktopSettingsControl(targetDocument, pane, field, settingsActions));
   return wrapper;
@@ -4944,7 +4944,7 @@ function createDesktopSettingsModelSelect(
   if (field.state === "invalid") {
     select.setAttribute("aria-invalid", "true");
   }
-  const values = [field.inputValue, ...pane.providerEditor.models].filter(Boolean);
+  const values = [field.inputValue, ...getDefaultLlmModelOptions(pane)].filter(Boolean);
   const uniqueValues = Array.from(new Set(values));
   if (!uniqueValues.length) {
     uniqueValues.push("");
@@ -4967,6 +4967,14 @@ function createDesktopSettingsModelSelect(
     });
   });
   return select;
+}
+
+function getDefaultLlmModelOptions(pane: DesktopSettingsPaneModel): string[] {
+  const defaultProvider = findSettingsPaneField(pane, "general", "provider")?.inputValue;
+  if (!defaultProvider || defaultProvider === "auto") {
+    return pane.providerEditor.models;
+  }
+  return pane.providerCatalog.find((provider) => provider.id === defaultProvider)?.models ?? [];
 }
 
 function createProviderManagementCard(
@@ -5032,7 +5040,7 @@ function createProviderManagementCard(
   modelAction.setAttribute("type", "button");
   modelAction.setAttribute("data-desktop-settings-provider-action", "models");
   modelAction.addEventListener("click", () => {
-    handleSettingsProviderCardAction(targetDocument, pane, settingsActions, provider.id, "model");
+    handleSettingsProviderCardAction(targetDocument, pane, settingsActions, provider.id, "models");
   });
   const settingsAction = createText(targetDocument, "button", "\u8bbe\u7f6e");
   settingsAction.setAttribute("type", "button");
@@ -5087,14 +5095,14 @@ function handleSettingsProviderCardAction(
   pane: DesktopSettingsPaneModel,
   settingsActions: DesktopSettingsActionOptions,
   providerId: string,
-  target: "model" | "settings",
+  target: "models" | "settings",
 ): void {
   if (providerId !== pane.providerEditor.selectedProvider) {
     selectSettingsProvider(pane, settingsActions, providerId);
-    focusDesktopSettingsControl(targetDocument, "selectedProvider");
+    focusDesktopSettingsControl(targetDocument, target === "models" ? "models" : "apiBase");
     return;
   }
-  focusDesktopSettingsControl(targetDocument, target === "model" ? "model" : "apiBase");
+  focusDesktopSettingsControl(targetDocument, target === "models" ? "models" : "apiBase");
 }
 
 function selectSettingsProvider(
@@ -5157,6 +5165,9 @@ function createSettingsCapabilityMap(targetDocument: Document, pane: DesktopSett
     link.className = "desktop-settings-capability-card";
     link.setAttribute("href", `#desktop-settings-group-${card.id}`);
     link.setAttribute("data-desktop-settings-capability", card.id);
+    link.addEventListener("click", (event) => {
+      scrollToDesktopSettingsGroup(event, targetDocument, card.id);
+    });
 
     const label = targetDocument.createElement("span");
     label.className = "desktop-settings-capability-label";
@@ -5246,19 +5257,31 @@ function getProviderCards(pane: DesktopSettingsPaneModel): DesktopProviderCardMo
   const selectedProvider = pane.providerEditor.selectedProvider || "provider";
   const catalog = pane.providerCatalog.length
     ? pane.providerCatalog
-    : [{ id: selectedProvider, label: selectedProvider, status: "not_configured" }];
+    : [{
+      id: selectedProvider,
+      label: selectedProvider,
+      profileId: selectedProvider,
+      status: "not_configured",
+      enabled: false,
+      baseUrl: null,
+      apiKey: { value: "", displayValue: "", masked: false, empty: true },
+      models: [],
+      canDiscoverModels: true,
+    }];
   return catalog.map((provider) => {
     const isSelected = provider.id === selectedProvider;
-    const models = isSelected ? pane.providerEditor.models.join(", ") : "";
+    const providerModels = provider.models ?? (isSelected ? pane.providerEditor.models : []);
+    const models = providerModels.join(", ");
+    const apiKey = provider.apiKey ?? (isSelected ? pane.providerEditor.apiKey : { displayValue: "" });
     return {
       id: provider.id,
       label: provider.label || provider.id,
       badge: isSelected ? "当前" : "",
       initials: getProviderInitials(provider.label || provider.id),
-      connected: provider.status === "ready",
+      connected: provider.enabled ?? (provider.status === "ready" || provider.status === "available"),
       statusLabel: formatProviderStatus(provider.status),
-      baseUrl: isSelected ? pane.providerEditor.apiBase || "未设置" : "未设置",
-      apiKey: isSelected ? pane.providerEditor.apiKey.displayValue || "未设置" : "未设置",
+      baseUrl: provider.baseUrl || "未设置",
+      apiKey: apiKey.displayValue || "未设置",
       models: models || "暂无模型",
     };
   });
@@ -5278,6 +5301,7 @@ function getProviderInitials(label: string): string {
 function formatProviderStatus(status: string): string {
   return {
     ready: "已连接",
+    available: "已连接",
     needs_key: "未就绪",
     unavailable: "不可用",
     not_configured: "未配置",
@@ -5314,6 +5338,9 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
     item.className = "desktop-settings-nav-item";
     item.setAttribute("href", `#desktop-settings-group-${group.id}`);
     item.setAttribute("data-desktop-settings-nav", group.id);
+    item.addEventListener("click", (event) => {
+      scrollToDesktopSettingsGroup(event, targetDocument, group.id);
+    });
     if (index === 0) {
       item.setAttribute("data-active", "true");
       item.setAttribute("aria-current", "page");
@@ -5325,6 +5352,11 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
   sidebar.append(nav);
   mountSettingsSidebarVueIsland(sidebar, pane);
   return sidebar;
+}
+
+function scrollToDesktopSettingsGroup(event: Event, targetDocument: Document, groupId: string): void {
+  event.preventDefault();
+  targetDocument.getElementById(`desktop-settings-group-${groupId}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettingsPaneModel): void {
@@ -11149,6 +11181,7 @@ function ensureDesktopWorkbenchShellStyle(targetDocument: Document): void {
       border-radius: 8px;
       background: #fffdfa;
       overflow: hidden;
+      scroll-margin-top: 12px;
     }
 
     body.desktop-native-workbench .desktop-settings-summary {

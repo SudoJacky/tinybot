@@ -93,6 +93,7 @@ function renderCapabilityMap(pane: DesktopSettingsPaneModel) {
     class: "desktop-settings-capability-card",
     href: `#desktop-settings-group-${card.id}`,
     "data-desktop-settings-capability": card.id,
+    onClick: (event: Event) => scrollToSettingsGroup(event, card.id),
   }, [
     h("span", { class: "desktop-settings-capability-label" }, card.label),
     h("strong", { class: "desktop-settings-capability-status" }, card.status),
@@ -132,13 +133,14 @@ function renderNavigation(groups: DesktopSettingsPaneGroup[]) {
       "data-desktop-settings-nav": group.id,
       "data-active": index === 0 ? "true" : undefined,
       "aria-current": index === 0 ? "page" : undefined,
+      onClick: (event: Event) => scrollToSettingsGroup(event, group.id),
     }, getSettingsNavLabel(group.id)));
   });
   return nodes;
 }
 
 function renderDefaultLlmCard(options: SettingsPaneIslandOptions) {
-  const provider = findPaneField(options.pane, "provider-models", "selectedProvider");
+  const provider = findPaneField(options.pane, "general", "provider");
   const model = findPaneField(options.pane, "general", "model");
   return h("section", {
     class: "desktop-settings-default-llm-card",
@@ -277,7 +279,7 @@ function renderProviderCard(
           h(NButton, {
             size: "small",
             "data-desktop-settings-provider-action": "models",
-            onClick: () => handleProviderCardAction(options, provider.id, "model"),
+            onClick: () => handleProviderCardAction(options, provider.id, "models"),
           }, { default: () => "Models" }),
           h(NButton, {
             size: "small",
@@ -360,14 +362,14 @@ function renderInlineField(
 ) {
   return h("label", { class: "desktop-settings-inline-field" }, [
     h("span", label),
-    field.id === "model" && options.pane.providerEditor.models.length > 0
+    field.id === "model" && getDefaultLlmModelOptions(options.pane).length > 0
       ? renderModelSelect(options, field)
       : renderSettingsControl(options, field),
   ]);
 }
 
 function renderModelSelect(options: SettingsPaneIslandOptions, field: DesktopSettingsPaneField) {
-  const values = Array.from(new Set([field.inputValue, ...options.pane.providerEditor.models].filter(Boolean)));
+  const values = Array.from(new Set([field.inputValue, ...getDefaultLlmModelOptions(options.pane)].filter(Boolean)));
   if (!values.length) {
     values.push("");
   }
@@ -448,17 +450,25 @@ function renderProviderDetail(label: string, value: string) {
   ]);
 }
 
+function getDefaultLlmModelOptions(pane: DesktopSettingsPaneModel): string[] {
+  const defaultProvider = findPaneField(pane, "general", "provider")?.inputValue;
+  if (!defaultProvider || defaultProvider === "auto") {
+    return pane.providerEditor.models;
+  }
+  return pane.providerCatalog.find((provider) => provider.id === defaultProvider)?.models ?? [];
+}
+
 function handleProviderCardAction(
   options: SettingsPaneIslandOptions,
   providerId: string,
-  target: "model" | "settings",
+  target: "models" | "settings",
 ): void {
   if (providerId !== options.pane.providerEditor.selectedProvider) {
     emitEdit(options, "selectedProvider", providerId);
-    options.onFocusSettingsControl?.("selectedProvider");
+    options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
     return;
   }
-  options.onFocusSettingsControl?.(target === "model" ? "model" : "apiBase");
+  options.onFocusSettingsControl?.(target === "models" ? "models" : "apiBase");
 }
 
 function emitEdit(options: SettingsPaneIslandOptions, fieldId: string, value: string | boolean): void {
@@ -492,23 +502,43 @@ function getProviderCards(pane: DesktopSettingsPaneModel): ProviderCardModel[] {
   const selectedProvider = pane.providerEditor.selectedProvider || "provider";
   const catalog = pane.providerCatalog.length
     ? pane.providerCatalog
-    : [{ id: selectedProvider, label: selectedProvider, status: "not_configured" }];
+    : [{
+      id: selectedProvider,
+      label: selectedProvider,
+      profileId: selectedProvider,
+      status: "not_configured",
+      enabled: false,
+      baseUrl: null,
+      apiKey: { value: "", displayValue: "", masked: false, empty: true },
+      models: [],
+      canDiscoverModels: true,
+    }];
   return catalog.map((provider) => {
     const isSelected = provider.id === selectedProvider;
-    const models = isSelected ? pane.providerEditor.models.join(", ") : "";
+    const providerModels = provider.models ?? (isSelected ? pane.providerEditor.models : []);
+    const models = providerModels.join(", ");
+    const apiKey = provider.apiKey ?? (isSelected ? pane.providerEditor.apiKey : { displayValue: "" });
     return {
       id: provider.id,
       label: provider.label || provider.id,
       badge: isSelected ? "Current" : "",
       initials: providerInitials(provider.label || provider.id),
-      connected: provider.status === "ready",
+      connected: provider.enabled ?? (provider.status === "ready" || provider.status === "available"),
       statusLabel: formatProviderStatus(provider.status),
       statusTone: providerStatusTone(provider.status),
-      baseUrl: isSelected ? pane.providerEditor.apiBase || "Not configured" : "Not configured",
-      apiKey: isSelected ? pane.providerEditor.apiKey.displayValue || "Not configured" : "Not configured",
+      baseUrl: provider.baseUrl || (isSelected ? pane.providerEditor.apiBase : "") || "Not configured",
+      apiKey: apiKey.displayValue || "Not configured",
       models: models || "No models",
     };
   });
+}
+
+function scrollToSettingsGroup(event: Event, groupId: string): void {
+  event.preventDefault();
+  const link = event.currentTarget as HTMLElement | null;
+  const document = link?.ownerDocument;
+  const target = document?.getElementById(`desktop-settings-group-${groupId}`);
+  target?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 function providerInitials(label: string): string {
@@ -643,6 +673,7 @@ function saveTone(status: DesktopSettingsPaneModel["save"]["status"]): "default"
 function formatProviderStatus(status: string): string {
   return {
     ready: "Ready",
+    available: "Ready",
     needs_key: "Needs key",
     unavailable: "Unavailable",
     not_configured: "Not configured",
@@ -650,7 +681,7 @@ function formatProviderStatus(status: string): string {
 }
 
 function providerStatusTone(status: string): "default" | "error" | "success" | "warning" {
-  if (status === "ready") {
+  if (status === "ready" || status === "available") {
     return "success";
   }
   if (status === "needs_key" || status === "not_configured") {
