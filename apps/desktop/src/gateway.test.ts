@@ -289,6 +289,95 @@ describe("gateway HTTP client", () => {
       }),
     });
   });
+
+  test("refreshes the gateway token before authenticated requests when the session is near expiry", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-08T10:00:00.000Z"));
+    try {
+      const fetchFn = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(url)).pathname;
+        if (path === "/webui/bootstrap") {
+          return new Response(
+            JSON.stringify({
+              token: "token-1",
+              refresh_token_path: "/webui/refresh-token",
+              token_ttl_s: 300,
+            }),
+            { status: 200 },
+          );
+        }
+        if (path === "/webui/refresh-token") {
+          expect(init).toMatchObject({
+            method: "POST",
+            headers: expect.objectContaining({ Authorization: "Bearer token-1" }),
+          });
+          return new Response(
+            JSON.stringify({
+              token: "token-1",
+              refresh_token_path: "/webui/refresh-token",
+              token_ttl_s: 300,
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      });
+      const client = createGatewayApiClient({
+        config: DEFAULT_GATEWAY_CONFIG,
+        fetchFn,
+      });
+
+      await client.sessions.list();
+      vi.setSystemTime(new Date("2026-06-08T10:04:15.000Z"));
+      await client.sessions.list();
+
+      expect(fetchFn.mock.calls.map((call) => String(call[0]))).toEqual([
+        "http://127.0.0.1:18790/webui/bootstrap",
+        "http://127.0.0.1:18790/api/sessions",
+        "http://127.0.0.1:18790/webui/refresh-token",
+        "http://127.0.0.1:18790/api/sessions",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("bootstraps a fresh token and retries once when an authenticated request receives 401", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(url)).pathname;
+      if (path === "/webui/bootstrap") {
+        const token = fetchFn.mock.calls.filter((call) => String(call[0]).endsWith("/webui/bootstrap")).length;
+        return new Response(JSON.stringify({ token: `token-${token}`, token_ttl_s: 300 }), { status: 200 });
+      }
+      if (path === "/api/sessions") {
+        const authorization = (init?.headers as Record<string, string> | undefined)?.Authorization;
+        if (authorization === "Bearer token-1") {
+          return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
+        }
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+    });
+
+    await expect(client.sessions.list()).resolves.toEqual({ items: [] });
+
+    expect(fetchFn.mock.calls.map((call) => String(call[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/sessions",
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/sessions",
+    ]);
+    expect(fetchFn.mock.calls[1][1]).toMatchObject({
+      headers: expect.objectContaining({ Authorization: "Bearer token-1" }),
+    });
+    expect(fetchFn.mock.calls[3][1]).toMatchObject({
+      headers: expect.objectContaining({ Authorization: "Bearer token-2" }),
+    });
+  });
 });
 
 describe("gateway WebSocket client", () => {
