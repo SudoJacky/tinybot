@@ -57,12 +57,16 @@ function createSettingsPaneApp(options: SettingsPaneIslandOptions): App {
     name: "SettingsPaneIsland",
     setup() {
       const providerSearch = ref("");
+      const activeGroupId = ref(options.pane.groups[0]?.id ?? "general");
+      const setActiveGroupId = (groupId: DesktopSettingsPaneGroup["id"]) => {
+        activeGroupId.value = groupId;
+      };
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => [
-          renderSidebar(options.pane),
+          renderSidebar(options.pane, activeGroupId.value, setActiveGroupId),
           h("div", { class: "desktop-settings-content" }, [
             renderHeader(),
-            renderCapabilityMap(options.pane),
+            renderCapabilityMap(options.pane, setActiveGroupId),
             renderDefaultLlmCard(options),
             renderProviderManagement(options, providerSearch.value, (value) => {
               providerSearch.value = value;
@@ -83,7 +87,10 @@ function renderHeader() {
   ]);
 }
 
-function renderCapabilityMap(pane: DesktopSettingsPaneModel) {
+function renderCapabilityMap(
+  pane: DesktopSettingsPaneModel,
+  setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+) {
   return h("section", {
     class: "desktop-settings-capability-map",
     "data-desktop-settings-center": "capability-boundaries",
@@ -92,7 +99,7 @@ function renderCapabilityMap(pane: DesktopSettingsPaneModel) {
     class: "desktop-settings-capability-card",
     href: `#desktop-settings-group-${card.id}`,
     "data-desktop-settings-capability": card.id,
-    onClick: (event: Event) => scrollToSettingsGroup(event, card.id),
+    onClick: (event: Event) => scrollToSettingsGroup(event, card.id, setActiveGroupId),
   }, [
     h("span", { class: "desktop-settings-capability-label" }, card.label),
     h("strong", { class: "desktop-settings-capability-status" }, card.status),
@@ -100,7 +107,11 @@ function renderCapabilityMap(pane: DesktopSettingsPaneModel) {
   ])));
 }
 
-function renderSidebar(pane: DesktopSettingsPaneModel) {
+function renderSidebar(
+  pane: DesktopSettingsPaneModel,
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+  setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+) {
   return h("aside", {
     class: "desktop-settings-sidebar",
     "aria-label": "Settings navigation",
@@ -114,11 +125,15 @@ function renderSidebar(pane: DesktopSettingsPaneModel) {
     h("nav", {
       class: "desktop-settings-nav",
       "aria-label": "Settings sections",
-    }, renderNavigation(pane.groups)),
+    }, renderNavigation(pane.groups, activeGroupId, setActiveGroupId)),
   ]);
 }
 
-function renderNavigation(groups: DesktopSettingsPaneGroup[]) {
+function renderNavigation(
+  groups: DesktopSettingsPaneGroup[],
+  activeGroupId: DesktopSettingsPaneGroup["id"],
+  setActiveGroupId: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+) {
   const nodes = [
     h("p", { class: "desktop-settings-nav-heading" }, "Personal"),
   ];
@@ -130,9 +145,9 @@ function renderNavigation(groups: DesktopSettingsPaneGroup[]) {
       class: "desktop-settings-nav-item",
       href: `#desktop-settings-group-${group.id}`,
       "data-desktop-settings-nav": group.id,
-      "data-active": index === 0 ? "true" : undefined,
-      "aria-current": index === 0 ? "page" : undefined,
-      onClick: (event: Event) => scrollToSettingsGroup(event, group.id),
+      "data-active": group.id === activeGroupId ? "true" : undefined,
+      "aria-current": group.id === activeGroupId ? "page" : undefined,
+      onClick: (event: Event) => scrollToSettingsGroup(event, group.id, setActiveGroupId),
     }, getSettingsNavLabel(group.id)));
   });
   return nodes;
@@ -540,8 +555,13 @@ function toggleProvider(options: SettingsPaneIslandOptions, provider: ProviderCa
   emitEdit(options, `providerEnabled:${provider.id}`, !provider.connected);
 }
 
-function scrollToSettingsGroup(event: Event, groupId: string): void {
+function scrollToSettingsGroup(
+  event: Event,
+  groupId: DesktopSettingsPaneGroup["id"],
+  setActiveGroupId?: (groupId: DesktopSettingsPaneGroup["id"]) => void,
+): void {
   event.preventDefault();
+  setActiveGroupId?.(groupId);
   const link = event.currentTarget as HTMLElement | null;
   const document = link?.ownerDocument;
   const target = document?.getElementById(`desktop-settings-group-${groupId}`);

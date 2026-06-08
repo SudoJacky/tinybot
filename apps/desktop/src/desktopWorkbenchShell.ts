@@ -5364,7 +5364,21 @@ function createSettingsSidebar(targetDocument: Document, pane: DesktopSettingsPa
 
 function scrollToDesktopSettingsGroup(event: Event, targetDocument: Document, groupId: string): void {
   event.preventDefault();
+  setDesktopSettingsActiveNav(targetDocument, groupId);
   targetDocument.getElementById(`desktop-settings-group-${groupId}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+function setDesktopSettingsActiveNav(targetDocument: Document, groupId: string): void {
+  for (const item of targetDocument.querySelectorAll<HTMLElement>("[data-desktop-settings-nav]")) {
+    const active = item.getAttribute("data-desktop-settings-nav") === groupId;
+    if (active) {
+      item.setAttribute("data-active", "true");
+      item.setAttribute("aria-current", "page");
+    } else {
+      item.removeAttribute("data-active");
+      item.removeAttribute("aria-current");
+    }
+  }
 }
 
 function mountSettingsSidebarVueIsland(sidebar: HTMLElement, pane: DesktopSettingsPaneModel): void {

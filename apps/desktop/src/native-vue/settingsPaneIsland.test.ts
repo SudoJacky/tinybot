@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, test } from "vitest";
+import { nextTick } from "vue";
 import {
   buildDesktopSettingsFormState,
   buildDesktopSettingsPaneModel,
@@ -46,7 +47,7 @@ const pane = buildDesktopSettingsPaneModel(draftState, {
 });
 
 describe("settings pane Vue island", () => {
-  test("renders settings shell and forwards settings actions", () => {
+  test("renders settings shell and forwards settings actions", async () => {
     const host = document.createElement("section");
     const focused: string[] = [];
     const actions: string[] = [];
@@ -101,6 +102,13 @@ describe("settings pane Vue island", () => {
     expect(host.querySelector('[data-desktop-settings-field="temperature"]')?.closest("details")?.className).toContain("desktop-settings-advanced-fields");
     expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] output')?.textContent).toContain("Session file");
     expect(host.querySelector('[data-desktop-settings-field="sessionFiles"] [data-desktop-settings-control="sessionFiles"]')).toBeNull();
+    const navFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
+    navFiles?.click();
+    await nextTick();
+    expect(host.querySelector('[data-desktop-settings-nav="general"]')?.getAttribute("data-active")).toBeNull();
+    const activeNavFiles = host.querySelector<HTMLAnchorElement>('[data-desktop-settings-nav="files-workspace"]');
+    expect(activeNavFiles?.getAttribute("data-active")).toBe("true");
+    expect(activeNavFiles?.getAttribute("aria-current")).toBe("page");
 
     const model = host.querySelector<HTMLSelectElement>('[data-desktop-settings-control="model"]');
     model!.value = "gpt-4.1-mini";
