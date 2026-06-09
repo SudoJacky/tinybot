@@ -1,6 +1,7 @@
 use crate::worker_protocol::{WorkerDiagnosticLine, WorkerDiagnostics};
 use serde::Serialize;
 use std::{
+    fmt,
     io::{BufRead, BufReader, Read},
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -75,9 +76,25 @@ pub struct WorkerManagerStatus {
     pub last_error: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+pub enum WorkerManagerEvent {
+    Status(WorkerManagerStatus),
+    Diagnostics(WorkerDiagnosticLine),
+}
+
+type WorkerEventSink = Arc<dyn Fn(WorkerManagerEvent) + Send + Sync + 'static>;
+
+#[derive(Clone)]
 pub struct WorkerManager {
     inner: Arc<Mutex<WorkerManagerInner>>,
+    event_sink: Arc<Mutex<Option<WorkerEventSink>>>,
+}
+
+impl fmt::Debug for WorkerManager {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("WorkerManager").finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]
@@ -101,7 +118,24 @@ impl WorkerManager {
                 diagnostics: WorkerDiagnostics::new(diagnostic_capacity),
                 last_error: None,
             })),
+            event_sink: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub fn with_event_sink(
+        self,
+        event_sink: impl Fn(WorkerManagerEvent) + Send + Sync + 'static,
+    ) -> Self {
+        self.set_event_sink(event_sink);
+        self
+    }
+
+    pub fn set_event_sink(
+        &self,
+        event_sink: impl Fn(WorkerManagerEvent) + Send + Sync + 'static,
+    ) {
+        let mut sink = lock_event_sink(&self.event_sink);
+        *sink = Some(Arc::new(event_sink));
     }
 
     pub fn start(&self, spec: WorkerCommandSpec) -> Result<(), WorkerManagerError> {
@@ -137,12 +171,23 @@ impl WorkerManager {
             inner.started_at_unix_ms = Some(now_unix_ms());
             inner.last_error = None;
         }
+        self.emit_status();
 
         if let Some(stdout) = stdout {
-            spawn_diagnostic_reader(stdout, "stdout", self.inner.clone());
+            spawn_diagnostic_reader(
+                stdout,
+                "stdout",
+                self.inner.clone(),
+                self.event_sink.clone(),
+            );
         }
         if let Some(stderr) = stderr {
-            spawn_diagnostic_reader(stderr, "stderr", self.inner.clone());
+            spawn_diagnostic_reader(
+                stderr,
+                "stderr",
+                self.inner.clone(),
+                self.event_sink.clone(),
+            );
         }
 
         Ok(())
@@ -165,6 +210,8 @@ impl WorkerManager {
         inner.label = None;
         inner.started_at_unix_ms = None;
         inner.last_error = None;
+        drop(inner);
+        self.emit_status();
         Ok(())
     }
 
@@ -193,6 +240,10 @@ impl WorkerManager {
             diagnostics: inner.diagnostics.lines(),
             last_error: inner.last_error.clone(),
         }
+    }
+
+    fn emit_status(&self) {
+        emit_worker_event(&self.event_sink, WorkerManagerEvent::Status(self.status()));
     }
 }
 
@@ -227,14 +278,20 @@ fn spawn_diagnostic_reader<R>(
     reader: R,
     stream: &'static str,
     inner: Arc<Mutex<WorkerManagerInner>>,
+    event_sink: Arc<Mutex<Option<WorkerEventSink>>>,
 ) where
     R: Read + Send + 'static,
 {
     thread::spawn(move || {
         let buffered = BufReader::new(reader);
         for line in buffered.lines().map_while(Result::ok) {
+            let diagnostic = WorkerDiagnosticLine::new(stream, line);
             let mut inner = lock_inner(&inner);
-            inner.diagnostics.push(stream, line);
+            inner
+                .diagnostics
+                .push(diagnostic.stream.clone(), diagnostic.line.clone());
+            drop(inner);
+            emit_worker_event(&event_sink, WorkerManagerEvent::Diagnostics(diagnostic));
         }
     });
 }
@@ -273,10 +330,88 @@ fn lock_inner(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+fn lock_event_sink(
+    sink: &Arc<Mutex<Option<WorkerEventSink>>>,
+) -> std::sync::MutexGuard<'_, Option<WorkerEventSink>> {
+    sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn emit_worker_event(
+    event_sink: &Arc<Mutex<Option<WorkerEventSink>>>,
+    event: WorkerManagerEvent,
+) {
+    let sink = lock_event_sink(event_sink).clone();
+    if let Some(sink) = sink {
+        sink(event);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn manager_emits_status_events_on_start_and_stop() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log
+                .lock()
+                .expect("event log should lock")
+                .push(event);
+        });
+
+        manager
+            .start(test_worker_spec("manager-status-events"))
+            .expect("worker should start");
+        manager.stop().expect("worker should stop");
+
+        let events = events.lock().expect("event log should lock");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            WorkerManagerEvent::Status(status)
+                if status.state == WorkerManagerState::Running
+                    && status.label.as_deref() == Some("manager-status-events")
+                    && status.pid.is_some()
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            WorkerManagerEvent::Status(status)
+                if status.state == WorkerManagerState::Stopped && status.pid.is_none()
+        )));
+    }
+
+    #[test]
+    fn manager_emits_diagnostics_events_for_stdout_and_stderr() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log
+                .lock()
+                .expect("event log should lock")
+                .push(event);
+        });
+
+        manager
+            .start(test_logging_worker_spec())
+            .expect("logging worker should start");
+        std::thread::sleep(std::time::Duration::from_millis(900));
+
+        let events = events.lock().expect("event log should lock");
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            WorkerManagerEvent::Diagnostics(line)
+                if line.stream == "stdout" && line.line.contains("worker stdout")
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            WorkerManagerEvent::Diagnostics(line)
+                if line.stream == "stderr" && line.line.contains("worker stderr")
+        )));
+    }
 
     #[test]
     fn manager_starts_worker_once_and_reports_pid() {

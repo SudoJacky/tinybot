@@ -20,7 +20,8 @@ pub mod worker_stdio;
 pub mod worker_runtime;
 
 use crate::worker_manager::{
-    WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerState, WorkerManagerStatus,
+    WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerEvent, WorkerManagerState,
+    WorkerManagerStatus,
 };
 use crate::worker_runtime::WorkerRuntimeStatus;
 
@@ -881,6 +882,27 @@ fn gateway_runtime_logs(
         .collect()
 }
 
+fn worker_manager_frontend_event(event: WorkerManagerEvent) -> (&'static str, serde_json::Value) {
+    match event {
+        WorkerManagerEvent::Status(status) => (
+            "worker.status",
+            serde_json::to_value(status).unwrap_or_else(|_| serde_json::json!({})),
+        ),
+        WorkerManagerEvent::Diagnostics(line) => (
+            "diagnostics.log",
+            serde_json::to_value(line).unwrap_or_else(|_| serde_json::json!({})),
+        ),
+    }
+}
+
+fn emit_worker_manager_frontend_event<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    event: WorkerManagerEvent,
+) {
+    let (event_name, payload) = worker_manager_frontend_event(event);
+    let _ = app.emit(event_name, payload);
+}
+
 fn lock_runtime(shared: &SharedGateway) -> std::sync::MutexGuard<'_, GatewayRuntime> {
     shared
         .lock()
@@ -903,13 +925,19 @@ pub fn run() {
         ..GatewayRuntime::default()
     }));
     let close_state = gateway_state.clone();
+    let setup_state = gateway_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .manage(gateway_state)
-        .setup(|app| {
+        .setup(move |app| {
             install_desktop_application_menu(app)?;
+            let app_handle = app.handle().clone();
+            let runtime = lock_runtime(&setup_state);
+            runtime.worker.set_event_sink(move |event| {
+                emit_worker_manager_frontend_event(&app_handle, event);
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1106,6 +1134,38 @@ mod tests {
 
         assert_eq!(value["worker_runtime"]["state"], "stopped");
         assert_eq!(value["worker_runtime"]["gateway_compatibility_available"], true);
+    }
+
+    #[test]
+    fn worker_manager_status_event_maps_to_frontend_worker_status_event() {
+        let (event_name, payload) =
+            worker_manager_frontend_event(WorkerManagerEvent::Status(WorkerManagerStatus {
+                state: WorkerManagerState::Running,
+                label: Some("tinybot-gateway".to_string()),
+                pid: Some(1234),
+                started_at_unix_ms: Some(42),
+                diagnostics: vec![],
+                last_error: None,
+            }));
+
+        assert_eq!(event_name, "worker.status");
+        assert_eq!(payload["state"], "running");
+        assert_eq!(payload["label"], "tinybot-gateway");
+        assert_eq!(payload["pid"], 1234);
+    }
+
+    #[test]
+    fn worker_manager_diagnostics_event_maps_to_frontend_diagnostics_log_event() {
+        let (event_name, payload) = worker_manager_frontend_event(
+            WorkerManagerEvent::Diagnostics(crate::worker_protocol::WorkerDiagnosticLine::new(
+                "stderr",
+                "worker ready",
+            )),
+        );
+
+        assert_eq!(event_name, "diagnostics.log");
+        assert_eq!(payload["stream"], "stderr");
+        assert_eq!(payload["line"], "worker ready");
     }
 
     #[test]
