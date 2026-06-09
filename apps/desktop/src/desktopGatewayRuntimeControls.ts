@@ -57,6 +57,7 @@ export function buildDesktopGatewayRuntimeRows(
     { label: "Recent logs", value: logs.length ? logs.join("\n") : "No recent logs" },
     { label: "Last error", value: status?.last_error || "No recent error" },
     ...bootstrapRows(status),
+    ...workerRows(status),
     { label: "Exit policy", value: formatExitPolicy(status?.exit_policy, status?.owner ?? "external") },
   ];
 }
@@ -147,8 +148,36 @@ function bootstrapRows(status: GatewayRuntimeStatus | null): DesktopGatewayRunti
   ];
 }
 
+function workerRows(status: GatewayRuntimeStatus | null): DesktopGatewayRuntimeRow[] {
+  const worker = status?.worker_runtime;
+  if (!worker) {
+    return [];
+  }
+  const diagnostics = (worker.diagnostics ?? []).slice(-4);
+  return [
+    { label: "Worker", value: formatWorkerState(worker.state, worker.transport_mode) },
+    {
+      label: "Worker diagnostics",
+      value: diagnostics.length
+        ? diagnostics.map((line) => `${line.stream}: ${line.line}`).join("\n")
+        : "No worker diagnostics",
+    },
+    { label: "Gateway compatibility", value: worker.gateway_compatibility_available ? "Available" : "Unavailable" },
+    ...(worker.last_error ? [{ label: "Worker error", value: worker.last_error }] : []),
+    ...(worker.recovery_hint ? [{ label: "Worker recovery", value: worker.recovery_hint }] : []),
+  ];
+}
+
 function formatBootstrapStatus(status: string): string {
   return status.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatWorkerState(state: string, transportMode?: string | null): string {
+  const stateLabel = state.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  if (!transportMode) {
+    return stateLabel;
+  }
+  return `${stateLabel} via ${transportMode.replace(/[_-]+/g, " ")}`;
 }
 
 function formatExitPolicy(policy: GatewayRuntimeStatus["exit_policy"], owner: GatewayRuntimeStatus["owner"]): string {
