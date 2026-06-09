@@ -58,6 +58,42 @@ impl WorkerWorkspaceRpc {
         Ok(entries)
     }
 
+    pub fn write_file(
+        &self,
+        requested_path: &str,
+        contents: &str,
+    ) -> Result<WorkspaceWriteResult, WorkerProtocolError> {
+        self.require(WorkerCapability::FsWorkspaceWrite)?;
+        let relative_path = normalize_workspace_path(requested_path)?;
+        let absolute_path = join_workspace_relative(&self.root, &relative_path);
+        ensure_write_target_inside_workspace(&self.root, &absolute_path)?;
+        if let Some(parent) = absolute_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                filesystem_error(
+                    "failed to create workspace file parent directory",
+                    serde_json::json!({
+                        "path": relative_path,
+                        "error": error.to_string(),
+                    }),
+                )
+            })?;
+            ensure_inside_workspace(&self.root, parent)?;
+        }
+        std::fs::write(&absolute_path, contents).map_err(|error| {
+            filesystem_error(
+                "failed to write workspace file",
+                serde_json::json!({
+                    "path": relative_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        Ok(WorkspaceWriteResult {
+            path: relative_path,
+            bytes_written: contents.len() as u64,
+        })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -88,6 +124,12 @@ pub struct WorkspaceFileContent {
 pub struct WorkspaceFileEntry {
     pub path: String,
     pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceWriteResult {
+    pub path: String,
+    pub bytes_written: u64,
 }
 
 fn collect_workspace_files(
@@ -157,6 +199,37 @@ fn join_workspace_relative(root: &Path, relative_path: &str) -> PathBuf {
 fn ensure_inside_workspace(root: &Path, path: &Path) -> Result<(), WorkerProtocolError> {
     let root = canonicalize_workspace_root(root)?;
     ensure_inside_canonical_workspace(&root, path)
+}
+
+fn ensure_write_target_inside_workspace(
+    root: &Path,
+    path: &Path,
+) -> Result<(), WorkerProtocolError> {
+    let root = canonicalize_workspace_root(root)?;
+    if path.exists() {
+        return ensure_inside_canonical_workspace(&root, path);
+    }
+    let parent = path.parent().ok_or_else(|| invalid_workspace_path(""))?;
+    if parent.exists() {
+        return ensure_inside_canonical_workspace(&root, parent);
+    }
+    ensure_new_parent_chain_inside_workspace(&root, parent)
+}
+
+fn ensure_new_parent_chain_inside_workspace(
+    root: &Path,
+    parent: &Path,
+) -> Result<(), WorkerProtocolError> {
+    let existing_parent = parent
+        .ancestors()
+        .find(|candidate| candidate.exists())
+        .ok_or_else(|| {
+            filesystem_error(
+                "failed to locate existing workspace parent directory",
+                serde_json::json!({ "path": parent.display().to_string() }),
+            )
+        })?;
+    ensure_inside_canonical_workspace(root, existing_parent)
 }
 
 fn ensure_inside_canonical_workspace(root: &Path, path: &Path) -> Result<(), WorkerProtocolError> {
@@ -325,8 +398,94 @@ mod tests {
         assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
     }
 
+    #[test]
+    fn default_policy_denies_workspace_write() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), CapabilityPolicy::default());
+
+        let error = rpc
+            .write_file("notes/today.md", "hello")
+            .expect_err("write should require capability");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["capability"], "fs.workspace.write");
+    }
+
+    #[test]
+    fn read_policy_does_not_allow_workspace_write() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let error = rpc
+            .write_file("notes/today.md", "hello")
+            .expect_err("read capability should not allow write");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["capability"], "fs.workspace.write");
+    }
+
+    #[test]
+    fn write_file_creates_parent_directories_inside_workspace() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let written = rpc
+            .write_file("notes/today.md", "hello writer")
+            .expect("write should succeed");
+
+        assert_eq!(written.path, "notes/today.md");
+        assert_eq!(written.bytes_written, 12);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes").join("today.md"))
+                .expect("written file should read"),
+            "hello writer"
+        );
+    }
+
+    #[test]
+    fn write_file_rejects_traversal_and_absolute_paths() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        assert!(rpc.write_file("../secret.txt", "secret").is_err());
+        assert!(rpc.write_file("notes/../secret.txt", "secret").is_err());
+        assert!(rpc.write_file("C:/Windows/System32", "secret").is_err());
+        assert!(rpc.write_file("/etc/passwd", "secret").is_err());
+    }
+
+    #[test]
+    fn write_file_rejects_symlink_escape_overwrite() {
+        let fixture = WorkspaceFixture::new();
+        let outside = fixture.outside.join("secret.txt");
+        std::fs::write(&outside, "secret").expect("outside fixture should write");
+
+        #[cfg(target_os = "windows")]
+        std::os::windows::fs::symlink_file(&outside, fixture.root.join("linked-secret.txt"))
+            .expect("symlink should create");
+
+        #[cfg(not(target_os = "windows"))]
+        std::os::unix::fs::symlink(&outside, fixture.root.join("linked-secret.txt"))
+            .expect("symlink should create");
+
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let error = rpc
+            .write_file("linked-secret.txt", "overwrite")
+            .expect_err("symlink escape should be blocked");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert_eq!(
+            std::fs::read_to_string(outside).expect("outside file should read"),
+            "secret"
+        );
+    }
+
     fn read_policy() -> CapabilityPolicy {
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead])
+    }
+
+    fn write_policy() -> CapabilityPolicy {
+        CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite])
     }
 
     struct WorkspaceFixture {
