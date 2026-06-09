@@ -61,6 +61,43 @@ where
         decode_worker_line(line.trim_end_matches(['\r', '\n'])).map(Some)
     }
 
+    pub fn round_trip(
+        &mut self,
+        request: &WorkerRequest,
+        mut on_event: impl FnMut(&WorkerEvent),
+    ) -> Result<WorkerResponse, WorkerProtocolError> {
+        self.send_request(request)?;
+        loop {
+            let Some(message) = self.read_message()? else {
+                return Err(worker_error(
+                    "worker stream ended before response",
+                    serde_json::json!({
+                        "id": request.id,
+                        "trace_id": request.trace_id,
+                    }),
+                    true,
+                ));
+            };
+            match message {
+                WorkerInboundMessage::Event(event) => on_event(&event),
+                WorkerInboundMessage::Response(response) => {
+                    if response.matches_request(request) {
+                        return Ok(response);
+                    }
+                    return Err(invalid_protocol_error(
+                        "worker response does not match request identity",
+                        serde_json::json!({
+                            "expected_id": request.id,
+                            "expected_trace_id": request.trace_id,
+                            "actual_id": response.id,
+                            "actual_trace_id": response.trace_id,
+                        }),
+                    ));
+                }
+            }
+        }
+    }
+
     pub fn into_writer(self) -> W {
         self.writer
     }
@@ -117,6 +154,16 @@ fn invalid_protocol_error(message: impl Into<String>, details: Value) -> WorkerP
         details,
         false,
         WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn worker_error(message: impl Into<String>, details: Value, retryable: bool) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        message,
+        details,
+        retryable,
+        WorkerProtocolErrorSource::Worker,
     )
 }
 
@@ -234,6 +281,65 @@ mod tests {
             }
             WorkerInboundMessage::Event(_) => panic!("expected response"),
         }
+    }
+
+    #[test]
+    fn round_trip_sends_request_collects_events_until_matching_response() {
+        let input = Cursor::new(
+            concat!(
+                r#"{"protocol_version":"1","trace_id":"trace-abc","event":"diagnostics.log","payload":{"line":"starting"}}"#,
+                "\n",
+                r#"{"protocol_version":"1","id":"req-123","trace_id":"trace-abc","result":{"status":"ok"}}"#,
+                "\n"
+            )
+            .as_bytes()
+            .to_vec(),
+        );
+        let request = WorkerRequest::new("req-123", "trace-abc", "worker.health", json!({}));
+        let mut events = Vec::new();
+        let mut transport = WorkerStdioTransport::new(input, Vec::new());
+
+        let response = transport
+            .round_trip(&request, |event| events.push(event.event.clone()))
+            .expect("round trip should return matching response");
+
+        assert_eq!(response.result, Some(json!({ "status": "ok" })));
+        assert_eq!(events, vec!["diagnostics.log"]);
+
+        let written = String::from_utf8(transport.into_writer()).expect("request is utf-8");
+        assert!(written.contains(r#""method":"worker.health""#));
+    }
+
+    #[test]
+    fn round_trip_rejects_mismatched_response_identity() {
+        let input = Cursor::new(
+            br#"{"protocol_version":"1","id":"other","trace_id":"trace-abc","result":{"status":"ok"}}"#
+                .to_vec(),
+        );
+        let request = WorkerRequest::new("req-123", "trace-abc", "worker.health", json!({}));
+        let mut transport = WorkerStdioTransport::new(input, Vec::new());
+
+        let error = transport
+            .round_trip(&request, |_| {})
+            .expect_err("mismatched response should fail");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert_eq!(error.details["expected_id"], "req-123");
+        assert_eq!(error.details["actual_id"], "other");
+    }
+
+    #[test]
+    fn round_trip_returns_worker_error_when_eof_arrives_before_response() {
+        let request = WorkerRequest::new("req-123", "trace-abc", "worker.health", json!({}));
+        let mut transport = WorkerStdioTransport::new(Cursor::new(Vec::<u8>::new()), Vec::new());
+
+        let error = transport
+            .round_trip(&request, |_| {})
+            .expect_err("eof before response should fail");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::WorkerError);
+        assert_eq!(error.source, WorkerProtocolErrorSource::Worker);
+        assert!(error.retryable);
     }
 
     #[test]
