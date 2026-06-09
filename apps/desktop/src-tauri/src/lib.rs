@@ -4,9 +4,8 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::Command,
     sync::{Arc, Mutex},
-    thread,
     time::Duration,
 };
 use tauri::{
@@ -14,11 +13,14 @@ use tauri::{
     Emitter, Manager, Runtime, State, WindowEvent,
 };
 
-pub mod worker_protocol;
-pub mod worker_runtime;
 pub mod worker_capability;
 pub mod worker_manager;
+pub mod worker_protocol;
+pub mod worker_runtime;
 
+use crate::worker_manager::{
+    WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerState,
+};
 use crate::worker_runtime::WorkerRuntimeStatus;
 
 #[cfg(target_os = "windows")]
@@ -45,7 +47,7 @@ fn desktop_status() -> DesktopStatus {
 type SharedGateway = Arc<Mutex<GatewayRuntime>>;
 
 struct GatewayRuntime {
-    child: Option<Child>,
+    worker: WorkerManager,
     logs: VecDeque<String>,
     last_error: Option<String>,
     keep_background: bool,
@@ -54,7 +56,7 @@ struct GatewayRuntime {
 impl Default for GatewayRuntime {
     fn default() -> Self {
         Self {
-            child: None,
+            worker: WorkerManager::new(200),
             logs: VecDeque::with_capacity(200),
             last_error: None,
             keep_background: false,
@@ -326,34 +328,35 @@ fn start_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus
     }
 
     let repo_root = repo_root();
-    let mut command = Command::new("uv");
-    command
-        .args(["run", "tinybot", "gateway"])
-        .current_dir(&repo_root)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    command.creation_flags(0x08000000);
-
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("failed to start gateway: {error}"))?;
-
-    if let Some(stdout) = child.stdout.take() {
-        spawn_log_reader(stdout, "stdout", state.inner().clone());
-    }
-    if let Some(stderr) = child.stderr.take() {
-        spawn_log_reader(stderr, "stderr", state.inner().clone());
+    let worker = {
+        let runtime = lock_runtime(state.inner());
+        runtime.worker.clone()
+    };
+    match worker.start(gateway_worker_command_spec()) {
+        Ok(()) => {
+            let mut runtime = lock_runtime(state.inner());
+            runtime.last_error = None;
+            append_log(
+                &mut runtime,
+                "started shell-owned gateway with `uv run tinybot gateway`",
+            );
+        }
+        Err(WorkerManagerError::AlreadyRunning) => {
+            push_log(state.inner(), "shell-owned gateway worker is already running");
+        }
+        Err(error) => {
+            let message = format!("failed to start gateway: {error:?}");
+            let mut runtime = lock_runtime(state.inner());
+            runtime.last_error = Some(message.clone());
+            return Err(message);
+        }
     }
 
     {
         let mut runtime = lock_runtime(state.inner());
-        runtime.child = Some(child);
-        runtime.last_error = None;
         append_log(
             &mut runtime,
-            "started shell-owned gateway with `uv run tinybot gateway`",
+            &format!("gateway worker cwd: {}", repo_root.display()),
         );
     }
 
@@ -681,24 +684,11 @@ fn safe_export_file_name(default_path: &str) -> String {
 fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
     let probe = gateway_bootstrap_probe();
     let http_ok = probe.is_ready();
-    let mut runtime = lock_runtime(shared);
-    let child_running = match runtime.child.as_mut() {
-        Some(child) => match child.try_wait() {
-            Ok(Some(status)) => {
-                runtime.last_error = Some(format!("gateway exited with {status}"));
-                runtime.child = None;
-                false
-            }
-            Ok(None) => true,
-            Err(error) => {
-                runtime.last_error = Some(format!("failed to inspect gateway process: {error}"));
-                false
-            }
-        },
-        None => false,
-    };
+    let runtime = lock_runtime(shared);
+    let worker_status = runtime.worker.status();
+    let worker_running = worker_status.state == WorkerManagerState::Running;
 
-    let owner = if child_running {
+    let owner = if worker_running {
         "shell"
     } else if http_ok {
         "external"
@@ -709,7 +699,7 @@ fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         "running"
     } else if probe.is_conflict_or_error() {
         "failed"
-    } else if child_running {
+    } else if worker_running {
         "starting"
     } else {
         "offline"
@@ -729,8 +719,12 @@ fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         command: "uv run tinybot gateway",
         port: 18790,
         repo_root: repo_root().display().to_string(),
-        logs: runtime.logs.iter().cloned().collect(),
-        last_error: runtime.last_error.clone().or_else(|| probe.last_error()),
+        logs: gateway_runtime_logs(&runtime.logs, &worker_status.diagnostics),
+        last_error: runtime
+            .last_error
+            .clone()
+            .or(worker_status.last_error)
+            .or_else(|| probe.last_error()),
         exit_policy,
         bootstrap_status: probe.bootstrap_status(),
         response_class: probe.response_class(),
@@ -813,58 +807,31 @@ fn http_response_body(response: &str) -> &str {
         .unwrap_or(response)
 }
 
+fn gateway_worker_command_spec() -> WorkerCommandSpec {
+    WorkerCommandSpec::new("uv", ["run", "tinybot", "gateway"], repo_root())
+        .with_label("tinybot-gateway")
+}
+
 fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
-    let child = {
-        let mut runtime = lock_runtime(shared);
+    let worker = {
+        let runtime = lock_runtime(shared);
         if !explicit && runtime.keep_background {
-            append_log(
-                &mut runtime,
-                "leaving shell-owned gateway running in background",
-            );
+            drop(runtime);
+            push_log(shared, "leaving shell-owned gateway running in background");
             return Ok(());
         }
-        runtime.child.take()
+        runtime.worker.clone()
     };
 
-    if let Some(mut child) = child {
-        terminate_child_process_tree(&mut child)
-            .map_err(|error| format!("failed to stop gateway: {error}"))?;
-        let _ = child.wait();
+    let was_running = worker.status().state == WorkerManagerState::Running;
+    worker
+        .stop()
+        .map_err(|error| format!("failed to stop gateway: {error:?}"))?;
+    if was_running {
         let mut runtime = lock_runtime(shared);
         append_log(&mut runtime, "stopped shell-owned gateway");
     }
     Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn terminate_child_process_tree(child: &mut Child) -> std::io::Result<()> {
-    let status = Command::new("taskkill")
-        .args(["/PID", &child.id().to_string(), "/T", "/F"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(0x08000000)
-        .status();
-    match status {
-        Ok(status) if status.success() => Ok(()),
-        _ => child.kill(),
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn terminate_child_process_tree(child: &mut Child) -> std::io::Result<()> {
-    child.kill()
-}
-
-fn spawn_log_reader<R>(reader: R, label: &'static str, shared: SharedGateway)
-where
-    R: Read + Send + 'static,
-{
-    thread::spawn(move || {
-        let buffered = BufReader::new(reader);
-        for line in buffered.lines().map_while(Result::ok) {
-            push_log(&shared, &format!("{label}: {line}"));
-        }
-    });
 }
 
 fn push_log(shared: &SharedGateway, line: &str) {
@@ -877,6 +844,21 @@ fn append_log(runtime: &mut GatewayRuntime, line: &str) {
         runtime.logs.pop_front();
     }
     runtime.logs.push_back(line.to_string());
+}
+
+fn gateway_runtime_logs(
+    runtime_logs: &VecDeque<String>,
+    diagnostics: &[crate::worker_protocol::WorkerDiagnosticLine],
+) -> Vec<String> {
+    runtime_logs
+        .iter()
+        .cloned()
+        .chain(
+            diagnostics
+                .iter()
+                .map(|line| format!("{}: {}", line.stream, line.line)),
+        )
+        .collect()
 }
 
 fn lock_runtime(shared: &SharedGateway) -> std::sync::MutexGuard<'_, GatewayRuntime> {
@@ -944,18 +926,22 @@ mod tests {
 
     #[test]
     fn close_shutdown_stops_shell_owned_gateway_child() {
-        let child = spawn_long_running_child();
-        let shared = Arc::new(Mutex::new(GatewayRuntime {
-            child: Some(child),
-            logs: VecDeque::with_capacity(200),
-            last_error: None,
-            keep_background: false,
-        }));
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        {
+            let runtime = lock_runtime(&shared);
+            runtime
+                .worker
+                .start(test_gateway_worker_spec("gateway-close-worker"))
+                .expect("test worker should start");
+        }
 
         stop_owned_gateway(&shared, false).expect("shell-owned gateway child should stop");
 
         let runtime = lock_runtime(&shared);
-        assert!(runtime.child.is_none());
+        assert_eq!(
+            runtime.worker.status().state,
+            crate::worker_manager::WorkerManagerState::Stopped
+        );
         assert!(runtime
             .logs
             .iter()
@@ -963,9 +949,39 @@ mod tests {
     }
 
     #[test]
+    fn gateway_worker_command_spec_uses_uv_gateway_in_repo_root() {
+        let spec = gateway_worker_command_spec();
+
+        assert_eq!(spec.label, "tinybot-gateway");
+        assert_eq!(spec.program, "uv");
+        assert_eq!(spec.args, vec!["run", "tinybot", "gateway"]);
+        assert_eq!(spec.cwd, repo_root());
+    }
+
+    #[test]
+    fn gateway_status_uses_worker_manager_for_shell_owned_process() {
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let worker = {
+            let runtime = lock_runtime(&shared);
+            runtime.worker.clone()
+        };
+        worker
+            .start(test_gateway_short_worker_spec("gateway-status-worker"))
+            .expect("test worker should start");
+
+        let status = current_status(&shared);
+
+        assert_eq!(status.owner, "shell");
+        assert_eq!(
+            status.state,
+            if status.http_ok { "running" } else { "starting" }
+        );
+    }
+
+    #[test]
     fn gateway_status_exposes_port_and_exit_policy() {
         let shared = Arc::new(Mutex::new(GatewayRuntime {
-            child: None,
+            worker: WorkerManager::new(200),
             logs: VecDeque::with_capacity(200),
             last_error: None,
             keep_background: true,
@@ -1168,20 +1184,47 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "windows")]
-    fn spawn_long_running_child() -> Child {
-        Command::new("cmd")
-            .args(["/C", "ping", "-n", "30", "127.0.0.1", ">", "NUL"])
-            .creation_flags(0x08000000)
-            .spawn()
-            .expect("test child process should start")
+    fn test_gateway_worker_spec(label: &str) -> crate::worker_manager::WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "cmd",
+                ["/C", "ping", "-n", "30", "127.0.0.1", ">", "NUL"],
+                PathBuf::from("."),
+            )
+            .with_label(label)
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "sh",
+                ["-c", "sleep 30"],
+                PathBuf::from("."),
+            )
+            .with_label(label)
+        }
     }
 
-    #[cfg(not(target_os = "windows"))]
-    fn spawn_long_running_child() -> Child {
-        Command::new("sh")
-            .args(["-c", "sleep 30"])
-            .spawn()
-            .expect("test child process should start")
+    fn test_gateway_short_worker_spec(label: &str) -> crate::worker_manager::WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "cmd",
+                ["/C", "ping", "-n", "3", "127.0.0.1", ">", "NUL"],
+                PathBuf::from("."),
+            )
+            .with_label(label)
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            crate::worker_manager::WorkerCommandSpec::new(
+                "sh",
+                ["-c", "sleep 2"],
+                PathBuf::from("."),
+            )
+            .with_label(label)
+        }
     }
 }
