@@ -6,6 +6,7 @@ use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_stdio::{decode_worker_line, WorkerInboundMessage};
 use std::{
     collections::HashMap,
+    fmt,
     io::{BufRead, Write},
     sync::{mpsc, Arc, Mutex},
     thread,
@@ -44,6 +45,23 @@ struct PendingResponses {
 pub struct WorkerConnection<W> {
     writer: Arc<Mutex<W>>,
     pending: Arc<Mutex<PendingResponses>>,
+}
+
+impl<W> Clone for WorkerConnection<W> {
+    fn clone(&self) -> Self {
+        Self {
+            writer: self.writer.clone(),
+            pending: self.pending.clone(),
+        }
+    }
+}
+
+impl<W> fmt::Debug for WorkerConnection<W> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WorkerConnection")
+            .finish_non_exhaustive()
+    }
 }
 
 impl<W> WorkerConnection<W>

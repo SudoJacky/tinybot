@@ -1,15 +1,18 @@
-use crate::worker_protocol::{WorkerDiagnosticLine, WorkerDiagnostics, WorkerEvent};
+use crate::worker_connection::WorkerConnection;
+use crate::worker_protocol::{
+    WorkerDiagnosticLine, WorkerDiagnostics, WorkerEvent, WorkerProtocolError,
+    WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest, WorkerResponse,
+};
 use crate::worker_rpc::WorkerRpcRouter;
-use crate::worker_stdio::WorkerStdioTransport;
 use serde::Serialize;
 use std::{
     fmt,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(target_os = "windows")]
@@ -107,6 +110,7 @@ struct WorkerManagerInner {
     started_at_unix_ms: Option<u128>,
     diagnostics: WorkerDiagnostics,
     last_error: Option<String>,
+    stdio_connection: Option<WorkerConnection<ChildStdin>>,
 }
 
 impl WorkerManager {
@@ -119,6 +123,7 @@ impl WorkerManager {
                 started_at_unix_ms: None,
                 diagnostics: WorkerDiagnostics::new(diagnostic_capacity),
                 last_error: None,
+                stdio_connection: None,
             })),
             event_sink: Arc::new(Mutex::new(None)),
         }
@@ -172,6 +177,7 @@ impl WorkerManager {
             inner.pid = Some(pid);
             inner.started_at_unix_ms = Some(now_unix_ms());
             inner.last_error = None;
+            inner.stdio_connection = None;
         }
         self.emit_status();
 
@@ -238,13 +244,22 @@ impl WorkerManager {
 
         match (stdout, stdin) {
             (Some(stdout), Some(stdin)) => {
-                spawn_stdio_rpc_reader(
-                    stdout,
+                let event_inner = self.inner.clone();
+                let event_sink_for_events = self.event_sink.clone();
+                let connection = WorkerConnection::start(
+                    BufReader::new(stdout),
                     stdin,
                     router,
-                    self.inner.clone(),
-                    self.event_sink.clone(),
+                    move |event| {
+                        record_worker_protocol_event(
+                            &event,
+                            &event_inner,
+                            &event_sink_for_events,
+                        );
+                    },
                 );
+                let mut inner = lock_inner(&self.inner);
+                inner.stdio_connection = Some(connection);
             }
             _ => {
                 let message = "worker stdio pipes are unavailable".to_string();
@@ -273,6 +288,30 @@ impl WorkerManager {
         Ok(())
     }
 
+    pub fn send_stdio_request(
+        &self,
+        request: &WorkerRequest,
+        timeout: Duration,
+    ) -> Result<WorkerResponse, WorkerProtocolError> {
+        let connection = {
+            let inner = lock_inner(&self.inner);
+            inner.stdio_connection.clone()
+        }
+        .ok_or_else(|| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                "worker stdio connection is not running",
+                serde_json::json!({
+                    "id": request.id,
+                    "trace_id": request.trace_id,
+                }),
+                true,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?;
+        connection.send_request(request, timeout)
+    }
+
     pub fn stop(&self) -> Result<(), WorkerManagerError> {
         let child = {
             let mut inner = lock_inner(&self.inner);
@@ -290,6 +329,7 @@ impl WorkerManager {
         inner.label = None;
         inner.started_at_unix_ms = None;
         inner.last_error = None;
+        inner.stdio_connection = None;
         drop(inner);
         self.emit_status();
         Ok(())
@@ -341,6 +381,7 @@ fn refresh_child_status(
             inner.child = None;
             inner.pid = None;
             inner.started_at_unix_ms = None;
+            inner.stdio_connection = None;
             Ok(WorkerHealth::Exited)
         }
         Err(error) => {
@@ -349,6 +390,7 @@ fn refresh_child_status(
             inner.child = None;
             inner.pid = None;
             inner.started_at_unix_ms = None;
+            inner.stdio_connection = None;
             Err(WorkerManagerError::InspectFailed(message))
         }
     }
@@ -367,41 +409,6 @@ fn spawn_diagnostic_reader<R>(
         for line in buffered.lines().map_while(Result::ok) {
             let diagnostic = WorkerDiagnosticLine::new(stream, line);
             let mut inner = lock_inner(&inner);
-            inner
-                .diagnostics
-                .push(diagnostic.stream.clone(), diagnostic.line.clone());
-            drop(inner);
-            emit_worker_event(&event_sink, WorkerManagerEvent::Diagnostics(diagnostic));
-        }
-    });
-}
-
-fn spawn_stdio_rpc_reader<R, W>(
-    reader: R,
-    writer: W,
-    mut router: WorkerRpcRouter,
-    inner: Arc<Mutex<WorkerManagerInner>>,
-    event_sink: Arc<Mutex<Option<WorkerEventSink>>>,
-) where
-    R: Read + Send + 'static,
-    W: Write + Send + 'static,
-{
-    thread::spawn(move || {
-        let buffered = BufReader::new(reader);
-        let mut transport = WorkerStdioTransport::new(buffered, writer);
-        let event_inner = inner.clone();
-        let event_sink_for_events = event_sink.clone();
-        if let Err(error) = transport.serve_rust_rpc_requests(&mut router, move |event| {
-            record_worker_protocol_event(
-                event,
-                &event_inner,
-                &event_sink_for_events,
-            );
-        }) {
-            let line = format!("worker protocol error: {}", error.message);
-            let diagnostic = WorkerDiagnosticLine::new("stderr", line.clone());
-            let mut inner = lock_inner(&inner);
-            inner.last_error = Some(line);
             inner
                 .diagnostics
                 .push(diagnostic.stream.clone(), diagnostic.line.clone());
@@ -691,6 +698,38 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn manager_full_duplex_stdio_request_allows_worker_rust_rpc_before_response() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20);
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_agent_echo_worker_spec(), router)
+            .expect("stdio agent worker should start");
+
+        let request = WorkerRequest::new(
+            "agent-req-1",
+            "trace-agent",
+            "agent.echo",
+            json!({ "input": "hello" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(3))
+            .expect("agent request should complete");
+
+        assert_eq!(response.result.as_ref().unwrap()["ok"], true);
+        assert_eq!(response.result.as_ref().unwrap()["echo"], "hello");
+        assert_eq!(response.result.as_ref().unwrap()["workspaceFileCount"], 1);
+    }
+
     fn test_worker_spec(label: &str) -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {
@@ -784,6 +823,35 @@ mod tests {
                 PathBuf::from("."),
             )
             .with_label("stdio-event-worker")
+        }
+    }
+
+    fn test_stdio_agent_echo_worker_spec() -> WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$agent = [Console]::In.ReadLine(); $nativeReq = '{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}'; [Console]::Out.WriteLine($nativeReq); $nativeResp = [Console]::In.ReadLine() | ConvertFrom-Json; $agentObj = $agent | ConvertFrom-Json; $count = $nativeResp.result.Count; $echo = $agentObj.params.input; $final = @{ protocol_version = '1'; id = $agentObj.id; trace_id = $agentObj.trace_id; result = @{ ok = $true; echo = $echo; workspaceFileCount = $count } } | ConvertTo-Json -Compress -Depth 8; [Console]::Out.WriteLine($final)"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-echo-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"IFS= read -r agent; printf '%s\n' '{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}'; IFS= read -r native_resp; printf '%s\n' '{"protocol_version":"1","id":"agent-req-1","trace_id":"trace-agent","result":{"ok":true,"echo":"hello","workspaceFileCount":1}}'"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-echo-worker")
         }
     }
 
