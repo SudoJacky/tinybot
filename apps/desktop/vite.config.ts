@@ -32,7 +32,7 @@ export default defineConfig(async () => ({
     },
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "workers/**/*.test.ts"],
   },
 }));
 
