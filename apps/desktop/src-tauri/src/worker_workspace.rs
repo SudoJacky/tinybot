@@ -154,7 +154,7 @@ fn collect_workspace_files(
         })?;
         let path = entry.path();
         ensure_inside_canonical_workspace(root, &path)?;
-        let metadata = entry.metadata().map_err(|error| {
+        let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
             filesystem_error(
                 "failed to read workspace file metadata",
                 serde_json::json!({
@@ -163,6 +163,9 @@ fn collect_workspace_files(
                 }),
             )
         })?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
         if metadata.is_dir() {
             collect_workspace_files(root, &path, entries)?;
         } else if metadata.is_file() {
@@ -349,6 +352,32 @@ mod tests {
         let paths: Vec<String> = files.into_iter().map(|file| file.path).collect();
 
         assert_eq!(paths, vec!["AGENTS.md", "memory/MEMORY.md"]);
+    }
+
+    #[test]
+    fn list_files_skips_symlinked_directories() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("real/NOTE.md", "note");
+        let link = fixture.root.join("linked-real");
+
+        #[cfg(target_os = "windows")]
+        if let Err(error) = std::os::windows::fs::symlink_dir(fixture.root.join("real"), &link) {
+            eprintln!("skipping symlink test because symlink creation failed: {error}");
+            return;
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        if let Err(error) = std::os::unix::fs::symlink(fixture.root.join("real"), &link) {
+            eprintln!("skipping symlink test because symlink creation failed: {error}");
+            return;
+        }
+
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let files = rpc.list_files().expect("workspace files should list");
+        let paths: Vec<String> = files.into_iter().map(|file| file.path).collect();
+
+        assert_eq!(paths, vec!["real/NOTE.md"]);
     }
 
     #[test]

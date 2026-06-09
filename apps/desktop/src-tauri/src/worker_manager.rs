@@ -1,4 +1,4 @@
-use crate::worker_protocol::{WorkerDiagnosticLine, WorkerDiagnostics};
+use crate::worker_protocol::{WorkerDiagnosticLine, WorkerDiagnostics, WorkerEvent};
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_stdio::WorkerStdioTransport;
 use serde::Serialize;
@@ -389,7 +389,15 @@ fn spawn_stdio_rpc_reader<R, W>(
     thread::spawn(move || {
         let buffered = BufReader::new(reader);
         let mut transport = WorkerStdioTransport::new(buffered, writer);
-        if let Err(error) = transport.serve_rust_rpc_requests(&mut router, |_| {}) {
+        let event_inner = inner.clone();
+        let event_sink_for_events = event_sink.clone();
+        if let Err(error) = transport.serve_rust_rpc_requests(&mut router, move |event| {
+            record_worker_protocol_event(
+                event,
+                &event_inner,
+                &event_sink_for_events,
+            );
+        }) {
             let line = format!("worker protocol error: {}", error.message);
             let diagnostic = WorkerDiagnosticLine::new("stderr", line.clone());
             let mut inner = lock_inner(&inner);
@@ -401,6 +409,32 @@ fn spawn_stdio_rpc_reader<R, W>(
             emit_worker_event(&event_sink, WorkerManagerEvent::Diagnostics(diagnostic));
         }
     });
+}
+
+fn record_worker_protocol_event(
+    event: &WorkerEvent,
+    inner: &Arc<Mutex<WorkerManagerInner>>,
+    event_sink: &Arc<Mutex<Option<WorkerEventSink>>>,
+) {
+    if event.event != "diagnostics.log" {
+        return;
+    }
+    let Some(stream) = event.payload.get("stream").and_then(serde_json::Value::as_str) else {
+        return;
+    };
+    let Some(line) = event.payload.get("line").and_then(serde_json::Value::as_str) else {
+        return;
+    };
+    if !matches!(stream, "stdout" | "stderr") {
+        return;
+    }
+    let diagnostic = WorkerDiagnosticLine::new(stream, line);
+    let mut inner = lock_inner(inner);
+    inner
+        .diagnostics
+        .push(diagnostic.stream.clone(), diagnostic.line.clone());
+    drop(inner);
+    emit_worker_event(event_sink, WorkerManagerEvent::Diagnostics(diagnostic));
 }
 
 #[cfg(target_os = "windows")]
@@ -630,6 +664,33 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn manager_records_stdio_worker_diagnostics_events() {
+        let fixture = WorkspaceFixture::new();
+        let manager = WorkerManager::new(20);
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::default(),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_event_worker_spec(), router)
+            .expect("stdio event worker should start");
+
+        let diagnostics = wait_for_diagnostics(&manager, |diagnostics| {
+            has_diagnostic_line(diagnostics, "stdout", "protocol event ready")
+        });
+
+        assert!(has_diagnostic_line(
+            &diagnostics,
+            "stdout",
+            "protocol event ready"
+        ));
+    }
+
     fn test_worker_spec(label: &str) -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {
@@ -694,6 +755,35 @@ mod tests {
                 PathBuf::from("."),
             )
             .with_label("stdio-rpc-worker")
+        }
+    }
+
+    fn test_stdio_event_worker_spec() -> WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$json = '{"protocol_version":"1","trace_id":"trace-event","event":"diagnostics.log","payload":{"stream":"stdout","line":"protocol event ready"}}'; [Console]::Out.WriteLine($json)"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-event-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"json='{"protocol_version":"1","trace_id":"trace-event","event":"diagnostics.log","payload":{"stream":"stdout","line":"protocol event ready"}}'; printf '%s\n' "$json""#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-event-worker")
         }
     }
 
