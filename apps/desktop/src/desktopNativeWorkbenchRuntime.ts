@@ -15,12 +15,49 @@ import { buildDesktopAgentUiApprovalTaskOperations } from "./desktopTaskCenterSo
 import type { DesktopNativeChatModel } from "./desktopWorkbenchShell";
 import { logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 import type { NormalizedGatewayEvent } from "./gatewayWebSocketClient";
+import { appendUserMessage, applyChatEvent, type NativeChatMessage } from "./nativeChat";
 
 export interface DesktopNativeWorkbenchRuntimeOptions {
   api: DesktopChatSessionControllerApi;
   sendSocketMessage(message: unknown): void;
+  agentRoute?: "gateway" | "ts-agent";
+  runTsAgent?: (spec: DesktopTsAgentRunSpec) => Promise<DesktopTsAgentRunResult>;
   now?: () => string;
 }
+
+export type DesktopTsAgentMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+};
+
+export type DesktopTsAgentRunSpec = {
+  runId: string;
+  sessionId: string;
+  messages: DesktopTsAgentMessage[];
+  model: string;
+  maxIterations: number;
+  stream: boolean;
+  metadata: Record<string, unknown>;
+};
+
+export type DesktopTsAgentRunResult = {
+  finalContent: string;
+  stopReason: string;
+  messages?: DesktopTsAgentMessage[];
+  toolsUsed?: string[];
+  error?: string;
+};
+
+export type DesktopTsAgentWorkerEventName =
+  | "agent.delta"
+  | "agent.reasoning_delta"
+  | "agent.tool_call.delta"
+  | "agent.tool.start"
+  | "agent.tool.result"
+  | "agent.usage"
+  | "agent.checkpoint"
+  | "agent.done"
+  | "agent.error";
 
 export interface DesktopNativeWorkbenchRuntime {
   readonly chat: DesktopNativeChatModel;
@@ -36,11 +73,14 @@ export interface DesktopNativeWorkbenchRuntime {
   submitComposerMessage(content: string, usePersistentRag?: boolean): ChatSubmitResult;
   interruptActiveChat(): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void>;
+  handleTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void;
 }
 
 export function createDesktopNativeWorkbenchRuntime({
   api,
   sendSocketMessage,
+  agentRoute = "gateway",
+  runTsAgent,
   now,
 }: DesktopNativeWorkbenchRuntimeOptions): DesktopNativeWorkbenchRuntime {
   const chatController = createDesktopChatSessionController({
@@ -53,6 +93,12 @@ export function createDesktopNativeWorkbenchRuntime({
   let composerState: DesktopNativeChatModel["composerState"] = "idle";
   let runtimeMetadata: DesktopNativeChatModel["runtime"] = {};
   const agentUiState = createAgentUiEventState();
+  const activeTsAgentRuns = new Map<string, string>();
+  const activeTsAgentToolCallDeltas = new Map<string, {
+    argumentsText: string;
+    toolCallId: string;
+    toolName: string;
+  }>();
 
   async function loadInitialChatState(): Promise<void> {
     logDesktopNativeDebug("runtime.load.start", summarizeRuntimeState());
@@ -123,6 +169,9 @@ export function createDesktopNativeWorkbenchRuntime({
 
   function submitComposerMessage(content: string, nextUsePersistentRag = usePersistentRag): ChatSubmitResult {
     usePersistentRag = nextUsePersistentRag;
+    if (agentRoute === "ts-agent" && runTsAgent) {
+      return submitTsAgentComposerMessage(content, usePersistentRag);
+    }
     const result = chatController.submitMessage(content, usePersistentRag);
     if (result.status === "empty") {
       chatStatus = "Enter a message or attach a file before sending.";
@@ -141,6 +190,254 @@ export function createDesktopNativeWorkbenchRuntime({
       usePersistentRag,
     });
     return result;
+  }
+
+  function submitTsAgentComposerMessage(content: string, nextUsePersistentRag: boolean): ChatSubmitResult {
+    const trimmed = content.trim();
+    if (!trimmed) {
+      chatStatus = "Enter a message or attach a file before sending.";
+      composerState = "idle";
+      return { status: "empty" };
+    }
+
+    const state = chatController.state;
+    if (!state.activeChatId || !state.activeSessionKey) {
+      const result = chatController.submitMessage(trimmed, nextUsePersistentRag);
+      chatStatus = result.status === "creating" ? "Creating chat session before sending." : "Message sent.";
+      composerState = result.status === "creating" ? "queued" : result.status === "sent" ? "sending" : "idle";
+      return result;
+    }
+
+    appendUserMessage(state, trimmed, now?.() ?? new Date().toISOString());
+    const spec = buildDesktopTsAgentRunSpec({
+      chatId: state.activeChatId,
+      messages: state.messages.get(state.activeSessionKey) ?? [],
+      model: runtimeMetadata?.model,
+      now: now ?? (() => new Date().toISOString()),
+      sessionId: state.activeSessionKey,
+      usePersistentRag: nextUsePersistentRag,
+    });
+    composerState = "sending";
+    chatStatus = "Message sent to TS agent.";
+    logDesktopNativeDebug("runtime.submit.tsAgent", {
+      ...summarizeRuntimeState(),
+      content: summarizeDebugText(trimmed),
+      runId: spec.runId,
+      usePersistentRag: nextUsePersistentRag,
+    });
+    activeTsAgentRuns.set(spec.runId, state.activeChatId);
+    void runSubmittedTsAgent(spec, state.activeChatId);
+    return { status: "sent", chatId: state.activeChatId, content: trimmed };
+  }
+
+  async function runSubmittedTsAgent(spec: DesktopTsAgentRunSpec, chatId: string): Promise<void> {
+    if (!runTsAgent) {
+      return;
+    }
+    try {
+      const result = await runTsAgent(spec);
+      const streamMessageExists = chatController.state.streamMessageKeys.has(spec.runId);
+      if (!streamMessageExists && result.finalContent.trim()) {
+        applyChatEvent(chatController.state, {
+          kind: "message.completed",
+          chatId,
+          messageId: spec.runId,
+          text: result.finalContent,
+          raw: {
+            event: "message",
+            chat_id: chatId,
+            content: result.finalContent,
+            message_id: spec.runId,
+            source: "ts-agent-worker",
+            stop_reason: result.stopReason,
+          },
+        });
+      }
+      completeTsAgentRun(spec.runId, chatId);
+      composerState = "idle";
+      chatStatus = result.error ? `TS agent stopped: ${result.error}` : "TS agent response received.";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      applyChatEvent(chatController.state, { kind: "error", message, raw: { event: "error", message } });
+      activeTsAgentRuns.delete(spec.runId);
+      composerState = "idle";
+      chatStatus = `TS agent failed: ${message}`;
+    }
+  }
+
+  function handleTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void {
+    const frame = isRecord(payload) ? payload : {};
+    const runId = stringValue(frame.runId);
+    const chatId = activeTsAgentRuns.get(runId) || chatController.state.activeChatId;
+    if (!runId || !chatId) {
+      return;
+    }
+    if (eventName === "agent.delta" || eventName === "agent.reasoning_delta") {
+      applyChatEvent(chatController.state, {
+        kind: "message.delta",
+        chatId,
+        messageId: runId,
+        text: stringValue(frame.delta),
+        reasoning: eventName === "agent.reasoning_delta",
+        raw: {
+          event: eventName,
+          chat_id: chatId,
+          delta: stringValue(frame.delta),
+          message_id: runId,
+          source: "ts-agent-worker",
+        },
+      });
+      composerState = "sending";
+      return;
+    }
+    if (eventName === "agent.tool_call.delta") {
+      const index = numberValue(frame.index) ?? 0;
+      const deltaKey = tsAgentToolCallDeltaKey(runId, index);
+      const current = activeTsAgentToolCallDeltas.get(deltaKey);
+      const toolCallId = stringValue(frame.toolCallId ?? frame.tool_call_id) || current?.toolCallId || `${runId}:tool-${index}`;
+      const toolName = stringValue(frame.toolName ?? frame.tool_name) || current?.toolName || "tool";
+      const argumentsText = `${current?.argumentsText ?? ""}${stringValue(frame.deltaText ?? frame.delta_text ?? frame.argumentsDelta ?? frame.arguments_delta)}`;
+      activeTsAgentToolCallDeltas.set(deltaKey, { argumentsText, toolCallId, toolName });
+      applyChatEvent(chatController.state, {
+        kind: "message.completed",
+        chatId,
+        messageId: `${runId}:${toolCallId}:args`,
+        text: formatTsAgentToolCallText(toolName, argumentsText),
+        raw: {
+          event: eventName,
+          chat_id: chatId,
+          content: formatTsAgentToolCallText(toolName, argumentsText),
+          message_id: `${runId}:${toolCallId}:args`,
+          source: "ts-agent-worker",
+          status: "running",
+          _tool_call_id: toolCallId,
+          _tool_detail: true,
+          _tool_hint: true,
+          _tool_name: toolName,
+        },
+      });
+      composerState = "sending";
+      return;
+    }
+    if (eventName === "agent.tool.start") {
+      const toolCallId = stringValue(frame.toolCallId ?? frame.tool_call_id) || `${runId}:tool`;
+      const cachedToolCall = findTsAgentToolCallDelta(runId, toolCallId);
+      const toolName = cachedToolCall?.toolName || stringValue(frame.toolName ?? frame.tool_name) || "tool";
+      const toolText = formatTsAgentToolCallText(toolName, cachedToolCall?.argumentsText ?? "");
+      applyChatEvent(chatController.state, {
+        kind: "message.completed",
+        chatId,
+        messageId: `${runId}:${toolCallId}:start`,
+        text: toolText,
+        raw: {
+          event: eventName,
+          chat_id: chatId,
+          content: toolText,
+          message_id: `${runId}:${toolCallId}:start`,
+          source: "ts-agent-worker",
+          status: "running",
+          _tool_call_id: toolCallId,
+          _tool_detail: true,
+          _tool_hint: true,
+          _tool_name: toolName,
+        },
+      });
+      composerState = "sending";
+      return;
+    }
+    if (eventName === "agent.tool.result") {
+      const toolCallId = stringValue(frame.toolCallId ?? frame.tool_call_id) || `${runId}:tool`;
+      const toolName = stringValue(frame.toolName ?? frame.tool_name) || "tool";
+      const content = stringValue(frame.content ?? frame.result ?? frame.output);
+      applyChatEvent(chatController.state, {
+        kind: "message.completed",
+        chatId,
+        messageId: `${runId}:${toolCallId}:result`,
+        text: content,
+        raw: {
+          event: eventName,
+          chat_id: chatId,
+          content,
+          message_id: `${runId}:${toolCallId}:result`,
+          source: "ts-agent-worker",
+          status: "completed",
+          tool_call_id: toolCallId,
+          _tool_name: toolName,
+          _tool_result: true,
+        },
+      });
+      deleteTsAgentToolCallDelta(runId, toolCallId);
+      composerState = "sending";
+      return;
+    }
+    if (eventName === "agent.usage") {
+      setRuntimeMetadata({
+        tokenUsage: formatTsAgentTokenUsage(frame.usage, frame.contextWindowTokens ?? frame.context_window_tokens),
+      });
+      chatStatus = "TS agent usage updated.";
+      return;
+    }
+    if (eventName === "agent.checkpoint") {
+      const checkpoint = formatTsAgentCheckpoint(frame);
+      setRuntimeMetadata({ tsAgentCheckpoint: checkpoint });
+      chatStatus = `TS agent checkpoint: ${labelTsAgentCheckpointPhase(frame.phase)}.`;
+      return;
+    }
+    if (eventName === "agent.done") {
+      completeTsAgentRun(runId, chatId);
+      composerState = "idle";
+      chatStatus = "TS agent response received.";
+      return;
+    }
+    if (eventName === "agent.error") {
+      const message = stringValue(frame.message) || "TS agent error";
+      applyChatEvent(chatController.state, { kind: "error", message, raw: { event: "error", message } });
+      activeTsAgentRuns.delete(runId);
+      clearTsAgentToolCallDeltas(runId);
+      composerState = "idle";
+      chatStatus = message;
+    }
+  }
+
+  function completeTsAgentRun(runId: string, chatId: string): void {
+    applyChatEvent(chatController.state, {
+      kind: "message.stream.completed",
+      chatId,
+      messageId: runId,
+      raw: {
+        event: "stream_end",
+        chat_id: chatId,
+        message_id: runId,
+        source: "ts-agent-worker",
+      },
+    });
+    activeTsAgentRuns.delete(runId);
+    clearTsAgentToolCallDeltas(runId);
+  }
+
+  function findTsAgentToolCallDelta(runId: string, toolCallId: string): { argumentsText: string; toolName: string } | null {
+    for (const [key, value] of activeTsAgentToolCallDeltas.entries()) {
+      if (key.startsWith(`${runId}:`) && value.toolCallId === toolCallId) {
+        return { argumentsText: value.argumentsText, toolName: value.toolName };
+      }
+    }
+    return null;
+  }
+
+  function deleteTsAgentToolCallDelta(runId: string, toolCallId: string): void {
+    for (const [key, value] of activeTsAgentToolCallDeltas.entries()) {
+      if (key.startsWith(`${runId}:`) && value.toolCallId === toolCallId) {
+        activeTsAgentToolCallDeltas.delete(key);
+      }
+    }
+  }
+
+  function clearTsAgentToolCallDeltas(runId: string): void {
+    for (const key of activeTsAgentToolCallDeltas.keys()) {
+      if (key.startsWith(`${runId}:`)) {
+        activeTsAgentToolCallDeltas.delete(key);
+      }
+    }
   }
 
   function interruptActiveChat(): boolean {
@@ -251,6 +548,7 @@ export function createDesktopNativeWorkbenchRuntime({
     submitComposerMessage,
     interruptActiveChat,
     handleGatewayEvent,
+    handleTsAgentWorkerEvent,
   };
 
   function summarizeRuntimeState(): Record<string, unknown> {
@@ -273,4 +571,137 @@ export function createDesktopNativeWorkbenchRuntime({
       text: "text" in event ? summarizeDebugText(event.text) : undefined,
     };
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function tsAgentToolCallDeltaKey(runId: string, index: number): string {
+  return `${runId}:${index}`;
+}
+
+function formatTsAgentToolCallText(toolName: string, argumentsText: string): string {
+  return `${toolName}(${argumentsText})`;
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function boundedPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function formatTsAgentTokenUsage(value: unknown, contextWindowValue?: unknown): string {
+  const usage = isRecord(value) ? value : {};
+  const explicitPercent = numberValue(
+    usage.percent ?? usage.percentage ?? usage.token_usage_percent ?? usage.tokenUsagePercent,
+  );
+  if (explicitPercent !== null) {
+    return `${boundedPercent(explicitPercent)}%`;
+  }
+  const total = numberValue(usage.totalTokens ?? usage.total_tokens ?? usage.total);
+  const contextWindow = numberValue(
+    usage.contextWindowTokens ??
+      usage.context_window_tokens ??
+      usage.contextWindow ??
+      usage.context_window ??
+      usage.maxContextTokens ??
+      usage.max_context_tokens ??
+      contextWindowValue,
+  );
+  if (total !== null && contextWindow !== null) {
+    return contextWindow <= 0 ? "0%" : `${boundedPercent((total / contextWindow) * 100)}%`;
+  }
+  if (total !== null) {
+    return `${Math.round(total).toLocaleString("en-US")} tokens`;
+  }
+  return "-";
+}
+
+function formatTsAgentCheckpoint(frame: Record<string, unknown>): string {
+  const phase = labelTsAgentCheckpointPhase(frame.phase);
+  const iteration = numberValue(frame.iteration);
+  const pendingCount = Array.isArray(frame.pendingToolCalls) ? frame.pendingToolCalls.length : 0;
+  const completedCount = Array.isArray(frame.completedToolResults) ? frame.completedToolResults.length : 0;
+  const parts = [phase];
+  if (iteration !== null) {
+    parts.push(`iteration ${iteration + 1}`);
+  }
+  if (pendingCount > 0) {
+    parts.push(`${pendingCount} pending ${pendingCount === 1 ? "tool" : "tools"}`);
+  }
+  if (completedCount > 0) {
+    parts.push(`${completedCount} completed ${completedCount === 1 ? "tool" : "tools"}`);
+  }
+  return parts.join(" · ");
+}
+
+function labelTsAgentCheckpointPhase(value: unknown): string {
+  const phase = stringValue(value).trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (!phase) {
+    return "Checkpoint";
+  }
+  return `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`;
+}
+
+function buildDesktopTsAgentRunSpec({
+  chatId,
+  messages,
+  model,
+  now,
+  sessionId,
+  usePersistentRag,
+}: {
+  chatId: string;
+  messages: NativeChatMessage[];
+  model: unknown;
+  now: () => string;
+  sessionId: string;
+  usePersistentRag: boolean;
+}): DesktopTsAgentRunSpec {
+  const runId = `desktop-ts-agent-${stableRunIdPart(now())}`;
+  return {
+    runId,
+    sessionId,
+    messages: messages.map(desktopMessageToTsAgentMessage).filter((message) => message.content.trim().length > 0),
+    model: typeof model === "string" && model.trim() ? model : "default",
+    maxIterations: 8,
+    stream: true,
+    metadata: {
+      chatId,
+      route: "desktop-native-ts-agent",
+      usePersistentRag,
+    },
+  };
+}
+
+function desktopMessageToTsAgentMessage(message: NativeChatMessage): DesktopTsAgentMessage {
+  return {
+    role: desktopMessageRoleToTsAgentRole(message.role),
+    content: message.content || message.reasoningContent || "",
+  };
+}
+
+function desktopMessageRoleToTsAgentRole(role: string): DesktopTsAgentMessage["role"] {
+  if (role === "system" || role === "user" || role === "assistant" || role === "tool") {
+    return role;
+  }
+  return "assistant";
+}
+
+function stableRunIdPart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "run";
 }

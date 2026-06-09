@@ -833,6 +833,91 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn manager_runs_real_ts_worker_fixture_agent_event_flow() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::DiagnosticsWrite]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_worker_fixture_spec(), router)
+            .expect("TS fixture should start");
+
+        let request = WorkerRequest::new(
+            "agent-req-ts-flow-1",
+            "trace-ts-agent-flow",
+            "agent.fixture_flow",
+            json!({ "runId": "fixture-run-1" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .expect("agent flow request should complete");
+        let events = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["runId"] == "fixture-run-1"
+                )
+            })
+        });
+
+        let result = response.result.expect("TS fixture should return result");
+        assert_eq!(result["finalContent"], "fixture final");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["runId"] == "fixture-run-1"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.checkpoint"
+                        && protocol_event.payload["phase"] == "awaiting_tools"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.tool.start"
+                        && protocol_event.payload["toolName"] == "fixture_tool"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.tool.result"
+                        && protocol_event.payload["content"] == "fixture tool result"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+    }
+
     fn test_worker_spec(label: &str) -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {

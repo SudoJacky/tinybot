@@ -365,6 +365,7 @@ export interface DesktopNativeChatModel {
     webSocket?: string;
     tokenReady?: boolean;
     tokenUsage?: string;
+    tsAgentCheckpoint?: string;
     gatewayHttp?: string;
   };
 }

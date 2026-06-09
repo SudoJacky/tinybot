@@ -20,16 +20,16 @@ pub mod worker_diagnostics;
 pub mod worker_manager;
 pub mod worker_protocol;
 pub mod worker_rpc;
+pub mod worker_runtime;
 pub mod worker_session;
 pub mod worker_stdio;
 pub mod worker_workspace;
-pub mod worker_runtime;
 
+use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_manager::{
     WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerEvent, WorkerManagerState,
     WorkerManagerStatus,
 };
-use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_runtime::WorkerRuntimeStatus;
@@ -105,6 +105,12 @@ struct WorkerAgentEchoResult {
     workspace_file_count: usize,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerRunAgentInput {
+    spec: serde_json::Value,
+}
+
 #[derive(Deserialize, Serialize)]
 struct GatewayExitPolicyPreference {
     keep_running: bool,
@@ -124,7 +130,10 @@ impl GatewayBootstrapProbe {
     }
 
     fn is_conflict_or_error(&self) -> bool {
-        matches!(self, Self::Incompatible { .. } | Self::BootstrapError { .. })
+        matches!(
+            self,
+            Self::Incompatible { .. } | Self::BootstrapError { .. }
+        )
     }
 
     fn bootstrap_status(&self) -> String {
@@ -343,6 +352,20 @@ fn worker_echo_agent(
 }
 
 #[tauri::command]
+fn worker_run_agent(
+    input: WorkerRunAgentInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_run_agent_with_options(
+        state.inner(),
+        input.spec,
+        repo_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(120),
+    )
+}
+
+#[tauri::command]
 fn start_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus, String> {
     match gateway_bootstrap_probe() {
         GatewayBootstrapProbe::Ready => {
@@ -378,7 +401,10 @@ fn start_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus
             );
         }
         Err(WorkerManagerError::AlreadyRunning) => {
-            push_log(state.inner(), "shell-owned gateway worker is already running");
+            push_log(
+                state.inner(),
+                "shell-owned gateway worker is already running",
+            );
         }
         Err(error) => {
             let message = format!("failed to start gateway: {error:?}");
@@ -784,7 +810,9 @@ fn gateway_worker_runtime_status(
                 .clone()
                 .unwrap_or_else(|| "worker manager failed".to_string()),
         ),
-        WorkerManagerState::Stopped => WorkerRuntimeStatus::compatibility_fallback(gateway_available),
+        WorkerManagerState::Stopped => {
+            WorkerRuntimeStatus::compatibility_fallback(gateway_available)
+        }
     }
 }
 
@@ -821,7 +849,9 @@ fn gateway_bootstrap_probe() -> GatewayBootstrapProbe {
 
 fn classify_bootstrap_response(status: Option<u16>, response: &str) -> GatewayBootstrapProbe {
     let Some(status) = status else {
-        return GatewayBootstrapProbe::Offline("bootstrap response missing HTTP status".to_string());
+        return GatewayBootstrapProbe::Offline(
+            "bootstrap response missing HTTP status".to_string(),
+        );
     };
     let body = http_response_body(response);
     if !(200..300).contains(&status) {
@@ -879,7 +909,7 @@ fn worker_echo_agent_with_options(
         runtime.experimental_worker.clone()
     };
 
-    ensure_experimental_worker_running(&worker, workspace_root, config_snapshot)?;
+    ensure_experimental_fixture_worker_running(&worker, workspace_root, config_snapshot)?;
 
     let request_id = now_unix_ms();
     let request = WorkerRequest::new(
@@ -902,7 +932,62 @@ fn worker_echo_agent_with_options(
         .map_err(|error| format!("worker echo response shape is invalid: {error}"))
 }
 
-fn ensure_experimental_worker_running(
+fn worker_run_agent_with_options(
+    shared: &SharedGateway,
+    spec: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_run_agent_request(now_unix_ms(), spec);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker agent run request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker agent run returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker agent run response missing result".to_string())
+}
+
+fn build_worker_run_agent_request(request_id: u128, spec: serde_json::Value) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("agent-run-{request_id}"),
+        format!("trace-agent-run-{request_id}"),
+        "agent.run",
+        serde_json::json!({ "spec": spec }),
+    )
+}
+
+fn ensure_ts_agent_worker_running(
+    worker: &WorkerManager,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(), String> {
+    if worker.status().state == WorkerManagerState::Running {
+        return Ok(());
+    }
+    worker
+        .start_stdio_rpc(
+            ts_agent_worker_command_spec(),
+            experimental_worker_router(workspace_root, config_snapshot),
+        )
+        .map_err(|error| format!("failed to start TS agent worker: {error:?}"))
+}
+
+fn ensure_experimental_fixture_worker_running(
     worker: &WorkerManager,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -913,9 +998,22 @@ fn ensure_experimental_worker_running(
     worker
         .start_stdio_rpc(
             ts_worker_fixture_command_spec(),
-            ts_worker_fixture_router(workspace_root, config_snapshot),
+            experimental_worker_router(workspace_root, config_snapshot),
         )
         .map_err(|error| format!("failed to start TS worker fixture: {error:?}"))
+}
+
+fn ts_agent_worker_command_spec() -> WorkerCommandSpec {
+    let desktop_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("src-tauri should have desktop parent")
+        .to_path_buf();
+    WorkerCommandSpec::new(
+        "node",
+        ["workers/ts-agent-worker/src/index.ts"],
+        desktop_dir,
+    )
+    .with_label("ts-agent-worker")
 }
 
 fn ts_worker_fixture_command_spec() -> WorkerCommandSpec {
@@ -931,7 +1029,7 @@ fn ts_worker_fixture_command_spec() -> WorkerCommandSpec {
     .with_label("ts-worker-fixture")
 }
 
-fn ts_worker_fixture_router(
+fn experimental_worker_router(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> WorkerRpcRouter {
@@ -944,6 +1042,11 @@ fn ts_worker_fixture_router(
             WorkerCapability::ConfigRead,
             WorkerCapability::FsWorkspaceRead,
             WorkerCapability::DiagnosticsWrite,
+            WorkerCapability::ApprovalRequest,
+            WorkerCapability::ApprovalResolve,
+            WorkerCapability::FormRequest,
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
         ]),
     )
 }
@@ -1101,6 +1204,7 @@ pub fn run() {
             set_gateway_keep_running,
             worker_probe_status,
             worker_echo_agent,
+            worker_run_agent,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -1176,7 +1280,11 @@ mod tests {
         assert_eq!(status.owner, "shell");
         assert_eq!(
             status.state,
-            if status.http_ok { "running" } else { "starting" }
+            if status.http_ok {
+                "running"
+            } else {
+                "starting"
+            }
         );
     }
 
@@ -1234,6 +1342,33 @@ mod tests {
     }
 
     #[test]
+    fn experimental_worker_command_spec_points_at_ts_agent_worker() {
+        let spec = ts_agent_worker_command_spec();
+
+        assert_eq!(spec.program, "node");
+        assert_eq!(spec.args, vec!["workers/ts-agent-worker/src/index.ts"]);
+        assert_eq!(spec.label, "ts-agent-worker");
+    }
+
+    #[test]
+    fn worker_run_agent_request_wraps_agent_spec_for_ts_worker() {
+        let agent_spec = serde_json::json!({
+            "runId": "run-1",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "model": "gpt-5",
+            "maxIterations": 3,
+            "stream": true
+        });
+
+        let request = build_worker_run_agent_request(42, agent_spec.clone());
+
+        assert_eq!(request.id, "agent-run-42");
+        assert_eq!(request.trace_id, "trace-agent-run-42");
+        assert_eq!(request.method, "agent.run");
+        assert_eq!(request.params, serde_json::json!({ "spec": agent_spec }));
+    }
+
+    #[test]
     fn gateway_status_exposes_port_and_exit_policy() {
         let shared = Arc::new(Mutex::new(GatewayRuntime {
             worker: WorkerManager::new(200),
@@ -1276,7 +1411,10 @@ mod tests {
         );
 
         assert_eq!(probe.bootstrap_status(), "incompatible");
-        assert_eq!(probe.response_class(), Some("incompatible-bootstrap".to_string()));
+        assert_eq!(
+            probe.response_class(),
+            Some("incompatible-bootstrap".to_string())
+        );
         assert!(probe
             .last_error()
             .expect("incompatible probe should explain the response")
@@ -1311,13 +1449,18 @@ mod tests {
             bootstrap_status: "ready".to_string(),
             response_class: Some("tinybot-bootstrap".to_string()),
             recovery_hint: None,
-            worker_runtime: crate::worker_runtime::WorkerRuntimeStatus::compatibility_fallback(true),
+            worker_runtime: crate::worker_runtime::WorkerRuntimeStatus::compatibility_fallback(
+                true,
+            ),
         };
 
         let value = serde_json::to_value(status).expect("status should serialize");
 
         assert_eq!(value["worker_runtime"]["state"], "stopped");
-        assert_eq!(value["worker_runtime"]["gateway_compatibility_available"], true);
+        assert_eq!(
+            value["worker_runtime"]["gateway_compatibility_available"],
+            true
+        );
     }
 
     #[test]
@@ -1340,12 +1483,9 @@ mod tests {
 
     #[test]
     fn worker_manager_diagnostics_event_maps_to_frontend_diagnostics_log_event() {
-        let (event_name, payload) = worker_manager_frontend_event(
-            WorkerManagerEvent::Diagnostics(crate::worker_protocol::WorkerDiagnosticLine::new(
-                "stderr",
-                "worker ready",
-            )),
-        );
+        let (event_name, payload) = worker_manager_frontend_event(WorkerManagerEvent::Diagnostics(
+            crate::worker_protocol::WorkerDiagnosticLine::new("stderr", "worker ready"),
+        ));
 
         assert_eq!(event_name, "diagnostics.log");
         assert_eq!(payload["stream"], "stderr");
@@ -1354,15 +1494,14 @@ mod tests {
 
     #[test]
     fn worker_manager_protocol_event_maps_to_frontend_protocol_event_name() {
-        let (event_name, payload) =
-            worker_manager_frontend_event(WorkerManagerEvent::Protocol(
-                crate::worker_protocol::WorkerEvent {
-                    protocol_version: crate::worker_protocol::WORKER_PROTOCOL_VERSION.to_string(),
-                    trace_id: "trace-agent".to_string(),
-                    event: "agent.delta".to_string(),
-                    payload: serde_json::json!({ "message": "starting" }),
-                },
-            ));
+        let (event_name, payload) = worker_manager_frontend_event(WorkerManagerEvent::Protocol(
+            crate::worker_protocol::WorkerEvent {
+                protocol_version: crate::worker_protocol::WORKER_PROTOCOL_VERSION.to_string(),
+                trace_id: "trace-agent".to_string(),
+                event: "agent.delta".to_string(),
+                payload: serde_json::json!({ "message": "starting" }),
+            },
+        ));
 
         assert_eq!(event_name, "agent.delta");
         assert_eq!(payload["message"], "starting");
@@ -1377,7 +1516,10 @@ mod tests {
         assert_eq!(value["transport_mode"], "stdio");
         assert_eq!(
             value["diagnostics"][0]["line"],
-            format!("worker protocol {}", crate::worker_protocol::WORKER_PROTOCOL_VERSION)
+            format!(
+                "worker protocol {}",
+                crate::worker_protocol::WORKER_PROTOCOL_VERSION
+            )
         );
     }
 
@@ -1551,7 +1693,9 @@ mod tests {
         }
 
         fn write(&self, relative_path: &str, contents: &str) {
-            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let path = self
+                .root
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }

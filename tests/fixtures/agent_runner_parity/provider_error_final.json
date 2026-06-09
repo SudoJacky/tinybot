@@ -1,0 +1,29 @@
+{
+  "runId": "parity-provider-error-final",
+  "model": "test-model",
+  "maxIterations": 3,
+  "maxToolResultChars": 1000,
+  "messages": [
+    {
+      "role": "user",
+      "content": "trigger provider error"
+    }
+  ],
+  "responses": [
+    {
+      "content": "provider error",
+      "stopReason": "error",
+      "toolCalls": []
+    }
+  ],
+  "toolResults": {
+    "echo": "echo:{text}"
+  },
+  "expected": {
+    "finalContent": "provider error",
+    "stopReason": "error",
+    "toolsUsed": [],
+    "messageRoles": ["user", "assistant"],
+    "checkpoints": []
+  }
+}

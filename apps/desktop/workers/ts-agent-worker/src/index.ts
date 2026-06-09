@@ -2,11 +2,10 @@ import { createInterface } from "node:readline";
 
 import { ToolRegistry } from "./tools/toolRegistry.ts";
 import { createAgentWorkerServer } from "./runtime/createAgentWorkerServer.ts";
-import { createModelProvider, modelProviderConfigFromEnv } from "./runtime/providerFactory.ts";
 
 const server = createAgentWorkerServer({
-  provider: createModelProvider(modelProviderConfigFromEnv(process.env)),
   tools: new ToolRegistry(),
+  env: process.env,
   writeLine: (line) => {
     process.stdout.write(`${line}\n`);
   },

@@ -198,6 +198,14 @@ function extractEchoInput(params: JsonObject | undefined): string {
   return input;
 }
 
+function extractRunId(params: JsonObject | undefined): string {
+  const runId = params?.runId;
+  if (typeof runId !== "string") {
+    throw new Error("agent.fixture_flow requires string params.runId");
+  }
+  return runId;
+}
+
 async function handleAgentEcho(request: WorkerRequest): Promise<void> {
   sendEvent(request.trace_id, "agent.delta", { message: "starting" });
 
@@ -228,6 +236,68 @@ async function handleAgentEcho(request: WorkerRequest): Promise<void> {
   });
 }
 
+async function handleAgentFixtureFlow(request: WorkerRequest): Promise<void> {
+  const runId = extractRunId(request.params);
+  logger.info(`fixture flow ${runId}`);
+  sendEvent(request.trace_id, "agent.delta", {
+    runId,
+    delta: "fixture ",
+  });
+  sendEvent(request.trace_id, "agent.checkpoint", {
+    runId,
+    phase: "awaiting_tools",
+    iteration: 0,
+    model: "fixture-model",
+    pendingToolCalls: [
+      { id: "fixture-call-1", name: "fixture_tool", argumentsJson: "{\"input\":\"fixture\"}" },
+    ],
+    completedToolResults: [],
+  });
+  sendEvent(request.trace_id, "agent.tool.start", {
+    runId,
+    toolCallId: "fixture-call-1",
+    toolName: "fixture_tool",
+  });
+  sendEvent(request.trace_id, "agent.tool.result", {
+    runId,
+    toolCallId: "fixture-call-1",
+    toolName: "fixture_tool",
+    content: "fixture tool result",
+  });
+  sendEvent(request.trace_id, "agent.checkpoint", {
+    runId,
+    phase: "tools_completed",
+    iteration: 0,
+    model: "fixture-model",
+    pendingToolCalls: [],
+    completedToolResults: [
+      { role: "tool", content: "fixture tool result", toolCallId: "fixture-call-1", name: "fixture_tool" },
+    ],
+  });
+  sendEvent(request.trace_id, "agent.delta", {
+    runId,
+    delta: "final",
+  });
+  sendEvent(request.trace_id, "agent.checkpoint", {
+    runId,
+    phase: "final_response",
+    iteration: 1,
+    model: "fixture-model",
+    pendingToolCalls: [],
+    completedToolResults: [],
+  });
+  sendEvent(request.trace_id, "agent.done", {
+    runId,
+    stopReason: "final_response",
+  });
+  sendSuccess(request, {
+    finalContent: "fixture final",
+    stopReason: "final_response",
+    messages: [],
+    toolsUsed: ["fixture_tool"],
+  });
+}
+
 async function handleWorkerRequest(request: WorkerRequest): Promise<void> {
   const versionError = ensureProtocolVersion(request);
   if (versionError) {
@@ -238,6 +308,11 @@ async function handleWorkerRequest(request: WorkerRequest): Promise<void> {
   try {
     if (request.method === "agent.echo") {
       await handleAgentEcho(request);
+      return;
+    }
+
+    if (request.method === "agent.fixture_flow") {
+      await handleAgentFixtureFlow(request);
       return;
     }
 

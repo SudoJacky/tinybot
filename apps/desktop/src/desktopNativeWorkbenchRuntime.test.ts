@@ -150,6 +150,277 @@ describe("desktop native workbench runtime", () => {
     });
   });
 
+  test("can route active native chat submissions through the experimental TS agent runner", async () => {
+    const sentSocketMessages: unknown[] = [];
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts", chat_id: "chat-ts", title: "TS route" }],
+        }),
+        loadMessages: async () => ({
+          messages: [{ role: "assistant", content: "Previous answer", message_id: "m-prev" }],
+        }),
+      },
+      sendSocketMessage: (message) => {
+        sentSocketMessages.push(message);
+      },
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "TS agent answer",
+          stopReason: "final_response",
+          messages: [],
+          toolsUsed: [],
+        };
+      },
+      now: () => "2026-06-03T08:15:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    sentSocketMessages.length = 0;
+
+    expect(runtime.submitComposerMessage("Use the TS loop", false)).toEqual({
+      status: "sent",
+      chatId: "chat-ts",
+      content: "Use the TS loop",
+    });
+    await Promise.resolve();
+
+    expect(sentSocketMessages).toEqual([]);
+    expect(runSpecs).toMatchObject([
+      {
+        sessionId: "WebSocket:chat-ts",
+        model: "default",
+        stream: true,
+        maxIterations: 8,
+        metadata: {
+          chatId: "chat-ts",
+          route: "desktop-native-ts-agent",
+          usePersistentRag: false,
+        },
+        messages: [
+          { role: "assistant", content: "Previous answer" },
+          { role: "user", content: "Use the TS loop" },
+        ],
+      },
+    ]);
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "assistant", content: "Previous answer" },
+      { role: "user", content: "Use the TS loop" },
+      { role: "assistant", content: "TS agent answer" },
+    ]);
+    expect(runtime.chat.responding).toBe(false);
+    expect(runtime.chat.composerState).toBe("idle");
+    expect(runtime.chat.status).toBe("TS agent response received.");
+  });
+
+  test("projects TS agent worker stream events into the active native chat", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts", chat_id: "chat-ts", title: "TS route" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-03T08:16:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Stream with TS");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.reasoning_delta", { runId, delta: "plan " });
+    runtime.handleTsAgentWorkerEvent("agent.delta", { runId, delta: "answer" });
+    runtime.handleTsAgentWorkerEvent("agent.done", { runId, stopReason: "final_response" });
+    resolveRun?.({ finalContent: "answer", stopReason: "final_response", messages: [], toolsUsed: [] });
+    await runPromise;
+    await Promise.resolve();
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Stream with TS" },
+      { role: "assistant", reasoningContent: "plan ", content: "answer", messageId: runId },
+    ]);
+    expect(runtime.chat.responding).toBe(false);
+    expect(runtime.chat.composerState).toBe("idle");
+    expect(runtime.chat.status).toBe("TS agent response received.");
+  });
+
+  test("projects TS agent worker tool events into native chat activities", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-tools", chat_id: "chat-tools", title: "TS tools" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-03T08:16:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Use a TS tool");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.tool.start", {
+      runId,
+      toolCallId: "call-memory",
+      toolName: "search_memory_notes",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.tool.result", {
+      runId,
+      toolCallId: "call-memory",
+      toolName: "search_memory_notes",
+      content: "Found memory note",
+    });
+    resolveRun?.({ finalContent: "", stopReason: "final_response", messages: [], toolsUsed: [] });
+    await runPromise;
+    await Promise.resolve();
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Use a TS tool" },
+      {
+        role: "assistant",
+        content: "",
+        toolActivities: [
+          {
+            id: "call-memory",
+            name: "search_memory_notes",
+            argsText: "search_memory_notes()",
+            responseText: "Found memory note",
+            kind: "result",
+            status: "completed",
+          },
+        ],
+      },
+    ]);
+    expect(runtime.chat.responding).toBe(false);
+  });
+
+  test("projects TS agent worker tool-call argument deltas into native chat activities", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-tool-delta", chat_id: "chat-tool-delta", title: "TS tool delta" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-03T08:16:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Stream tool args");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.tool_call.delta", {
+      runId,
+      index: 0,
+      deltaText: "{\"query\"",
+      toolCallId: "call-search",
+      toolName: "search_memory_notes",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.tool_call.delta", {
+      runId,
+      index: 0,
+      deltaText: ":\"docs\"}",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.tool.start", {
+      runId,
+      toolCallId: "call-search",
+      toolName: "search_memory_notes",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.tool.result", {
+      runId,
+      toolCallId: "call-search",
+      toolName: "search_memory_notes",
+      content: "Found docs note",
+    });
+    resolveRun?.({ finalContent: "", stopReason: "final_response", messages: [], toolsUsed: [] });
+    await runPromise;
+    await Promise.resolve();
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Stream tool args" },
+      {
+        role: "assistant",
+        content: "",
+        toolActivities: [
+          {
+            id: "call-search",
+            name: "search_memory_notes",
+            argsText: "search_memory_notes({\"query\":\"docs\"})",
+            responseText: "Found docs note",
+            kind: "result",
+            status: "completed",
+          },
+        ],
+      },
+    ]);
+    expect(runtime.chat.responding).toBe(false);
+  });
+
   test("exposes live runtime metadata for native composer chips", () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {
@@ -338,6 +609,56 @@ describe("desktop native workbench runtime", () => {
     });
 
     expect(runtime.chat.runtime?.tokenUsage).toBe("37%");
+  });
+
+  test("updates native runtime token usage from TS agent usage events", async () => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-usage", chat_id: "chat-ts-usage", title: "TS usage chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.handleTsAgentWorkerEvent("agent.usage", {
+      runId: "run-usage",
+      usage: {
+        inputTokens: 7,
+        outputTokens: 5,
+        totalTokens: 12,
+        contextWindowTokens: 100,
+      },
+    });
+
+    expect(runtime.chat.runtime?.tokenUsage).toBe("12%");
+  });
+
+  test("projects TS agent checkpoint events into native runtime metadata", async () => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-checkpoint", chat_id: "chat-ts-checkpoint", title: "TS checkpoint chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.handleTsAgentWorkerEvent("agent.checkpoint", {
+      runId: "run-checkpoint",
+      phase: "awaiting_tools",
+      iteration: 0,
+      model: "test-model",
+      pendingToolCalls: [{ id: "call-1", name: "search_memory_notes", argumentsJson: "{}" }],
+      completedToolResults: [],
+    });
+
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toBe("Awaiting tools · iteration 1 · 1 pending tool");
+    expect(runtime.chat.status).toBe("TS agent checkpoint: Awaiting tools.");
   });
 
   test("reduces agent-ui form gateway events into native approval forms", async () => {

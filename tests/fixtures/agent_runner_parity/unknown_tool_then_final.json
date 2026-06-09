@@ -1,0 +1,45 @@
+{
+  "runId": "parity-unknown-tool-then-final",
+  "model": "test-model",
+  "maxIterations": 3,
+  "maxToolResultChars": 1000,
+  "messages": [
+    {
+      "role": "user",
+      "content": "recover from an unknown tool"
+    }
+  ],
+  "responses": [
+    {
+      "content": "",
+      "stopReason": "tool_calls",
+      "toolCalls": [
+        {
+          "id": "call-1",
+          "name": "missing_tool",
+          "arguments": {
+            "path": "missing.txt"
+          }
+        }
+      ]
+    },
+    {
+      "content": "recovered after unknown tool",
+      "stopReason": "stop",
+      "toolCalls": []
+    }
+  ],
+  "toolResults": {
+    "echo": "echo:{text}"
+  },
+  "expected": {
+    "finalContent": "recovered after unknown tool",
+    "stopReason": "final_response",
+    "toolsUsed": ["missing_tool"],
+    "messageRoles": ["user", "assistant", "tool", "assistant"],
+    "checkpoints": ["awaiting_tools", "tools_completed", "final_response"],
+    "toolContents": [
+      "Error: Tool 'missing_tool' not found. Available: echo\n\n[Analyze the error above and try a different approach. Consider using `query_experience` to search for past solutions to similar problems.]"
+    ]
+  }
+}

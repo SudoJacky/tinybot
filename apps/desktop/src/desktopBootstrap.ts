@@ -32,6 +32,7 @@ import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
 import {
   createDesktopNativeWorkbenchRuntime,
+  type DesktopTsAgentWorkerEventName,
   type DesktopNativeWorkbenchRuntime,
 } from "./desktopNativeWorkbenchRuntime";
 import { createDesktopOsNotificationBridge } from "./desktopOsNotifications";
@@ -109,6 +110,7 @@ import {
   buildNativeWorkbenchSidebarModel,
   buildRootWebUiSidebarModel,
 } from "./desktopSharedModels";
+import { resolveDesktopAgentRoute } from "./desktopAgentRoute";
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
@@ -136,6 +138,7 @@ let nativeWorkbenchRuntime: DesktopNativeWorkbenchRuntime | null = null;
 let nativeChatSocket: WebSocket | null = null;
 let nativeChatWsUrl = gatewayConfig.wsUrl;
 let nativeChatRuntimeActionsInstalled = false;
+let nativeTsAgentListenersInstalled = false;
 const nativePendingSocketMessages: unknown[] = [];
 const nativeOsNotifications = createDesktopOsNotificationBridge({
   hasTauriRuntime,
@@ -284,6 +287,10 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
   logDesktopNativeDebug("bootstrap.nativeChat.load.start", {
     gatewayHttp: gatewayConfig.httpBaseUrl,
   });
+  const agentRoute = resolveDesktopAgentRoute({
+    search: window.location.search,
+    storedRoute: readDesktopAgentRoutePreference(),
+  });
   const runtime = createDesktopNativeWorkbenchRuntime({
     api: {
       listSessions: () => gatewayApi.sessions.list(),
@@ -291,8 +298,13 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
       deleteSession: (sessionKey) => gatewayApi.sessions.delete(sessionKey),
     },
     sendSocketMessage: (message) => sendNativeChatSocketMessage(message),
+    agentRoute,
+    runTsAgent: agentRoute === "ts-agent"
+      ? (spec) => invoke("worker_run_agent", { input: { spec } })
+      : undefined,
   });
   nativeWorkbenchRuntime = runtime;
+  installNativeTsAgentEventListeners();
   const health = await checkGatewayHealth({ config: gatewayConfig }).catch(() => null);
   nativeChatWsUrl = health?.tokenReady ? health.wsUrl : gatewayConfig.wsUrl;
   runtime.setRuntimeMetadata({
@@ -314,6 +326,44 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
     sessionCount: runtime.chat.sessions.length,
   });
   return runtime;
+}
+
+function installNativeTsAgentEventListeners(): void {
+  if (nativeTsAgentListenersInstalled) {
+    return;
+  }
+  nativeTsAgentListenersInstalled = true;
+  for (const eventName of [
+    "agent.delta",
+    "agent.reasoning_delta",
+    "agent.tool_call.delta",
+    "agent.tool.start",
+    "agent.tool.result",
+    "agent.usage",
+    "agent.checkpoint",
+    "agent.done",
+    "agent.error",
+  ] as const) {
+    void listen(eventName, (event) => {
+      handleNativeTsAgentWorkerEvent(eventName, event.payload);
+    });
+  }
+}
+
+function handleNativeTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void {
+  if (!nativeWorkbenchRuntime) {
+    return;
+  }
+  nativeWorkbenchRuntime.handleTsAgentWorkerEvent(eventName, payload);
+  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+}
+
+function readDesktopAgentRoutePreference(): string | null {
+  try {
+    return window.localStorage.getItem("tinybot.desktop.agentRoute");
+  } catch {
+    return null;
+  }
 }
 
 function ensureNativeChatSocket(runtime = nativeWorkbenchRuntime): void {

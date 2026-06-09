@@ -1,0 +1,43 @@
+{
+  "runId": "parity-invalid-tool-params-then-final",
+  "model": "test-model",
+  "maxIterations": 3,
+  "maxToolResultChars": 1000,
+  "messages": [
+    {
+      "role": "user",
+      "content": "recover from invalid tool parameters"
+    }
+  ],
+  "responses": [
+    {
+      "content": "",
+      "stopReason": "tool_calls",
+      "toolCalls": [
+        {
+          "id": "call-1",
+          "name": "echo",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "content": "recovered after invalid params",
+      "stopReason": "stop",
+      "toolCalls": []
+    }
+  ],
+  "toolResults": {
+    "echo": "echo:{text}"
+  },
+  "expected": {
+    "finalContent": "recovered after invalid params",
+    "stopReason": "final_response",
+    "toolsUsed": ["echo"],
+    "messageRoles": ["user", "assistant", "tool", "assistant"],
+    "checkpoints": ["awaiting_tools", "tools_completed", "final_response"],
+    "toolContents": [
+      "Error: Invalid parameters for tool 'echo': missing required text\n\n[Analyze the error above and try a different approach. Consider using `query_experience` to search for past solutions to similar problems.]"
+    ]
+  }
+}

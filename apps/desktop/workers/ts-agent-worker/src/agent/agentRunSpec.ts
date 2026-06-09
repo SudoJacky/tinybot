@@ -8,7 +8,19 @@ export type AgentMessage = {
   toolCalls?: ToolCallRequest[];
   toolCallId?: string;
   name?: string;
+  metadata?: Record<string, unknown>;
 };
+
+export type AgentStopReason =
+  | "final_response"
+  | "max_iterations"
+  | "error"
+  | "tool_error"
+  | "empty_final_response"
+  | "cancelled"
+  | "awaiting_user_input"
+  | "awaiting_approval"
+  | "awaiting_form";
 
 export type AgentRunSpec = {
   runId: string;
@@ -29,6 +41,7 @@ export type AgentRunResult = {
   messages: AgentMessage[];
   toolsUsed: string[];
   usage?: TokenUsage;
-  stopReason: "final_response" | "max_iterations" | "tool_error" | "empty_final_response";
+  stopReason: AgentStopReason;
   error?: string;
+  awaitingInput?: Record<string, unknown>;
 };

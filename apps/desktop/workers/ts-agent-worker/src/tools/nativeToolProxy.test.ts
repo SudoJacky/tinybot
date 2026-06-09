@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { JsonObject } from "../protocol/messages";
-import { createNativeReadOnlyTools } from "./nativeToolProxy";
+import { createNativeApprovalTools, createNativeFormTools, createNativeMemoryTools, createNativeReadOnlyTools } from "./nativeToolProxy";
 
 class FakeRpcClient {
   readonly requests: Array<{ traceId: string; method: string; params: JsonObject }> = [];
@@ -57,6 +57,217 @@ describe("createNativeReadOnlyTools", () => {
         traceId: "trace-1",
         method: "workspace.list_files",
         params: {},
+      },
+    ]);
+  });
+});
+
+describe("createNativeFormTools", () => {
+  test("creates a request_form tool backed by form.request", async () => {
+    const form = {
+      form_id: "travel_plan",
+      title: "Travel plan",
+      fields: [{ name: "destination", type: "text", label: "Destination" }],
+    };
+    const rpc = new FakeRpcClient([
+      {
+        content: "Waiting for form submission.",
+        awaitingUserInput: true,
+        stopReason: "awaiting_form",
+        formId: "travel_plan",
+        form,
+        continuationMode: "resume",
+      },
+    ]);
+    const [requestForm] = createNativeFormTools(rpc);
+
+    const result = await requestForm.execute(
+      { form, continuation_mode: "resume" },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
+    );
+
+    expect(requestForm.name).toBe("request_form");
+    expect(result).toEqual({
+      content: "Waiting for form submission.",
+      metadata: {
+        awaitingUserInput: true,
+        stopReason: "awaiting_form",
+        formId: "travel_plan",
+        form,
+        continuationMode: "resume",
+      },
+    });
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "form.request",
+        params: {
+          run_id: "run-1",
+          session_id: "session-1",
+          form,
+          continuation_mode: "resume",
+        },
+      },
+    ]);
+  });
+});
+
+describe("createNativeApprovalTools", () => {
+  test("creates a request_approval tool backed by approval.request", async () => {
+    const operation = {
+      toolName: "write_file",
+      arguments: { path: "notes/today.md", contents: "hello" },
+      category: "filesystem_write",
+      risk: "medium",
+      reason: "File write/edit/delete tools can modify workspace state.",
+    };
+    const rpc = new FakeRpcClient([
+      {
+        content: "Waiting for approval.",
+        awaitingUserInput: true,
+        stopReason: "awaiting_approval",
+        approvalId: "approval-1",
+        operation,
+      },
+    ]);
+    const [requestApproval] = createNativeApprovalTools(rpc);
+
+    const result = await requestApproval.execute(
+      { operation },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
+    );
+
+    expect(requestApproval.name).toBe("request_approval");
+    expect(result).toEqual({
+      content: "Waiting for approval.",
+      metadata: {
+        awaitingUserInput: true,
+        stopReason: "awaiting_approval",
+        approvalId: "approval-1",
+        operation,
+      },
+    });
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "approval.request",
+        params: {
+          run_id: "run-1",
+          session_id: "session-1",
+          operation,
+        },
+      },
+    ]);
+  });
+});
+
+describe("createNativeMemoryTools", () => {
+  test("creates a search_memory_notes tool backed by memory.search", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        notes: [
+          {
+            id: "mem_1",
+            scope: "user",
+            type: "preference",
+            status: "active",
+            priority: 0.8,
+            confidence: 0.7,
+            content: "User prefers concise implementation handoffs.",
+            sources: [{ capture_origin: "explicit", session_key: "session-1" }],
+          },
+        ],
+      },
+    ]);
+    const [searchMemoryNotes] = createNativeMemoryTools(rpc);
+
+    const result = await searchMemoryNotes.execute(
+      { query: "handoff", note_type: "preference", status: "active", limit: 5 },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+
+    expect(searchMemoryNotes.name).toBe("search_memory_notes");
+    expect(result.content).toContain("## Memory Notes");
+    expect(result.content).toContain("[mem_1] user/preference/active");
+    expect(result.content).toContain("User prefers concise implementation handoffs.");
+    expect(result.metadata).toEqual({
+      _memory_references: [
+        {
+          note_id: "mem_1",
+          scope: "user",
+          type: "preference",
+          status: "active",
+          content: "User prefers concise implementation handoffs.",
+          priority: 0.8,
+          confidence: 0.7,
+          tags: [],
+          metadata: {},
+          evidence_ids: [],
+          file: undefined,
+          line: undefined,
+          view_file: undefined,
+          view_line: undefined,
+        },
+      ],
+    });
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "memory.search",
+        params: {
+          query: "handoff",
+          note_type: "preference",
+          status: "active",
+          limit: 5,
+        },
+      },
+    ]);
+  });
+
+  test("creates a save_memory_note tool backed by memory.save", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        note: {
+          id: "mem_1",
+          type: "preference",
+          status: "active",
+          content: "User prefers concise implementation handoffs.",
+        },
+      },
+    ]);
+    const [, saveMemoryNote] = createNativeMemoryTools(rpc);
+
+    const result = await saveMemoryNote.execute(
+      {
+        content: "User prefers concise implementation handoffs.",
+        note_type: "preference",
+        priority: 0.8,
+        confidence: 0.7,
+        tags: "handoff, communication",
+        metadata: "{\"source\":\"desktop\"}",
+        message_start: 3,
+        message_end: 4,
+      },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
+    );
+
+    expect(saveMemoryNote.name).toBe("save_memory_note");
+    expect(result.content).toBe("Memory Note saved: mem_1 (preference, active)");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "memory.save",
+        params: {
+          session_id: "session-1",
+          content: "User prefers concise implementation handoffs.",
+          note_type: "preference",
+          priority: 0.8,
+          confidence: 0.7,
+          tags: ["handoff", "communication"],
+          metadata: { source: "desktop" },
+          message_start: 3,
+          message_end: 4,
+        },
       },
     ]);
   });
