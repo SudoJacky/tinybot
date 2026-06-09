@@ -888,15 +888,19 @@ fn gateway_runtime_logs(
         .collect()
 }
 
-fn worker_manager_frontend_event(event: WorkerManagerEvent) -> (&'static str, serde_json::Value) {
+fn worker_manager_frontend_event(event: WorkerManagerEvent) -> (String, serde_json::Value) {
     match event {
         WorkerManagerEvent::Status(status) => (
-            "worker.status",
+            "worker.status".to_string(),
             serde_json::to_value(status).unwrap_or_else(|_| serde_json::json!({})),
         ),
         WorkerManagerEvent::Diagnostics(line) => (
-            "diagnostics.log",
+            "diagnostics.log".to_string(),
             serde_json::to_value(line).unwrap_or_else(|_| serde_json::json!({})),
+        ),
+        WorkerManagerEvent::Protocol(event) => (
+            event.event,
+            serde_json::to_value(event.payload).unwrap_or_else(|_| serde_json::json!({})),
         ),
     }
 }
@@ -906,7 +910,7 @@ fn emit_worker_manager_frontend_event<R: Runtime>(
     event: WorkerManagerEvent,
 ) {
     let (event_name, payload) = worker_manager_frontend_event(event);
-    let _ = app.emit(event_name, payload);
+    let _ = app.emit(&event_name, payload);
 }
 
 fn lock_runtime(shared: &SharedGateway) -> std::sync::MutexGuard<'_, GatewayRuntime> {
@@ -1172,6 +1176,22 @@ mod tests {
         assert_eq!(event_name, "diagnostics.log");
         assert_eq!(payload["stream"], "stderr");
         assert_eq!(payload["line"], "worker ready");
+    }
+
+    #[test]
+    fn worker_manager_protocol_event_maps_to_frontend_protocol_event_name() {
+        let (event_name, payload) =
+            worker_manager_frontend_event(WorkerManagerEvent::Protocol(
+                crate::worker_protocol::WorkerEvent {
+                    protocol_version: crate::worker_protocol::WORKER_PROTOCOL_VERSION.to_string(),
+                    trace_id: "trace-agent".to_string(),
+                    event: "agent.delta".to_string(),
+                    payload: serde_json::json!({ "message": "starting" }),
+                },
+            ));
+
+        assert_eq!(event_name, "agent.delta");
+        assert_eq!(payload["message"], "starting");
     }
 
     #[test]

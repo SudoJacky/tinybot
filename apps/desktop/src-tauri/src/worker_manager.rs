@@ -86,6 +86,7 @@ pub struct WorkerManagerStatus {
 pub enum WorkerManagerEvent {
     Status(WorkerManagerStatus),
     Diagnostics(WorkerDiagnosticLine),
+    Protocol(WorkerEvent),
 }
 
 type WorkerEventSink = Arc<dyn Fn(WorkerManagerEvent) + Send + Sync + 'static>;
@@ -98,7 +99,9 @@ pub struct WorkerManager {
 
 impl fmt::Debug for WorkerManager {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("WorkerManager").finish_non_exhaustive()
+        formatter
+            .debug_struct("WorkerManager")
+            .finish_non_exhaustive()
     }
 }
 
@@ -137,10 +140,7 @@ impl WorkerManager {
         self
     }
 
-    pub fn set_event_sink(
-        &self,
-        event_sink: impl Fn(WorkerManagerEvent) + Send + Sync + 'static,
-    ) {
+    pub fn set_event_sink(&self, event_sink: impl Fn(WorkerManagerEvent) + Send + Sync + 'static) {
         let mut sink = lock_event_sink(&self.event_sink);
         *sink = Some(Arc::new(event_sink));
     }
@@ -246,18 +246,10 @@ impl WorkerManager {
             (Some(stdout), Some(stdin)) => {
                 let event_inner = self.inner.clone();
                 let event_sink_for_events = self.event_sink.clone();
-                let connection = WorkerConnection::start(
-                    BufReader::new(stdout),
-                    stdin,
-                    router,
-                    move |event| {
-                        record_worker_protocol_event(
-                            &event,
-                            &event_inner,
-                            &event_sink_for_events,
-                        );
-                    },
-                );
+                let connection =
+                    WorkerConnection::start(BufReader::new(stdout), stdin, router, move |event| {
+                        record_worker_protocol_event(&event, &event_inner, &event_sink_for_events);
+                    });
                 let mut inner = lock_inner(&self.inner);
                 inner.stdio_connection = Some(connection);
             }
@@ -269,9 +261,7 @@ impl WorkerManager {
                 drop(inner);
                 emit_worker_event(
                     &self.event_sink,
-                    WorkerManagerEvent::Diagnostics(WorkerDiagnosticLine::new(
-                        "stderr", message,
-                    )),
+                    WorkerManagerEvent::Diagnostics(WorkerDiagnosticLine::new("stderr", message)),
                 );
             }
         }
@@ -424,12 +414,21 @@ fn record_worker_protocol_event(
     event_sink: &Arc<Mutex<Option<WorkerEventSink>>>,
 ) {
     if event.event != "diagnostics.log" {
+        emit_worker_event(event_sink, WorkerManagerEvent::Protocol(event.clone()));
         return;
     }
-    let Some(stream) = event.payload.get("stream").and_then(serde_json::Value::as_str) else {
+    let Some(stream) = event
+        .payload
+        .get("stream")
+        .and_then(serde_json::Value::as_str)
+    else {
         return;
     };
-    let Some(line) = event.payload.get("line").and_then(serde_json::Value::as_str) else {
+    let Some(line) = event
+        .payload
+        .get("line")
+        .and_then(serde_json::Value::as_str)
+    else {
         return;
     };
     if !matches!(stream, "stdout" | "stderr") {
@@ -484,10 +483,7 @@ fn lock_event_sink(
     sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn emit_worker_event(
-    event_sink: &Arc<Mutex<Option<WorkerEventSink>>>,
-    event: WorkerManagerEvent,
-) {
+fn emit_worker_event(event_sink: &Arc<Mutex<Option<WorkerEventSink>>>, event: WorkerManagerEvent) {
     let sink = lock_event_sink(event_sink).clone();
     if let Some(sink) = sink {
         sink(event);
@@ -507,10 +503,7 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let event_log = events.clone();
         let manager = WorkerManager::new(20).with_event_sink(move |event| {
-            event_log
-                .lock()
-                .expect("event log should lock")
-                .push(event);
+            event_log.lock().expect("event log should lock").push(event);
         });
 
         manager
@@ -539,10 +532,7 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let event_log = events.clone();
         let manager = WorkerManager::new(20).with_event_sink(move |event| {
-            event_log
-                .lock()
-                .expect("event log should lock")
-                .push(event);
+            event_log.lock().expect("event log should lock").push(event);
         });
 
         manager
@@ -627,7 +617,10 @@ mod tests {
             .start(test_logging_worker_spec())
             .expect("short worker should start");
 
-        assert_eq!(wait_for_health(&manager, WorkerHealth::Exited), WorkerHealth::Exited);
+        assert_eq!(
+            wait_for_health(&manager, WorkerHealth::Exited),
+            WorkerHealth::Exited
+        );
         let status = manager.status();
 
         assert_eq!(status.state, WorkerManagerState::Stopped);
@@ -730,6 +723,116 @@ mod tests {
         assert_eq!(response.result.as_ref().unwrap()["workspaceFileCount"], 1);
     }
 
+    #[test]
+    fn manager_forwards_non_diagnostic_worker_protocol_events() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::default(),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_agent_event_worker_spec(), router)
+            .expect("stdio event worker should start");
+
+        let events = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.delta"
+                            && protocol_event.payload["message"] == "starting"
+                )
+            })
+        });
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["message"] == "starting"
+            )
+        }));
+    }
+
+    #[test]
+    fn manager_runs_real_ts_worker_fixture_agent_echo() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        fixture.write("notes/today.md", "hello ts worker");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::FsWorkspaceRead,
+                WorkerCapability::DiagnosticsWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_worker_fixture_spec(), router)
+            .expect("TS fixture should start");
+
+        let request = WorkerRequest::new(
+            "agent-req-ts-1",
+            "trace-ts-agent",
+            "agent.echo",
+            json!({ "input": "hello from rust" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .expect("agent request should complete");
+        let events = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.delta"
+                            && protocol_event.payload["message"] == "read native state"
+                )
+            })
+        });
+
+        let result = response.result.expect("TS fixture should return result");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["echo"], "hello from rust");
+        assert_eq!(result["configValue"], "gpt-5");
+        assert_eq!(result["workspaceFileCount"], 2);
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["message"] == "starting"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["message"] == "read native state"
+            )
+        }));
+    }
+
     fn test_worker_spec(label: &str) -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {
@@ -743,8 +846,7 @@ mod tests {
 
         #[cfg(not(target_os = "windows"))]
         {
-            WorkerCommandSpec::new("sh", ["-c", "sleep 30"], PathBuf::from("."))
-                .with_label(label)
+            WorkerCommandSpec::new("sh", ["-c", "sleep 30"], PathBuf::from(".")).with_label(label)
         }
     }
 
@@ -855,6 +957,49 @@ mod tests {
         }
     }
 
+    fn test_stdio_agent_event_worker_spec() -> WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$json = '{"protocol_version":"1","trace_id":"trace-agent-event","event":"agent.delta","payload":{"message":"starting"}}'; [Console]::Out.WriteLine($json)"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-event-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"json='{"protocol_version":"1","trace_id":"trace-agent-event","event":"agent.delta","payload":{"message":"starting"}}'; printf '%s\n' "$json""#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-event-worker")
+        }
+    }
+
+    fn ts_worker_fixture_spec() -> WorkerCommandSpec {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let desktop_dir = manifest_dir
+            .parent()
+            .expect("src-tauri should have desktop parent")
+            .to_path_buf();
+        WorkerCommandSpec::new(
+            "node",
+            ["workers/ts-worker-fixture/src/index.ts"],
+            desktop_dir,
+        )
+        .with_label("ts-worker-fixture")
+    }
+
     fn wait_for_health(manager: &WorkerManager, expected: WorkerHealth) -> WorkerHealth {
         for _ in 0..30 {
             let health = manager.health_check();
@@ -904,11 +1049,7 @@ mod tests {
             .any(|line| line.stream == stream && line.line.contains(expected))
     }
 
-    fn has_diagnostics_event(
-        events: &[WorkerManagerEvent],
-        stream: &str,
-        expected: &str,
-    ) -> bool {
+    fn has_diagnostics_event(events: &[WorkerManagerEvent], stream: &str, expected: &str) -> bool {
         events.iter().any(|event| {
             matches!(
                 event,
@@ -937,7 +1078,9 @@ mod tests {
         }
 
         fn write(&self, relative_path: &str, contents: &str) {
-            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let path = self
+                .root
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }
