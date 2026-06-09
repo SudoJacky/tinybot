@@ -17,6 +17,7 @@ pub mod worker_capability;
 pub mod worker_manager;
 pub mod worker_protocol;
 pub mod worker_stdio;
+pub mod worker_workspace;
 pub mod worker_runtime;
 
 use crate::worker_manager::{

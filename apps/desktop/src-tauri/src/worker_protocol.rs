@@ -89,6 +89,7 @@ pub struct WorkerEvent {
 pub enum WorkerProtocolErrorCode {
     InvalidProtocol,
     IncompatibleProtocolVersion,
+    CapabilityDenied,
     WorkerError,
 }
 
