@@ -13,6 +13,8 @@ pub enum WorkerCapability {
     ConfigRead,
     #[serde(rename = "config.write")]
     ConfigWrite,
+    #[serde(rename = "session.metadata.read")]
+    SessionMetadataRead,
     #[serde(rename = "diagnostics.write")]
     DiagnosticsWrite,
     #[serde(rename = "shell.execute")]
@@ -53,6 +55,7 @@ mod tests {
 
         assert!(!policy.allows(&WorkerCapability::NetworkOpenAi));
         assert!(!policy.allows(&WorkerCapability::FsWorkspaceRead));
+        assert!(!policy.allows(&WorkerCapability::SessionMetadataRead));
         assert!(!policy.allows(&WorkerCapability::ShellExecute));
     }
 
