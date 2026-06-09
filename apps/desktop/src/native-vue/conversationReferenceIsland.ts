@@ -4,8 +4,17 @@ import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 
 export interface ConversationReferenceIslandOptions {
   detail: string;
+  evidenceId?: string;
   kind: string;
+  noteId?: string;
+  rawLine?: number;
+  rawPath?: string;
+  scope?: string;
+  sourceLine?: number;
+  sourcePath?: string;
+  sourceText?: string;
   title: string;
+  type?: string;
 }
 
 export interface MountedConversationReferenceIsland {

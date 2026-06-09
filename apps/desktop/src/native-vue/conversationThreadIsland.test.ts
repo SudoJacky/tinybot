@@ -1,8 +1,17 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { nextTick } from "vue";
 import { mountConversationThreadIsland } from "./conversationThreadIsland";
+
+async function flushDetailPanelOpeningMotion() {
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+  await nextTick();
+}
 
 describe("conversation thread Vue island", () => {
   test("renders messages in order", async () => {
@@ -104,6 +113,183 @@ describe("conversation thread Vue island", () => {
     inlineCard?.querySelector<HTMLButtonElement>('[data-agent-ui-form-action="cancel"]')?.click();
 
     expect(actions).toEqual(["submit:form-1:production", "cancel:form-1"]);
+  });
+
+  test("renders chat Cowork runs inline with selectable agent rows", async () => {
+    const host = document.createElement("section");
+    const selections: unknown[] = [];
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      coworkRuns: [{
+        activeAgentCount: 1,
+        agentCount: 2,
+        agents: [
+          {
+            attentionLabel: "",
+            id: "agent-1",
+            label: "Planner",
+            latestActivity: "drafted plan",
+            roleOrTask: "Plan workspace changes",
+            status: "running",
+          },
+          {
+            attentionLabel: "reply needed",
+            id: "agent-2",
+            label: "Reviewer",
+            latestActivity: "waiting",
+            roleOrTask: "Review output",
+            status: "blocked",
+          },
+        ],
+        attentionLabel: "reply needed",
+        finalOutput: "Implementation summary ready.",
+        id: "cowork-1",
+        status: "running",
+        taskProgress: "1/3",
+        title: "Native chat parity",
+        workflow: "Adaptive Starter",
+      }],
+      messages: [{
+        author: "Tinybot",
+        body: ["I started a Cowork run."],
+        references: [],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [],
+      }],
+      onCoworkAgentInspect: (selection) => selections.push(selection),
+    });
+    await nextTick();
+    await nextTick();
+
+    const surface = host.querySelector(".desktop-chat-cowork-surface");
+    expect(surface?.getAttribute("data-desktop-chat-region")).toBe("chat-cowork-surface");
+    expect(surface?.textContent).toContain("Cowork run");
+    expect(surface?.textContent).toContain("Native chat parity");
+    expect(surface?.textContent).toContain("Agents");
+    expect(surface?.textContent).toContain("2");
+    expect(surface?.textContent).toContain("Tasks");
+    expect(surface?.textContent).toContain("1/3");
+    expect(surface?.textContent).toContain("Final output");
+    expect(surface?.textContent).toContain("Implementation summary ready.");
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-cowork-agent-id="agent-2"]')?.click();
+    expect(selections).toEqual([{ agentId: "agent-2", sessionId: "cowork-1" }]);
+    await nextTick();
+
+    const inspector = host.querySelector<HTMLElement>(".desktop-cowork-agent-detail-panel");
+    expect(inspector?.getAttribute("aria-label")).toBe("Cowork agent details");
+    expect(inspector?.getAttribute("data-desktop-cowork-agent-id")).toBe("agent-2");
+    expect(inspector?.textContent).toContain("Reviewer");
+    expect(inspector?.textContent).toContain("Review output");
+    expect(inspector?.textContent).toContain("reply needed");
+    await flushDetailPanelOpeningMotion();
+    expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-cowork-agent-detail-visible")).toBe("true");
+
+    vi.useFakeTimers();
+    inspector?.querySelector<HTMLButtonElement>(".desktop-cowork-agent-detail-close")?.click();
+    await nextTick();
+    expect(host.querySelector(".desktop-cowork-agent-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+    vi.advanceTimersByTime(560);
+    await nextTick();
+    vi.useRealTimers();
+    expect(host.querySelector(".desktop-cowork-agent-detail-panel")).toBeNull();
+  });
+
+  test("dispatches memory reference inspection from reference cards", async () => {
+    const host = document.createElement("section");
+    const inspections: unknown[] = [];
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I used memory."],
+        references: [{
+          detail: "Saved preference",
+          kind: "memory",
+          title: "memory/MEMORY.md:42",
+        }],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [],
+      }],
+      onReferenceInspect: (reference) => inspections.push(reference),
+    });
+    await nextTick();
+    await nextTick();
+
+    const reference = host.querySelector<HTMLElement>(".desktop-message-reference-item");
+    expect(reference?.getAttribute("role")).toBe("button");
+    expect(reference?.getAttribute("tabindex")).toBe("0");
+    reference?.click();
+
+    expect(inspections).toEqual([{
+      detail: "Saved preference",
+      kind: "memory",
+      title: "memory/MEMORY.md:42",
+    }]);
+    await nextTick();
+
+    const panel = host.querySelector<HTMLElement>(".desktop-reference-detail-panel");
+    expect(panel?.getAttribute("aria-label")).toBe("Reference details");
+    expect(panel?.textContent).toContain("memory/MEMORY.md:42");
+    expect(panel?.textContent).toContain("Saved preference");
+    await flushDetailPanelOpeningMotion();
+    expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-reference-detail-visible")).toBe("true");
+
+    vi.useFakeTimers();
+    panel?.querySelector<HTMLButtonElement>(".desktop-reference-detail-close")?.click();
+    await nextTick();
+    expect(host.querySelector(".desktop-reference-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+    vi.advanceTimersByTime(560);
+    await nextTick();
+    vi.useRealTimers();
+    expect(host.querySelector(".desktop-reference-detail-panel")).toBeNull();
+  });
+
+  test("shows memory reference source path and highlighted original text in the right detail panel", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I used memory."],
+        references: [{
+          detail: "Use uv for Python commands.",
+          kind: "memory",
+          noteId: "note_1",
+          rawLine: 4,
+          rawPath: "memory/notes.jsonl",
+          scope: "project",
+          sourceLine: 18,
+          sourcePath: "memory/MEMORY.md",
+          sourceText: "Use uv for Python commands.",
+          title: "note_1",
+          type: "instruction",
+        }],
+        time: "10:30 AM",
+        tone: "assistant",
+        toolActivities: [],
+      }],
+    });
+    await nextTick();
+    await nextTick();
+
+    host.querySelector<HTMLElement>(".desktop-message-reference-item")?.click();
+    await nextTick();
+
+    const panel = host.querySelector<HTMLElement>(".desktop-reference-detail-panel");
+    expect(panel?.getAttribute("data-tool-detail-mode")).toBe("push");
+    expect(panel?.textContent).toContain("memory/MEMORY.md:18");
+    expect(panel?.textContent).toContain("memory/notes.jsonl:4");
+    expect(panel?.textContent).toContain("project");
+    expect(panel?.textContent).toContain("instruction");
+    const highlighted = panel?.querySelector<HTMLElement>(".desktop-reference-source-line.highlighted");
+    expect(highlighted?.getAttribute("data-line")).toBe("18");
+    expect(highlighted?.textContent).toContain("Use uv for Python commands.");
   });
 
   test("updates streamed messages without remounting the thread root", async () => {
@@ -286,6 +472,73 @@ describe("conversation thread Vue island", () => {
     expect(host.textContent).toContain("list_dir");
   });
 
+  test("opens a tool detail panel from the right before closing it from outside click", async () => {
+    const host = document.createElement("section");
+
+    mountConversationThreadIsland(host, {
+      emptyMessage: "",
+      messages: [{
+        author: "Tinybot",
+        body: ["I used a tool."],
+        references: [],
+        time: "10:31 AM",
+        tone: "assistant",
+        toolActivities: [{
+          approvalStatus: "",
+          argsText: "{\"path\":\"README.md\"}",
+          id: "tool-read",
+          kind: "call",
+          name: "read_file",
+          responseText: "{\"ok\":true}",
+          runChainItemKey: "assistant-1:tool-read",
+          sessionKey: "WebSocket:chat-1",
+          status: "running",
+        }],
+      }],
+    });
+    await nextTick();
+    await nextTick();
+
+    host.querySelector<HTMLButtonElement>('[data-desktop-tool-activity-id="tool-read"] .desktop-tool-activity-row')?.click();
+    await nextTick();
+
+    const layout = host.querySelector<HTMLElement>(".desktop-conversation-layout");
+    const timeline = host.querySelector<HTMLElement>(".desktop-conversation-timeline");
+    expect(layout?.getAttribute("data-detail-panel-state")).toBe("opening");
+    expect(layout?.getAttribute("data-tool-detail-visible")).toBe("false");
+    expect(host.querySelector(".desktop-detail-panel-slot")?.getAttribute("data-detail-panel-state")).toBe("opening");
+    expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("opening");
+
+    await flushDetailPanelOpeningMotion();
+
+    expect(layout?.getAttribute("data-detail-panel-state")).toBe("open");
+    expect(layout?.getAttribute("data-tool-detail-visible")).toBe("true");
+    expect(host.querySelector(".desktop-detail-panel-slot")?.getAttribute("data-detail-panel-state")).toBe("open");
+    expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("open");
+
+    vi.useFakeTimers();
+    try {
+      timeline?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await nextTick();
+
+      expect(layout?.getAttribute("data-detail-panel-state")).toBe("closing");
+      expect(layout?.getAttribute("data-tool-detail-visible")).toBe("false");
+      expect(host.querySelector(".desktop-detail-panel-slot")?.getAttribute("data-detail-panel-state")).toBe("closing");
+      expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+
+      vi.advanceTimersByTime(420);
+      await nextTick();
+      expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+
+      vi.advanceTimersByTime(140);
+      await nextTick();
+      expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();
+      expect(layout?.getAttribute("data-detail-panel-state")).toBe("closed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("opens one resizable tool detail panel and switches selected tool rows", async () => {
     const host = document.createElement("section");
     const approvals: unknown[] = [];
@@ -339,6 +592,7 @@ describe("conversation thread Vue island", () => {
     await nextTick();
 
     const panel = host.querySelector<HTMLElement>(".desktop-tool-detail-panel");
+    await flushDetailPanelOpeningMotion();
     expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-tool-detail-visible")).toBe("true");
     expect(host.querySelector<HTMLElement>(".desktop-conversation-layout")?.style.getPropertyValue("--desktop-tool-detail-width")).toBe("50%");
     expect(panel?.getAttribute("aria-label")).toBe("Tool call details");
@@ -371,8 +625,13 @@ describe("conversation thread Vue island", () => {
     expect(host.querySelector('[data-desktop-tool-activity-id="tool-shell"] .desktop-tool-activity-row')?.getAttribute("aria-selected")).toBe("true");
     expect(host.querySelectorAll(".desktop-tool-detail-panel")).toHaveLength(1);
 
+    vi.useFakeTimers();
     host.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
     await nextTick();
+    expect(host.querySelector(".desktop-tool-detail-panel")?.getAttribute("data-tool-detail-motion")).toBe("closing");
+    vi.advanceTimersByTime(560);
+    await nextTick();
+    vi.useRealTimers();
     expect(host.querySelector(".desktop-tool-detail-panel")).toBeNull();
     expect(host.querySelector(".desktop-conversation-layout")?.getAttribute("data-tool-detail-visible")).toBe("false");
     expect(host.querySelector<HTMLElement>(".desktop-conversation-layout")?.style.getPropertyValue("--desktop-tool-detail-width")).toBe("");

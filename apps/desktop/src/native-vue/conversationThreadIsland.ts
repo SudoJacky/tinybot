@@ -5,6 +5,7 @@ import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } 
 import { desktopNaiveThemeOverrides } from "./desktopNaiveTheme";
 import { renderAgentUiFormCardChildren } from "./agentUiFormCardIsland";
 import { renderConversationMessageChildren, type ConversationMessageIslandOptions } from "./conversationMessageIsland";
+import type { ConversationReferenceIslandOptions } from "./conversationReferenceIsland";
 import {
   formatMaybeJson,
   getToolStatusLabel,
@@ -15,11 +16,41 @@ import {
 import type { ToolActivityIslandOptions } from "./toolActivityIsland";
 
 export interface ConversationThreadIslandOptions {
+  coworkRuns?: ConversationCoworkRunOptions[];
   emptyMessage: string;
   inlineForms?: AgentUiForm[];
   messages: ConversationMessageIslandOptions[];
+  onCoworkAgentInspect?: (selection: { agentId: string; sessionId: string }) => void;
   onInlineFormCancel?: (form: AgentUiForm) => void;
   onInlineFormSubmit?: (form: AgentUiForm, values: Record<string, unknown>) => void;
+  onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void;
+}
+
+export interface ConversationCoworkRunOptions {
+  activeAgentCount: number;
+  agentCount: number;
+  agents: ConversationCoworkAgentOptions[];
+  attentionLabel: string;
+  finalOutput: string;
+  id: string;
+  status: string;
+  taskProgress: string;
+  title: string;
+  workflow: string;
+}
+
+export interface ConversationCoworkAgentOptions {
+  attentionLabel: string;
+  id: string;
+  label: string;
+  latestActivity: string;
+  roleOrTask: string;
+  status: string;
+}
+
+interface SelectedCoworkAgent {
+  agent: ConversationCoworkAgentOptions;
+  run: ConversationCoworkRunOptions;
 }
 
 export interface MountedConversationThreadIsland {
@@ -28,6 +59,8 @@ export interface MountedConversationThreadIsland {
 }
 
 const mountedConversationThreads = new WeakMap<HTMLElement, MountedConversationThreadIsland>();
+const DETAIL_PANEL_MOTION_MS = 560;
+type DetailPanelState = "closed" | "opening" | "open" | "closing";
 
 export function mountOrUpdateConversationThreadIsland(
   host: HTMLElement,
@@ -83,14 +116,90 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
     name: "ConversationThreadIsland",
     setup() {
       const selectedToolKey = ref("");
+      const selectedReference = ref<ConversationReferenceIslandOptions | null>(null);
+      const selectedCoworkAgent = ref<SelectedCoworkAgent | null>(null);
+      const detailPanelState = ref<DetailPanelState>("closed");
       const panelWidth = ref(50);
       const overlayMode = ref(isToolDetailOverlayMode());
+      let closePanelTimer: number | null = null;
+      let openPanelFrame: number | null = null;
       const selectedTool = computed(() => selectedToolKey.value ? findToolActivity(state.value.messages, selectedToolKey.value) : null);
+      const hasDetailPanelSelection = () => Boolean(selectedToolKey.value || selectedReference.value || selectedCoworkAgent.value);
+      const clearClosePanelTimer = () => {
+        if (closePanelTimer !== null && typeof window !== "undefined") {
+          window.clearTimeout(closePanelTimer);
+        }
+        closePanelTimer = null;
+      };
+      const clearOpenPanelFrame = () => {
+        if (openPanelFrame !== null && typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+          window.cancelAnimationFrame(openPanelFrame);
+        }
+        openPanelFrame = null;
+      };
+      const clearPanelSelection = () => {
+        selectedToolKey.value = "";
+        selectedReference.value = null;
+        selectedCoworkAgent.value = null;
+        detailPanelState.value = "closed";
+        clearClosePanelTimer();
+        clearOpenPanelFrame();
+      };
       const closePanel = () => {
+        if (!hasDetailPanelSelection() || detailPanelState.value === "closing") {
+          return;
+        }
         if (selectedTool.value) {
           logDesktopNativeDebug("toolDetail.close", summarizeToolActivity(selectedTool.value));
         }
+        detailPanelState.value = "closing";
+        clearOpenPanelFrame();
+        clearClosePanelTimer();
+        if (typeof window === "undefined") {
+          clearPanelSelection();
+          return;
+        }
+        closePanelTimer = window.setTimeout(clearPanelSelection, DETAIL_PANEL_MOTION_MS);
+      };
+      const openPanel = () => {
+        clearClosePanelTimer();
+        if (detailPanelState.value === "open") {
+          return;
+        }
+        clearOpenPanelFrame();
+        detailPanelState.value = "opening";
+        if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+          detailPanelState.value = "open";
+          return;
+        }
+        openPanelFrame = window.requestAnimationFrame(() => {
+          openPanelFrame = window.requestAnimationFrame(() => {
+            openPanelFrame = null;
+            if (detailPanelState.value === "opening" && hasDetailPanelSelection()) {
+              detailPanelState.value = "open";
+            }
+          });
+        });
+      };
+      const handleLayoutClick = (event: MouseEvent) => {
+        if ((detailPanelState.value !== "open" && detailPanelState.value !== "opening") || isDetailPanelPreservingClickTarget(event.target)) {
+          return;
+        }
+        closePanel();
+      };
+      const openReferenceDetail = (reference: ConversationReferenceIslandOptions) => {
         selectedToolKey.value = "";
+        selectedReference.value = reference;
+        selectedCoworkAgent.value = null;
+        openPanel();
+        state.value.onReferenceInspect?.(reference);
+      };
+      const openCoworkAgentDetail = (run: ConversationCoworkRunOptions, agent: ConversationCoworkAgentOptions) => {
+        selectedToolKey.value = "";
+        selectedReference.value = null;
+        selectedCoworkAgent.value = { agent, run };
+        openPanel();
+        state.value.onCoworkAgentInspect?.({ agentId: agent.id, sessionId: run.id });
       };
       const openToolDetail = (event: Event) => {
         const detail = (event as CustomEvent<{ activity?: ToolActivityIslandOptions }>).detail;
@@ -98,11 +207,14 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
         if (!activity) {
           return;
         }
+        selectedReference.value = null;
+        selectedCoworkAgent.value = null;
         selectedToolKey.value = toolActivitySelectionKey(activity);
+        openPanel();
         logDesktopNativeDebug("toolDetail.open", summarizeToolActivity(activity));
       };
       const handleKeydown = (event: KeyboardEvent) => {
-        if (event.key === "Escape" && selectedToolKey.value) {
+        if (event.key === "Escape" && hasDetailPanelSelection()) {
           closePanel();
         }
       };
@@ -118,38 +230,73 @@ function createConversationThreadApp(state: Ref<ConversationThreadIslandOptions>
           window.removeEventListener("resize", updateOverlayMode);
         }
         host.removeEventListener("keydown", handleKeydown);
+        clearClosePanelTimer();
+        clearOpenPanelFrame();
       });
       return () => h(NConfigProvider, { themeOverrides: desktopNaiveThemeOverrides }, {
         default: () => {
           const nodes = [
-            ...renderThreadMessages(state.value.messages, selectedToolKey.value),
+            ...renderThreadMessages(state.value.messages, selectedToolKey.value, openReferenceDetail),
+            ...(state.value.coworkRuns ?? []).map((run) => renderChatCoworkRun(run, openCoworkAgentDetail)),
             ...(state.value.inlineForms ?? []).map((form) => renderInlineAgentUiForm(state.value, form)),
           ];
+          const hasPanelSelection = hasDetailPanelSelection();
+          const detailPanel = selectedTool.value
+            ? renderToolDetailPanel({
+              activity: selectedTool.value,
+              mode: overlayMode.value ? "overlay" : "push",
+              motionState: detailPanelState.value,
+              onClose: closePanel,
+              onResize: (nextWidth) => {
+                panelWidth.value = clampToolPanelWidth(nextWidth);
+                logDesktopNativeDebug("toolDetail.resize", {
+                  ...summarizeToolActivity(selectedTool.value),
+                  widthPercent: panelWidth.value,
+                });
+              },
+            })
+            : selectedReference.value
+              ? renderReferenceDetailPanel({
+                mode: overlayMode.value ? "overlay" : "push",
+                motionState: detailPanelState.value,
+                onClose: closePanel,
+                onResize: (nextWidth) => {
+                  panelWidth.value = clampToolPanelWidth(nextWidth);
+                },
+                reference: selectedReference.value,
+              })
+              : selectedCoworkAgent.value
+                ? renderCoworkAgentDetailPanel({
+                  mode: overlayMode.value ? "overlay" : "push",
+                  motionState: detailPanelState.value,
+                  onClose: closePanel,
+                  onResize: (nextWidth) => {
+                    panelWidth.value = clampToolPanelWidth(nextWidth);
+                  },
+                  selection: selectedCoworkAgent.value,
+                })
+                : null;
           return nodes.length
             ? h("div", {
               class: "desktop-conversation-layout",
-              "data-tool-detail-visible": String(Boolean(selectedTool.value)),
+              "data-cowork-agent-detail-visible": String(Boolean(selectedCoworkAgent.value) && detailPanelState.value === "open"),
+              "data-detail-panel-state": hasPanelSelection ? detailPanelState.value : "closed",
+              "data-reference-detail-visible": String(Boolean(selectedReference.value) && detailPanelState.value === "open"),
+              "data-tool-detail-visible": String(Boolean(selectedTool.value) && detailPanelState.value === "open"),
+              onClick: handleLayoutClick,
               onDesktopToolDetailOpen: openToolDetail,
               onKeydown: handleKeydown,
-              style: selectedTool.value
+              style: hasPanelSelection
                 ? { "--desktop-tool-detail-width": `${panelWidth.value}%` }
                 : undefined,
               tabindex: "-1",
             }, [
               h("div", { class: "desktop-conversation-timeline" }, nodes),
-              selectedTool.value
-                ? renderToolDetailPanel({
-                  activity: selectedTool.value,
-                  mode: overlayMode.value ? "overlay" : "push",
-                  onClose: closePanel,
-                  onResize: (nextWidth) => {
-                    panelWidth.value = clampToolPanelWidth(nextWidth);
-                    logDesktopNativeDebug("toolDetail.resize", {
-                      ...summarizeToolActivity(selectedTool.value),
-                      widthPercent: panelWidth.value,
-                    });
-                  },
-                })
+              detailPanel
+                ? h("div", {
+                  class: "desktop-detail-panel-slot",
+                  "data-detail-panel-state": detailPanelState.value,
+                }, [detailPanel])
                 : null,
             ])
             : (state.value.emptyMessage ? h(NEmpty, { description: state.value.emptyMessage }) : null);
@@ -164,11 +311,15 @@ interface AssistantMessageRunItem {
   message: ConversationMessageIslandOptions;
 }
 
-function renderThreadMessages(messages: ConversationMessageIslandOptions[], selectedToolKey: string): VNode[] {
+function renderThreadMessages(
+  messages: ConversationMessageIslandOptions[],
+  selectedToolKey: string,
+  onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void,
+): VNode[] {
   const nodes: VNode[] = [];
   let assistantRun: AssistantMessageRunItem[] = [];
   const flushAssistantRun = () => {
-    nodes.push(...renderAssistantRun(assistantRun, selectedToolKey));
+    nodes.push(...renderAssistantRun(assistantRun, selectedToolKey, onReferenceInspect));
     assistantRun = [];
   };
   messages.forEach((message, index) => {
@@ -177,13 +328,30 @@ function renderThreadMessages(messages: ConversationMessageIslandOptions[], sele
       return;
     }
     flushAssistantRun();
-    nodes.push(renderThreadMessage(message, index, selectedToolKey));
+    nodes.push(renderThreadMessage(message, index, selectedToolKey, true, onReferenceInspect));
   });
   flushAssistantRun();
   return nodes;
 }
 
-function renderAssistantRun(run: AssistantMessageRunItem[], selectedToolKey: string): VNode[] {
+function isDetailPanelPreservingClickTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return Boolean(target.closest([
+    ".desktop-tool-detail-panel",
+    ".desktop-tool-activity-row",
+    ".desktop-message-reference-item",
+    ".desktop-chat-cowork-agent-row",
+    ".desktop-agent-ui-form-card",
+  ].join(",")));
+}
+
+function renderAssistantRun(
+  run: AssistantMessageRunItem[],
+  selectedToolKey: string,
+  onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void,
+): VNode[] {
   if (!run.length) {
     return [];
   }
@@ -191,16 +359,20 @@ function renderAssistantRun(run: AssistantMessageRunItem[], selectedToolKey: str
   const shouldFold = run.length > 1 && hasAssistantFinalAnswer(final.message);
   if (!shouldFold) {
     const copyable = run.length === 1 && hasAssistantFinalAnswer(final.message);
-    return run.map((item) => renderThreadMessage(item.message, item.index, selectedToolKey, copyable));
+    return run.map((item) => renderThreadMessage(item.message, item.index, selectedToolKey, copyable, onReferenceInspect));
   }
   const intermediate = run.slice(0, -1);
   return [
-    renderAssistantStepGroup(intermediate, selectedToolKey),
-    renderThreadMessage(final.message, final.index, selectedToolKey, true),
+    renderAssistantStepGroup(intermediate, selectedToolKey, onReferenceInspect),
+    renderThreadMessage(final.message, final.index, selectedToolKey, true, onReferenceInspect),
   ];
 }
 
-function renderAssistantStepGroup(items: AssistantMessageRunItem[], selectedToolKey: string) {
+function renderAssistantStepGroup(
+  items: AssistantMessageRunItem[],
+  selectedToolKey: string,
+  onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void,
+) {
   return h("details", {
     key: `assistant-steps:${items[0]?.index ?? 0}`,
     class: "desktop-assistant-step-group",
@@ -216,6 +388,7 @@ function renderAssistantStepGroup(items: AssistantMessageRunItem[], selectedTool
       item.index,
       selectedToolKey,
       false,
+      onReferenceInspect,
     ))),
   ]);
 }
@@ -225,6 +398,7 @@ function renderThreadMessage(
   index: number,
   selectedToolKey: string,
   copyable = true,
+  onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void,
 ) {
   const toolActivities = (message.toolActivities ?? []).map((activity) => ({
     ...activity,
@@ -238,8 +412,75 @@ function renderThreadMessage(
   }, renderConversationMessageChildren({
     ...message,
     copyable,
+    onReferenceInspect,
     toolActivities,
   }));
+}
+
+function renderChatCoworkRun(run: ConversationCoworkRunOptions, onCoworkAgentInspect: (run: ConversationCoworkRunOptions, agent: ConversationCoworkAgentOptions) => void): VNode {
+  return h("section", {
+    key: `chat-cowork:${run.id}`,
+    class: "desktop-chat-cowork-surface",
+    "data-cowork-session-id": run.id,
+    "data-desktop-chat-region": "chat-cowork-surface",
+  }, [
+    h("header", { class: "desktop-chat-cowork-header" }, [
+      h("div", { class: "desktop-chat-cowork-title" }, [
+        h("span", { class: "desktop-chat-cowork-eyebrow" }, "Cowork run"),
+        h("strong", run.title || run.id || "Cowork run"),
+        h("small", [run.id ? `Session ${run.id}` : "", run.workflow].filter(Boolean).join(" - ")),
+      ]),
+      h("div", { class: "desktop-chat-cowork-metrics" }, [
+        renderCoworkMetric("Status", run.status || "active"),
+        renderCoworkMetric("Agents", String(run.agentCount || 0)),
+        renderCoworkMetric("Active", String(run.activeAgentCount || 0)),
+        renderCoworkMetric("Tasks", run.taskProgress || "0/0"),
+      ]),
+    ]),
+    h("div", { class: "desktop-chat-cowork-summary" }, [
+      h("span", { class: "desktop-chat-cowork-progress" }, `Tasks ${run.taskProgress || "0/0"}`),
+      h("span", { class: "desktop-chat-cowork-attention" }, run.attentionLabel || "No attention needed"),
+    ]),
+    h("div", { class: "desktop-chat-cowork-agent-list" }, run.agents.map((agent) => renderCoworkAgent(run, agent, onCoworkAgentInspect))),
+    run.finalOutput
+      ? h("div", { class: "desktop-chat-cowork-final" }, [
+        h("strong", "Final output"),
+        h("span", run.finalOutput),
+      ])
+      : null,
+  ]);
+}
+
+function renderCoworkMetric(label: string, value: string): VNode {
+  return h("span", { class: "desktop-chat-cowork-metric" }, [
+    h("span", label),
+    h("strong", value),
+  ]);
+}
+
+function renderCoworkAgent(
+  run: ConversationCoworkRunOptions,
+  agent: ConversationCoworkAgentOptions,
+  onCoworkAgentInspect: (run: ConversationCoworkRunOptions, agent: ConversationCoworkAgentOptions) => void,
+): VNode {
+  return h("button", {
+    "aria-label": `Inspect ${agent.label || agent.id}`,
+    class: "desktop-chat-cowork-agent-row",
+    "data-desktop-cowork-agent-id": agent.id,
+    onClick: () => onCoworkAgentInspect(run, agent),
+    type: "button",
+  }, [
+    h("span", { class: "desktop-chat-cowork-agent-avatar", "aria-hidden": "true" }, (agent.label || agent.id || "?").slice(0, 1).toUpperCase()),
+    h("span", { class: "desktop-chat-cowork-agent-main" }, [
+      h("strong", agent.label || agent.id || "Agent"),
+      h("span", agent.roleOrTask || "Waiting for work"),
+    ]),
+    h("span", { class: "desktop-chat-cowork-agent-aside" }, [
+      h("span", { class: "desktop-chat-cowork-agent-status" }, agent.status || "idle"),
+      agent.latestActivity ? h("small", agent.latestActivity) : null,
+      agent.attentionLabel ? h("small", { class: "desktop-chat-cowork-agent-attention" }, agent.attentionLabel) : null,
+    ]),
+  ]);
 }
 
 function hasAssistantFinalAnswer(message: ConversationMessageIslandOptions): boolean {
@@ -276,6 +517,7 @@ function renderInlineAgentUiForm(options: ConversationThreadIslandOptions, form:
 function renderToolDetailPanel(options: {
   activity: ToolActivityIslandOptions;
   mode: "overlay" | "push";
+  motionState: DetailPanelState;
   onClose: () => void;
   onResize: (nextWidth: number) => void;
 }) {
@@ -287,6 +529,7 @@ function renderToolDetailPanel(options: {
     "aria-label": "Tool call details",
     class: "desktop-tool-detail-panel",
     "data-tool-detail-mode": options.mode,
+    "data-tool-detail-motion": options.motionState,
   }, [
     options.mode === "push"
       ? h("div", {
@@ -326,6 +569,182 @@ function renderToolDetailPanel(options: {
       renderToolDetailText("Response", activity.responseText, "No response available"),
       renderToolDetailText("stderr", "", "No stderr available"),
       renderToolDetailText("Duration", "", "Duration unavailable"),
+    ]),
+  ]);
+}
+
+function renderReferenceDetailPanel(options: {
+  mode: "overlay" | "push";
+  motionState: DetailPanelState;
+  onClose: () => void;
+  onResize: (nextWidth: number) => void;
+  reference: ConversationReferenceIslandOptions;
+}) {
+  const { reference } = options;
+  return h("aside", {
+    "aria-label": "Reference details",
+    class: "desktop-reference-detail-panel desktop-tool-detail-panel",
+    "data-reference-kind": reference.kind,
+    "data-tool-detail-mode": options.mode,
+    "data-tool-detail-motion": options.motionState,
+  }, [
+    options.mode === "push"
+      ? h("div", {
+        "aria-label": "Resize reference details",
+        class: "desktop-tool-detail-resizer",
+        onPointerdown: (event: PointerEvent) => startToolDetailResize(event, options.onResize),
+        role: "separator",
+        tabindex: "0",
+      })
+      : null,
+    h("header", { class: "desktop-tool-detail-header" }, [
+      h("div", { class: "desktop-tool-detail-title-group" }, [
+        h("span", { class: "desktop-tool-detail-eyebrow" }, reference.kind || "reference"),
+        h("h3", { class: "desktop-tool-detail-title" }, reference.title || "Reference"),
+      ]),
+      h("button", {
+        "aria-label": "Close reference details",
+        class: "desktop-reference-detail-close desktop-tool-detail-close",
+        onClick: options.onClose,
+        type: "button",
+      }, "x"),
+    ]),
+    h("div", { class: "desktop-tool-detail-body" }, [
+      renderToolDetailText("Source", referenceSourceLocationLabel(reference) || reference.title || "Reference", "Source unavailable"),
+      referenceRawLocationLabel(reference)
+        ? renderToolDetailText("Raw source", referenceRawLocationLabel(reference), "Raw source unavailable")
+        : null,
+      renderReferenceMetadata(reference),
+      renderToolDetailText("Detail", reference.detail || "", "No detail available"),
+      renderReferenceSourcePreview(reference),
+    ]),
+  ]);
+}
+
+function referenceSourceLocationLabel(reference: ConversationReferenceIslandOptions): string {
+  return referenceLocationLabel(reference.sourcePath || reference.rawPath || reference.title, reference.sourceLine || reference.rawLine);
+}
+
+function referenceRawLocationLabel(reference: ConversationReferenceIslandOptions): string {
+  if (!reference.rawPath || (reference.rawPath === reference.sourcePath && reference.rawLine === reference.sourceLine)) {
+    return "";
+  }
+  return referenceLocationLabel(reference.rawPath, reference.rawLine);
+}
+
+function referenceLocationLabel(path: string | undefined, line: number | undefined): string {
+  if (!path) {
+    return "";
+  }
+  return line ? `${path}:${line}` : path;
+}
+
+function renderReferenceMetadata(reference: ConversationReferenceIslandOptions) {
+  const entries = [
+    ["Kind", reference.kind],
+    ["Note", reference.noteId],
+    ["Evidence", reference.evidenceId],
+    ["Scope", reference.scope],
+    ["Type", reference.type],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+  if (!entries.length) {
+    return null;
+  }
+  return h("dl", { class: "desktop-tool-detail-meta desktop-reference-detail-meta" }, entries.flatMap(([label, value]) => [
+    h("dt", label),
+    h("dd", value),
+  ]));
+}
+
+function renderReferenceSourcePreview(reference: ConversationReferenceIslandOptions) {
+  const sourceText = reference.sourceText || reference.detail;
+  if (!sourceText.trim()) {
+    return null;
+  }
+  const startLine = reference.sourceLine || reference.rawLine || 1;
+  const lines = sourceText.split(/\r?\n/);
+  const highlightLine = resolveReferenceHighlightLine(lines, startLine, reference);
+  return h("section", { class: "desktop-reference-source-section" }, [
+    h("h4", "Original text"),
+    h("div", {
+      class: "desktop-reference-source-preview",
+      "data-highlight-line": String(highlightLine),
+    }, lines.map((line, index) => {
+      const lineNumber = startLine + index;
+      return h("div", {
+        class: [
+          "desktop-reference-source-line",
+          lineNumber === highlightLine ? "highlighted" : "",
+        ].filter(Boolean).join(" "),
+        "data-line": String(lineNumber),
+      }, [
+        h("span", { class: "desktop-reference-source-line-number" }, String(lineNumber)),
+        h("code", line || " "),
+      ]);
+    })),
+  ]);
+}
+
+function resolveReferenceHighlightLine(
+  lines: string[],
+  startLine: number,
+  reference: ConversationReferenceIslandOptions,
+): number {
+  const needles = [reference.noteId, reference.evidenceId, reference.sourceText, reference.detail]
+    .filter((value): value is string => Boolean(value?.trim()));
+  for (const needle of needles) {
+    const matchIndex = lines.findIndex((line) => line.includes(needle));
+    if (matchIndex >= 0) {
+      return startLine + matchIndex;
+    }
+  }
+  return startLine;
+}
+
+function renderCoworkAgentDetailPanel(options: {
+  mode: "overlay" | "push";
+  motionState: DetailPanelState;
+  onClose: () => void;
+  onResize: (nextWidth: number) => void;
+  selection: SelectedCoworkAgent;
+}) {
+  const { agent, run } = options.selection;
+  return h("aside", {
+    "aria-label": "Cowork agent details",
+    class: "desktop-cowork-agent-detail-panel desktop-tool-detail-panel",
+    "data-cowork-session-id": run.id,
+    "data-desktop-cowork-agent-id": agent.id,
+    "data-tool-detail-mode": options.mode,
+    "data-tool-detail-motion": options.motionState,
+  }, [
+    options.mode === "push"
+      ? h("div", {
+        "aria-label": "Resize Cowork agent details",
+        class: "desktop-tool-detail-resizer",
+        onPointerdown: (event: PointerEvent) => startToolDetailResize(event, options.onResize),
+        role: "separator",
+        tabindex: "0",
+      })
+      : null,
+    h("header", { class: "desktop-tool-detail-header" }, [
+      h("div", { class: "desktop-tool-detail-title-group" }, [
+        h("span", { class: "desktop-tool-detail-eyebrow" }, run.title || "Cowork run"),
+        h("h3", { class: "desktop-tool-detail-title" }, agent.label || agent.id || "Agent"),
+      ]),
+      h("button", {
+        "aria-label": "Close Cowork agent details",
+        class: "desktop-cowork-agent-detail-close desktop-tool-detail-close",
+        onClick: options.onClose,
+        type: "button",
+      }, "x"),
+    ]),
+    h("div", { class: "desktop-tool-detail-body" }, [
+      renderToolDetailText("Session", [run.id, run.workflow].filter(Boolean).join(" - "), "Session unavailable"),
+      renderToolDetailText("Status", agent.status || "", "Status unavailable"),
+      renderToolDetailText("Task", agent.roleOrTask || "", "No task available"),
+      renderToolDetailText("Latest activity", agent.latestActivity || "", "No recent activity"),
+      renderToolDetailText("Attention", agent.attentionLabel || run.attentionLabel || "", "No attention needed"),
+      renderToolDetailText("Final output", run.finalOutput || "", "Final output unavailable"),
     ]),
   ]);
 }

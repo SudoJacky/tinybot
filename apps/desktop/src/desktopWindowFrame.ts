@@ -7,8 +7,6 @@ import {
 } from "./desktopCommandNavigation";
 import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
 import { mountDesktopHelpMenuIsland } from "./native-vue/desktopHelpMenuIsland";
-import { mountOrUpdateDesktopRuntimeStatusIsland } from "./native-vue/desktopRuntimeStatusIsland";
-import { mountDesktopWindowControlsIsland } from "./native-vue/desktopWindowControlsIsland";
 
 export interface DesktopWindowHandle {
   minimize(): Promise<void>;
@@ -57,45 +55,15 @@ export function installDesktopWindowFrame({
 
   const appMenu = createApplicationMenu(targetDocument);
 
-  const runtimeStatus = targetDocument.createElement("div");
-  applyDesktopRuntimeStatusView(runtimeStatus, {
-    tone: "pending",
-    label: "Gateway: Starting",
-    detail: "Waiting for Tinybot gateway readiness",
-  });
-  runtimeStatus.addEventListener("pointerdown", (event) => event.stopPropagation());
-  runtimeStatus.addEventListener("dblclick", (event) => event.stopPropagation());
-  runtimeStatus.addEventListener("click", (event) => {
-    event.stopPropagation();
-    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: "refresh-gateway-status" } }));
-  });
-  runtimeStatus.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    targetDocument.dispatchEvent(new CustomEvent("desktop-menu-command", { detail: { id: "refresh-gateway-status" } }));
-  });
-
   const controls = targetDocument.createElement("div");
   controls.className = "desktop-window-controls";
+  controls.append(
+    createWindowButton(targetDocument, "close", "Close", () => currentWindow.close()),
+    createWindowButton(targetDocument, "minimize", "Minimize", () => currentWindow.minimize()),
+    createWindowButton(targetDocument, "maximize", "Maximize", () => currentWindow.toggleMaximize()),
+  );
 
-  if (canMountDesktopWindowControlsIsland(controls)) {
-    mountDesktopWindowControlsIsland(controls, {
-      onMinimize: () => currentWindow.minimize(),
-      onToggleMaximize: () => currentWindow.toggleMaximize(),
-      onClose: () => currentWindow.close(),
-      onError: logWindowFrameError,
-    });
-  } else {
-    controls.append(
-    createWindowButton(targetDocument, "minimize", "Minimize", "−", () => currentWindow.minimize()),
-    createWindowButton(targetDocument, "maximize", "Maximize", "□", () => currentWindow.toggleMaximize()),
-    createWindowButton(targetDocument, "close", "Close", "×", () => currentWindow.close()),
-    );
-  }
-
-  frame.append(appMenu, runtimeStatus, controls);
+  frame.append(appMenu, controls);
   frame.addEventListener("pointerdown", () => {
     void currentWindow.startDragging().catch(logWindowFrameError);
   });
@@ -260,7 +228,9 @@ export function setDesktopWindowRuntimeStatus(
   }
 
   const view = resolveDesktopRuntimeStatusView(status);
-  applyDesktopRuntimeStatusView(statusElement, view);
+  statusElement.setAttribute("data-runtime-tone", view.tone);
+  statusElement.textContent = view.label;
+  statusElement.setAttribute("title", view.detail);
 }
 
 export function resolveDesktopRuntimeStatusView(status: GatewayRuntimeStatus | null): DesktopRuntimeStatusView {
@@ -307,16 +277,14 @@ function createWindowButton(
   targetDocument: Document,
   action: string,
   label: string,
-  text: string,
   handler: () => Promise<void>,
 ): HTMLButtonElement {
   const button = targetDocument.createElement("button");
-  button.className = `desktop-window-button desktop-window-button-${action}`;
+  button.className = `desktop-window-button desktop-window-traffic-light desktop-window-button-${action}`;
   button.type = "button";
   button.setAttribute("data-window-action", action);
   button.setAttribute("aria-label", label);
   button.title = label;
-  button.textContent = text;
   button.addEventListener("pointerdown", (event) => event.stopPropagation());
   button.addEventListener("dblclick", (event) => event.stopPropagation());
   button.addEventListener("click", (event) => {
@@ -324,32 +292,6 @@ function createWindowButton(
     void handler().catch(logWindowFrameError);
   });
   return button;
-}
-
-function canMountDesktopWindowControlsIsland(controls: HTMLElement): boolean {
-  return typeof window !== "undefined" && controls instanceof window.HTMLElement;
-}
-
-function applyDesktopRuntimeStatusView(statusElement: HTMLElement, view: DesktopRuntimeStatusView): void {
-  if (canMountDesktopRuntimeStatusIsland(statusElement)) {
-    mountOrUpdateDesktopRuntimeStatusIsland(statusElement, { view });
-    return;
-  }
-
-  statusElement.id = RUNTIME_STATUS_ID;
-  statusElement.setAttribute("id", RUNTIME_STATUS_ID);
-  statusElement.className = "desktop-runtime-status";
-  statusElement.setAttribute("role", "button");
-  statusElement.setAttribute("tabindex", "0");
-  statusElement.setAttribute("data-desktop-runtime-command", "refresh-gateway-status");
-  statusElement.setAttribute("aria-live", "polite");
-  statusElement.setAttribute("data-runtime-tone", view.tone);
-  statusElement.textContent = view.label;
-  statusElement.setAttribute("title", view.detail);
-}
-
-function canMountDesktopRuntimeStatusIsland(statusElement: HTMLElement): boolean {
-  return typeof window !== "undefined" && statusElement instanceof window.HTMLElement;
 }
 
 function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
@@ -509,84 +451,85 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       font-size: 12px;
     }
 
-    body.desktop-custom-frame .desktop-runtime-status {
-      min-width: 0;
-      max-width: min(38vw, 340px);
-      overflow: hidden;
-      margin-left: auto;
-      padding: 5px 11px;
-      border: 1px solid color-mix(in srgb, var(--border, #e6dfd8) 88%, transparent);
-      border-radius: 999px;
-      color: var(--text-muted, #6c6a64);
-      font-size: 12px;
-      font-weight: 600;
-      line-height: 1;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      cursor: default;
-    }
-
-    body.desktop-custom-frame .desktop-runtime-status::before {
-      content: "";
-      display: inline-block;
-      width: 9px;
-      height: 9px;
-      margin-right: 9px;
-      border-radius: 999px;
-      background: currentColor;
-      vertical-align: -1px;
-    }
-
-    body.desktop-custom-frame .desktop-runtime-status:focus-visible {
-      outline: 2px solid var(--primary, #cc785c);
-      outline-offset: 1px;
-      box-shadow: 0 0 0 4px var(--focus-ring, rgba(204, 120, 92, 0.28));
-    }
-
-    body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="ok"] {
-      border-color: color-mix(in srgb, var(--success, #5db872) 44%, var(--border, #e6dfd8));
-      color: #2f7b45;
-    }
-
-    body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="pending"] {
-      border-color: color-mix(in srgb, var(--warning, #d4a017) 44%, var(--border, #e6dfd8));
-      color: #7c5a09;
-    }
-
-    body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="warn"] {
-      border-color: color-mix(in srgb, var(--danger, #c64545) 44%, var(--border, #e6dfd8));
-      color: #9a3030;
-    }
-
     body.desktop-custom-frame .desktop-window-controls {
-      display: flex;
+      position: absolute;
+      top: 50%;
+      right: 18px;
+      display: grid;
+      grid-template-columns: repeat(3, 12px);
       align-items: center;
-      align-self: stretch;
-      gap: 4px;
-      margin-left: 12px;
+      gap: 8px;
+      width: 52px;
+      height: 12px;
+      margin: 0;
+      padding: 0;
+      transform: translateY(-50%);
+    }
+
+    body.desktop-custom-frame .desktop-window-controls::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 6px 6px, #ff5f57 0 5px, transparent 6px),
+        radial-gradient(circle at 26px 6px, #ffbd2e 0 5px, transparent 6px),
+        radial-gradient(circle at 46px 6px, #28c840 0 5px, transparent 6px);
     }
 
     body.desktop-custom-frame .desktop-window-button {
-      width: 28px;
-      height: 28px;
+      width: 12px !important;
+      min-width: 12px !important;
+      height: 12px !important;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      border: 0;
-      border-radius: 4px;
-      background: transparent;
-      color: var(--text, #141413);
-      font: 16px/1 var(--font-sans, system-ui, sans-serif);
+      box-sizing: border-box;
+      padding: 0 !important;
+      border: 1px solid rgba(0, 0, 0, 0.16);
+      border-radius: 999px;
+      color: transparent;
+      font-size: 0;
       cursor: default;
+      transition:
+        filter 140ms ease,
+        transform 140ms ease,
+        box-shadow 140ms ease;
+    }
+
+    body.desktop-custom-frame .desktop-window-button .n-button__content,
+    body.desktop-custom-frame .desktop-window-button .n-button__icon {
+      display: none;
     }
 
     body.desktop-custom-frame .desktop-window-button:hover {
-      background: color-mix(in srgb, var(--primary, #cc785c) 12%, transparent);
+      filter: brightness(0.94) saturate(1.12);
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
     }
 
-    body.desktop-custom-frame .desktop-window-button-close:hover {
-      background: #c42b1c;
-      color: #ffffff;
+    body.desktop-custom-frame .desktop-window-button:active {
+      transform: scale(0.92);
+      filter: brightness(0.88) saturate(1.08);
+    }
+
+    body.desktop-custom-frame .desktop-window-button:focus-visible {
+      outline: 2px solid var(--primary, #cc785c);
+      outline-offset: 3px;
+    }
+
+    body.desktop-custom-frame .desktop-window-button-close {
+      background: #ff5f57;
+      border-color: #e0443e;
+    }
+
+    body.desktop-custom-frame .desktop-window-button-minimize {
+      background: #ffbd2e;
+      border-color: #dea123;
+    }
+
+    body.desktop-custom-frame .desktop-window-button-maximize {
+      background: #28c840;
+      border-color: #1aab29;
     }
 
     body.desktop-custom-frame > .desktop-startup-shell {
@@ -620,16 +563,14 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
     }
 
     html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item,
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item,
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-window-button {
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item {
       color: var(--text, #faf9f5);
     }
 
     html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item:hover,
     html[data-theme="dark"] body.desktop-custom-frame .desktop-application-menu-item:focus-visible,
     html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item:hover,
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item:focus-visible,
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-window-button:hover {
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-item:focus-visible {
       background: rgba(250, 249, 245, 0.08);
     }
 
@@ -639,29 +580,8 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
       box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38);
     }
 
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-shortcut,
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status {
+    html[data-theme="dark"] body.desktop-custom-frame .desktop-help-menu-shortcut {
       color: var(--text-muted, #a09d96);
-    }
-
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status {
-      border-color: var(--border, rgba(250, 249, 245, 0.12));
-      background: rgba(31, 30, 27, 0.72);
-    }
-
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="ok"] {
-      border-color: rgba(93, 184, 114, 0.46);
-      color: #8ed3a8;
-    }
-
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="pending"] {
-      border-color: rgba(232, 165, 90, 0.50);
-      color: #f0c37d;
-    }
-
-    html[data-theme="dark"] body.desktop-custom-frame .desktop-runtime-status[data-runtime-tone="warn"] {
-      border-color: rgba(224, 91, 91, 0.50);
-      color: #f08a8a;
     }
 
     @media (max-width: 760px) {
@@ -673,10 +593,8 @@ function ensureDesktopWindowFrameStyle(targetDocument: Document): void {
         display: none;
       }
 
-      body.desktop-custom-frame .desktop-runtime-status {
-        max-width: 92px;
-        margin-left: auto;
-        padding: 6px 9px;
+      body.desktop-custom-frame .desktop-window-controls {
+        right: 12px;
       }
     }
 

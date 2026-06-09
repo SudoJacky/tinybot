@@ -12,6 +12,7 @@ export interface ConversationMessageIslandOptions {
   author: string;
   body: string[];
   copyable?: boolean;
+  onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void;
   references: ConversationReferenceIslandOptions[];
   reasoningContent?: string;
   time: string;
@@ -114,7 +115,7 @@ const ConversationMessageContent = defineComponent({
               : null,
             props.options.toolActivities?.length ? renderToolActivitiesNode({ activities: props.options.toolActivities }) : null,
             renderConversationBodyNode({ body: props.options.body, tone: props.options.tone }),
-            ...renderReferenceGroups(props.options.references),
+            ...renderReferenceGroups(props.options.references, props.options.onReferenceInspect),
             props.options.attachment ? renderConversationAttachmentNode({ name: props.options.attachment, sizeLabel: "1.2 MB" }) : null,
             canCopy.value ? h("div", { class: "desktop-message-actions" }, [
               renderCopyButton(copyLabel.value === "Copy" ? "Copy message" : copyLabel.value, copyMessage),
@@ -140,7 +141,7 @@ export function renderConversationMessageChildren(options: ConversationMessageIs
 function renderUserMessage(options: ConversationMessageIslandOptions) {
   return h("div", { class: "desktop-conversation-content desktop-user-message-bubble" }, [
     renderConversationBodyNode({ body: options.body, tone: options.tone }),
-    ...renderReferenceGroups(options.references),
+    ...renderReferenceGroups(options.references, options.onReferenceInspect),
     options.attachment ? renderConversationAttachmentNode({ name: options.attachment, sizeLabel: "1.2 MB" }) : null,
   ]);
 }
@@ -165,7 +166,10 @@ function renderReasoningPanel(content: string) {
   ]);
 }
 
-function renderReferenceGroups(references: ConversationReferenceIslandOptions[]) {
+function renderReferenceGroups(
+  references: ConversationReferenceIslandOptions[],
+  onReferenceInspect?: (reference: ConversationReferenceIslandOptions) => void,
+) {
   if (!references.length) {
     return [];
   }
@@ -177,9 +181,19 @@ function renderReferenceGroups(references: ConversationReferenceIslandOptions[])
       h("span", { class: "desktop-message-references-count" }, `${group.references.length} ${group.references.length === 1 ? "source" : "sources"}`),
     ]),
       h("div", { class: "desktop-message-reference-list" }, group.references.map((reference) => h("article", {
+      "aria-label": `Inspect ${reference.title}`,
       class: "desktop-message-reference-item desktop-conversation-reference",
       "data-desktop-vue-island": "conversation-reference",
       "data-desktop-reference-kind": reference.kind,
+      onClick: () => onReferenceInspect?.(reference),
+      onKeydown: (event: KeyboardEvent) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onReferenceInspect?.(reference);
+        }
+      },
+      role: "button",
+      tabindex: "0",
     }, [
       h("span", { class: "desktop-message-reference-kind" }, `${reference.kind}: `),
       h("strong", { class: "desktop-message-reference-title" }, reference.title),
