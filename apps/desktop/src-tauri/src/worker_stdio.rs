@@ -2,11 +2,13 @@ use crate::worker_protocol::{
     validate_protocol_version, WorkerEvent, WorkerProtocolError, WorkerProtocolErrorCode,
     WorkerProtocolErrorSource, WorkerRequest, WorkerResponse,
 };
+use crate::worker_rpc::WorkerRpcRouter;
 use serde_json::Value;
 use std::io::{BufRead, Write};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum WorkerInboundMessage {
+    Request(WorkerRequest),
     Response(WorkerResponse),
     Event(WorkerEvent),
 }
@@ -47,6 +49,27 @@ where
         })
     }
 
+    pub fn send_response(&mut self, response: &WorkerResponse) -> Result<(), WorkerProtocolError> {
+        serde_json::to_writer(&mut self.writer, response).map_err(|error| {
+            invalid_protocol_error(
+                "failed to encode worker response",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+        self.writer.write_all(b"\n").map_err(|error| {
+            invalid_protocol_error(
+                "failed to write worker response",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+        self.writer.flush().map_err(|error| {
+            invalid_protocol_error(
+                "failed to flush worker response",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })
+    }
+
     pub fn read_message(&mut self) -> Result<Option<WorkerInboundMessage>, WorkerProtocolError> {
         let mut line = String::new();
         let bytes = self.reader.read_line(&mut line).map_err(|error| {
@@ -79,6 +102,16 @@ where
                 ));
             };
             match message {
+                WorkerInboundMessage::Request(request) => {
+                    return Err(invalid_protocol_error(
+                        "worker RPC request arrived during Rust request round trip",
+                        serde_json::json!({
+                            "id": request.id,
+                            "trace_id": request.trace_id,
+                            "method": request.method,
+                        }),
+                    ));
+                }
                 WorkerInboundMessage::Event(event) => on_event(&event),
                 WorkerInboundMessage::Response(response) => {
                     if response.matches_request(request) {
@@ -96,6 +129,32 @@ where
                 }
             }
         }
+    }
+
+    pub fn serve_rust_rpc_requests(
+        &mut self,
+        router: &mut WorkerRpcRouter,
+        mut on_event: impl FnMut(&WorkerEvent),
+    ) -> Result<(), WorkerProtocolError> {
+        while let Some(message) = self.read_message()? {
+            match message {
+                WorkerInboundMessage::Request(request) => {
+                    let response = router.dispatch(&request);
+                    self.send_response(&response)?;
+                }
+                WorkerInboundMessage::Event(event) => on_event(&event),
+                WorkerInboundMessage::Response(response) => {
+                    return Err(invalid_protocol_error(
+                        "worker response arrived while serving Rust RPC requests",
+                        serde_json::json!({
+                            "id": response.id,
+                            "trace_id": response.trace_id,
+                        }),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn into_writer(self) -> W {
@@ -120,6 +179,16 @@ pub fn decode_worker_line(line: &str) -> Result<WorkerInboundMessage, WorkerProt
             )
         })?;
     validate_protocol_version(version)?;
+
+    if value.get("method").is_some() {
+        let request: WorkerRequest = serde_json::from_value(value).map_err(|error| {
+            invalid_protocol_error(
+                "worker request has invalid shape",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+        return Ok(WorkerInboundMessage::Request(request));
+    }
 
     if value.get("id").is_some() {
         let response: WorkerResponse = serde_json::from_value(value).map_err(|error| {
@@ -174,8 +243,11 @@ mod tests {
         WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest,
         WorkerTransportMode, WORKER_PROTOCOL_VERSION,
     };
+    use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+    use crate::worker_rpc::WorkerRpcRouter;
     use serde_json::json;
     use std::io::Cursor;
+    use std::path::PathBuf;
 
     #[test]
     fn transport_writes_request_as_one_json_line() {
@@ -223,7 +295,33 @@ mod tests {
                 assert_eq!(response.result, Some(json!({ "ok": true })));
                 assert!(response.error.is_none());
             }
+            WorkerInboundMessage::Request(_) => panic!("expected response"),
             WorkerInboundMessage::Event(_) => panic!("expected response"),
+        }
+    }
+
+    #[test]
+    fn transport_reads_worker_rpc_request() {
+        let input = Cursor::new(
+            br#"{"protocol_version":"1","id":"req-123","trace_id":"trace-abc","method":"workspace.read_file","params":{"path":"notes/today.md"}}"#
+                .to_vec(),
+        );
+        let mut transport = WorkerStdioTransport::new(input, Vec::new());
+
+        let message = transport
+            .read_message()
+            .expect("request should parse")
+            .expect("request should exist");
+
+        match message {
+            WorkerInboundMessage::Request(request) => {
+                assert_eq!(request.id, "req-123");
+                assert_eq!(request.trace_id, "trace-abc");
+                assert_eq!(request.method, "workspace.read_file");
+                assert_eq!(request.params["path"], "notes/today.md");
+            }
+            WorkerInboundMessage::Response(_) => panic!("expected request"),
+            WorkerInboundMessage::Event(_) => panic!("expected request"),
         }
     }
 
@@ -246,6 +344,7 @@ mod tests {
                 assert_eq!(event.event, "diagnostics.log");
                 assert_eq!(event.payload["line"], "ready");
             }
+            WorkerInboundMessage::Request(_) => panic!("expected event"),
             WorkerInboundMessage::Response(_) => panic!("expected event"),
         }
     }
@@ -279,6 +378,7 @@ mod tests {
                 assert_eq!(response.id, "req-123");
                 assert_eq!(response.result, Some(json!({ "status": "ok" })));
             }
+            WorkerInboundMessage::Request(_) => panic!("expected response"),
             WorkerInboundMessage::Event(_) => panic!("expected response"),
         }
     }
@@ -343,6 +443,43 @@ mod tests {
     }
 
     #[test]
+    fn transport_dispatches_worker_rpc_request_and_writes_response() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "hello stdio rpc");
+        let input = Cursor::new(
+            concat!(
+                r#"{"protocol_version":"1","id":"req-123","trace_id":"trace-abc","method":"workspace.read_file","params":{"path":"notes/today.md"}}"#,
+                "\n"
+            )
+            .as_bytes()
+            .to_vec(),
+        );
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+        let mut transport = WorkerStdioTransport::new(input, Vec::new());
+
+        transport
+            .serve_rust_rpc_requests(&mut router, |_| {})
+            .expect("worker RPC request should be served");
+
+        let written = String::from_utf8(transport.into_writer()).expect("response is utf-8");
+        let value: serde_json::Value =
+            serde_json::from_str(written.trim_end()).expect("response line should be json");
+
+        assert_eq!(value["protocol_version"], WORKER_PROTOCOL_VERSION);
+        assert_eq!(value["id"], "req-123");
+        assert_eq!(value["trace_id"], "trace-abc");
+        assert_eq!(value["result"]["path"], "notes/today.md");
+        assert_eq!(value["result"]["contents"], "hello stdio rpc");
+        assert!(value.get("error").is_none());
+    }
+
+    #[test]
     fn transport_returns_none_at_eof() {
         let mut transport = WorkerStdioTransport::new(Cursor::new(Vec::<u8>::new()), Vec::new());
 
@@ -377,5 +514,38 @@ mod tests {
         assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
         assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
         assert!(!error.retryable);
+    }
+
+    struct WorkspaceFixture {
+        root: PathBuf,
+    }
+
+    impl WorkspaceFixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "tinybot-worker-stdio-rpc-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("clock should be after unix epoch")
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&root).expect("workspace fixture should create");
+            Self { root }
+        }
+
+        fn write(&self, relative_path: &str, contents: &str) {
+            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("fixture parent should create");
+            }
+            std::fs::write(path, contents).expect("fixture file should write");
+        }
+    }
+
+    impl Drop for WorkspaceFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 }

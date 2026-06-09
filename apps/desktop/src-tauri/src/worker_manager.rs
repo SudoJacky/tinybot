@@ -1,8 +1,10 @@
 use crate::worker_protocol::{WorkerDiagnosticLine, WorkerDiagnostics};
+use crate::worker_rpc::WorkerRpcRouter;
+use crate::worker_stdio::WorkerStdioTransport;
 use serde::Serialize;
 use std::{
     fmt,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
@@ -193,6 +195,84 @@ impl WorkerManager {
         Ok(())
     }
 
+    pub fn start_stdio_rpc(
+        &self,
+        spec: WorkerCommandSpec,
+        router: WorkerRpcRouter,
+    ) -> Result<(), WorkerManagerError> {
+        {
+            let mut inner = lock_inner(&self.inner);
+            if refresh_child_status(&mut inner)? == WorkerHealth::Running {
+                return Err(WorkerManagerError::AlreadyRunning);
+            }
+        }
+
+        let mut command = Command::new(&spec.program);
+        command
+            .args(&spec.args)
+            .current_dir(&spec.cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(target_os = "windows")]
+        command.creation_flags(0x08000000);
+
+        let mut child = command
+            .spawn()
+            .map_err(|error| WorkerManagerError::SpawnFailed(error.to_string()))?;
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let pid = child.id();
+
+        {
+            let mut inner = lock_inner(&self.inner);
+            inner.child = Some(child);
+            inner.label = Some(spec.label);
+            inner.pid = Some(pid);
+            inner.started_at_unix_ms = Some(now_unix_ms());
+            inner.last_error = None;
+        }
+        self.emit_status();
+
+        match (stdout, stdin) {
+            (Some(stdout), Some(stdin)) => {
+                spawn_stdio_rpc_reader(
+                    stdout,
+                    stdin,
+                    router,
+                    self.inner.clone(),
+                    self.event_sink.clone(),
+                );
+            }
+            _ => {
+                let message = "worker stdio pipes are unavailable".to_string();
+                let mut inner = lock_inner(&self.inner);
+                inner.last_error = Some(message.clone());
+                inner.diagnostics.push("stderr", message.clone());
+                drop(inner);
+                emit_worker_event(
+                    &self.event_sink,
+                    WorkerManagerEvent::Diagnostics(WorkerDiagnosticLine::new(
+                        "stderr", message,
+                    )),
+                );
+            }
+        }
+
+        if let Some(stderr) = stderr {
+            spawn_diagnostic_reader(
+                stderr,
+                "stderr",
+                self.inner.clone(),
+                self.event_sink.clone(),
+            );
+        }
+
+        Ok(())
+    }
+
     pub fn stop(&self) -> Result<(), WorkerManagerError> {
         let child = {
             let mut inner = lock_inner(&self.inner);
@@ -296,6 +376,33 @@ fn spawn_diagnostic_reader<R>(
     });
 }
 
+fn spawn_stdio_rpc_reader<R, W>(
+    reader: R,
+    writer: W,
+    mut router: WorkerRpcRouter,
+    inner: Arc<Mutex<WorkerManagerInner>>,
+    event_sink: Arc<Mutex<Option<WorkerEventSink>>>,
+) where
+    R: Read + Send + 'static,
+    W: Write + Send + 'static,
+{
+    thread::spawn(move || {
+        let buffered = BufReader::new(reader);
+        let mut transport = WorkerStdioTransport::new(buffered, writer);
+        if let Err(error) = transport.serve_rust_rpc_requests(&mut router, |_| {}) {
+            let line = format!("worker protocol error: {}", error.message);
+            let diagnostic = WorkerDiagnosticLine::new("stderr", line.clone());
+            let mut inner = lock_inner(&inner);
+            inner.last_error = Some(line);
+            inner
+                .diagnostics
+                .push(diagnostic.stream.clone(), diagnostic.line.clone());
+            drop(inner);
+            emit_worker_event(&event_sink, WorkerManagerEvent::Diagnostics(diagnostic));
+        }
+    });
+}
+
 #[cfg(target_os = "windows")]
 fn terminate_child_process_tree(child: &mut Child) -> std::io::Result<()> {
     let status = Command::new("taskkill")
@@ -349,6 +456,9 @@ fn emit_worker_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+    use crate::worker_rpc::WorkerRpcRouter;
+    use serde_json::json;
     use std::path::PathBuf;
 
     #[test]
@@ -487,6 +597,39 @@ mod tests {
             .is_some_and(|error| error.contains("worker exited")));
     }
 
+    #[test]
+    fn manager_serves_stdio_worker_rpc_requests() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "hello manager rpc");
+        let manager = WorkerManager::new(20);
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_rpc_worker_spec(), router)
+            .expect("stdio RPC worker should start");
+
+        let diagnostics = wait_for_diagnostics(&manager, |diagnostics| {
+            has_diagnostic_line(diagnostics, "stderr", "hello manager rpc")
+        });
+
+        assert!(has_diagnostic_line(
+            &diagnostics,
+            "stderr",
+            "notes/today.md"
+        ));
+        assert!(has_diagnostic_line(
+            &diagnostics,
+            "stderr",
+            "hello manager rpc"
+        ));
+    }
+
     fn test_worker_spec(label: &str) -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {
@@ -522,6 +665,35 @@ mod tests {
                 ["-c", "echo worker stdout && echo worker stderr >&2"],
                 PathBuf::from("."),
             )
+        }
+    }
+
+    fn test_stdio_rpc_worker_spec() -> WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$json = '{"protocol_version":"1","id":"req-123","trace_id":"trace-abc","method":"workspace.read_file","params":{"path":"notes/today.md"}}'; [Console]::Out.WriteLine($json); $line = [Console]::In.ReadLine(); [Console]::Error.WriteLine($line)"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-rpc-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"json='{"protocol_version":"1","id":"req-123","trace_id":"trace-abc","method":"workspace.read_file","params":{"path":"notes/today.md"}}'; printf '%s\n' "$json"; IFS= read -r line; printf '%s\n' "$line" >&2"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-rpc-worker")
         }
     }
 
@@ -586,5 +758,38 @@ mod tests {
                     if line.stream == stream && line.line.contains(expected)
             )
         })
+    }
+
+    struct WorkspaceFixture {
+        root: PathBuf,
+    }
+
+    impl WorkspaceFixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "tinybot-worker-manager-rpc-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("clock should be after unix epoch")
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&root).expect("workspace fixture should create");
+            Self { root }
+        }
+
+        fn write(&self, relative_path: &str, contents: &str) {
+            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("fixture parent should create");
+            }
+            std::fs::write(path, contents).expect("fixture file should write");
+        }
+    }
+
+    impl Drop for WorkspaceFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 }
