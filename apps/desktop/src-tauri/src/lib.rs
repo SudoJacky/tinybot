@@ -29,6 +29,9 @@ use crate::worker_manager::{
     WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerEvent, WorkerManagerState,
     WorkerManagerStatus,
 };
+use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+use crate::worker_protocol::WorkerRequest;
+use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_runtime::WorkerRuntimeStatus;
 
 #[cfg(target_os = "windows")]
@@ -56,6 +59,7 @@ type SharedGateway = Arc<Mutex<GatewayRuntime>>;
 
 struct GatewayRuntime {
     worker: WorkerManager,
+    experimental_worker: WorkerManager,
     logs: VecDeque<String>,
     last_error: Option<String>,
     keep_background: bool,
@@ -65,6 +69,7 @@ impl Default for GatewayRuntime {
     fn default() -> Self {
         Self {
             worker: WorkerManager::new(200),
+            experimental_worker: WorkerManager::new(200),
             logs: VecDeque::with_capacity(200),
             last_error: None,
             keep_background: false,
@@ -89,6 +94,15 @@ struct GatewayRuntimeStatus {
     response_class: Option<String>,
     recovery_hint: Option<String>,
     worker_runtime: WorkerRuntimeStatus,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerAgentEchoResult {
+    ok: bool,
+    echo: String,
+    config_value: serde_json::Value,
+    workspace_file_count: usize,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -311,6 +325,20 @@ fn worker_probe_status() -> WorkerRuntimeStatus {
                 crate::worker_protocol::WORKER_PROTOCOL_VERSION
             ),
         )],
+    )
+}
+
+#[tauri::command]
+fn worker_echo_agent(
+    input: String,
+    state: State<'_, SharedGateway>,
+) -> Result<WorkerAgentEchoResult, String> {
+    worker_echo_agent_with_options(
+        state.inner(),
+        input,
+        experimental_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
     )
 }
 
@@ -839,26 +867,137 @@ fn gateway_worker_command_spec() -> WorkerCommandSpec {
         .with_label("tinybot-gateway")
 }
 
-fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
+fn worker_echo_agent_with_options(
+    shared: &SharedGateway,
+    input: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<WorkerAgentEchoResult, String> {
     let worker = {
         let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_experimental_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request_id = now_unix_ms();
+    let request = WorkerRequest::new(
+        format!("agent-echo-{request_id}"),
+        format!("trace-agent-echo-{request_id}"),
+        "agent.echo",
+        serde_json::json!({ "input": input }),
+    );
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker echo request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!("worker echo returned error: {}", error.message));
+    }
+    let result = response
+        .result
+        .ok_or_else(|| "worker echo response missing result".to_string())?;
+    serde_json::from_value(result)
+        .map_err(|error| format!("worker echo response shape is invalid: {error}"))
+}
+
+fn ensure_experimental_worker_running(
+    worker: &WorkerManager,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(), String> {
+    if worker.status().state == WorkerManagerState::Running {
+        return Ok(());
+    }
+    worker
+        .start_stdio_rpc(
+            ts_worker_fixture_command_spec(),
+            ts_worker_fixture_router(workspace_root, config_snapshot),
+        )
+        .map_err(|error| format!("failed to start TS worker fixture: {error:?}"))
+}
+
+fn ts_worker_fixture_command_spec() -> WorkerCommandSpec {
+    let desktop_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("src-tauri should have desktop parent")
+        .to_path_buf();
+    WorkerCommandSpec::new(
+        "node",
+        ["workers/ts-worker-fixture/src/index.ts"],
+        desktop_dir,
+    )
+    .with_label("ts-worker-fixture")
+}
+
+fn ts_worker_fixture_router(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> WorkerRpcRouter {
+    WorkerRpcRouter::new(
+        workspace_root,
+        config_snapshot,
+        vec![],
+        200,
+        CapabilityPolicy::new([
+            WorkerCapability::ConfigRead,
+            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::DiagnosticsWrite,
+        ]),
+    )
+}
+
+fn experimental_worker_workspace_root() -> PathBuf {
+    repo_root()
+        .join("apps")
+        .join("desktop")
+        .join("workers")
+        .join("ts-worker-fixture")
+}
+
+fn experimental_worker_config_snapshot() -> serde_json::Value {
+    serde_json::json!({
+        "agents": {
+            "defaults": {
+                "model": "ts-worker-fixture"
+            }
+        }
+    })
+}
+
+fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
+    let (worker, experimental_worker) = {
+        let runtime = lock_runtime(shared);
         if !explicit && runtime.keep_background {
+            let experimental_worker = runtime.experimental_worker.clone();
             drop(runtime);
+            let _ = experimental_worker.stop();
             push_log(shared, "leaving shell-owned gateway running in background");
             return Ok(());
         }
-        runtime.worker.clone()
+        (runtime.worker.clone(), runtime.experimental_worker.clone())
     };
 
     let was_running = worker.status().state == WorkerManagerState::Running;
     worker
         .stop()
         .map_err(|error| format!("failed to stop gateway: {error:?}"))?;
+    experimental_worker
+        .stop()
+        .map_err(|error| format!("failed to stop experimental worker: {error:?}"))?;
     if was_running {
         let mut runtime = lock_runtime(shared);
         append_log(&mut runtime, "stopped shell-owned gateway");
     }
     Ok(())
+}
+
+fn now_unix_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
 }
 
 fn push_log(shared: &SharedGateway, line: &str) {
@@ -948,6 +1087,10 @@ pub fn run() {
             runtime.worker.set_event_sink(move |event| {
                 emit_worker_manager_frontend_event(&app_handle, event);
             });
+            let app_handle = app.handle().clone();
+            runtime.experimental_worker.set_event_sink(move |event| {
+                emit_worker_manager_frontend_event(&app_handle, event);
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -957,6 +1100,7 @@ pub fn run() {
             stop_gateway,
             set_gateway_keep_running,
             worker_probe_status,
+            worker_echo_agent,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -1061,9 +1205,39 @@ mod tests {
     }
 
     #[test]
+    fn worker_echo_agent_uses_experimental_worker_without_starting_gateway_worker() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        fixture.write("notes/today.md", "hello command");
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result = worker_echo_agent_with_options(
+            &shared,
+            "hello command".to_string(),
+            fixture.root.clone(),
+            serde_json::json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
+            Duration::from_secs(5),
+        )
+        .expect("experimental worker echo should complete");
+
+        assert!(result.ok);
+        assert_eq!(result.echo, "hello command");
+        assert_eq!(result.config_value, serde_json::json!("gpt-5"));
+        assert_eq!(result.workspace_file_count, 2);
+
+        let runtime = lock_runtime(&shared);
+        assert_eq!(runtime.worker.status().state, WorkerManagerState::Stopped);
+        assert_eq!(
+            runtime.experimental_worker.status().state,
+            WorkerManagerState::Running
+        );
+    }
+
+    #[test]
     fn gateway_status_exposes_port_and_exit_policy() {
         let shared = Arc::new(Mutex::new(GatewayRuntime {
             worker: WorkerManager::new(200),
+            experimental_worker: WorkerManager::new(200),
             logs: VecDeque::with_capacity(200),
             last_error: None,
             keep_background: true,
@@ -1355,6 +1529,39 @@ mod tests {
                 PathBuf::from("."),
             )
             .with_label(label)
+        }
+    }
+
+    struct WorkspaceFixture {
+        root: PathBuf,
+    }
+
+    impl WorkspaceFixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "tinybot-worker-echo-command-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("clock should be after unix epoch")
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&root).expect("workspace fixture should create");
+            Self { root }
+        }
+
+        fn write(&self, relative_path: &str, contents: &str) {
+            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("fixture parent should create");
+            }
+            std::fs::write(path, contents).expect("fixture file should write");
+        }
+    }
+
+    impl Drop for WorkspaceFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
         }
     }
 }
