@@ -18,6 +18,7 @@ pub mod worker_config;
 pub mod worker_diagnostics;
 pub mod worker_manager;
 pub mod worker_protocol;
+pub mod worker_rpc;
 pub mod worker_session;
 pub mod worker_stdio;
 pub mod worker_workspace;
