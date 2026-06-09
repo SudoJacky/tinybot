@@ -15,6 +15,16 @@ export type GatewayRuntimeStatus = {
   bootstrap_status?: "ready" | "offline" | "incompatible" | "bootstrap_error" | string | null;
   response_class?: string | null;
   recovery_hint?: string | null;
+  worker_runtime?: DesktopWorkerRuntimeStatus | null;
+};
+
+export type DesktopWorkerRuntimeStatus = {
+  state: "stopped" | "starting" | "running" | "failed" | "incompatible" | string;
+  transport_mode?: "stdio" | "local_pipe" | string | null;
+  diagnostics?: Array<{ stream: string; line: string }>;
+  last_error?: string | null;
+  recovery_hint?: string | null;
+  gateway_compatibility_available?: boolean;
 };
 
 type BootstrapResult = { ok: true } | { ok: false; error: string };

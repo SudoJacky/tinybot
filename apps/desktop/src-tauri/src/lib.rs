@@ -14,6 +14,11 @@ use tauri::{
     Emitter, Manager, Runtime, State, WindowEvent,
 };
 
+pub mod worker_protocol;
+pub mod worker_runtime;
+
+use crate::worker_runtime::WorkerRuntimeStatus;
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -71,6 +76,7 @@ struct GatewayRuntimeStatus {
     bootstrap_status: String,
     response_class: Option<String>,
     recovery_hint: Option<String>,
+    worker_runtime: WorkerRuntimeStatus,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -280,6 +286,20 @@ const DESKTOP_MENU_ITEM_DESCRIPTORS: &[DesktopMenuItemDescriptor] = &[
 #[tauri::command]
 fn gateway_status(state: State<'_, SharedGateway>) -> GatewayRuntimeStatus {
     current_status(state.inner())
+}
+
+#[tauri::command]
+fn worker_probe_status() -> WorkerRuntimeStatus {
+    WorkerRuntimeStatus::running(
+        crate::worker_protocol::WorkerTransportMode::Stdio,
+        vec![crate::worker_protocol::WorkerDiagnosticLine::new(
+            "stdout",
+            format!(
+                "worker protocol {}",
+                crate::worker_protocol::WORKER_PROTOCOL_VERSION
+            ),
+        )],
+    )
 }
 
 #[tauri::command]
@@ -713,6 +733,7 @@ fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         bootstrap_status: probe.bootstrap_status(),
         response_class: probe.response_class(),
         recovery_hint: probe.recovery_hint(),
+        worker_runtime: WorkerRuntimeStatus::compatibility_fallback(http_ok),
     }
 }
 
@@ -891,6 +912,7 @@ pub fn run() {
             start_gateway,
             stop_gateway,
             set_gateway_keep_running,
+            worker_probe_status,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -994,6 +1016,45 @@ mod tests {
 
         assert_eq!(probe.bootstrap_status(), "bootstrap_error");
         assert_eq!(probe.response_class(), Some("HTTP 403".to_string()));
+    }
+
+    #[test]
+    fn gateway_runtime_status_serializes_worker_runtime_status() {
+        let status = GatewayRuntimeStatus {
+            state: "running".to_string(),
+            owner: "external".to_string(),
+            http_ok: true,
+            gateway_http: "http://127.0.0.1:18790",
+            gateway_ws: "ws://127.0.0.1:18790/ws",
+            command: "uv run tinybot gateway",
+            port: 18790,
+            repo_root: "/repo".to_string(),
+            logs: vec![],
+            last_error: None,
+            exit_policy: "stop_on_exit",
+            bootstrap_status: "ready".to_string(),
+            response_class: Some("tinybot-bootstrap".to_string()),
+            recovery_hint: None,
+            worker_runtime: crate::worker_runtime::WorkerRuntimeStatus::compatibility_fallback(true),
+        };
+
+        let value = serde_json::to_value(status).expect("status should serialize");
+
+        assert_eq!(value["worker_runtime"]["state"], "stopped");
+        assert_eq!(value["worker_runtime"]["gateway_compatibility_available"], true);
+    }
+
+    #[test]
+    fn worker_probe_status_reports_protocol_metadata() {
+        let status = worker_probe_status();
+        let value = serde_json::to_value(status).expect("worker probe status should serialize");
+
+        assert_eq!(value["state"], "running");
+        assert_eq!(value["transport_mode"], "stdio");
+        assert_eq!(
+            value["diagnostics"][0]["line"],
+            format!("worker protocol {}", crate::worker_protocol::WORKER_PROTOCOL_VERSION)
+        );
     }
 
     #[test]

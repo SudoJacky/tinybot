@@ -167,4 +167,41 @@ describe("desktop gateway runtime controls", () => {
     ]));
     expect(buildDesktopGatewayRuntimeActions(status).map((action) => action.id)).toContain("retry");
   });
+
+  test("projects worker runtime state and diagnostics without changing gateway actions", () => {
+    const status: GatewayRuntimeStatus = {
+      state: "running",
+      owner: "external",
+      http_ok: true,
+      gateway_http: "http://127.0.0.1:18790",
+      gateway_ws: "ws://127.0.0.1:18790/ws",
+      command: "uv run tinybot gateway",
+      port: 18790,
+      repo_root: "D:/Code/py/tinybot",
+      logs: [],
+      last_error: null,
+      exit_policy: "stop_on_exit",
+      worker_runtime: {
+        state: "running",
+        transport_mode: "stdio",
+        diagnostics: [
+          { stream: "stdout", line: "worker ready" },
+          { stream: "stderr", line: "worker warning" },
+        ],
+        last_error: null,
+        recovery_hint: null,
+        gateway_compatibility_available: true,
+      },
+    };
+
+    expect(buildDesktopGatewayRuntimeRows(status, "http://127.0.0.1:18790")).toEqual(expect.arrayContaining([
+      { label: "Worker", value: "Running via stdio" },
+      { label: "Worker diagnostics", value: "stdout: worker ready\nstderr: worker warning" },
+      { label: "Gateway compatibility", value: "Available" },
+    ]));
+    expect(buildDesktopGatewayRuntimeActions(status).map((action) => action.id)).toEqual([
+      "copyDiagnostics",
+      "openLogs",
+    ]);
+  });
 });
