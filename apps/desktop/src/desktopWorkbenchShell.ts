@@ -1428,7 +1428,15 @@ function coworkSessionOriginChatId(raw: Record<string, unknown> | null | undefin
   if (!raw) {
     return "";
   }
-  const value = raw.origin_chat_id ?? raw.originChatId ?? raw.source_chat_id ?? raw.chat_id;
+  const runtimeState = raw.runtime_state && typeof raw.runtime_state === "object" && !Array.isArray(raw.runtime_state)
+    ? raw.runtime_state as Record<string, unknown>
+    : null;
+  const value = runtimeState?.origin_chat_id
+    ?? runtimeState?.originChatId
+    ?? raw.origin_chat_id
+    ?? raw.originChatId
+    ?? raw.source_chat_id
+    ?? raw.chat_id;
   return typeof value === "string" ? value : "";
 }
 
