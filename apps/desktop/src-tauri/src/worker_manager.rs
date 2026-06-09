@@ -397,20 +397,14 @@ mod tests {
         manager
             .start(test_logging_worker_spec())
             .expect("logging worker should start");
-        std::thread::sleep(std::time::Duration::from_millis(900));
 
-        let events = events.lock().expect("event log should lock");
+        let events = wait_for_events(&events, |events| {
+            has_diagnostics_event(events, "stdout", "worker stdout")
+                && has_diagnostics_event(events, "stderr", "worker stderr")
+        });
 
-        assert!(events.iter().any(|event| matches!(
-            event,
-            WorkerManagerEvent::Diagnostics(line)
-                if line.stream == "stdout" && line.line.contains("worker stdout")
-        )));
-        assert!(events.iter().any(|event| matches!(
-            event,
-            WorkerManagerEvent::Diagnostics(line)
-                if line.stream == "stderr" && line.line.contains("worker stderr")
-        )));
+        assert!(has_diagnostics_event(&events, "stdout", "worker stdout"));
+        assert!(has_diagnostics_event(&events, "stderr", "worker stderr"));
     }
 
     #[test]
@@ -464,16 +458,14 @@ mod tests {
         manager
             .start(test_logging_worker_spec())
             .expect("logging worker should start");
-        std::thread::sleep(std::time::Duration::from_millis(900));
 
-        let diagnostics = manager.status().diagnostics;
+        let diagnostics = wait_for_diagnostics(&manager, |diagnostics| {
+            has_diagnostic_line(diagnostics, "stdout", "worker stdout")
+                && has_diagnostic_line(diagnostics, "stderr", "worker stderr")
+        });
 
-        assert!(diagnostics
-            .iter()
-            .any(|line| line.stream == "stdout" && line.line.contains("worker stdout")));
-        assert!(diagnostics
-            .iter()
-            .any(|line| line.stream == "stderr" && line.line.contains("worker stderr")));
+        assert!(has_diagnostic_line(&diagnostics, "stdout", "worker stdout"));
+        assert!(has_diagnostic_line(&diagnostics, "stderr", "worker stderr"));
     }
 
     #[test]
@@ -542,5 +534,57 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         manager.health_check()
+    }
+
+    fn wait_for_diagnostics(
+        manager: &WorkerManager,
+        predicate: impl Fn(&[WorkerDiagnosticLine]) -> bool,
+    ) -> Vec<WorkerDiagnosticLine> {
+        for _ in 0..30 {
+            let diagnostics = manager.status().diagnostics;
+            if predicate(&diagnostics) {
+                return diagnostics;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        manager.status().diagnostics
+    }
+
+    fn wait_for_events(
+        events: &Arc<Mutex<Vec<WorkerManagerEvent>>>,
+        predicate: impl Fn(&[WorkerManagerEvent]) -> bool,
+    ) -> Vec<WorkerManagerEvent> {
+        for _ in 0..30 {
+            let snapshot = events.lock().expect("event log should lock").clone();
+            if predicate(&snapshot) {
+                return snapshot;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        events.lock().expect("event log should lock").clone()
+    }
+
+    fn has_diagnostic_line(
+        diagnostics: &[WorkerDiagnosticLine],
+        stream: &str,
+        expected: &str,
+    ) -> bool {
+        diagnostics
+            .iter()
+            .any(|line| line.stream == stream && line.line.contains(expected))
+    }
+
+    fn has_diagnostics_event(
+        events: &[WorkerManagerEvent],
+        stream: &str,
+        expected: &str,
+    ) -> bool {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Diagnostics(line)
+                    if line.stream == stream && line.line.contains(expected)
+            )
+        })
     }
 }
