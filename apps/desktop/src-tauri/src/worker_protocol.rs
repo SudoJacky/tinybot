@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::VecDeque;
 
-pub const WORKER_PROTOCOL_VERSION: &str = "2026-06-09";
+pub const WORKER_PROTOCOL_VERSION: &str = "1";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -13,18 +13,25 @@ pub enum WorkerTransportMode {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct WorkerRequest {
-    pub jsonrpc: String,
+    pub protocol_version: String,
     pub id: String,
+    pub trace_id: String,
     pub method: String,
     #[serde(default = "empty_json_object")]
     pub params: Value,
 }
 
 impl WorkerRequest {
-    pub fn new(id: impl Into<String>, method: impl Into<String>, params: Value) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        trace_id: impl Into<String>,
+        method: impl Into<String>,
+        params: Value,
+    ) -> Self {
         Self {
-            jsonrpc: "2.0".to_string(),
+            protocol_version: WORKER_PROTOCOL_VERSION.to_string(),
             id: id.into(),
+            trace_id: trace_id.into(),
             method: method.into(),
             params,
         }
@@ -33,8 +40,9 @@ impl WorkerRequest {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct WorkerResponse {
-    pub jsonrpc: String,
+    pub protocol_version: String,
     pub id: String,
+    pub trace_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,26 +50,38 @@ pub struct WorkerResponse {
 }
 
 impl WorkerResponse {
-    pub fn success(id: impl Into<String>, result: Value) -> Self {
+    pub fn success(request: &WorkerRequest, result: Value) -> Self {
         Self {
-            jsonrpc: "2.0".to_string(),
-            id: id.into(),
+            protocol_version: WORKER_PROTOCOL_VERSION.to_string(),
+            id: request.id.clone(),
+            trace_id: request.trace_id.clone(),
             result: Some(result),
             error: None,
         }
     }
 
+    pub fn failure(request: &WorkerRequest, error: WorkerProtocolError) -> Self {
+        Self {
+            protocol_version: WORKER_PROTOCOL_VERSION.to_string(),
+            id: request.id.clone(),
+            trace_id: request.trace_id.clone(),
+            result: None,
+            error: Some(error),
+        }
+    }
+
     pub fn matches_request(&self, request: &WorkerRequest) -> bool {
-        self.id == request.id
+        self.id == request.id && self.trace_id == request.trace_id
     }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct WorkerNotification {
-    pub jsonrpc: String,
-    pub method: String,
+pub struct WorkerEvent {
+    pub protocol_version: String,
+    pub trace_id: String,
+    pub event: String,
     #[serde(default = "empty_json_object")]
-    pub params: Value,
+    pub payload: Value,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -69,24 +89,60 @@ pub struct WorkerNotification {
 pub enum WorkerProtocolErrorCode {
     InvalidProtocol,
     IncompatibleProtocolVersion,
+    WorkerError,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerProtocolErrorSource {
+    RustCore,
+    Worker,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct WorkerProtocolError {
     pub code: WorkerProtocolErrorCode,
     pub message: String,
+    #[serde(default = "empty_json_object")]
+    pub details: Value,
+    pub retryable: bool,
+    pub source: WorkerProtocolErrorSource,
+}
+
+impl WorkerProtocolError {
+    pub fn new(
+        code: WorkerProtocolErrorCode,
+        message: impl Into<String>,
+        details: Value,
+        retryable: bool,
+        source: WorkerProtocolErrorSource,
+    ) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            details,
+            retryable,
+            source,
+        }
+    }
 }
 
 pub fn validate_protocol_version(version: &str) -> Result<(), WorkerProtocolError> {
     if version == WORKER_PROTOCOL_VERSION {
         return Ok(());
     }
-    Err(WorkerProtocolError {
-        code: WorkerProtocolErrorCode::IncompatibleProtocolVersion,
-        message: format!(
+    Err(WorkerProtocolError::new(
+        WorkerProtocolErrorCode::IncompatibleProtocolVersion,
+        format!(
             "Unsupported worker protocol version '{version}'. Expected '{WORKER_PROTOCOL_VERSION}'."
         ),
-    })
+        serde_json::json!({
+            "actual": version,
+            "expected": WORKER_PROTOCOL_VERSION,
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    ))
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -144,31 +200,39 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn worker_request_response_ids_are_correlated() {
+    fn worker_request_response_ids_and_trace_ids_are_correlated() {
         let request = WorkerRequest::new(
             "req-123",
+            "trace-abc",
             "worker.health",
-            json!({ "protocolVersion": WORKER_PROTOCOL_VERSION }),
+            json!({ "protocol_version": WORKER_PROTOCOL_VERSION }),
         );
-        let response = WorkerResponse::success(&request.id, json!({ "ok": true }));
+        let response = WorkerResponse::success(&request, json!({ "ok": true }));
 
         assert!(response.matches_request(&request));
+        assert_eq!(request.protocol_version, "1");
         assert_eq!(response.id, "req-123");
+        assert_eq!(response.trace_id, "trace-abc");
         assert_eq!(response.result, Some(json!({ "ok": true })));
         assert!(response.error.is_none());
+
+        let value = serde_json::to_value(request).expect("request should serialize");
+        assert!(value.get("jsonrpc").is_none());
     }
 
     #[test]
-    fn worker_notification_without_id_is_event() {
-        let notification: WorkerNotification = serde_json::from_value(json!({
-            "jsonrpc": "2.0",
-            "method": "worker.progress",
-            "params": { "percent": 42 }
+    fn worker_event_without_id_keeps_protocol_and_trace_metadata() {
+        let event: WorkerEvent = serde_json::from_value(json!({
+            "protocol_version": "1",
+            "trace_id": "trace-abc",
+            "event": "diagnostics.log",
+            "payload": { "stream": "stdout", "line": "ready" }
         }))
-        .expect("notification should parse");
+        .expect("event should parse");
 
-        assert_eq!(notification.method, "worker.progress");
-        assert_eq!(notification.params, json!({ "percent": 42 }));
+        assert_eq!(event.event, "diagnostics.log");
+        assert_eq!(event.trace_id, "trace-abc");
+        assert_eq!(event.payload, json!({ "stream": "stdout", "line": "ready" }));
     }
 
     #[test]
@@ -176,7 +240,36 @@ mod tests {
         let error = validate_protocol_version("0.9").expect_err("old worker should be rejected");
 
         assert_eq!(error.code, WorkerProtocolErrorCode::IncompatibleProtocolVersion);
+        assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
+        assert!(!error.retryable);
+        assert_eq!(error.details["expected"], WORKER_PROTOCOL_VERSION);
         assert!(error.message.contains(WORKER_PROTOCOL_VERSION));
+    }
+
+    #[test]
+    fn worker_error_response_uses_unified_error_shape() {
+        let request = WorkerRequest::new("req-123", "trace-abc", "worker.health", json!({}));
+        let response = WorkerResponse::failure(
+            &request,
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                "worker crashed",
+                json!({ "pid": 1234 }),
+                true,
+                WorkerProtocolErrorSource::Worker,
+            ),
+        );
+
+        let value = serde_json::to_value(response).expect("response should serialize");
+
+        assert_eq!(value["protocol_version"], "1");
+        assert_eq!(value["id"], "req-123");
+        assert_eq!(value["trace_id"], "trace-abc");
+        assert_eq!(value["error"]["code"], "worker_error");
+        assert_eq!(value["error"]["message"], "worker crashed");
+        assert_eq!(value["error"]["details"]["pid"], 1234);
+        assert_eq!(value["error"]["retryable"], true);
+        assert_eq!(value["error"]["source"], "worker");
     }
 
     #[test]

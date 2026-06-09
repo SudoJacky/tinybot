@@ -16,6 +16,8 @@ use tauri::{
 
 pub mod worker_protocol;
 pub mod worker_runtime;
+pub mod worker_capability;
+pub mod worker_manager;
 
 use crate::worker_runtime::WorkerRuntimeStatus;
 
@@ -838,6 +840,8 @@ fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), Stri
 fn terminate_child_process_tree(child: &mut Child) -> std::io::Result<()> {
     let status = Command::new("taskkill")
         .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .creation_flags(0x08000000)
         .status();
     match status {
