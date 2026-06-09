@@ -19,7 +19,7 @@ pub mod worker_protocol;
 pub mod worker_runtime;
 
 use crate::worker_manager::{
-    WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerState,
+    WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerState, WorkerManagerStatus,
 };
 use crate::worker_runtime::WorkerRuntimeStatus;
 
@@ -723,13 +723,32 @@ fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         last_error: runtime
             .last_error
             .clone()
-            .or(worker_status.last_error)
+            .or_else(|| worker_status.last_error.clone())
             .or_else(|| probe.last_error()),
         exit_policy,
         bootstrap_status: probe.bootstrap_status(),
         response_class: probe.response_class(),
         recovery_hint: probe.recovery_hint(),
-        worker_runtime: WorkerRuntimeStatus::compatibility_fallback(http_ok),
+        worker_runtime: gateway_worker_runtime_status(http_ok, &worker_status),
+    }
+}
+
+fn gateway_worker_runtime_status(
+    gateway_available: bool,
+    worker_status: &WorkerManagerStatus,
+) -> WorkerRuntimeStatus {
+    match worker_status.state {
+        WorkerManagerState::Running => WorkerRuntimeStatus::running(
+            crate::worker_protocol::WorkerTransportMode::Stdio,
+            worker_status.diagnostics.clone(),
+        ),
+        WorkerManagerState::Failed => WorkerRuntimeStatus::startup_failed(
+            worker_status
+                .last_error
+                .clone()
+                .unwrap_or_else(|| "worker manager failed".to_string()),
+        ),
+        WorkerManagerState::Stopped => WorkerRuntimeStatus::compatibility_fallback(gateway_available),
     }
 }
 
@@ -976,6 +995,30 @@ mod tests {
             status.state,
             if status.http_ok { "running" } else { "starting" }
         );
+    }
+
+    #[test]
+    fn gateway_status_reflects_running_worker_runtime() {
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let worker = {
+            let runtime = lock_runtime(&shared);
+            runtime.worker.clone()
+        };
+        worker
+            .start(test_gateway_short_worker_spec("gateway-runtime-worker"))
+            .expect("test worker should start");
+
+        let status = current_status(&shared);
+
+        assert_eq!(
+            status.worker_runtime.state,
+            crate::worker_runtime::WorkerRuntimeState::Running
+        );
+        assert_eq!(
+            status.worker_runtime.transport_mode,
+            Some(crate::worker_protocol::WorkerTransportMode::Stdio)
+        );
+        assert!(!status.worker_runtime.gateway_compatibility_available);
     }
 
     #[test]
