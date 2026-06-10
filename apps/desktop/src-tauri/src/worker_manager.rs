@@ -1081,6 +1081,160 @@ mod tests {
     }
 
     #[test]
+    fn manager_resumes_real_ts_agent_worker_form_checkpoint() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "stopReason": "tool_calls",
+                                "toolCalls": [
+                                    {
+                                        "id": "form-call-1",
+                                        "name": "request_form",
+                                        "argumentsJson": "{\"form\":{\"form_id\":\"travel_plan\",\"title\":\"Travel plan\",\"fields\":[{\"name\":\"destination\",\"type\":\"text\",\"label\":\"Destination\"}]},\"continuation_mode\":\"resume\"}"
+                                    }
+                                ]
+                            },
+                            { "content": "Paris works.", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::FormRequest,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let run_request = WorkerRequest::new(
+            "agent-run-form-real-ts-1",
+            "trace-real-ts-agent-form",
+            "agent.run",
+            json!({
+                "spec": {
+                    "runId": "real-ts-run-form-1",
+                    "sessionId": "desktop-session-form-1",
+                    "messages": [{ "role": "user", "content": "plan a trip" }],
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let run_response = manager
+            .send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker form request should complete");
+        let run_result = run_response
+            .result
+            .expect("form-paused TS agent worker run should return result");
+        assert_eq!(run_result["stopReason"], "awaiting_form");
+        assert_eq!(run_result["awaitingInput"]["formId"], "travel_plan");
+
+        let restore_request = WorkerRequest::new(
+            "agent-restore-form-real-ts-1",
+            "trace-real-ts-agent-form-restore",
+            "agent.restore_checkpoint",
+            json!({ "sessionId": "desktop-session-form-1" }),
+        );
+        let restore_response = manager
+            .send_stdio_request(&restore_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker checkpoint restore should complete");
+        let checkpoint = restore_response
+            .result
+            .as_ref()
+            .expect("checkpoint restore should return result")["checkpoint"]
+            .clone();
+        assert_eq!(checkpoint["runId"], "real-ts-run-form-1");
+        assert_eq!(checkpoint["phase"], "tools_completed");
+        assert_eq!(
+            checkpoint["completedToolResults"][0]["metadata"]["formId"],
+            "travel_plan"
+        );
+
+        let submit_request = WorkerRequest::new(
+            "agent-submit-form-real-ts-1",
+            "trace-real-ts-agent-form-submit",
+            "agent.submit_form",
+            json!({
+                "sessionId": "desktop-session-form-1",
+                "formId": "travel_plan",
+                "values": { "destination": "Paris" }
+            }),
+        );
+        let submit_response = manager
+            .send_stdio_request(&submit_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker form submit should complete");
+        let submit_result = submit_response
+            .result
+            .expect("form submit should return result");
+        assert_eq!(submit_result["result"]["finalContent"], "Paris works.");
+        assert_eq!(submit_result["result"]["stopReason"], "final_response");
+
+        let events = wait_for_events(&events, |events| {
+            let has_awaiting_form = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.awaiting_form"
+                            && protocol_event.payload["formId"] == "travel_plan"
+                )
+            });
+            let has_final_done = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["stopReason"] == "final_response"
+                )
+            });
+            has_awaiting_form && has_final_done
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.awaiting_form"
+                        && protocol_event.payload["formId"] == "travel_plan"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+        manager.stop().expect("TS agent worker should stop");
+    }
+
+    #[test]
     fn manager_cancels_real_ts_agent_worker_run() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let event_log = events.clone();
