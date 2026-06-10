@@ -1,5 +1,6 @@
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "./agentRunSpec.ts";
 import type { ModelProvider, ModelRequestOptions, TokenUsage, ToolCallRequest, ToolDefinition } from "../model/provider.ts";
+import type { ToolResult } from "../tools/tool.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 
 const EMPTY_FINAL_RESPONSE_MESSAGE =
@@ -92,11 +93,17 @@ export class AgentRunner {
         const completedToolResults: AgentMessage[] = [];
         for (const toolCall of response.toolCalls) {
           toolsUsed.push(toolCall.name);
-          let args = parseToolArguments(toolCall);
-          let result;
-          if (!this.toolAllowed(spec, toolCall.name) || !this.tools.has(toolCall.name)) {
+          let args: Record<string, unknown> = {};
+          let result: ToolResult | undefined;
+          try {
+            args = parseToolArguments(toolCall);
+          } catch (error) {
+            result = { content: `Error: Invalid arguments for tool '${toolCall.name}': ${errorMessage(error)}` };
+          }
+          if (!result && (!this.toolAllowed(spec, toolCall.name) || !this.tools.has(toolCall.name))) {
             result = { content: `Error: Tool '${toolCall.name}' not found. Available: ${availableToolNames(spec, this.tools)}` };
-          } else {
+          }
+          if (!result) {
             const prepared = prepareToolArguments(this.tools, toolCall.name, args);
             args = prepared.args;
             if (prepared.errors.length > 0) {
@@ -104,35 +111,35 @@ export class AgentRunner {
                 content: `Error: Invalid parameters for tool '${toolCall.name}': ${prepared.errors.join("; ")}`,
               };
             } else {
-            this.emitEvent({
-              type: "tool_start",
-              payload: {
-                runId: spec.runId,
-                toolCallId: toolCall.id,
-                toolName: toolCall.name,
-              },
-            });
-            try {
-              result = await this.tools.execute(toolCall.name, args, {
-                runId: spec.runId,
-                traceId: spec.traceId,
-                sessionId: spec.sessionId,
+              this.emitEvent({
+                type: "tool_start",
+                payload: {
+                  runId: spec.runId,
+                  toolCallId: toolCall.id,
+                  toolName: toolCall.name,
+                },
               });
-            } catch (error) {
-              if (spec.failOnToolError) {
-                const finalContent = `Error: ${errorName(error)}: ${errorMessage(error)}`;
-                messages.push({ role: "assistant", content: finalContent });
-                return {
-                  finalContent,
-                  messages,
-                  toolsUsed,
-                  usage,
-                  stopReason: "tool_error",
-                  error: finalContent,
-                };
+              try {
+                result = await this.tools.execute(toolCall.name, args, {
+                  runId: spec.runId,
+                  traceId: spec.traceId,
+                  sessionId: spec.sessionId,
+                });
+              } catch (error) {
+                if (spec.failOnToolError) {
+                  const finalContent = `Error: ${errorName(error)}: ${errorMessage(error)}`;
+                  messages.push({ role: "assistant", content: finalContent });
+                  return {
+                    finalContent,
+                    messages,
+                    toolsUsed,
+                    usage,
+                    stopReason: "tool_error",
+                    error: finalContent,
+                  };
+                }
+                result = { content: `Error: ${errorName(error)}: ${errorMessage(error)}${TOOL_ERROR_RECOVERY_HINT}` };
               }
-              result = { content: `Error: ${errorName(error)}: ${errorMessage(error)}${TOOL_ERROR_RECOVERY_HINT}` };
-            }
             }
           }
           if (result.content.startsWith("Error")) {

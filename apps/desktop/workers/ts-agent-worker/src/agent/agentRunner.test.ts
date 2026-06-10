@@ -191,6 +191,43 @@ describe("AgentRunner", () => {
     });
   });
 
+  test("treats malformed tool call arguments as a recoverable tool result", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":" }],
+        stopReason: "tool_calls",
+      },
+      { content: "recovered", toolCalls: [], stopReason: "stop" },
+    ]);
+    let executions = 0;
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "echo",
+      description: "Echo text",
+      parameters: { type: "object" },
+      execute: async () => {
+        executions += 1;
+        return { content: "should not run" };
+      },
+    });
+    const runner = new AgentRunner({ provider, tools });
+
+    const result = await runner.run(spec());
+
+    expect(executions).toBe(0);
+    expect(result.stopReason).toBe("final_response");
+    expect(result.finalContent).toBe("recovered");
+    expect(result.messages).toContainEqual({
+      role: "tool",
+      content: expect.stringContaining("Error: Invalid arguments for tool 'echo'"),
+      toolCallId: "call-1",
+      name: "echo",
+      metadata: undefined,
+    });
+    expect(provider.requests).toHaveLength(2);
+  });
+
   test("executes a tool call and continues until the model returns final content", async () => {
     const provider = new QueueProvider([
       {
