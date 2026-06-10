@@ -28,10 +28,12 @@ import {
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
 import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
 import {
   createDesktopNativeWorkbenchRuntime,
+  type DesktopTsAgentWorkerEventName,
   type DesktopNativeWorkbenchRuntime,
 } from "./desktopNativeWorkbenchRuntime";
 import { createDesktopOsNotificationBridge } from "./desktopOsNotifications";
@@ -109,6 +111,7 @@ import {
   buildNativeWorkbenchSidebarModel,
   buildRootWebUiSidebarModel,
 } from "./desktopSharedModels";
+import { resolveDesktopAgentRoute } from "./desktopAgentRoute";
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
 const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
@@ -133,9 +136,11 @@ let nativeKnowledgeQueryResult: unknown = {};
 let nativeCoworkPane: DesktopCoworkPaneModel | null = null;
 let nativeCoworkSelectedSessionId = "";
 let nativeWorkbenchRuntime: DesktopNativeWorkbenchRuntime | null = null;
+let nativeAgentRoute: "gateway" | "ts-agent" = "gateway";
 let nativeChatSocket: WebSocket | null = null;
 let nativeChatWsUrl = gatewayConfig.wsUrl;
 let nativeChatRuntimeActionsInstalled = false;
+let nativeTsAgentListenersInstalled = false;
 const nativePendingSocketMessages: unknown[] = [];
 const nativeOsNotifications = createDesktopOsNotificationBridge({
   hasTauriRuntime,
@@ -284,6 +289,11 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
   logDesktopNativeDebug("bootstrap.nativeChat.load.start", {
     gatewayHttp: gatewayConfig.httpBaseUrl,
   });
+  const agentRoute = resolveDesktopAgentRoute({
+    search: window.location.search,
+    storedRoute: readDesktopAgentRoutePreference(),
+  });
+  nativeAgentRoute = agentRoute;
   const runtime = createDesktopNativeWorkbenchRuntime({
     api: {
       listSessions: () => gatewayApi.sessions.list(),
@@ -291,8 +301,19 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
       deleteSession: (sessionKey) => gatewayApi.sessions.delete(sessionKey),
     },
     sendSocketMessage: (message) => sendNativeChatSocketMessage(message),
+    agentRoute,
+    runTsAgent: agentRoute === "ts-agent"
+      ? (spec) => invoke("worker_run_agent", { input: { spec } })
+      : undefined,
+    cancelTsAgent: agentRoute === "ts-agent"
+      ? (runId) => invoke("worker_cancel_agent", { input: { runId } })
+      : undefined,
+    restoreTsAgentCheckpoint: agentRoute === "ts-agent"
+      ? (sessionId) => invoke("worker_restore_agent_checkpoint", { input: { sessionId } })
+      : undefined,
   });
   nativeWorkbenchRuntime = runtime;
+  installNativeTsAgentEventListeners();
   const health = await checkGatewayHealth({ config: gatewayConfig }).catch(() => null);
   nativeChatWsUrl = health?.tokenReady ? health.wsUrl : gatewayConfig.wsUrl;
   runtime.setRuntimeMetadata({
@@ -314,6 +335,49 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
     sessionCount: runtime.chat.sessions.length,
   });
   return runtime;
+}
+
+function installNativeTsAgentEventListeners(): void {
+  if (nativeTsAgentListenersInstalled) {
+    return;
+  }
+  nativeTsAgentListenersInstalled = true;
+  for (const eventName of [
+    "agent.delta",
+    "agent.reasoning_delta",
+    "agent.tool_call.delta",
+    "agent.tool.start",
+    "agent.tool.result",
+    "agent.usage",
+    "agent.checkpoint",
+    "agent.awaiting_form",
+    "agent.awaiting_approval",
+    "agent.memory_reference",
+    "agent.task_progress",
+    "agent.cancelled",
+    "agent.done",
+    "agent.error",
+  ] as const) {
+    void listen(eventName, (event) => {
+      handleNativeTsAgentWorkerEvent(eventName, event.payload);
+    });
+  }
+}
+
+function handleNativeTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void {
+  if (!nativeWorkbenchRuntime) {
+    return;
+  }
+  nativeWorkbenchRuntime.handleTsAgentWorkerEvent(eventName, payload);
+  updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
+}
+
+function readDesktopAgentRoutePreference(): string | null {
+  try {
+    return window.localStorage.getItem("tinybot.desktop.agentRoute");
+  } catch {
+    return null;
+  }
 }
 
 function ensureNativeChatSocket(runtime = nativeWorkbenchRuntime): void {
@@ -361,6 +425,8 @@ function syncNativeRuntimeMetadata(): void {
   nativeWorkbenchRuntime.setRuntimeMetadata({
     provider: nativeSettingsState?.agent.provider || undefined,
     model: nativeSettingsState?.agent.model || undefined,
+    contextWindowTokens: nativeSettingsState?.agent.contextWindowTokens ?? undefined,
+    maxToolIterations: nativeSettingsState?.agent.maxToolIterations ?? undefined,
     gatewayHttp: gatewayConfig.httpBaseUrl,
   });
   updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());
@@ -506,18 +572,7 @@ async function handleNativeTaskAction(event: DesktopTaskCenterActionEvent): Prom
     return;
   }
   try {
-    if (event.action === "deny") {
-      await gatewayApi.tools.denyApproval(approvalId, {
-        session_key: sessionKey,
-        auto_retry: true,
-      });
-    } else {
-      await gatewayApi.tools.approveApproval(approvalId, {
-        session_key: sessionKey,
-        scope: event.action === "approveSession" ? "session" : "once",
-        auto_retry: true,
-      });
-    }
+    await submitNativeApprovalAction(approvalId, sessionKey, event.action);
     nativeApprovalTaskOperations.delete(event.item.id);
     publishNativeTaskCenterItems();
     await refreshNativeApprovalTasks();
@@ -564,7 +619,10 @@ async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEven
       form.errors = {};
       form.submitting = true;
       refreshNativeAgentUiForms();
-      await gatewayApi.agentUi.submitForm(form.form_id, request);
+      await submitNativeAgentUiFormAction(form, request, "submit");
+      if (nativeAgentRoute === "ts-agent") {
+        form.status = "submitted";
+      }
       form.submitting = false;
       refreshNativeAgentUiForms();
       publishNativeTaskCenterItems();
@@ -590,7 +648,10 @@ async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEven
     }
     form.submitting = true;
     refreshNativeAgentUiForms();
-    await gatewayApi.agentUi.cancelForm(form.form_id, request);
+    await submitNativeAgentUiFormAction(form, request, "cancel");
+    if (nativeAgentRoute === "ts-agent") {
+      form.status = "cancelled";
+    }
     form.submitting = false;
     refreshNativeAgentUiForms();
     publishNativeTaskCenterItems();
@@ -605,6 +666,28 @@ async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEven
       error: stringifyError(error),
     });
   }
+}
+
+async function submitNativeAgentUiFormAction(
+  form: DesktopAgentUiFormActionEvent["form"],
+  request: { values?: Record<string, unknown>; correlation?: Record<string, unknown> },
+  action: "submit" | "cancel",
+): Promise<void> {
+  if (nativeAgentRoute === "ts-agent") {
+    const input = buildDesktopTsAgentFormSubmissionInput(
+      form,
+      request,
+      action,
+      nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
+    );
+    await invoke("worker_submit_agent_form", { input });
+    return;
+  }
+  if (action === "submit") {
+    await gatewayApi.agentUi.submitForm(form.form_id, request);
+    return;
+  }
+  await gatewayApi.agentUi.cancelForm(form.form_id, request);
 }
 
 function installNativeChatRuntimeActions(): void {
@@ -681,18 +764,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     return;
   }
   try {
-    if (action === "deny") {
-      await gatewayApi.tools.denyApproval(approvalId, {
-        session_key: sessionKey,
-        auto_retry: true,
-      });
-    } else {
-      await gatewayApi.tools.approveApproval(approvalId, {
-        session_key: sessionKey,
-        scope: action === "approveSession" ? "session" : "once",
-        auto_retry: true,
-      });
-    }
+    await submitNativeApprovalAction(approvalId, sessionKey, action);
     nativeApprovalTaskOperations.delete(taskId);
     publishNativeTaskCenterItems();
     await refreshNativeApprovalTasks();
@@ -717,6 +789,38 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
       toolName,
     });
   }
+}
+
+async function submitNativeApprovalAction(
+  approvalId: string,
+  sessionKey: string,
+  action: string,
+): Promise<void> {
+  const approved = action !== "deny";
+  const scope = action === "approveSession" ? "session" : "once";
+  if (nativeAgentRoute === "ts-agent") {
+    await invoke("worker_resume_agent_approval", {
+      input: {
+        sessionId: sessionKey,
+        approvalId,
+        approved,
+        scope,
+      },
+    });
+    return;
+  }
+  if (!approved) {
+    await gatewayApi.tools.denyApproval(approvalId, {
+      session_key: sessionKey,
+      auto_retry: true,
+    });
+    return;
+  }
+  await gatewayApi.tools.approveApproval(approvalId, {
+    session_key: sessionKey,
+    scope,
+    auto_retry: true,
+  });
 }
 
 async function selectNativeChatFromRoute(path: string): Promise<void> {

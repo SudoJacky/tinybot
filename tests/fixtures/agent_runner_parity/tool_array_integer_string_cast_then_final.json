@@ -1,0 +1,43 @@
+{
+  "runId": "parity-tool-array-integer-string-cast-then-final",
+  "model": "test-model",
+  "maxIterations": 3,
+  "maxToolResultChars": 1000,
+  "messages": [
+    {
+      "role": "user",
+      "content": "cast string integers inside an array"
+    }
+  ],
+  "responses": [
+    {
+      "content": "",
+      "stopReason": "tool_calls",
+      "toolCalls": [
+        {
+          "id": "call-1",
+          "name": "sum_numbers",
+          "arguments": {
+            "values": ["2", "3"]
+          }
+        }
+      ]
+    },
+    {
+      "content": "array cast completed",
+      "stopReason": "stop",
+      "toolCalls": []
+    }
+  ],
+  "toolResults": {
+    "echo": "echo:{text}"
+  },
+  "expected": {
+    "finalContent": "array cast completed",
+    "stopReason": "final_response",
+    "toolsUsed": ["sum_numbers"],
+    "messageRoles": ["user", "assistant", "tool", "assistant"],
+    "checkpoints": ["awaiting_tools", "tools_completed", "final_response"],
+    "toolContents": ["sum:5"]
+  }
+}

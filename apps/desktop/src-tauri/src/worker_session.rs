@@ -4,6 +4,7 @@ use crate::worker_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug)]
 pub struct WorkerSessionRpc {
@@ -38,6 +39,65 @@ impl WorkerSessionRpc {
         Ok(sessions)
     }
 
+    pub fn get_checkpoint(&self, session_id: &str) -> Result<Option<Value>, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        validate_session_id(session_id)?;
+        let session = self
+            .sessions
+            .iter()
+            .find(|session| session.session_id == session_id);
+        Ok(session.and_then(|session| session.extra.get("runtime_checkpoint").cloned()))
+    }
+
+    pub fn set_checkpoint(
+        &mut self,
+        session_id: &str,
+        checkpoint: Value,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let session = self.session_mut_or_create(session_id);
+        ensure_extra_object(session);
+        session.extra["runtime_checkpoint"] = checkpoint;
+        session.updated_at = now_session_timestamp();
+        Ok(session.clone())
+    }
+
+    pub fn clear_checkpoint(
+        &mut self,
+        session_id: &str,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let session = self.session_mut_or_create(session_id);
+        if let Some(extra) = session.extra.as_object_mut() {
+            extra.remove("runtime_checkpoint");
+        }
+        session.updated_at = now_session_timestamp();
+        Ok(session.clone())
+    }
+
+    pub fn append_messages(
+        &mut self,
+        session_id: &str,
+        messages: Vec<Value>,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let session = self.session_mut_or_create(session_id);
+        ensure_extra_object(session);
+        ensure_messages_array(session);
+        if let Some(existing) = session
+            .extra
+            .get_mut("messages")
+            .and_then(Value::as_array_mut)
+        {
+            existing.extend(messages);
+        }
+        session.updated_at = now_session_timestamp();
+        Ok(session.clone())
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -49,6 +109,28 @@ impl WorkerSessionRpc {
             false,
             WorkerProtocolErrorSource::RustCore,
         ))
+    }
+
+    fn session_mut_or_create(&mut self, session_id: &str) -> &mut SessionMetadata {
+        if let Some(index) = self
+            .sessions
+            .iter()
+            .position(|session| session.session_id == session_id)
+        {
+            return &mut self.sessions[index];
+        }
+        let timestamp = now_session_timestamp();
+        self.sessions.push(SessionMetadata {
+            session_id: session_id.to_string(),
+            title: format!("Desktop Session {session_id}"),
+            workspace_dir: String::new(),
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+            extra: serde_json::json!({}),
+        });
+        self.sessions
+            .last_mut()
+            .expect("newly pushed session should be present")
     }
 }
 
@@ -89,6 +171,26 @@ fn unknown_session_error(session_id: &str) -> WorkerProtocolError {
         false,
         WorkerProtocolErrorSource::RustCore,
     )
+}
+
+fn ensure_extra_object(session: &mut SessionMetadata) {
+    if !session.extra.is_object() {
+        session.extra = serde_json::json!({});
+    }
+}
+
+fn ensure_messages_array(session: &mut SessionMetadata) {
+    if !session.extra.get("messages").is_some_and(Value::is_array) {
+        session.extra["messages"] = serde_json::json!([]);
+    }
+}
+
+fn now_session_timestamp() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("unix-ms:{millis}")
 }
 
 #[cfg(test)]
@@ -165,8 +267,201 @@ mod tests {
         assert_eq!(ids, vec!["session-2", "session-1"]);
     }
 
+    #[test]
+    fn set_and_clear_checkpoint_update_session_extra_with_write_capability() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], write_policy());
+
+        let updated = rpc
+            .set_checkpoint(
+                "session-1",
+                json!({ "phase": "awaiting_tools", "iteration": 0 }),
+            )
+            .expect("checkpoint should set");
+
+        assert_eq!(
+            updated.extra["runtime_checkpoint"],
+            json!({ "phase": "awaiting_tools", "iteration": 0 })
+        );
+
+        let cleared = rpc
+            .clear_checkpoint("session-1")
+            .expect("checkpoint should clear");
+
+        assert!(cleared.extra.get("runtime_checkpoint").is_none());
+    }
+
+    #[test]
+    fn set_checkpoint_creates_missing_session_with_write_capability() {
+        let mut rpc = WorkerSessionRpc::new(vec![], write_policy());
+
+        let updated = rpc
+            .set_checkpoint(
+                "desktop-session-1",
+                json!({ "phase": "awaiting_tools", "iteration": 0 }),
+            )
+            .expect("checkpoint write should create session metadata");
+
+        assert_eq!(updated.session_id, "desktop-session-1");
+        assert_eq!(updated.title, "Desktop Session desktop-session-1");
+        assert_eq!(
+            updated.extra["runtime_checkpoint"]["phase"],
+            "awaiting_tools"
+        );
+    }
+
+    #[test]
+    fn clear_checkpoint_creates_missing_session_with_write_capability() {
+        let mut rpc = WorkerSessionRpc::new(vec![], write_policy());
+
+        let updated = rpc
+            .clear_checkpoint("desktop-session-1")
+            .expect("checkpoint clear should be idempotent for new sessions");
+
+        assert_eq!(updated.session_id, "desktop-session-1");
+        assert!(updated.extra.get("runtime_checkpoint").is_none());
+    }
+
+    #[test]
+    fn get_checkpoint_returns_runtime_checkpoint_with_read_capability() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "runtime_checkpoint": {
+                "runId": "run-1",
+                "phase": "awaiting_tools",
+                "iteration": 1
+            }
+        });
+        let rpc = WorkerSessionRpc::new(vec![session], read_policy());
+
+        let checkpoint = rpc
+            .get_checkpoint("session-1")
+            .expect("checkpoint should read");
+
+        assert_eq!(
+            checkpoint,
+            Some(json!({
+                "runId": "run-1",
+                "phase": "awaiting_tools",
+                "iteration": 1
+            }))
+        );
+    }
+
+    #[test]
+    fn get_checkpoint_returns_none_when_session_has_no_runtime_checkpoint() {
+        let rpc = WorkerSessionRpc::new(vec![session_fixture()], read_policy());
+
+        let checkpoint = rpc
+            .get_checkpoint("session-1")
+            .expect("checkpoint read should allow missing checkpoint");
+
+        assert_eq!(checkpoint, None);
+    }
+
+    #[test]
+    fn get_checkpoint_returns_none_for_missing_session_with_read_capability() {
+        let rpc = WorkerSessionRpc::new(vec![], read_policy());
+
+        let checkpoint = rpc
+            .get_checkpoint("desktop-session-1")
+            .expect("missing session should behave like no checkpoint");
+
+        assert_eq!(checkpoint, None);
+    }
+
+    #[test]
+    fn default_policy_denies_session_checkpoint_read() {
+        let rpc = WorkerSessionRpc::new(vec![session_fixture()], CapabilityPolicy::default());
+
+        let error = rpc
+            .get_checkpoint("session-1")
+            .expect_err("checkpoint reads should require metadata read capability");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["capability"], "session.metadata.read");
+    }
+
+    #[test]
+    fn default_policy_denies_session_checkpoint_write() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], CapabilityPolicy::default());
+
+        let error = rpc
+            .set_checkpoint("session-1", json!({ "phase": "awaiting_tools" }))
+            .expect_err("checkpoint writes should require capability");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["capability"], "session.write");
+    }
+
+    #[test]
+    fn append_messages_extends_session_extra_messages_with_write_capability() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "existing" }
+            ]
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let updated = rpc
+            .append_messages(
+                "session-1",
+                vec![
+                    json!({ "role": "assistant", "content": "hello" }),
+                    json!({ "role": "tool", "content": "result", "toolCallId": "call-1" }),
+                ],
+            )
+            .expect("messages should append");
+
+        assert_eq!(
+            updated.extra["messages"],
+            json!([
+                { "role": "user", "content": "existing" },
+                { "role": "assistant", "content": "hello" },
+                { "role": "tool", "content": "result", "toolCallId": "call-1" }
+            ])
+        );
+    }
+
+    #[test]
+    fn append_messages_creates_missing_session_with_write_capability() {
+        let mut rpc = WorkerSessionRpc::new(vec![], write_policy());
+
+        let updated = rpc
+            .append_messages(
+                "desktop-session-1",
+                vec![json!({ "role": "assistant", "content": "hello" })],
+            )
+            .expect("append should create session metadata");
+
+        assert_eq!(updated.session_id, "desktop-session-1");
+        assert_eq!(
+            updated.extra["messages"],
+            json!([{ "role": "assistant", "content": "hello" }])
+        );
+    }
+
+    #[test]
+    fn default_policy_denies_session_append_messages() {
+        let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], CapabilityPolicy::default());
+
+        let error = rpc
+            .append_messages(
+                "session-1",
+                vec![json!({ "role": "assistant", "content": "hello" })],
+            )
+            .expect_err("append should require session write capability");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["capability"], "session.write");
+    }
+
     fn read_policy() -> CapabilityPolicy {
         CapabilityPolicy::new([WorkerCapability::SessionMetadataRead])
+    }
+
+    fn write_policy() -> CapabilityPolicy {
+        CapabilityPolicy::new([WorkerCapability::SessionWrite])
     }
 
     fn session_fixture() -> SessionMetadata {

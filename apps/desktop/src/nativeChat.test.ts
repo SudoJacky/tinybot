@@ -179,6 +179,53 @@ describe("native chat state", () => {
     ]);
   });
 
+  test("normalizes persisted TS worker camelCase tool history into native tool activities", () => {
+    expect(
+      normalizeMessagesPayload({
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [
+              {
+                id: "call-read",
+                name: "read_file",
+                argumentsJson: "{\"path\":\"README.md\"}",
+              },
+            ],
+            timestamp: "2026-05-29T08:00:01Z",
+            message_id: "m-tool-call",
+          },
+          {
+            role: "tool",
+            content: "README contents",
+            toolCallId: "call-read",
+            name: "read_file",
+            timestamp: "2026-05-29T08:00:02Z",
+            message_id: "m-tool-result",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: "",
+        reasoningContent: "",
+        toolActivities: [
+          {
+            id: "call-read",
+            name: "read_file",
+            argsText: "{\"path\":\"README.md\"}",
+            responseText: "README contents",
+            kind: "result",
+          },
+        ],
+        timestamp: "2026-05-29T08:00:01Z",
+        messageId: "m-tool-call",
+      },
+    ]);
+  });
+
   test("preserves memory reference source location and original excerpt metadata", () => {
     expect(
       normalizeMessagesPayload({

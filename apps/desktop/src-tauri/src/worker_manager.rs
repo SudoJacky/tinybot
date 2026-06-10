@@ -1,15 +1,18 @@
-use crate::worker_protocol::{WorkerDiagnosticLine, WorkerDiagnostics, WorkerEvent};
+use crate::worker_connection::WorkerConnection;
+use crate::worker_protocol::{
+    WorkerDiagnosticLine, WorkerDiagnostics, WorkerEvent, WorkerProtocolError,
+    WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest, WorkerResponse,
+};
 use crate::worker_rpc::WorkerRpcRouter;
-use crate::worker_stdio::WorkerStdioTransport;
 use serde::Serialize;
 use std::{
     fmt,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Child, ChildStdin, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(target_os = "windows")]
@@ -83,6 +86,7 @@ pub struct WorkerManagerStatus {
 pub enum WorkerManagerEvent {
     Status(WorkerManagerStatus),
     Diagnostics(WorkerDiagnosticLine),
+    Protocol(WorkerEvent),
 }
 
 type WorkerEventSink = Arc<dyn Fn(WorkerManagerEvent) + Send + Sync + 'static>;
@@ -95,7 +99,9 @@ pub struct WorkerManager {
 
 impl fmt::Debug for WorkerManager {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("WorkerManager").finish_non_exhaustive()
+        formatter
+            .debug_struct("WorkerManager")
+            .finish_non_exhaustive()
     }
 }
 
@@ -107,6 +113,7 @@ struct WorkerManagerInner {
     started_at_unix_ms: Option<u128>,
     diagnostics: WorkerDiagnostics,
     last_error: Option<String>,
+    stdio_connection: Option<WorkerConnection<ChildStdin>>,
 }
 
 impl WorkerManager {
@@ -119,6 +126,7 @@ impl WorkerManager {
                 started_at_unix_ms: None,
                 diagnostics: WorkerDiagnostics::new(diagnostic_capacity),
                 last_error: None,
+                stdio_connection: None,
             })),
             event_sink: Arc::new(Mutex::new(None)),
         }
@@ -132,10 +140,7 @@ impl WorkerManager {
         self
     }
 
-    pub fn set_event_sink(
-        &self,
-        event_sink: impl Fn(WorkerManagerEvent) + Send + Sync + 'static,
-    ) {
+    pub fn set_event_sink(&self, event_sink: impl Fn(WorkerManagerEvent) + Send + Sync + 'static) {
         let mut sink = lock_event_sink(&self.event_sink);
         *sink = Some(Arc::new(event_sink));
     }
@@ -172,6 +177,7 @@ impl WorkerManager {
             inner.pid = Some(pid);
             inner.started_at_unix_ms = Some(now_unix_ms());
             inner.last_error = None;
+            inner.stdio_connection = None;
         }
         self.emit_status();
 
@@ -238,13 +244,14 @@ impl WorkerManager {
 
         match (stdout, stdin) {
             (Some(stdout), Some(stdin)) => {
-                spawn_stdio_rpc_reader(
-                    stdout,
-                    stdin,
-                    router,
-                    self.inner.clone(),
-                    self.event_sink.clone(),
-                );
+                let event_inner = self.inner.clone();
+                let event_sink_for_events = self.event_sink.clone();
+                let connection =
+                    WorkerConnection::start(BufReader::new(stdout), stdin, router, move |event| {
+                        record_worker_protocol_event(&event, &event_inner, &event_sink_for_events);
+                    });
+                let mut inner = lock_inner(&self.inner);
+                inner.stdio_connection = Some(connection);
             }
             _ => {
                 let message = "worker stdio pipes are unavailable".to_string();
@@ -254,9 +261,7 @@ impl WorkerManager {
                 drop(inner);
                 emit_worker_event(
                     &self.event_sink,
-                    WorkerManagerEvent::Diagnostics(WorkerDiagnosticLine::new(
-                        "stderr", message,
-                    )),
+                    WorkerManagerEvent::Diagnostics(WorkerDiagnosticLine::new("stderr", message)),
                 );
             }
         }
@@ -271,6 +276,30 @@ impl WorkerManager {
         }
 
         Ok(())
+    }
+
+    pub fn send_stdio_request(
+        &self,
+        request: &WorkerRequest,
+        timeout: Duration,
+    ) -> Result<WorkerResponse, WorkerProtocolError> {
+        let connection = {
+            let inner = lock_inner(&self.inner);
+            inner.stdio_connection.clone()
+        }
+        .ok_or_else(|| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                "worker stdio connection is not running",
+                serde_json::json!({
+                    "id": request.id,
+                    "trace_id": request.trace_id,
+                }),
+                true,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?;
+        connection.send_request(request, timeout)
     }
 
     pub fn stop(&self) -> Result<(), WorkerManagerError> {
@@ -290,6 +319,7 @@ impl WorkerManager {
         inner.label = None;
         inner.started_at_unix_ms = None;
         inner.last_error = None;
+        inner.stdio_connection = None;
         drop(inner);
         self.emit_status();
         Ok(())
@@ -341,6 +371,7 @@ fn refresh_child_status(
             inner.child = None;
             inner.pid = None;
             inner.started_at_unix_ms = None;
+            inner.stdio_connection = None;
             Ok(WorkerHealth::Exited)
         }
         Err(error) => {
@@ -349,6 +380,7 @@ fn refresh_child_status(
             inner.child = None;
             inner.pid = None;
             inner.started_at_unix_ms = None;
+            inner.stdio_connection = None;
             Err(WorkerManagerError::InspectFailed(message))
         }
     }
@@ -376,53 +408,27 @@ fn spawn_diagnostic_reader<R>(
     });
 }
 
-fn spawn_stdio_rpc_reader<R, W>(
-    reader: R,
-    writer: W,
-    mut router: WorkerRpcRouter,
-    inner: Arc<Mutex<WorkerManagerInner>>,
-    event_sink: Arc<Mutex<Option<WorkerEventSink>>>,
-) where
-    R: Read + Send + 'static,
-    W: Write + Send + 'static,
-{
-    thread::spawn(move || {
-        let buffered = BufReader::new(reader);
-        let mut transport = WorkerStdioTransport::new(buffered, writer);
-        let event_inner = inner.clone();
-        let event_sink_for_events = event_sink.clone();
-        if let Err(error) = transport.serve_rust_rpc_requests(&mut router, move |event| {
-            record_worker_protocol_event(
-                event,
-                &event_inner,
-                &event_sink_for_events,
-            );
-        }) {
-            let line = format!("worker protocol error: {}", error.message);
-            let diagnostic = WorkerDiagnosticLine::new("stderr", line.clone());
-            let mut inner = lock_inner(&inner);
-            inner.last_error = Some(line);
-            inner
-                .diagnostics
-                .push(diagnostic.stream.clone(), diagnostic.line.clone());
-            drop(inner);
-            emit_worker_event(&event_sink, WorkerManagerEvent::Diagnostics(diagnostic));
-        }
-    });
-}
-
 fn record_worker_protocol_event(
     event: &WorkerEvent,
     inner: &Arc<Mutex<WorkerManagerInner>>,
     event_sink: &Arc<Mutex<Option<WorkerEventSink>>>,
 ) {
     if event.event != "diagnostics.log" {
+        emit_worker_event(event_sink, WorkerManagerEvent::Protocol(event.clone()));
         return;
     }
-    let Some(stream) = event.payload.get("stream").and_then(serde_json::Value::as_str) else {
+    let Some(stream) = event
+        .payload
+        .get("stream")
+        .and_then(serde_json::Value::as_str)
+    else {
         return;
     };
-    let Some(line) = event.payload.get("line").and_then(serde_json::Value::as_str) else {
+    let Some(line) = event
+        .payload
+        .get("line")
+        .and_then(serde_json::Value::as_str)
+    else {
         return;
     };
     if !matches!(stream, "stdout" | "stderr") {
@@ -477,10 +483,7 @@ fn lock_event_sink(
     sink.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn emit_worker_event(
-    event_sink: &Arc<Mutex<Option<WorkerEventSink>>>,
-    event: WorkerManagerEvent,
-) {
+fn emit_worker_event(event_sink: &Arc<Mutex<Option<WorkerEventSink>>>, event: WorkerManagerEvent) {
     let sink = lock_event_sink(event_sink).clone();
     if let Some(sink) = sink {
         sink(event);
@@ -500,10 +503,7 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let event_log = events.clone();
         let manager = WorkerManager::new(20).with_event_sink(move |event| {
-            event_log
-                .lock()
-                .expect("event log should lock")
-                .push(event);
+            event_log.lock().expect("event log should lock").push(event);
         });
 
         manager
@@ -532,10 +532,7 @@ mod tests {
         let events = Arc::new(Mutex::new(Vec::new()));
         let event_log = events.clone();
         let manager = WorkerManager::new(20).with_event_sink(move |event| {
-            event_log
-                .lock()
-                .expect("event log should lock")
-                .push(event);
+            event_log.lock().expect("event log should lock").push(event);
         });
 
         manager
@@ -620,7 +617,10 @@ mod tests {
             .start(test_logging_worker_spec())
             .expect("short worker should start");
 
-        assert_eq!(wait_for_health(&manager, WorkerHealth::Exited), WorkerHealth::Exited);
+        assert_eq!(
+            wait_for_health(&manager, WorkerHealth::Exited),
+            WorkerHealth::Exited
+        );
         let status = manager.status();
 
         assert_eq!(status.state, WorkerManagerState::Stopped);
@@ -691,6 +691,844 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn manager_full_duplex_stdio_request_allows_worker_rust_rpc_before_response() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20);
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_agent_echo_worker_spec(), router)
+            .expect("stdio agent worker should start");
+
+        let request = WorkerRequest::new(
+            "agent-req-1",
+            "trace-agent",
+            "agent.echo",
+            json!({ "input": "hello" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(3))
+            .expect("agent request should complete");
+
+        assert_eq!(response.result.as_ref().unwrap()["ok"], true);
+        assert_eq!(response.result.as_ref().unwrap()["echo"], "hello");
+        assert_eq!(response.result.as_ref().unwrap()["workspaceFileCount"], 1);
+    }
+
+    #[test]
+    fn manager_forwards_non_diagnostic_worker_protocol_events() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::default(),
+        );
+
+        manager
+            .start_stdio_rpc(test_stdio_agent_event_worker_spec(), router)
+            .expect("stdio event worker should start");
+
+        let events = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.delta"
+                            && protocol_event.payload["message"] == "starting"
+                )
+            })
+        });
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["message"] == "starting"
+            )
+        }));
+    }
+
+    #[test]
+    fn manager_runs_real_ts_worker_fixture_agent_echo() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        fixture.write("notes/today.md", "hello ts worker");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::FsWorkspaceRead,
+                WorkerCapability::DiagnosticsWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_worker_fixture_spec(), router)
+            .expect("TS fixture should start");
+
+        let request = WorkerRequest::new(
+            "agent-req-ts-1",
+            "trace-ts-agent",
+            "agent.echo",
+            json!({ "input": "hello from rust" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .expect("agent request should complete");
+        let events = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.delta"
+                            && protocol_event.payload["message"] == "read native state"
+                )
+            })
+        });
+
+        let result = response.result.expect("TS fixture should return result");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["echo"], "hello from rust");
+        assert_eq!(result["configValue"], "gpt-5");
+        assert_eq!(result["workspaceFileCount"], 2);
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["message"] == "starting"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["message"] == "read native state"
+            )
+        }));
+    }
+
+    #[test]
+    fn manager_runs_real_ts_worker_fixture_agent_event_flow() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::DiagnosticsWrite]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_worker_fixture_spec(), router)
+            .expect("TS fixture should start");
+
+        let request = WorkerRequest::new(
+            "agent-req-ts-flow-1",
+            "trace-ts-agent-flow",
+            "agent.fixture_flow",
+            json!({ "runId": "fixture-run-1" }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .expect("agent flow request should complete");
+        let events = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["runId"] == "fixture-run-1"
+                )
+            })
+        });
+
+        let result = response.result.expect("TS fixture should return result");
+        assert_eq!(result["finalContent"], "fixture final");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["runId"] == "fixture-run-1"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.checkpoint"
+                        && protocol_event.payload["phase"] == "awaiting_tools"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.tool.start"
+                        && protocol_event.payload["toolName"] == "fixture_tool"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.tool.result"
+                        && protocol_event.payload["content"] == "fixture tool result"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+    }
+
+    #[test]
+    fn manager_runs_real_ts_agent_worker_with_fixture_provider() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        fixture.write("notes/today.md", "hello from native workspace");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "stopReason": "tool_calls",
+                                "toolCalls": [
+                                    {
+                                        "id": "read-call-1",
+                                        "name": "read_file",
+                                        "argumentsJson": "{\"path\":\"notes/today.md\"}"
+                                    }
+                                ]
+                            },
+                            { "content": "real TS agent final", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::FsWorkspaceRead,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let request = WorkerRequest::new(
+            "agent-run-real-ts-1",
+            "trace-real-ts-agent",
+            "agent.run",
+            json!({
+                "spec": {
+                    "runId": "real-ts-run-1",
+                    "messages": [{ "role": "user", "content": "hello real worker" }],
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": true
+                }
+            }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker request should complete");
+        let events = wait_for_events(&events, |events| {
+            let has_delta = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.delta"
+                            && protocol_event.payload["delta"] == "real TS agent final"
+                )
+            });
+            let has_checkpoint = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.checkpoint"
+                            && protocol_event.payload["phase"] == "awaiting_tools"
+                )
+            });
+            let has_tool_start = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.tool.start"
+                            && protocol_event.payload["toolName"] == "read_file"
+                )
+            });
+            let has_tool_result = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.tool.result"
+                            && protocol_event.payload["content"] == "hello from native workspace"
+                )
+            });
+            let has_done = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["stopReason"] == "final_response"
+                )
+            });
+            has_delta && has_checkpoint && has_tool_start && has_tool_result && has_done
+        });
+
+        let result = response
+            .result
+            .expect("TS agent worker should return result");
+        assert_eq!(result["finalContent"], "real TS agent final");
+        assert_eq!(result["stopReason"], "final_response");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["delta"] == "real TS agent final"
+            )
+        }));
+        assert!(
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.checkpoint"
+                            && protocol_event.payload["phase"] == "awaiting_tools"
+                )
+            }),
+            "events: {events:#?}"
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.tool.start"
+                        && protocol_event.payload["toolName"] == "read_file"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.tool.result"
+                        && protocol_event.payload["content"] == "hello from native workspace"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+    }
+
+    #[test]
+    fn manager_resumes_real_ts_agent_worker_form_checkpoint() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "stopReason": "tool_calls",
+                                "toolCalls": [
+                                    {
+                                        "id": "form-call-1",
+                                        "name": "request_form",
+                                        "argumentsJson": "{\"form\":{\"form_id\":\"travel_plan\",\"title\":\"Travel plan\",\"fields\":[{\"name\":\"destination\",\"type\":\"text\",\"label\":\"Destination\"}]},\"continuation_mode\":\"resume\"}"
+                                    }
+                                ]
+                            },
+                            { "content": "Paris works.", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::FormRequest,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let run_request = WorkerRequest::new(
+            "agent-run-form-real-ts-1",
+            "trace-real-ts-agent-form",
+            "agent.run",
+            json!({
+                "spec": {
+                    "runId": "real-ts-run-form-1",
+                    "sessionId": "desktop-session-form-1",
+                    "messages": [{ "role": "user", "content": "plan a trip" }],
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let run_response = manager
+            .send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker form request should complete");
+        let run_result = run_response
+            .result
+            .expect("form-paused TS agent worker run should return result");
+        assert_eq!(run_result["stopReason"], "awaiting_form");
+        assert_eq!(run_result["awaitingInput"]["formId"], "travel_plan");
+
+        let restore_request = WorkerRequest::new(
+            "agent-restore-form-real-ts-1",
+            "trace-real-ts-agent-form-restore",
+            "agent.restore_checkpoint",
+            json!({ "sessionId": "desktop-session-form-1" }),
+        );
+        let restore_response = manager
+            .send_stdio_request(&restore_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker checkpoint restore should complete");
+        let checkpoint = restore_response
+            .result
+            .as_ref()
+            .expect("checkpoint restore should return result")["checkpoint"]
+            .clone();
+        assert_eq!(checkpoint["runId"], "real-ts-run-form-1");
+        assert_eq!(checkpoint["phase"], "tools_completed");
+        assert_eq!(
+            checkpoint["completedToolResults"][0]["metadata"]["formId"],
+            "travel_plan"
+        );
+
+        let submit_request = WorkerRequest::new(
+            "agent-submit-form-real-ts-1",
+            "trace-real-ts-agent-form-submit",
+            "agent.submit_form",
+            json!({
+                "sessionId": "desktop-session-form-1",
+                "formId": "travel_plan",
+                "values": { "destination": "Paris" }
+            }),
+        );
+        let submit_response = manager
+            .send_stdio_request(&submit_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker form submit should complete");
+        let submit_result = submit_response
+            .result
+            .expect("form submit should return result");
+        assert_eq!(submit_result["result"]["finalContent"], "Paris works.");
+        assert_eq!(submit_result["result"]["stopReason"], "final_response");
+
+        let events = wait_for_events(&events, |events| {
+            let has_awaiting_form = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.awaiting_form"
+                            && protocol_event.payload["formId"] == "travel_plan"
+                )
+            });
+            let has_final_done = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["stopReason"] == "final_response"
+                )
+            });
+            has_awaiting_form && has_final_done
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.awaiting_form"
+                        && protocol_event.payload["formId"] == "travel_plan"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+        manager.stop().expect("TS agent worker should stop");
+    }
+
+    #[test]
+    fn manager_resumes_real_ts_agent_worker_denied_approval_checkpoint() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "stopReason": "tool_calls",
+                                "toolCalls": [
+                                    {
+                                        "id": "approval-call-1",
+                                        "name": "request_approval",
+                                        "argumentsJson": "{\"operation\":{\"toolName\":\"read_file\",\"arguments\":{\"path\":\"notes/today.md\"},\"reason\":\"Read trip notes\"}}"
+                                    }
+                                ]
+                            },
+                            { "content": "I will continue without reading the file.", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::ApprovalRequest,
+                WorkerCapability::ApprovalResolve,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let run_request = WorkerRequest::new(
+            "agent-run-approval-deny-real-ts-1",
+            "trace-real-ts-agent-approval-deny",
+            "agent.run",
+            json!({
+                "spec": {
+                    "runId": "real-ts-run-approval-deny-1",
+                    "sessionId": "desktop-session-approval-deny-1",
+                    "messages": [{ "role": "user", "content": "read this file if allowed" }],
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let run_response = manager
+            .send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker approval request should complete");
+        let run_result = run_response
+            .result
+            .expect("approval-paused TS agent worker run should return result");
+        let approval_id = run_result["awaitingInput"]["approvalId"]
+            .as_str()
+            .expect("awaiting approval should include approval id")
+            .to_string();
+        assert_eq!(run_result["stopReason"], "awaiting_approval");
+        assert_eq!(approval_id, "approval-real-ts-run-approval-deny-1");
+
+        let restore_request = WorkerRequest::new(
+            "agent-restore-approval-deny-real-ts-1",
+            "trace-real-ts-agent-approval-deny-restore",
+            "agent.restore_checkpoint",
+            json!({ "sessionId": "desktop-session-approval-deny-1" }),
+        );
+        let restore_response = manager
+            .send_stdio_request(&restore_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker checkpoint restore should complete");
+        let checkpoint = restore_response
+            .result
+            .as_ref()
+            .expect("checkpoint restore should return result")["checkpoint"]
+            .clone();
+        assert_eq!(checkpoint["runId"], "real-ts-run-approval-deny-1");
+        assert_eq!(checkpoint["phase"], "tools_completed");
+        assert_eq!(
+            checkpoint["completedToolResults"][0]["metadata"]["approvalId"],
+            approval_id
+        );
+
+        let resume_request = WorkerRequest::new(
+            "agent-resume-approval-deny-real-ts-1",
+            "trace-real-ts-agent-approval-deny-resume",
+            "agent.resume_approval",
+            json!({
+                "sessionId": "desktop-session-approval-deny-1",
+                "approvalId": approval_id,
+                "approved": false,
+                "scope": "once"
+            }),
+        );
+        let resume_response = manager
+            .send_stdio_request(&resume_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker approval denial should complete");
+        let resume_result = resume_response
+            .result
+            .expect("approval denial should return result");
+        assert_eq!(
+            resume_result["result"]["finalContent"],
+            "I will continue without reading the file."
+        );
+        assert_eq!(resume_result["result"]["stopReason"], "final_response");
+
+        let events = wait_for_events(&events, |events| {
+            let has_awaiting_approval = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.awaiting_approval"
+                            && protocol_event.payload["approvalId"] == "approval-real-ts-run-approval-deny-1"
+                )
+            });
+            let has_final_done = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["stopReason"] == "final_response"
+                )
+            });
+            has_awaiting_approval && has_final_done
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.awaiting_approval"
+                        && protocol_event.payload["approvalId"] == "approval-real-ts-run-approval-deny-1"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+        assert!(!events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.error"
+                        || (protocol_event.event == "agent.tool.start"
+                            && protocol_event.payload["toolName"] == "read_file")
+            )
+        }));
+        manager.stop().expect("TS agent worker should stop");
+    }
+
+    #[test]
+    fn manager_cancels_real_ts_agent_worker_run() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            { "content": "late answer", "stopReason": "stop", "delayMs": 300 }
+                        ]
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let run_request = WorkerRequest::new(
+            "agent-run-cancel-real-ts-1",
+            "trace-real-ts-agent-cancel",
+            "agent.run",
+            json!({
+                "spec": {
+                    "runId": "real-ts-run-cancel-1",
+                    "messages": [{ "role": "user", "content": "cancel this run" }],
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let run_manager = manager.clone();
+        let run_handle = std::thread::spawn(move || {
+            run_manager.send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+        });
+
+        let events_before_cancel = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Diagnostics(line)
+                        if line.stream == "stderr" && line.line.contains("[ts-agent-worker] ready")
+                )
+            })
+        });
+        assert!(has_diagnostics_event(
+            &events_before_cancel,
+            "stderr",
+            "[ts-agent-worker] ready"
+        ));
+
+        let cancel_request = WorkerRequest::new(
+            "agent-cancel-real-ts-1",
+            "trace-real-ts-agent-cancel-request",
+            "agent.cancel",
+            json!({ "runId": "real-ts-run-cancel-1" }),
+        );
+        let cancel_response = manager
+            .send_stdio_request(&cancel_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker cancel request should complete");
+        assert_eq!(cancel_response.result.as_ref().unwrap()["ok"], true);
+
+        let run_response = run_handle
+            .join()
+            .expect("run request thread should not panic")
+            .expect("real TS agent worker run request should complete");
+        let result = run_response
+            .result
+            .expect("cancelled TS agent worker run should return result");
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(result["error"], "cancelled");
+
+        let events = wait_for_events(&events, |events| {
+            let has_cancelled = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.cancelled"
+                            && protocol_event.payload["runId"] == "real-ts-run-cancel-1"
+                )
+            });
+            let has_done = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["stopReason"] == "cancelled"
+                )
+            });
+            has_cancelled && has_done
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.cancelled"
+                        && protocol_event.payload["runId"] == "real-ts-run-cancel-1"
+            )
+        }));
+        manager.stop().expect("TS agent worker should stop");
+    }
+
     fn test_worker_spec(label: &str) -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {
@@ -704,8 +1542,7 @@ mod tests {
 
         #[cfg(not(target_os = "windows"))]
         {
-            WorkerCommandSpec::new("sh", ["-c", "sleep 30"], PathBuf::from("."))
-                .with_label(label)
+            WorkerCommandSpec::new("sh", ["-c", "sleep 30"], PathBuf::from(".")).with_label(label)
         }
     }
 
@@ -787,6 +1624,92 @@ mod tests {
         }
     }
 
+    fn test_stdio_agent_echo_worker_spec() -> WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$agent = [Console]::In.ReadLine(); $nativeReq = '{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}'; [Console]::Out.WriteLine($nativeReq); $nativeResp = [Console]::In.ReadLine() | ConvertFrom-Json; $agentObj = $agent | ConvertFrom-Json; $count = $nativeResp.result.Count; $echo = $agentObj.params.input; $final = @{ protocol_version = '1'; id = $agentObj.id; trace_id = $agentObj.trace_id; result = @{ ok = $true; echo = $echo; workspaceFileCount = $count } } | ConvertTo-Json -Compress -Depth 8; [Console]::Out.WriteLine($final)"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-echo-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"IFS= read -r agent; printf '%s\n' '{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}'; IFS= read -r native_resp; printf '%s\n' '{"protocol_version":"1","id":"agent-req-1","trace_id":"trace-agent","result":{"ok":true,"echo":"hello","workspaceFileCount":1}}'"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-echo-worker")
+        }
+    }
+
+    fn test_stdio_agent_event_worker_spec() -> WorkerCommandSpec {
+        #[cfg(target_os = "windows")]
+        {
+            WorkerCommandSpec::new(
+                "powershell",
+                [
+                    "-NoProfile",
+                    "-Command",
+                    r#"$json = '{"protocol_version":"1","trace_id":"trace-agent-event","event":"agent.delta","payload":{"message":"starting"}}'; [Console]::Out.WriteLine($json)"#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-event-worker")
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            WorkerCommandSpec::new(
+                "sh",
+                [
+                    "-c",
+                    r#"json='{"protocol_version":"1","trace_id":"trace-agent-event","event":"agent.delta","payload":{"message":"starting"}}'; printf '%s\n' "$json""#,
+                ],
+                PathBuf::from("."),
+            )
+            .with_label("stdio-agent-event-worker")
+        }
+    }
+
+    fn ts_worker_fixture_spec() -> WorkerCommandSpec {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let desktop_dir = manifest_dir
+            .parent()
+            .expect("src-tauri should have desktop parent")
+            .to_path_buf();
+        WorkerCommandSpec::new(
+            "node",
+            ["workers/ts-worker-fixture/src/index.ts"],
+            desktop_dir,
+        )
+        .with_label("ts-worker-fixture")
+    }
+
+    fn ts_agent_worker_spec() -> WorkerCommandSpec {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let desktop_dir = manifest_dir
+            .parent()
+            .expect("src-tauri should have desktop parent")
+            .to_path_buf();
+        WorkerCommandSpec::new(
+            "node",
+            ["workers/ts-agent-worker/src/index.ts"],
+            desktop_dir,
+        )
+        .with_label("ts-agent-worker")
+    }
+
     fn wait_for_health(manager: &WorkerManager, expected: WorkerHealth) -> WorkerHealth {
         for _ in 0..30 {
             let health = manager.health_check();
@@ -836,11 +1759,7 @@ mod tests {
             .any(|line| line.stream == stream && line.line.contains(expected))
     }
 
-    fn has_diagnostics_event(
-        events: &[WorkerManagerEvent],
-        stream: &str,
-        expected: &str,
-    ) -> bool {
+    fn has_diagnostics_event(events: &[WorkerManagerEvent], stream: &str, expected: &str) -> bool {
         events.iter().any(|event| {
             matches!(
                 event,
@@ -869,7 +1788,9 @@ mod tests {
         }
 
         fn write(&self, relative_path: &str, contents: &str) {
-            let path = self.root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let path = self
+                .root
+                .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }

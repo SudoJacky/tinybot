@@ -356,11 +356,15 @@ function coalesceToolActivityMessages(messages: NativeChatMessage[]): NativeChat
   const coalesced: NativeChatMessage[] = [];
   for (const message of messages) {
     const activities = message.toolActivities ?? [];
-    const canCoalesce = message.role === "assistant"
-      && activities.length > 0
-      && !message.content.trim()
+    const canCoalesce =
+      activities.length > 0
       && !message.reasoningContent.trim()
-      && !message.references?.length;
+      && !message.references?.length
+      && (
+        (message.role === "assistant" && !message.content.trim())
+        || message.role === "tool"
+        || message.role === "progress"
+      );
     if (canCoalesce) {
       let merged = false;
       for (const activity of activities) {
@@ -429,8 +433,8 @@ function normalizeMessageReferences(message: Record<string, unknown>): NativeCha
 }
 
 function normalizeToolActivities(message: Record<string, unknown>): NativeChatToolActivity[] {
-  const calls = toolCallRows(message.tool_calls);
-  const results = toolResultRows(message.tool_results);
+  const calls = toolCallRows(message.tool_calls ?? message.toolCalls);
+  const results = toolResultRows(message.tool_results ?? message.toolResults);
   const usedResultIndexes = new Set<number>();
   const activities = calls.map((call, index) => {
     const resultIndex = results.findIndex((result, candidateIndex) => (
@@ -481,7 +485,7 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
     const responseText = textValue(message.content ?? message.text);
     if (responseText) {
       activities.push({
-        id: stringValue(message.tool_call_id ?? message._tool_call_id) || stringValue(message.message_id) || "tool-result",
+        id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message.message_id) || "tool-result",
         name: stringValue(message._tool_name ?? message.name) || "tool",
         argsText: "",
         responseText,
@@ -524,7 +528,7 @@ function toolActivityFromMessage(message: Record<string, unknown>): NativeChatTo
   const isResult = booleanValue(message._tool_result) || message.role === "tool";
   const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase);
   return {
-    id: stringValue(message.tool_call_id ?? message._tool_call_id) || stringValue(message.message_id) || (isResult ? "tool-result" : "tool-detail"),
+    id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message.message_id) || (isResult ? "tool-result" : "tool-detail"),
     name: stringValue(message._tool_name ?? message.name) || inferToolNameFromText(text) || "tool",
     argsText: isResult ? "" : text,
     responseText: isResult ? text : "",
@@ -550,7 +554,7 @@ function toolCallRows(value: unknown): Array<Pick<NativeChatToolActivity, "id" |
     return {
       id: stringValue(row.id ?? row.tool_call_id) || `tool-call-${index + 1}`,
       name: stringValue(functionPayload.name ?? row.name) || "unknown",
-      argsText: textValue(functionPayload.arguments ?? row.arguments ?? row.detail ?? row.path),
+      argsText: textValue(functionPayload.arguments ?? row.argumentsJson ?? row.arguments ?? row.detail ?? row.path),
       ...(stringValue(row._approval_id ?? row.approval_id) ? { approvalId: stringValue(row._approval_id ?? row.approval_id) } : {}),
       ...(stringValue(row._approval_status ?? row.approval_status) ? { approvalStatus: stringValue(row._approval_status ?? row.approval_status) } : {}),
       ...(status ? { status } : {}),
@@ -562,7 +566,7 @@ function toolResultRows(value: unknown): Array<Pick<NativeChatToolActivity, "id"
   return arrayRows(value).map((row, index) => {
     const status = normalizeToolActivityStatus(row.status ?? row.state ?? row.phase);
     return {
-      id: stringValue(row.tool_call_id ?? row.id) || `tool-result-${index + 1}`,
+      id: stringValue(row.tool_call_id ?? row.toolCallId ?? row.id) || `tool-result-${index + 1}`,
       name: stringValue(row.name ?? row.title ?? row.tool_name) || "",
       responseText: textValue(row.content ?? row.response ?? row.result ?? row.output ?? row.detail ?? row.summary),
       ...(stringValue(row._approval_id ?? row.approval_id) ? { approvalId: stringValue(row._approval_id ?? row.approval_id) } : {}),
