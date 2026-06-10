@@ -131,15 +131,15 @@ describe("AgentWorker", () => {
         stopReason: "final_response",
       },
     });
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.done",
-      payload: {
+      payload: expect.objectContaining({
         runId: "run-1",
         stopReason: "final_response",
-      },
-    });
+      }),
+    }));
   });
 
   test("accepts snake_case agent.run spec fields", async () => {
@@ -198,15 +198,15 @@ describe("AgentWorker", () => {
         contextWindowTokens: 100,
       }),
     });
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.done",
-      payload: {
+      payload: expect.objectContaining({
         runId: "run-snake-1",
         stopReason: "final_response",
-      },
-    });
+      }),
+    }));
     expect(clearedSessions).toEqual(["session-snake-1"]);
     expect(appendedSessions[0]?.sessionId).toBe("session-snake-1");
   });
@@ -342,15 +342,15 @@ describe("AgentWorker", () => {
         usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
       },
     });
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.usage",
-      payload: {
+      payload: expect.objectContaining({
         runId: "run-1",
         usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
-      },
-    });
+      }),
+    }));
   });
 
   test("emits native snake_case context window on usage events", async () => {
@@ -381,17 +381,17 @@ describe("AgentWorker", () => {
       }),
     );
 
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.usage",
-      payload: {
+      payload: expect.objectContaining({
         runId: "run-1",
         usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
         contextWindowTokens: 100,
         context_window_tokens: 100,
-      },
-    });
+      }),
+    }));
   });
 
   test("includes run id on agent.error events from failed runs", async () => {
@@ -421,12 +421,12 @@ describe("AgentWorker", () => {
     expect(response).toMatchObject({
       error: { message: "provider unavailable" },
     });
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.error",
-      payload: { runId: "run-1", message: "provider unavailable" },
-    });
+      payload: expect.objectContaining({ runId: "run-1", message: "provider unavailable" }),
+    }));
   });
 
   test("forwards runner tool events and checkpoints as protocol events", async () => {
@@ -493,6 +493,88 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("emits snake_case aliases for native lifecycle event payloads", async () => {
+    const events: WorkerEvent[] = [];
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "echo",
+      description: "Echo text",
+      parameters: { type: "object" },
+      execute: async (args) => ({ content: `echo:${String(args.text)}` }),
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([
+        {
+          content: "",
+          toolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":\"from tool\"}" }],
+          usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+          stopReason: "tool_calls",
+        },
+        {
+          content: "done",
+          toolCalls: [],
+          usage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
+          stopReason: "stop",
+        },
+      ]),
+      tools,
+      emitEvent: (event) => events.push(event),
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.tool.start",
+      payload: expect.objectContaining({
+        runId: "run-1",
+        run_id: "run-1",
+        toolCallId: "call-1",
+        tool_call_id: "call-1",
+        toolName: "echo",
+        tool_name: "echo",
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.tool.result",
+      payload: expect.objectContaining({
+        runId: "run-1",
+        run_id: "run-1",
+        toolCallId: "call-1",
+        tool_call_id: "call-1",
+        toolName: "echo",
+        tool_name: "echo",
+        content: "echo:from tool",
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.usage",
+      payload: expect.objectContaining({
+        runId: "run-1",
+        run_id: "run-1",
+        usage: { inputTokens: 6, outputTokens: 9, totalTokens: 15 },
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.done",
+      payload: {
+        runId: "run-1",
+        run_id: "run-1",
+        stopReason: "final_response",
+        stop_reason: "final_response",
+      },
+    }));
+  });
+
   test("forwards memory reference tool metadata as protocol events", async () => {
     const events: WorkerEvent[] = [];
     const memoryReferences = [
@@ -548,17 +630,17 @@ describe("AgentWorker", () => {
       }),
     );
 
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.memory_reference",
-      payload: {
+      payload: expect.objectContaining({
         runId: "run-1",
         toolCallId: "call-1",
         toolName: "search_memory_notes",
         references: memoryReferences,
-      },
-    });
+      }),
+    }));
   });
 
   test("forwards task progress tool metadata as protocol events", async () => {
@@ -607,18 +689,18 @@ describe("AgentWorker", () => {
       }),
     );
 
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.task_progress",
-      payload: {
+      payload: expect.objectContaining({
         runId: "run-1",
         toolCallId: "call-1",
         toolName: "task",
         planId: "plan-1",
         progress: taskProgress,
-      },
-    });
+      }),
+    }));
   });
 
   test("emits awaiting form event when a tool pauses for user input", async () => {
@@ -666,22 +748,22 @@ describe("AgentWorker", () => {
       stopReason: "awaiting_form",
       toolsUsed: ["request_form"],
     });
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.awaiting_form",
-      payload: {
+      payload: expect.objectContaining({
         runId: "run-1",
         stopReason: "awaiting_form",
         formId: "form-1",
-      },
-    });
-    expect(events).toContainEqual({
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.done",
-      payload: { runId: "run-1", stopReason: "awaiting_form" },
-    });
+      payload: expect.objectContaining({ runId: "run-1", stopReason: "awaiting_form" }),
+    }));
   });
 
   test("keeps the session checkpoint when a run pauses for user input", async () => {
@@ -788,7 +870,7 @@ describe("AgentWorker", () => {
       }),
     );
 
-    expect(events.slice(0, 3)).toEqual([
+    expect(events.slice(0, 3)).toMatchObject([
       {
         protocol_version: "1",
         trace_id: "trace-1",
@@ -850,23 +932,23 @@ describe("AgentWorker", () => {
       trace_id: "trace-cancel",
       result: { ok: true, runId: "run-1" },
     });
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.cancelled",
-      payload: { runId: "run-1" },
-    });
+      payload: expect.objectContaining({ runId: "run-1" }),
+    }));
     expect(runResponse.result).toMatchObject({
       finalContent: "",
       stopReason: "cancelled",
       error: "cancelled",
     });
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-1",
       event: "agent.done",
-      payload: { runId: "run-1", stopReason: "cancelled" },
-    });
+      payload: expect.objectContaining({ runId: "run-1", stopReason: "cancelled" }),
+    }));
   });
 
   test("accepts snake_case run_id for agent.cancel", async () => {
@@ -1524,15 +1606,15 @@ describe("AgentWorker", () => {
         contextWindowTokens: 100,
       }),
     });
-    expect(events).toContainEqual({
+    expect(events).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-submit-form",
       event: "agent.done",
-      payload: {
+      payload: expect.objectContaining({
         runId: "run-form-checkpoint-snake-1",
         stopReason: "final_response",
-      },
-    });
+      }),
+    }));
     expect(clearedSessions).toEqual(["session-snake-1"]);
   });
 });

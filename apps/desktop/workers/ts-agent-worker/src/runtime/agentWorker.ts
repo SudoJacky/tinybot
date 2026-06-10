@@ -128,10 +128,10 @@ export class AgentWorker {
         protocol_version: WORKER_PROTOCOL_VERSION,
         trace_id: request.trace_id,
         event: "agent.done",
-        payload: {
+        payload: withNativePayloadAliases({
           runId: spec.runId,
           stopReason: result.stopReason,
-        },
+        }),
       });
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
@@ -145,7 +145,7 @@ export class AgentWorker {
         protocol_version: WORKER_PROTOCOL_VERSION,
         trace_id: request.trace_id,
         event: "agent.error",
-        payload: runId ? { runId, message } : { message },
+        payload: withNativePayloadAliases(runId ? { runId, message } : { message }),
       });
       return this.failure(request, message);
     }
@@ -168,7 +168,7 @@ export class AgentWorker {
         protocol_version: WORKER_PROTOCOL_VERSION,
         trace_id: activeRun.traceId,
         event: "agent.cancelled",
-        payload: { runId },
+        payload: withNativePayloadAliases({ runId }),
       });
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
@@ -354,11 +354,11 @@ export class AgentWorker {
       protocol_version: WORKER_PROTOCOL_VERSION,
       trace_id: traceId,
       event,
-      payload: {
+      payload: withNativePayloadAliases({
         runId,
         ...awaitingPayload,
         stopReason,
-      },
+      }),
     });
   }
 
@@ -370,13 +370,13 @@ export class AgentWorker {
       protocol_version: WORKER_PROTOCOL_VERSION,
       trace_id: traceId,
       event: "agent.usage",
-      payload: {
+      payload: withNativePayloadAliases({
         runId: spec.runId,
         usage: result.usage,
         ...(spec.contextWindow
           ? { contextWindowTokens: spec.contextWindow, context_window_tokens: spec.contextWindow }
           : {}),
-      },
+      }),
     });
   }
 
@@ -400,7 +400,7 @@ export class AgentWorker {
       protocol_version: WORKER_PROTOCOL_VERSION,
       trace_id: traceId,
       event: protocolEvent,
-      payload: event.payload,
+      payload: withNativePayloadAliases(event.payload),
     });
   }
 
@@ -527,10 +527,10 @@ export class AgentWorker {
       protocol_version: WORKER_PROTOCOL_VERSION,
       trace_id: traceId,
       event: "agent.done",
-      payload: {
+      payload: withNativePayloadAliases({
         runId: spec.runId,
         stopReason: result.stopReason,
-      },
+      }),
     });
     return result;
   }
@@ -620,6 +620,20 @@ function protocolEventName(event: AgentRunnerEvent): string {
     case "task_progress":
       return "agent.task_progress";
   }
+}
+
+function withNativePayloadAliases(payload: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...payload,
+    ...(payload.runId !== undefined ? { run_id: payload.runId } : {}),
+    ...(payload.toolCallId !== undefined ? { tool_call_id: payload.toolCallId } : {}),
+    ...(payload.toolName !== undefined ? { tool_name: payload.toolName } : {}),
+    ...(payload.stopReason !== undefined ? { stop_reason: payload.stopReason } : {}),
+    ...(payload.approvalId !== undefined ? { approval_id: payload.approvalId } : {}),
+    ...(payload.formId !== undefined ? { form_id: payload.formId } : {}),
+    ...(payload.planId !== undefined ? { plan_id: payload.planId } : {}),
+    ...(payload.contextWindowTokens !== undefined ? { context_window_tokens: payload.contextWindowTokens } : {}),
+  };
 }
 
 function resumedSpecFromCheckpoint(

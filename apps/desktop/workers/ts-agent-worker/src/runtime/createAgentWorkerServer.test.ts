@@ -111,10 +111,10 @@ describe("createAgentWorkerServer", () => {
       }),
       expect.objectContaining({
         event: "agent.usage",
-        payload: {
+        payload: expect.objectContaining({
           runId: "run-1",
           usage: { inputTokens: 11, outputTokens: 13, totalTokens: 24 },
-        },
+        }),
       }),
       expect.objectContaining({ event: "agent.done" }),
       expect.objectContaining({
@@ -486,7 +486,7 @@ describe("createAgentWorkerServer", () => {
     expect(parsedLines(lines)).toContainEqual(
       expect.objectContaining({
         event: "agent.memory_reference",
-        payload: {
+        payload: expect.objectContaining({
           runId: "run-1",
           toolCallId: "call-1",
           toolName: "search_memory_notes",
@@ -508,7 +508,7 @@ describe("createAgentWorkerServer", () => {
               view_line: 12,
             },
           ],
-        },
+        }),
       }),
     );
     expect(parsedLines(lines).at(-1)).toMatchObject({

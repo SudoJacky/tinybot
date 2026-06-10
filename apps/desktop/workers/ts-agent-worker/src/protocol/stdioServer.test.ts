@@ -94,10 +94,10 @@ describe("StdioServer", () => {
         protocol_version: "1",
         trace_id: "trace-1",
         event: "agent.done",
-        payload: {
+        payload: expect.objectContaining({
           runId: "run-1",
           stopReason: "final_response",
-        },
+        }),
       },
       {
         protocol_version: "1",
@@ -184,12 +184,12 @@ describe("StdioServer", () => {
     );
 
     const parsedBeforeRunCompletes = lines.map((line) => JSON.parse(line));
-    expect(parsedBeforeRunCompletes).toContainEqual({
+    expect(parsedBeforeRunCompletes).toContainEqual(expect.objectContaining({
       protocol_version: "1",
       trace_id: "trace-run",
       event: "agent.cancelled",
-      payload: { runId: "run-1" },
-    });
+      payload: expect.objectContaining({ runId: "run-1" }),
+    }));
     expect(parsedBeforeRunCompletes).toContainEqual({
       protocol_version: "1",
       id: "cancel-req",
