@@ -15,7 +15,7 @@ import { buildDesktopAgentUiApprovalTaskOperations } from "./desktopTaskCenterSo
 import type { DesktopNativeChatModel } from "./desktopWorkbenchShell";
 import { logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 import type { NormalizedGatewayEvent } from "./gatewayWebSocketClient";
-import { appendUserMessage, applyChatEvent, type NativeChatMessage } from "./nativeChat";
+import { appendUserMessage, applyChatEvent, type NativeChatMessage, type NativeChatReference } from "./nativeChat";
 
 export interface DesktopNativeWorkbenchRuntimeOptions {
   api: DesktopChatSessionControllerApi;
@@ -65,6 +65,7 @@ export type DesktopTsAgentWorkerEventName =
   | "agent.checkpoint"
   | "agent.awaiting_form"
   | "agent.awaiting_approval"
+  | "agent.memory_reference"
   | "agent.cancelled"
   | "agent.done"
   | "agent.error";
@@ -331,6 +332,10 @@ export function createDesktopNativeWorkbenchRuntime({
       projectTsAgentAwaitingApproval(frame, runId, chatId);
       return;
     }
+    if (eventName === "agent.memory_reference") {
+      projectTsAgentMemoryReferences(frame, runId, chatId);
+      return;
+    }
     if (eventName === "agent.delta" || eventName === "agent.reasoning_delta") {
       applyChatEvent(chatController.state, {
         kind: "message.delta",
@@ -526,6 +531,33 @@ export function createDesktopNativeWorkbenchRuntime({
     });
     composerState = "idle";
     chatStatus = "TS agent awaiting approval.";
+  }
+
+  function projectTsAgentMemoryReferences(frame: Record<string, unknown>, runId: string, chatId: string): void {
+    const references = normalizeTsAgentMemoryReferences(frame.references);
+    if (!references.length) {
+      return;
+    }
+    const state = chatController.state;
+    const sessionKey = state.sessions.find((session) => session.chatId === chatId || session.key === chatId)?.key || state.activeSessionKey;
+    if (!sessionKey) {
+      return;
+    }
+    const bucket = state.messages.get(sessionKey) ?? [];
+    state.messages.set(sessionKey, bucket);
+    let message = bucket.find((item) => item.messageId === runId && item.role === "assistant");
+    if (!message) {
+      message = {
+        role: "assistant",
+        content: "",
+        reasoningContent: "",
+        timestamp: new Date().toISOString(),
+        messageId: runId,
+      };
+      bucket.push(message);
+    }
+    message.references = [...(message.references ?? []), ...references];
+    chatStatus = "TS agent memory references updated.";
   }
 
   function completeTsAgentRun(runId: string, chatId: string): void {
@@ -803,6 +835,43 @@ function labelTsAgentCheckpointPhase(value: unknown): string {
     return "Checkpoint";
   }
   return `${phase.charAt(0).toUpperCase()}${phase.slice(1)}`;
+}
+
+function normalizeTsAgentMemoryReferences(value: unknown): NativeChatReference[] {
+  return arrayRecords(value).map((row) => {
+    const title = stringValue(row.title ?? row.name ?? row.note_id ?? row.id ?? row.file) || "memory";
+    const detail = stringValue(row.detail ?? row.summary ?? row.excerpt ?? row.content ?? row.file);
+    const sourcePath = stringValue(row.view_file ?? row.source_file ?? row.file ?? row.path);
+    const rawPath = stringValue(row.file ?? row.path);
+    const sourceLine = numberValue(row.view_line ?? row.line ?? row.cursor);
+    const rawLine = numberValue(row.line ?? row.cursor);
+    const sourceText = sourcePath || sourceLine !== null
+      ? stringValue(row.source_text ?? row.excerpt ?? row.content ?? row.summary ?? row.detail)
+      : "";
+    const noteId = stringValue(row.note_id);
+    const scope = stringValue(row.scope);
+    const type = stringValue(row.type);
+    return {
+      kind: "memory",
+      title,
+      detail,
+      ...(sourcePath ? { sourcePath } : {}),
+      ...(sourceLine !== null ? { sourceLine } : {}),
+      ...(sourceText ? { sourceText } : {}),
+      ...(rawPath && rawPath !== sourcePath ? { rawPath } : {}),
+      ...(rawLine !== null && rawLine !== sourceLine ? { rawLine } : {}),
+      ...(noteId ? { noteId } : {}),
+      ...(scope ? { scope } : {}),
+      ...(type ? { type } : {}),
+    };
+  });
+}
+
+function arrayRecords(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.filter(isRecord);
+  }
+  return isRecord(value) ? [value] : [];
 }
 
 function buildDesktopTsAgentRunSpec({

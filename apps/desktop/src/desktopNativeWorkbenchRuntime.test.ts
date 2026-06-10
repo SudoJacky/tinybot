@@ -921,6 +921,71 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent awaiting approval.");
   });
 
+  test("projects TS agent memory reference events into native chat references", async () => {
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-memory", chat_id: "chat-ts-memory", title: "TS memory chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "Memory-backed answer",
+          stopReason: "final_response",
+          messages: [],
+          toolsUsed: ["search_memory_notes"],
+        };
+      },
+      now: () => "2026-06-03T08:22:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.submitComposerMessage("Use memory");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.delta", { runId, delta: "Memory-backed answer" });
+    runtime.handleTsAgentWorkerEvent("agent.memory_reference", {
+      runId,
+      toolCallId: "call-memory",
+      toolName: "search_memory_notes",
+      references: [{
+        note_id: "note_1",
+        content: "Use uv for Python commands.",
+        file: "memory/notes.jsonl",
+        line: 4,
+        view_file: "memory/MEMORY.md",
+        view_line: 18,
+        scope: "project",
+        type: "instruction",
+      }],
+    });
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Use memory" },
+      {
+        role: "assistant",
+        content: "Memory-backed answer",
+        references: [{
+          kind: "memory",
+          title: "note_1",
+          detail: "Use uv for Python commands.",
+          sourcePath: "memory/MEMORY.md",
+          sourceLine: 18,
+          sourceText: "Use uv for Python commands.",
+          rawPath: "memory/notes.jsonl",
+          rawLine: 4,
+          noteId: "note_1",
+          scope: "project",
+          type: "instruction",
+        }],
+      },
+    ]);
+  });
+
   test("reduces agent-ui form gateway events into native approval forms", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {

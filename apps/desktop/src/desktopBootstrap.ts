@@ -352,6 +352,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.checkpoint",
     "agent.awaiting_form",
     "agent.awaiting_approval",
+    "agent.memory_reference",
     "agent.cancelled",
     "agent.done",
     "agent.error",
