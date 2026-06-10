@@ -334,7 +334,7 @@ export function createDesktopNativeWorkbenchRuntime({
           },
         });
       }
-      completeTsAgentRun(spec.runId, chatId);
+      completeTsAgentRun(spec.runId, chatId, { stopReason: result.stopReason });
       composerState = "idle";
       chatStatus = result.error ? `TS agent stopped: ${result.error}` : "TS agent response received.";
     } catch (error) {
@@ -635,6 +635,7 @@ export function createDesktopNativeWorkbenchRuntime({
   }
 
   function completeTsAgentRun(runId: string, chatId: string, completionPayload: Record<string, unknown> = {}): void {
+    const preserveCheckpoint = isAwaitingTsAgentStopReason(completionPayload.stopReason ?? completionPayload.stop_reason);
     applyChatEvent(chatController.state, {
       kind: "message.stream.completed",
       chatId,
@@ -649,7 +650,9 @@ export function createDesktopNativeWorkbenchRuntime({
     });
     activeTsAgentRuns.delete(runId);
     clearTsAgentToolCallDeltas(runId);
-    clearTsAgentCheckpointMetadata();
+    if (!preserveCheckpoint) {
+      clearTsAgentCheckpointMetadata();
+    }
   }
 
   function findTsAgentToolCallDelta(runId: string, toolCallId: string): { argumentsText: string; toolName: string } | null {
@@ -839,6 +842,10 @@ function stringValue(value: unknown): string {
 
 function tsAgentToolCallDeltaKey(runId: string, index: number): string {
   return `${runId}:${index}`;
+}
+
+function isAwaitingTsAgentStopReason(value: unknown): boolean {
+  return value === "awaiting_user_input" || value === "awaiting_approval" || value === "awaiting_form";
 }
 
 function formatTsAgentToolCallText(toolName: string, argumentsText: string): string {

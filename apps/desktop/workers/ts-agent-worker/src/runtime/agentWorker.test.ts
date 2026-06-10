@@ -1453,6 +1453,81 @@ describe("AgentWorker", () => {
     expect(clearedSessions).toEqual(["session-1"]);
   });
 
+  test("treats a cancel form action as a cancelled submission when resuming", async () => {
+    const appendedMessages: AgentMessage[][] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([{ content: "No changes made.", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-form-cancel-1",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "plan a trip" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "form-call-1", name: "request_form", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "form-call-1",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      submitFormRequest({
+        sessionId: "session-1",
+        formId: "travel_plan",
+        action: "cancel",
+      }),
+    );
+
+    expect(response.result).toMatchObject({
+      sessionId: "session-1",
+      form: {
+        formId: "travel_plan",
+        action: "cancelled",
+        values: {},
+      },
+      result: {
+        finalContent: "No changes made.",
+        stopReason: "final_response",
+      },
+    });
+    expect(appendedMessages.at(-1)).toContainEqual({
+      role: "tool",
+      content: "Agent UI form cancelled: travel_plan",
+      toolCallId: "form-call-1",
+      name: "request_form",
+      metadata: {
+        formId: "travel_plan",
+        action: "cancelled",
+        values: {},
+      },
+    });
+  });
+
   test("accepts snake_case ids for agent.submit_form", async () => {
     const appendedMessages: AgentMessage[][] = [];
     const worker = new AgentWorker({

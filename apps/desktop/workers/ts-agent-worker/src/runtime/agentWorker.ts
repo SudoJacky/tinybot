@@ -586,13 +586,20 @@ function parseSubmitFormParams(params: Record<string, unknown> | undefined): For
   if (object.values !== undefined && !isJsonObject(object.values)) {
     throw new Error("agent.submit_form params.values must be an object when provided");
   }
-  const action = object.action === "cancelled" ? "cancelled" : "submitted";
+  const action = parseFormSubmissionAction(object.action);
   return {
     sessionId,
     formId,
     values: isJsonObject(object.values) ? object.values : {},
     action,
   };
+}
+
+function parseFormSubmissionAction(value: unknown): FormSubmissionRequest["action"] {
+  if (value === "cancel" || value === "cancelled" || value === "canceled") {
+    return "cancelled";
+  }
+  return "submitted";
 }
 
 function stringParam(params: Record<string, unknown> | undefined, camelKey: string, snakeKey: string): string | undefined {

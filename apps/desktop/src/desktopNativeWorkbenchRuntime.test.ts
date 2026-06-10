@@ -1121,6 +1121,73 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.runtime?.tsAgentCheckpoint).toBeUndefined();
   });
 
+  test("keeps TS agent checkpoint metadata while waiting for form input", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: string[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: string[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-form-wait", chat_id: "chat-ts-form-wait", title: "TS form wait" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-03T08:24:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.submitComposerMessage("Need user input");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.checkpoint", {
+      runId,
+      phase: "awaiting_form",
+      iteration: 0,
+      model: "test-model",
+      pendingToolCalls: [{ id: "form-call-1", name: "request_form", argumentsJson: "{}" }],
+      completedToolResults: [],
+    });
+    runtime.handleTsAgentWorkerEvent("agent.awaiting_form", {
+      runId,
+      stopReason: "awaiting_form",
+      formId: "travel_plan",
+      form: {
+        form_id: "travel_plan",
+        title: "Travel plan",
+        correlation: { run_id: runId },
+        fields: [
+          { name: "destination", type: "text", label: "Destination", required: true },
+        ],
+      },
+    });
+    runtime.handleTsAgentWorkerEvent("agent.done", { runId, stopReason: "awaiting_form" });
+    resolveRun?.({ finalContent: "", stopReason: "awaiting_form", messages: [], toolsUsed: ["request_form"] });
+    await runPromise;
+    await Promise.resolve();
+
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toContain("Awaiting form");
+    expect(runtime.chat.responding).toBe(false);
+    expect(runtime.chat.composerState).toBe("idle");
+    expect(runtime.chat.status).toBe("TS agent response received.");
+  });
+
   test("projects TS agent awaiting form events into native Agent UI forms", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {
