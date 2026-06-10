@@ -32,10 +32,17 @@ export type DesktopTsAgentMessage = {
   content: string;
 };
 
+export type DesktopTsAgentToolDefinition = {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
 export type DesktopTsAgentRunSpec = {
   runId: string;
   sessionId: string;
   messages: DesktopTsAgentMessage[];
+  tools?: DesktopTsAgentToolDefinition[];
   model: string;
   maxIterations: number;
   stream: boolean;

@@ -1,6 +1,6 @@
 import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "../agent/agentRunner.ts";
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
-import type { ModelProvider } from "../model/provider.ts";
+import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
   workerError,
@@ -617,6 +617,7 @@ function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec
     traceId: typeof raw.traceId === "string" ? raw.traceId : undefined,
     sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
     messages: raw.messages.map(parseAgentMessage),
+    tools: Array.isArray(raw.tools) ? raw.tools.map(parseToolDefinition) : undefined,
     model: raw.model,
     maxIterations: raw.maxIterations,
     stream: raw.stream,
@@ -624,6 +625,26 @@ function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec
     toolResultBudget: typeof raw.toolResultBudget === "number" ? raw.toolResultBudget : undefined,
     failOnToolError: typeof raw.failOnToolError === "boolean" ? raw.failOnToolError : undefined,
     metadata: isJsonObject(raw.metadata) ? raw.metadata : undefined,
+  };
+}
+
+function parseToolDefinition(value: unknown): ToolDefinition {
+  if (!isJsonObject(value)) {
+    throw new Error("agent.run spec.tools entries must be objects");
+  }
+  if (typeof value.name !== "string" || value.name.length === 0) {
+    throw new Error("agent.run spec.tools entries require string name");
+  }
+  if (typeof value.description !== "string") {
+    throw new Error("agent.run spec.tools entries require string description");
+  }
+  if (!isJsonObject(value.parameters)) {
+    throw new Error("agent.run spec.tools entries require object parameters");
+  }
+  return {
+    name: value.name,
+    description: value.description,
+    parameters: value.parameters,
   };
 }
 

@@ -113,6 +113,84 @@ describe("AgentRunner", () => {
     expect(provider.options.map((option) => option?.model)).toEqual(["gpt-run-model", "gpt-run-model"]);
   });
 
+  test("limits provider tool definitions to the run spec tools", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "echo",
+      description: "Echo text",
+      parameters: { type: "object", properties: { text: { type: "string" } } },
+      execute: async (args) => ({ content: `echo:${String(args.text)}` }),
+    });
+    tools.register({
+      name: "hidden",
+      description: "Hidden tool",
+      parameters: { type: "object" },
+      execute: async () => ({ content: "hidden executed" }),
+    });
+    const runner = new AgentRunner({ provider, tools });
+
+    await runner.run(spec({
+      tools: [
+        {
+          name: "echo",
+          description: "Only echo is available",
+          parameters: { type: "object", properties: { text: { type: "string" } } },
+        },
+      ],
+    }));
+
+    expect(provider.options[0]?.tools).toEqual([
+      {
+        name: "echo",
+        description: "Only echo is available",
+        parameters: { type: "object", properties: { text: { type: "string" } } },
+      },
+    ]);
+  });
+
+  test("does not execute registry tools omitted from the run spec tools", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "hidden", argumentsJson: "{}" }],
+        stopReason: "tool_calls",
+      },
+      { content: "recovered", toolCalls: [], stopReason: "stop" },
+    ]);
+    let hiddenExecutions = 0;
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "hidden",
+      description: "Hidden tool",
+      parameters: { type: "object" },
+      execute: async () => {
+        hiddenExecutions += 1;
+        return { content: "hidden executed" };
+      },
+    });
+    const runner = new AgentRunner({ provider, tools });
+
+    const result = await runner.run(spec({
+      tools: [
+        {
+          name: "echo",
+          description: "Only echo is available",
+          parameters: { type: "object" },
+        },
+      ],
+    }));
+
+    expect(hiddenExecutions).toBe(0);
+    expect(result.messages).toContainEqual({
+      role: "tool",
+      content: "Error: Tool 'hidden' not found. Available: echo\n\n[Analyze the error above and try a different approach. Consider using `query_experience` to search for past solutions to similar problems.]",
+      toolCallId: "call-1",
+      name: "hidden",
+      metadata: undefined,
+    });
+  });
+
   test("executes a tool call and continues until the model returns final content", async () => {
     const provider = new QueueProvider([
       {

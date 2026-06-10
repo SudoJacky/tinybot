@@ -1,4 +1,4 @@
-import type { ToolCallRequest, TokenUsage } from "../model/provider.ts";
+import type { ToolCallRequest, ToolDefinition, TokenUsage } from "../model/provider.ts";
 
 export type AgentMessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -27,6 +27,7 @@ export type AgentRunSpec = {
   traceId?: string;
   sessionId?: string;
   messages: AgentMessage[];
+  tools?: ToolDefinition[];
   model: string;
   maxIterations: number;
   stream: boolean;

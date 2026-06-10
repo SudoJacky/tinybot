@@ -1,5 +1,5 @@
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "./agentRunSpec.ts";
-import type { ModelProvider, ModelRequestOptions, TokenUsage, ToolCallRequest } from "../model/provider.ts";
+import type { ModelProvider, ModelRequestOptions, TokenUsage, ToolCallRequest, ToolDefinition } from "../model/provider.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 
 const EMPTY_FINAL_RESPONSE_MESSAGE =
@@ -94,8 +94,8 @@ export class AgentRunner {
           toolsUsed.push(toolCall.name);
           let args = parseToolArguments(toolCall);
           let result;
-          if (!this.tools.has(toolCall.name)) {
-            result = { content: `Error: Tool '${toolCall.name}' not found. Available: ${availableToolNames(this.tools)}` };
+          if (!this.toolAllowed(spec, toolCall.name) || !this.tools.has(toolCall.name)) {
+            result = { content: `Error: Tool '${toolCall.name}' not found. Available: ${availableToolNames(spec, this.tools)}` };
           } else {
             const prepared = prepareToolArguments(this.tools, toolCall.name, args);
             args = prepared.args;
@@ -292,7 +292,7 @@ export class AgentRunner {
   private requestOptions(spec: AgentRunSpec): ModelRequestOptions {
     return {
       model: spec.model,
-      tools: this.tools.definitions(),
+      tools: this.toolDefinitions(spec),
       onContentDelta: (delta) => {
         if (!spec.stream) {
           return;
@@ -327,6 +327,14 @@ export class AgentRunner {
     return {
       model: spec.model,
     };
+  }
+
+  private toolDefinitions(spec: AgentRunSpec): ToolDefinition[] {
+    return spec.tools?.map((tool) => ({ ...tool, parameters: { ...tool.parameters } })) ?? this.tools.definitions();
+  }
+
+  private toolAllowed(spec: AgentRunSpec, name: string): boolean {
+    return spec.tools === undefined || spec.tools.some((tool) => tool.name === name);
   }
 }
 
@@ -513,8 +521,8 @@ function errorName(error: unknown): string {
   return error instanceof Error ? error.name : "Error";
 }
 
-function availableToolNames(tools: ToolRegistry): string {
-  return tools.definitions().map((tool) => tool.name).join(", ");
+function availableToolNames(spec: AgentRunSpec, tools: ToolRegistry): string {
+  return (spec.tools ?? tools.definitions()).map((tool) => tool.name).join(", ");
 }
 
 function prepareToolArguments(

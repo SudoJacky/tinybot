@@ -1,15 +1,18 @@
 import { describe, expect, test } from "vitest";
 
 import type { AgentMessage } from "../agent/agentRunSpec";
-import type { ModelProvider, ModelResponse, ModelStreamCallbacks } from "../model/provider";
+import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import type { WorkerEvent, WorkerRequest } from "../protocol/messages";
 import { ToolRegistry } from "../tools/toolRegistry";
 import { AgentWorker } from "./agentWorker";
 
 class QueueProvider implements ModelProvider {
+  readonly options: Array<ModelRequestOptions | undefined> = [];
+
   constructor(private readonly responses: ModelResponse[]) {}
 
-  async complete(_messages: AgentMessage[], _callbacks?: ModelStreamCallbacks): Promise<ModelResponse> {
+  async complete(_messages: AgentMessage[], callbacks?: ModelRequestOptions): Promise<ModelResponse> {
+    this.options.push(callbacks);
     const response = this.responses.shift();
     if (!response) {
       throw new Error("no queued model response");
@@ -115,6 +118,42 @@ describe("AgentWorker", () => {
         stopReason: "final_response",
       },
     });
+  });
+
+  test("parses run spec tool definitions for the provider request", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          tools: [
+            {
+              name: "read_file",
+              description: "Read a workspace file",
+              parameters: { type: "object", properties: { path: { type: "string" } } },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(provider.options[0]?.tools).toEqual([
+      {
+        name: "read_file",
+        description: "Read a workspace file",
+        parameters: { type: "object", properties: { path: { type: "string" } } },
+      },
+    ]);
   });
 
   test("emits usage protocol event when the run returns token usage", async () => {
