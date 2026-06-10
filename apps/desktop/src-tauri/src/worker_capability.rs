@@ -29,6 +29,8 @@ pub enum WorkerCapability {
     MemoryRead,
     #[serde(rename = "memory.write")]
     MemoryWrite,
+    #[serde(rename = "mcp.call")]
+    McpCall,
     #[serde(rename = "shell.execute")]
     ShellExecute,
 }
@@ -73,6 +75,7 @@ mod tests {
         assert!(!policy.allows(&WorkerCapability::FormRequest));
         assert!(!policy.allows(&WorkerCapability::MemoryRead));
         assert!(!policy.allows(&WorkerCapability::MemoryWrite));
+        assert!(!policy.allows(&WorkerCapability::McpCall));
         assert!(!policy.allows(&WorkerCapability::ShellExecute));
     }
 
@@ -184,6 +187,22 @@ mod tests {
             json!({
                 "capability": "memory.write",
                 "scope": "memory://notes"
+            })
+        );
+    }
+
+    #[test]
+    fn mcp_call_capability_name_serializes_as_protocol_string() {
+        let grant = CapabilityGrant {
+            capability: WorkerCapability::McpCall,
+            scope: "mcp://configured".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(grant).expect("grant should serialize"),
+            json!({
+                "capability": "mcp.call",
+                "scope": "mcp://configured"
             })
         );
     }

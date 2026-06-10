@@ -607,6 +607,92 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("registers MCP tools that call native mcp RPC", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-mcp",
+            name: "call_mcp_tool",
+            argumentsJson: JSON.stringify({
+              server: "docs",
+              tool: "search",
+              arguments: { query: "agent loop" },
+            }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      { content: "mcp checked", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "call MCP" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "mcp.call_tool"));
+    const mcpRequest = parsedLines(lines).find((line) => line.method === "mcp.call_tool");
+    expect(mcpRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      method: "mcp.call_tool",
+      params: {
+        server: "docs",
+        tool: "search",
+        arguments: { query: "agent loop" },
+      },
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: mcpRequest?.id,
+        trace_id: "trace-1",
+        result: {
+          content: "MCP search result",
+          server: "docs",
+          tool: "search",
+        },
+      }),
+    );
+    await run;
+
+    expect(provider.requests[1]).toContainEqual({
+      role: "tool",
+      content: "MCP search result",
+      toolCallId: "call-mcp",
+      name: "call_mcp_tool",
+    });
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-1",
+      trace_id: "trace-1",
+      result: { finalContent: "mcp checked", stopReason: "final_response" },
+    });
+  });
+
   test("loads model provider config from native config when provider is not injected", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "native config done", toolCalls: [], stopReason: "stop" }]);

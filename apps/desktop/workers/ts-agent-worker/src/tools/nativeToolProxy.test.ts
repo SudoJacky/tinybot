@@ -4,6 +4,7 @@ import type { JsonObject } from "../protocol/messages";
 import {
   createNativeApprovalTools,
   createNativeFormTools,
+  createNativeMcpTools,
   createNativeMemoryTools,
   createNativeRagTools,
   createNativeReadOnlyTools,
@@ -314,6 +315,43 @@ describe("createNativeRagTools", () => {
           query: "TS worker bridge",
           collection: "docs",
           limit: 3,
+        },
+      },
+    ]);
+  });
+});
+
+describe("createNativeMcpTools", () => {
+  test("creates a call_mcp_tool tool backed by mcp.call_tool", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        content: "MCP search result",
+        server: "docs",
+        tool: "search",
+      },
+    ]);
+    const [callMcpTool] = createNativeMcpTools(rpc);
+
+    const result = await callMcpTool.execute(
+      {
+        server: "docs",
+        tool: "search",
+        arguments: { query: "agent loop" },
+      },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
+    );
+
+    expect(callMcpTool.name).toBe("call_mcp_tool");
+    expect(result.content).toBe("MCP search result");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "mcp.call_tool",
+        params: {
+          session_id: "session-1",
+          server: "docs",
+          tool: "search",
+          arguments: { query: "agent loop" },
         },
       },
     ]);

@@ -6,6 +6,7 @@ import { StdioServer } from "../protocol/stdioServer.ts";
 import {
   createNativeApprovalTools,
   createNativeFormTools,
+  createNativeMcpTools,
   createNativeMemoryTools,
   createNativeRagTools,
   createNativeReadOnlyTools,
@@ -41,6 +42,9 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     options.tools.register(tool);
   }
   for (const tool of createNativeRagTools(rpcClient)) {
+    options.tools.register(tool);
+  }
+  for (const tool of createNativeMcpTools(rpcClient)) {
     options.tools.register(tool);
   }
   const writeEvent = (event: WorkerEvent): void => {

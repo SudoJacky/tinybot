@@ -25,6 +25,10 @@ export function createNativeRagTools(rpcClient: NativeRpcClient): Tool[] {
   return [createQueryRagTool(rpcClient)];
 }
 
+export function createNativeMcpTools(rpcClient: NativeRpcClient): Tool[] {
+  return [createCallMcpTool(rpcClient)];
+}
+
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "read_file",
@@ -294,6 +298,37 @@ function createSaveMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
   };
 }
 
+function createCallMcpTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "call_mcp_tool",
+    description: "Call an allowlisted tool on a configured native MCP server.",
+    parameters: {
+      type: "object",
+      properties: {
+        server: { type: "string", minLength: 1, description: "Configured MCP server name." },
+        tool: { type: "string", minLength: 1, description: "Raw MCP tool name on that server." },
+        arguments: {
+          type: "object",
+          description: "JSON object arguments to pass to the MCP tool.",
+        },
+      },
+      required: ["server", "tool"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {
+        server: stringArg(args, "server"),
+        tool: stringArg(args, "tool"),
+        arguments: asObject(args.arguments) ?? {},
+      };
+      if (context.sessionId) {
+        params.session_id = context.sessionId;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "mcp.call_tool", params)) ?? {};
+      return { content: formatMcpToolResult(result) };
+    },
+  };
+}
+
 function stringArg(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== "string" || !value.trim()) {
@@ -482,4 +517,25 @@ function formatRagDocument(value: unknown): string | null {
   const score = typeof document.score === "number" ? ` score=${formatMemoryNumber(document.score)}` : "";
   const excerpt = asString(document.excerpt) ?? asString(document.content) ?? "";
   return `- [${id}] ${title}${path ? ` (${path})` : ""}${score}\n  ${excerpt}`;
+}
+
+function formatMcpToolResult(result: JsonObject): string {
+  const content = result.content;
+  if (typeof content === "string") {
+    return content || "(no output)";
+  }
+  if (Array.isArray(content)) {
+    const parts = content.map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+      const object = asObject(item);
+      return asString(object?.text) ?? asString(object?.content) ?? JSON.stringify(item);
+    });
+    return parts.filter((part) => part.length > 0).join("\n") || "(no output)";
+  }
+  if (result.result !== undefined) {
+    return typeof result.result === "string" ? result.result : JSON.stringify(result.result);
+  }
+  return "(no output)";
 }

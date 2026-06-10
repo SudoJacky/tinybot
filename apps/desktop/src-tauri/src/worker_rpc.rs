@@ -23,6 +23,7 @@ pub struct WorkerRpcRouter {
     approval: WorkerApprovalRpc,
     form: WorkerFormRpc,
     memory: WorkerMemoryRpc,
+    mcp: WorkerMcpRpc,
 }
 
 impl WorkerRpcRouter {
@@ -35,12 +36,13 @@ impl WorkerRpcRouter {
     ) -> Self {
         Self {
             workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
-            config: WorkerConfigRpc::new(config_snapshot, policy.clone()),
+            config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),
             session: WorkerSessionRpc::new(sessions, policy.clone()),
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
             approval: WorkerApprovalRpc::new(policy.clone()),
             form: WorkerFormRpc::new(policy.clone()),
-            memory: WorkerMemoryRpc::new(workspace_root, policy),
+            memory: WorkerMemoryRpc::new(workspace_root, policy.clone()),
+            mcp: WorkerMcpRpc::new(config_snapshot, policy),
         }
     }
 
@@ -144,6 +146,10 @@ impl WorkerRpcRouter {
             "rag.query" => {
                 let params: RagQueryParams = parse_params(request)?;
                 self.query_rag(params)
+            }
+            "mcp.call_tool" => {
+                let params: McpCallToolParams = parse_params(request)?;
+                self.mcp.call_tool(params)
             }
             _ => Err(unknown_method_error(request)),
         }
@@ -306,6 +312,73 @@ impl WorkerFormRpc {
             result["sessionId"] = Value::String(session_id);
         }
         Ok(result)
+    }
+
+    fn require(
+        &self,
+        capability: WorkerCapability,
+    ) -> Result<(), crate::worker_protocol::WorkerProtocolError> {
+        if self.policy.allows(&capability) {
+            return Ok(());
+        }
+        Err(crate::worker_protocol::WorkerProtocolError::new(
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied,
+            "worker capability denied",
+            serde_json::json!({ "capability": capability }),
+            false,
+            crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
+        ))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct WorkerMcpRpc {
+    config_snapshot: Value,
+    policy: CapabilityPolicy,
+}
+
+impl WorkerMcpRpc {
+    fn new(config_snapshot: Value, policy: CapabilityPolicy) -> Self {
+        Self {
+            config_snapshot,
+            policy,
+        }
+    }
+
+    fn call_tool(
+        &self,
+        params: McpCallToolParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::McpCall)?;
+        let server_name = validate_mcp_name("server", &params.server)?;
+        let tool_name = validate_mcp_name("tool", &params.tool)?;
+        if let Some(arguments) = &params.arguments {
+            if !arguments.is_object() {
+                return Err(invalid_mcp_request("arguments must be a JSON object"));
+            }
+        }
+        let server = self.server_config(server_name).ok_or_else(|| {
+            invalid_mcp_request(format!("MCP server is not configured: {server_name}"))
+        })?;
+        if !mcp_tool_is_enabled(server_name, tool_name, server) {
+            return Err(mcp_tool_denied(server_name, tool_name));
+        }
+        let content = mcp_fixture_tool_content(server, tool_name).unwrap_or_else(|| {
+            format!("MCP tool {server_name}.{tool_name} is configured but native MCP execution is not connected.")
+        });
+        let _session_id = params.session_id.as_deref();
+        Ok(serde_json::json!({
+            "content": content,
+            "server": server_name,
+            "tool": tool_name,
+        }))
+    }
+
+    fn server_config(&self, server_name: &str) -> Option<&Value> {
+        self.config_snapshot
+            .get("tools")
+            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
+            .and_then(|servers| servers.get(server_name))
     }
 
     fn require(
@@ -612,6 +685,16 @@ struct RagQueryParams {
 }
 
 #[derive(Deserialize)]
+struct McpCallToolParams {
+    #[serde(default)]
+    session_id: Option<String>,
+    server: String,
+    tool: String,
+    #[serde(default)]
+    arguments: Option<Value>,
+}
+
+#[derive(Deserialize)]
 struct MemorySaveParams {
     #[serde(default)]
     session_id: Option<String>,
@@ -728,6 +811,78 @@ fn invalid_rag_request(message: impl Into<String>) -> crate::worker_protocol::Wo
         false,
         crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
     )
+}
+
+fn invalid_mcp_request(message: impl Into<String>) -> crate::worker_protocol::WorkerProtocolError {
+    crate::worker_protocol::WorkerProtocolError::new(
+        crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        serde_json::json!({ "method": "mcp.call_tool" }),
+        false,
+        crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn mcp_tool_denied(server: &str, tool: &str) -> crate::worker_protocol::WorkerProtocolError {
+    crate::worker_protocol::WorkerProtocolError::new(
+        crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied,
+        "MCP tool is not allowlisted",
+        serde_json::json!({
+            "capability": WorkerCapability::McpCall,
+            "server": server,
+            "tool": tool,
+        }),
+        false,
+        crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn validate_mcp_name<'a>(
+    field: &str,
+    value: &'a str,
+) -> Result<&'a str, crate::worker_protocol::WorkerProtocolError> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.chars().any(|character| {
+            !(character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.'))
+        })
+    {
+        return Err(invalid_mcp_request(format!(
+            "{field} must contain only ASCII letters, numbers, _, -, or ."
+        )));
+    }
+    Ok(value)
+}
+
+fn mcp_tool_is_enabled(server_name: &str, tool_name: &str, server: &Value) -> bool {
+    let enabled_tools = server
+        .get("enabled_tools")
+        .or_else(|| server.get("enabledTools"))
+        .and_then(Value::as_array);
+    let Some(enabled_tools) = enabled_tools else {
+        return false;
+    };
+    let wrapped_name = format!("mcp_{server_name}_{tool_name}");
+    enabled_tools.iter().any(|value| {
+        value.as_str().is_some_and(|enabled| {
+            enabled == "*" || enabled == tool_name || enabled == wrapped_name
+        })
+    })
+}
+
+fn mcp_fixture_tool_content(server: &Value, tool_name: &str) -> Option<String> {
+    let tool_result = server
+        .get("fixture_tools")
+        .or_else(|| server.get("fixtureTools"))
+        .and_then(|tools| tools.get(tool_name))?;
+    if let Some(content) = tool_result.as_str() {
+        return Some(content.to_string());
+    }
+    tool_result
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| Some(tool_result.to_string()))
 }
 
 fn normalize_rag_collection(
@@ -1689,6 +1844,93 @@ mod tests {
             }))
         );
         assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_mcp_call_tool_request_from_configured_allowlist() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "tools": {
+                    "mcp_servers": {
+                        "docs": {
+                            "enabled_tools": ["search"],
+                            "fixture_tools": {
+                                "search": { "content": "MCP search result" }
+                            }
+                        }
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::McpCall]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "mcp.call_tool",
+            json!({
+                "session_id": "session-1",
+                "server": "docs",
+                "tool": "search",
+                "arguments": { "query": "agent loop" }
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "content": "MCP search result",
+                "server": "docs",
+                "tool": "search"
+            }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn mcp_call_tool_requires_allowlisted_tool() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "tools": {
+                    "mcp_servers": {
+                        "docs": {
+                            "enabled_tools": ["search"]
+                        }
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::McpCall]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "mcp.call_tool",
+            json!({
+                "server": "docs",
+                "tool": "delete_everything",
+                "arguments": {}
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        let error = response.error.expect("response should contain error");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+        assert_eq!(error.details["server"], "docs");
+        assert_eq!(error.details["tool"], "delete_everything");
+        assert!(response.result.is_none());
     }
 
     #[test]
