@@ -1235,6 +1235,178 @@ mod tests {
     }
 
     #[test]
+    fn manager_resumes_real_ts_agent_worker_denied_approval_checkpoint() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            {
+                                "content": "",
+                                "stopReason": "tool_calls",
+                                "toolCalls": [
+                                    {
+                                        "id": "approval-call-1",
+                                        "name": "request_approval",
+                                        "argumentsJson": "{\"operation\":{\"toolName\":\"read_file\",\"arguments\":{\"path\":\"notes/today.md\"},\"reason\":\"Read trip notes\"}}"
+                                    }
+                                ]
+                            },
+                            { "content": "I will continue without reading the file.", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::ApprovalRequest,
+                WorkerCapability::ApprovalResolve,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let run_request = WorkerRequest::new(
+            "agent-run-approval-deny-real-ts-1",
+            "trace-real-ts-agent-approval-deny",
+            "agent.run",
+            json!({
+                "spec": {
+                    "runId": "real-ts-run-approval-deny-1",
+                    "sessionId": "desktop-session-approval-deny-1",
+                    "messages": [{ "role": "user", "content": "read this file if allowed" }],
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let run_response = manager
+            .send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker approval request should complete");
+        let run_result = run_response
+            .result
+            .expect("approval-paused TS agent worker run should return result");
+        let approval_id = run_result["awaitingInput"]["approvalId"]
+            .as_str()
+            .expect("awaiting approval should include approval id")
+            .to_string();
+        assert_eq!(run_result["stopReason"], "awaiting_approval");
+        assert_eq!(approval_id, "approval-real-ts-run-approval-deny-1");
+
+        let restore_request = WorkerRequest::new(
+            "agent-restore-approval-deny-real-ts-1",
+            "trace-real-ts-agent-approval-deny-restore",
+            "agent.restore_checkpoint",
+            json!({ "sessionId": "desktop-session-approval-deny-1" }),
+        );
+        let restore_response = manager
+            .send_stdio_request(&restore_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker checkpoint restore should complete");
+        let checkpoint = restore_response
+            .result
+            .as_ref()
+            .expect("checkpoint restore should return result")["checkpoint"]
+            .clone();
+        assert_eq!(checkpoint["runId"], "real-ts-run-approval-deny-1");
+        assert_eq!(checkpoint["phase"], "tools_completed");
+        assert_eq!(
+            checkpoint["completedToolResults"][0]["metadata"]["approvalId"],
+            approval_id
+        );
+
+        let resume_request = WorkerRequest::new(
+            "agent-resume-approval-deny-real-ts-1",
+            "trace-real-ts-agent-approval-deny-resume",
+            "agent.resume_approval",
+            json!({
+                "sessionId": "desktop-session-approval-deny-1",
+                "approvalId": approval_id,
+                "approved": false,
+                "scope": "once"
+            }),
+        );
+        let resume_response = manager
+            .send_stdio_request(&resume_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker approval denial should complete");
+        let resume_result = resume_response
+            .result
+            .expect("approval denial should return result");
+        assert_eq!(
+            resume_result["result"]["finalContent"],
+            "I will continue without reading the file."
+        );
+        assert_eq!(resume_result["result"]["stopReason"], "final_response");
+
+        let events = wait_for_events(&events, |events| {
+            let has_awaiting_approval = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.awaiting_approval"
+                            && protocol_event.payload["approvalId"] == "approval-real-ts-run-approval-deny-1"
+                )
+            });
+            let has_final_done = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["stopReason"] == "final_response"
+                )
+            });
+            has_awaiting_approval && has_final_done
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.awaiting_approval"
+                        && protocol_event.payload["approvalId"] == "approval-real-ts-run-approval-deny-1"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+        assert!(!events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.error"
+                        || (protocol_event.event == "agent.tool.start"
+                            && protocol_event.payload["toolName"] == "read_file")
+            )
+        }));
+        manager.stop().expect("TS agent worker should stop");
+    }
+
+    #[test]
     fn manager_cancels_real_ts_agent_worker_run() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let event_log = events.clone();
