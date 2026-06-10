@@ -19,6 +19,7 @@ export function buildContextMessages(input: ContextBuildInput): ContextBuildResu
   const currentRole = input.currentRole ?? "user";
   const runtimeContext = buildRuntimeContext(input.runtime);
   const currentContent = `${runtimeContext}\n\n${input.currentMessage}`;
+  const currentMessage: AgentMessage = { role: currentRole, content: currentContent };
   const messages: AgentMessage[] = [
     {
       role: "system",
@@ -39,11 +40,12 @@ export function buildContextMessages(input: ContextBuildInput): ContextBuildResu
     };
     mergedWithLastMessage = true;
   } else {
-    messages.push({ role: currentRole, content: currentContent });
+    messages.push(currentMessage);
   }
 
   return {
     messages,
+    sessionAppendMessages: [currentMessage],
     metadata: buildMetadata(input, history.length, mergedWithLastMessage),
   };
 }

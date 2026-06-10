@@ -160,7 +160,11 @@ export class AgentWorker {
         contextWindow: input.contextWindow,
         toolResultBudget: input.toolResultBudget,
         failOnToolError: input.failOnToolError,
-        metadata: input.metadata,
+        metadata: {
+          ...(input.metadata ?? {}),
+          _contextInitialMessageCount: context.messages.length,
+          _contextSessionAppendMessages: context.sessionAppendMessages,
+        },
       };
       return await this.runSpecForRequest(request, spec, contextMetadata);
     } catch (error) {
@@ -416,7 +420,7 @@ export class AgentWorker {
     if (!this.sessionBridge || !spec.sessionId) {
       return;
     }
-    await this.sessionBridge.appendMessages(spec.sessionId, result.messages, traceId);
+    await this.sessionBridge.appendMessages(spec.sessionId, sessionAppendMessages(spec, result), traceId);
   }
 
   private emitAwaitingInput(traceId: string, runId: string, result: AgentRunResult): void {
@@ -825,6 +829,38 @@ function resumedSpecFromCheckpoint(
 
 function checkpointRunId(checkpoint: Record<string, unknown>): string {
   return checkpointString(checkpoint.runId ?? checkpoint.run_id, "checkpoint.runId");
+}
+
+function sessionAppendMessages(spec: AgentRunSpec, result: AgentRunResult): AgentMessage[] {
+  const contextMessages = internalContextAppendMessages(spec.metadata?._contextSessionAppendMessages);
+  const initialMessageCount = spec.metadata?._contextInitialMessageCount;
+  if (!contextMessages || typeof initialMessageCount !== "number") {
+    return result.messages;
+  }
+  return [
+    ...contextMessages,
+    ...result.messages.slice(initialMessageCount),
+  ];
+}
+
+function internalContextAppendMessages(value: unknown): AgentMessage[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const messages = value.map((item) => {
+    if (!isJsonObject(item) || !isAgentRole(item.role) || typeof item.content !== "string") {
+      return null;
+    }
+    return {
+      role: item.role,
+      content: item.content,
+    };
+  });
+  return messages.every((message) => message !== null) ? (messages as AgentMessage[]) : null;
+}
+
+function isAgentRole(value: unknown): value is AgentMessage["role"] {
+  return value === "system" || value === "user" || value === "assistant" || value === "tool";
 }
 
 function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec {

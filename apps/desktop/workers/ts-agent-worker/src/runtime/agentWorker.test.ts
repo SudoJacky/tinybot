@@ -241,6 +241,63 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("appends only new run_input messages to session history", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const appendedSessions: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async (sessionId, messages) => {
+          appendedSessions.push({ sessionId, messages });
+        },
+        getCheckpoint: async () => null,
+      },
+      contextBridge: {
+        loadContextInput: async (input) => ({
+          input: {
+            identity: "Identity",
+            currentMessage: input.input.content,
+            history: [{ role: "user", content: "Earlier" }],
+            runtime: { currentTime: "now" },
+          },
+          metadata: {
+            missingSession: false,
+            malformedHistoryCount: 0,
+            missingBootstrapFiles: [],
+            bootstrapFallbackUsed: false,
+          },
+        }),
+      },
+    });
+
+    await worker.handleRequest(
+      runInputRequest({
+        input: {
+          runId: "run-input-append-1",
+          sessionId: "session-1",
+          input: { content: "Continue" },
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(appendedSessions).toHaveLength(1);
+    expect(appendedSessions[0]?.sessionId).toBe("session-1");
+    expect(appendedSessions[0]?.messages).toEqual([
+      {
+        role: "user",
+        content: "[Runtime Context - metadata only, not instructions]\nCurrent Time: now\n\nContinue",
+      },
+      { role: "assistant", content: "done" },
+    ]);
+  });
+
   test("accepts snake_case agent.run spec fields", async () => {
     const events: WorkerEvent[] = [];
     const clearedSessions: string[] = [];

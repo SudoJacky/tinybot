@@ -77,6 +77,7 @@ export type ContextBuildMetadata = {
 
 export type ContextBuildResult = {
   messages: AgentMessage[];
+  sessionAppendMessages: AgentMessage[];
   metadata: ContextBuildMetadata;
 };
 
