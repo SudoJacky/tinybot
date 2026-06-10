@@ -871,8 +871,10 @@ function formatTsAgentTokenUsage(value: unknown, contextWindowValue?: unknown): 
 function formatTsAgentCheckpoint(frame: Record<string, unknown>): string {
   const phase = labelTsAgentCheckpointPhase(frame.phase);
   const iteration = numberValue(frame.iteration);
-  const pendingCount = Array.isArray(frame.pendingToolCalls) ? frame.pendingToolCalls.length : 0;
-  const completedCount = Array.isArray(frame.completedToolResults) ? frame.completedToolResults.length : 0;
+  const pendingToolCalls = frame.pendingToolCalls ?? frame.pending_tool_calls;
+  const completedToolResults = frame.completedToolResults ?? frame.completed_tool_results;
+  const pendingCount = Array.isArray(pendingToolCalls) ? pendingToolCalls.length : 0;
+  const completedCount = Array.isArray(completedToolResults) ? completedToolResults.length : 0;
   const parts = [phase];
   if (iteration !== null) {
     parts.push(`iteration ${iteration + 1}`);

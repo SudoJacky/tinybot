@@ -973,6 +973,36 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent checkpoint: Awaiting tools.");
   });
 
+  test("projects snake_case TS agent checkpoint tool counts into native runtime metadata", async () => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-checkpoint-snake", chat_id: "chat-ts-checkpoint-snake", title: "TS checkpoint chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.handleTsAgentWorkerEvent("agent.checkpoint", {
+      runId: "run-checkpoint-snake",
+      phase: "awaiting_tools",
+      iteration: 1,
+      model: "test-model",
+      pending_tool_calls: [{ id: "call-1", name: "read_file", arguments_json: "{}" }],
+      completed_tool_results: [
+        { tool_call_id: "call-0", name: "list_files", content: "[]" },
+        { tool_call_id: "call-previous", name: "read_file", content: "ok" },
+      ],
+    });
+
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toContain("Awaiting tools");
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toContain("iteration 2");
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toContain("1 pending tool");
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toContain("2 completed tools");
+  });
+
   test.each([
     ["agent.done", { stopReason: "final_response" }],
     ["agent.cancelled", {}],
