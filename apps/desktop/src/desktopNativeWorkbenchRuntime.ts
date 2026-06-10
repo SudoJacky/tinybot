@@ -336,7 +336,7 @@ export function createDesktopNativeWorkbenchRuntime({
       }
       completeTsAgentRun(spec.runId, chatId, { stopReason: result.stopReason });
       composerState = "idle";
-      chatStatus = result.error ? `TS agent stopped: ${result.error}` : "TS agent response received.";
+      chatStatus = result.error ? `TS agent stopped: ${result.error}` : tsAgentStatusForStopReason(result.stopReason);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       applyChatEvent(chatController.state, { kind: "error", message, raw: { event: "error", message } });
@@ -493,7 +493,7 @@ export function createDesktopNativeWorkbenchRuntime({
     if (eventName === "agent.done") {
       completeTsAgentRun(runId, chatId, frame);
       composerState = "idle";
-      chatStatus = "TS agent response received.";
+      chatStatus = tsAgentStatusForStopReason(frame.stopReason ?? frame.stop_reason);
       return;
     }
     if (eventName === "agent.error") {
@@ -846,6 +846,19 @@ function tsAgentToolCallDeltaKey(runId: string, index: number): string {
 
 function isAwaitingTsAgentStopReason(value: unknown): boolean {
   return value === "awaiting_user_input" || value === "awaiting_approval" || value === "awaiting_form";
+}
+
+function tsAgentStatusForStopReason(value: unknown): string {
+  if (value === "awaiting_form") {
+    return "TS agent awaiting form input.";
+  }
+  if (value === "awaiting_approval") {
+    return "TS agent awaiting approval.";
+  }
+  if (value === "awaiting_user_input") {
+    return "TS agent awaiting user input.";
+  }
+  return "TS agent response received.";
 }
 
 function formatTsAgentToolCallText(toolName: string, argumentsText: string): string {

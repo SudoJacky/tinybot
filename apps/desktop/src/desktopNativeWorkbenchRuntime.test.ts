@@ -1185,7 +1185,7 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.runtime?.tsAgentCheckpoint).toContain("Awaiting form");
     expect(runtime.chat.responding).toBe(false);
     expect(runtime.chat.composerState).toBe("idle");
-    expect(runtime.chat.status).toBe("TS agent response received.");
+    expect(runtime.chat.status).toBe("TS agent awaiting form input.");
   });
 
   test("projects TS agent awaiting form events into native Agent UI forms", async () => {
@@ -1303,6 +1303,61 @@ describe("desktop native workbench runtime", () => {
         ],
       },
     ]);
+    expect(runtime.chat.status).toBe("TS agent awaiting approval.");
+  });
+
+  test("keeps TS agent status waiting while an approval is pending", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: string[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: string[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-approval-wait", chat_id: "chat-ts-approval-wait", title: "TS approval wait" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-03T08:25:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.submitComposerMessage("Need approval");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.awaiting_approval", {
+      runId,
+      stopReason: "awaiting_approval",
+      approvalId: "approval-run-1",
+      content: "Approve write_file",
+      operation: {
+        toolName: "write_file",
+        arguments: { path: "notes/today.md" },
+      },
+    });
+    runtime.handleTsAgentWorkerEvent("agent.done", { runId, stopReason: "awaiting_approval" });
+    resolveRun?.({ finalContent: "", stopReason: "awaiting_approval", messages: [], toolsUsed: ["request_approval"] });
+    await runPromise;
+    await Promise.resolve();
+
+    expect(runtime.chat.responding).toBe(false);
+    expect(runtime.chat.composerState).toBe("idle");
     expect(runtime.chat.status).toBe("TS agent awaiting approval.");
   });
 
