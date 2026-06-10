@@ -32,7 +32,7 @@ export async function modelProviderConfigFromNativeConfig(
         responses: normalizeFixtureResponses(providerConfig?.responses),
       };
     }
-    if (provider !== "openai") {
+    if (provider !== "openai" && !(provider === "auto" && env.OPENAI_API_KEY)) {
       return modelProviderConfigFromEnv(env);
     }
 

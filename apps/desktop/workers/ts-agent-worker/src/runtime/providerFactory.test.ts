@@ -88,7 +88,15 @@ describe("createModelProvider", () => {
 
   test("fixture provider emits streaming callbacks for content and tool calls", async () => {
     const contentDeltas: string[] = [];
-    const toolCallDeltas: Array<{ index: number; deltaText: string; toolCallId?: string; toolName?: string }> = [];
+    const toolCallDeltas: Array<{
+      index: number;
+      deltaText: string;
+      toolCallId?: string;
+      toolName?: string;
+      phase?: string;
+      status?: string;
+      completed?: boolean;
+    }> = [];
     const provider = createModelProvider({
       kind: "fixture",
       responses: [
@@ -112,6 +120,18 @@ describe("createModelProvider", () => {
         deltaText: "{\"path\":\"README.md\"}",
         toolCallId: "call-1",
         toolName: "read_file",
+        phase: "arguments",
+        status: "streaming",
+        completed: false,
+      },
+      {
+        index: 0,
+        deltaText: "",
+        toolCallId: "call-1",
+        toolName: "read_file",
+        phase: "terminal",
+        status: "completed",
+        completed: true,
       },
     ]);
   });

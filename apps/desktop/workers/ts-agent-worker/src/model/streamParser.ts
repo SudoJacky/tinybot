@@ -1,10 +1,15 @@
 import type { ModelResponse, ToolCallRequest, TokenUsage } from "./provider.ts";
 
+const MAX_TOOL_CALL_DELTA_TEXT = 8192;
+
 export type ToolCallDelta = {
   index: number;
   deltaText: string;
   toolCallId?: string;
   toolName?: string;
+  phase?: "arguments" | "terminal";
+  status?: "streaming" | "completed" | "error";
+  completed?: boolean;
 };
 
 export type StreamCallbacks = {
@@ -34,45 +39,57 @@ export async function collectChatCompletionStream(
   const toolCallBuffers = new Map<number, ToolCallBuffer>();
   let stopReason = "stop";
   let usage: TokenUsage | undefined;
+  let emittedTerminalToolCalls = false;
 
-  for await (const chunk of stream) {
-    const chunkObject = asObject(chunk);
-    if (!chunkObject) {
-      continue;
-    }
-    usage = extractUsage(chunkObject) ?? usage;
-
-    const choices = Array.isArray(chunkObject.choices) ? chunkObject.choices : [];
-    for (const choice of choices) {
-      const choiceObject = asObject(choice);
-      if (!choiceObject) {
+  try {
+    for await (const chunk of stream) {
+      const chunkObject = asObject(chunk);
+      if (!chunkObject) {
         continue;
       }
-      if (typeof choiceObject.finish_reason === "string") {
-        stopReason = choiceObject.finish_reason;
-      }
-      const delta = asObject(choiceObject.delta);
-      if (!delta) {
-        continue;
-      }
+      usage = extractUsage(chunkObject) ?? usage;
 
-      const content = textContent(delta.content);
-      if (content) {
-        contentParts.push(content);
-        callbacks.onContentDelta?.(content);
-      }
+      const choices = Array.isArray(chunkObject.choices) ? chunkObject.choices : [];
+      for (const choice of choices) {
+        const choiceObject = asObject(choice);
+        if (!choiceObject) {
+          continue;
+        }
+        const finishReason = typeof choiceObject.finish_reason === "string" ? choiceObject.finish_reason : undefined;
+        if (finishReason) {
+          stopReason = finishReason;
+        }
+        const delta = asObject(choiceObject.delta);
+        if (delta) {
+          const content = textContent(delta.content);
+          if (content) {
+            contentParts.push(content);
+            callbacks.onContentDelta?.(content);
+          }
 
-      const reasoning = textContent(delta.reasoning_content);
-      if (reasoning) {
-        reasoningParts.push(reasoning);
-        callbacks.onReasoningDelta?.(reasoning);
-      }
+          const reasoning = textContent(delta.reasoning_content);
+          if (reasoning) {
+            reasoningParts.push(reasoning);
+            callbacks.onReasoningDelta?.(reasoning);
+          }
 
-      const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
-      for (const toolCall of toolCalls) {
-        collectToolCallDelta(toolCall, toolCallBuffers, callbacks);
+          const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
+          for (const toolCall of toolCalls) {
+            collectToolCallDelta(toolCall, toolCallBuffers, callbacks);
+          }
+        }
+        if (finishReason && !emittedTerminalToolCalls) {
+          emitTerminalToolCallDeltas(toolCallBuffers, callbacks, finishReason === "error" ? "error" : "completed");
+          emittedTerminalToolCalls = true;
+        }
       }
     }
+  } catch (error) {
+    return {
+      content: streamErrorContent(error),
+      toolCalls: [],
+      stopReason: "error",
+    };
   }
 
   return {
@@ -116,13 +133,64 @@ function collectToolCallDelta(
   buffers.set(index, buffer);
 
   if (deltaText || id || name) {
+    const parts = splitToolCallDeltaText(deltaText);
     callbacks.onToolCallDelta?.({
       index,
-      deltaText,
-      toolCallId: id,
-      toolName: name,
+      deltaText: parts[0] ?? "",
+      toolCallId: buffer.id,
+      toolName: buffer.name,
+      phase: "arguments",
+      status: "streaming",
+      completed: false,
+    });
+    for (const part of parts.slice(1)) {
+      callbacks.onToolCallDelta?.({
+        index,
+        deltaText: part,
+        toolCallId: buffer.id,
+        toolName: buffer.name,
+        phase: "arguments",
+        status: "streaming",
+        completed: false,
+      });
+    }
+  }
+}
+
+function splitToolCallDeltaText(deltaText: string): string[] {
+  if (deltaText.length === 0) {
+    return [""];
+  }
+  const parts: string[] = [];
+  for (let start = 0; start < deltaText.length; start += MAX_TOOL_CALL_DELTA_TEXT) {
+    parts.push(deltaText.slice(start, start + MAX_TOOL_CALL_DELTA_TEXT));
+  }
+  return parts;
+}
+
+function emitTerminalToolCallDeltas(
+  buffers: Map<number, ToolCallBuffer>,
+  callbacks: StreamCallbacks,
+  status: "completed" | "error",
+): void {
+  for (const [index, buffer] of Array.from(buffers.entries()).sort(([left], [right]) => left - right)) {
+    callbacks.onToolCallDelta?.({
+      index,
+      deltaText: "",
+      toolCallId: buffer.id,
+      toolName: buffer.name,
+      phase: "terminal",
+      status,
+      completed: status === "completed",
     });
   }
+}
+
+function streamErrorContent(error: unknown): string {
+  if (error instanceof Error) {
+    return `Error calling LLM: ${error.message}`;
+  }
+  return `Error calling LLM: ${String(error)}`;
 }
 
 function asObject(value: unknown): JsonObject | null {
@@ -166,7 +234,17 @@ function extractUsage(chunk: JsonObject): TokenUsage | undefined {
     inputTokens: numberValue(usage.prompt_tokens),
     outputTokens: numberValue(usage.completion_tokens),
     totalTokens: numberValue(usage.total_tokens),
+    cachedTokens: cachedTokenValue(usage),
   };
+}
+
+function cachedTokenValue(usage: JsonObject): number | undefined {
+  const promptTokenDetails = asObject(usage.prompt_tokens_details);
+  return (
+    numberValue(promptTokenDetails?.cached_tokens) ??
+    numberValue(usage.cached_tokens) ??
+    numberValue(usage.prompt_cache_hit_tokens)
+  );
 }
 
 function numberValue(value: unknown): number | undefined {

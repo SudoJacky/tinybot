@@ -71,8 +71,8 @@ describe("StdioServer", () => {
       }),
     );
 
-    expect(lines.map((line) => JSON.parse(line))).toEqual([
-      {
+    const messages = lines.map((line) => JSON.parse(line));
+    expect(messages).toContainEqual({
         protocol_version: "1",
         trace_id: "trace-1",
         event: "agent.checkpoint",
@@ -89,8 +89,8 @@ describe("StdioServer", () => {
           pendingToolCalls: [],
           pending_tool_calls: [],
         },
-      },
-      {
+      });
+    expect(messages).toContainEqual({
         protocol_version: "1",
         trace_id: "trace-1",
         event: "agent.done",
@@ -98,8 +98,8 @@ describe("StdioServer", () => {
           runId: "run-1",
           stopReason: "final_response",
         }),
-      },
-      {
+      });
+    expect(messages).toContainEqual({
         protocol_version: "1",
         id: "req-1",
         trace_id: "trace-1",
@@ -107,8 +107,7 @@ describe("StdioServer", () => {
           finalContent: "done",
           stopReason: "final_response",
         }),
-      },
-    ]);
+      });
   });
 
   test("routes protocol responses to the worker RPC client", async () => {

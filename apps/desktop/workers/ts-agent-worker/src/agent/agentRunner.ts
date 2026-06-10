@@ -29,7 +29,8 @@ export type AgentRunnerEvent = {
     | "reasoning_delta"
     | "tool_call_delta"
     | "memory_reference"
-    | "task_progress";
+    | "task_progress"
+    | "usage";
   payload: Record<string, unknown>;
 };
 
@@ -66,8 +67,10 @@ export class AgentRunner {
     for (let iteration = 0; iteration < spec.maxIterations; iteration += 1) {
       applyToolResultBudget(spec, messages);
       const messagesForModel = snipHistory(spec, messages);
+      this.emitContextUsage(spec, messagesForModel, iteration, "before_request");
       const response = await this.provider.complete(messagesForModel.map(cloneMessage), this.requestOptions(spec));
       usage = mergeUsage(usage, response.usage);
+      this.emitActualUsage(spec, response.usage, iteration, "after_response");
 
       if (this.isCancelled()) {
         return cancelledResult(messages, toolsUsed, usage);
@@ -75,8 +78,7 @@ export class AgentRunner {
 
       if (response.toolCalls.length > 0) {
         const assistantMessage: AgentMessage = {
-          role: "assistant",
-          content: response.content,
+          ...assistantMessageFromResponse(response.content, response),
           toolCalls: response.toolCalls.map(cloneToolCall),
         };
         messages.push(assistantMessage);
@@ -159,9 +161,6 @@ export class AgentRunner {
               result = { ...result, content: `${result.content}${TOOL_ERROR_RECOVERY_HINT}` };
             }
           }
-          if (this.isCancelled()) {
-            return cancelledResult(messages, toolsUsed, usage);
-          }
           this.emitEvent({
             type: "tool_result",
             payload: {
@@ -198,13 +197,16 @@ export class AgentRunner {
           }
           const toolMessage: AgentMessage = {
             role: "tool",
-            content: applyTextBudget(result.content, spec.toolResultBudget),
+            content: normalizeToolResultContent(toolCall.name, result.content, spec.toolResultBudget),
             toolCallId: toolCall.id,
             name: toolCall.name,
             metadata: result.metadata,
           };
           messages.push(toolMessage);
           completedToolResults.push(toolMessage);
+          if (this.isCancelled()) {
+            return cancelledResult(messages, toolsUsed, usage);
+          }
         }
         this.checkpoint({
           phase: "tools_completed",
@@ -231,6 +233,7 @@ export class AgentRunner {
         continue;
       }
 
+      let finalResponse = response;
       let finalContent = response.content;
       if (response.stopReason === "error") {
         finalContent = isBlankText(finalContent) ? DEFAULT_MODEL_ERROR_MESSAGE : finalContent;
@@ -245,11 +248,15 @@ export class AgentRunner {
         };
       }
       if (isBlankText(finalContent)) {
-        const retryResponse = await this.provider.complete([
+        const retryMessages: AgentMessage[] = [
           ...messages.map(cloneMessage),
           { role: "user", content: FINALIZATION_RETRY_PROMPT },
-        ], this.finalizationRequestOptions(spec));
+        ];
+        this.emitContextUsage(spec, retryMessages, iteration, "before_finalization_retry");
+        const retryResponse = await this.provider.complete(retryMessages, this.finalizationRequestOptions(spec));
         usage = mergeUsage(usage, retryResponse.usage);
+        this.emitActualUsage(spec, retryResponse.usage, iteration, "after_finalization_retry");
+        finalResponse = retryResponse;
         finalContent = retryResponse.content;
       }
 
@@ -265,7 +272,7 @@ export class AgentRunner {
         };
       }
 
-      const finalMessage: AgentMessage = { role: "assistant", content: finalContent };
+      const finalMessage: AgentMessage = assistantMessageFromResponse(finalContent, finalResponse);
       messages.push(finalMessage);
       this.checkpoint({
         phase: "final_response",
@@ -300,6 +307,7 @@ export class AgentRunner {
     return {
       model: spec.model,
       tools: this.toolDefinitions(spec),
+      ...generationRequestOptions(spec),
       onContentDelta: (delta) => {
         if (!spec.stream) {
           return;
@@ -333,6 +341,7 @@ export class AgentRunner {
   private finalizationRequestOptions(spec: AgentRunSpec): ModelRequestOptions {
     return {
       model: spec.model,
+      ...generationRequestOptions(spec),
     };
   }
 
@@ -343,6 +352,63 @@ export class AgentRunner {
   private toolAllowed(spec: AgentRunSpec, name: string): boolean {
     return spec.tools === undefined || spec.tools.some((tool) => tool.name === name);
   }
+
+  private emitContextUsage(
+    spec: AgentRunSpec,
+    messages: AgentMessage[],
+    iteration: number,
+    phase: "before_request" | "before_finalization_retry",
+  ): void {
+    const tokens = estimateMessages(messages);
+    if (tokens <= 0) {
+      return;
+    }
+    const budget = contextInputBudget(spec);
+    this.emitEvent({
+      type: "usage",
+      payload: {
+        runId: spec.runId,
+        phase,
+        iteration,
+        tokens,
+        source: "heuristic",
+        ...(budget && budget > 0 ? { budget } : {}),
+        messageCount: messages.length,
+        estimated: true,
+      },
+    });
+  }
+
+  private emitActualUsage(
+    spec: AgentRunSpec,
+    usage: TokenUsage | undefined,
+    iteration: number,
+    phase: "after_response" | "after_finalization_retry",
+  ): void {
+    const tokens = usage?.inputTokens ?? 0;
+    if (tokens <= 0) {
+      return;
+    }
+    this.emitEvent({
+      type: "usage",
+      payload: {
+        runId: spec.runId,
+        phase,
+        iteration,
+        tokens,
+        source: "provider_usage",
+        estimated: false,
+      },
+    });
+  }
+}
+
+function generationRequestOptions(spec: AgentRunSpec): Pick<ModelRequestOptions, "temperature" | "maxTokens" | "reasoningEffort"> {
+  return {
+    ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}),
+    ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}),
+    ...(spec.reasoningEffort !== undefined ? { reasoningEffort: spec.reasoningEffort } : {}),
+  };
 }
 
 function cancelledResult(messages: AgentMessage[], toolsUsed: string[], usage: TokenUsage | undefined): AgentRunResult {
@@ -353,6 +419,20 @@ function cancelledResult(messages: AgentMessage[], toolsUsed: string[], usage: T
     usage,
     stopReason: "cancelled",
     error: "cancelled",
+  };
+}
+
+function assistantMessageFromResponse(
+  content: string,
+  response: { reasoningContent?: string; thinkingBlocks?: Array<Record<string, unknown>> },
+): AgentMessage {
+  return {
+    role: "assistant",
+    content,
+    ...(response.reasoningContent !== undefined || response.thinkingBlocks
+      ? { reasoningContent: response.reasoningContent ?? "" }
+      : {}),
+    ...(response.thinkingBlocks ? { thinkingBlocks: response.thinkingBlocks } : {}),
   };
 }
 
@@ -369,15 +449,21 @@ function isBlankText(content: string | undefined): boolean {
 }
 
 function applyToolResultBudget(spec: AgentRunSpec, messages: AgentMessage[]): void {
-  if (spec.toolResultBudget === undefined) {
-    return;
-  }
   for (const message of messages) {
     if (message.role !== "tool") {
       continue;
     }
-    message.content = applyTextBudget(message.content, spec.toolResultBudget);
+    message.content = normalizeToolResultContent(message.name ?? "tool", message.content, spec.toolResultBudget);
   }
+}
+
+function normalizeToolResultContent(toolName: string, content: string, budget?: number): string {
+  const nonemptyContent = content.trim().length === 0 ? emptyToolResultMessage(toolName) : content;
+  return applyTextBudget(nonemptyContent, budget);
+}
+
+function emptyToolResultMessage(toolName: string): string {
+  return `(${toolName} completed with no output)`;
 }
 
 function applyTextBudget(content: string, budget: number | undefined): string {
@@ -426,7 +512,7 @@ function normalizeAwaitingStopReason(value: unknown): "awaiting_user_input" | "a
 }
 
 function snipHistory(spec: AgentRunSpec, messages: AgentMessage[]): AgentMessage[] {
-  const budget = spec.contextWindow;
+  const budget = contextInputBudget(spec);
   if (!budget || budget <= 0 || estimateMessages(messages) <= budget) {
     return messages;
   }
@@ -462,6 +548,16 @@ function snipHistory(spec: AgentRunSpec, messages: AgentMessage[]): AgentMessage
 
   const normalizedKept = normalizeSnippedMessages(kept, candidates);
   return [...coreSystem, ...normalizedKept];
+}
+
+function contextInputBudget(spec: AgentRunSpec): number | undefined {
+  if (!spec.contextWindow || spec.contextWindow <= 0) {
+    return undefined;
+  }
+  if (!spec.maxTokens || spec.maxTokens <= 0) {
+    return spec.contextWindow;
+  }
+  return spec.contextWindow - spec.maxTokens;
 }
 
 function normalizeSnippedMessages(kept: AgentMessage[], candidates: AgentMessage[]): AgentMessage[] {
@@ -517,6 +613,8 @@ function estimateMessage(message: AgentMessage): number {
   const parts = [
     message.role,
     message.content,
+    message.reasoningContent,
+    message.thinkingBlocks ? JSON.stringify(message.thinkingBlocks) : "",
     message.toolCallId,
     message.name,
     message.toolCalls ? JSON.stringify(message.toolCalls) : "",
@@ -671,6 +769,7 @@ function mergeUsage(current: TokenUsage | undefined, next: TokenUsage | undefine
     inputTokens: sum(current?.inputTokens, next.inputTokens),
     outputTokens: sum(current?.outputTokens, next.outputTokens),
     totalTokens: sum(current?.totalTokens, next.totalTokens),
+    cachedTokens: sum(current?.cachedTokens, next.cachedTokens),
   };
 }
 

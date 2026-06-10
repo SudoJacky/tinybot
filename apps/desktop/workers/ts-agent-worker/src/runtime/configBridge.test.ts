@@ -82,6 +82,33 @@ describe("NativeConfigBridge", () => {
     expect(rpcClient.requests.map((request) => request.params.path)).not.toContain("providers.openai.api_key");
   });
 
+  test("uses native default model with env OpenAI key when provider is auto", async () => {
+    const rpcClient = new FakeRpcClient({
+      "agents.defaults.provider": "auto",
+      "agents.defaults.model": "gpt-5",
+      "providers.openai": {
+        api_base: "https://api.test/v1",
+        api_key: null,
+      },
+    });
+
+    const config = await modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), {
+      OPENAI_API_KEY: "env-key",
+    });
+
+    expect(config).toEqual({
+      kind: "openai",
+      apiKey: "env-key",
+      baseURL: "https://api.test/v1",
+      model: "gpt-5",
+    });
+    expect(rpcClient.requests.map((request) => request.params.path)).toEqual([
+      "agents.defaults.provider",
+      "agents.defaults.model",
+      "providers.openai",
+    ]);
+  });
+
   test("returns unconfigured provider config when OpenAI is selected without env api key", async () => {
     const rpcClient = new FakeRpcClient({
       "agents.defaults.provider": "openai",

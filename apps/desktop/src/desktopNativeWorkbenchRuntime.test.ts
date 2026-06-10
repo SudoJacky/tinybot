@@ -242,6 +242,9 @@ describe("desktop native workbench runtime", () => {
       model: "gpt-4.1",
       contextWindowTokens: 32768,
       maxToolIterations: 12,
+      temperature: 0.2,
+      maxTokens: 2048,
+      reasoningEffort: "medium",
     });
 
     runtime.submitComposerMessage("Use configured budgets", false);
@@ -252,6 +255,9 @@ describe("desktop native workbench runtime", () => {
         model: "gpt-4.1",
         contextWindow: 32768,
         maxIterations: 12,
+        temperature: 0.2,
+        maxTokens: 2048,
+        reasoningEffort: "medium",
       },
     ]);
   });

@@ -26,7 +26,7 @@ export class NativeSessionBridge implements SessionBridge {
   async appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void> {
     await this.rpcClient.request(traceId, "session.append_messages", {
       session_id: sessionId,
-      messages: messages.map(nativeSessionMessage),
+      messages: messages.filter(persistableSessionMessage).map(nativeSessionMessage),
     });
   }
 
@@ -42,17 +42,24 @@ export class NativeSessionBridge implements SessionBridge {
 }
 
 function nativeSessionCheckpoint(checkpoint: Record<string, unknown>): JsonObject {
+  const messages = Array.isArray(checkpoint.messages)
+    ? checkpoint.messages.map(nativeSessionCheckpointMessage)
+    : undefined;
+  const assistantMessage = isAgentMessageLike(checkpoint.assistantMessage)
+    ? nativeSessionCheckpointMessage(checkpoint.assistantMessage)
+    : undefined;
+  const completedToolResults = Array.isArray(checkpoint.completedToolResults)
+    ? checkpoint.completedToolResults.map(nativeSessionCheckpointMessage)
+    : undefined;
+  const pendingToolCalls = Array.isArray(checkpoint.pendingToolCalls)
+    ? checkpoint.pendingToolCalls.map(nativeSessionToolCall)
+    : undefined;
   return {
     ...checkpoint,
-    ...(Array.isArray(checkpoint.messages)
-      ? { messages: checkpoint.messages.map(nativeSessionCheckpointMessage) }
-      : {}),
-    ...(isAgentMessageLike(checkpoint.assistantMessage)
-      ? { assistantMessage: nativeSessionCheckpointMessage(checkpoint.assistantMessage) }
-      : {}),
-    ...(Array.isArray(checkpoint.completedToolResults)
-      ? { completedToolResults: checkpoint.completedToolResults.map(nativeSessionCheckpointMessage) }
-      : {}),
+    ...(messages ? { messages } : {}),
+    ...(assistantMessage ? { assistantMessage, assistant_message: assistantMessage } : {}),
+    ...(completedToolResults ? { completedToolResults, completed_tool_results: completedToolResults } : {}),
+    ...(pendingToolCalls ? { pendingToolCalls, pending_tool_calls: pendingToolCalls } : {}),
   } as JsonObject;
 }
 
@@ -64,6 +71,16 @@ function nativeSessionCheckpointMessage(value: unknown): unknown {
     return value;
   }
   return nativeSessionMessage(value);
+}
+
+function persistableSessionMessage(message: AgentMessage): boolean {
+  if (message.role === "system") {
+    return false;
+  }
+  if (message.role === "assistant" && message.content.trim().length === 0 && !message.toolCalls?.length) {
+    return false;
+  }
+  return true;
 }
 
 function nativeSessionMessage(message: AgentMessage): JsonObject {
@@ -84,7 +101,40 @@ function nativeSessionMessage(message: AgentMessage): JsonObject {
       : {}),
     ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
     ...(message.name ? { name: message.name } : {}),
+    ...(message.role === "assistant" && message.reasoningContent !== undefined
+      ? { reasoning_content: message.reasoningContent }
+      : {}),
+    ...(message.role === "assistant" && message.thinkingBlocks
+      ? { thinking_blocks: message.thinkingBlocks }
+      : {}),
     ...(message.metadata ? { metadata: message.metadata as JsonObject } : {}),
+  };
+}
+
+function nativeSessionToolCall(value: unknown): unknown {
+  if (!isJsonObject(value)) {
+    return value;
+  }
+  if (isJsonObject(value.function)) {
+    return value;
+  }
+  const id = typeof value.id === "string" ? value.id : undefined;
+  const name = typeof value.name === "string" ? value.name : undefined;
+  const argumentsJson = typeof value.argumentsJson === "string"
+    ? value.argumentsJson
+    : typeof value.arguments_json === "string"
+      ? value.arguments_json
+      : undefined;
+  if (!id || !name || argumentsJson === undefined) {
+    return value;
+  }
+  return {
+    id,
+    type: "function",
+    function: {
+      name,
+      arguments: argumentsJson,
+    },
   };
 }
 

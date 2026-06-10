@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 
 import { AgentRunner } from "./agentRunner";
+import type { AgentRunnerCheckpoint } from "./agentRunner";
 import type { AgentMessage, AgentRunSpec } from "./agentRunSpec";
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import { ToolRegistry } from "../tools/toolRegistry";
@@ -101,6 +102,155 @@ describe("AgentRunner", () => {
     expect(provider.requests).toHaveLength(1);
   });
 
+  test("preserves reasoning content on final assistant messages", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "done",
+        reasoningContent: "thought summary",
+        toolCalls: [],
+        stopReason: "stop",
+      } as ModelResponse,
+    ]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+
+    const result = await runner.run(spec());
+
+    expect(result.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "done",
+      reasoningContent: "thought summary",
+    });
+  });
+
+  test("preserves thinking blocks on final assistant messages", async () => {
+    const thinkingBlocks = [{ type: "thinking", text: "internal trace" }];
+    const provider = new QueueProvider([
+      {
+        content: "done",
+        thinkingBlocks,
+        toolCalls: [],
+        stopReason: "stop",
+      } as ModelResponse,
+    ]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+
+    const result = await runner.run(spec());
+
+    expect(result.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "done",
+      reasoningContent: "",
+      thinkingBlocks,
+    });
+  });
+
+  test("preserves reasoning content on assistant tool-call messages and checkpoints", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        reasoningContent: "need tool",
+        toolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":\"from tool\"}" }],
+        stopReason: "tool_calls",
+      },
+      {
+        content: "tool complete",
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "echo",
+      description: "Echo text",
+      parameters: { type: "object" },
+      execute: async (args) => ({ content: `echo:${String(args.text)}` }),
+    });
+    const checkpoints: AgentRunnerCheckpoint[] = [];
+    const runner = new AgentRunner({
+      provider,
+      tools,
+      checkpoint: (checkpoint) => checkpoints.push(checkpoint),
+    });
+
+    const result = await runner.run(spec());
+
+    expect(result.messages.find((message) => message.role === "assistant" && message.toolCalls)).toMatchObject({
+      role: "assistant",
+      content: "",
+      reasoningContent: "need tool",
+      toolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":\"from tool\"}" }],
+    });
+    expect(checkpoints[0]?.assistantMessage).toMatchObject({
+      role: "assistant",
+      content: "",
+      reasoningContent: "need tool",
+    });
+  });
+
+  test("emits estimated and provider usage events around model requests", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "done",
+        toolCalls: [],
+        usage: { inputTokens: 7, outputTokens: 2, totalTokens: 9 },
+        stopReason: "stop",
+      },
+    ]);
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runner = new AgentRunner({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    await runner.run(spec({ contextWindow: 200 }));
+
+    expect(events).toContainEqual({
+      type: "usage",
+      payload: expect.objectContaining({
+        runId: "run-1",
+        phase: "before_request",
+        iteration: 0,
+        tokens: expect.any(Number),
+        source: "heuristic",
+        budget: 200,
+        messageCount: 1,
+        estimated: true,
+      }),
+    });
+    expect(events).toContainEqual({
+      type: "usage",
+      payload: {
+        runId: "run-1",
+        phase: "after_response",
+        iteration: 0,
+        tokens: 7,
+        source: "provider_usage",
+        estimated: false,
+      },
+    });
+  });
+
+  test("reports the input context budget after reserving requested output tokens", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runner = new AgentRunner({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    await runner.run(spec({ contextWindow: 200, maxTokens: 48 }));
+
+    expect(events).toContainEqual({
+      type: "usage",
+      payload: expect.objectContaining({
+        phase: "before_request",
+        budget: 152,
+      }),
+    });
+  });
+
   test("passes the run model to each provider request", async () => {
     const provider = new QueueProvider([
       { content: "   ", toolCalls: [], stopReason: "stop" },
@@ -111,6 +261,29 @@ describe("AgentRunner", () => {
     await runner.run(spec({ model: "gpt-run-model" }));
 
     expect(provider.options.map((option) => option?.model)).toEqual(["gpt-run-model", "gpt-run-model"]);
+  });
+
+  test("passes generation settings to each provider request", async () => {
+    const provider = new QueueProvider([
+      { content: "   ", toolCalls: [], stopReason: "stop" },
+      { content: "retry answer", toolCalls: [], stopReason: "stop" },
+    ]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+
+    await runner.run(spec({
+      temperature: 0.2,
+      maxTokens: 2048,
+      reasoningEffort: "medium",
+    }));
+
+    expect(provider.options.map((option) => ({
+      temperature: option?.temperature,
+      maxTokens: option?.maxTokens,
+      reasoningEffort: option?.reasoningEffort,
+    }))).toEqual([
+      { temperature: 0.2, maxTokens: 2048, reasoningEffort: "medium" },
+      { temperature: 0.2, maxTokens: 2048, reasoningEffort: "medium" },
+    ]);
   });
 
   test("limits provider tool definitions to the run spec tools", async () => {
@@ -484,6 +657,42 @@ describe("AgentRunner", () => {
     });
   });
 
+  test("replaces empty live tool results with a prompt-safe marker", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{}" }],
+        stopReason: "tool_calls",
+      },
+      { content: "done", toolCalls: [], stopReason: "stop" },
+    ]);
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "echo",
+      description: "Echo text",
+      parameters: { type: "object" },
+      execute: async () => ({ content: "   " }),
+    });
+    const runner = new AgentRunner({ provider, tools });
+
+    const result = await runner.run(spec());
+
+    const marker = "(echo completed with no output)";
+    expect(provider.requests[1]).toContainEqual({
+      role: "tool",
+      content: marker,
+      toolCallId: "call-1",
+      name: "echo",
+    });
+    expect(result.messages).toContainEqual({
+      role: "tool",
+      content: marker,
+      toolCallId: "call-1",
+      name: "echo",
+      metadata: undefined,
+    });
+  });
+
   test("applies tool result budget to restored tool messages before the first provider request", async () => {
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
     const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
@@ -507,6 +716,28 @@ describe("AgentRunner", () => {
     });
   });
 
+  test("replaces empty restored tool messages before the first provider request", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+
+    await runner.run(
+      spec({
+        messages: [
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "", toolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{}" }] },
+          { role: "tool", content: "   ", toolCallId: "call-1", name: "echo" },
+        ],
+      }),
+    );
+
+    expect(provider.requests[0]).toContainEqual({
+      role: "tool",
+      content: "(echo completed with no output)",
+      toolCallId: "call-1",
+      name: "echo",
+    });
+  });
+
   test("snips over-budget history while preserving the core system message and latest user turn", async () => {
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
     const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
@@ -521,6 +752,31 @@ describe("AgentRunner", () => {
           { role: "user", content: "old user ".repeat(30) },
           { role: "assistant", content: "old assistant ".repeat(30) },
           { role: "system", content: "dynamic retrieval block ".repeat(20) },
+          recentUser,
+        ],
+      }),
+    );
+
+    expect(provider.requests[0]).toEqual([
+      { ...coreSystem, toolCalls: undefined },
+      { ...recentUser, toolCalls: undefined },
+    ]);
+  });
+
+  test("reserves requested output tokens when snipping history", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+    const coreSystem = { role: "system" as const, content: "core contract" };
+    const recentUser = { role: "user" as const, content: "recent question" };
+
+    await runner.run(
+      spec({
+        contextWindow: 180,
+        maxTokens: 96,
+        messages: [
+          coreSystem,
+          { role: "user", content: "old user ".repeat(4) },
+          { role: "assistant", content: "old answer ".repeat(4) },
           recentUser,
         ],
       }),
@@ -559,6 +815,25 @@ describe("AgentRunner", () => {
     ]);
   });
 
+  test("counts reasoning content when snipping history", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+    const recentUser = { role: "user" as const, content: "continue from here" };
+
+    await runner.run(
+      spec({
+        contextWindow: 120,
+        messages: [
+          { role: "user", content: "old question" },
+          { role: "assistant", content: "old answer", reasoningContent: "x".repeat(400) },
+          recentUser,
+        ],
+      }),
+    );
+
+    expect(provider.requests[0]).toEqual([{ ...recentUser, toolCalls: undefined }]);
+  });
+
   test("emits tool lifecycle events and checkpoints", async () => {
     const provider = new QueueProvider([
       {
@@ -590,7 +865,7 @@ describe("AgentRunner", () => {
 
     await runner.run(spec());
 
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type === "tool_start" || event.type === "tool_result")).toEqual([
       {
         type: "tool_start",
         payload: { runId: "run-1", toolCallId: "call-1", toolName: "echo" },
@@ -724,7 +999,11 @@ describe("AgentRunner", () => {
 
     await runner.run(spec({ stream: true }));
 
-    expect(events).toEqual([
+    expect(events.filter((event) => (
+      event.type === "content_delta"
+      || event.type === "reasoning_delta"
+      || event.type === "tool_call_delta"
+    ))).toEqual([
       {
         type: "content_delta",
         payload: { runId: "run-1", delta: "stream content" },
@@ -803,6 +1082,123 @@ describe("AgentRunner", () => {
     });
   });
 
+  test("preserves retry response reasoning on finalization", async () => {
+    const thinkingBlocks = [{ type: "thinking", text: "retry reasoning trace" }];
+    const provider = new QueueProvider([
+      { content: "   ", reasoningContent: "stale empty reasoning", toolCalls: [], stopReason: "stop" },
+      {
+        content: "retry answer",
+        reasoningContent: "retry reasoning",
+        thinkingBlocks,
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+
+    const result = await runner.run(spec());
+
+    expect(result.finalContent).toBe("retry answer");
+    expect(result.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: "retry answer",
+      reasoningContent: "retry reasoning",
+      thinkingBlocks,
+    });
+  });
+
+  test("merges cached token usage across finalization retries", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "   ",
+        toolCalls: [],
+        usage: { inputTokens: 10, outputTokens: 1, totalTokens: 11, cachedTokens: 6 },
+        stopReason: "stop",
+      },
+      {
+        content: "retry answer",
+        toolCalls: [],
+        usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12, cachedTokens: 3 },
+        stopReason: "stop",
+      },
+    ]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+
+    const result = await runner.run(spec());
+
+    expect(result.usage).toEqual({
+      inputTokens: 18,
+      outputTokens: 5,
+      totalTokens: 23,
+      cachedTokens: 9,
+    });
+  });
+
+  test("emits usage events around finalization retries", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "   ",
+        toolCalls: [],
+        usage: { inputTokens: 10, outputTokens: 1, totalTokens: 11 },
+        stopReason: "stop",
+      },
+      {
+        content: "retry answer",
+        toolCalls: [],
+        usage: { inputTokens: 8, outputTokens: 4, totalTokens: 12 },
+        stopReason: "stop",
+      },
+    ]);
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runner = new AgentRunner({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    await runner.run(spec({ contextWindow: 200 }));
+
+    const usageEvents = events.filter((event) => event.type === "usage");
+    expect(usageEvents).toMatchObject([
+      {
+        payload: {
+          phase: "before_request",
+          iteration: 0,
+          source: "heuristic",
+          messageCount: 1,
+          estimated: true,
+        },
+      },
+      {
+        payload: {
+          phase: "after_response",
+          iteration: 0,
+          tokens: 10,
+          source: "provider_usage",
+          estimated: false,
+        },
+      },
+      {
+        payload: {
+          phase: "before_finalization_retry",
+          iteration: 0,
+          source: "heuristic",
+          messageCount: 2,
+          estimated: true,
+        },
+      },
+      {
+        payload: {
+          phase: "after_finalization_retry",
+          iteration: 0,
+          tokens: 8,
+          source: "provider_usage",
+          estimated: false,
+        },
+      },
+    ]);
+  });
+
   test("returns the empty final response message when the retry is still empty", async () => {
     const provider = new QueueProvider([
       { content: "", toolCalls: [], stopReason: "stop" },
@@ -862,5 +1258,42 @@ describe("AgentRunner", () => {
     expect(result.finalContent).toBe("");
     expect(result.error).toBe("cancelled");
     expect(result.messages).toEqual([{ role: "user", content: "hello" }]);
+  });
+
+  test("preserves a completed tool result when cancellation is observed after execution", async () => {
+    let cancelled = false;
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":\"done\"}" }],
+        stopReason: "tool_calls",
+      },
+    ]);
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "echo",
+      description: "Echo text",
+      parameters: { type: "object" },
+      execute: async (args) => {
+        cancelled = true;
+        return { content: `echo:${String(args.text)}` };
+      },
+    });
+    const runner = new AgentRunner({
+      provider,
+      tools,
+      isCancelled: () => cancelled,
+    });
+
+    const result = await runner.run(spec());
+
+    expect(result.stopReason).toBe("cancelled");
+    expect(result.messages).toContainEqual({
+      role: "tool",
+      content: "echo:done",
+      toolCallId: "call-1",
+      name: "echo",
+      metadata: undefined,
+    });
   });
 });

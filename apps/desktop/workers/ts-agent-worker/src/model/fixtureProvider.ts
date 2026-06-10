@@ -28,6 +28,18 @@ export class FixtureProvider implements ModelProvider {
         deltaText: toolCall.argumentsJson,
         toolCallId: toolCall.id,
         toolName: toolCall.name,
+        phase: "arguments",
+        status: "streaming",
+        completed: false,
+      });
+      options.onToolCallDelta?.({
+        index,
+        deltaText: "",
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        phase: "terminal",
+        status: "completed",
+        completed: true,
       });
     });
     return {

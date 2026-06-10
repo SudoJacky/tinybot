@@ -57,16 +57,20 @@ describe("createAgentWorkerServer", () => {
     );
 
     const messages = lines.map((line) => JSON.parse(line));
-    expect(messages).toEqual([
+    expect(messages).toContainEqual(
       expect.objectContaining({
         event: "agent.checkpoint",
         payload: expect.objectContaining({ phase: "final_response", runId: "run-1" }),
       }),
+    );
+    expect(messages).toContainEqual(
       expect.objectContaining({ event: "agent.done" }),
+    );
+    expect(messages).toContainEqual(
       expect.objectContaining({
         result: expect.objectContaining({ finalContent: "factory done" }),
       }),
-    ]);
+    );
   });
 
   test("writes usage protocol events before the final agent response", async () => {
@@ -104,26 +108,66 @@ describe("createAgentWorkerServer", () => {
     );
 
     const messages = lines.map((line) => JSON.parse(line));
-    expect(messages).toEqual([
+    expect(messages).toContainEqual(
       expect.objectContaining({
         event: "agent.checkpoint",
         payload: expect.objectContaining({ phase: "final_response", runId: "run-1" }),
       }),
+    );
+    expect(messages).toContainEqual(
       expect.objectContaining({
         event: "agent.usage",
         payload: expect.objectContaining({
           runId: "run-1",
-          usage: { inputTokens: 11, outputTokens: 13, totalTokens: 24 },
+          phase: "before_request",
+          source: "heuristic",
+          estimated: true,
         }),
       }),
+    );
+    expect(messages).toContainEqual(
+      expect.objectContaining({
+        event: "agent.usage",
+        payload: expect.objectContaining({
+          runId: "run-1",
+          phase: "after_response",
+          source: "provider_usage",
+          tokens: 11,
+          estimated: false,
+        }),
+      }),
+    );
+    expect(messages).toContainEqual(
+      expect.objectContaining({
+        event: "agent.usage",
+        payload: expect.objectContaining({
+          runId: "run-1",
+          usage: expect.objectContaining({
+            inputTokens: 11,
+            outputTokens: 13,
+            totalTokens: 24,
+            prompt_tokens: 11,
+            completion_tokens: 13,
+            total_tokens: 24,
+          }),
+        }),
+      }),
+    );
+    expect(messages).toContainEqual(
       expect.objectContaining({ event: "agent.done" }),
+    );
+    expect(messages).toContainEqual(
       expect.objectContaining({
         result: expect.objectContaining({
           finalContent: "usage done",
           usage: { inputTokens: 11, outputTokens: 13, totalTokens: 24 },
         }),
       }),
-    ]);
+    );
+    const finalUsageIndex = messages.findIndex((message) => message.event === "agent.usage" && message.payload?.usage);
+    const responseIndex = messages.findIndex((message) => message.id === "req-1");
+    expect(finalUsageIndex).toBeGreaterThanOrEqual(0);
+    expect(responseIndex).toBeGreaterThan(finalUsageIndex);
   });
 
   test("registers native read-only tools that can call back into Rust over stdio", async () => {
@@ -892,7 +936,60 @@ describe("createAgentWorkerServer", () => {
           phase: "awaiting_tools",
           iteration: 1,
           model: "test-model",
+          assistantMessage: {
+            role: "assistant",
+            content: "",
+            toolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{}" }],
+          },
+          pendingToolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{}" }],
         },
+      }),
+    );
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.append_messages"));
+    const appendRequest = parsedLines(lines).find((message) => message.method === "session.append_messages");
+    expect(appendRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-restore",
+      method: "session.append_messages",
+      params: {
+        session_id: "session-1",
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [{ id: "call-1", type: "function", function: { name: "echo", arguments: "{}" } }],
+          },
+          {
+            role: "tool",
+            content: "Error: Task interrupted before this tool finished.",
+            tool_call_id: "call-1",
+            name: "echo",
+          },
+        ],
+      },
+    });
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: appendRequest.id,
+        trace_id: "trace-restore",
+        result: { ok: true },
+      }),
+    );
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.clear_checkpoint"));
+    const clearRequest = parsedLines(lines).find((message) => message.method === "session.clear_checkpoint");
+    expect(clearRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-restore",
+      method: "session.clear_checkpoint",
+      params: { session_id: "session-1" },
+    });
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: clearRequest.id,
+        trace_id: "trace-restore",
+        result: { ok: true },
       }),
     );
     await restore;
@@ -909,6 +1006,8 @@ describe("createAgentWorkerServer", () => {
           iteration: 1,
           model: "test-model",
         },
+        restored: true,
+        restoredMessageCount: 2,
       },
     });
   });

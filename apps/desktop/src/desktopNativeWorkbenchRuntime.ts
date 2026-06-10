@@ -61,6 +61,9 @@ export type DesktopTsAgentRunSpec = {
   tools?: DesktopTsAgentToolDefinition[];
   model: string;
   maxIterations: number;
+  temperature?: number;
+  maxTokens?: number;
+  reasoningEffort?: string;
   contextWindow?: number;
   toolResultBudget?: number;
   stream: boolean;
@@ -290,11 +293,14 @@ export function createDesktopNativeWorkbenchRuntime({
     const spec = buildDesktopTsAgentRunSpec({
       chatId: state.activeChatId,
       contextWindow: runtimeMetadata.contextWindowTokens,
+      maxTokens: runtimeMetadata.maxTokens,
       maxToolIterations: runtimeMetadata.maxToolIterations,
       messages: state.messages.get(state.activeSessionKey) ?? [],
       model: runtimeMetadata?.model,
       now: now ?? (() => new Date().toISOString()),
+      reasoningEffort: runtimeMetadata.reasoningEffort,
       sessionId: state.activeSessionKey,
+      temperature: runtimeMetadata.temperature,
       toolResultBudget: runtimeMetadata.toolResultBudget,
       usePersistentRag: nextUsePersistentRag,
     });
@@ -1008,26 +1014,35 @@ function arrayRecords(value: unknown): Record<string, unknown>[] {
 function buildDesktopTsAgentRunSpec({
   chatId,
   contextWindow,
+  maxTokens,
   maxToolIterations,
   messages,
   model,
   now,
+  reasoningEffort,
   sessionId,
+  temperature,
   toolResultBudget,
   usePersistentRag,
 }: {
   chatId: string;
   contextWindow?: unknown;
+  maxTokens?: unknown;
   maxToolIterations?: unknown;
   messages: NativeChatMessage[];
   model: unknown;
   now: () => string;
+  reasoningEffort?: unknown;
   sessionId: string;
+  temperature?: unknown;
   toolResultBudget?: unknown;
   usePersistentRag: boolean;
 }): DesktopTsAgentRunSpec {
   const runId = `desktop-ts-agent-${stableRunIdPart(now())}`;
   const contextWindowValue = positiveIntegerValue(contextWindow);
+  const maxTokensValue = positiveIntegerValue(maxTokens);
+  const temperatureValue = numberValue(temperature);
+  const reasoningEffortValue = stringValue(reasoningEffort).trim();
   const toolResultBudgetValue = positiveIntegerValue(toolResultBudget);
   return {
     runId,
@@ -1035,6 +1050,9 @@ function buildDesktopTsAgentRunSpec({
     messages: messages.flatMap(desktopMessageToTsAgentMessages).filter(tsAgentMessageHasPayload),
     model: typeof model === "string" && model.trim() ? model : "default",
     maxIterations: positiveIntegerValue(maxToolIterations) ?? 8,
+    ...(temperatureValue !== null ? { temperature: temperatureValue } : {}),
+    ...(maxTokensValue !== null ? { maxTokens: maxTokensValue } : {}),
+    ...(reasoningEffortValue ? { reasoningEffort: reasoningEffortValue } : {}),
     ...(contextWindowValue !== null ? { contextWindow: contextWindowValue } : {}),
     ...(toolResultBudgetValue !== null ? { toolResultBudget: toolResultBudgetValue } : {}),
     stream: true,

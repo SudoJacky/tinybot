@@ -146,10 +146,11 @@ describe("AgentWorker", () => {
     const events: WorkerEvent[] = [];
     const clearedSessions: string[] = [];
     const appendedSessions: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
+    const provider = new QueueProvider([
+      { content: "done", toolCalls: [], stopReason: "stop", usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } },
+    ]);
     const worker = new AgentWorker({
-      provider: new QueueProvider([
-        { content: "done", toolCalls: [], stopReason: "stop", usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } },
-      ]),
+      provider,
       tools: new ToolRegistry(),
       emitEvent: (event) => events.push(event),
       sessionBridge: {
@@ -175,6 +176,9 @@ describe("AgentWorker", () => {
           stream: false,
           context_window: 100,
           tool_result_budget: 12,
+          temperature: 0.2,
+          max_tokens: 2048,
+          reasoning_effort: "medium",
           fail_on_tool_error: true,
         },
       }),
@@ -209,6 +213,74 @@ describe("AgentWorker", () => {
     }));
     expect(clearedSessions).toEqual(["session-snake-1"]);
     expect(appendedSessions[0]?.sessionId).toBe("session-snake-1");
+    expect(provider.options[0]).toMatchObject({
+      temperature: 0.2,
+      maxTokens: 2048,
+      reasoningEffort: "medium",
+    });
+  });
+
+  test("accepts snake_case reasoning content on agent.run messages", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [
+            { role: "user", content: "hello" },
+            { role: "assistant", content: "previous", reasoning_content: "prior reasoning" },
+            { role: "user", content: "continue" },
+          ],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(provider.messages[0]?.[1]).toMatchObject({
+      role: "assistant",
+      content: "previous",
+      reasoningContent: "prior reasoning",
+    });
+  });
+
+  test("accepts snake_case thinking blocks on agent.run messages", async () => {
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+    const thinkingBlocks = [{ type: "thinking", text: "prior trace" }];
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [
+            { role: "user", content: "hello" },
+            { role: "assistant", content: "previous", thinking_blocks: thinkingBlocks },
+            { role: "user", content: "continue" },
+          ],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(provider.messages[0]?.[1]).toMatchObject({
+      role: "assistant",
+      content: "previous",
+      thinkingBlocks,
+    });
   });
 
   test("parses run spec tool definitions for the provider request", async () => {
@@ -318,7 +390,7 @@ describe("AgentWorker", () => {
           content: "done",
           toolCalls: [],
           stopReason: "stop",
-          usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
+          usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12, cachedTokens: 3 },
         },
       ]),
       tools: new ToolRegistry(),
@@ -339,7 +411,7 @@ describe("AgentWorker", () => {
 
     expect(response).toMatchObject({
       result: {
-        usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
+        usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12, cachedTokens: 3 },
       },
     });
     expect(events).toContainEqual(expect.objectContaining({
@@ -348,7 +420,77 @@ describe("AgentWorker", () => {
       event: "agent.usage",
       payload: expect.objectContaining({
         runId: "run-1",
-        usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
+        usage: {
+          inputTokens: 7,
+          outputTokens: 5,
+          totalTokens: 12,
+          cachedTokens: 3,
+          prompt_tokens: 7,
+          completion_tokens: 5,
+          total_tokens: 12,
+          cached_tokens: 3,
+        },
+      }),
+    }));
+  });
+
+  test("emits runner context usage protocol events with native aliases", async () => {
+    const events: WorkerEvent[] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([
+        {
+          content: "done",
+          toolCalls: [],
+          stopReason: "stop",
+          usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
+        },
+      ]),
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          contextWindow: 100,
+        },
+      }),
+    );
+
+    expect(events).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.usage",
+      payload: expect.objectContaining({
+        runId: "run-1",
+        run_id: "run-1",
+        phase: "before_request",
+        iteration: 0,
+        source: "heuristic",
+        tokens: expect.any(Number),
+        budget: 100,
+        messageCount: 1,
+        message_count: 1,
+        estimated: true,
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.usage",
+      payload: expect.objectContaining({
+        runId: "run-1",
+        run_id: "run-1",
+        phase: "after_response",
+        iteration: 0,
+        source: "provider_usage",
+        tokens: 7,
+        estimated: false,
       }),
     }));
   });
@@ -387,7 +529,14 @@ describe("AgentWorker", () => {
       event: "agent.usage",
       payload: expect.objectContaining({
         runId: "run-1",
-        usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
+        usage: expect.objectContaining({
+          inputTokens: 7,
+          outputTokens: 5,
+          totalTokens: 12,
+          prompt_tokens: 7,
+          completion_tokens: 5,
+          total_tokens: 12,
+        }),
         contextWindowTokens: 100,
         context_window_tokens: 100,
       }),
@@ -463,7 +612,8 @@ describe("AgentWorker", () => {
       }),
     );
 
-    expect(events.map((event) => event.event)).toEqual([
+    const lifecycleEvents = events.filter((event) => event.event !== "agent.usage");
+    expect(lifecycleEvents.map((event) => event.event)).toEqual([
       "agent.checkpoint",
       "agent.tool.start",
       "agent.tool.result",
@@ -471,22 +621,45 @@ describe("AgentWorker", () => {
       "agent.checkpoint",
       "agent.done",
     ]);
-    expect(events[1]).toMatchObject({
+    expect(lifecycleEvents[1]).toMatchObject({
       event: "agent.tool.start",
       payload: { runId: "run-1", toolCallId: "call-1", toolName: "echo" },
     });
-    expect(events[2]).toMatchObject({
+    expect(lifecycleEvents[2]).toMatchObject({
       event: "agent.tool.result",
       payload: { runId: "run-1", toolCallId: "call-1", toolName: "echo", content: "echo:from tool" },
     });
-    expect(events[0]).toMatchObject({
+    expect(lifecycleEvents[0]).toMatchObject({
       event: "agent.checkpoint",
       payload: {
         runId: "run-1",
         run_id: "run-1",
         phase: "awaiting_tools",
+        assistant_message: {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call-1",
+              type: "function",
+              function: {
+                name: "echo",
+                arguments: "{\"text\":\"from tool\"}",
+              },
+            },
+          ],
+        },
         pendingToolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":\"from tool\"}" }],
-        pending_tool_calls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":\"from tool\"}" }],
+        pending_tool_calls: [
+          {
+            id: "call-1",
+            type: "function",
+            function: {
+              name: "echo",
+              arguments: "{\"text\":\"from tool\"}",
+            },
+          },
+        ],
         completedToolResults: [],
         completed_tool_results: [],
       },
@@ -561,7 +734,14 @@ describe("AgentWorker", () => {
       payload: expect.objectContaining({
         runId: "run-1",
         run_id: "run-1",
-        usage: { inputTokens: 6, outputTokens: 9, totalTokens: 15 },
+        usage: expect.objectContaining({
+          inputTokens: 6,
+          outputTokens: 9,
+          totalTokens: 15,
+          prompt_tokens: 6,
+          completion_tokens: 9,
+          total_tokens: 15,
+        }),
       }),
     }));
     expect(events).toContainEqual(expect.objectContaining({
@@ -870,7 +1050,12 @@ describe("AgentWorker", () => {
       }),
     );
 
-    expect(events.slice(0, 3)).toMatchObject([
+    const streamEvents = events.filter((event) => (
+      event.event === "agent.delta"
+      || event.event === "agent.reasoning_delta"
+      || event.event === "agent.tool_call.delta"
+    ));
+    expect(streamEvents).toMatchObject([
       {
         protocol_version: "1",
         trace_id: "trace-1",
@@ -1014,6 +1199,9 @@ describe("AgentWorker", () => {
       trace_id: "trace-restore",
       result: {
         sessionId: "session-1",
+        session_id: "session-1",
+        restoredMessageCount: 1,
+        restored_message_count: 1,
         checkpoint: {
           runId: "run-1",
           phase: "awaiting_tools",
@@ -1023,6 +1211,69 @@ describe("AgentWorker", () => {
         },
       },
     });
+  });
+
+  test("materializes restored checkpoint messages and clears the checkpoint", async () => {
+    const appended: Array<{ sessionId: string; messages: AgentMessage[]; traceId: string }> = [];
+    const cleared: Array<{ sessionId: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId, traceId) => {
+          cleared.push({ sessionId, traceId });
+        },
+        appendMessages: async (sessionId, messages, traceId) => {
+          appended.push({ sessionId, messages, traceId });
+        },
+        getCheckpoint: async () => ({
+          runId: "run-1",
+          phase: "awaiting_tools",
+          iteration: 1,
+          model: "test-model",
+          assistantMessage: {
+            role: "assistant",
+            content: "",
+            toolCalls: [
+              { id: "call-pending", name: "echo", argumentsJson: "{\"text\":\"pending\"}" },
+            ],
+          },
+          completedToolResults: [
+            { role: "tool", content: "finished", toolCallId: "call-done", name: "done_tool" },
+          ],
+          pendingToolCalls: [
+            { id: "call-pending", name: "echo", argumentsJson: "{\"text\":\"pending\"}" },
+          ],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(restoreCheckpointRequest("session-1"));
+
+    expect(response.result).toMatchObject({ restored: true });
+    expect(appended).toEqual([
+      {
+        sessionId: "session-1",
+        traceId: "trace-restore",
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [{ id: "call-pending", name: "echo", argumentsJson: "{\"text\":\"pending\"}" }],
+          },
+          { role: "tool", content: "finished", toolCallId: "call-done", name: "done_tool" },
+          {
+            role: "tool",
+            content: "Error: Task interrupted before this tool finished.",
+            toolCallId: "call-pending",
+            name: "echo",
+          },
+        ],
+      },
+    ]);
+    expect(cleared).toEqual([{ sessionId: "session-1", traceId: "trace-restore" }]);
   });
 
   test("accepts snake_case session_id for agent.restore_checkpoint", async () => {

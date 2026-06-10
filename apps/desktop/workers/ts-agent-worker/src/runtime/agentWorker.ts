@@ -193,11 +193,22 @@ export class AgentWorker {
         );
       }
       const checkpoint = await this.sessionBridge.getCheckpoint(sessionId, request.trace_id);
+      let restored = false;
+      let restoredMessageCount = 0;
+      if (checkpoint) {
+        const restoredMessages = materializeCheckpointMessages(checkpoint);
+        restoredMessageCount = restoredMessages.length;
+        if (restoredMessages.length > 0) {
+          await this.sessionBridge.appendMessages(sessionId, restoredMessages, request.trace_id);
+        }
+        await this.sessionBridge.clearCheckpoint(sessionId, request.trace_id);
+        restored = true;
+      }
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
         id: request.id,
         trace_id: request.trace_id,
-        result: { sessionId, checkpoint },
+        result: withNativePayloadAliases({ sessionId, checkpoint, restored, restoredMessageCount }),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
@@ -297,6 +308,9 @@ export class AgentWorker {
       model: checkpoint.model,
       maxIterations: spec.maxIterations,
       stream: spec.stream,
+      temperature: spec.temperature,
+      maxTokens: spec.maxTokens,
+      reasoningEffort: spec.reasoningEffort,
       contextWindow: spec.contextWindow,
       toolResultBudget: spec.toolResultBudget,
       failOnToolError: spec.failOnToolError,
@@ -372,7 +386,7 @@ export class AgentWorker {
       event: "agent.usage",
       payload: withNativePayloadAliases({
         runId: spec.runId,
-        usage: result.usage,
+        usage: withNativeUsageAliases(result.usage),
         ...(spec.contextWindow
           ? { contextWindowTokens: spec.contextWindow, context_window_tokens: spec.contextWindow }
           : {}),
@@ -405,6 +419,9 @@ export class AgentWorker {
   }
 
   private emitCheckpoint(traceId: string, runId: string, checkpoint: AgentRunnerCheckpoint): void {
+    const assistantMessage = nativeCheckpointMessage(checkpoint.assistantMessage);
+    const completedToolResults = checkpoint.completedToolResults.map(nativeCheckpointMessage);
+    const pendingToolCalls = checkpoint.pendingToolCalls.map(nativeCheckpointToolCall);
     this.emitEvent({
       protocol_version: WORKER_PROTOCOL_VERSION,
       trace_id: traceId,
@@ -416,11 +433,11 @@ export class AgentWorker {
         iteration: checkpoint.iteration,
         model: checkpoint.model,
         assistantMessage: checkpoint.assistantMessage,
-        assistant_message: checkpoint.assistantMessage,
+        assistant_message: assistantMessage,
         completedToolResults: checkpoint.completedToolResults,
-        completed_tool_results: checkpoint.completedToolResults,
+        completed_tool_results: completedToolResults,
         pendingToolCalls: checkpoint.pendingToolCalls,
-        pending_tool_calls: checkpoint.pendingToolCalls,
+        pending_tool_calls: pendingToolCalls,
       },
     });
   }
@@ -626,6 +643,8 @@ function protocolEventName(event: AgentRunnerEvent): string {
       return "agent.memory_reference";
     case "task_progress":
       return "agent.task_progress";
+    case "usage":
+      return "agent.usage";
   }
 }
 
@@ -635,11 +654,72 @@ function withNativePayloadAliases(payload: Record<string, unknown>): Record<stri
     ...(payload.runId !== undefined ? { run_id: payload.runId } : {}),
     ...(payload.toolCallId !== undefined ? { tool_call_id: payload.toolCallId } : {}),
     ...(payload.toolName !== undefined ? { tool_name: payload.toolName } : {}),
+    ...(payload.sessionId !== undefined ? { session_id: payload.sessionId } : {}),
     ...(payload.stopReason !== undefined ? { stop_reason: payload.stopReason } : {}),
     ...(payload.approvalId !== undefined ? { approval_id: payload.approvalId } : {}),
     ...(payload.formId !== undefined ? { form_id: payload.formId } : {}),
     ...(payload.planId !== undefined ? { plan_id: payload.planId } : {}),
     ...(payload.contextWindowTokens !== undefined ? { context_window_tokens: payload.contextWindowTokens } : {}),
+    ...(payload.messageCount !== undefined ? { message_count: payload.messageCount } : {}),
+    ...(payload.restoredMessageCount !== undefined ? { restored_message_count: payload.restoredMessageCount } : {}),
+  };
+}
+
+function withNativeUsageAliases(usage: AgentRunResult["usage"]): Record<string, unknown> | undefined {
+  if (!usage) {
+    return undefined;
+  }
+  const payload: Record<string, unknown> = {};
+  if (usage.inputTokens !== undefined) {
+    payload.inputTokens = usage.inputTokens;
+    payload.prompt_tokens = usage.inputTokens;
+  }
+  if (usage.outputTokens !== undefined) {
+    payload.outputTokens = usage.outputTokens;
+    payload.completion_tokens = usage.outputTokens;
+  }
+  if (usage.totalTokens !== undefined) {
+    payload.totalTokens = usage.totalTokens;
+    payload.total_tokens = usage.totalTokens;
+  }
+  if (usage.cachedTokens !== undefined) {
+    payload.cachedTokens = usage.cachedTokens;
+    payload.cached_tokens = usage.cachedTokens;
+  }
+  return {
+    ...payload,
+  };
+}
+
+function nativeCheckpointMessage(message: AgentMessage): Record<string, unknown> {
+  return {
+    role: message.role,
+    content: message.content,
+    ...(message.toolCalls?.length
+      ? {
+          tool_calls: message.toolCalls.map(nativeCheckpointToolCall),
+        }
+      : {}),
+    ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
+    ...(message.name ? { name: message.name } : {}),
+    ...(message.role === "assistant" && message.reasoningContent !== undefined
+      ? { reasoning_content: message.reasoningContent }
+      : {}),
+    ...(message.role === "assistant" && message.thinkingBlocks
+      ? { thinking_blocks: message.thinkingBlocks }
+      : {}),
+    ...(message.metadata ? { metadata: message.metadata } : {}),
+  };
+}
+
+function nativeCheckpointToolCall(toolCall: { id: string; name: string; argumentsJson: string }): Record<string, unknown> {
+  return {
+    id: toolCall.id,
+    type: "function",
+    function: {
+      name: toolCall.name,
+      arguments: toolCall.argumentsJson,
+    },
   };
 }
 
@@ -655,6 +735,9 @@ function resumedSpecFromCheckpoint(
     model: checkpointString(checkpoint.model, "checkpoint.model"),
     maxIterations: numberParam(checkpoint, "maxIterations", "max_iterations") ?? 2,
     stream: booleanParam(checkpoint, "stream", "stream") ?? false,
+    temperature: numberParam(checkpoint, "temperature", "temperature"),
+    maxTokens: numberParam(checkpoint, "maxTokens", "max_tokens"),
+    reasoningEffort: stringParam(checkpoint, "reasoningEffort", "reasoning_effort"),
     contextWindow: numberParam(checkpoint, "contextWindow", "context_window"),
     toolResultBudget: numberParam(checkpoint, "toolResultBudget", "tool_result_budget"),
     failOnToolError: booleanParam(checkpoint, "failOnToolError", "fail_on_tool_error"),
@@ -696,6 +779,9 @@ function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec
     model: raw.model,
     maxIterations,
     stream: raw.stream,
+    temperature: numberParam(raw, "temperature", "temperature"),
+    maxTokens: numberParam(raw, "maxTokens", "max_tokens"),
+    reasoningEffort: stringParam(raw, "reasoningEffort", "reasoning_effort"),
     contextWindow: numberParam(raw, "contextWindow", "context_window"),
     toolResultBudget: numberParam(raw, "toolResultBudget", "tool_result_budget"),
     failOnToolError: booleanParam(raw, "failOnToolError", "fail_on_tool_error"),
@@ -746,6 +832,16 @@ function parseAgentMessage(value: unknown): AgentMessage {
   return {
     role: value.role,
     content: value.content,
+    reasoningContent: typeof value.reasoningContent === "string"
+      ? value.reasoningContent
+      : typeof value.reasoning_content === "string"
+        ? value.reasoning_content
+        : undefined,
+    thinkingBlocks: Array.isArray(value.thinkingBlocks)
+      ? value.thinkingBlocks.filter(isJsonObject)
+      : Array.isArray(value.thinking_blocks)
+        ? value.thinking_blocks.filter(isJsonObject)
+        : undefined,
     toolCallId: typeof value.toolCallId === "string"
       ? value.toolCallId
       : typeof value.tool_call_id === "string"
@@ -758,6 +854,55 @@ function parseAgentMessage(value: unknown): AgentMessage {
         ? value.tool_calls.map(parseToolCallRequest)
         : undefined,
     metadata: isJsonObject(value.metadata) ? value.metadata : undefined,
+  };
+}
+
+function materializeCheckpointMessages(checkpoint: Record<string, unknown>): AgentMessage[] {
+  const messages: AgentMessage[] = [];
+  const assistantMessage = parseCheckpointAgentMessage(checkpoint.assistantMessage ?? checkpoint.assistant_message);
+  if (assistantMessage) {
+    messages.push(assistantMessage);
+  }
+  const completedToolResults = checkpoint.completedToolResults ?? checkpoint.completed_tool_results;
+  if (Array.isArray(completedToolResults)) {
+    for (const message of completedToolResults) {
+      const parsed = parseCheckpointAgentMessage(message);
+      if (parsed) {
+        messages.push(parsed);
+      }
+    }
+  }
+  const pendingToolCalls = checkpoint.pendingToolCalls ?? checkpoint.pending_tool_calls;
+  if (Array.isArray(pendingToolCalls)) {
+    messages.push(...pendingToolCalls.map(pendingToolCallInterruptedMessage).filter((message) => message !== undefined));
+  }
+  return messages;
+}
+
+function parseCheckpointAgentMessage(value: unknown): AgentMessage | undefined {
+  try {
+    return parseAgentMessage(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function pendingToolCallInterruptedMessage(value: unknown): AgentMessage | undefined {
+  if (!isJsonObject(value)) {
+    return undefined;
+  }
+  const functionPayload = isJsonObject(value.function) ? value.function : {};
+  const toolCallId = typeof value.id === "string" ? value.id : undefined;
+  const name = typeof value.name === "string"
+    ? value.name
+    : typeof functionPayload.name === "string"
+      ? functionPayload.name
+      : "tool";
+  return {
+    role: "tool",
+    content: "Error: Task interrupted before this tool finished.",
+    toolCallId,
+    name,
   };
 }
 

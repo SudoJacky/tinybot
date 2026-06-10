@@ -5,6 +5,8 @@ export type AgentMessageRole = "system" | "user" | "assistant" | "tool";
 export type AgentMessage = {
   role: AgentMessageRole;
   content: string;
+  reasoningContent?: string;
+  thinkingBlocks?: Array<Record<string, unknown>>;
   toolCalls?: ToolCallRequest[];
   toolCallId?: string;
   name?: string;
@@ -31,6 +33,9 @@ export type AgentRunSpec = {
   model: string;
   maxIterations: number;
   stream: boolean;
+  temperature?: number;
+  maxTokens?: number;
+  reasoningEffort?: string;
   contextWindow?: number;
   toolResultBudget?: number;
   failOnToolError?: boolean;

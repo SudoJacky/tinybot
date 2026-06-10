@@ -392,7 +392,7 @@ fn worker_run_agent(
     worker_run_agent_with_options(
         state.inner(),
         input.spec,
-        repo_root(),
+        ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
@@ -414,7 +414,7 @@ fn worker_restore_agent_checkpoint(
     worker_restore_agent_checkpoint_with_options(
         state.inner(),
         input.session_id,
-        repo_root(),
+        ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -431,7 +431,7 @@ fn worker_submit_agent_form(
         input.form_id,
         input.values,
         input.action,
-        repo_root(),
+        ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
@@ -448,7 +448,7 @@ fn worker_resume_agent_approval(
         input.approval_id,
         input.approved,
         input.scope,
-        repo_root(),
+        ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
@@ -1355,11 +1355,15 @@ fn experimental_worker_workspace_root() -> PathBuf {
         .join("ts-worker-fixture")
 }
 
+fn ts_agent_worker_workspace_root() -> PathBuf {
+    repo_root()
+}
+
 fn experimental_worker_config_snapshot() -> serde_json::Value {
     serde_json::json!({
         "agents": {
             "defaults": {
-                "model": "ts-worker-fixture"
+                "provider": "auto"
             }
         }
     })
@@ -1648,6 +1652,25 @@ mod tests {
         assert_eq!(spec.program, "node");
         assert_eq!(spec.args, vec!["workers/ts-agent-worker/src/index.ts"]);
         assert_eq!(spec.label, "ts-agent-worker");
+    }
+
+    #[test]
+    fn ts_agent_worker_uses_repo_workspace_root() {
+        assert_eq!(ts_agent_worker_workspace_root(), repo_root());
+    }
+
+    #[test]
+    fn experimental_worker_config_defaults_to_auto_provider_without_fixture_model() {
+        assert_eq!(
+            experimental_worker_config_snapshot(),
+            serde_json::json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "auto"
+                    }
+                }
+            })
+        );
     }
 
     #[test]

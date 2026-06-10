@@ -11,10 +11,13 @@ export type TokenUsage = {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  cachedTokens?: number;
 };
 
 export type ModelResponse = {
   content: string;
+  reasoningContent?: string;
+  thinkingBlocks?: Array<Record<string, unknown>>;
   toolCalls: ToolCallRequest[];
   usage?: TokenUsage;
   stopReason?: string;
@@ -33,10 +36,16 @@ export type ToolDefinition = {
   parameters: Record<string, unknown>;
 };
 
+export type GenerationRequestOptions = {
+  temperature?: number;
+  maxTokens?: number;
+  reasoningEffort?: string;
+};
+
 export type ModelRequestOptions = ModelStreamCallbacks & {
   model?: string;
   tools?: ToolDefinition[];
-};
+} & GenerationRequestOptions;
 
 export interface ModelProvider {
   complete(messages: AgentMessage[], options?: ModelRequestOptions): Promise<ModelResponse>;
