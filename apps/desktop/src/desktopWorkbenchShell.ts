@@ -362,6 +362,9 @@ export interface DesktopNativeChatModel {
   runtime?: {
     provider?: string;
     model?: string;
+    contextWindowTokens?: number | null;
+    maxToolIterations?: number | null;
+    toolResultBudget?: number | null;
     webSocket?: string;
     tokenReady?: boolean;
     tokenUsage?: string;

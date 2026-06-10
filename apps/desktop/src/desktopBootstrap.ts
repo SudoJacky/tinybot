@@ -425,6 +425,8 @@ function syncNativeRuntimeMetadata(): void {
   nativeWorkbenchRuntime.setRuntimeMetadata({
     provider: nativeSettingsState?.agent.provider || undefined,
     model: nativeSettingsState?.agent.model || undefined,
+    contextWindowTokens: nativeSettingsState?.agent.contextWindowTokens ?? undefined,
+    maxToolIterations: nativeSettingsState?.agent.maxToolIterations ?? undefined,
     gatewayHttp: gatewayConfig.httpBaseUrl,
   });
   updateDesktopNativeChat(document, nativeWorkbenchRuntime.chat, gatewayConfig.httpBaseUrl, nativeChatActions());

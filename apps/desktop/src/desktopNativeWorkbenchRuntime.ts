@@ -45,6 +45,8 @@ export type DesktopTsAgentRunSpec = {
   tools?: DesktopTsAgentToolDefinition[];
   model: string;
   maxIterations: number;
+  contextWindow?: number;
+  toolResultBudget?: number;
   stream: boolean;
   metadata: Record<string, unknown>;
 };
@@ -271,10 +273,13 @@ export function createDesktopNativeWorkbenchRuntime({
     appendUserMessage(state, trimmed, now?.() ?? new Date().toISOString());
     const spec = buildDesktopTsAgentRunSpec({
       chatId: state.activeChatId,
+      contextWindow: runtimeMetadata.contextWindowTokens,
+      maxToolIterations: runtimeMetadata.maxToolIterations,
       messages: state.messages.get(state.activeSessionKey) ?? [],
       model: runtimeMetadata?.model,
       now: now ?? (() => new Date().toISOString()),
       sessionId: state.activeSessionKey,
+      toolResultBudget: runtimeMetadata.toolResultBudget,
       usePersistentRag: nextUsePersistentRag,
     });
     composerState = "sending";
@@ -951,26 +956,36 @@ function arrayRecords(value: unknown): Record<string, unknown>[] {
 
 function buildDesktopTsAgentRunSpec({
   chatId,
+  contextWindow,
+  maxToolIterations,
   messages,
   model,
   now,
   sessionId,
+  toolResultBudget,
   usePersistentRag,
 }: {
   chatId: string;
+  contextWindow?: unknown;
+  maxToolIterations?: unknown;
   messages: NativeChatMessage[];
   model: unknown;
   now: () => string;
   sessionId: string;
+  toolResultBudget?: unknown;
   usePersistentRag: boolean;
 }): DesktopTsAgentRunSpec {
   const runId = `desktop-ts-agent-${stableRunIdPart(now())}`;
+  const contextWindowValue = positiveIntegerValue(contextWindow);
+  const toolResultBudgetValue = positiveIntegerValue(toolResultBudget);
   return {
     runId,
     sessionId,
     messages: messages.map(desktopMessageToTsAgentMessage).filter((message) => message.content.trim().length > 0),
     model: typeof model === "string" && model.trim() ? model : "default",
-    maxIterations: 8,
+    maxIterations: positiveIntegerValue(maxToolIterations) ?? 8,
+    ...(contextWindowValue !== null ? { contextWindow: contextWindowValue } : {}),
+    ...(toolResultBudgetValue !== null ? { toolResultBudget: toolResultBudgetValue } : {}),
     stream: true,
     metadata: {
       chatId,
@@ -978,6 +993,14 @@ function buildDesktopTsAgentRunSpec({
       usePersistentRag,
     },
   };
+}
+
+function positiveIntegerValue(value: unknown): number | null {
+  const parsed = numberValue(value);
+  if (parsed === null || parsed <= 0) {
+    return null;
+  }
+  return Math.floor(parsed);
 }
 
 function desktopMessageToTsAgentMessage(message: NativeChatMessage): DesktopTsAgentMessage {

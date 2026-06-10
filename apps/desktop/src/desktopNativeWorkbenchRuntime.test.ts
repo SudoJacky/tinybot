@@ -215,6 +215,47 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent response received.");
   });
 
+  test("passes native context and iteration settings to the experimental TS agent runner", async () => {
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts", chat_id: "chat-ts", title: "TS route" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "Configured TS agent answer",
+          stopReason: "final_response",
+          messages: [],
+          toolsUsed: [],
+        };
+      },
+      now: () => "2026-06-03T08:16:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.setRuntimeMetadata({
+      model: "gpt-4.1",
+      contextWindowTokens: 32768,
+      maxToolIterations: 12,
+    });
+
+    runtime.submitComposerMessage("Use configured budgets", false);
+    await Promise.resolve();
+
+    expect(runSpecs).toMatchObject([
+      {
+        model: "gpt-4.1",
+        contextWindow: 32768,
+        maxIterations: 12,
+      },
+    ]);
+  });
+
   test("interrupts active TS agent runs through the experimental cancel command", async () => {
     let resolveRun: ((value: {
       finalContent: string;
