@@ -1044,7 +1044,7 @@ function desktopMessageToTsAgentMessages(message: NativeChatMessage): DesktopTsA
       .map((activity) => ({
         id: activity.id,
         name: activity.name || "tool",
-        argumentsJson: activity.argsText || "{}",
+        argumentsJson: toolActivityArgumentsJson(activity),
       }))
     : [];
   const resultMessages = toolActivities
@@ -1066,6 +1066,19 @@ function desktopMessageToTsAgentMessages(message: NativeChatMessage): DesktopTsA
     },
     ...resultMessages,
   ];
+}
+
+function toolActivityArgumentsJson(activity: Pick<NonNullable<NativeChatMessage["toolActivities"]>[number], "argsText" | "name">): string {
+  const argsText = activity.argsText.trim();
+  if (!argsText) {
+    return "{}";
+  }
+  const toolName = activity.name || "tool";
+  const formattedPrefix = `${toolName}(`;
+  if (argsText.startsWith(formattedPrefix) && argsText.endsWith(")")) {
+    return argsText.slice(formattedPrefix.length, -1).trim() || "{}";
+  }
+  return argsText;
 }
 
 function tsAgentMessageHasPayload(message: DesktopTsAgentMessage): boolean {

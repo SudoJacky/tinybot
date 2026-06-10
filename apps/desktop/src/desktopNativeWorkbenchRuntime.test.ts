@@ -743,6 +743,80 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.responding).toBe(false);
   });
 
+  test("replays TS tool-call display text as JSON arguments in follow-up runs", async () => {
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-follow-up", chat_id: "chat-ts-follow-up", title: "TS follow-up" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "",
+          stopReason: "final_response",
+          messages: [],
+          toolsUsed: [],
+        };
+      },
+      now: () => `2026-06-03T08:${15 + runSpecs.length}:00.000Z`,
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Find docs");
+    await Promise.resolve();
+    const firstRunId = String((runSpecs[0] as { runId: string }).runId);
+    runtime.handleTsAgentWorkerEvent("agent.tool_call.delta", {
+      runId: firstRunId,
+      index: 0,
+      deltaText: "{\"query\":\"docs\"}",
+      toolCallId: "call-search",
+      toolName: "search_memory_notes",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.tool.result", {
+      runId: firstRunId,
+      toolCallId: "call-search",
+      toolName: "search_memory_notes",
+      content: "Found docs note",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.done", {
+      runId: firstRunId,
+      stopReason: "final_response",
+    });
+
+    runtime.submitComposerMessage("Continue with that");
+    await Promise.resolve();
+
+    expect(runSpecs).toMatchObject([
+      {},
+      {
+        messages: expect.arrayContaining([
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [
+              {
+                id: "call-search",
+                name: "search_memory_notes",
+                argumentsJson: "{\"query\":\"docs\"}",
+              },
+            ],
+          },
+          {
+            role: "tool",
+            content: "Found docs note",
+            toolCallId: "call-search",
+            name: "search_memory_notes",
+          },
+        ]),
+      },
+    ]);
+  });
+
   test("exposes live runtime metadata for native composer chips", () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {
