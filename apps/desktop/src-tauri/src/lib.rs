@@ -1338,6 +1338,9 @@ fn experimental_worker_router(
             WorkerCapability::ApprovalRequest,
             WorkerCapability::ApprovalResolve,
             WorkerCapability::FormRequest,
+            WorkerCapability::MemoryRead,
+            WorkerCapability::MemoryWrite,
+            WorkerCapability::McpCall,
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
         ]),
@@ -1645,6 +1648,51 @@ mod tests {
         assert_eq!(spec.program, "node");
         assert_eq!(spec.args, vec!["workers/ts-agent-worker/src/index.ts"]);
         assert_eq!(spec.label, "ts-agent-worker");
+    }
+
+    #[test]
+    fn experimental_worker_router_allows_registered_ts_agent_native_tools() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("memory/notes.jsonl", "Use uv for Python commands.");
+        let mut router = experimental_worker_router(
+            fixture.root.clone(),
+            serde_json::json!({
+                "tools": {
+                    "mcp_servers": {
+                        "docs": {
+                            "enabled_tools": ["search"],
+                            "fixture_tools": {
+                                "search": { "content": "docs result" }
+                            }
+                        }
+                    }
+                }
+            }),
+        );
+
+        let memory_response = router.dispatch(&crate::worker_protocol::WorkerRequest::new(
+            "memory-search-1",
+            "trace-memory-search",
+            "memory.search",
+            serde_json::json!({ "query": "uv", "limit": 3 }),
+        ));
+        let mcp_response = router.dispatch(&crate::worker_protocol::WorkerRequest::new(
+            "mcp-call-1",
+            "trace-mcp-call",
+            "mcp.call_tool",
+            serde_json::json!({
+                "server": "docs",
+                "tool": "search",
+                "arguments": { "query": "agent loop" }
+            }),
+        ));
+
+        assert!(
+            memory_response.error.is_none(),
+            "{:?}",
+            memory_response.error
+        );
+        assert!(mcp_response.error.is_none(), "{:?}", mcp_response.error);
     }
 
     #[test]
