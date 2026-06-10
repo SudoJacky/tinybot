@@ -620,11 +620,17 @@ describe("desktop native workbench runtime", () => {
       toolCallId: "call-memory",
       toolName: "search_memory_notes",
     });
+    expect(runtime.chat.responding).toBe(true);
     runtime.handleTsAgentWorkerEvent("agent.tool.result", {
       runId,
       toolCallId: "call-memory",
       toolName: "search_memory_notes",
       content: "Found memory note",
+    });
+    expect(runtime.chat.responding).toBe(true);
+    runtime.handleTsAgentWorkerEvent("agent.done", {
+      runId,
+      stopReason: "final_response",
     });
     resolveRun?.({ finalContent: "", stopReason: "final_response", messages: [], toolsUsed: [] });
     await runPromise;
@@ -708,6 +714,10 @@ describe("desktop native workbench runtime", () => {
       toolCallId: "call-search",
       toolName: "search_memory_notes",
       content: "Found docs note",
+    });
+    runtime.handleTsAgentWorkerEvent("agent.done", {
+      runId,
+      stopReason: "final_response",
     });
     resolveRun?.({ finalContent: "", stopReason: "final_response", messages: [], toolsUsed: [] });
     await runPromise;

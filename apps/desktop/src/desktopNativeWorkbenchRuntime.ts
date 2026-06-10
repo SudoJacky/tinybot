@@ -15,7 +15,13 @@ import { buildDesktopAgentUiApprovalTaskOperations } from "./desktopTaskCenterSo
 import type { DesktopNativeChatModel } from "./desktopWorkbenchShell";
 import { logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
 import type { NormalizedGatewayEvent } from "./gatewayWebSocketClient";
-import { appendUserMessage, applyChatEvent, type NativeChatMessage, type NativeChatReference } from "./nativeChat";
+import {
+  appendUserMessage,
+  applyChatEvent,
+  sessionKeyForChatState,
+  type NativeChatMessage,
+  type NativeChatReference,
+} from "./nativeChat";
 
 export interface DesktopNativeWorkbenchRuntimeOptions {
   api: DesktopChatSessionControllerApi;
@@ -378,6 +384,7 @@ export function createDesktopNativeWorkbenchRuntime({
           source: "ts-agent-worker",
         },
       });
+      keepTsAgentRunResponding(chatId);
       composerState = "sending";
       return;
     }
@@ -407,6 +414,7 @@ export function createDesktopNativeWorkbenchRuntime({
           _tool_name: toolName,
         },
       });
+      keepTsAgentRunResponding(chatId);
       composerState = "sending";
       return;
     }
@@ -433,6 +441,7 @@ export function createDesktopNativeWorkbenchRuntime({
           _tool_name: toolName,
         },
       });
+      keepTsAgentRunResponding(chatId);
       composerState = "sending";
       return;
     }
@@ -458,6 +467,7 @@ export function createDesktopNativeWorkbenchRuntime({
         },
       });
       deleteTsAgentToolCallDelta(runId, toolCallId);
+      keepTsAgentRunResponding(chatId);
       composerState = "sending";
       return;
     }
@@ -585,8 +595,16 @@ export function createDesktopNativeWorkbenchRuntime({
         _task_progress: progress,
       },
     });
+    keepTsAgentRunResponding(chatId);
     composerState = "sending";
     chatStatus = "TS agent task progress updated.";
+  }
+
+  function keepTsAgentRunResponding(chatId: string): void {
+    const sessionKey = sessionKeyForChatState(chatController.state, chatId);
+    if (sessionKey) {
+      chatController.state.respondingSessionKeys.add(sessionKey);
+    }
   }
 
   function projectTsAgentMemoryReferences(frame: Record<string, unknown>, runId: string, chatId: string): void {
