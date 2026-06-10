@@ -43,6 +43,16 @@ function cancelRequest(runId: string): WorkerRequest {
   };
 }
 
+function snakeCancelRequest(runId: string): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: "cancel-snake-1",
+    trace_id: "trace-cancel-snake",
+    method: "agent.cancel",
+    params: { run_id: runId },
+  };
+}
+
 function restoreCheckpointRequest(sessionId: string): WorkerRequest {
   return {
     protocol_version: "1",
@@ -50,6 +60,16 @@ function restoreCheckpointRequest(sessionId: string): WorkerRequest {
     trace_id: "trace-restore",
     method: "agent.restore_checkpoint",
     params: { sessionId },
+  };
+}
+
+function snakeRestoreCheckpointRequest(sessionId: string): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: "restore-snake-1",
+    trace_id: "trace-restore-snake",
+    method: "agent.restore_checkpoint",
+    params: { session_id: sessionId },
   };
 }
 
@@ -731,6 +751,41 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("accepts snake_case run_id for agent.cancel", async () => {
+    const completion = deferred<ModelResponse>();
+    const provider: ModelProvider = {
+      complete: async () => completion.promise,
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    const runResponsePromise = worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-snake-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    const cancelResponse = await worker.handleRequest(snakeCancelRequest("run-snake-1"));
+    completion.resolve({ content: "late answer", toolCalls: [], stopReason: "stop" });
+    await runResponsePromise;
+
+    expect(cancelResponse).toMatchObject({
+      protocol_version: "1",
+      id: "cancel-snake-1",
+      trace_id: "trace-cancel-snake",
+      result: { ok: true, runId: "run-snake-1" },
+    });
+  });
+
   test("restores checkpoint state for a session through the session bridge", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
@@ -765,6 +820,42 @@ describe("AgentWorker", () => {
           iteration: 1,
           model: "test-model",
           pendingToolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{}" }],
+        },
+      },
+    });
+  });
+
+  test("accepts snake_case session_id for agent.restore_checkpoint", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async () => undefined,
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-1",
+          phase: "awaiting_tools",
+          iteration: 1,
+          model: "test-model",
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(snakeRestoreCheckpointRequest("session-snake-1"));
+
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "restore-snake-1",
+      trace_id: "trace-restore-snake",
+      result: {
+        sessionId: "session-snake-1",
+        checkpoint: {
+          sessionId: "session-snake-1",
+          runId: "run-1",
+          phase: "awaiting_tools",
         },
       },
     });
@@ -831,6 +922,59 @@ describe("AgentWorker", () => {
           phase: "tools_completed",
           model: "test-model",
         },
+      },
+    });
+  });
+
+  test("accepts snake_case ids for agent.resume_approval", async () => {
+    const resolvedApprovals: Array<{ approvalId: string; approved: boolean; scope?: string; sessionId: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      approvalBridge: {
+        resolveApproval: async (params, traceId) => {
+          resolvedApprovals.push({ ...params, traceId });
+          return { approvalId: params.approvalId, approved: params.approved, scope: params.scope, status: "approved" };
+        },
+      },
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async () => undefined,
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-1",
+          phase: "tools_completed",
+          model: "test-model",
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      resumeApprovalRequest({
+        session_id: "session-snake-1",
+        approval_id: "approval-snake-1",
+        approved: true,
+        scope: "session",
+      }),
+    );
+
+    expect(resolvedApprovals).toEqual([
+      {
+        sessionId: "session-snake-1",
+        approvalId: "approval-snake-1",
+        approved: true,
+        scope: "session",
+        traceId: "trace-resume-approval",
+      },
+    ]);
+    expect(response.result).toMatchObject({
+      sessionId: "session-snake-1",
+      approval: {
+        approvalId: "approval-snake-1",
+        approved: true,
+        scope: "session",
       },
     });
   });
@@ -1107,5 +1251,80 @@ describe("AgentWorker", () => {
       },
     });
     expect(clearedSessions).toEqual(["session-1"]);
+  });
+
+  test("accepts snake_case ids for agent.submit_form", async () => {
+    const appendedMessages: AgentMessage[][] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([{ content: "Thanks, Paris works.", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-form-snake-1",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "plan a trip" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "form-call-1", name: "request_form", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "form-call-1",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      submitFormRequest({
+        session_id: "session-snake-1",
+        form_id: "travel_plan",
+        values: { destination: "Paris" },
+      }),
+    );
+
+    expect(response.result).toMatchObject({
+      sessionId: "session-snake-1",
+      form: {
+        formId: "travel_plan",
+        action: "submitted",
+        values: { destination: "Paris" },
+      },
+      result: {
+        finalContent: "Thanks, Paris works.",
+        stopReason: "final_response",
+      },
+    });
+    expect(appendedMessages.at(-1)).toContainEqual({
+      role: "tool",
+      content: "Agent UI form submitted: travel_plan\n{\"destination\":\"Paris\"}",
+      toolCallId: "form-call-1",
+      name: "request_form",
+      metadata: {
+        formId: "travel_plan",
+        action: "submitted",
+        values: { destination: "Paris" },
+      },
+    });
   });
 });

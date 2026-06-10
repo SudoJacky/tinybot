@@ -564,54 +564,70 @@ export class AgentWorker {
 }
 
 function parseCancelRunId(params: Record<string, unknown> | undefined): string {
-  if (!isJsonObject(params) || typeof params.runId !== "string") {
+  const runId = stringParam(params, "runId", "run_id");
+  if (!runId) {
     throw new Error("agent.cancel requires string params.runId");
   }
-  return params.runId;
+  return runId;
 }
 
 function parseRestoreCheckpointSessionId(params: Record<string, unknown> | undefined): string {
-  if (!isJsonObject(params) || typeof params.sessionId !== "string") {
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  if (!sessionId) {
     throw new Error("agent.restore_checkpoint requires string params.sessionId");
   }
-  return params.sessionId;
+  return sessionId;
 }
 
 function parseResumeApprovalParams(params: Record<string, unknown> | undefined): ApprovalResolutionRequest {
-  if (!isJsonObject(params) || typeof params.sessionId !== "string") {
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  if (!sessionId) {
     throw new Error("agent.resume_approval requires string params.sessionId");
   }
-  if (typeof params.approvalId !== "string") {
+  const approvalId = stringParam(params, "approvalId", "approval_id");
+  if (!approvalId) {
     throw new Error("agent.resume_approval requires string params.approvalId");
   }
-  if (typeof params.approved !== "boolean") {
+  const object = params ?? {};
+  if (typeof object.approved !== "boolean") {
     throw new Error("agent.resume_approval requires boolean params.approved");
   }
   return {
-    sessionId: params.sessionId,
-    approvalId: params.approvalId,
-    approved: params.approved,
-    scope: typeof params.scope === "string" ? params.scope : undefined,
+    sessionId,
+    approvalId,
+    approved: object.approved,
+    scope: typeof object.scope === "string" ? object.scope : undefined,
   };
 }
 
 function parseSubmitFormParams(params: Record<string, unknown> | undefined): FormSubmissionRequest {
-  if (!isJsonObject(params) || typeof params.sessionId !== "string") {
+  const sessionId = stringParam(params, "sessionId", "session_id");
+  if (!sessionId) {
     throw new Error("agent.submit_form requires string params.sessionId");
   }
-  if (typeof params.formId !== "string") {
+  const formId = stringParam(params, "formId", "form_id");
+  if (!formId) {
     throw new Error("agent.submit_form requires string params.formId");
   }
-  if (params.values !== undefined && !isJsonObject(params.values)) {
+  const object = params ?? {};
+  if (object.values !== undefined && !isJsonObject(object.values)) {
     throw new Error("agent.submit_form params.values must be an object when provided");
   }
-  const action = params.action === "cancelled" ? "cancelled" : "submitted";
+  const action = object.action === "cancelled" ? "cancelled" : "submitted";
   return {
-    sessionId: params.sessionId,
-    formId: params.formId,
-    values: isJsonObject(params.values) ? params.values : {},
+    sessionId,
+    formId,
+    values: isJsonObject(object.values) ? object.values : {},
     action,
   };
+}
+
+function stringParam(params: Record<string, unknown> | undefined, camelKey: string, snakeKey: string): string | undefined {
+  if (!isJsonObject(params)) {
+    return undefined;
+  }
+  const value = params[camelKey] ?? params[snakeKey];
+  return typeof value === "string" ? value : undefined;
 }
 
 function protocolEventName(event: AgentRunnerEvent): string {
