@@ -61,4 +61,175 @@ describe("NativeSessionBridge", () => {
       },
     ]);
   });
+
+  test("serializes checkpoint agent messages with native snake_case tool fields before persisting", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return { ok: true };
+      },
+    });
+
+    await bridge.setCheckpoint(
+      "session-1",
+      {
+        runId: "run-1",
+        phase: "tools_completed",
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [{ id: "call-read", name: "read_file", argumentsJson: "{\"path\":\"README.md\"}" }],
+          },
+          {
+            role: "tool",
+            content: "README contents",
+            toolCallId: "call-read",
+            name: "read_file",
+          },
+        ],
+        assistantMessage: {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call-write", name: "write_file", argumentsJson: "{\"path\":\"notes.md\"}" }],
+        },
+        completedToolResults: [
+          {
+            role: "tool",
+            content: "ok",
+            toolCallId: "call-write",
+            name: "write_file",
+          },
+        ],
+      },
+      "trace-1",
+    );
+
+    expect(requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "session.set_checkpoint",
+        params: {
+          session_id: "session-1",
+          checkpoint: {
+            runId: "run-1",
+            phase: "tools_completed",
+            messages: [
+              {
+                role: "assistant",
+                content: "",
+                tool_calls: [
+                  {
+                    id: "call-read",
+                    type: "function",
+                    function: {
+                      name: "read_file",
+                      arguments: "{\"path\":\"README.md\"}",
+                    },
+                  },
+                ],
+              },
+              {
+                role: "tool",
+                content: "README contents",
+                tool_call_id: "call-read",
+                name: "read_file",
+              },
+            ],
+            assistantMessage: {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  id: "call-write",
+                  type: "function",
+                  function: {
+                    name: "write_file",
+                    arguments: "{\"path\":\"notes.md\"}",
+                  },
+                },
+              ],
+            },
+            completedToolResults: [
+              {
+                role: "tool",
+                content: "ok",
+                tool_call_id: "call-write",
+                name: "write_file",
+              },
+            ],
+          },
+        },
+      },
+    ]);
+  });
+
+  test("preserves already-native checkpoint message tool fields when persisting", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return { ok: true };
+      },
+    });
+
+    await bridge.setCheckpoint(
+      "session-1",
+      {
+        runId: "run-1",
+        phase: "tools_completed",
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call-read",
+                type: "function",
+                function: {
+                  name: "read_file",
+                  arguments: "{\"path\":\"README.md\"}",
+                },
+              },
+            ],
+          },
+          {
+            role: "tool",
+            content: "README contents",
+            tool_call_id: "call-read",
+            name: "read_file",
+          },
+        ],
+      },
+      "trace-1",
+    );
+
+    expect(requests[0]?.params.checkpoint).toEqual({
+      runId: "run-1",
+      phase: "tools_completed",
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call-read",
+              type: "function",
+              function: {
+                name: "read_file",
+                arguments: "{\"path\":\"README.md\"}",
+              },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: "README contents",
+          tool_call_id: "call-read",
+          name: "read_file",
+        },
+      ],
+    });
+  });
 });
