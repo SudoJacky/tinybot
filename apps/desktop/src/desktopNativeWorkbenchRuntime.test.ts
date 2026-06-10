@@ -864,6 +864,63 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent awaiting form input.");
   });
 
+  test("projects TS agent awaiting approval events into native tool approvals", async () => {
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-approval", chat_id: "chat-ts-approval", title: "TS approval chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "",
+          stopReason: "awaiting_approval",
+          messages: [],
+          toolsUsed: ["request_approval"],
+        };
+      },
+      now: () => "2026-06-03T08:21:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.submitComposerMessage("Need approval");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.awaiting_approval", {
+      runId,
+      stopReason: "awaiting_approval",
+      approvalId: "approval-run-1",
+      content: "Approve write_file",
+      operation: {
+        toolName: "write_file",
+        arguments: { path: "notes/today.md" },
+      },
+    });
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Need approval" },
+      {
+        role: "assistant",
+        toolActivities: [
+          {
+            id: "approval-run-1",
+            name: "write_file",
+            responseText: "Approve write_file",
+            kind: "result",
+            status: "blocked",
+            approvalId: "approval-run-1",
+            approvalStatus: "approval_required",
+          },
+        ],
+      },
+    ]);
+    expect(runtime.chat.status).toBe("TS agent awaiting approval.");
+  });
+
   test("reduces agent-ui form gateway events into native approval forms", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {

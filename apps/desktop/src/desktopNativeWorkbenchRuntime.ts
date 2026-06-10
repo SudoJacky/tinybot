@@ -64,6 +64,7 @@ export type DesktopTsAgentWorkerEventName =
   | "agent.usage"
   | "agent.checkpoint"
   | "agent.awaiting_form"
+  | "agent.awaiting_approval"
   | "agent.cancelled"
   | "agent.done"
   | "agent.error";
@@ -326,6 +327,10 @@ export function createDesktopNativeWorkbenchRuntime({
       projectTsAgentAwaitingForm(frame, runId, chatId);
       return;
     }
+    if (eventName === "agent.awaiting_approval") {
+      projectTsAgentAwaitingApproval(frame, runId, chatId);
+      return;
+    }
     if (eventName === "agent.delta" || eventName === "agent.reasoning_delta") {
       applyChatEvent(chatController.state, {
         kind: "message.delta",
@@ -489,6 +494,38 @@ export function createDesktopNativeWorkbenchRuntime({
       reduceAgentUiEventState(agentUiState, agentUiEvent);
     }
     chatStatus = "TS agent awaiting form input.";
+  }
+
+  function projectTsAgentAwaitingApproval(frame: Record<string, unknown>, runId: string, chatId: string): void {
+    const approvalId = stringValue(frame.approvalId ?? frame.approval_id);
+    if (!approvalId) {
+      chatStatus = "TS agent awaiting approval, but approval id is missing.";
+      return;
+    }
+    const operation = isRecord(frame.operation) ? frame.operation : {};
+    const toolName = stringValue(operation.toolName ?? operation.tool_name ?? frame.toolName ?? frame.tool_name) || "approval";
+    const content = stringValue(frame.content) || `Approval required: ${toolName}`;
+    applyChatEvent(chatController.state, {
+      kind: "message.completed",
+      chatId,
+      messageId: `${runId}:${approvalId}:approval`,
+      text: content,
+      raw: {
+        event: "agent.awaiting_approval",
+        chat_id: chatId,
+        content,
+        message_id: `${runId}:${approvalId}:approval`,
+        source: "ts-agent-worker",
+        status: "blocked",
+        _approval_id: approvalId,
+        _approval_status: "approval_required",
+        _tool_call_id: approvalId,
+        _tool_name: toolName,
+        _tool_result: true,
+      },
+    });
+    composerState = "idle";
+    chatStatus = "TS agent awaiting approval.";
   }
 
   function completeTsAgentRun(runId: string, chatId: string): void {

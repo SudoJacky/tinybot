@@ -134,6 +134,16 @@ struct WorkerSubmitAgentFormInput {
     action: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerResumeAgentApprovalInput {
+    session_id: String,
+    approval_id: String,
+    approved: bool,
+    #[serde(default)]
+    scope: Option<String>,
+}
+
 #[derive(Deserialize, Serialize)]
 struct GatewayExitPolicyPreference {
     keep_running: bool,
@@ -421,6 +431,23 @@ fn worker_submit_agent_form(
         input.form_id,
         input.values,
         input.action,
+        repo_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(120),
+    )
+}
+
+#[tauri::command]
+fn worker_resume_agent_approval(
+    input: WorkerResumeAgentApprovalInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_resume_agent_approval_with_options(
+        state.inner(),
+        input.session_id,
+        input.approval_id,
+        input.approved,
+        input.scope,
         repo_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
@@ -1175,6 +1202,68 @@ fn build_worker_submit_agent_form_request(
     )
 }
 
+fn worker_resume_agent_approval_with_options(
+    shared: &SharedGateway,
+    session_id: String,
+    approval_id: String,
+    approved: bool,
+    scope: Option<String>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_resume_agent_approval_request(
+        now_unix_ms(),
+        session_id,
+        approval_id,
+        approved,
+        scope,
+    );
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker agent approval resume request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker agent approval resume returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker agent approval resume response missing result".to_string())
+}
+
+fn build_worker_resume_agent_approval_request(
+    request_id: u128,
+    session_id: String,
+    approval_id: String,
+    approved: bool,
+    scope: Option<String>,
+) -> WorkerRequest {
+    let mut params = serde_json::json!({
+        "sessionId": session_id,
+        "approvalId": approval_id,
+        "approved": approved,
+    });
+    if let Some(scope) = scope {
+        params["scope"] = serde_json::Value::String(scope);
+    }
+    WorkerRequest::new(
+        format!("agent-resume-approval-{request_id}"),
+        format!("trace-agent-resume-approval-{request_id}"),
+        "agent.resume_approval",
+        params,
+    )
+}
+
 fn ensure_ts_agent_worker_running(
     worker: &WorkerManager,
     workspace_root: PathBuf,
@@ -1412,6 +1501,7 @@ pub fn run() {
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
+            worker_resume_agent_approval,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -1618,6 +1708,30 @@ mod tests {
                 "formId": "travel_plan",
                 "values": { "destination": "Paris" },
                 "action": "cancelled"
+            })
+        );
+    }
+
+    #[test]
+    fn worker_resume_agent_approval_request_wraps_approval_for_ts_worker() {
+        let request = build_worker_resume_agent_approval_request(
+            42,
+            "WebSocket:chat-1".to_string(),
+            "approval-1".to_string(),
+            true,
+            Some("session".to_string()),
+        );
+
+        assert_eq!(request.id, "agent-resume-approval-42");
+        assert_eq!(request.trace_id, "trace-agent-resume-approval-42");
+        assert_eq!(request.method, "agent.resume_approval");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "sessionId": "WebSocket:chat-1",
+                "approvalId": "approval-1",
+                "approved": true,
+                "scope": "session"
             })
         );
     }

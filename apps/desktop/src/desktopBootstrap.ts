@@ -351,6 +351,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.usage",
     "agent.checkpoint",
     "agent.awaiting_form",
+    "agent.awaiting_approval",
     "agent.cancelled",
     "agent.done",
     "agent.error",
@@ -567,18 +568,7 @@ async function handleNativeTaskAction(event: DesktopTaskCenterActionEvent): Prom
     return;
   }
   try {
-    if (event.action === "deny") {
-      await gatewayApi.tools.denyApproval(approvalId, {
-        session_key: sessionKey,
-        auto_retry: true,
-      });
-    } else {
-      await gatewayApi.tools.approveApproval(approvalId, {
-        session_key: sessionKey,
-        scope: event.action === "approveSession" ? "session" : "once",
-        auto_retry: true,
-      });
-    }
+    await submitNativeApprovalAction(approvalId, sessionKey, event.action);
     nativeApprovalTaskOperations.delete(event.item.id);
     publishNativeTaskCenterItems();
     await refreshNativeApprovalTasks();
@@ -770,18 +760,7 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
     return;
   }
   try {
-    if (action === "deny") {
-      await gatewayApi.tools.denyApproval(approvalId, {
-        session_key: sessionKey,
-        auto_retry: true,
-      });
-    } else {
-      await gatewayApi.tools.approveApproval(approvalId, {
-        session_key: sessionKey,
-        scope: action === "approveSession" ? "session" : "once",
-        auto_retry: true,
-      });
-    }
+    await submitNativeApprovalAction(approvalId, sessionKey, action);
     nativeApprovalTaskOperations.delete(taskId);
     publishNativeTaskCenterItems();
     await refreshNativeApprovalTasks();
@@ -806,6 +785,38 @@ async function handleNativeInlineApprovalAction(detail: unknown): Promise<void> 
       toolName,
     });
   }
+}
+
+async function submitNativeApprovalAction(
+  approvalId: string,
+  sessionKey: string,
+  action: string,
+): Promise<void> {
+  const approved = action !== "deny";
+  const scope = action === "approveSession" ? "session" : "once";
+  if (nativeAgentRoute === "ts-agent") {
+    await invoke("worker_resume_agent_approval", {
+      input: {
+        sessionId: sessionKey,
+        approvalId,
+        approved,
+        scope,
+      },
+    });
+    return;
+  }
+  if (!approved) {
+    await gatewayApi.tools.denyApproval(approvalId, {
+      session_key: sessionKey,
+      auto_retry: true,
+    });
+    return;
+  }
+  await gatewayApi.tools.approveApproval(approvalId, {
+    session_key: sessionKey,
+    scope,
+    auto_retry: true,
+  });
 }
 
 async function selectNativeChatFromRoute(path: string): Promise<void> {
