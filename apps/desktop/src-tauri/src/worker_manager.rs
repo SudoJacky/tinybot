@@ -1080,6 +1080,129 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn manager_cancels_real_ts_agent_worker_run() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            { "content": "late answer", "stopReason": "stop", "delayMs": 300 }
+                        ]
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let run_request = WorkerRequest::new(
+            "agent-run-cancel-real-ts-1",
+            "trace-real-ts-agent-cancel",
+            "agent.run",
+            json!({
+                "spec": {
+                    "runId": "real-ts-run-cancel-1",
+                    "messages": [{ "role": "user", "content": "cancel this run" }],
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let run_manager = manager.clone();
+        let run_handle = std::thread::spawn(move || {
+            run_manager.send_stdio_request(&run_request, std::time::Duration::from_secs(5))
+        });
+
+        let events_before_cancel = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Diagnostics(line)
+                        if line.stream == "stderr" && line.line.contains("[ts-agent-worker] ready")
+                )
+            })
+        });
+        assert!(has_diagnostics_event(
+            &events_before_cancel,
+            "stderr",
+            "[ts-agent-worker] ready"
+        ));
+
+        let cancel_request = WorkerRequest::new(
+            "agent-cancel-real-ts-1",
+            "trace-real-ts-agent-cancel-request",
+            "agent.cancel",
+            json!({ "runId": "real-ts-run-cancel-1" }),
+        );
+        let cancel_response = manager
+            .send_stdio_request(&cancel_request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker cancel request should complete");
+        assert_eq!(cancel_response.result.as_ref().unwrap()["ok"], true);
+
+        let run_response = run_handle
+            .join()
+            .expect("run request thread should not panic")
+            .expect("real TS agent worker run request should complete");
+        let result = run_response
+            .result
+            .expect("cancelled TS agent worker run should return result");
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(result["error"], "cancelled");
+
+        let events = wait_for_events(&events, |events| {
+            let has_cancelled = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.cancelled"
+                            && protocol_event.payload["runId"] == "real-ts-run-cancel-1"
+                )
+            });
+            let has_done = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["stopReason"] == "cancelled"
+                )
+            });
+            has_cancelled && has_done
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.cancelled"
+                        && protocol_event.payload["runId"] == "real-ts-run-cancel-1"
+            )
+        }));
+        manager.stop().expect("TS agent worker should stop");
+    }
+
     fn test_worker_spec(label: &str) -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {

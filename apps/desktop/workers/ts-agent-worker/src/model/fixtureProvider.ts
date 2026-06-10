@@ -16,6 +16,9 @@ export class FixtureProvider implements ModelProvider {
     if (!response) {
       throw new Error("fixture provider has no queued response");
     }
+    if (response.delayMs && response.delayMs > 0) {
+      await sleep(response.delayMs);
+    }
     if (response.content) {
       options.onContentDelta?.(response.content);
     }
@@ -32,4 +35,8 @@ export class FixtureProvider implements ModelProvider {
       toolCalls: response.toolCalls.map((toolCall) => ({ ...toolCall })),
     };
   }
+}
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }

@@ -18,6 +18,7 @@ export type ModelResponse = {
   toolCalls: ToolCallRequest[];
   usage?: TokenUsage;
   stopReason?: string;
+  delayMs?: number;
 };
 
 export type ModelStreamCallbacks = {

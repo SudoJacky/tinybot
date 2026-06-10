@@ -115,4 +115,24 @@ describe("createModelProvider", () => {
       },
     ]);
   });
+
+  test("fixture provider honors response delay for cancellation tests", async () => {
+    const provider = createModelProvider({
+      kind: "fixture",
+      responses: [
+        {
+          content: "delayed answer",
+          stopReason: "stop",
+          toolCalls: [],
+          delayMs: 20,
+        },
+      ],
+    });
+    const start = Date.now();
+
+    const response = await provider.complete([{ role: "user", content: "hello" }]);
+
+    expect(response.content).toBe("delayed answer");
+    expect(Date.now() - start).toBeGreaterThanOrEqual(15);
+  });
 });

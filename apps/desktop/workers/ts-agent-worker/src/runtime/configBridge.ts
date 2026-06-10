@@ -79,6 +79,7 @@ function normalizeFixtureResponse(value: unknown): ModelResponse | null {
     content,
     stopReason: asString(object.stopReason) ?? asString(object.stop_reason) ?? "stop",
     toolCalls: normalizeFixtureToolCalls(object.toolCalls ?? object.tool_calls),
+    delayMs: numberValue(object.delayMs ?? object.delay_ms),
   };
 }
 
@@ -101,4 +102,8 @@ function normalizeFixtureToolCalls(value: unknown): ModelResponse["toolCalls"] {
       argumentsJson: asString(object.argumentsJson) ?? asString(object.arguments_json) ?? "{}",
     };
   }).filter((toolCall): toolCall is ModelResponse["toolCalls"][number] => toolCall !== null);
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

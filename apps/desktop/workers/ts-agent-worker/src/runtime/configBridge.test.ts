@@ -143,6 +143,7 @@ describe("NativeConfigBridge", () => {
           {
             content: "final",
             stopReason: "stop",
+            delayMs: 25,
             toolCalls: [],
           },
         ],
@@ -160,6 +161,7 @@ describe("NativeConfigBridge", () => {
         {
           content: "final",
           stopReason: "stop",
+          delayMs: 25,
           toolCalls: [],
         },
       ],
