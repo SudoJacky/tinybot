@@ -1007,6 +1007,173 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("continues denied approval through native approval and session RPC", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([{ content: "No file will be written.", toolCalls: [], stopReason: "stop" }]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const resume = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "resume-approval-1",
+        trace_id: "trace-resume-denied",
+        method: "agent.resume_approval",
+        params: {
+          sessionId: "session-1",
+          approvalId: "approval-1",
+          approved: false,
+          scope: "once",
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "approval.resolve"));
+    const approvalRequest = parsedLines(lines).find((message) => message.method === "approval.resolve");
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: approvalRequest?.id,
+        trace_id: "trace-resume-denied",
+        result: {
+          approvalId: "approval-1",
+          approved: false,
+          scope: "once",
+          status: "denied",
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.get_checkpoint"));
+    const checkpointRequest = parsedLines(lines).find((message) => message.method === "session.get_checkpoint");
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: checkpointRequest?.id,
+        trace_id: "trace-resume-denied",
+        result: {
+          runId: "run-1",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "write a file" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "approval-call-1", name: "request_approval", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for approval.",
+              toolCallId: "approval-call-1",
+              name: "request_approval",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_approval",
+                approvalId: "approval-1",
+                operation: {
+                  toolName: "write_file",
+                  arguments: { path: "notes/today.md", contents: "hello" },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.set_checkpoint"));
+    const setCheckpointRequest = parsedLines(lines).find((message) => message.method === "session.set_checkpoint");
+    expect(setCheckpointRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-resume-denied",
+      method: "session.set_checkpoint",
+      params: {
+        session_id: "session-1",
+        checkpoint: expect.objectContaining({
+          runId: "run-1",
+          phase: "final_response",
+        }),
+      },
+    });
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: setCheckpointRequest?.id,
+        trace_id: "trace-resume-denied",
+        result: { session_id: "session-1" },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.clear_checkpoint"));
+    const clearRequest = parsedLines(lines).find((message) => message.method === "session.clear_checkpoint");
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: clearRequest?.id,
+        trace_id: "trace-resume-denied",
+        result: { session_id: "session-1" },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "session.append_messages"));
+    const appendRequest = parsedLines(lines).find((message) => message.method === "session.append_messages");
+    expect(appendRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-resume-denied",
+      method: "session.append_messages",
+      params: {
+        session_id: "session-1",
+        messages: expect.arrayContaining([
+          {
+            role: "tool",
+            content: "Approval denied: approval-1",
+            toolCallId: "approval-call-1",
+            name: "request_approval",
+            metadata: {
+              approvalId: "approval-1",
+              approved: false,
+              status: "denied",
+            },
+          },
+        ]),
+      },
+    });
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: appendRequest?.id,
+        trace_id: "trace-resume-denied",
+        result: { session_id: "session-1" },
+      }),
+    );
+    await resume;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "resume-approval-1",
+      trace_id: "trace-resume-denied",
+      result: {
+        approval: {
+          approvalId: "approval-1",
+          approved: false,
+          scope: "once",
+          status: "denied",
+        },
+        result: {
+          finalContent: "No file will be written.",
+          stopReason: "final_response",
+        },
+      },
+    });
+  });
+
   test("submits a form through native session checkpoint and continues the run", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "trip captured", toolCalls: [], stopReason: "stop" }]);

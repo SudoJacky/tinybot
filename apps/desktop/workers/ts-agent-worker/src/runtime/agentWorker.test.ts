@@ -865,6 +865,106 @@ describe("AgentWorker", () => {
     expect(clearedSessions).toEqual(["session-1"]);
   });
 
+  test("continues the run with a denied approval result without executing the operation", async () => {
+    const executedOperations: Array<Record<string, unknown>> = [];
+    const clearedSessions: string[] = [];
+    const appendedMessages: AgentMessage[][] = [];
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "write_file",
+      description: "Write a file",
+      parameters: { type: "object" },
+      execute: async (args) => {
+        executedOperations.push(args);
+        return { content: "should not execute" };
+      },
+    });
+    const worker = new AgentWorker({
+      provider: new QueueProvider([{ content: "I will not write the file.", toolCalls: [], stopReason: "stop" }]),
+      tools,
+      emitEvent: () => undefined,
+      approvalBridge: {
+        resolveApproval: async (params) => ({
+          approvalId: params.approvalId,
+          approved: params.approved,
+          scope: params.scope,
+          status: "denied",
+        }),
+      },
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (_sessionId, messages) => {
+          appendedMessages.push(messages);
+        },
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-1",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "write a file" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "approval-call-1", name: "request_approval", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for approval.",
+              toolCallId: "approval-call-1",
+              name: "request_approval",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_approval",
+                approvalId: "approval-1",
+                operation: {
+                  toolName: "write_file",
+                  arguments: { path: "notes/today.md", contents: "hello" },
+                },
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      resumeApprovalRequest({
+        sessionId: "session-1",
+        approvalId: "approval-1",
+        approved: false,
+        scope: "once",
+      }),
+    );
+
+    expect(executedOperations).toEqual([]);
+    expect(response.result).toMatchObject({
+      approval: { approvalId: "approval-1", approved: false, scope: "once", status: "denied" },
+      result: {
+        finalContent: "I will not write the file.",
+        stopReason: "final_response",
+        toolsUsed: [],
+      },
+    });
+    expect(appendedMessages.at(-1)).toContainEqual({
+      role: "tool",
+      content: "Approval denied: approval-1",
+      toolCallId: "approval-call-1",
+      name: "request_approval",
+      metadata: {
+        approvalId: "approval-1",
+        approved: false,
+        status: "denied",
+      },
+    });
+    expect(clearedSessions).toEqual(["session-1"]);
+  });
+
   test("submits a pending form from checkpoint and continues the run", async () => {
     const clearedSessions: string[] = [];
     const appendedMessages: AgentMessage[][] = [];

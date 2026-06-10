@@ -225,8 +225,10 @@ export class AgentWorker {
       }
       const approval = await this.approvalBridge.resolveApproval(params, request.trace_id);
       const checkpoint = await this.sessionBridge.getCheckpoint(params.sessionId, request.trace_id);
-      const result = params.approved && checkpoint && canResumeApprovedCheckpoint(checkpoint, params.approvalId)
-        ? await this.resumeApprovedCheckpoint(request.trace_id, params, checkpoint)
+      const result = checkpoint && canResumeApprovalCheckpoint(checkpoint, params.approvalId)
+        ? params.approved
+          ? await this.resumeApprovedCheckpoint(request.trace_id, params, checkpoint)
+          : await this.resumeDeniedApprovalCheckpoint(request.trace_id, params, checkpoint)
         : undefined;
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
@@ -493,6 +495,43 @@ export class AgentWorker {
     return this.runResumedSpec(traceId, spec);
   }
 
+  private async resumeDeniedApprovalCheckpoint(
+    traceId: string,
+    approval: ApprovalResolutionRequest,
+    checkpoint: Record<string, unknown>,
+  ): Promise<AgentRunResult> {
+    const messages = parseCheckpointMessages(checkpoint.messages);
+    const approvalToolIndex = findApprovalToolMessageIndex(messages, approval.approvalId);
+    if (approvalToolIndex < 0) {
+      throw new Error("approval checkpoint does not contain a matching awaiting approval tool result");
+    }
+    const approvalToolMessage = messages[approvalToolIndex];
+    const denialMessage: AgentMessage = {
+      role: "tool",
+      content: `Approval denied: ${approval.approvalId}`,
+      toolCallId: approvalToolMessage.toolCallId,
+      name: approvalToolMessage.name,
+      metadata: {
+        approvalId: approval.approvalId,
+        approved: false,
+        status: "denied",
+      },
+    };
+    const resumedMessages = messages.map((message, index) => (index === approvalToolIndex ? denialMessage : message));
+    const spec: AgentRunSpec = {
+      runId: checkpointString(checkpoint.runId, "checkpoint.runId"),
+      sessionId: approval.sessionId,
+      messages: resumedMessages,
+      model: checkpointString(checkpoint.model, "checkpoint.model"),
+      maxIterations: typeof checkpoint.maxIterations === "number" ? checkpoint.maxIterations : 2,
+      stream: typeof checkpoint.stream === "boolean" ? checkpoint.stream : false,
+      contextWindow: typeof checkpoint.contextWindow === "number" ? checkpoint.contextWindow : undefined,
+      toolResultBudget: typeof checkpoint.toolResultBudget === "number" ? checkpoint.toolResultBudget : undefined,
+      failOnToolError: typeof checkpoint.failOnToolError === "boolean" ? checkpoint.failOnToolError : undefined,
+    };
+    return this.runResumedSpec(traceId, spec);
+  }
+
   private async runResumedSpec(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult> {
     const runner = new AgentRunner({
       provider: this.provider,
@@ -697,7 +736,7 @@ function findApprovalToolMessageIndex(messages: AgentMessage[], approvalId: stri
   ));
 }
 
-function canResumeApprovedCheckpoint(checkpoint: Record<string, unknown>, approvalId: string): boolean {
+function canResumeApprovalCheckpoint(checkpoint: Record<string, unknown>, approvalId: string): boolean {
   if (!Array.isArray(checkpoint.messages)) {
     return false;
   }
