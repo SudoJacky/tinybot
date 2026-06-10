@@ -63,6 +63,7 @@ export type DesktopTsAgentWorkerEventName =
   | "agent.tool.result"
   | "agent.usage"
   | "agent.checkpoint"
+  | "agent.awaiting_form"
   | "agent.cancelled"
   | "agent.done"
   | "agent.error";
@@ -321,6 +322,10 @@ export function createDesktopNativeWorkbenchRuntime({
     if (!runId || !chatId) {
       return;
     }
+    if (eventName === "agent.awaiting_form") {
+      projectTsAgentAwaitingForm(frame, runId, chatId);
+      return;
+    }
     if (eventName === "agent.delta" || eventName === "agent.reasoning_delta") {
       applyChatEvent(chatController.state, {
         kind: "message.delta",
@@ -452,6 +457,38 @@ export function createDesktopNativeWorkbenchRuntime({
       composerState = "idle";
       chatStatus = message;
     }
+  }
+
+  function projectTsAgentAwaitingForm(frame: Record<string, unknown>, runId: string, chatId: string): void {
+    const form = isRecord(frame.form) ? frame.form : {};
+    const formId = stringValue(frame.formId ?? frame.form_id ?? form.form_id);
+    if (!formId) {
+      chatStatus = "TS agent awaiting form input, but form id is missing.";
+      return;
+    }
+    const correlation = isRecord(form.correlation) ? form.correlation : {};
+    const payload = {
+      ...form,
+      form_id: formId,
+      correlation: {
+        ...correlation,
+        chat_id: stringValue(correlation.chat_id) || chatId,
+        form_id: stringValue(correlation.form_id) || formId,
+        run_id: stringValue(correlation.run_id) || runId,
+        session_id: stringValue(correlation.session_id) || chatController.state.activeSessionKey,
+      },
+    };
+    for (const agentUiEvent of normalizeAgentUiEvents({
+      event: "agent_ui_event",
+      agent_ui_event: {
+        event_type: "ui.form.requested",
+        chat_id: chatId,
+        payload,
+      },
+    })) {
+      reduceAgentUiEventState(agentUiState, agentUiEvent);
+    }
+    chatStatus = "TS agent awaiting form input.";
   }
 
   function completeTsAgentRun(runId: string, chatId: string): void {

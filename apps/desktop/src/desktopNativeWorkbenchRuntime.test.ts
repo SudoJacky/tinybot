@@ -803,6 +803,67 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent checkpoint: Awaiting tools.");
   });
 
+  test("projects TS agent awaiting form events into native Agent UI forms", async () => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-form", chat_id: "chat-ts-form", title: "TS form chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async () => ({
+        finalContent: "",
+        stopReason: "awaiting_form",
+        messages: [],
+        toolsUsed: ["request_form"],
+      }),
+      now: () => "2026-06-03T08:20:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.submitComposerMessage("Need user input");
+
+    runtime.handleTsAgentWorkerEvent("agent.awaiting_form", {
+      runId: "desktop-ts-agent-20260603T082000000Z",
+      stopReason: "awaiting_form",
+      formId: "travel_plan",
+      form: {
+        form_id: "travel_plan",
+        title: "Travel plan",
+        description: "Choose the destination",
+        correlation: { run_id: "desktop-ts-agent-20260603T082000000Z" },
+        fields: [
+          { name: "destination", type: "text", label: "Destination", required: true },
+        ],
+      },
+    });
+
+    expect(runtime.agentUiForms).toMatchObject([
+      {
+        form_id: "travel_plan",
+        title: "Travel plan",
+        description: "Choose the destination",
+        status: "pending",
+        chat_id: "chat-ts-form",
+        correlation: {
+          chat_id: "chat-ts-form",
+          run_id: "desktop-ts-agent-20260603T082000000Z",
+          session_id: "WebSocket:chat-ts-form",
+        },
+      },
+    ]);
+    expect(runtime.approvalOperations).toMatchObject([
+      {
+        id: "approval:form:travel_plan",
+        title: "Travel plan",
+        status: "waiting",
+        canonical: { module: "approvals", entityId: "travel_plan", href: "/chat/chat-ts-form" },
+      },
+    ]);
+    expect(runtime.chat.status).toBe("TS agent awaiting form input.");
+  });
+
   test("reduces agent-ui form gateway events into native approval forms", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {

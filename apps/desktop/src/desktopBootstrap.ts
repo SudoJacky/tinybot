@@ -28,6 +28,7 @@ import {
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
 import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
 import {
@@ -135,6 +136,7 @@ let nativeKnowledgeQueryResult: unknown = {};
 let nativeCoworkPane: DesktopCoworkPaneModel | null = null;
 let nativeCoworkSelectedSessionId = "";
 let nativeWorkbenchRuntime: DesktopNativeWorkbenchRuntime | null = null;
+let nativeAgentRoute: "gateway" | "ts-agent" = "gateway";
 let nativeChatSocket: WebSocket | null = null;
 let nativeChatWsUrl = gatewayConfig.wsUrl;
 let nativeChatRuntimeActionsInstalled = false;
@@ -291,6 +293,7 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
     search: window.location.search,
     storedRoute: readDesktopAgentRoutePreference(),
   });
+  nativeAgentRoute = agentRoute;
   const runtime = createDesktopNativeWorkbenchRuntime({
     api: {
       listSessions: () => gatewayApi.sessions.list(),
@@ -347,6 +350,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.tool.result",
     "agent.usage",
     "agent.checkpoint",
+    "agent.awaiting_form",
     "agent.cancelled",
     "agent.done",
     "agent.error",
@@ -621,7 +625,10 @@ async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEven
       form.errors = {};
       form.submitting = true;
       refreshNativeAgentUiForms();
-      await gatewayApi.agentUi.submitForm(form.form_id, request);
+      await submitNativeAgentUiFormAction(form, request, "submit");
+      if (nativeAgentRoute === "ts-agent") {
+        form.status = "submitted";
+      }
       form.submitting = false;
       refreshNativeAgentUiForms();
       publishNativeTaskCenterItems();
@@ -647,7 +654,10 @@ async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEven
     }
     form.submitting = true;
     refreshNativeAgentUiForms();
-    await gatewayApi.agentUi.cancelForm(form.form_id, request);
+    await submitNativeAgentUiFormAction(form, request, "cancel");
+    if (nativeAgentRoute === "ts-agent") {
+      form.status = "cancelled";
+    }
     form.submitting = false;
     refreshNativeAgentUiForms();
     publishNativeTaskCenterItems();
@@ -662,6 +672,28 @@ async function handleNativeAgentUiFormAction(event: DesktopAgentUiFormActionEven
       error: stringifyError(error),
     });
   }
+}
+
+async function submitNativeAgentUiFormAction(
+  form: DesktopAgentUiFormActionEvent["form"],
+  request: { values?: Record<string, unknown>; correlation?: Record<string, unknown> },
+  action: "submit" | "cancel",
+): Promise<void> {
+  if (nativeAgentRoute === "ts-agent") {
+    const input = buildDesktopTsAgentFormSubmissionInput(
+      form,
+      request,
+      action,
+      nativeWorkbenchRuntime?.chat.activeSessionKey ?? "",
+    );
+    await invoke("worker_submit_agent_form", { input });
+    return;
+  }
+  if (action === "submit") {
+    await gatewayApi.agentUi.submitForm(form.form_id, request);
+    return;
+  }
+  await gatewayApi.agentUi.cancelForm(form.form_id, request);
 }
 
 function installNativeChatRuntimeActions(): void {

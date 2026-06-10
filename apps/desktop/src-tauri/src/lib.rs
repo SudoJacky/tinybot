@@ -123,6 +123,17 @@ struct WorkerRestoreAgentCheckpointInput {
     session_id: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSubmitAgentFormInput {
+    session_id: String,
+    form_id: String,
+    #[serde(default)]
+    values: serde_json::Value,
+    #[serde(default)]
+    action: Option<String>,
+}
+
 #[derive(Deserialize, Serialize)]
 struct GatewayExitPolicyPreference {
     keep_running: bool,
@@ -396,6 +407,23 @@ fn worker_restore_agent_checkpoint(
         repo_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_submit_agent_form(
+    input: WorkerSubmitAgentFormInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_submit_agent_form_with_options(
+        state.inner(),
+        input.session_id,
+        input.form_id,
+        input.values,
+        input.action,
+        repo_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(120),
     )
 }
 
@@ -1085,6 +1113,68 @@ fn build_worker_restore_agent_checkpoint_request(
     )
 }
 
+fn worker_submit_agent_form_with_options(
+    shared: &SharedGateway,
+    session_id: String,
+    form_id: String,
+    values: serde_json::Value,
+    action: Option<String>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_submit_agent_form_request(
+        now_unix_ms(),
+        session_id,
+        form_id,
+        values,
+        action,
+    );
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker agent form submission request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker agent form submission returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker agent form submission response missing result".to_string())
+}
+
+fn build_worker_submit_agent_form_request(
+    request_id: u128,
+    session_id: String,
+    form_id: String,
+    values: serde_json::Value,
+    action: Option<String>,
+) -> WorkerRequest {
+    let mut params = serde_json::json!({
+        "sessionId": session_id,
+        "formId": form_id,
+        "values": if values.is_null() { serde_json::json!({}) } else { values },
+    });
+    if let Some(action) = action {
+        params["action"] = serde_json::Value::String(action);
+    }
+    WorkerRequest::new(
+        format!("agent-submit-form-{request_id}"),
+        format!("trace-agent-submit-form-{request_id}"),
+        "agent.submit_form",
+        params,
+    )
+}
+
 fn ensure_ts_agent_worker_running(
     worker: &WorkerManager,
     workspace_root: PathBuf,
@@ -1321,6 +1411,7 @@ pub fn run() {
             worker_run_agent,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
+            worker_submit_agent_form,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -1504,6 +1595,30 @@ mod tests {
         assert_eq!(
             request.params,
             serde_json::json!({ "sessionId": "WebSocket:chat-1" })
+        );
+    }
+
+    #[test]
+    fn worker_submit_agent_form_request_wraps_form_submission_for_ts_worker() {
+        let request = build_worker_submit_agent_form_request(
+            42,
+            "WebSocket:chat-1".to_string(),
+            "travel_plan".to_string(),
+            serde_json::json!({ "destination": "Paris" }),
+            Some("cancelled".to_string()),
+        );
+
+        assert_eq!(request.id, "agent-submit-form-42");
+        assert_eq!(request.trace_id, "trace-agent-submit-form-42");
+        assert_eq!(request.method, "agent.submit_form");
+        assert_eq!(
+            request.params,
+            serde_json::json!({
+                "sessionId": "WebSocket:chat-1",
+                "formId": "travel_plan",
+                "values": { "destination": "Paris" },
+                "action": "cancelled"
+            })
         );
     }
 
