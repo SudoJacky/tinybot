@@ -1019,7 +1019,7 @@ function desktopMessageToTsAgentMessages(message: NativeChatMessage): DesktopTsA
   const toolActivities = message.toolActivities ?? [];
   const toolCalls = role === "assistant"
     ? toolActivities
-      .filter((activity) => activity.kind === "call")
+      .filter((activity) => activity.kind === "call" || Boolean(activity.argsText))
       .map((activity) => ({
         id: activity.id,
         name: activity.name || "tool",
