@@ -1288,6 +1288,75 @@ describe("desktop native workbench runtime", () => {
     ]);
   });
 
+  test("attaches TS agent done references to the streamed native chat message", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-done-references", chat_id: "chat-ts-done-references", title: "TS done refs" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-03T08:23:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.submitComposerMessage("Stream done refs");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.delta", { runId, delta: "Reference-backed answer" });
+    runtime.handleTsAgentWorkerEvent("agent.done", {
+      runId,
+      stopReason: "final_response",
+      _memory_references: [{
+        note_id: "note_done",
+        content: "Done payload memory",
+        file: "memory/notes.jsonl",
+        line: 8,
+      }],
+    });
+    resolveRun?.({ finalContent: "", stopReason: "final_response", messages: [], toolsUsed: [] });
+    await runPromise;
+    await Promise.resolve();
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Stream done refs" },
+      {
+        role: "assistant",
+        content: "Reference-backed answer",
+        messageId: runId,
+        references: [{
+          kind: "memory",
+          title: "note_done",
+          detail: "Done payload memory",
+          sourcePath: "memory/notes.jsonl",
+          sourceLine: 8,
+          sourceText: "Done payload memory",
+          noteId: "note_done",
+        }],
+      },
+    ]);
+  });
+
   test("reduces agent-ui form gateway events into native approval forms", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {

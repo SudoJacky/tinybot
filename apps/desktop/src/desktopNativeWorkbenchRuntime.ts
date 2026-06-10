@@ -481,7 +481,7 @@ export function createDesktopNativeWorkbenchRuntime({
       return;
     }
     if (eventName === "agent.done") {
-      completeTsAgentRun(runId, chatId);
+      completeTsAgentRun(runId, chatId, frame);
       composerState = "idle";
       chatStatus = "TS agent response received.";
       return;
@@ -616,12 +616,13 @@ export function createDesktopNativeWorkbenchRuntime({
     chatStatus = "TS agent memory references updated.";
   }
 
-  function completeTsAgentRun(runId: string, chatId: string): void {
+  function completeTsAgentRun(runId: string, chatId: string, completionPayload: Record<string, unknown> = {}): void {
     applyChatEvent(chatController.state, {
       kind: "message.stream.completed",
       chatId,
       messageId: runId,
       raw: {
+        ...completionPayload,
         event: "stream_end",
         chat_id: chatId,
         message_id: runId,
