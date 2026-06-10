@@ -129,4 +129,40 @@ describe("NativeConfigBridge", () => {
       },
     ]);
   });
+
+  test("keeps fixture tool-call responses with empty content", async () => {
+    const rpcClient = new FakeRpcClient({
+      "agents.defaults.provider": "fixture",
+      "providers.fixture": {
+        responses: [
+          {
+            content: "",
+            stopReason: "tool_calls",
+            toolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{\"path\":\"README.md\"}" }],
+          },
+          {
+            content: "final",
+            stopReason: "stop",
+            toolCalls: [],
+          },
+        ],
+      },
+    });
+
+    await expect(modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), {})).resolves.toEqual({
+      kind: "fixture",
+      responses: [
+        {
+          content: "",
+          stopReason: "tool_calls",
+          toolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{\"path\":\"README.md\"}" }],
+        },
+        {
+          content: "final",
+          stopReason: "stop",
+          toolCalls: [],
+        },
+      ],
+    });
+  });
 });

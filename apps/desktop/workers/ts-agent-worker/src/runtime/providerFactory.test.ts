@@ -85,4 +85,34 @@ describe("createModelProvider", () => {
       toolCalls: [],
     });
   });
+
+  test("fixture provider emits streaming callbacks for content and tool calls", async () => {
+    const contentDeltas: string[] = [];
+    const toolCallDeltas: Array<{ index: number; deltaText: string; toolCallId?: string; toolName?: string }> = [];
+    const provider = createModelProvider({
+      kind: "fixture",
+      responses: [
+        {
+          content: "fixture answer",
+          stopReason: "tool_calls",
+          toolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{\"path\":\"README.md\"}" }],
+        },
+      ],
+    });
+
+    await provider.complete([{ role: "user", content: "hello" }], {
+      onContentDelta: (delta) => contentDeltas.push(delta),
+      onToolCallDelta: (delta) => toolCallDeltas.push(delta),
+    });
+
+    expect(contentDeltas).toEqual(["fixture answer"]);
+    expect(toolCallDeltas).toEqual([
+      {
+        index: 0,
+        deltaText: "{\"path\":\"README.md\"}",
+        toolCallId: "call-1",
+        toolName: "read_file",
+      },
+    ]);
+  });
 });

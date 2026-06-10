@@ -924,6 +924,7 @@ mod tests {
         let event_log = events.clone();
         let fixture = WorkspaceFixture::new();
         fixture.write("AGENTS.md", "agents");
+        fixture.write("notes/today.md", "hello from native workspace");
         let manager = WorkerManager::new(20).with_event_sink(move |event| {
             event_log.lock().expect("event log should lock").push(event);
         });
@@ -939,6 +940,17 @@ mod tests {
                 "providers": {
                     "fixture": {
                         "responses": [
+                            {
+                                "content": "",
+                                "stopReason": "tool_calls",
+                                "toolCalls": [
+                                    {
+                                        "id": "read-call-1",
+                                        "name": "read_file",
+                                        "argumentsJson": "{\"path\":\"notes/today.md\"}"
+                                    }
+                                ]
+                            },
                             { "content": "real TS agent final", "stopReason": "stop" }
                         ]
                     }
@@ -949,6 +961,7 @@ mod tests {
             CapabilityPolicy::new([
                 WorkerCapability::ConfigRead,
                 WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::FsWorkspaceRead,
             ]),
         );
 
@@ -966,7 +979,7 @@ mod tests {
                     "messages": [{ "role": "user", "content": "hello real worker" }],
                     "model": "fixture-model",
                     "maxIterations": 2,
-                    "stream": false
+                    "stream": true
                 }
             }),
         );
@@ -974,14 +987,47 @@ mod tests {
             .send_stdio_request(&request, std::time::Duration::from_secs(5))
             .expect("real TS agent worker request should complete");
         let events = wait_for_events(&events, |events| {
-            events.iter().any(|event| {
+            let has_delta = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.delta"
+                            && protocol_event.payload["delta"] == "real TS agent final"
+                )
+            });
+            let has_checkpoint = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.checkpoint"
+                            && protocol_event.payload["phase"] == "awaiting_tools"
+                )
+            });
+            let has_tool_start = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.tool.start"
+                            && protocol_event.payload["toolName"] == "read_file"
+                )
+            });
+            let has_tool_result = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.tool.result"
+                            && protocol_event.payload["content"] == "hello from native workspace"
+                )
+            });
+            let has_done = events.iter().any(|event| {
                 matches!(
                     event,
                     WorkerManagerEvent::Protocol(protocol_event)
                         if protocol_event.event == "agent.done"
-                            && protocol_event.payload["runId"] == "real-ts-run-1"
+                            && protocol_event.payload["stopReason"] == "final_response"
                 )
-            })
+            });
+            has_delta && has_checkpoint && has_tool_start && has_tool_result && has_done
         });
 
         let result = response
@@ -989,6 +1035,41 @@ mod tests {
             .expect("TS agent worker should return result");
         assert_eq!(result["finalContent"], "real TS agent final");
         assert_eq!(result["stopReason"], "final_response");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.delta"
+                        && protocol_event.payload["delta"] == "real TS agent final"
+            )
+        }));
+        assert!(
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.checkpoint"
+                            && protocol_event.payload["phase"] == "awaiting_tools"
+                )
+            }),
+            "events: {events:#?}"
+        );
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.tool.start"
+                        && protocol_event.payload["toolName"] == "read_file"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.tool.result"
+                        && protocol_event.payload["content"] == "hello from native workspace"
+            )
+        }));
         assert!(events.iter().any(|event| {
             matches!(
                 event,

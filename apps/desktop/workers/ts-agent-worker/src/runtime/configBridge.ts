@@ -71,7 +71,7 @@ function normalizeFixtureResponses(value: unknown): ModelResponse[] {
 
 function normalizeFixtureResponse(value: unknown): ModelResponse | null {
   const object = asObject(value);
-  const content = asString(object?.content);
+  const content = typeof object?.content === "string" ? object.content : undefined;
   if (!object || content === undefined) {
     return null;
   }
