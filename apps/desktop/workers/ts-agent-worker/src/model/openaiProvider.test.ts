@@ -123,4 +123,27 @@ describe("OpenAIProvider", () => {
       },
     ]);
   });
+
+  test("uses the per-run model when one is provided", async () => {
+    const requests: unknown[] = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (request: unknown) => {
+            requests.push(request);
+            return chunks([{ choices: [{ delta: { content: "done" }, finish_reason: "stop" }] }]);
+          },
+        },
+      },
+    };
+    const provider = new OpenAIProvider({ client, defaultModel: "default-model" });
+
+    await provider.complete([{ role: "user", content: "hello" }], { model: "gpt-run-model" });
+
+    expect(requests).toMatchObject([
+      {
+        model: "gpt-run-model",
+      },
+    ]);
+  });
 });

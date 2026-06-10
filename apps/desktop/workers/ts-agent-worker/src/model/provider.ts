@@ -33,6 +33,7 @@ export type ToolDefinition = {
 };
 
 export type ModelRequestOptions = ModelStreamCallbacks & {
+  model?: string;
   tools?: ToolDefinition[];
 };
 

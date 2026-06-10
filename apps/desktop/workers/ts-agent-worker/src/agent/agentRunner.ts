@@ -241,7 +241,7 @@ export class AgentRunner {
         const retryResponse = await this.provider.complete([
           ...messages.map(cloneMessage),
           { role: "user", content: FINALIZATION_RETRY_PROMPT },
-        ]);
+        ], this.finalizationRequestOptions(spec));
         usage = mergeUsage(usage, retryResponse.usage);
         finalContent = retryResponse.content;
       }
@@ -291,6 +291,7 @@ export class AgentRunner {
 
   private requestOptions(spec: AgentRunSpec): ModelRequestOptions {
     return {
+      model: spec.model,
       tools: this.tools.definitions(),
       onContentDelta: (delta) => {
         if (!spec.stream) {
@@ -319,6 +320,12 @@ export class AgentRunner {
           payload: { runId: spec.runId, ...delta },
         });
       },
+    };
+  }
+
+  private finalizationRequestOptions(spec: AgentRunSpec): ModelRequestOptions {
+    return {
+      model: spec.model,
     };
   }
 }

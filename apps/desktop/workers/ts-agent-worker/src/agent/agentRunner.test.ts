@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { AgentRunner } from "./agentRunner";
 import type { AgentMessage, AgentRunSpec } from "./agentRunSpec";
-import type { ModelProvider, ModelResponse, ModelStreamCallbacks } from "../model/provider";
+import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
 import { ToolRegistry } from "../tools/toolRegistry";
 
 function spec(overrides: Partial<AgentRunSpec> = {}): AgentRunSpec {
@@ -19,11 +19,13 @@ function spec(overrides: Partial<AgentRunSpec> = {}): AgentRunSpec {
 
 class QueueProvider implements ModelProvider {
   readonly requests: AgentMessage[][] = [];
+  readonly options: Array<ModelRequestOptions | undefined> = [];
 
   constructor(private readonly responses: ModelResponse[]) {}
 
-  async complete(messages: AgentMessage[], callbacks?: ModelStreamCallbacks): Promise<ModelResponse> {
+  async complete(messages: AgentMessage[], callbacks?: ModelRequestOptions): Promise<ModelResponse> {
     this.requests.push(messages.map((message) => ({ ...message })));
+    this.options.push(callbacks);
     const response = this.responses.shift();
     if (!response) {
       throw new Error("no queued model response");
@@ -97,6 +99,18 @@ describe("AgentRunner", () => {
     expect(result.toolsUsed).toEqual([]);
     expect(result.usage).toEqual({ inputTokens: 3, outputTokens: 2, totalTokens: 5 });
     expect(provider.requests).toHaveLength(1);
+  });
+
+  test("passes the run model to each provider request", async () => {
+    const provider = new QueueProvider([
+      { content: "   ", toolCalls: [], stopReason: "stop" },
+      { content: "retry answer", toolCalls: [], stopReason: "stop" },
+    ]);
+    const runner = new AgentRunner({ provider, tools: new ToolRegistry() });
+
+    await runner.run(spec({ model: "gpt-run-model" }));
+
+    expect(provider.options.map((option) => option?.model)).toEqual(["gpt-run-model", "gpt-run-model"]);
   });
 
   test("executes a tool call and continues until the model returns final content", async () => {

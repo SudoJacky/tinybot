@@ -26,7 +26,7 @@ export class OpenAIProvider implements ModelProvider {
 
   async complete(messages: AgentMessage[], options: ModelRequestOptions = {}): Promise<StreamModelResponse> {
     const request: Record<string, unknown> = {
-      model: this.defaultModel,
+      model: options.model?.trim() || this.defaultModel,
       messages: messages.map(toOpenAIMessage),
       stream: true,
       stream_options: { include_usage: true },
