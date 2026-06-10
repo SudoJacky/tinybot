@@ -476,6 +476,7 @@ export function createDesktopNativeWorkbenchRuntime({
       applyChatEvent(chatController.state, { kind: "error", message, raw: { event: "error", message } });
       activeTsAgentRuns.delete(runId);
       clearTsAgentToolCallDeltas(runId);
+      clearTsAgentCheckpointMetadata();
       composerState = "idle";
       chatStatus = message;
     }
@@ -614,6 +615,7 @@ export function createDesktopNativeWorkbenchRuntime({
     });
     activeTsAgentRuns.delete(runId);
     clearTsAgentToolCallDeltas(runId);
+    clearTsAgentCheckpointMetadata();
   }
 
   function findTsAgentToolCallDelta(runId: string, toolCallId: string): { argumentsText: string; toolName: string } | null {

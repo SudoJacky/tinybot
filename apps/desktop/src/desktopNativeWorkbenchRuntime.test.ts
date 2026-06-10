@@ -803,6 +803,40 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent checkpoint: Awaiting tools.");
   });
 
+  test.each([
+    ["agent.done", { stopReason: "final_response" }],
+    ["agent.cancelled", {}],
+    ["agent.error", { message: "provider unavailable" }],
+  ] as const)("clears TS agent checkpoint metadata after %s", async (eventName, terminalPayload) => {
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-terminal", chat_id: "chat-ts-terminal", title: "TS terminal chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.handleTsAgentWorkerEvent("agent.checkpoint", {
+      runId: "run-terminal",
+      phase: "awaiting_tools",
+      iteration: 0,
+      model: "test-model",
+      pendingToolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{}" }],
+      completedToolResults: [],
+    });
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toContain("Awaiting tools");
+
+    runtime.handleTsAgentWorkerEvent(eventName, {
+      runId: "run-terminal",
+      ...terminalPayload,
+    });
+
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toBeUndefined();
+  });
+
   test("projects TS agent awaiting form events into native Agent UI forms", async () => {
     const runtime = createDesktopNativeWorkbenchRuntime({
       api: {
