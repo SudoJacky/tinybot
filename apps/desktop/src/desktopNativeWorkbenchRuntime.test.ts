@@ -256,6 +256,85 @@ describe("desktop native workbench runtime", () => {
     ]);
   });
 
+  test("preserves native tool-call history when routing a session to the experimental TS agent runner", async () => {
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts", chat_id: "chat-ts", title: "TS route" }],
+        }),
+        loadMessages: async () => ({
+          messages: [
+            { role: "user", content: "Read README", message_id: "m-user" },
+            {
+              role: "assistant",
+              content: "",
+              message_id: "m-tool-call",
+              tool_calls: [
+                {
+                  id: "call-read",
+                  function: {
+                    name: "read_file",
+                    arguments: "{\"path\":\"README.md\"}",
+                  },
+                },
+              ],
+            },
+            {
+              role: "tool",
+              content: "README contents",
+              message_id: "m-tool-result",
+              tool_call_id: "call-read",
+              name: "read_file",
+            },
+          ],
+        }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return {
+          finalContent: "Continued answer",
+          stopReason: "final_response",
+          messages: [],
+          toolsUsed: [],
+        };
+      },
+      now: () => "2026-06-03T08:17:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Continue from history", false);
+    await Promise.resolve();
+
+    expect(runSpecs).toMatchObject([
+      {
+        messages: [
+          { role: "user", content: "Read README" },
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [
+              {
+                id: "call-read",
+                name: "read_file",
+                argumentsJson: "{\"path\":\"README.md\"}",
+              },
+            ],
+          },
+          {
+            role: "tool",
+            content: "README contents",
+            toolCallId: "call-read",
+            name: "read_file",
+          },
+          { role: "user", content: "Continue from history" },
+        ],
+      },
+    ]);
+  });
+
   test("interrupts active TS agent runs through the experimental cancel command", async () => {
     let resolveRun: ((value: {
       finalContent: string;

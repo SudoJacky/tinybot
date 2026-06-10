@@ -30,6 +30,16 @@ export interface DesktopNativeWorkbenchRuntimeOptions {
 export type DesktopTsAgentMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  toolCalls?: DesktopTsAgentToolCall[];
+  toolCallId?: string;
+  name?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type DesktopTsAgentToolCall = {
+  id: string;
+  name: string;
+  argumentsJson: string;
 };
 
 export type DesktopTsAgentToolDefinition = {
@@ -981,7 +991,7 @@ function buildDesktopTsAgentRunSpec({
   return {
     runId,
     sessionId,
-    messages: messages.map(desktopMessageToTsAgentMessage).filter((message) => message.content.trim().length > 0),
+    messages: messages.flatMap(desktopMessageToTsAgentMessages).filter(tsAgentMessageHasPayload),
     model: typeof model === "string" && model.trim() ? model : "default",
     maxIterations: positiveIntegerValue(maxToolIterations) ?? 8,
     ...(contextWindowValue !== null ? { contextWindow: contextWindowValue } : {}),
@@ -1003,11 +1013,42 @@ function positiveIntegerValue(value: unknown): number | null {
   return Math.floor(parsed);
 }
 
-function desktopMessageToTsAgentMessage(message: NativeChatMessage): DesktopTsAgentMessage {
-  return {
-    role: desktopMessageRoleToTsAgentRole(message.role),
-    content: message.content || message.reasoningContent || "",
-  };
+function desktopMessageToTsAgentMessages(message: NativeChatMessage): DesktopTsAgentMessage[] {
+  const role = desktopMessageRoleToTsAgentRole(message.role);
+  const content = message.content || message.reasoningContent || "";
+  const toolActivities = message.toolActivities ?? [];
+  const toolCalls = role === "assistant"
+    ? toolActivities
+      .filter((activity) => activity.kind === "call")
+      .map((activity) => ({
+        id: activity.id,
+        name: activity.name || "tool",
+        argumentsJson: activity.argsText || "{}",
+      }))
+    : [];
+  const resultMessages = toolActivities
+    .filter((activity) => activity.kind === "result")
+    .map((activity) => ({
+      role: "tool" as const,
+      content: activity.responseText,
+      toolCallId: activity.id,
+      name: activity.name || "tool",
+    }));
+  if (role === "tool") {
+    return resultMessages.length ? resultMessages : [{ role, content }];
+  }
+  return [
+    {
+      role,
+      content,
+      ...(toolCalls.length ? { toolCalls } : {}),
+    },
+    ...resultMessages,
+  ];
+}
+
+function tsAgentMessageHasPayload(message: DesktopTsAgentMessage): boolean {
+  return message.content.trim().length > 0 || Boolean(message.toolCalls?.length) || Boolean(message.toolCallId);
 }
 
 function desktopMessageRoleToTsAgentRole(role: string): DesktopTsAgentMessage["role"] {
