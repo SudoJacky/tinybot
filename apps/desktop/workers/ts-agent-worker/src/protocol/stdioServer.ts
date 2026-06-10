@@ -1,9 +1,11 @@
 import type { AgentWorker } from "../runtime/agentWorker.ts";
+import { NativeDiagnosticsBridge, type DiagnosticsBridge } from "../runtime/diagnosticsBridge.ts";
 import type { RpcClient } from "./rpcClient.ts";
 import { isJsonObject, type WorkerRequest, type WorkerResponse } from "./messages.ts";
 
 export type StdioServerOptions = {
   worker: AgentWorker;
+  diagnosticsBridge?: DiagnosticsBridge;
   rpcClient?: RpcClient;
   writeLine: (line: string) => void;
   writeLog: (line: string) => void;
@@ -11,12 +13,14 @@ export type StdioServerOptions = {
 
 export class StdioServer {
   private readonly worker: AgentWorker;
+  private readonly diagnosticsBridge?: DiagnosticsBridge;
   private readonly rpcClient?: RpcClient;
   private readonly writeLine: (line: string) => void;
   private readonly writeLog: (line: string) => void;
 
   constructor(options: StdioServerOptions) {
     this.worker = options.worker;
+    this.diagnosticsBridge = options.diagnosticsBridge ?? (options.rpcClient ? new NativeDiagnosticsBridge(options.rpcClient) : undefined);
     this.rpcClient = options.rpcClient;
     this.writeLine = options.writeLine;
     this.writeLog = options.writeLog;
@@ -29,7 +33,7 @@ export class StdioServer {
     }
     if (isWorkerResponse(message)) {
       if (!this.rpcClient?.handleResponse(message)) {
-        this.writeLog(`received response for unknown request ${message.id}:${message.trace_id}`);
+        this.logDiagnostic(`received response for unknown request ${message.id}:${message.trace_id}`);
       }
       return;
     }
@@ -48,12 +52,12 @@ export class StdioServer {
       parsed = JSON.parse(line);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.writeLog(`invalid JSON line: ${message}`);
+      this.logDiagnostic(`invalid JSON line: ${message}`);
       return null;
     }
 
     if (!isJsonObject(parsed)) {
-      this.writeLog("protocol line must be a JSON object");
+      this.logDiagnostic("protocol line must be a JSON object");
       return null;
     }
 
@@ -67,7 +71,7 @@ export class StdioServer {
       typeof parsed.trace_id !== "string" ||
       typeof parsed.method !== "string"
     ) {
-      this.writeLog("protocol line is not a worker request");
+      this.logDiagnostic("protocol line is not a worker request");
       return null;
     }
 
@@ -78,6 +82,14 @@ export class StdioServer {
       method: parsed.method,
       params: isJsonObject(parsed.params) ? parsed.params : undefined,
     };
+  }
+
+  private logDiagnostic(line: string): void {
+    this.writeLog(line);
+    void this.diagnosticsBridge?.append("stderr", line).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.writeLog(`failed to append native diagnostic: ${message}`);
+    });
   }
 }
 

@@ -115,4 +115,33 @@ describe("StdioServer", () => {
     await expect(pending).resolves.toEqual({ path: "README.md", contents: "hello" });
     expect(logs).toEqual([]);
   });
+
+  test("forwards protocol parser diagnostics to native diagnostics RPC", async () => {
+    const lines: string[] = [];
+    const logs: string[] = [];
+    const rpcClient = new RpcClient({ writeLine: (line) => lines.push(line) });
+    const server = new StdioServer({
+      worker: new AgentWorker({
+        provider: new QueueProvider([]),
+        tools: new ToolRegistry(),
+        emitEvent: () => undefined,
+      }),
+      rpcClient,
+      writeLine: (line) => lines.push(line),
+      writeLog: (line) => logs.push(line),
+    });
+
+    await server.handleLine("{not-json");
+
+    expect(JSON.parse(lines[0])).toMatchObject({
+      protocol_version: "1",
+      trace_id: "worker-diagnostics",
+      method: "diagnostics.append",
+      params: {
+        stream: "stderr",
+        line: expect.stringContaining("invalid JSON line:"),
+      },
+    });
+    expect(logs[0]).toContain("invalid JSON line:");
+  });
 });
