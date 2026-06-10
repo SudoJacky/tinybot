@@ -342,7 +342,7 @@ export function createDesktopNativeWorkbenchRuntime({
 
   function handleTsAgentWorkerEvent(eventName: DesktopTsAgentWorkerEventName, payload: unknown): void {
     const frame = isRecord(payload) ? payload : {};
-    const runId = stringValue(frame.runId);
+    const runId = stringValue(frame.runId ?? frame.run_id);
     const chatId = activeTsAgentRuns.get(runId) || chatController.state.activeChatId;
     if (!runId || !chatId) {
       return;

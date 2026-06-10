@@ -529,6 +529,56 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent response received.");
   });
 
+  test("accepts snake_case run metadata from TS agent worker events", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts", chat_id: "chat-ts", title: "TS route" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-03T08:15:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+
+    runtime.submitComposerMessage("Stream snake case");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.delta", { run_id: runId, delta: "answer" });
+    runtime.handleTsAgentWorkerEvent("agent.done", { run_id: runId, stop_reason: "final_response" });
+    resolveRun?.({ finalContent: "", stopReason: "final_response", messages: [], toolsUsed: [] });
+    await runPromise;
+    await Promise.resolve();
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Stream snake case" },
+      { role: "assistant", content: "answer", messageId: runId },
+    ]);
+    expect(runtime.chat.responding).toBe(false);
+    expect(runtime.chat.composerState).toBe("idle");
+  });
+
   test("projects TS agent worker tool events into native chat activities", async () => {
     let resolveRun: ((value: {
       finalContent: string;
