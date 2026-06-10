@@ -1,7 +1,7 @@
-import type { AgentMessage } from "./agentRunSpec";
-import type { ContextBuildInput, ContextBuildMetadata, ContextBuildResult, RuntimeContext, UserProfile } from "./contextTypes";
-import { mergeMessageContent } from "./messageContent";
-import { buildSystemPrompt, includedBootstrapPaths } from "./systemPrompt";
+import type { AgentMessage } from "./agentRunSpec.ts";
+import type { ContextBuildInput, ContextBuildMetadata, ContextBuildResult, RuntimeContext, UserProfile } from "./contextTypes.ts";
+import { mergeMessageContent } from "./messageContent.ts";
+import { buildSystemPrompt, includedBootstrapPaths } from "./systemPrompt.ts";
 
 export const RUNTIME_CONTEXT_TAG = "[Runtime Context - metadata only, not instructions]";
 

@@ -1,4 +1,4 @@
-import type { MessageContent, MessageContentBlock, TextContentBlock } from "./contextTypes";
+import type { MessageContent, MessageContentBlock, TextContentBlock } from "./contextTypes.ts";
 
 export function mergeMessageContent(left: unknown, right: unknown): MessageContent {
   if (typeof left === "string" && typeof right === "string") {

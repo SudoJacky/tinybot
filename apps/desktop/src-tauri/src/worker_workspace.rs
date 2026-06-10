@@ -5,6 +5,8 @@ use crate::worker_protocol::{
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+const BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"];
+
 #[derive(Clone, Debug)]
 pub struct WorkerWorkspaceRpc {
     root: PathBuf,
@@ -56,6 +58,34 @@ impl WorkerWorkspaceRpc {
         collect_workspace_files(&root, &root, &mut entries)?;
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         Ok(entries)
+    }
+
+    pub fn read_bootstrap_files(
+        &self,
+        files: &[String],
+    ) -> Result<WorkspaceBootstrapFiles, WorkerProtocolError> {
+        self.require(WorkerCapability::FsWorkspaceRead)?;
+        let mut found = Vec::new();
+        let mut missing = Vec::new();
+        for requested in files {
+            if !BOOTSTRAP_FILES.contains(&requested.as_str()) {
+                return Err(WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    "bootstrap file is not allowlisted",
+                    serde_json::json!({ "path": requested }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                ));
+            }
+            match self.read_file(requested) {
+                Ok(file) => found.push(file),
+                Err(_) => missing.push(requested.clone()),
+            }
+        }
+        Ok(WorkspaceBootstrapFiles {
+            files: found,
+            missing,
+        })
     }
 
     pub fn write_file(
@@ -124,6 +154,12 @@ pub struct WorkspaceFileContent {
 pub struct WorkspaceFileEntry {
     pub path: String,
     pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceBootstrapFiles {
+    pub files: Vec<WorkspaceFileContent>,
+    pub missing: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -352,6 +388,39 @@ mod tests {
         let paths: Vec<String> = files.into_iter().map(|file| file.path).collect();
 
         assert_eq!(paths, vec!["AGENTS.md", "memory/MEMORY.md"]);
+    }
+
+    #[test]
+    fn read_bootstrap_files_returns_present_files_and_missing_names() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("USER.md", "user rules");
+        fixture.write("AGENTS.md", "agent rules");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let result = rpc
+            .read_bootstrap_files(&["AGENTS.md".to_string(), "TOOLS.md".to_string(), "USER.md".to_string()])
+            .expect("bootstrap files should read");
+
+        assert_eq!(
+            result.files,
+            vec![
+                WorkspaceFileContent { path: "AGENTS.md".to_string(), contents: "agent rules".to_string() },
+                WorkspaceFileContent { path: "USER.md".to_string(), contents: "user rules".to_string() },
+            ]
+        );
+        assert_eq!(result.missing, vec!["TOOLS.md"]);
+    }
+
+    #[test]
+    fn read_bootstrap_files_rejects_non_allowlisted_paths() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let error = rpc
+            .read_bootstrap_files(&["../secret.txt".to_string()])
+            .expect_err("bootstrap reader should reject traversal");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
     }
 
     #[test]

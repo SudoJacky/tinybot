@@ -33,6 +33,16 @@ function request(params: Record<string, unknown>): WorkerRequest {
   };
 }
 
+function runInputRequest(params: Record<string, unknown>): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: "run-input-1",
+    trace_id: "trace-run-input",
+    method: "agent.run_input",
+    params,
+  };
+}
+
 function cancelRequest(runId: string): WorkerRequest {
   return {
     protocol_version: "1",
@@ -138,6 +148,95 @@ describe("AgentWorker", () => {
       payload: expect.objectContaining({
         runId: "run-1",
         stopReason: "final_response",
+      }),
+    }));
+  });
+
+  test("routes agent.run_input through context assembly before AgentRunner", async () => {
+    const events: WorkerEvent[] = [];
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const loadedInputs: Array<{ runId: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+      contextBridge: {
+        loadContextInput: async (input, traceId) => {
+          loadedInputs.push({ runId: input.runId, traceId });
+          return {
+            input: {
+              identity: "Identity",
+              currentMessage: input.input.content,
+              history: [
+                { role: "user", content: "Earlier" },
+                { role: "assistant", content: "Earlier answer" },
+              ],
+              bootstrapFiles: [{ path: "AGENTS.md", contents: "Agent rules" }],
+              runtime: {
+                currentTime: "2026-06-10 09:00:00 Asia/Shanghai",
+                channel: input.channel,
+                chatId: input.chatId,
+              },
+            },
+            metadata: {
+              missingSession: false,
+              malformedHistoryCount: 0,
+              missingBootstrapFiles: [],
+              bootstrapFallbackUsed: false,
+            },
+          };
+        },
+      },
+    });
+
+    const response = await worker.handleRequest(
+      runInputRequest({
+        input: {
+          runId: "run-input-1",
+          sessionId: "session-1",
+          input: { content: "Continue" },
+          channel: "desktop",
+          chatId: "chat-1",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(loadedInputs).toEqual([{ runId: "run-input-1", traceId: "trace-run-input" }]);
+    expect(provider.messages[0]?.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(provider.messages[0]?.[0].content).toContain("## AGENTS.md\n\nAgent rules");
+    expect(provider.messages[0]?.at(-1)?.content).toContain("Current Time: 2026-06-10 09:00:00 Asia/Shanghai");
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "run-input-1",
+      trace_id: "trace-run-input",
+      result: {
+        finalContent: "done",
+        stopReason: "final_response",
+        contextMetadata: {
+          historyMessageCount: 2,
+          bootstrapFiles: ["AGENTS.md"],
+          bridge: {
+            missingSession: false,
+            malformedHistoryCount: 0,
+            missingBootstrapFiles: [],
+            bootstrapFallbackUsed: false,
+          },
+        },
+      },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-run-input",
+      event: "agent.context",
+      payload: expect.objectContaining({
+        runId: "run-input-1",
+        run_id: "run-input-1",
+        metadata: expect.objectContaining({
+          historyMessageCount: 2,
+        }),
       }),
     }));
   });

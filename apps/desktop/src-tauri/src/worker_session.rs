@@ -49,6 +49,47 @@ impl WorkerSessionRpc {
         Ok(session.and_then(|session| session.extra.get("runtime_checkpoint").cloned()))
     }
 
+    pub fn get_history(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<SessionHistoryProjection, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        validate_session_id(session_id)?;
+        let Some(session) = self
+            .sessions
+            .iter()
+            .find(|session| session.session_id == session_id)
+        else {
+            return Ok(SessionHistoryProjection {
+                session_id: session_id.to_string(),
+                messages: Vec::new(),
+                user_profile: serde_json::json!({}),
+                updated_at: String::new(),
+            });
+        };
+        let messages = session
+            .extra
+            .get("messages")
+            .and_then(Value::as_array)
+            .map(|items| {
+                let start = items.len().saturating_sub(limit);
+                items[start..].to_vec()
+            })
+            .unwrap_or_default();
+        let user_profile = session
+            .extra
+            .get("user_profile")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        Ok(SessionHistoryProjection {
+            session_id: session.session_id.clone(),
+            messages,
+            user_profile,
+            updated_at: session.updated_at.clone(),
+        })
+    }
+
     pub fn set_checkpoint(
         &mut self,
         session_id: &str,
@@ -143,6 +184,14 @@ pub struct SessionMetadata {
     pub updated_at: String,
     #[serde(default)]
     pub extra: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct SessionHistoryProjection {
+    pub session_id: String,
+    pub messages: Vec<Value>,
+    pub user_profile: Value,
+    pub updated_at: String,
 }
 
 fn validate_session_id(session_id: &str) -> Result<(), WorkerProtocolError> {
@@ -367,6 +416,55 @@ mod tests {
             .expect("missing session should behave like no checkpoint");
 
         assert_eq!(checkpoint, None);
+    }
+
+    #[test]
+    fn get_history_returns_messages_user_profile_and_updated_at() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "first" },
+                { "role": "assistant", "content": "second" },
+                { "role": "user", "content": "third" }
+            ],
+            "user_profile": {
+                "name": "Ada",
+                "preferences": ["concise"]
+            },
+            "runtime_checkpoint": { "phase": "awaiting_tools" }
+        });
+        let rpc = WorkerSessionRpc::new(vec![session], read_policy());
+
+        let history = rpc
+            .get_history("session-1", 2)
+            .expect("history should read");
+
+        assert_eq!(history.session_id, "session-1");
+        assert_eq!(history.updated_at, "2026-06-09T09:30:00Z");
+        assert_eq!(
+            history.messages,
+            vec![
+                json!({ "role": "assistant", "content": "second" }),
+                json!({ "role": "user", "content": "third" })
+            ]
+        );
+        assert_eq!(
+            history.user_profile,
+            json!({ "name": "Ada", "preferences": ["concise"] })
+        );
+    }
+
+    #[test]
+    fn get_history_returns_empty_projection_for_missing_session() {
+        let rpc = WorkerSessionRpc::new(vec![], read_policy());
+
+        let history = rpc
+            .get_history("desktop-session-1", 80)
+            .expect("missing session should project empty history");
+
+        assert_eq!(history.session_id, "desktop-session-1");
+        assert_eq!(history.messages, Vec::<serde_json::Value>::new());
+        assert_eq!(history.user_profile, json!({}));
     }
 
     #[test]

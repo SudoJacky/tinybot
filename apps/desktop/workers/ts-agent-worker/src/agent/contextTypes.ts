@@ -1,4 +1,4 @@
-import type { AgentMessage, AgentMessageRole } from "./agentRunSpec";
+import type { AgentMessage, AgentMessageRole } from "./agentRunSpec.ts";
 
 export const BOOTSTRAP_FILE_ORDER = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"] as const;
 
@@ -42,6 +42,28 @@ export type ContextBuildInput = {
   runtime: RuntimeContext;
 };
 
+export type AgentRunInput = {
+  runId: string;
+  sessionId: string;
+  input: {
+    role?: "user" | "system";
+    content: string;
+    media?: string[];
+  };
+  channel?: string;
+  chatId?: string;
+  model?: string;
+  maxIterations?: number;
+  stream?: boolean;
+  contextWindow?: number;
+  toolResultBudget?: number;
+  temperature?: number;
+  maxTokens?: number;
+  reasoningEffort?: string;
+  failOnToolError?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
 export type ContextBuildMetadata = {
   bootstrapFiles: string[];
   historyMessageCount: number;
@@ -56,4 +78,16 @@ export type ContextBuildMetadata = {
 export type ContextBuildResult = {
   messages: AgentMessage[];
   metadata: ContextBuildMetadata;
+};
+
+export type ContextBridgeMetadata = {
+  missingSession: boolean;
+  malformedHistoryCount: number;
+  missingBootstrapFiles: string[];
+  bootstrapFallbackUsed: boolean;
+};
+
+export type ContextBridgeLoadResult = {
+  input: ContextBuildInput;
+  metadata: ContextBridgeMetadata;
 };

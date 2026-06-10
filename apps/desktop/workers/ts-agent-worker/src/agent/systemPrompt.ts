@@ -1,4 +1,4 @@
-import { BOOTSTRAP_FILE_ORDER, type BootstrapFile } from "./contextTypes";
+import { BOOTSTRAP_FILE_ORDER, type BootstrapFile } from "./contextTypes.ts";
 
 export type SystemPromptInput = {
   identity: string;

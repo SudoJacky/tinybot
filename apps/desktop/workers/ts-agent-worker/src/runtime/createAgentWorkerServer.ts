@@ -15,6 +15,7 @@ import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import { NativeApprovalBridge } from "./approvalBridge.ts";
 import { AgentWorker } from "./agentWorker.ts";
 import { NativeConfigBridge, modelProviderConfigFromNativeConfig } from "./configBridge.ts";
+import { NativeContextBridge } from "./contextBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
 import { NativeSessionBridge } from "./sessionBridge.ts";
 
@@ -62,6 +63,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     emitEvent: writeEvent,
     approvalBridge: new NativeApprovalBridge(rpcClient),
     sessionBridge: new NativeSessionBridge(rpcClient),
+    contextBridge: new NativeContextBridge(rpcClient),
   });
   return new StdioServer({
     worker,
