@@ -199,6 +199,41 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("includes run id on agent.error events from failed runs", async () => {
+    const events: WorkerEvent[] = [];
+    const worker = new AgentWorker({
+      provider: {
+        complete: async () => {
+          throw new Error("provider unavailable");
+        },
+      },
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(response).toMatchObject({
+      error: { message: "provider unavailable" },
+    });
+    expect(events).toContainEqual({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.error",
+      payload: { runId: "run-1", message: "provider unavailable" },
+    });
+  });
+
   test("forwards runner tool events and checkpoints as protocol events", async () => {
     const events: WorkerEvent[] = [];
     const tools = new ToolRegistry();

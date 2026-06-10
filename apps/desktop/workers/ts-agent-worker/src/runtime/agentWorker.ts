@@ -99,8 +99,10 @@ export class AgentWorker {
       return this.failure(request, "unknown worker method", { method: request.method }, "invalid_protocol");
     }
 
+    let runId: string | undefined;
     try {
       const spec = parseRunSpec(request.params);
+      runId = spec.runId;
       spec.traceId = request.trace_id;
       const activeRun: ActiveRun = { traceId: request.trace_id, cancelled: false };
       this.activeRuns.set(spec.runId, activeRun);
@@ -143,7 +145,7 @@ export class AgentWorker {
         protocol_version: WORKER_PROTOCOL_VERSION,
         trace_id: request.trace_id,
         event: "agent.error",
-        payload: { message },
+        payload: runId ? { runId, message } : { message },
       });
       return this.failure(request, message);
     }

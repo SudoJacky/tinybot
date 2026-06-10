@@ -19,6 +19,26 @@ class QueueProvider implements ModelProvider {
   }
 }
 
+class DeferredProvider implements ModelProvider {
+  private resolveResponse: ((response: ModelResponse) => void) | null = null;
+  private resolveStarted: () => void = () => undefined;
+
+  readonly started = new Promise<void>((resolve) => {
+    this.resolveStarted = resolve;
+  });
+
+  async complete(_messages: AgentMessage[]): Promise<ModelResponse> {
+    this.resolveStarted();
+    return new Promise<ModelResponse>((resolve) => {
+      this.resolveResponse = resolve;
+    });
+  }
+
+  resolve(response: ModelResponse): void {
+    this.resolveResponse?.(response);
+  }
+}
+
 describe("StdioServer", () => {
   test("writes agent.run events and response as protocol JSON lines", async () => {
     const lines: string[] = [];
@@ -114,6 +134,78 @@ describe("StdioServer", () => {
 
     await expect(pending).resolves.toEqual({ path: "README.md", contents: "hello" });
     expect(logs).toEqual([]);
+  });
+
+  test("handles agent.cancel while an agent.run request is still pending", async () => {
+    const lines: string[] = [];
+    const provider = new DeferredProvider();
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => lines.push(JSON.stringify(event)),
+    });
+    const server = new StdioServer({
+      worker,
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "run-req",
+        trace_id: "trace-run",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "hello" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+    await provider.started;
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "cancel-req",
+        trace_id: "trace-cancel",
+        method: "agent.cancel",
+        params: { runId: "run-1" },
+      }),
+    );
+
+    const parsedBeforeRunCompletes = lines.map((line) => JSON.parse(line));
+    expect(parsedBeforeRunCompletes).toContainEqual({
+      protocol_version: "1",
+      trace_id: "trace-run",
+      event: "agent.cancelled",
+      payload: { runId: "run-1" },
+    });
+    expect(parsedBeforeRunCompletes).toContainEqual({
+      protocol_version: "1",
+      id: "cancel-req",
+      trace_id: "trace-cancel",
+      result: { ok: true, runId: "run-1" },
+    });
+    expect(parsedBeforeRunCompletes.some((message) => message.id === "run-req")).toBe(false);
+
+    provider.resolve({ content: "late answer", toolCalls: [], stopReason: "stop" });
+    await run;
+
+    expect(lines.map((line) => JSON.parse(line))).toContainEqual({
+      protocol_version: "1",
+      id: "run-req",
+      trace_id: "trace-run",
+      result: expect.objectContaining({
+        stopReason: "cancelled",
+        error: "cancelled",
+      }),
+    });
   });
 
   test("forwards protocol parser diagnostics to native diagnostics RPC", async () => {
