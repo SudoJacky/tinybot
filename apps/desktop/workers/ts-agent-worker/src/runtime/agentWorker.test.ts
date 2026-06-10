@@ -8,10 +8,12 @@ import { AgentWorker } from "./agentWorker";
 
 class QueueProvider implements ModelProvider {
   readonly options: Array<ModelRequestOptions | undefined> = [];
+  readonly messages: AgentMessage[][] = [];
 
   constructor(private readonly responses: ModelResponse[]) {}
 
-  async complete(_messages: AgentMessage[], callbacks?: ModelRequestOptions): Promise<ModelResponse> {
+  async complete(messages: AgentMessage[], callbacks?: ModelRequestOptions): Promise<ModelResponse> {
+    this.messages.push(messages);
     this.options.push(callbacks);
     const response = this.responses.shift();
     if (!response) {
@@ -152,6 +154,69 @@ describe("AgentWorker", () => {
         name: "read_file",
         description: "Read a workspace file",
         parameters: { type: "object", properties: { path: { type: "string" } } },
+      },
+    ]);
+  });
+
+  test("normalizes native snake_case tool history in run specs before provider requests", async () => {
+    const provider = new QueueProvider([{ content: "continued", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [
+            { role: "user", content: "Read README" },
+            {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  id: "call-read",
+                  type: "function",
+                  function: {
+                    name: "read_file",
+                    arguments: "{\"path\":\"README.md\"}",
+                  },
+                },
+              ],
+            },
+            {
+              role: "tool",
+              content: "README contents",
+              tool_call_id: "call-read",
+              name: "read_file",
+            },
+          ],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(provider.messages[0]).toEqual([
+      { role: "user", content: "Read README" },
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [{ id: "call-read", name: "read_file", argumentsJson: "{\"path\":\"README.md\"}" }],
+        toolCallId: undefined,
+        name: undefined,
+        metadata: undefined,
+      },
+      {
+        role: "tool",
+        content: "README contents",
+        toolCallId: "call-read",
+        name: "read_file",
+        toolCalls: undefined,
+        metadata: undefined,
       },
     ]);
   });

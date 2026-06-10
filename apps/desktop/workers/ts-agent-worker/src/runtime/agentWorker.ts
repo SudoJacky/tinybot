@@ -702,9 +702,17 @@ function parseAgentMessage(value: unknown): AgentMessage {
   return {
     role: value.role,
     content: value.content,
-    toolCallId: typeof value.toolCallId === "string" ? value.toolCallId : undefined,
+    toolCallId: typeof value.toolCallId === "string"
+      ? value.toolCallId
+      : typeof value.tool_call_id === "string"
+        ? value.tool_call_id
+        : undefined,
     name: typeof value.name === "string" ? value.name : undefined,
-    toolCalls: Array.isArray(value.toolCalls) ? value.toolCalls.map(parseToolCallRequest) : undefined,
+    toolCalls: Array.isArray(value.toolCalls)
+      ? value.toolCalls.map(parseToolCallRequest)
+      : Array.isArray(value.tool_calls)
+        ? value.tool_calls.map(parseToolCallRequest)
+        : undefined,
     metadata: isJsonObject(value.metadata) ? value.metadata : undefined,
   };
 }
@@ -717,13 +725,29 @@ function parseCheckpointMessages(value: unknown): AgentMessage[] {
 }
 
 function parseToolCallRequest(value: unknown): { id: string; name: string; argumentsJson: string } {
-  if (!isJsonObject(value) || typeof value.id !== "string" || typeof value.name !== "string" || typeof value.argumentsJson !== "string") {
+  if (!isJsonObject(value) || typeof value.id !== "string") {
+    throw new Error("checkpoint tool call is invalid");
+  }
+  const functionPayload = isJsonObject(value.function) ? value.function : {};
+  const name = typeof value.name === "string"
+    ? value.name
+    : typeof functionPayload.name === "string"
+      ? functionPayload.name
+      : undefined;
+  const argumentsJson = typeof value.argumentsJson === "string"
+    ? value.argumentsJson
+    : typeof value.arguments_json === "string"
+      ? value.arguments_json
+      : typeof functionPayload.arguments === "string"
+        ? functionPayload.arguments
+        : undefined;
+  if (!name || argumentsJson === undefined) {
     throw new Error("checkpoint tool call is invalid");
   }
   return {
     id: value.id,
-    name: value.name,
-    argumentsJson: value.argumentsJson,
+    name,
+    argumentsJson,
   };
 }
 
