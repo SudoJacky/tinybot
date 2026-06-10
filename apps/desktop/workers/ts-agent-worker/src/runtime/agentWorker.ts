@@ -654,7 +654,8 @@ function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec
     throw new Error("agent.run requires object params.spec");
   }
   const raw = params.spec;
-  if (typeof raw.runId !== "string") {
+  const runId = stringParam(raw, "runId", "run_id");
+  if (!runId) {
     throw new Error("agent.run spec.runId must be a string");
   }
   if (!Array.isArray(raw.messages)) {
@@ -663,26 +664,37 @@ function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec
   if (typeof raw.model !== "string") {
     throw new Error("agent.run spec.model must be a string");
   }
-  if (typeof raw.maxIterations !== "number") {
+  const maxIterations = numberParam(raw, "maxIterations", "max_iterations");
+  if (maxIterations === undefined) {
     throw new Error("agent.run spec.maxIterations must be a number");
   }
   if (typeof raw.stream !== "boolean") {
     throw new Error("agent.run spec.stream must be a boolean");
   }
   return {
-    runId: raw.runId,
-    traceId: typeof raw.traceId === "string" ? raw.traceId : undefined,
-    sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
+    runId,
+    traceId: stringParam(raw, "traceId", "trace_id"),
+    sessionId: stringParam(raw, "sessionId", "session_id"),
     messages: raw.messages.map(parseAgentMessage),
     tools: Array.isArray(raw.tools) ? raw.tools.map(parseToolDefinition) : undefined,
     model: raw.model,
-    maxIterations: raw.maxIterations,
+    maxIterations,
     stream: raw.stream,
-    contextWindow: typeof raw.contextWindow === "number" ? raw.contextWindow : undefined,
-    toolResultBudget: typeof raw.toolResultBudget === "number" ? raw.toolResultBudget : undefined,
-    failOnToolError: typeof raw.failOnToolError === "boolean" ? raw.failOnToolError : undefined,
+    contextWindow: numberParam(raw, "contextWindow", "context_window"),
+    toolResultBudget: numberParam(raw, "toolResultBudget", "tool_result_budget"),
+    failOnToolError: booleanParam(raw, "failOnToolError", "fail_on_tool_error"),
     metadata: isJsonObject(raw.metadata) ? raw.metadata : undefined,
   };
+}
+
+function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {
+  const value = params[camelKey] ?? params[snakeKey];
+  return typeof value === "number" ? value : undefined;
+}
+
+function booleanParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {
+  const value = params[camelKey] ?? params[snakeKey];
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function parseToolDefinition(value: unknown): ToolDefinition {

@@ -142,6 +142,75 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("accepts snake_case agent.run spec fields", async () => {
+    const events: WorkerEvent[] = [];
+    const clearedSessions: string[] = [];
+    const appendedSessions: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([
+        { content: "done", toolCalls: [], stopReason: "stop", usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } },
+      ]),
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async (sessionId, messages) => {
+          appendedSessions.push({ sessionId, messages });
+        },
+        getCheckpoint: async () => null,
+      },
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          run_id: "run-snake-1",
+          session_id: "session-snake-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          max_iterations: 2,
+          stream: false,
+          context_window: 100,
+          tool_result_budget: 12,
+          fail_on_tool_error: true,
+        },
+      }),
+    );
+
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "req-1",
+      trace_id: "trace-1",
+      result: {
+        finalContent: "done",
+        stopReason: "final_response",
+      },
+    });
+    expect(events).toContainEqual({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.usage",
+      payload: expect.objectContaining({
+        runId: "run-snake-1",
+        contextWindowTokens: 100,
+      }),
+    });
+    expect(events).toContainEqual({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.done",
+      payload: {
+        runId: "run-snake-1",
+        stopReason: "final_response",
+      },
+    });
+    expect(clearedSessions).toEqual(["session-snake-1"]);
+    expect(appendedSessions[0]?.sessionId).toBe("session-snake-1");
+  });
+
   test("parses run spec tool definitions for the provider request", async () => {
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
     const worker = new AgentWorker({
