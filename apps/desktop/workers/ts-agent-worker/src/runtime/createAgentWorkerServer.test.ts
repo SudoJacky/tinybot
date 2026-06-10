@@ -1134,7 +1134,7 @@ describe("createAgentWorkerServer", () => {
           {
             role: "tool",
             content: "Approval denied: approval-1",
-            toolCallId: "approval-call-1",
+            tool_call_id: "approval-call-1",
             name: "request_approval",
             metadata: {
               approvalId: "approval-1",

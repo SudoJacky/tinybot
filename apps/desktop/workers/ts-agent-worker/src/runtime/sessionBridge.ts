@@ -26,7 +26,7 @@ export class NativeSessionBridge implements SessionBridge {
   async appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void> {
     await this.rpcClient.request(traceId, "session.append_messages", {
       session_id: sessionId,
-      messages: messages as unknown as JsonObject[],
+      messages: messages.map(nativeSessionMessage),
     });
   }
 
@@ -39,4 +39,26 @@ export class NativeSessionBridge implements SessionBridge {
     }
     return checkpoint as Record<string, unknown>;
   }
+}
+
+function nativeSessionMessage(message: AgentMessage): JsonObject {
+  return {
+    role: message.role,
+    content: message.content,
+    ...(message.toolCalls?.length
+      ? {
+          tool_calls: message.toolCalls.map((toolCall) => ({
+            id: toolCall.id,
+            type: "function",
+            function: {
+              name: toolCall.name,
+              arguments: toolCall.argumentsJson,
+            },
+          })),
+        }
+      : {}),
+    ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
+    ...(message.name ? { name: message.name } : {}),
+    ...(message.metadata ? { metadata: message.metadata as JsonObject } : {}),
+  };
 }
