@@ -73,8 +73,11 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
 
 class LazyModelProvider implements ModelProvider {
   private provider: Promise<ModelProvider> | null = null;
+  private readonly loadProvider: () => Promise<ModelProvider>;
 
-  constructor(private readonly loadProvider: () => Promise<ModelProvider>) {}
+  constructor(loadProvider: () => Promise<ModelProvider>) {
+    this.loadProvider = loadProvider;
+  }
 
   async complete(messages: AgentMessage[], options?: ModelRequestOptions): Promise<ModelResponse> {
     const provider = await this.getProvider();

@@ -3,7 +3,11 @@ import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type { ApprovalBridge, ApprovalResolutionRequest } from "./agentWorker.ts";
 
 export class NativeApprovalBridge implements ApprovalBridge {
-  constructor(private readonly rpcClient: NativeRpcClient) {}
+  private readonly rpcClient: NativeRpcClient;
+
+  constructor(rpcClient: NativeRpcClient) {
+    this.rpcClient = rpcClient;
+  }
 
   async resolveApproval(params: ApprovalResolutionRequest, traceId: string): Promise<Record<string, unknown>> {
     const result = await this.rpcClient.request(traceId, "approval.resolve", {

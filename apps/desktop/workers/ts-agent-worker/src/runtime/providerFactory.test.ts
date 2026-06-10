@@ -64,4 +64,25 @@ describe("createModelProvider", () => {
       },
     ]);
   });
+
+  test("creates a fixture provider for offline worker integration tests", async () => {
+    const provider = createModelProvider({
+      kind: "fixture",
+      responses: [
+        {
+          content: "fixture answer",
+          stopReason: "stop",
+          toolCalls: [],
+        },
+      ],
+    });
+
+    const response = await provider.complete([{ role: "user", content: "hello" }]);
+
+    expect(response).toEqual({
+      content: "fixture answer",
+      stopReason: "stop",
+      toolCalls: [],
+    });
+  });
 });

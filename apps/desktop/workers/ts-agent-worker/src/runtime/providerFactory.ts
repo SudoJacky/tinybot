@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
-import type { ModelProvider } from "../model/provider.ts";
+import { FixtureProvider } from "../model/fixtureProvider.ts";
+import type { ModelProvider, ModelResponse } from "../model/provider.ts";
 import { OpenAIProvider, type OpenAIChatCompletionsClient } from "../model/openaiProvider.ts";
 import { UnconfiguredProvider } from "../model/unconfiguredProvider.ts";
 
@@ -19,6 +20,10 @@ export type ModelProviderConfig =
       apiKey: string;
       baseURL?: string;
       model: string;
+    }
+  | {
+      kind: "fixture";
+      responses: ModelResponse[];
     };
 
 export type ModelProviderFactoryDeps = {
@@ -30,6 +35,9 @@ export function createModelProvider(
   deps: ModelProviderFactoryDeps = {},
 ): ModelProvider {
   if (config.kind !== "openai") {
+    if (config.kind === "fixture") {
+      return new FixtureProvider(config.responses);
+    }
     return new UnconfiguredProvider();
   }
   const createOpenAIClient = deps.createOpenAIClient ?? ((options) => adaptOpenAIClient(new OpenAI(options)));

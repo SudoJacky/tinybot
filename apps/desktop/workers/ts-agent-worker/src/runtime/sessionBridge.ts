@@ -4,7 +4,11 @@ import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type { SessionBridge } from "./agentWorker.ts";
 
 export class NativeSessionBridge implements SessionBridge {
-  constructor(private readonly rpcClient: NativeRpcClient) {}
+  private readonly rpcClient: NativeRpcClient;
+
+  constructor(rpcClient: NativeRpcClient) {
+    this.rpcClient = rpcClient;
+  }
 
   async setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void> {
     await this.rpcClient.request(traceId, "session.set_checkpoint", {

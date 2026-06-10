@@ -9,7 +9,11 @@ export type DiagnosticsBridge = {
 };
 
 export class NativeDiagnosticsBridge implements DiagnosticsBridge {
-  constructor(private readonly rpcClient: NativeRpcClient) {}
+  private readonly rpcClient: NativeRpcClient;
+
+  constructor(rpcClient: NativeRpcClient) {
+    this.rpcClient = rpcClient;
+  }
 
   async append(stream: DiagnosticStream, line: string): Promise<void> {
     await this.rpcClient.request(DIAGNOSTICS_TRACE_ID, "diagnostics.append", {

@@ -91,4 +91,42 @@ describe("NativeConfigBridge", () => {
 
     await expect(modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), {})).resolves.toEqual({});
   });
+
+  test("builds fixture provider config from native public config", async () => {
+    const rpcClient = new FakeRpcClient({
+      "agents.defaults.provider": "fixture",
+      "providers.fixture": {
+        responses: [
+          {
+            content: "fixture answer",
+            stopReason: "stop",
+            toolCalls: [],
+          },
+        ],
+      },
+    });
+
+    await expect(modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), {})).resolves.toEqual({
+      kind: "fixture",
+      responses: [
+        {
+          content: "fixture answer",
+          stopReason: "stop",
+          toolCalls: [],
+        },
+      ],
+    });
+    expect(rpcClient.requests).toEqual([
+      {
+        traceId: "worker-config",
+        method: "config.get",
+        params: { path: "agents.defaults.provider" },
+      },
+      {
+        traceId: "worker-config",
+        method: "config.get",
+        params: { path: "providers.fixture" },
+      },
+    ]);
+  });
 });

@@ -918,6 +918,87 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn manager_runs_real_ts_agent_worker_with_fixture_provider() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agents");
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            { "content": "real TS agent final", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let request = WorkerRequest::new(
+            "agent-run-real-ts-1",
+            "trace-real-ts-agent",
+            "agent.run",
+            json!({
+                "spec": {
+                    "runId": "real-ts-run-1",
+                    "messages": [{ "role": "user", "content": "hello real worker" }],
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker request should complete");
+        let events = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.done"
+                            && protocol_event.payload["runId"] == "real-ts-run-1"
+                )
+            })
+        });
+
+        let result = response
+            .result
+            .expect("TS agent worker should return result");
+        assert_eq!(result["finalContent"], "real TS agent final");
+        assert_eq!(result["stopReason"], "final_response");
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+    }
+
     fn test_worker_spec(label: &str) -> WorkerCommandSpec {
         #[cfg(target_os = "windows")]
         {
@@ -1083,6 +1164,20 @@ mod tests {
             desktop_dir,
         )
         .with_label("ts-worker-fixture")
+    }
+
+    fn ts_agent_worker_spec() -> WorkerCommandSpec {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let desktop_dir = manifest_dir
+            .parent()
+            .expect("src-tauri should have desktop parent")
+            .to_path_buf();
+        WorkerCommandSpec::new(
+            "node",
+            ["workers/ts-agent-worker/src/index.ts"],
+            desktop_dir,
+        )
+        .with_label("ts-agent-worker")
     }
 
     fn wait_for_health(manager: &WorkerManager, expected: WorkerHealth) -> WorkerHealth {
