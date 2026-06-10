@@ -78,12 +78,16 @@ describe("StdioServer", () => {
         event: "agent.checkpoint",
         payload: {
           runId: "run-1",
+          run_id: "run-1",
           phase: "final_response",
           iteration: 0,
           model: "test-model",
           assistantMessage: { role: "assistant", content: "done" },
+          assistant_message: { role: "assistant", content: "done" },
           completedToolResults: [],
+          completed_tool_results: [],
           pendingToolCalls: [],
+          pending_tool_calls: [],
         },
       },
       {

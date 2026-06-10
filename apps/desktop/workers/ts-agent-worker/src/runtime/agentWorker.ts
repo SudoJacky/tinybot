@@ -411,12 +411,16 @@ export class AgentWorker {
       event: "agent.checkpoint",
       payload: {
         runId,
+        run_id: runId,
         phase: checkpoint.phase,
         iteration: checkpoint.iteration,
         model: checkpoint.model,
         assistantMessage: checkpoint.assistantMessage,
+        assistant_message: checkpoint.assistantMessage,
         completedToolResults: checkpoint.completedToolResults,
+        completed_tool_results: checkpoint.completedToolResults,
         pendingToolCalls: checkpoint.pendingToolCalls,
+        pending_tool_calls: checkpoint.pendingToolCalls,
       },
     });
   }

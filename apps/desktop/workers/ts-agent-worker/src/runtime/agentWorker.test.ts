@@ -481,7 +481,15 @@ describe("AgentWorker", () => {
     });
     expect(events[0]).toMatchObject({
       event: "agent.checkpoint",
-      payload: { runId: "run-1", phase: "awaiting_tools" },
+      payload: {
+        runId: "run-1",
+        run_id: "run-1",
+        phase: "awaiting_tools",
+        pendingToolCalls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":\"from tool\"}" }],
+        pending_tool_calls: [{ id: "call-1", name: "echo", argumentsJson: "{\"text\":\"from tool\"}" }],
+        completedToolResults: [],
+        completed_tool_results: [],
+      },
     });
   });
 
