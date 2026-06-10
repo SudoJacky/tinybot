@@ -1172,6 +1172,29 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_missing_session_checkpoint_as_null() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.get_checkpoint",
+            json!({ "session_id": "desktop-session-1" }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(response.result, Some(json!(null)));
+        assert!(response.error.is_none());
+    }
+
+    #[test]
     fn dispatches_session_append_messages_request() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
@@ -1204,6 +1227,56 @@ mod tests {
             ])
         );
         assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_session_writes_for_new_experimental_session() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let set_checkpoint = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.set_checkpoint",
+            json!({
+                "session_id": "desktop-session-1",
+                "checkpoint": { "runId": "run-1", "phase": "awaiting_tools" }
+            }),
+        );
+        let append_messages = WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "session.append_messages",
+            json!({
+                "session_id": "desktop-session-1",
+                "messages": [
+                    { "role": "assistant", "content": "done" }
+                ]
+            }),
+        );
+
+        let checkpoint_response = router.dispatch(&set_checkpoint);
+        let append_response = router.dispatch(&append_messages);
+
+        assert_eq!(
+            checkpoint_response.result.as_ref().unwrap()["session_id"],
+            "desktop-session-1"
+        );
+        assert_eq!(
+            checkpoint_response.result.as_ref().unwrap()["extra"]["runtime_checkpoint"],
+            json!({ "runId": "run-1", "phase": "awaiting_tools" })
+        );
+        assert_eq!(
+            append_response.result.as_ref().unwrap()["extra"]["messages"],
+            json!([{ "role": "assistant", "content": "done" }])
+        );
+        assert!(checkpoint_response.error.is_none());
+        assert!(append_response.error.is_none());
     }
 
     #[test]
