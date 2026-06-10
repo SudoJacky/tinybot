@@ -269,6 +269,94 @@ describe("desktop native workbench runtime", () => {
     await runPromise;
   });
 
+  test("restores TS agent checkpoint metadata after loading an experimental route session", async () => {
+    const restoredSessionIds: string[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts", chat_id: "chat-ts", title: "TS route" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async () => ({
+        finalContent: "",
+        stopReason: "final_response",
+        messages: [],
+        toolsUsed: [],
+      }),
+      restoreTsAgentCheckpoint: async (sessionId) => {
+        restoredSessionIds.push(sessionId);
+        return {
+          sessionId,
+          checkpoint: {
+            runId: "run-restored",
+            phase: "awaiting_tools",
+            iteration: 2,
+            model: "test-model",
+            pendingToolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{}" }],
+            completedToolResults: [],
+          },
+        };
+      },
+    });
+
+    await runtime.loadInitialChatState();
+
+    expect(restoredSessionIds).toEqual(["WebSocket:chat-ts"]);
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toBe("Awaiting tools · iteration 3 · 1 pending tool");
+    expect(runtime.chat.status).toBe("TS agent checkpoint restored.");
+  });
+
+  test("refreshes TS agent checkpoint metadata when selecting another experimental route session", async () => {
+    const restoredSessionIds: string[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [
+            { key: "WebSocket:chat-ts-1", chat_id: "chat-ts-1", title: "TS route 1" },
+            { key: "WebSocket:chat-ts-2", chat_id: "chat-ts-2", title: "TS route 2" },
+          ],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async () => ({
+        finalContent: "",
+        stopReason: "final_response",
+        messages: [],
+        toolsUsed: [],
+      }),
+      restoreTsAgentCheckpoint: async (sessionId) => {
+        restoredSessionIds.push(sessionId);
+        return {
+          sessionId,
+          checkpoint: sessionId.endsWith("chat-ts-1")
+            ? {
+              runId: "run-restored",
+              phase: "awaiting_tools",
+              iteration: 0,
+              model: "test-model",
+              pendingToolCalls: [{ id: "call-1", name: "read_file", argumentsJson: "{}" }],
+              completedToolResults: [],
+            }
+            : null,
+        };
+      },
+    });
+
+    await runtime.loadInitialChatState();
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toBe("Awaiting tools · iteration 1 · 1 pending tool");
+
+    await runtime.selectChatSession("WebSocket:chat-ts-2", "chat-ts-2");
+
+    expect(restoredSessionIds).toEqual(["WebSocket:chat-ts-1", "WebSocket:chat-ts-2"]);
+    expect(runtime.chat.runtime?.tsAgentCheckpoint).toBeUndefined();
+    expect(runtime.chat.status).toBe("Session loaded from gateway.");
+  });
+
   test("projects TS agent worker stream events into the active native chat", async () => {
     let resolveRun: ((value: {
       finalContent: string;

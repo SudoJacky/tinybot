@@ -23,6 +23,7 @@ export interface DesktopNativeWorkbenchRuntimeOptions {
   agentRoute?: "gateway" | "ts-agent";
   runTsAgent?: (spec: DesktopTsAgentRunSpec) => Promise<DesktopTsAgentRunResult>;
   cancelTsAgent?: (runId: string) => Promise<unknown>;
+  restoreTsAgentCheckpoint?: (sessionId: string) => Promise<DesktopTsAgentRestoreCheckpointResult>;
   now?: () => string;
 }
 
@@ -47,6 +48,11 @@ export type DesktopTsAgentRunResult = {
   messages?: DesktopTsAgentMessage[];
   toolsUsed?: string[];
   error?: string;
+};
+
+export type DesktopTsAgentRestoreCheckpointResult = {
+  sessionId: string;
+  checkpoint?: Record<string, unknown> | null;
 };
 
 export type DesktopTsAgentWorkerEventName =
@@ -84,6 +90,7 @@ export function createDesktopNativeWorkbenchRuntime({
   agentRoute = "gateway",
   runTsAgent,
   cancelTsAgent,
+  restoreTsAgentCheckpoint,
   now,
 }: DesktopNativeWorkbenchRuntimeOptions): DesktopNativeWorkbenchRuntime {
   const chatController = createDesktopChatSessionController({
@@ -94,7 +101,7 @@ export function createDesktopNativeWorkbenchRuntime({
   let chatStatus = "Loading sessions.";
   let usePersistentRag = true;
   let composerState: DesktopNativeChatModel["composerState"] = "idle";
-  let runtimeMetadata: DesktopNativeChatModel["runtime"] = {};
+  let runtimeMetadata: NonNullable<DesktopNativeChatModel["runtime"]> = {};
   const agentUiState = createAgentUiEventState();
   const activeTsAgentRuns = new Map<string, string>();
   const activeTsAgentToolCallDeltas = new Map<string, {
@@ -107,10 +114,34 @@ export function createDesktopNativeWorkbenchRuntime({
     logDesktopNativeDebug("runtime.load.start", summarizeRuntimeState());
     const count = await chatController.loadSessions();
     chatStatus = count ? `Loaded ${count} ${count === 1 ? "session" : "sessions"} from gateway.` : "No sessions yet.";
+    await restoreActiveTsAgentCheckpoint();
     logDesktopNativeDebug("runtime.load.complete", {
       ...summarizeRuntimeState(),
       loadedCount: count,
     });
+  }
+
+  async function restoreActiveTsAgentCheckpoint(): Promise<void> {
+    if (agentRoute !== "ts-agent" || !restoreTsAgentCheckpoint || !chatController.state.activeSessionKey) {
+      clearTsAgentCheckpointMetadata();
+      return;
+    }
+    try {
+      const restored = await restoreTsAgentCheckpoint(chatController.state.activeSessionKey);
+      if (!restored.checkpoint) {
+        clearTsAgentCheckpointMetadata();
+        return;
+      }
+      setRuntimeMetadata({ tsAgentCheckpoint: formatTsAgentCheckpoint(restored.checkpoint) });
+      chatStatus = "TS agent checkpoint restored.";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      chatStatus = `TS agent checkpoint restore failed: ${message}`;
+      logDesktopNativeDebug("runtime.restoreCheckpoint.failed", {
+        ...summarizeRuntimeState(),
+        error: message,
+      });
+    }
   }
 
   async function selectChatSession(sessionKey: string, chatId: string): Promise<void> {
@@ -121,11 +152,13 @@ export function createDesktopNativeWorkbenchRuntime({
     });
     await chatController.selectSession(sessionKey, chatId);
     chatStatus = "Session loaded from gateway.";
+    await restoreActiveTsAgentCheckpoint();
     logDesktopNativeDebug("runtime.select.complete", summarizeRuntimeState());
   }
 
   function startNewChat(): void {
     chatController.startNewChat();
+    clearTsAgentCheckpointMetadata();
     chatStatus = "Creating chat session.";
     logDesktopNativeDebug("runtime.newChat", summarizeRuntimeState());
   }
@@ -166,6 +199,19 @@ export function createDesktopNativeWorkbenchRuntime({
     runtimeMetadata = { ...runtimeMetadata, ...metadata };
     logDesktopNativeDebug("runtime.metadata.update", {
       keys: Object.keys(metadata),
+      runtime: runtimeMetadata,
+    });
+  }
+
+  function clearTsAgentCheckpointMetadata(): void {
+    if (!("tsAgentCheckpoint" in runtimeMetadata)) {
+      return;
+    }
+    const nextMetadata = { ...runtimeMetadata };
+    delete nextMetadata.tsAgentCheckpoint;
+    runtimeMetadata = nextMetadata;
+    logDesktopNativeDebug("runtime.metadata.clear", {
+      key: "tsAgentCheckpoint",
       runtime: runtimeMetadata,
     });
   }

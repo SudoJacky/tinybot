@@ -117,6 +117,12 @@ struct WorkerCancelAgentInput {
     run_id: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerRestoreAgentCheckpointInput {
+    session_id: String,
+}
+
 #[derive(Deserialize, Serialize)]
 struct GatewayExitPolicyPreference {
     keep_running: bool,
@@ -377,6 +383,20 @@ fn worker_cancel_agent(
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     worker_cancel_agent_with_options(state.inner(), input.run_id, Duration::from_secs(10))
+}
+
+#[tauri::command]
+fn worker_restore_agent_checkpoint(
+    input: WorkerRestoreAgentCheckpointInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_restore_agent_checkpoint_with_options(
+        state.inner(),
+        input.session_id,
+        repo_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
 }
 
 #[tauri::command]
@@ -1023,6 +1043,48 @@ fn build_worker_cancel_agent_request(request_id: u128, run_id: String) -> Worker
     )
 }
 
+fn worker_restore_agent_checkpoint_with_options(
+    shared: &SharedGateway,
+    session_id: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_restore_agent_checkpoint_request(now_unix_ms(), session_id);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker agent checkpoint restore request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker agent checkpoint restore returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker agent checkpoint restore response missing result".to_string())
+}
+
+fn build_worker_restore_agent_checkpoint_request(
+    request_id: u128,
+    session_id: String,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("agent-restore-checkpoint-{request_id}"),
+        format!("trace-agent-restore-checkpoint-{request_id}"),
+        "agent.restore_checkpoint",
+        serde_json::json!({ "sessionId": session_id }),
+    )
+}
+
 fn ensure_ts_agent_worker_running(
     worker: &WorkerManager,
     workspace_root: PathBuf,
@@ -1258,6 +1320,7 @@ pub fn run() {
             worker_echo_agent,
             worker_run_agent,
             worker_cancel_agent,
+            worker_restore_agent_checkpoint,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -1429,6 +1492,19 @@ mod tests {
         assert_eq!(request.trace_id, "trace-agent-cancel-42");
         assert_eq!(request.method, "agent.cancel");
         assert_eq!(request.params, serde_json::json!({ "runId": "run-1" }));
+    }
+
+    #[test]
+    fn worker_restore_agent_checkpoint_request_wraps_session_id_for_ts_worker() {
+        let request = build_worker_restore_agent_checkpoint_request(42, "WebSocket:chat-1".to_string());
+
+        assert_eq!(request.id, "agent-restore-checkpoint-42");
+        assert_eq!(request.trace_id, "trace-agent-restore-checkpoint-42");
+        assert_eq!(request.method, "agent.restore_checkpoint");
+        assert_eq!(
+            request.params,
+            serde_json::json!({ "sessionId": "WebSocket:chat-1" })
+        );
     }
 
     #[test]
