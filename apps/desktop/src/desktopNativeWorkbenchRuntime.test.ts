@@ -215,6 +215,60 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent response received.");
   });
 
+  test("interrupts active TS agent runs through the experimental cancel command", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const sentSocketMessages: unknown[] = [];
+    const cancelledRunIds: string[] = [];
+    const runSpecs: Array<{ runId: string }> = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts", chat_id: "chat-ts", title: "TS route" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: (message) => {
+        sentSocketMessages.push(message);
+      },
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push({ runId: spec.runId });
+        return runPromise;
+      },
+      cancelTsAgent: async (runId) => {
+        cancelledRunIds.push(runId);
+      },
+      now: () => "2026-06-03T08:15:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    sentSocketMessages.length = 0;
+
+    runtime.submitComposerMessage("Cancel this TS run");
+    expect(runtime.interruptActiveChat()).toBe(true);
+    await Promise.resolve();
+
+    expect(cancelledRunIds).toEqual([runSpecs[0].runId]);
+    expect(sentSocketMessages).toEqual([]);
+    expect(runtime.chat.status).toBe("TS agent interrupt requested.");
+
+    runtime.handleTsAgentWorkerEvent("agent.done", { runId: runSpecs[0].runId, stopReason: "cancelled" });
+    resolveRun?.({ finalContent: "", stopReason: "cancelled", messages: [], toolsUsed: [] });
+    await runPromise;
+  });
+
   test("projects TS agent worker stream events into the active native chat", async () => {
     let resolveRun: ((value: {
       finalContent: string;

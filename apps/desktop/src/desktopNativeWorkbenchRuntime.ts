@@ -22,6 +22,7 @@ export interface DesktopNativeWorkbenchRuntimeOptions {
   sendSocketMessage(message: unknown): void;
   agentRoute?: "gateway" | "ts-agent";
   runTsAgent?: (spec: DesktopTsAgentRunSpec) => Promise<DesktopTsAgentRunResult>;
+  cancelTsAgent?: (runId: string) => Promise<unknown>;
   now?: () => string;
 }
 
@@ -56,6 +57,7 @@ export type DesktopTsAgentWorkerEventName =
   | "agent.tool.result"
   | "agent.usage"
   | "agent.checkpoint"
+  | "agent.cancelled"
   | "agent.done"
   | "agent.error";
 
@@ -81,6 +83,7 @@ export function createDesktopNativeWorkbenchRuntime({
   sendSocketMessage,
   agentRoute = "gateway",
   runTsAgent,
+  cancelTsAgent,
   now,
 }: DesktopNativeWorkbenchRuntimeOptions): DesktopNativeWorkbenchRuntime {
   const chatController = createDesktopChatSessionController({
@@ -383,6 +386,12 @@ export function createDesktopNativeWorkbenchRuntime({
       chatStatus = `TS agent checkpoint: ${labelTsAgentCheckpointPhase(frame.phase)}.`;
       return;
     }
+    if (eventName === "agent.cancelled") {
+      completeTsAgentRun(runId, chatId);
+      composerState = "idle";
+      chatStatus = "TS agent cancelled.";
+      return;
+    }
     if (eventName === "agent.done") {
       completeTsAgentRun(runId, chatId);
       composerState = "idle";
@@ -441,6 +450,25 @@ export function createDesktopNativeWorkbenchRuntime({
   }
 
   function interruptActiveChat(): boolean {
+    if (agentRoute === "ts-agent" && cancelTsAgent && activeTsAgentRuns.size > 0) {
+      const activeRunIds = Array.from(activeTsAgentRuns.keys());
+      const runId = activeRunIds[activeRunIds.length - 1];
+      if (!runId) {
+        chatStatus = "No active chat to interrupt.";
+        return false;
+      }
+      void cancelTsAgent(runId).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        applyChatEvent(chatController.state, { kind: "error", message, raw: { event: "error", message } });
+        chatStatus = `TS agent interrupt failed: ${message}`;
+      });
+      chatStatus = "TS agent interrupt requested.";
+      logDesktopNativeDebug("runtime.interrupt.tsAgent", {
+        ...summarizeRuntimeState(),
+        runId,
+      });
+      return true;
+    }
     const interrupted = chatController.interruptActiveChat();
     chatStatus = interrupted ? "Interrupt requested." : "No active chat to interrupt.";
     logDesktopNativeDebug("runtime.interrupt", {

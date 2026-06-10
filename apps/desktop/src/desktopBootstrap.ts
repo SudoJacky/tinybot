@@ -302,6 +302,9 @@ async function loadNativeChatRuntime(): Promise<DesktopNativeWorkbenchRuntime> {
     runTsAgent: agentRoute === "ts-agent"
       ? (spec) => invoke("worker_run_agent", { input: { spec } })
       : undefined,
+    cancelTsAgent: agentRoute === "ts-agent"
+      ? (runId) => invoke("worker_cancel_agent", { input: { runId } })
+      : undefined,
   });
   nativeWorkbenchRuntime = runtime;
   installNativeTsAgentEventListeners();
@@ -341,6 +344,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.tool.result",
     "agent.usage",
     "agent.checkpoint",
+    "agent.cancelled",
     "agent.done",
     "agent.error",
   ] as const) {

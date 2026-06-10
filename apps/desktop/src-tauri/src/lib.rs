@@ -111,6 +111,12 @@ struct WorkerRunAgentInput {
     spec: serde_json::Value,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerCancelAgentInput {
+    run_id: String,
+}
+
 #[derive(Deserialize, Serialize)]
 struct GatewayExitPolicyPreference {
     keep_running: bool,
@@ -363,6 +369,14 @@ fn worker_run_agent(
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
+}
+
+#[tauri::command]
+fn worker_cancel_agent(
+    input: WorkerCancelAgentInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_cancel_agent_with_options(state.inner(), input.run_id, Duration::from_secs(10))
 }
 
 #[tauri::command]
@@ -971,6 +985,44 @@ fn build_worker_run_agent_request(request_id: u128, spec: serde_json::Value) -> 
     )
 }
 
+fn worker_cancel_agent_with_options(
+    shared: &SharedGateway,
+    run_id: String,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+    if worker.status().state != WorkerManagerState::Running {
+        return Err("TS agent worker is not running".to_string());
+    }
+
+    let request = build_worker_cancel_agent_request(now_unix_ms(), run_id);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker agent cancel request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker agent cancel returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker agent cancel response missing result".to_string())
+}
+
+fn build_worker_cancel_agent_request(request_id: u128, run_id: String) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("agent-cancel-{request_id}"),
+        format!("trace-agent-cancel-{request_id}"),
+        "agent.cancel",
+        serde_json::json!({ "runId": run_id }),
+    )
+}
+
 fn ensure_ts_agent_worker_running(
     worker: &WorkerManager,
     workspace_root: PathBuf,
@@ -1205,6 +1257,7 @@ pub fn run() {
             worker_probe_status,
             worker_echo_agent,
             worker_run_agent,
+            worker_cancel_agent,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -1366,6 +1419,16 @@ mod tests {
         assert_eq!(request.trace_id, "trace-agent-run-42");
         assert_eq!(request.method, "agent.run");
         assert_eq!(request.params, serde_json::json!({ "spec": agent_spec }));
+    }
+
+    #[test]
+    fn worker_cancel_agent_request_wraps_run_id_for_ts_worker() {
+        let request = build_worker_cancel_agent_request(42, "run-1".to_string());
+
+        assert_eq!(request.id, "agent-cancel-42");
+        assert_eq!(request.trace_id, "trace-agent-cancel-42");
+        assert_eq!(request.method, "agent.cancel");
+        assert_eq!(request.params, serde_json::json!({ "runId": "run-1" }));
     }
 
     #[test]
