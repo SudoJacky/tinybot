@@ -66,6 +66,7 @@ export type DesktopTsAgentWorkerEventName =
   | "agent.awaiting_form"
   | "agent.awaiting_approval"
   | "agent.memory_reference"
+  | "agent.task_progress"
   | "agent.cancelled"
   | "agent.done"
   | "agent.error";
@@ -336,6 +337,10 @@ export function createDesktopNativeWorkbenchRuntime({
       projectTsAgentMemoryReferences(frame, runId, chatId);
       return;
     }
+    if (eventName === "agent.task_progress") {
+      projectTsAgentTaskProgress(frame, runId, chatId);
+      return;
+    }
     if (eventName === "agent.delta" || eventName === "agent.reasoning_delta") {
       applyChatEvent(chatController.state, {
         kind: "message.delta",
@@ -531,6 +536,34 @@ export function createDesktopNativeWorkbenchRuntime({
     });
     composerState = "idle";
     chatStatus = "TS agent awaiting approval.";
+  }
+
+  function projectTsAgentTaskProgress(frame: Record<string, unknown>, runId: string, chatId: string): void {
+    const progress = frame.progress ?? frame.taskProgress ?? frame.task_progress;
+    const toolCallId = stringValue(frame.toolCallId ?? frame.tool_call_id) || `${runId}:task-progress`;
+    const toolName = stringValue(frame.toolName ?? frame.tool_name) || "task_progress";
+    const content = formatTsAgentTaskProgress(progress);
+    applyChatEvent(chatController.state, {
+      kind: "message.completed",
+      chatId,
+      messageId: `${runId}:${toolCallId}:task-progress`,
+      text: content,
+      raw: {
+        event: "agent.task_progress",
+        chat_id: chatId,
+        content,
+        message_id: `${runId}:${toolCallId}:task-progress`,
+        role: "progress",
+        source: "ts-agent-worker",
+        status: "running",
+        _tool_call_id: toolCallId,
+        _tool_name: toolName,
+        _tool_result: true,
+        _task_progress: progress,
+      },
+    });
+    composerState = "sending";
+    chatStatus = "TS agent task progress updated.";
   }
 
   function projectTsAgentMemoryReferences(frame: Record<string, unknown>, runId: string, chatId: string): void {
@@ -827,6 +860,39 @@ function formatTsAgentCheckpoint(frame: Record<string, unknown>): string {
     parts.push(`${completedCount} completed ${completedCount === 1 ? "tool" : "tools"}`);
   }
   return parts.join(" · ");
+}
+
+function formatTsAgentTaskProgress(value: unknown): string {
+  if (isRecord(value)) {
+    const completed = numberValue(value.completed ?? value.done ?? value.finished);
+    const total = numberValue(value.total ?? value.count);
+    if (completed !== null && total !== null) {
+      return `Task progress: ${Math.round(completed)}/${Math.round(total)}`;
+    }
+    const percent = numberValue(value.percent ?? value.percentage);
+    if (percent !== null) {
+      return `Task progress: ${boundedPercent(percent)}%`;
+    }
+    const summary = stringValue(value.summary ?? value.message ?? value.detail ?? value.title);
+    if (summary) {
+      return `Task progress: ${summary}`;
+    }
+    const serialized = safeJsonStringify(value);
+    return serialized ? `Task progress: ${serialized}` : "Task progress updated.";
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `Task progress: ${boundedPercent(value)}%`;
+  }
+  const text = stringValue(value);
+  return text ? `Task progress: ${text}` : "Task progress updated.";
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function labelTsAgentCheckpointPhase(value: unknown): string {

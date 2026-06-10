@@ -921,6 +921,74 @@ describe("desktop native workbench runtime", () => {
     expect(runtime.chat.status).toBe("TS agent awaiting approval.");
   });
 
+  test("projects TS agent task progress events into native chat activities", async () => {
+    let resolveRun: ((value: {
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }) => void) | undefined;
+    const runPromise = new Promise<{
+      finalContent: string;
+      stopReason: string;
+      messages: never[];
+      toolsUsed: never[];
+    }>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runSpecs: unknown[] = [];
+    const runtime = createDesktopNativeWorkbenchRuntime({
+      api: {
+        listSessions: async () => ({
+          items: [{ key: "WebSocket:chat-ts-task", chat_id: "chat-ts-task", title: "TS task chat" }],
+        }),
+        loadMessages: async () => ({ messages: [] }),
+      },
+      sendSocketMessage: () => undefined,
+      agentRoute: "ts-agent",
+      runTsAgent: async (spec) => {
+        runSpecs.push(spec);
+        return runPromise;
+      },
+      now: () => "2026-06-03T08:23:00.000Z",
+    });
+    await runtime.loadInitialChatState();
+    runtime.submitComposerMessage("Track task progress");
+    const runId = String((runSpecs[0] as { runId: string }).runId);
+
+    runtime.handleTsAgentWorkerEvent("agent.task_progress", {
+      runId,
+      toolCallId: "call-task",
+      toolName: "update_plan",
+      progress: {
+        completed: 1,
+        total: 3,
+        pending: 2,
+      },
+    });
+
+    expect(runtime.chat.messages).toMatchObject([
+      { role: "user", content: "Track task progress" },
+      {
+        role: "assistant",
+        toolActivities: [
+          {
+            id: "call-task",
+            name: "update_plan",
+            responseText: "Task progress: 1/3",
+            kind: "result",
+            status: "running",
+          },
+        ],
+      },
+    ]);
+    expect(runtime.chat.status).toBe("TS agent task progress updated.");
+
+    resolveRun?.({ finalContent: "", stopReason: "final_response", messages: [], toolsUsed: [] });
+    await runPromise;
+    await Promise.resolve();
+  });
+
   test("projects TS agent memory reference events into native chat references", async () => {
     const runSpecs: unknown[] = [];
     const runtime = createDesktopNativeWorkbenchRuntime({

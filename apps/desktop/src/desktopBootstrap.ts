@@ -353,6 +353,7 @@ function installNativeTsAgentEventListeners(): void {
     "agent.awaiting_form",
     "agent.awaiting_approval",
     "agent.memory_reference",
+    "agent.task_progress",
     "agent.cancelled",
     "agent.done",
     "agent.error",
