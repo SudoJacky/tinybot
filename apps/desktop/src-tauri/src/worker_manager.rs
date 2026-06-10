@@ -495,6 +495,7 @@ mod tests {
     use super::*;
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
     use crate::worker_rpc::WorkerRpcRouter;
+    use crate::worker_session::SessionMetadata;
     use serde_json::json;
     use std::path::PathBuf;
 
@@ -1078,6 +1079,110 @@ mod tests {
                         && protocol_event.payload["stopReason"] == "final_response"
             )
         }));
+    }
+
+    #[test]
+    fn manager_runs_real_ts_agent_worker_with_context_input() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let event_log = events.clone();
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agent bootstrap");
+        let session = SessionMetadata {
+            session_id: "desktop-context-session-1".to_string(),
+            title: "Context Input".to_string(),
+            workspace_dir: fixture.root.display().to_string(),
+            created_at: "2026-06-10T09:00:00Z".to_string(),
+            updated_at: "2026-06-10T09:30:00Z".to_string(),
+            extra: json!({
+                "messages": [{ "role": "user", "content": "Earlier context" }],
+                "user_profile": { "name": "Ada" }
+            }),
+        };
+        let manager = WorkerManager::new(20).with_event_sink(move |event| {
+            event_log.lock().expect("event log should lock").push(event);
+        });
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            { "content": "context input final", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![session],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::FsWorkspaceRead,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let request = WorkerRequest::new(
+            "agent-run-input-real-ts-1",
+            "trace-real-ts-agent-input",
+            "agent.run_input",
+            json!({
+                "input": {
+                    "runId": "real-ts-run-input-1",
+                    "sessionId": "desktop-context-session-1",
+                    "input": { "content": "Continue from context" },
+                    "channel": "desktop",
+                    "chatId": "chat-1",
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let response = manager
+            .send_stdio_request(&request, std::time::Duration::from_secs(5))
+            .expect("real TS agent worker context input request should complete");
+        let result = response
+            .result
+            .expect("context input run should return result");
+
+        assert_eq!(result["finalContent"], "context input final");
+        assert_eq!(result["contextMetadata"]["historyMessageCount"], 1);
+        assert_eq!(
+            result["contextMetadata"]["bootstrapFiles"],
+            json!(["AGENTS.md"])
+        );
+
+        let events = wait_for_events(&events, |events| {
+            events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkerManagerEvent::Protocol(protocol_event)
+                        if protocol_event.event == "agent.context"
+                            && protocol_event.payload["metadata"]["historyMessageCount"] == 1
+                )
+            })
+        });
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                WorkerManagerEvent::Protocol(protocol_event)
+                    if protocol_event.event == "agent.done"
+                        && protocol_event.payload["stopReason"] == "final_response"
+            )
+        }));
+        manager.stop().expect("TS agent worker should stop");
     }
 
     #[test]
