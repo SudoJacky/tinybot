@@ -519,6 +519,94 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("registers RAG tools that call native rag RPC", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-rag",
+            name: "query_rag",
+            argumentsJson: JSON.stringify({ query: "TS worker bridge", collection: "docs", limit: 3 }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      { content: "rag checked", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "query RAG" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "rag.query"));
+    const ragRequest = parsedLines(lines).find((line) => line.method === "rag.query");
+    expect(ragRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      method: "rag.query",
+      params: {
+        query: "TS worker bridge",
+        collection: "docs",
+        limit: 3,
+      },
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: ragRequest?.id,
+        trace_id: "trace-1",
+        result: {
+          documents: [
+            {
+              id: "doc-1",
+              title: "TS Agent Loop Design",
+              path: "docs/ts-agent-loop.md",
+              score: 0.91,
+              excerpt: "TS worker should proxy product integrations through Rust.",
+            },
+          ],
+        },
+      }),
+    );
+    await run;
+
+    expect(provider.requests[1]).toContainEqual({
+      role: "tool",
+      content: expect.stringContaining("TS worker should proxy product integrations through Rust."),
+      toolCallId: "call-rag",
+      name: "query_rag",
+    });
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-1",
+      trace_id: "trace-1",
+      result: { finalContent: "rag checked", stopReason: "final_response" },
+    });
+  });
+
   test("loads model provider config from native config when provider is not injected", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "native config done", toolCalls: [], stopReason: "stop" }]);

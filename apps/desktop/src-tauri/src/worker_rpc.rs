@@ -141,8 +141,59 @@ impl WorkerRpcRouter {
                 let params: MemorySaveParams = parse_params(request)?;
                 self.memory.save(params)
             }
+            "rag.query" => {
+                let params: RagQueryParams = parse_params(request)?;
+                self.query_rag(params)
+            }
             _ => Err(unknown_method_error(request)),
         }
+    }
+
+    fn query_rag(
+        &self,
+        params: RagQueryParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        let limit = params.limit.unwrap_or(5).min(20);
+        if limit == 0 {
+            return Ok(serde_json::json!({ "documents": [] }));
+        }
+        let collection = normalize_rag_collection(params.collection)?;
+        let query_terms = rag_query_terms(&params.query);
+        if query_terms.is_empty() {
+            return Err(invalid_rag_request(
+                "query must contain at least one searchable term",
+            ));
+        }
+        let mut documents = Vec::new();
+        for entry in self.workspace.list_files()? {
+            if !is_rag_candidate_path(&entry.path, collection.as_deref()) {
+                continue;
+            }
+            let file = match self.workspace.read_file(&entry.path) {
+                Ok(file) => file,
+                Err(_) => continue,
+            };
+            let score = rag_document_score(&file.path, &file.contents, &query_terms);
+            if score == 0 {
+                continue;
+            }
+            documents.push(serde_json::json!({
+                "id": file.path,
+                "title": rag_document_title(&file.path, &file.contents),
+                "path": file.path,
+                "score": score,
+                "excerpt": rag_document_excerpt(&file.contents, &query_terms),
+            }));
+        }
+        documents.sort_by(|left, right| {
+            let left_score = left.get("score").and_then(Value::as_u64).unwrap_or(0);
+            let right_score = right.get("score").and_then(Value::as_u64).unwrap_or(0);
+            right_score
+                .cmp(&left_score)
+                .then_with(|| left["path"].as_str().cmp(&right["path"].as_str()))
+        });
+        documents.truncate(limit);
+        Ok(serde_json::json!({ "documents": documents }))
     }
 }
 
@@ -467,7 +518,8 @@ impl WorkerMemoryRpc {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).map_err(memory_io_error)?;
             }
-            let existing = fs::read_to_string(&path).unwrap_or_else(|_| default_memory_view(view_file));
+            let existing =
+                fs::read_to_string(&path).unwrap_or_else(|_| default_memory_view(view_file));
             let updated = replace_managed_memory_view(&existing, title, &rendered);
             fs::write(path, updated).map_err(memory_io_error)?;
         }
@@ -546,6 +598,15 @@ struct MemorySearchParams {
     scope: Option<String>,
     #[serde(default)]
     status: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct RagQueryParams {
+    query: String,
+    #[serde(default)]
+    collection: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
 }
@@ -657,6 +718,116 @@ fn invalid_memory_request(
         false,
         crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
     )
+}
+
+fn invalid_rag_request(message: impl Into<String>) -> crate::worker_protocol::WorkerProtocolError {
+    crate::worker_protocol::WorkerProtocolError::new(
+        crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        serde_json::json!({ "method": "rag.query" }),
+        false,
+        crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn normalize_rag_collection(
+    value: Option<String>,
+) -> Result<Option<String>, crate::worker_protocol::WorkerProtocolError> {
+    let Some(value) = value.map(|value| value.trim().replace('\\', "/")) else {
+        return Ok(None);
+    };
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.starts_with('/')
+        || value.contains(':')
+        || value.contains('\0')
+        || value
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(invalid_rag_request(
+            "collection must be a workspace-relative prefix",
+        ));
+    }
+    Ok(Some(value.trim_end_matches('/').to_string()))
+}
+
+fn is_rag_candidate_path(path: &str, collection: Option<&str>) -> bool {
+    if let Some(collection) = collection {
+        let prefix = format!("{collection}/");
+        if path != collection && !path.starts_with(&prefix) {
+            return false;
+        }
+    }
+    let lower = path.to_ascii_lowercase();
+    [
+        ".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".toml", ".yaml", ".yml", ".ts", ".tsx",
+        ".js", ".jsx", ".rs", ".py",
+    ]
+    .iter()
+    .any(|extension| lower.ends_with(extension))
+}
+
+fn rag_query_terms(query: &str) -> Vec<String> {
+    let mut terms: Vec<String> = query
+        .split(|character: char| !character.is_alphanumeric())
+        .map(|term| term.trim().to_ascii_lowercase())
+        .filter(|term| term.len() > 2)
+        .collect();
+    terms.sort();
+    terms.dedup();
+    terms
+}
+
+fn rag_document_score(path: &str, contents: &str, terms: &[String]) -> usize {
+    let haystack = format!("{path}\n{contents}").to_ascii_lowercase();
+    terms
+        .iter()
+        .filter(|term| haystack.contains(term.as_str()))
+        .count()
+}
+
+fn rag_document_title(path: &str, contents: &str) -> String {
+    contents
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .strip_prefix("# ")
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| {
+            path.rsplit('/')
+                .next()
+                .and_then(|name| name.split('.').next())
+                .filter(|name| !name.is_empty())
+                .unwrap_or(path)
+                .to_string()
+        })
+}
+
+fn rag_document_excerpt(contents: &str, terms: &[String]) -> String {
+    contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .find(|line| {
+            let lower = line.to_ascii_lowercase();
+            terms.iter().any(|term| lower.contains(term.as_str()))
+        })
+        .or_else(|| {
+            contents
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+        })
+        .unwrap_or("")
+        .chars()
+        .take(500)
+        .collect()
 }
 
 fn memory_io_error(error: std::io::Error) -> crate::worker_protocol::WorkerProtocolError {
@@ -797,16 +968,27 @@ fn memory_note_view_file_for_note(note: &Value) -> &'static str {
 
 fn default_memory_view(view_file: &str) -> String {
     match view_file {
-        "USER.md" => "# User Profile\n\n## User Memory Notes\n\n(No active Memory Notes.)\n".to_string(),
-        "SOUL.md" => "# Assistant Profile\n\n## Assistant Memory Notes\n\n(No active Memory Notes.)\n".to_string(),
-        _ => "# Long-term Memory\n\n## Project Memory Notes\n\n(No active Memory Notes.)\n".to_string(),
+        "USER.md" => {
+            "# User Profile\n\n## User Memory Notes\n\n(No active Memory Notes.)\n".to_string()
+        }
+        "SOUL.md" => {
+            "# Assistant Profile\n\n## Assistant Memory Notes\n\n(No active Memory Notes.)\n"
+                .to_string()
+        }
+        _ => "# Long-term Memory\n\n## Project Memory Notes\n\n(No active Memory Notes.)\n"
+            .to_string(),
     }
 }
 
 fn render_memory_view_section(title: &str, notes: &[Value], view_file: &str) -> String {
     let active_notes: Vec<&Value> = notes
         .iter()
-        .filter(|note| note.get("status").and_then(Value::as_str).unwrap_or("active") == "active")
+        .filter(|note| {
+            note.get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("active")
+                == "active"
+        })
         .filter(|note| memory_note_view_file_for_note(note) == view_file)
         .collect();
     let mut lines = vec![
@@ -845,7 +1027,10 @@ fn render_memory_view_note(note: &Value) -> String {
     let id = note.get("id").and_then(Value::as_str).unwrap_or("unknown");
     let content = note.get("content").and_then(Value::as_str).unwrap_or("");
     let priority = note.get("priority").and_then(Value::as_f64).unwrap_or(0.5);
-    let confidence = note.get("confidence").and_then(Value::as_f64).unwrap_or(0.5);
+    let confidence = note
+        .get("confidence")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.5);
     let tags = note
         .get("tags")
         .and_then(Value::as_array)
@@ -1462,6 +1647,48 @@ mod tests {
         );
         assert_eq!(error.details["capability"], "memory.read");
         assert!(response.result.is_none());
+    }
+
+    #[test]
+    fn dispatches_rag_query_request() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "docs/ts-agent-loop.md",
+            "# TS Agent Loop Design\n\nTS worker should proxy product integrations through Rust.\n",
+        );
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "rag.query",
+            json!({
+                "query": "TS worker Rust",
+                "collection": "docs",
+                "limit": 3
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "documents": [{
+                    "id": "docs/ts-agent-loop.md",
+                    "title": "TS Agent Loop Design",
+                    "path": "docs/ts-agent-loop.md",
+                    "score": 2,
+                    "excerpt": "TS worker should proxy product integrations through Rust."
+                }]
+            }))
+        );
+        assert!(response.error.is_none());
     }
 
     #[test]

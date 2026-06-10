@@ -21,6 +21,10 @@ export function createNativeMemoryTools(rpcClient: NativeRpcClient): Tool[] {
   return [createSearchMemoryNotesTool(rpcClient), createSaveMemoryNoteTool(rpcClient)];
 }
 
+export function createNativeRagTools(rpcClient: NativeRpcClient): Tool[] {
+  return [createQueryRagTool(rpcClient)];
+}
+
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "read_file",
@@ -185,6 +189,38 @@ function createSearchMemoryNotesTool(rpcClient: NativeRpcClient): Tool {
         content: formatMemoryNotes(notes),
         metadata: { _memory_references: notes.map(formatMemoryReference).filter((reference): reference is JsonObject => reference !== null) },
       };
+    },
+  };
+}
+
+function createQueryRagTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "query_rag",
+    description: "Query the native retrieval index for workspace knowledge relevant to the current task.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1, description: "Natural-language retrieval query." },
+        collection: { type: "string", description: "Optional native RAG collection or workspace area to query." },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+      },
+      required: ["query"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {
+        query: stringArg(args, "query"),
+      };
+      if (context.sessionId) {
+        params.session_id = context.sessionId;
+      }
+      copyOptionalStringArg(args, params, "collection");
+      const limit = optionalIntegerArg(args, "limit");
+      if (limit !== undefined) {
+        params.limit = limit;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "rag.query", params)) ?? {};
+      const documents = Array.isArray(result.documents) ? result.documents : [];
+      return { content: formatRagDocuments(documents) };
     },
   };
 }
@@ -425,4 +461,25 @@ function memoryEvidenceIds(value: unknown): string[] {
     }
   }
   return Array.from(ids).sort();
+}
+
+function formatRagDocuments(documents: unknown[]): string {
+  const formatted = documents.map(formatRagDocument).filter((line): line is string => line !== null);
+  if (formatted.length === 0) {
+    return "No RAG results found.";
+  }
+  return `## RAG Results\n${formatted.join("\n")}`;
+}
+
+function formatRagDocument(value: unknown): string | null {
+  const document = asObject(value);
+  if (!document) {
+    return null;
+  }
+  const id = asString(document.id) ?? asString(document.path) ?? "unknown";
+  const title = asString(document.title) ?? asString(document.path) ?? id;
+  const path = asString(document.path);
+  const score = typeof document.score === "number" ? ` score=${formatMemoryNumber(document.score)}` : "";
+  const excerpt = asString(document.excerpt) ?? asString(document.content) ?? "";
+  return `- [${id}] ${title}${path ? ` (${path})` : ""}${score}\n  ${excerpt}`;
 }

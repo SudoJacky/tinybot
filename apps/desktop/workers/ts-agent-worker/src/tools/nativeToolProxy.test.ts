@@ -1,7 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import type { JsonObject } from "../protocol/messages";
-import { createNativeApprovalTools, createNativeFormTools, createNativeMemoryTools, createNativeReadOnlyTools } from "./nativeToolProxy";
+import {
+  createNativeApprovalTools,
+  createNativeFormTools,
+  createNativeMemoryTools,
+  createNativeRagTools,
+  createNativeReadOnlyTools,
+} from "./nativeToolProxy";
 
 class FakeRpcClient {
   readonly requests: Array<{ traceId: string; method: string; params: JsonObject }> = [];
@@ -267,6 +273,47 @@ describe("createNativeMemoryTools", () => {
           metadata: { source: "desktop" },
           message_start: 3,
           message_end: 4,
+        },
+      },
+    ]);
+  });
+});
+
+describe("createNativeRagTools", () => {
+  test("creates a query_rag tool backed by rag.query", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        documents: [
+          {
+            id: "doc-1",
+            title: "TS Agent Loop Design",
+            path: "docs/ts-agent-loop.md",
+            score: 0.91,
+            excerpt: "TS worker should proxy product integrations through Rust.",
+          },
+        ],
+      },
+    ]);
+    const [queryRag] = createNativeRagTools(rpc);
+
+    const result = await queryRag.execute(
+      { query: "TS worker bridge", collection: "docs", limit: 3 },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
+    );
+
+    expect(queryRag.name).toBe("query_rag");
+    expect(result.content).toContain("## RAG Results");
+    expect(result.content).toContain("[doc-1] TS Agent Loop Design");
+    expect(result.content).toContain("TS worker should proxy product integrations through Rust.");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "rag.query",
+        params: {
+          session_id: "session-1",
+          query: "TS worker bridge",
+          collection: "docs",
+          limit: 3,
         },
       },
     ]);

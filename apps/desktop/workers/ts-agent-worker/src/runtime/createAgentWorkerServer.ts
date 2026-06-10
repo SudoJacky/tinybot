@@ -3,7 +3,13 @@ import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { WorkerEvent } from "../protocol/messages.ts";
 import { RpcClient } from "../protocol/rpcClient.ts";
 import { StdioServer } from "../protocol/stdioServer.ts";
-import { createNativeApprovalTools, createNativeFormTools, createNativeMemoryTools, createNativeReadOnlyTools } from "../tools/nativeToolProxy.ts";
+import {
+  createNativeApprovalTools,
+  createNativeFormTools,
+  createNativeMemoryTools,
+  createNativeRagTools,
+  createNativeReadOnlyTools,
+} from "../tools/nativeToolProxy.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import { NativeApprovalBridge } from "./approvalBridge.ts";
 import { AgentWorker } from "./agentWorker.ts";
@@ -32,6 +38,9 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     options.tools.register(tool);
   }
   for (const tool of createNativeMemoryTools(rpcClient)) {
+    options.tools.register(tool);
+  }
+  for (const tool of createNativeRagTools(rpcClient)) {
     options.tools.register(tool);
   }
   const writeEvent = (event: WorkerEvent): void => {
