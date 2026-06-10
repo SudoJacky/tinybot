@@ -1396,4 +1396,94 @@ describe("AgentWorker", () => {
       },
     });
   });
+
+  test("resumes from snake_case checkpoint run spec fields", async () => {
+    const events: WorkerEvent[] = [];
+    const clearedSessions: string[] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([
+        { content: "Thanks, Paris works.", toolCalls: [], stopReason: "stop", usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } },
+      ]),
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId) => {
+          clearedSessions.push(sessionId);
+        },
+        appendMessages: async () => undefined,
+        getCheckpoint: async (sessionId) => ({
+          session_id: sessionId,
+          run_id: "run-form-checkpoint-snake-1",
+          phase: "tools_completed",
+          model: "test-model",
+          max_iterations: 2,
+          stream: false,
+          context_window: 100,
+          tool_result_budget: 12,
+          fail_on_tool_error: true,
+          messages: [
+            { role: "user", content: "plan a trip" },
+            {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  id: "form-call-1",
+                  type: "function",
+                  function: { name: "request_form", arguments: "{}" },
+                },
+              ],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              tool_call_id: "form-call-1",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      submitFormRequest({
+        session_id: "session-snake-1",
+        form_id: "travel_plan",
+        values: { destination: "Paris" },
+      }),
+    );
+
+    expect(response.result).toMatchObject({
+      sessionId: "session-snake-1",
+      result: {
+        finalContent: "Thanks, Paris works.",
+        stopReason: "final_response",
+      },
+    });
+    expect(events).toContainEqual({
+      protocol_version: "1",
+      trace_id: "trace-submit-form",
+      event: "agent.usage",
+      payload: expect.objectContaining({
+        runId: "run-form-checkpoint-snake-1",
+        contextWindowTokens: 100,
+      }),
+    });
+    expect(events).toContainEqual({
+      protocol_version: "1",
+      trace_id: "trace-submit-form",
+      event: "agent.done",
+      payload: {
+        runId: "run-form-checkpoint-snake-1",
+        stopReason: "final_response",
+      },
+    });
+    expect(clearedSessions).toEqual(["session-snake-1"]);
+  });
 });

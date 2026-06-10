@@ -432,7 +432,7 @@ export class AgentWorker {
     const approvalToolMessage = messages[approvalToolIndex];
     const operation = parseApprovedOperation(approvalToolMessage.metadata);
     const toolResult = await this.tools.execute(operation.toolName, operation.arguments, {
-      runId: checkpointString(checkpoint.runId, "checkpoint.runId"),
+      runId: checkpointRunId(checkpoint),
       traceId,
       sessionId: approval.sessionId,
     });
@@ -444,18 +444,7 @@ export class AgentWorker {
       ...(toolResult.metadata ? { metadata: toolResult.metadata } : {}),
     };
     const resumedMessages = messages.map((message, index) => (index === approvalToolIndex ? replacement : message));
-    const spec: AgentRunSpec = {
-      runId: checkpointString(checkpoint.runId, "checkpoint.runId"),
-      sessionId: approval.sessionId,
-      messages: resumedMessages,
-      model: checkpointString(checkpoint.model, "checkpoint.model"),
-      maxIterations: typeof checkpoint.maxIterations === "number" ? checkpoint.maxIterations : 2,
-      stream: typeof checkpoint.stream === "boolean" ? checkpoint.stream : false,
-      contextWindow: typeof checkpoint.contextWindow === "number" ? checkpoint.contextWindow : undefined,
-      toolResultBudget: typeof checkpoint.toolResultBudget === "number" ? checkpoint.toolResultBudget : undefined,
-      failOnToolError: typeof checkpoint.failOnToolError === "boolean" ? checkpoint.failOnToolError : undefined,
-    };
-    return this.runResumedSpec(traceId, spec);
+    return this.runResumedSpec(traceId, resumedSpecFromCheckpoint(checkpoint, approval.sessionId, resumedMessages));
   }
 
   private async resumeSubmittedFormCheckpoint(
@@ -481,18 +470,7 @@ export class AgentWorker {
       },
     };
     const resumedMessages = messages.map((message, index) => (index === formToolIndex ? formResultMessage : message));
-    const spec: AgentRunSpec = {
-      runId: checkpointString(checkpoint.runId, "checkpoint.runId"),
-      sessionId: submission.sessionId,
-      messages: resumedMessages,
-      model: checkpointString(checkpoint.model, "checkpoint.model"),
-      maxIterations: typeof checkpoint.maxIterations === "number" ? checkpoint.maxIterations : 2,
-      stream: typeof checkpoint.stream === "boolean" ? checkpoint.stream : false,
-      contextWindow: typeof checkpoint.contextWindow === "number" ? checkpoint.contextWindow : undefined,
-      toolResultBudget: typeof checkpoint.toolResultBudget === "number" ? checkpoint.toolResultBudget : undefined,
-      failOnToolError: typeof checkpoint.failOnToolError === "boolean" ? checkpoint.failOnToolError : undefined,
-    };
-    return this.runResumedSpec(traceId, spec);
+    return this.runResumedSpec(traceId, resumedSpecFromCheckpoint(checkpoint, submission.sessionId, resumedMessages));
   }
 
   private async resumeDeniedApprovalCheckpoint(
@@ -518,18 +496,7 @@ export class AgentWorker {
       },
     };
     const resumedMessages = messages.map((message, index) => (index === approvalToolIndex ? denialMessage : message));
-    const spec: AgentRunSpec = {
-      runId: checkpointString(checkpoint.runId, "checkpoint.runId"),
-      sessionId: approval.sessionId,
-      messages: resumedMessages,
-      model: checkpointString(checkpoint.model, "checkpoint.model"),
-      maxIterations: typeof checkpoint.maxIterations === "number" ? checkpoint.maxIterations : 2,
-      stream: typeof checkpoint.stream === "boolean" ? checkpoint.stream : false,
-      contextWindow: typeof checkpoint.contextWindow === "number" ? checkpoint.contextWindow : undefined,
-      toolResultBudget: typeof checkpoint.toolResultBudget === "number" ? checkpoint.toolResultBudget : undefined,
-      failOnToolError: typeof checkpoint.failOnToolError === "boolean" ? checkpoint.failOnToolError : undefined,
-    };
-    return this.runResumedSpec(traceId, spec);
+    return this.runResumedSpec(traceId, resumedSpecFromCheckpoint(checkpoint, approval.sessionId, resumedMessages));
   }
 
   private async runResumedSpec(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult> {
@@ -647,6 +614,28 @@ function protocolEventName(event: AgentRunnerEvent): string {
     case "task_progress":
       return "agent.task_progress";
   }
+}
+
+function resumedSpecFromCheckpoint(
+  checkpoint: Record<string, unknown>,
+  sessionId: string,
+  messages: AgentMessage[],
+): AgentRunSpec {
+  return {
+    runId: checkpointRunId(checkpoint),
+    sessionId,
+    messages,
+    model: checkpointString(checkpoint.model, "checkpoint.model"),
+    maxIterations: numberParam(checkpoint, "maxIterations", "max_iterations") ?? 2,
+    stream: booleanParam(checkpoint, "stream", "stream") ?? false,
+    contextWindow: numberParam(checkpoint, "contextWindow", "context_window"),
+    toolResultBudget: numberParam(checkpoint, "toolResultBudget", "tool_result_budget"),
+    failOnToolError: booleanParam(checkpoint, "failOnToolError", "fail_on_tool_error"),
+  };
+}
+
+function checkpointRunId(checkpoint: Record<string, unknown>): string {
+  return checkpointString(checkpoint.runId ?? checkpoint.run_id, "checkpoint.runId");
 }
 
 function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec {
