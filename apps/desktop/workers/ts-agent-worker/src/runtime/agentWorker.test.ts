@@ -353,6 +353,47 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("emits native snake_case context window on usage events", async () => {
+    const events: WorkerEvent[] = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([
+        {
+          content: "done",
+          toolCalls: [],
+          stopReason: "stop",
+          usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
+        },
+      ]),
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          contextWindow: 100,
+        },
+      }),
+    );
+
+    expect(events).toContainEqual({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.usage",
+      payload: {
+        runId: "run-1",
+        usage: { inputTokens: 7, outputTokens: 5, totalTokens: 12 },
+        contextWindowTokens: 100,
+        context_window_tokens: 100,
+      },
+    });
+  });
+
   test("includes run id on agent.error events from failed runs", async () => {
     const events: WorkerEvent[] = [];
     const worker = new AgentWorker({

@@ -373,7 +373,9 @@ export class AgentWorker {
       payload: {
         runId: spec.runId,
         usage: result.usage,
-        ...(spec.contextWindow ? { contextWindowTokens: spec.contextWindow } : {}),
+        ...(spec.contextWindow
+          ? { contextWindowTokens: spec.contextWindow, context_window_tokens: spec.contextWindow }
+          : {}),
       },
     });
   }
