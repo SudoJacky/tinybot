@@ -11,6 +11,7 @@ import type {
   ProvidersConfig,
   TinybotConfig,
 } from "./configTypes.ts";
+import { applyConfigMigrations } from "./configMigrations.ts";
 
 export class TinybotConfigValidationError extends Error {
   constructor(message: string) {
@@ -45,7 +46,7 @@ export function defaultTinybotConfig(): TinybotConfig {
 
 export function parseTinybotConfig(raw: unknown = {}): TinybotConfig {
   const base = defaultTinybotConfig();
-  const input = record(raw) ?? {};
+  const input = record(applyConfigMigrations(raw)) ?? {};
   const agents = record(input.agents);
   const defaults = parseAgentDefaults(record(agents?.defaults), base.agents.defaults);
   const config: TinybotConfig = {
