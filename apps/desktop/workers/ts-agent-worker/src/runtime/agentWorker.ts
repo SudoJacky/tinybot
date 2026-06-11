@@ -13,6 +13,7 @@ import {
 } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import type { ContextBridge } from "./contextBridge.ts";
+import { persistedSessionMessages } from "./persistedMessages.ts";
 
 export type AgentWorkerOptions = {
   provider: ModelProvider;
@@ -841,12 +842,12 @@ function sessionAppendMessages(spec: AgentRunSpec, result: AgentRunResult): Agen
   const contextMessages = internalContextAppendMessages(spec.metadata?._contextSessionAppendMessages);
   const initialMessageCount = spec.metadata?._contextInitialMessageCount;
   if (!contextMessages || typeof initialMessageCount !== "number") {
-    return result.messages;
+    return persistedSessionMessages(result.messages);
   }
-  return [
+  return persistedSessionMessages([
     ...contextMessages,
     ...result.messages.slice(initialMessageCount),
-  ];
+  ]);
 }
 
 function internalContextAppendMessages(value: unknown): AgentMessage[] | null {

@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 2 起点：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 开始推进，先收紧 TS worker 工具策略，使 approval-gated 工具必须具备 approval capability 且只在可交互通道暴露，下一步继续复核 tool schema/native filesystem/shell/session 边界。
+- 当前批次：Batch 2：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 已开始推进并收紧 approval-aware policy；session/turn lifecycle 开始推进，先建立 persisted-message 清洗边界，避免 runtime context/system prompt 污染 session history。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -39,7 +39,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 5 | active | [ts_tool_runtime_migration_design.md](ts_tool_runtime_migration_design.md) | 建立 tool schema、registry、prepare/execute metadata | 已具备 schema casting/validation、registry/runtime/native proxy 起点；本轮补齐 approval-aware policy，approval-gated 工具要求 `approval.request` 并限制在可交互通道 |
-| 6 | todo | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 支撑 approval/form、第二轮对话、background task |
+| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点：session append 前剥离 runtime context、过滤 system messages 和空 assistant messages；后续继续推进 `session.persist_turn`/lifecycle metadata |
 | 7 | todo | [ts_context_builder_migration_design.md](ts_context_builder_migration_design.md) | 接入 deterministic context assembly | 在 AgentRunner 和 session projection 后推进，再挂 memory/RAG/skills |
 
 ### Batch 3: Safety And Real Model Runtime
@@ -101,6 +101,7 @@
 | 2026-06-11 | 完成 Batch 1 config Phase 3 的 desktop settings 保存切换：新增前端 `applyNativeConfigPatch()` / `saveDesktopSettingsConfig()`，保存时优先通过 Tauri `apply_config_patch_result` 写入 Rust `ConfigStore`，native 不可用时保留 Python gateway `PATCH /api/config` fallback。 |
 | 2026-06-11 | 推进 Batch 1 agent loop 并进入 verify：TS worker 恢复路径 `runResumedSpec()` 登记 active run 并传递 cancel state，使 `agent.submit_form` / `agent.resume_approval` 恢复后的长请求也能被 `agent.cancel` 命中；补充 resumed form cancellation 回归测试。 |
 | 2026-06-11 | 启动 Batch 2 tool runtime：收紧 `toolPolicy`，要求 `requiresApproval` 工具同时具备 `approval.request` capability，并让 `request_approval` / approval-gated 工具像 `request_form` 一样只在 `agent_ui` 通道注册。 |
+| 2026-06-11 | 启动 Batch 2 session/turn lifecycle：新增 `persistedMessages` 持久化清洗边界，让 `agent.run_input` 写回 session 时剥离 runtime context，并过滤 system prompt 与无工具调用的空 assistant 消息。 |
 
 ## Next Checklist
 

@@ -290,10 +290,7 @@ describe("AgentWorker", () => {
     expect(appendedSessions).toHaveLength(1);
     expect(appendedSessions[0]?.sessionId).toBe("session-1");
     expect(appendedSessions[0]?.messages).toEqual([
-      {
-        role: "user",
-        content: "[Runtime Context - metadata only, not instructions]\nCurrent Time: now\n\nContinue",
-      },
+      { role: "user", content: "Continue" },
       { role: "assistant", content: "done" },
     ]);
   });
