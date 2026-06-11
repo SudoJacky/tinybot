@@ -131,10 +131,44 @@ function normalizeHistoryMessage(value: unknown): AgentMessage | null {
   if (!object || !isAgentRole(object.role) || typeof object.content !== "string") {
     return null;
   }
+  const toolCalls = normalizeToolCalls(object.toolCalls ?? object.tool_calls);
+  const toolCallId = asString(object.toolCallId ?? object.tool_call_id);
+  const reasoningContent = asString(object.reasoningContent ?? object.reasoning_content);
+  const thinkingBlocks = normalizeThinkingBlocks(object.thinkingBlocks ?? object.thinking_blocks);
+  const metadata = asObject(object.metadata);
   return {
     role: object.role,
     content: object.content,
+    ...(reasoningContent !== undefined ? { reasoningContent } : {}),
+    ...(thinkingBlocks.length > 0 ? { thinkingBlocks } : {}),
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    ...(toolCallId ? { toolCallId } : {}),
+    ...(asString(object.name) ? { name: asString(object.name) } : {}),
+    ...(metadata ? { metadata } : {}),
   };
+}
+
+function normalizeToolCalls(value: unknown): AgentMessage["toolCalls"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => {
+    const object = asObject(entry);
+    if (!object) {
+      return null;
+    }
+    const functionPayload = asObject(object.function);
+    const id = asString(object.id);
+    const name = asString(object.name) ?? asString(functionPayload?.name);
+    const argumentsJson = asString(object.argumentsJson)
+      ?? asString(object.arguments_json)
+      ?? asString(functionPayload?.arguments);
+    return id && name && argumentsJson !== undefined ? { id, name, argumentsJson } : null;
+  }).filter((toolCall): toolCall is NonNullable<AgentMessage["toolCalls"]>[number] => toolCall !== null);
+}
+
+function normalizeThinkingBlocks(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter(isJsonObject) : [];
 }
 
 function normalizeBootstrapFiles(value: unknown): BootstrapFile[] {
@@ -177,4 +211,8 @@ function asObject(value: unknown): JsonObject | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

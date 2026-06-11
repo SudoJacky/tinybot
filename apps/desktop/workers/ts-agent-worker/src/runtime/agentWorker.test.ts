@@ -1432,7 +1432,7 @@ describe("AgentWorker", () => {
     expect(cleared).toEqual([{ sessionId: "session-1", traceId: "trace-restore" }]);
   });
 
-  test("keeps awaiting-input checkpoint after restore so form submission can resume", async () => {
+  test("keeps awaiting-input checkpoint after restore without re-appending pending transcript", async () => {
     const appended: Array<{ sessionId: string; messages: AgentMessage[]; traceId: string }> = [];
     const cleared: Array<{ sessionId: string; traceId: string }> = [];
     const worker = new AgentWorker({
@@ -1491,7 +1491,7 @@ describe("AgentWorker", () => {
     const response = await worker.handleRequest(restoreCheckpointRequest("session-1"));
 
     expect(response.result).toMatchObject({ restored: true });
-    expect(appended).toHaveLength(1);
+    expect(appended).toEqual([]);
     expect(cleared).toEqual([]);
   });
 

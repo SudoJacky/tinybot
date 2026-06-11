@@ -266,12 +266,13 @@ export class AgentWorker {
       let restored = false;
       let restoredMessageCount = 0;
       if (checkpoint) {
-        const restoredMessages = materializeCheckpointMessages(checkpoint);
-        restoredMessageCount = restoredMessages.length;
+        const shouldKeepCheckpointForResume = checkpointRequiresUserInputResume(checkpoint);
+        const restoredMessages = shouldKeepCheckpointForResume ? [] : materializeCheckpointMessages(checkpoint);
         if (restoredMessages.length > 0) {
           await this.sessionBridge.appendMessages(sessionId, restoredMessages, request.trace_id);
+          restoredMessageCount = restoredMessages.length;
         }
-        if (!checkpointRequiresUserInputResume(checkpoint)) {
+        if (!shouldKeepCheckpointForResume) {
           await this.sessionBridge.clearCheckpoint(sessionId, request.trace_id);
         }
         restored = true;
