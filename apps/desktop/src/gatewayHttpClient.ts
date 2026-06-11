@@ -6,6 +6,12 @@ type FetchFn = typeof fetch;
 type ClientOptions = {
   config?: GatewayConfig;
   fetchFn?: FetchFn;
+  nativeSkills?: NativeSkillsApi;
+};
+
+export type NativeSkillsApi = {
+  list: () => Promise<unknown>;
+  detail: (name: string) => Promise<unknown>;
 };
 
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
@@ -208,8 +214,16 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         request(`/api/approvals/${encodePathSegment(approvalId)}/deny`, jsonRequest("POST", body)),
     },
     skills: {
-      list: () => request("/api/skills"),
-      detail: (name: string) => request(`/api/skills/${encodePathSegment(name)}`),
+      list: () => nativeOrGateway(
+        () => options.nativeSkills?.list(),
+        () => request("/api/skills"),
+        "skills.list",
+      ),
+      detail: (name: string) => nativeOrGateway(
+        () => options.nativeSkills?.detail(name),
+        () => request(`/api/skills/${encodePathSegment(name)}`),
+        "skills.detail",
+      ),
       create: (body: unknown) => request("/api/skills", jsonRequest("POST", body)),
       update: (name: string, body: unknown) =>
         request(`/api/skills/${encodePathSegment(name)}`, jsonRequest("PATCH", body)),
@@ -459,6 +473,23 @@ function trackSession(session: BootstrapSession): TrackedSession {
     ...session,
     expiresAtMs: Date.now() + session.tokenTtlS * 1000,
   };
+}
+
+async function nativeOrGateway(
+  nativeRequest: () => Promise<unknown> | undefined,
+  gatewayRequest: () => Promise<unknown>,
+  label: string,
+): Promise<unknown> {
+  const request = nativeRequest();
+  if (!request) {
+    return gatewayRequest();
+  }
+  try {
+    return await request;
+  } catch (error) {
+    logDesktopNativeDebug(`${label}.nativeFallback`, { error: stringifyError(error) });
+    return gatewayRequest();
+  }
 }
 
 function shouldRefreshSession(session: TrackedSession): boolean {

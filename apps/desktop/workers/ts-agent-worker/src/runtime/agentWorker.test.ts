@@ -103,6 +103,26 @@ function submitFormRequest(params: Record<string, unknown>): WorkerRequest {
   };
 }
 
+function skillsWebuiListRequest(params: Record<string, unknown> = {}): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: "skills-list-1",
+    trace_id: "trace-skills-list",
+    method: "skills.webui_list",
+    params,
+  };
+}
+
+function skillsWebuiDetailRequest(params: Record<string, unknown>): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: "skills-detail-1",
+    trace_id: "trace-skills-detail",
+    method: "skills.webui_detail",
+    params,
+  };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((innerResolve) => {
@@ -150,6 +170,40 @@ describe("AgentWorker", () => {
         stopReason: "final_response",
       }),
     }));
+  });
+
+  test("routes skills WebUI list and detail requests through the skills bridge", async () => {
+    const calls: Array<{ type: string; traceId: string; name?: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      skillsBridge: {
+        listWebuiSkills: async (traceId) => {
+          calls.push({ type: "list", traceId });
+          return { skills: [{ name: "planner", available: true }] };
+        },
+        getWebuiSkillDetail: async (name, traceId) => {
+          calls.push({ type: "detail", traceId, name });
+          return { name, content: "Plan." };
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(skillsWebuiListRequest())).resolves.toMatchObject({
+      id: "skills-list-1",
+      trace_id: "trace-skills-list",
+      result: { skills: [{ name: "planner", available: true }] },
+    });
+    await expect(worker.handleRequest(skillsWebuiDetailRequest({ name: "planner" }))).resolves.toMatchObject({
+      id: "skills-detail-1",
+      trace_id: "trace-skills-detail",
+      result: { name: "planner", content: "Plan." },
+    });
+    expect(calls).toEqual([
+      { type: "list", traceId: "trace-skills-list" },
+      { type: "detail", traceId: "trace-skills-detail", name: "planner" },
+    ]);
   });
 
   test("routes agent.run_input through context assembly before AgentRunner", async () => {

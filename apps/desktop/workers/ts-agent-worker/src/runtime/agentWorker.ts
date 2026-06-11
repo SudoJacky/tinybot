@@ -34,6 +34,7 @@ export type AgentWorkerOptions = {
   listProviderCatalog?: ProviderCatalogListHandler;
   resolveProviderRuntime?: ProviderRuntimeResolveHandler;
   validateProviderModel?: ProviderModelValidateHandler;
+  skillsBridge?: SkillsBridge;
   approvalBridge?: ApprovalBridge;
   sessionBridge?: SessionBridge;
   contextBridge?: ContextBridge;
@@ -68,6 +69,11 @@ export type ProviderCatalogListHandler = () => Promise<unknown> | unknown;
 export type ProviderRuntimeResolveHandler = (request: ProviderRuntimeResolveRequest) => Promise<unknown> | unknown;
 export type ProviderModelValidateHandler = (request: ProviderModelValidateRequest) => Promise<unknown> | unknown;
 
+export type SkillsBridge = {
+  listWebuiSkills(traceId: string): Promise<unknown> | unknown;
+  getWebuiSkillDetail(name: string, traceId: string): Promise<unknown> | unknown;
+};
+
 type ActiveRun = {
   traceId: string;
   cancelled: boolean;
@@ -101,6 +107,7 @@ export class AgentWorker {
   private readonly listProviderCatalog?: ProviderCatalogListHandler;
   private readonly resolveProviderRuntime?: ProviderRuntimeResolveHandler;
   private readonly validateProviderModel?: ProviderModelValidateHandler;
+  private readonly skillsBridge?: SkillsBridge;
   private readonly approvalBridge?: ApprovalBridge;
   private readonly sessionBridge?: SessionBridge;
   private readonly contextBridge?: ContextBridge;
@@ -117,6 +124,7 @@ export class AgentWorker {
     this.listProviderCatalog = options.listProviderCatalog;
     this.resolveProviderRuntime = options.resolveProviderRuntime;
     this.validateProviderModel = options.validateProviderModel;
+    this.skillsBridge = options.skillsBridge;
     this.approvalBridge = options.approvalBridge;
     this.sessionBridge = options.sessionBridge;
     this.contextBridge = options.contextBridge;
@@ -174,6 +182,14 @@ export class AgentWorker {
 
     if (request.method === "provider.model.validate") {
       return this.handleProviderModelValidateRequest(request);
+    }
+
+    if (request.method === "skills.webui_list") {
+      return this.handleSkillsWebuiListRequest(request);
+    }
+
+    if (request.method === "skills.webui_detail") {
+      return this.handleSkillsWebuiDetailRequest(request);
     }
 
     if (request.method !== "agent.run") {
@@ -376,6 +392,38 @@ export class AgentWorker {
         id: request.id,
         trace_id: request.trace_id,
         result: await this.validateProviderModel(parseProviderModelValidateRequest(request.params)),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleSkillsWebuiListRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.skillsBridge) {
+      return this.failure(request, "skills.webui_list requires a skills bridge");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.skillsBridge.listWebuiSkills(request.trace_id),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private async handleSkillsWebuiDetailRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.skillsBridge) {
+      return this.failure(request, "skills.webui_detail requires a skills bridge");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.skillsBridge.getWebuiSkillDetail(parseSkillDetailName(request.params), request.trace_id),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
@@ -983,6 +1031,17 @@ function parseProviderModelValidateRequest(params: Record<string, unknown> | und
     throw new Error("provider.model.validate params.model must be a string");
   }
   return { providerId, model };
+}
+
+function parseSkillDetailName(params: Record<string, unknown> | undefined): string {
+  if (!isJsonObject(params)) {
+    throw new Error("skills.webui_detail requires object params");
+  }
+  const name = stringParam(params, "name", "name");
+  if (!name) {
+    throw new Error("skills.webui_detail params.name must be a string");
+  }
+  return name;
 }
 
 function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {

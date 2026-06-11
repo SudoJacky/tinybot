@@ -123,6 +123,12 @@ struct WorkerRunAgentWithInputInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerSkillDetailInput {
+    name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCancelAgentInput {
     run_id: String,
 }
@@ -419,6 +425,30 @@ fn worker_run_agent_input(
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
+    )
+}
+
+#[tauri::command]
+fn worker_skills_list(state: State<'_, SharedGateway>) -> Result<serde_json::Value, String> {
+    worker_skills_list_with_options(
+        state.inner(),
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_skills_detail(
+    input: WorkerSkillDetailInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_skills_detail_with_options(
+        state.inner(),
+        input.name,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
     )
 }
 
@@ -1158,6 +1188,80 @@ fn build_worker_run_agent_input_request(
     )
 }
 
+fn worker_skills_list_with_options(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_skills_list_request(now_unix_ms());
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker skills list request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!("worker skills list returned error: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker skills list response missing result".to_string())
+}
+
+fn build_worker_skills_list_request(request_id: u128) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("skills-list-{request_id}"),
+        format!("trace-skills-list-{request_id}"),
+        "skills.webui_list",
+        serde_json::json!({}),
+    )
+}
+
+fn worker_skills_detail_with_options(
+    shared: &SharedGateway,
+    name: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_skills_detail_request(now_unix_ms(), name);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker skills detail request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker skills detail returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker skills detail response missing result".to_string())
+}
+
+fn build_worker_skills_detail_request(request_id: u128, name: String) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("skills-detail-{request_id}"),
+        format!("trace-skills-detail-{request_id}"),
+        "skills.webui_detail",
+        serde_json::json!({ "name": name }),
+    )
+}
+
 fn worker_cancel_agent_with_options(
     shared: &SharedGateway,
     run_id: String,
@@ -1607,6 +1711,8 @@ pub fn run() {
             worker_echo_agent,
             worker_run_agent,
             worker_run_agent_input,
+            worker_skills_list,
+            worker_skills_detail,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -1856,6 +1962,21 @@ mod tests {
         assert_eq!(request.trace_id, "trace-agent-run-input-42");
         assert_eq!(request.method, "agent.run_input");
         assert_eq!(request.params, serde_json::json!({ "input": agent_input }));
+    }
+
+    #[test]
+    fn worker_skills_requests_target_ts_webui_skill_methods() {
+        let list_request = build_worker_skills_list_request(42);
+        let detail_request = build_worker_skills_detail_request(43, "planner/phase".to_string());
+
+        assert_eq!(list_request.id, "skills-list-42");
+        assert_eq!(list_request.trace_id, "trace-skills-list-42");
+        assert_eq!(list_request.method, "skills.webui_list");
+        assert_eq!(list_request.params, serde_json::json!({}));
+        assert_eq!(detail_request.id, "skills-detail-43");
+        assert_eq!(detail_request.trace_id, "trace-skills-detail-43");
+        assert_eq!(detail_request.method, "skills.webui_detail");
+        assert_eq!(detail_request.params, serde_json::json!({ "name": "planner/phase" }));
     }
 
     #[test]

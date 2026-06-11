@@ -29,6 +29,7 @@ import {
 import { NativeContextBridge } from "./contextBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
 import { NativeSessionBridge } from "./sessionBridge.ts";
+import { NativeSkillsBridge } from "./skillsBridge.ts";
 
 export type CreateAgentWorkerServerOptions = {
   provider?: ModelProvider;
@@ -89,6 +90,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     listProviderCatalog: () => providerCatalogForSettings(),
     resolveProviderRuntime: (request) => providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, request),
     validateProviderModel: (request) => providerModelValidationResult(request),
+    skillsBridge: new NativeSkillsBridge(rpcClient, options.env ?? process.env),
     approvalBridge: new NativeApprovalBridge(rpcClient),
     sessionBridge: new NativeSessionBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),

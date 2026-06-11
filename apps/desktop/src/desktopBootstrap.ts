@@ -92,6 +92,7 @@ import { resolveDesktopWorkbenchStartupMode } from "./desktopWorkbenchGate";
 import { installDesktopWindowFrame, setDesktopWindowRuntimeStatus } from "./desktopWindowFrame";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./gatewayConfig";
 import { checkGatewayHealth, createGatewayApiClient } from "./gatewayHttpClient";
+import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
 import { normalizeSessionsPayload } from "./nativeChat";
 import {
   flushGatewaySocketQueue,
@@ -116,7 +117,10 @@ import {
 import { resolveDesktopAgentRoute } from "./desktopAgentRoute";
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
-const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
+const gatewayApi = createGatewayApiClient({
+  config: gatewayConfig,
+  nativeSkills: createDesktopNativeSkillsApi({ invoke }),
+});
 const WEBUI_ENTRY = "/assets/src/main.js";
 const nativeKnowledgeTaskOperations = new Map<string, DesktopTaskSourceOperation>();
 const nativeCoworkTaskOperations = new Map<string, DesktopTaskSourceOperation>();

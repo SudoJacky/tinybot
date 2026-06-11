@@ -10,7 +10,7 @@ type ParsedLine = {
   id?: unknown;
   trace_id?: unknown;
   method?: unknown;
-  params?: { path?: unknown; providerId?: unknown; profileName?: unknown };
+  params?: Record<string, unknown>;
 };
 
 class QueueProvider implements ModelProvider {
@@ -1236,6 +1236,97 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("projects WebUI skills list and detail through native RPC", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      env: { TOKEN: "set" },
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const list = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "skills-list-1",
+        trace_id: "trace-skills-list",
+        method: "skills.webui_list",
+        params: {},
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, { skills: { enabled: ["planner"] } });
+    await respondToSkillsList(server, lines, [
+      {
+        name: "planner",
+        path: "skills/planner/SKILL.md",
+        source: "workspace",
+        content: [
+          "---",
+          "name: planner",
+          "description: Plan work",
+          "always: true",
+          "metadata: '{\"tinybot\":{\"requires\":{\"env\":[\"TOKEN\"]}}}'",
+          "---",
+          "Plan the work.",
+        ].join("\n"),
+      },
+    ]);
+    await list;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "skills-list-1",
+      trace_id: "trace-skills-list",
+      result: {
+        skills: [
+          {
+            name: "planner",
+            source: "workspace",
+            path: "skills/planner/SKILL.md",
+            description: "Plan work",
+            available: true,
+            enabled: true,
+            always: true,
+          },
+        ],
+      },
+    });
+
+    const detail = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "skills-detail-1",
+        trace_id: "trace-skills-detail",
+        method: "skills.webui_detail",
+        params: { name: "planner" },
+      }),
+    );
+    await respondToSkillsList(server, lines, [
+      {
+        name: "planner",
+        path: "skills/planner/SKILL.md",
+        source: "workspace",
+        content: "---\nname: planner\ndescription: Plan work\n---\nPlan the work.",
+      },
+    ]);
+    await detail;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "skills-detail-1",
+      trace_id: "trace-skills-detail",
+      result: {
+        name: "planner",
+        content: "Plan the work.",
+        metadata: { name: "planner", description: "Plan work" },
+        tinybot_meta: {},
+        available: true,
+      },
+    });
+  });
+
   test("persists checkpoint and appends messages through native session RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
@@ -1936,6 +2027,39 @@ async function respondToProviderSecret(
       result: value,
     }),
   );
+}
+
+async function respondToSkillsList(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], skills: unknown[]): Promise<void> {
+  const handled = handledSkillsListRequests(lines);
+  await waitFor(() => pendingSkillsListRequest(lines, handled) !== undefined);
+  const request = pendingSkillsListRequest(lines, handled);
+  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+    throw new Error("missing skills.list request");
+  }
+  handled.add(request.id);
+  await server.handleLine(
+    JSON.stringify({
+      protocol_version: "1",
+      id: request.id,
+      trace_id: request.trace_id,
+      result: { skills },
+    }),
+  );
+}
+
+const handledSkillsListByLines = new WeakMap<string[], Set<unknown>>();
+
+function handledSkillsListRequests(lines: string[]): Set<unknown> {
+  let handled = handledSkillsListByLines.get(lines);
+  if (!handled) {
+    handled = new Set();
+    handledSkillsListByLines.set(lines, handled);
+  }
+  return handled;
+}
+
+function pendingSkillsListRequest(lines: string[], handled: Set<unknown>): ParsedLine | undefined {
+  return parsedLines(lines).find((line) => line.method === "skills.list" && !handled.has(line.id));
 }
 
 function parsedLines(lines: string[]): ParsedLine[] {

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "./gatewayConfig";
 import { checkGatewayHealth, createGatewayApiClient, type GatewayHealth } from "./gatewayHttpClient";
+import { createDesktopNativeSkillsApi } from "./desktopNativeSkills";
 import {
   AGENT_UI_FORM_STATUSES,
   buildAgentUiFormCancelRequest,
@@ -52,7 +53,10 @@ type DesktopStatus = {
 };
 
 const gatewayConfig = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
-const gatewayApi = createGatewayApiClient({ config: gatewayConfig });
+const gatewayApi = createGatewayApiClient({
+  config: gatewayConfig,
+  nativeSkills: createDesktopNativeSkillsApi({ invoke }),
+});
 const chatController = createDesktopChatSessionController({
   api: {
     listSessions: () => gatewayApi.sessions.list(),

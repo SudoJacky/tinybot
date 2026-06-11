@@ -290,6 +290,65 @@ describe("gateway HTTP client", () => {
     });
   });
 
+  test("prefers native skills list and detail when available while preserving skill writes on the gateway", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const nativeSkills = {
+      list: vi.fn(async () => ({ skills: [{ name: "planner" }] })),
+      detail: vi.fn(async (name: string) => ({ name, content: "Plan." })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeSkills,
+    });
+
+    await expect(client.skills.list()).resolves.toEqual({ skills: [{ name: "planner" }] });
+    await expect(client.skills.detail("planner/phase")).resolves.toEqual({ name: "planner/phase", content: "Plan." });
+    await client.skills.update("planner/phase", { content: "# Updated" });
+
+    expect(nativeSkills.list).toHaveBeenCalledTimes(1);
+    expect(nativeSkills.detail).toHaveBeenCalledWith("planner/phase");
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/skills/planner%2Fphase",
+    ]);
+  });
+
+  test("falls back to gateway skills reads when native skills are unavailable", async () => {
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith("/webui/bootstrap")) {
+        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
+    });
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeSkills: {
+        list: async () => {
+          throw new Error("native unavailable");
+        },
+        detail: async () => {
+          throw new Error("native unavailable");
+        },
+      },
+    });
+
+    await expect(client.skills.list()).resolves.toEqual({ gateway: true });
+    await expect(client.skills.detail("planner/phase")).resolves.toEqual({ gateway: true });
+
+    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
+      "http://127.0.0.1:18790/webui/bootstrap",
+      "http://127.0.0.1:18790/api/skills",
+      "http://127.0.0.1:18790/api/skills/planner%2Fphase",
+    ]);
+  });
+
   test("refreshes the gateway token before authenticated requests when the session is near expiry", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-08T10:00:00.000Z"));
