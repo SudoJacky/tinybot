@@ -10,6 +10,7 @@ use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerRes
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
 use crate::worker_session::{SessionMetadata, WorkerSessionRpc};
 use crate::worker_shell::{ShellExecuteParams, WorkerShellRpc};
+use crate::worker_task::{TaskPlanIdParams, TaskPlanListParams, TaskPlanSaveParams, WorkerTaskRpc};
 use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, WorkspaceReadOptions};
 use serde::Deserialize;
 use serde_json::Value;
@@ -34,6 +35,7 @@ pub struct WorkerRpcRouter {
     form: WorkerFormRpc,
     memory: WorkerMemoryRpc,
     knowledge: WorkerKnowledgeRpc,
+    task: WorkerTaskRpc,
     mcp: WorkerMcpRpc,
     config_store: Option<ConfigStore>,
 }
@@ -57,6 +59,7 @@ impl WorkerRpcRouter {
             form: WorkerFormRpc::new(policy.clone()),
             memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
             knowledge: WorkerKnowledgeRpc::new(workspace_root.clone(), policy.clone()),
+            task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
             config_store: None,
         }
@@ -334,6 +337,25 @@ impl WorkerRpcRouter {
             "knowledge.query" => {
                 let params: KnowledgeQueryParams = parse_params(request)?;
                 serde_json::to_value(self.knowledge.query(params)?).map_err(serialization_error)
+            }
+            "task.store.load" => {
+                serde_json::to_value(self.task.load_store()?).map_err(serialization_error)
+            }
+            "task.plan.list" => {
+                let params: TaskPlanListParams = parse_params(request)?;
+                serde_json::to_value(self.task.list_plans(params)?).map_err(serialization_error)
+            }
+            "task.plan.get" => {
+                let params: TaskPlanIdParams = parse_params(request)?;
+                serde_json::to_value(self.task.get_plan(params)?).map_err(serialization_error)
+            }
+            "task.plan.save" => {
+                let params: TaskPlanSaveParams = parse_params(request)?;
+                serde_json::to_value(self.task.save_plan(params)?).map_err(serialization_error)
+            }
+            "task.plan.delete" => {
+                let params: TaskPlanIdParams = parse_params(request)?;
+                serde_json::to_value(self.task.delete_plan(params)?).map_err(serialization_error)
             }
             "mcp.call_tool" => {
                 let params: McpCallToolParams = parse_params(request)?;
@@ -4582,6 +4604,185 @@ mod tests {
         assert!(run_response.error.is_none());
         assert!(log_response.error.is_none());
         assert!(restore_response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_task_store_load_missing_as_empty_store() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::TaskRead]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-task-load",
+            "trace-1",
+            "task.store.load",
+            json!({}),
+        ));
+
+        assert_eq!(response.result, Some(json!({ "version": 1, "plans": [] })));
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_task_plan_store_round_trip_requests() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::TaskRead, WorkerCapability::TaskWrite]),
+        );
+        let plan = json!({
+            "id": "plan-1",
+            "title": "Backend migration",
+            "original_request": "Move backend runtime to TS",
+            "status": "executing",
+            "current_subtask_ids": ["sub-1"],
+            "context": { "channel": "desktop" },
+            "subtasks": [
+                {
+                    "id": "sub-1",
+                    "title": "Foundation",
+                    "description": "Build foundation",
+                    "status": "in_progress",
+                    "dependencies": [],
+                    "parallel_safe": true,
+                    "retry_count": 0,
+                    "max_retries": 2
+                }
+            ]
+        });
+
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-task-save",
+            "trace-1",
+            "task.plan.save",
+            json!({ "plan": plan }),
+        ));
+        let get_response = router.dispatch(&WorkerRequest::new(
+            "req-task-get",
+            "trace-1",
+            "task.plan.get",
+            json!({ "plan_id": "plan-1" }),
+        ));
+        assert!(fixture.read("plans/store.json").contains("\"plan-1\""));
+        let list_response = router.dispatch(&WorkerRequest::new(
+            "req-task-list",
+            "trace-1",
+            "task.plan.list",
+            json!({}),
+        ));
+        let delete_response = router.dispatch(&WorkerRequest::new(
+            "req-task-delete",
+            "trace-1",
+            "task.plan.delete",
+            json!({ "plan_id": "plan-1" }),
+        ));
+        let missing_response = router.dispatch(&WorkerRequest::new(
+            "req-task-get-missing",
+            "trace-1",
+            "task.plan.get",
+            json!({ "plan_id": "plan-1" }),
+        ));
+
+        assert!(save_response.error.is_none());
+        assert_eq!(
+            save_response.result.as_ref().unwrap()["plan"]["id"],
+            "plan-1"
+        );
+        assert_eq!(
+            get_response.result.as_ref().unwrap()["plan"]["id"],
+            "plan-1"
+        );
+        assert_eq!(
+            list_response.result.as_ref().unwrap()["plans"][0]["id"],
+            "plan-1"
+        );
+        assert_eq!(delete_response.result, Some(json!({ "deleted": true })));
+        assert_eq!(missing_response.result, Some(json!({ "plan": null })));
+    }
+
+    #[test]
+    fn dispatches_task_plan_list_filters_completed_by_default() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "plans/store.json",
+            &json!({
+                "version": 1,
+                "plans": [
+                    { "id": "active", "title": "Active", "status": "executing", "subtasks": [] },
+                    { "id": "done", "title": "Done", "status": "completed", "subtasks": [] }
+                ]
+            })
+            .to_string(),
+        );
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::TaskRead]),
+        );
+
+        let default_response = router.dispatch(&WorkerRequest::new(
+            "req-task-list",
+            "trace-1",
+            "task.plan.list",
+            json!({}),
+        ));
+        let include_response = router.dispatch(&WorkerRequest::new(
+            "req-task-list-all",
+            "trace-1",
+            "task.plan.list",
+            json!({ "include_completed": true }),
+        ));
+
+        assert_eq!(
+            default_response.result.as_ref().unwrap()["plans"],
+            json!([{ "id": "active", "title": "Active", "status": "executing", "subtasks": [] }])
+        );
+        assert_eq!(
+            include_response.result.as_ref().unwrap()["plans"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn denies_task_plan_save_without_write_capability() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::TaskRead]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-task-save",
+            "trace-1",
+            "task.plan.save",
+            json!({
+                "plan": { "id": "plan-1", "title": "Plan", "subtasks": [] }
+            }),
+        ));
+
+        let error = response.error.expect("task write should be denied");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+        assert_eq!(error.details["capability"], "task.write");
+        assert!(response.result.is_none());
     }
 
     #[test]

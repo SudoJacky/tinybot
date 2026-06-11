@@ -27,6 +27,7 @@ pub mod worker_session;
 pub mod worker_secret;
 pub mod worker_shell;
 pub mod worker_stdio;
+pub mod worker_task;
 pub mod worker_workspace;
 
 use crate::config_store::{ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigStore};

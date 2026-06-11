@@ -35,6 +35,10 @@ pub enum WorkerCapability {
     KnowledgeRead,
     #[serde(rename = "knowledge.write")]
     KnowledgeWrite,
+    #[serde(rename = "task.read")]
+    TaskRead,
+    #[serde(rename = "task.write")]
+    TaskWrite,
     #[serde(rename = "mcp.call")]
     McpCall,
     #[serde(rename = "shell.execute")]
@@ -82,6 +86,8 @@ mod tests {
         assert!(!policy.allows(&WorkerCapability::FormRequest));
         assert!(!policy.allows(&WorkerCapability::MemoryRead));
         assert!(!policy.allows(&WorkerCapability::MemoryWrite));
+        assert!(!policy.allows(&WorkerCapability::TaskRead));
+        assert!(!policy.allows(&WorkerCapability::TaskWrite));
         assert!(!policy.allows(&WorkerCapability::McpCall));
         assert!(!policy.allows(&WorkerCapability::ShellExecute));
     }
@@ -221,6 +227,33 @@ mod tests {
             json!({
                 "capability": "knowledge.write",
                 "scope": "knowledge://workspace"
+            })
+        );
+    }
+
+    #[test]
+    fn task_capability_names_serialize_as_protocol_strings() {
+        let read_grant = CapabilityGrant {
+            capability: WorkerCapability::TaskRead,
+            scope: "task://plans".to_string(),
+        };
+        let write_grant = CapabilityGrant {
+            capability: WorkerCapability::TaskWrite,
+            scope: "task://plans".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(read_grant).expect("grant should serialize"),
+            json!({
+                "capability": "task.read",
+                "scope": "task://plans"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(write_grant).expect("grant should serialize"),
+            json!({
+                "capability": "task.write",
+                "scope": "task://plans"
             })
         );
     }
