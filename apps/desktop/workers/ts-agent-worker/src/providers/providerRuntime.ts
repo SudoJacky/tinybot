@@ -7,7 +7,7 @@ import {
   type ProviderCatalogEntry,
   type RequestTraits,
 } from "./providerCatalog.ts";
-import { selectAgentDefaults, selectProviderConfig, selectProviderProfileConfig } from "../config/configSelectors.ts";
+import { selectProviderConfig, selectProviderRuntimeInput } from "../config/configSelectors.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
 import type { TinybotConfig } from "../config/configTypes.ts";
 
@@ -51,8 +51,8 @@ export type ResolvedRuntimeProvider = {
 
 export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput): Promise<ResolvedRuntimeProvider> {
   const config = parseTinybotConfig(input.config);
-  const defaults = selectAgentDefaults(config);
   const configuredModel = input.model?.trim() || stringAt(input.config, "agents.defaults.model");
+  const runtimeInput = selectProviderRuntimeInput(config, configuredModel);
   const selectedModel = configuredModel || "gpt-4.1-mini";
 
   const explicitOverride = normalizeProviderId(input.provider);
@@ -60,18 +60,21 @@ export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput)
     return resolveEntry(input, config, explicitOverride, selectedModel, "explicit");
   }
 
-  const activeProfile = stringAt(input.config, "agents.defaults.active_profile")
-    ?? stringAt(input.config, "agents.defaults.activeProfile")
-    ?? defaults.activeProfile
-    ?? undefined;
-  const profile = activeProfile ? selectProviderProfileConfig(config, activeProfile) : undefined;
-  if (activeProfile && profile) {
-    return resolveEntry(input, config, normalizeProviderId(profile.provider), selectedModel, "profile", activeProfile, profile);
+  if (runtimeInput.source === "profile" && runtimeInput.activeProfile) {
+    return resolveEntry(
+      input,
+      config,
+      normalizeProviderId(runtimeInput.providerId),
+      selectedModel,
+      "profile",
+      runtimeInput.activeProfile,
+      runtimeInput.providerConfig,
+    );
   }
 
-  const explicitProvider = normalizeProviderId(stringAt(input.config, "agents.defaults.provider") ?? defaults.provider);
-  if (explicitProvider && explicitProvider !== "auto") {
-    return resolveEntry(input, config, explicitProvider, selectedModel, "explicit");
+  const explicitProvider = normalizeProviderId(runtimeInput.providerId);
+  if (runtimeInput.source === "explicit" && explicitProvider) {
+    return resolveEntry(input, config, explicitProvider, selectedModel, "explicit", undefined, runtimeInput.providerConfig);
   }
 
   const inferred = configuredModel ? inferProviderFromModel(configuredModel) : undefined;

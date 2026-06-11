@@ -10,6 +10,7 @@ import {
   selectMcpServers,
   selectProviderConfig,
   selectProviderProfileConfig,
+  selectProviderRuntimeInput,
   selectSsrWhitelist,
   selectWorkspacePath,
 } from "./configSelectors";
@@ -44,6 +45,63 @@ describe("configSelectors", () => {
       provider: "dashscope",
       models: ["qwen-coder", "qwen-plus"],
       manualModels: ["manual-a", "manual-b"],
+    });
+  });
+
+  test("selects provider runtime input using profile before default provider", () => {
+    const config = parseTinybotConfig({
+      agents: {
+        defaults: {
+          model: "deepseek-reasoner",
+          provider: "openai",
+          active_profile: "coding",
+        },
+      },
+      providers: {
+        openai: { api_base: "https://openai.test/v1" },
+        profiles: {
+          coding: {
+            provider: "dashscope",
+            api_base: "https://dashscope.test/compatible-mode/v1",
+            manual_models: ["qwen-plus"],
+          },
+        },
+      },
+    });
+
+    expect(selectProviderRuntimeInput(config, "override-model")).toMatchObject({
+      model: "override-model",
+      providerId: "dashscope",
+      source: "profile",
+      activeProfile: "coding",
+      providerConfig: {
+        provider: "dashscope",
+        apiBase: "https://dashscope.test/compatible-mode/v1",
+        manualModels: ["qwen-plus"],
+      },
+    });
+  });
+
+  test("selects explicit provider runtime input when no active profile is configured", () => {
+    const config = parseTinybotConfig({
+      agents: { defaults: { model: "gpt-5", provider: "openrouter" } },
+      providers: {
+        openrouter: {
+          api_base: "https://openrouter.test/api/v1",
+          manual_model_ids: "openai/gpt-4.1",
+        },
+      },
+    });
+
+    expect(selectProviderRuntimeInput(config)).toMatchObject({
+      model: "gpt-5",
+      providerId: "openrouter",
+      source: "explicit",
+      activeProfile: null,
+      providerConfig: {
+        apiBase: "https://openrouter.test/api/v1",
+        manualModels: ["openai/gpt-4.1"],
+      },
     });
   });
 
