@@ -13,6 +13,8 @@ pub enum WorkerCapability {
     ConfigRead,
     #[serde(rename = "config.write")]
     ConfigWrite,
+    #[serde(rename = "provider.secret.read")]
+    ProviderSecretRead,
     #[serde(rename = "session.metadata.read")]
     SessionMetadataRead,
     #[serde(rename = "session.write")]
@@ -70,6 +72,7 @@ mod tests {
         assert!(!policy.allows(&WorkerCapability::NetworkOpenAi));
         assert!(!policy.allows(&WorkerCapability::FsWorkspaceRead));
         assert!(!policy.allows(&WorkerCapability::SessionMetadataRead));
+        assert!(!policy.allows(&WorkerCapability::ProviderSecretRead));
         assert!(!policy.allows(&WorkerCapability::ApprovalRequest));
         assert!(!policy.allows(&WorkerCapability::ApprovalResolve));
         assert!(!policy.allows(&WorkerCapability::FormRequest));
@@ -203,6 +206,22 @@ mod tests {
             json!({
                 "capability": "mcp.call",
                 "scope": "mcp://configured"
+            })
+        );
+    }
+
+    #[test]
+    fn provider_secret_read_capability_name_serializes_as_protocol_string() {
+        let grant = CapabilityGrant {
+            capability: WorkerCapability::ProviderSecretRead,
+            scope: "provider://runtime".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(grant).expect("grant should serialize"),
+            json!({
+                "capability": "provider.secret.read",
+                "scope": "provider://runtime"
             })
         );
     }

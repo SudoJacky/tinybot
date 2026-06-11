@@ -4,6 +4,9 @@ const MAX_TOOL_CALL_DELTA_TEXT = 8192;
 
 export type ToolCallDelta = {
   index: number;
+  toolCallIndex?: number;
+  providerCallId?: string;
+  sequence?: number;
   deltaText: string;
   toolCallId?: string;
   toolName?: string;
@@ -40,6 +43,7 @@ export async function collectChatCompletionStream(
   let stopReason = "stop";
   let usage: TokenUsage | undefined;
   let emittedTerminalToolCalls = false;
+  let sequence = 0;
 
   try {
     for await (const chunk of stream) {
@@ -48,6 +52,7 @@ export async function collectChatCompletionStream(
         continue;
       }
       usage = extractUsage(chunkObject) ?? usage;
+      const providerCallId = typeof chunkObject.id === "string" ? chunkObject.id : undefined;
 
       const choices = Array.isArray(chunkObject.choices) ? chunkObject.choices : [];
       for (const choice of choices) {
@@ -75,11 +80,17 @@ export async function collectChatCompletionStream(
 
           const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
           for (const toolCall of toolCalls) {
-            collectToolCallDelta(toolCall, toolCallBuffers, callbacks);
+            sequence = collectToolCallDelta(toolCall, toolCallBuffers, callbacks, sequence, providerCallId);
           }
         }
         if (finishReason && !emittedTerminalToolCalls) {
-          emitTerminalToolCallDeltas(toolCallBuffers, callbacks, finishReason === "error" ? "error" : "completed");
+          sequence = emitTerminalToolCallDeltas(
+            toolCallBuffers,
+            callbacks,
+            finishReason === "error" ? "error" : "completed",
+            sequence,
+            providerCallId,
+          );
           emittedTerminalToolCalls = true;
         }
       }
@@ -111,10 +122,12 @@ function collectToolCallDelta(
   rawToolCall: unknown,
   buffers: Map<number, ToolCallBuffer>,
   callbacks: StreamCallbacks,
-): void {
+  sequence: number,
+  providerCallId?: string,
+): number {
   const toolCall = asObject(rawToolCall);
   if (!toolCall) {
-    return;
+    return sequence;
   }
   const index = typeof toolCall.index === "number" ? toolCall.index : 0;
   const buffer = buffers.get(index) ?? { argumentsJson: "" };
@@ -134,8 +147,12 @@ function collectToolCallDelta(
 
   if (deltaText || id || name) {
     const parts = splitToolCallDeltaText(deltaText);
+    sequence += 1;
     callbacks.onToolCallDelta?.({
       index,
+      toolCallIndex: index,
+      providerCallId,
+      sequence,
       deltaText: parts[0] ?? "",
       toolCallId: buffer.id,
       toolName: buffer.name,
@@ -144,8 +161,12 @@ function collectToolCallDelta(
       completed: false,
     });
     for (const part of parts.slice(1)) {
+      sequence += 1;
       callbacks.onToolCallDelta?.({
         index,
+        toolCallIndex: index,
+        providerCallId,
+        sequence,
         deltaText: part,
         toolCallId: buffer.id,
         toolName: buffer.name,
@@ -155,6 +176,7 @@ function collectToolCallDelta(
       });
     }
   }
+  return sequence;
 }
 
 function splitToolCallDeltaText(deltaText: string): string[] {
@@ -172,10 +194,16 @@ function emitTerminalToolCallDeltas(
   buffers: Map<number, ToolCallBuffer>,
   callbacks: StreamCallbacks,
   status: "completed" | "error",
-): void {
+  sequence: number,
+  providerCallId?: string,
+): number {
   for (const [index, buffer] of Array.from(buffers.entries()).sort(([left], [right]) => left - right)) {
+    sequence += 1;
     callbacks.onToolCallDelta?.({
       index,
+      toolCallIndex: index,
+      providerCallId,
+      sequence,
       deltaText: "",
       toolCallId: buffer.id,
       toolName: buffer.name,
@@ -184,6 +212,7 @@ function emitTerminalToolCallDeltas(
       completed: status === "completed",
     });
   }
+  return sequence;
 }
 
 function streamErrorContent(error: unknown): string {

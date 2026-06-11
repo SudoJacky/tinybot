@@ -31,6 +31,13 @@ impl WorkerConfigRpc {
         })
     }
 
+    pub fn snapshot_public(&self) -> Result<ConfigSnapshotPublicResult, WorkerProtocolError> {
+        self.require(WorkerCapability::ConfigRead)?;
+        Ok(ConfigSnapshotPublicResult {
+            value: redact_sensitive_value(&self.snapshot),
+        })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -48,6 +55,11 @@ impl WorkerConfigRpc {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ConfigGetResult {
     pub path: String,
+    pub value: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct ConfigSnapshotPublicResult {
     pub value: Value,
 }
 
@@ -183,6 +195,21 @@ mod tests {
 
         assert_eq!(result.value["provider"], "openai");
         assert_eq!(result.value["api_key"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn config_snapshot_public_redacts_sensitive_descendants() {
+        let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+        let result = rpc
+            .snapshot_public()
+            .expect("public snapshot should read with redaction");
+
+        assert_eq!(result.value["providers"]["openai"]["provider"], "openai");
+        assert_eq!(
+            result.value["providers"]["openai"]["api_key"],
+            serde_json::Value::Null
+        );
     }
 
     #[test]

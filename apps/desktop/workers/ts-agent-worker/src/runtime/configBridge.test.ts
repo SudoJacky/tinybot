@@ -6,10 +6,20 @@ import { NativeConfigBridge, modelProviderConfigFromNativeConfig } from "./confi
 class FakeRpcClient {
   readonly requests: Array<{ traceId: string; method: string; params: JsonObject }> = [];
 
-  constructor(private readonly values: Record<string, unknown>) {}
+  constructor(private readonly values: Record<string, unknown>, private readonly snapshot?: Record<string, unknown>) {}
 
   async request(traceId: string, method: string, params: JsonObject): Promise<unknown> {
+    if (method === "config.snapshot_public") {
+      if (this.snapshot === undefined) {
+        throw new Error("unknown method");
+      }
+      this.requests.push({ traceId, method, params });
+      return { value: this.snapshot ?? null };
+    }
     this.requests.push({ traceId, method, params });
+    if (method === "provider.resolve_secret") {
+      return { apiKey: "native-secret", apiKeySource: "config" };
+    }
     const path = params.path;
     if (typeof path !== "string") {
       throw new Error("config.get path must be a string");
@@ -80,6 +90,54 @@ describe("NativeConfigBridge", () => {
       model: "env-model",
     });
     expect(rpcClient.requests.map((request) => request.params.path)).not.toContain("providers.openai.api_key");
+  });
+
+  test("builds provider config from public snapshot and narrow provider secret RPC", async () => {
+    const rpcClient = new FakeRpcClient(
+      {},
+      {
+        agents: { defaults: { model: "qwen-plus", active_profile: "dashscope-search" } },
+        providers: {
+          profiles: {
+            "dashscope-search": {
+              provider: "dashscope",
+              api_base: "https://dashscope.test/compatible-mode/v1",
+              extra_body: { enable_search: true },
+            },
+          },
+        },
+      },
+    );
+
+    const config = await modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), {});
+
+    expect(config).toMatchObject({
+      kind: "resolved",
+      resolved: {
+        providerId: "dashscope",
+        profileName: "dashscope-search",
+        apiKey: "native-secret",
+        apiKeySource: "config",
+        apiBase: "https://dashscope.test/compatible-mode/v1",
+        extraBody: { enable_search: true },
+      },
+    });
+    expect(rpcClient.requests).toEqual([
+      {
+        traceId: "worker-config",
+        method: "config.snapshot_public",
+        params: {},
+      },
+      {
+        traceId: "worker-config",
+        method: "provider.resolve_secret",
+        params: {
+          providerId: "dashscope",
+          profileName: "dashscope-search",
+          apiKeyEnvVars: ["DASHSCOPE_API_KEY"],
+        },
+      },
+    ]);
   });
 
   test("uses native default model with env OpenAI key when provider is auto", async () => {
