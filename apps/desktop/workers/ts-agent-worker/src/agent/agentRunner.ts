@@ -2,12 +2,15 @@ import type { AgentMessage, AgentRunResult, AgentRunSpec } from "./agentRunSpec.
 import type { ModelProvider, ModelRequestOptions, TokenUsage, ToolCallRequest, ToolDefinition } from "../model/provider.ts";
 import type { Tool, ToolResult } from "../tools/tool.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
+import { estimateMessage, estimateMessages } from "../support/tokenEstimator.ts";
+import {
+  EMPTY_FINAL_RESPONSE_MESSAGE,
+  FINALIZATION_RETRY_PROMPT,
+  isBlankText,
+  normalizeToolResultContent,
+} from "../support/runtimeHelpers.ts";
 
-const EMPTY_FINAL_RESPONSE_MESSAGE =
-  "I completed the tool steps but couldn't produce a final answer. Please try again or narrow the task.";
 const DEFAULT_MODEL_ERROR_MESSAGE = "Sorry, I encountered an error calling the AI model.";
-const FINALIZATION_RETRY_PROMPT =
-  "You have already finished the tool work. Do not call any more tools. Using only the conversation and tool results above, provide the final answer for the user now.";
 const TOOL_ERROR_RECOVERY_HINT =
   "\n\n[Analyze the error above and try a different approach. Consider using `query_experience` to search for past solutions to similar problems.]";
 const MAX_ITERATIONS_MESSAGE = (maxIterations: number): string =>
@@ -459,10 +462,6 @@ function parseToolArguments(toolCall: ToolCallRequest): Record<string, unknown> 
   return parsed as Record<string, unknown>;
 }
 
-function isBlankText(content: string | undefined): boolean {
-  return content === undefined || content.trim().length === 0;
-}
-
 function applyToolResultBudget(spec: AgentRunSpec, messages: AgentMessage[]): void {
   for (const message of messages) {
     if (message.role !== "tool") {
@@ -470,22 +469,6 @@ function applyToolResultBudget(spec: AgentRunSpec, messages: AgentMessage[]): vo
     }
     message.content = normalizeToolResultContent(message.name ?? "tool", message.content, spec.toolResultBudget);
   }
-}
-
-function normalizeToolResultContent(toolName: string, content: string, budget?: number): string {
-  const nonemptyContent = content.trim().length === 0 ? emptyToolResultMessage(toolName) : content;
-  return applyTextBudget(nonemptyContent, budget);
-}
-
-function emptyToolResultMessage(toolName: string): string {
-  return `(${toolName} completed with no output)`;
-}
-
-function applyTextBudget(content: string, budget: number | undefined): string {
-  if (budget === undefined || budget <= 0 || content.length <= budget) {
-    return content;
-  }
-  return `${content.slice(0, budget)}\n... (truncated)`;
 }
 
 function awaitingInputFromMetadata(metadata: Record<string, unknown> | undefined): (Record<string, unknown> & { stopReason: "awaiting_user_input" | "awaiting_approval" | "awaiting_form" }) | undefined {
@@ -660,23 +643,6 @@ function findLegalMessageStart(messages: AgentMessage[]): number {
     }
   }
   return start;
-}
-
-function estimateMessages(messages: AgentMessage[]): number {
-  return messages.reduce((total, message) => total + estimateMessage(message), 0);
-}
-
-function estimateMessage(message: AgentMessage): number {
-  const parts = [
-    message.role,
-    message.content,
-    message.reasoningContent,
-    message.thinkingBlocks ? JSON.stringify(message.thinkingBlocks) : "",
-    message.toolCallId,
-    message.name,
-    message.toolCalls ? JSON.stringify(message.toolCalls) : "",
-  ];
-  return parts.reduce((total, part) => total + (part?.length ?? 0), 4);
 }
 
 function errorName(error: unknown): string {
