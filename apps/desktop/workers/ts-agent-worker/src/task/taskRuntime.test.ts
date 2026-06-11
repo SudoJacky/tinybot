@@ -159,4 +159,97 @@ describe("TaskRuntime", () => {
     expect(saves).toHaveLength(1);
     expect(saves[0]).toMatchObject({ id: "plan-created", originalRequest: "Create a TS plan" });
   });
+
+  test("resumes a plan by marking ready subtasks in progress and spawning executors", async () => {
+    const { bridge, saves } = memoryBridge([{
+      ...basePlan(),
+      status: "planning",
+      subtasks: [
+        {
+          ...basePlan().subtasks[0],
+          status: "pending",
+          result: null,
+        },
+        basePlan().subtasks[1],
+      ],
+    }]);
+    const spawned: Array<{ planId: string; subtaskId: string; task: string; label: string }> = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async (request) => {
+          spawned.push({
+            planId: request.plan.id,
+            subtaskId: request.subtask.id,
+            task: request.task,
+            label: request.label,
+          });
+        },
+      },
+    });
+
+    const result = await runtime.resumePlan("plan-1", { parallel: true }, "trace-resume");
+
+    expect(result).toMatchObject({
+      plan: expect.objectContaining({ id: "plan-1", status: "executing" }),
+      spawnedCount: 1,
+    });
+    expect(spawned).toEqual([
+      {
+        planId: "plan-1",
+        subtaskId: "a",
+        label: "Foundation",
+        task: expect.stringContaining("Execute subtask: Foundation"),
+      },
+    ]);
+    expect(saves.at(-1)).toMatchObject({
+      status: "executing",
+      currentSubtaskIds: ["a"],
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "in_progress", startedAt: "2026-06-12T00:00:00.000Z" }),
+        expect.objectContaining({ id: "b", status: "pending" }),
+      ],
+    });
+  });
+
+  test("completes a subtask and spawns the next ready subtask", async () => {
+    const plan = basePlan();
+    plan.status = "executing";
+    plan.currentSubtaskIds = ["a"];
+    plan.subtasks[0].status = "in_progress";
+    plan.subtasks[0].result = null;
+    const { bridge, saves } = memoryBridge([plan]);
+    const spawned: string[] = [];
+    const runtime = new TaskRuntime({
+      store: bridge,
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    const result = await runtime.completeSubtask(
+      "plan-1",
+      "a",
+      { status: "completed", result: "foundation complete" },
+      { parallel: true },
+      "trace-complete",
+    );
+
+    expect(result).toMatchObject({
+      plan: expect.objectContaining({ id: "plan-1", status: "executing" }),
+      spawnedCount: 1,
+    });
+    expect(spawned).toEqual(["b"]);
+    expect(saves.at(-1)).toMatchObject({
+      currentSubtaskIds: ["b"],
+      subtasks: [
+        expect.objectContaining({ id: "a", status: "completed", result: "foundation complete" }),
+        expect.objectContaining({ id: "b", status: "in_progress", startedAt: "2026-06-12T00:00:00.000Z" }),
+      ],
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { validateTaskDag } from "./taskDag";
+import { isPlanCompleted, readySubtasks, validateTaskDag } from "./taskDag";
 import { taskProgressPayload, type TaskProgressPayload } from "./taskProgress";
 import type { TaskPlanContext } from "./taskPlanner";
 import type { SubTask, SubTaskStatus, TaskPlan } from "./taskTypes";
@@ -29,19 +29,37 @@ export interface TaskRuntimeOptions {
   planner?: {
     createPlan(request: string, context: TaskPlanContext, traceId: string): Promise<TaskPlan>;
   };
+  executor?: {
+    spawnSubtask(request: SpawnSubtaskRequest, traceId: string): Promise<void>;
+  };
   idGenerator?: () => string;
   now?: () => string;
+}
+
+export interface SpawnSubtaskRequest {
+  plan: TaskPlan;
+  subtask: SubTask;
+  task: string;
+  label: string;
+  onComplete: (request: UpdateSubtaskResultRequest) => Promise<void>;
+}
+
+export interface ResumePlanResult {
+  plan: TaskPlan;
+  spawnedCount: number;
 }
 
 export class TaskRuntime {
   private readonly store: TaskStoreBridge;
   private readonly planner?: TaskRuntimeOptions["planner"];
+  private readonly executor?: TaskRuntimeOptions["executor"];
   private readonly idGenerator: () => string;
   private readonly now: () => string;
 
   constructor(options: TaskRuntimeOptions) {
     this.store = options.store;
     this.planner = options.planner;
+    this.executor = options.executor;
     this.idGenerator = options.idGenerator ?? randomTaskId;
     this.now = options.now ?? (() => new Date().toISOString());
   }
@@ -61,6 +79,96 @@ export class TaskRuntime {
   async getProgress(planId: string, traceId: string): Promise<TaskProgressPayload | null> {
     const plan = await this.store.getPlan(planId, traceId);
     return plan ? taskProgressPayload(plan) : null;
+  }
+
+  async resumePlan(planId: string, options: { parallel?: boolean }, traceId: string): Promise<ResumePlanResult | null> {
+    if (!this.executor) {
+      return null;
+    }
+    const plan = await this.store.getPlan(planId, traceId);
+    if (!plan) {
+      return null;
+    }
+    if (plan.status !== "completed") {
+      plan.status = "executing";
+    }
+    const ready = readySubtasks(plan);
+    const toSpawn = options.parallel === false ? ready.slice(0, 1) : ready;
+    for (const subtask of toSpawn) {
+      subtask.status = "in_progress";
+      subtask.startedAt = this.now();
+      plan.currentSubtaskIds = [...new Set([...plan.currentSubtaskIds, subtask.id])];
+    }
+    const saved = await this.store.savePlan(plan, traceId);
+    for (const subtask of toSpawn) {
+      await this.executor.spawnSubtask({
+        plan: saved,
+        subtask,
+        task: buildTaskDescription(saved, subtask),
+        label: subtask.title,
+        onComplete: async (completion) => {
+          await this.completeSubtask(saved.id, subtask.id, completion, options, traceId);
+        },
+      }, traceId);
+    }
+    return { plan: saved, spawnedCount: toSpawn.length };
+  }
+
+  async completeSubtask(
+    planId: string,
+    subtaskId: string,
+    request: UpdateSubtaskResultRequest,
+    options: { parallel?: boolean },
+    traceId: string,
+  ): Promise<ResumePlanResult | null> {
+    if (!this.executor) {
+      return null;
+    }
+    const plan = await this.store.getPlan(planId, traceId);
+    if (!plan) {
+      return null;
+    }
+    const subtask = plan.subtasks.find((candidate) => candidate.id === subtaskId);
+    if (!subtask) {
+      return null;
+    }
+    subtask.status = request.status;
+    if (request.result !== undefined) {
+      subtask.result = request.result;
+    }
+    if (request.error !== undefined) {
+      subtask.error = request.error;
+    }
+    if (request.status === "completed" || request.status === "failed" || request.status === "skipped") {
+      subtask.completedAt = this.now();
+      plan.currentSubtaskIds = plan.currentSubtaskIds.filter((id) => id !== subtask.id);
+    }
+    if (isPlanCompleted(plan)) {
+      plan.status = "completed";
+      const saved = await this.store.savePlan(plan, traceId);
+      return { plan: saved, spawnedCount: 0 };
+    }
+    plan.status = "executing";
+    const ready = readySubtasks(plan);
+    const toSpawn = options.parallel === false ? ready.slice(0, 1) : ready;
+    for (const readySubtask of toSpawn) {
+      readySubtask.status = "in_progress";
+      readySubtask.startedAt = this.now();
+      plan.currentSubtaskIds = [...new Set([...plan.currentSubtaskIds, readySubtask.id])];
+    }
+    const saved = await this.store.savePlan(plan, traceId);
+    for (const readySubtask of toSpawn) {
+      await this.executor.spawnSubtask({
+        plan: saved,
+        subtask: readySubtask,
+        task: buildTaskDescription(saved, readySubtask),
+        label: readySubtask.title,
+        onComplete: async (completion) => {
+          await this.completeSubtask(saved.id, readySubtask.id, completion, options, traceId);
+        },
+      }, traceId);
+    }
+    return { plan: saved, spawnedCount: toSpawn.length };
   }
 
   async pausePlan(planId: string, traceId: string): Promise<TaskPlan | null> {
@@ -170,4 +278,26 @@ export class TaskRuntime {
 
 function randomTaskId(): string {
   return Math.random().toString(16).slice(2, 6);
+}
+
+function buildTaskDescription(plan: TaskPlan, subtask: SubTask): string {
+  const dependencyContext = subtask.dependencies
+    .map((dependencyId) => plan.subtasks.find((candidate) => candidate.id === dependencyId))
+    .filter((dependency): dependency is SubTask => dependency !== undefined && !!dependency.result)
+    .map((dependency) => `**${dependency.title}:** ${dependency.result}`)
+    .join("\n");
+  return [
+    `Execute subtask: ${subtask.title}`,
+    "",
+    "## Description",
+    subtask.description,
+    "",
+    "## Context from Completed Subtasks",
+    dependencyContext,
+    "",
+    "## Instructions",
+    "1. Focus on completing only this subtask",
+    "2. Use available tools to gather information and produce results",
+    "3. Provide a clear, concise summary of what was accomplished",
+  ].join("\n");
 }

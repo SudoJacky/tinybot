@@ -182,4 +182,31 @@ describe("createTaskTool", () => {
       content: expect.stringContaining("## Created native plan (id: plan-new)"),
     });
   });
+
+  test("resumes a task plan through the configured executor", async () => {
+    const plan = basePlan();
+    plan.status = "planning";
+    plan.subtasks[0].status = "pending";
+    plan.subtasks[0].result = null;
+    const spawned: string[] = [];
+    const tool = createTaskTool({
+      store: memoryBridge([plan]),
+      now: () => "2026-06-12T00:00:00.000Z",
+      executor: {
+        spawnSubtask: async ({ subtask }) => {
+          spawned.push(subtask.id);
+        },
+      },
+    });
+
+    await expect(tool.execute({ action: "resume", plan_id: "plan-1" }, context)).resolves.toMatchObject({
+      content: "Task plan plan-1 resumed. Spawned 1 ready subtask.",
+      metadata: {
+        _task_event: true,
+        _task_plan_id: "plan-1",
+        _task_progress: expect.objectContaining({ plan_id: "plan-1", in_progress: 1, pending: 1 }),
+      },
+    });
+    expect(spawned).toEqual(["a"]);
+  });
 });

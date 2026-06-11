@@ -25,8 +25,8 @@ export function createTaskTool(options: TaskRuntimeOptions): Tool {
     name: "task",
     description: [
       "Manage complex multi-step task plans.",
-      "Native TS currently supports listing, status/progress, pause/cancel/delete, and subtask edits.",
-      "Plan creation, background subagent execution, and final summaries are deferred until the native task planner/subagent runtime is migrated.",
+      "Native TS currently supports plan creation, listing, status/progress, resume with a configured subtask executor, pause/cancel/delete, and subtask edits.",
+      "Final summaries and fully isolated AgentRunner-backed subagent sessions are still being migrated.",
     ].join(" "),
     parameters: {
       type: "object",
@@ -77,7 +77,7 @@ async function executeTaskAction(
     case "create":
       return createResult(runtime, args, context);
     case "resume":
-      return deferredResult("Task background execution is not available in the native TS runtime yet.", "subagent_runtime");
+      return resumeResult(runtime, args, context);
     case "summary":
       return deferredResult("Task summary generation is not available in the native TS runtime yet.", "task_summary");
     default:
@@ -145,6 +145,29 @@ async function progressResult(runtime: TaskRuntime, args: Record<string, unknown
     metadata: {
       _task_event: true,
       _task_plan_id: planId,
+      _task_progress: progress,
+    },
+  };
+}
+
+async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
+  const planId = requiredPlanId(args, "resume");
+  if (typeof planId !== "string") {
+    return { content: planId.content };
+  }
+  const result = await runtime.resumePlan(planId, {
+    parallel: booleanArg(args, "parallel", true),
+  }, traceId(context));
+  if (!result) {
+    return deferredResult("Task background execution is not available in the native TS runtime yet.", "subagent_runtime");
+  }
+  const progress = taskProgressPayload(result.plan);
+  const noun = result.spawnedCount === 1 ? "subtask" : "subtasks";
+  return {
+    content: `Task plan ${result.plan.id} resumed. Spawned ${result.spawnedCount} ready ${noun}.`,
+    metadata: {
+      _task_event: true,
+      _task_plan_id: result.plan.id,
       _task_progress: progress,
     },
   };

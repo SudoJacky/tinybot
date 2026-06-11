@@ -3,6 +3,7 @@ import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../
 import type { ModelProvider } from "../model/provider.ts";
 import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
 import { TaskPlanner } from "../task/taskPlanner.ts";
+import { TaskProviderSubagentExecutor } from "../task/taskSubagentExecutor.ts";
 import { createTaskTool } from "../task/taskTool.ts";
 import type { Tool } from "./tool.ts";
 
@@ -66,7 +67,10 @@ export function createNativeTaskTools(
       workspace: options.workspace,
     })
     : undefined;
-  return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient), planner })];
+  const executor = options.provider
+    ? new TaskProviderSubagentExecutor({ provider: options.provider, model: options.model })
+    : undefined;
+  return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient), planner, executor })];
 }
 
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {

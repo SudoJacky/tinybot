@@ -1,0 +1,84 @@
+import { describe, expect, test } from "vitest";
+
+import type { AgentMessage } from "../agent/agentRunSpec";
+import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider";
+import { TaskProviderSubagentExecutor } from "./taskSubagentExecutor";
+import type { SpawnSubtaskRequest } from "./taskRuntime";
+import type { TaskPlan } from "./taskTypes";
+
+class RecordingProvider implements ModelProvider {
+  readonly requests: Array<{ messages: AgentMessage[]; options?: ModelRequestOptions }> = [];
+
+  constructor(private readonly response: ModelResponse) {}
+
+  async complete(messages: AgentMessage[], options?: ModelRequestOptions): Promise<ModelResponse> {
+    this.requests.push({ messages, options });
+    return this.response;
+  }
+}
+
+function plan(): TaskPlan {
+  return {
+    id: "plan-1",
+    title: "Backend migration",
+    originalRequest: "Move backend runtime to TS",
+    status: "executing",
+    currentSubtaskIds: ["a"],
+    context: {},
+    subtasks: [
+      {
+        id: "a",
+        title: "Inspect",
+        description: "Inspect Python",
+        status: "in_progress",
+        dependencies: [],
+        parallelSafe: true,
+        result: null,
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        retryCount: 0,
+        maxRetries: 2,
+      },
+    ],
+  };
+}
+
+describe("TaskProviderSubagentExecutor", () => {
+  test("runs a focused provider call and reports completed subtask result", async () => {
+    const provider = new RecordingProvider({ content: "inspection complete", toolCalls: [], stopReason: "stop" });
+    const executor = new TaskProviderSubagentExecutor({ provider, model: "test-model" });
+    const completions: Array<{ status: string; result?: string | null; error?: string | null }> = [];
+    const request: SpawnSubtaskRequest = {
+      plan: plan(),
+      subtask: plan().subtasks[0],
+      label: "Inspect",
+      task: "Execute subtask: Inspect",
+      onComplete: async (completion) => {
+        completions.push(completion);
+      },
+    };
+
+    await executor.spawnSubtask(request, "trace-1");
+    await waitFor(() => completions.length === 1);
+
+    expect(provider.requests[0]).toMatchObject({
+      options: { model: "test-model" },
+    });
+    expect(provider.requests[0]?.messages).toEqual([
+      expect.objectContaining({ role: "system", content: expect.stringContaining("focused task execution subagent") }),
+      expect.objectContaining({ role: "user", content: "Execute subtask: Inspect" }),
+    ]);
+    expect(completions).toEqual([{ status: "completed", result: "inspection complete" }]);
+  });
+});
+
+async function waitFor(condition: () => boolean, attempts = 20): Promise<void> {
+  for (let index = 0; index < attempts; index += 1) {
+    if (condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("condition was not met");
+}
