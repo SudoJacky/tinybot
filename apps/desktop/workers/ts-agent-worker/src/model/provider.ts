@@ -45,6 +45,10 @@ export type GenerationRequestOptions = {
 export type ModelRequestOptions = ModelStreamCallbacks & {
   model?: string;
   tools?: ToolDefinition[];
+  toolChoice?: "auto" | "required" | Record<string, unknown>;
+  retryMode?: "standard" | "persistent";
+  extraBody?: Record<string, unknown>;
+  onRetryWait?: (event: { attempt: number; delaySeconds: number; message: string }) => void;
 } & GenerationRequestOptions;
 
 export interface ModelProvider {

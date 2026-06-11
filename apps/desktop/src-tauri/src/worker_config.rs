@@ -31,6 +31,13 @@ impl WorkerConfigRpc {
         })
     }
 
+    pub fn snapshot_public(&self) -> Result<ConfigSnapshotPublicResult, WorkerProtocolError> {
+        self.require(WorkerCapability::ConfigRead)?;
+        Ok(ConfigSnapshotPublicResult {
+            value: redact_sensitive_value(&self.snapshot),
+        })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -48,6 +55,11 @@ impl WorkerConfigRpc {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ConfigGetResult {
     pub path: String,
+    pub value: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct ConfigSnapshotPublicResult {
     pub value: Value,
 }
 
@@ -91,10 +103,14 @@ fn redact_sensitive_value(value: &Value) -> Value {
 }
 
 fn is_sensitive_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
+    let key = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase();
     matches!(
         key.as_str(),
-        "api_key" | "token" | "secret" | "password" | "credentials"
+        "apikey" | "token" | "secret" | "password" | "credentials"
     )
 }
 
@@ -168,9 +184,17 @@ mod tests {
         let error = rpc
             .get("providers.openai.api_key")
             .expect_err("api_key should be protected");
+        let camel_case_error = rpc
+            .get("providers.openai.apiKey")
+            .expect_err("apiKey should be protected");
 
         assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
         assert_eq!(error.details["path"], "providers.openai.api_key");
+        assert_eq!(
+            camel_case_error.code,
+            WorkerProtocolErrorCode::CapabilityDenied
+        );
+        assert_eq!(camel_case_error.details["path"], "providers.openai.apiKey");
     }
 
     #[test]
@@ -183,6 +207,26 @@ mod tests {
 
         assert_eq!(result.value["provider"], "openai");
         assert_eq!(result.value["api_key"], serde_json::Value::Null);
+        assert_eq!(result.value["apiKey"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn config_snapshot_public_redacts_sensitive_descendants() {
+        let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+        let result = rpc
+            .snapshot_public()
+            .expect("public snapshot should read with redaction");
+
+        assert_eq!(result.value["providers"]["openai"]["provider"], "openai");
+        assert_eq!(
+            result.value["providers"]["openai"]["api_key"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            result.value["providers"]["openai"]["apiKey"],
+            serde_json::Value::Null
+        );
     }
 
     #[test]
@@ -212,6 +256,7 @@ mod tests {
                 "openai": {
                     "provider": "openai",
                     "api_key": "sk-secret",
+                    "apiKey": "sk-camel-secret",
                     "api_base": "https://api.openai.com/v1"
                 }
             }

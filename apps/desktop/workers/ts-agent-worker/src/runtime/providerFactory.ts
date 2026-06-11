@@ -4,6 +4,7 @@ import { FixtureProvider } from "../model/fixtureProvider.ts";
 import type { ModelProvider, ModelResponse } from "../model/provider.ts";
 import { OpenAIProvider, type OpenAIChatCompletionsClient } from "../model/openaiProvider.ts";
 import { UnconfiguredProvider } from "../model/unconfiguredProvider.ts";
+import type { ResolvedRuntimeProvider } from "../providers/providerRuntime.ts";
 
 type OpenAIClientOptions = {
   apiKey: string;
@@ -20,6 +21,13 @@ export type ModelProviderConfig =
       apiKey: string;
       baseURL?: string;
       model: string;
+      requestTraits?: ResolvedRuntimeProvider["requestTraits"];
+      extraBody?: Record<string, unknown>;
+      enableSearch?: boolean;
+    }
+  | {
+      kind: "resolved";
+      resolved: ResolvedRuntimeProvider;
     }
   | {
       kind: "fixture";
@@ -38,6 +46,9 @@ export function createModelProvider(
     if (config.kind === "fixture") {
       return new FixtureProvider(config.responses);
     }
+    if (config.kind === "resolved") {
+      return createResolvedModelProvider(config.resolved, deps);
+    }
     return new UnconfiguredProvider();
   }
   const createOpenAIClient = deps.createOpenAIClient ?? ((options) => adaptOpenAIClient(new OpenAI(options)));
@@ -48,6 +59,34 @@ export function createModelProvider(
       maxRetries: 0,
     }),
     defaultModel: config.model,
+    requestTraits: config.requestTraits,
+    extraBodyDefaults: config.extraBody,
+    enableSearch: config.enableSearch,
+  });
+}
+
+function createResolvedModelProvider(
+  resolved: ResolvedRuntimeProvider,
+  deps: ModelProviderFactoryDeps,
+): ModelProvider {
+  if (resolved.apiMode && resolved.apiMode !== "openai_chat_completions") {
+    return new UnconfiguredProvider(`Unsupported provider api_mode: ${resolved.apiMode}`);
+  }
+  const localProviderIds = new Set(["ollama", "lm_studio"]);
+  const apiKey = resolved.apiKey ?? (resolved.providerId && localProviderIds.has(resolved.providerId) ? "tinybot-local-provider" : undefined);
+  if (!resolved.providerId || !apiKey) {
+    return new UnconfiguredProvider(`model provider is not configured: ${resolved.providerId ?? "unresolved"}`);
+  }
+  const createOpenAIClient = deps.createOpenAIClient ?? ((options) => adaptOpenAIClient(new OpenAI(options)));
+  return new OpenAIProvider({
+    client: createOpenAIClient({
+      apiKey,
+      baseURL: resolved.apiBase,
+      maxRetries: 0,
+    }),
+    defaultModel: resolved.model,
+    requestTraits: resolved.requestTraits,
+    extraBodyDefaults: resolved.extraBody,
   });
 }
 

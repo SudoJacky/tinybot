@@ -1,6 +1,7 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type { ModelResponse } from "../model/provider.ts";
+import { resolveRuntimeProvider, type ProviderSecretResolution, type TinybotPublicConfig } from "../providers/providerRuntime.ts";
 import { modelProviderConfigFromEnv, type ModelProviderConfig } from "./providerFactory.ts";
 
 const CONFIG_TRACE_ID = "worker-config";
@@ -17,9 +18,65 @@ export class NativeConfigBridge {
     const object = asObject(result);
     return object?.value;
   }
+
+  async snapshotPublic(): Promise<TinybotPublicConfig> {
+    const result = await this.rpcClient.request(CONFIG_TRACE_ID, "config.snapshot_public", {});
+    const object = asObject(result);
+    const value = asObject(object?.value);
+    if (!value) {
+      throw new Error("config.snapshot_public did not return an object snapshot");
+    }
+    return value;
+  }
+
+  async resolveProviderSecret(input: {
+    providerId: string;
+    profileName?: string;
+    apiKeyEnvVars: string[];
+  }): Promise<ProviderSecretResolution | undefined> {
+    const result = await this.rpcClient.request(CONFIG_TRACE_ID, "provider.resolve_secret", {
+      providerId: input.providerId,
+      ...(input.profileName ? { profileName: input.profileName } : {}),
+      apiKeyEnvVars: input.apiKeyEnvVars,
+    });
+    const object = asObject(result);
+    const apiKey = asString(object?.apiKey ?? object?.api_key);
+    if (!apiKey) {
+      return undefined;
+    }
+    return {
+      apiKey,
+      apiKeySource: (asString(object?.apiKeySource ?? object?.api_key_source) as ProviderSecretResolution["apiKeySource"]) ?? "config",
+    };
+  }
 }
 
 export async function modelProviderConfigFromNativeConfig(
+  configBridge: NativeConfigBridge,
+  env: Record<string, string | undefined>,
+): Promise<ModelProviderConfig> {
+  try {
+    const snapshot = await configBridge.snapshotPublic();
+    const provider = asString(pathValue(snapshot, ["agents", "defaults", "provider"]));
+    if (provider === "fixture") {
+      const providerConfig = asObject(pathValue(snapshot, ["providers", "fixture"]));
+      return {
+        kind: "fixture",
+        responses: normalizeFixtureResponses(providerConfig?.responses),
+      };
+    }
+    const resolved = await resolveRuntimeProvider({
+      config: snapshot,
+      env,
+      secretResolver: (input) => configBridge.resolveProviderSecret(input),
+    });
+    return { kind: "resolved", resolved };
+  } catch {
+    return legacyModelProviderConfigFromNativeConfig(configBridge, env);
+  }
+}
+
+async function legacyModelProviderConfigFromNativeConfig(
   configBridge: NativeConfigBridge,
   env: Record<string, string | undefined>,
 ): Promise<ModelProviderConfig> {
@@ -52,6 +109,18 @@ export async function modelProviderConfigFromNativeConfig(
   } catch {
     return modelProviderConfigFromEnv(env);
   }
+}
+
+function pathValue(config: TinybotPublicConfig, segments: string[]): unknown {
+  let current: unknown = config;
+  for (const segment of segments) {
+    const object = asObject(current);
+    if (!object) {
+      return undefined;
+    }
+    current = object[segment];
+  }
+  return current;
 }
 
 function asObject(value: unknown): JsonObject | null {

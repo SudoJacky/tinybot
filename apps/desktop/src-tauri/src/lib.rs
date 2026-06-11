@@ -22,6 +22,7 @@ pub mod worker_protocol;
 pub mod worker_rpc;
 pub mod worker_runtime;
 pub mod worker_session;
+pub mod worker_secret;
 pub mod worker_stdio;
 pub mod worker_workspace;
 
@@ -1395,6 +1396,7 @@ fn experimental_worker_router(
         200,
         CapabilityPolicy::new([
             WorkerCapability::ConfigRead,
+            WorkerCapability::ProviderSecretRead,
             WorkerCapability::FsWorkspaceRead,
             WorkerCapability::DiagnosticsWrite,
             WorkerCapability::ApprovalRequest,

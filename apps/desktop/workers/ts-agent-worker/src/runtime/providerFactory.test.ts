@@ -65,6 +65,97 @@ describe("createModelProvider", () => {
     ]);
   });
 
+  test("creates an OpenAI-compatible provider from a resolved runtime provider", async () => {
+    const clientOptions: unknown[] = [];
+    const requests: unknown[] = [];
+    const provider = createModelProvider(
+      {
+        kind: "resolved",
+        resolved: {
+          providerId: "openrouter",
+          model: "openai/gpt-4o-mini",
+          source: "explicit",
+          apiMode: "openai_chat_completions",
+          apiKey: "or-key",
+          apiKeySource: "config",
+          apiBase: "https://openrouter.ai/api/v1",
+          models: [],
+          manualModelIds: [],
+          supportsModelDiscovery: true,
+          requestTraits: {
+            tokenParameter: "max_tokens",
+            temperaturePolicy: "standard",
+            stripModelPrefix: true,
+            extraBodyDefaults: {},
+            supportsPromptCaching: false,
+          },
+          extraBody: { route: "fallback" },
+          warnings: [],
+        },
+      },
+      {
+        createOpenAIClient: (options) => {
+          clientOptions.push(options);
+          return {
+            chat: {
+              completions: {
+                create: async (request: unknown) => {
+                  requests.push(request);
+                  return chunks([{ choices: [{ delta: { content: "done" }, finish_reason: "stop" }] }]);
+                },
+              },
+            },
+          };
+        },
+      },
+    );
+
+    const response = await provider.complete([{ role: "user", content: "hello" }]);
+
+    expect(response.content).toBe("done");
+    expect(clientOptions).toEqual([
+      {
+        apiKey: "or-key",
+        baseURL: "https://openrouter.ai/api/v1",
+        maxRetries: 0,
+      },
+    ]);
+    expect(requests).toEqual([
+      expect.objectContaining({
+        model: "gpt-4o-mini",
+        extra_body: { route: "fallback" },
+      }),
+    ]);
+  });
+
+  test("returns an unconfigured provider for unsupported resolved API modes", async () => {
+    const provider = createModelProvider({
+      kind: "resolved",
+      resolved: {
+        providerId: "native_provider",
+        model: "native-model",
+        source: "explicit",
+        apiMode: "unsupported",
+        models: [],
+        manualModelIds: [],
+        supportsModelDiscovery: false,
+        requestTraits: {
+          tokenParameter: "max_tokens",
+          temperaturePolicy: "standard",
+          stripModelPrefix: false,
+          extraBodyDefaults: {},
+          supportsPromptCaching: false,
+        },
+        extraBody: {},
+        warnings: [],
+      },
+    });
+
+    await expect(provider.complete([{ role: "user", content: "hello" }])).rejects.toThrow(
+      "Unsupported provider api_mode: unsupported",
+    );
+  });
+
   test("creates a fixture provider for offline worker integration tests", async () => {
     const provider = createModelProvider({
       kind: "fixture",

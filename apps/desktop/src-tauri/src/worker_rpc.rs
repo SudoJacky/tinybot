@@ -2,6 +2,7 @@ use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_config::WorkerConfigRpc;
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerResponse};
+use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
 use crate::worker_session::{SessionMetadata, WorkerSessionRpc};
 use crate::worker_workspace::WorkerWorkspaceRpc;
 use serde::Deserialize;
@@ -18,6 +19,7 @@ use std::{
 pub struct WorkerRpcRouter {
     workspace: WorkerWorkspaceRpc,
     config: WorkerConfigRpc,
+    secret: WorkerSecretRpc,
     session: WorkerSessionRpc,
     diagnostics: WorkerDiagnosticsRpc,
     approval: WorkerApprovalRpc,
@@ -37,6 +39,7 @@ impl WorkerRpcRouter {
         Self {
             workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
             config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),
+            secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
             session: WorkerSessionRpc::new(sessions, policy.clone()),
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
             approval: WorkerApprovalRpc::new(policy.clone()),
@@ -88,6 +91,14 @@ impl WorkerRpcRouter {
             "config.get" => {
                 let params: PathParams = parse_params(request)?;
                 serde_json::to_value(self.config.get(&params.path)?).map_err(serialization_error)
+            }
+            "config.snapshot_public" => {
+                serde_json::to_value(self.config.snapshot_public()?).map_err(serialization_error)
+            }
+            "provider.resolve_secret" => {
+                let params: ProviderResolveSecretParams = parse_params(request)?;
+                serde_json::to_value(self.secret.resolve_secret(params)?)
+                    .map_err(serialization_error)
             }
             "session.get_metadata" => {
                 let params: SessionIdParams = parse_params(request)?;
@@ -1447,6 +1458,76 @@ mod tests {
         assert_eq!(
             response.result,
             Some(json!({ "path": "agents.defaults.model", "value": "gpt-5" }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_config_snapshot_public_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "providers": {
+                    "openai": {
+                        "provider": "openai",
+                        "api_key": "sk-secret"
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ConfigRead]),
+        );
+        let request = WorkerRequest::new("req-1", "trace-1", "config.snapshot_public", json!({}));
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result.as_ref().unwrap()["value"]["providers"]["openai"]["api_key"],
+            serde_json::Value::Null
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_provider_resolve_secret_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "providers": {
+                    "profiles": {
+                        "dashscope-search": {
+                            "provider": "dashscope",
+                            "api_key": "profile-secret"
+                        }
+                    }
+                }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ProviderSecretRead]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "provider.resolve_secret",
+            json!({
+                "providerId": "dashscope",
+                "profileName": "dashscope-search",
+                "apiKeyEnvVars": ["DASHSCOPE_API_KEY"]
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "apiKey": "profile-secret",
+                "apiKeySource": "config"
+            }))
         );
         assert!(response.error.is_none());
     }

@@ -770,21 +770,29 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await respondToConfigGet(server, lines, "agents.defaults.provider", "openai");
-    await respondToConfigGet(server, lines, "agents.defaults.model", "gpt-5");
-    await respondToConfigGet(server, lines, "providers.openai", {
-      provider: "openai",
-      api_base: "https://api.test/v1",
-      api_key: null,
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "openai", model: "gpt-5" } },
+      providers: {
+        openai: {
+          provider: "openai",
+          api_base: "https://api.test/v1",
+          api_key: null,
+        },
+      },
     });
+    await respondToProviderSecret(server, lines, "openai", { apiKey: "env-key", apiKeySource: "env:OPENAI_API_KEY" });
     await run;
 
     expect(createdConfigs).toEqual([
       {
-        kind: "openai",
-        apiKey: "env-key",
-        baseURL: "https://api.test/v1",
-        model: "gpt-5",
+        kind: "resolved",
+        resolved: expect.objectContaining({
+          providerId: "openai",
+          apiKey: "env-key",
+          apiKeySource: "env:OPENAI_API_KEY",
+          apiBase: "https://api.test/v1",
+          model: "gpt-5",
+        }),
       },
     ]);
     expect(parsedLines(lines).at(-1)).toMatchObject({
@@ -1452,6 +1460,43 @@ async function respondToConfigGet(server: ReturnType<typeof createAgentWorkerSer
       id: request.id,
       trace_id: request.trace_id,
       result: { path, value },
+    }),
+  );
+}
+
+async function respondToConfigSnapshot(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], value: unknown): Promise<void> {
+  await waitFor(() => parsedLines(lines).some((line) => line.method === "config.snapshot_public"));
+  const request = parsedLines(lines).find((line) => line.method === "config.snapshot_public");
+  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+    throw new Error("missing config.snapshot_public request");
+  }
+  await server.handleLine(
+    JSON.stringify({
+      protocol_version: "1",
+      id: request.id,
+      trace_id: request.trace_id,
+      result: { value },
+    }),
+  );
+}
+
+async function respondToProviderSecret(
+  server: ReturnType<typeof createAgentWorkerServer>,
+  lines: string[],
+  providerId: string,
+  value: unknown,
+): Promise<void> {
+  await waitFor(() => parsedLines(lines).some((line) => line.method === "provider.resolve_secret" && line.params?.providerId === providerId));
+  const request = parsedLines(lines).find((line) => line.method === "provider.resolve_secret" && line.params?.providerId === providerId);
+  if (!request || typeof request.id !== "string" || typeof request.trace_id !== "string") {
+    throw new Error(`missing provider.resolve_secret request for ${providerId}`);
+  }
+  await server.handleLine(
+    JSON.stringify({
+      protocol_version: "1",
+      id: request.id,
+      trace_id: request.trace_id,
+      result: value,
     }),
   );
 }

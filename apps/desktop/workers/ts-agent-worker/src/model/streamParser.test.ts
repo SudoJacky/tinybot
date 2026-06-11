@@ -111,6 +111,9 @@ describe("collectChatCompletionStream", () => {
     expect(toolArgumentDeltas.slice(0, 2)).toEqual([
       {
         index: 0,
+        toolCallIndex: 0,
+        providerCallId: undefined,
+        sequence: 1,
         deltaText: "{\"query\"",
         toolCallId: "call-1",
         toolName: "search",
@@ -120,6 +123,9 @@ describe("collectChatCompletionStream", () => {
       },
       {
         index: 0,
+        toolCallIndex: 0,
+        providerCallId: undefined,
+        sequence: 2,
         deltaText: ":\"docs\"}",
         toolCallId: "call-1",
         toolName: "search",
@@ -130,6 +136,9 @@ describe("collectChatCompletionStream", () => {
     ]);
     expect(toolArgumentDeltas.at(-1)).toEqual({
       index: 0,
+      toolCallIndex: 0,
+      providerCallId: undefined,
+      sequence: 3,
       deltaText: "",
       toolCallId: "call-1",
       toolName: "search",
@@ -240,6 +249,9 @@ describe("collectChatCompletionStream", () => {
 
     expect(toolArgumentDeltas.at(-1)).toEqual({
       index: 0,
+      toolCallIndex: 0,
+      providerCallId: undefined,
+      sequence: 2,
       deltaText: "",
       toolCallId: "call-1",
       toolName: "search",
@@ -328,6 +340,9 @@ describe("collectChatCompletionStream", () => {
     expect(toolArgumentDeltas).toEqual([
       {
         index: 0,
+        toolCallIndex: 0,
+        providerCallId: undefined,
+        sequence: 1,
         deltaText: "{\"content\":\"Hi",
         toolCallId: "call-1",
         toolName: "send_message",
