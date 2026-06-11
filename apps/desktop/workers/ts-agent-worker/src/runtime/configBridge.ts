@@ -1,6 +1,7 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type { ModelResponse } from "../model/provider.ts";
+import { maskConfigSecrets } from "../config/configMasking.ts";
 import { resolveRuntimeProvider, type ProviderSecretResolution, type TinybotPublicConfig } from "../providers/providerRuntime.ts";
 import { modelProviderConfigFromEnv, type ModelProviderConfig } from "./providerFactory.ts";
 
@@ -26,7 +27,7 @@ export class NativeConfigBridge {
     if (!value) {
       throw new Error("config.snapshot_public did not return an object snapshot");
     }
-    return value;
+    return maskConfigSecrets(value, "public-rpc-null") as TinybotPublicConfig;
   }
 
   async resolveProviderSecret(input: {

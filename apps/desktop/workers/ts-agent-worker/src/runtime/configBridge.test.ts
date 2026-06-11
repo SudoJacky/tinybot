@@ -140,6 +140,34 @@ describe("NativeConfigBridge", () => {
     ]);
   });
 
+  test("defensively masks secrets from public snapshots before provider resolution", async () => {
+    const rpcClient = new FakeRpcClient(
+      {},
+      {
+        agents: { defaults: { provider: "openai", model: "gpt-4.1-mini" } },
+        providers: {
+          openai: {
+            provider: "openai",
+            api_key: "leaked-public-key",
+            api_base: "https://api.test/v1",
+          },
+        },
+      },
+    );
+
+    const config = await modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), {});
+
+    expect(config).toMatchObject({
+      kind: "resolved",
+      resolved: {
+        providerId: "openai",
+        apiKey: "native-secret",
+        apiKeySource: "config",
+        apiBase: "https://api.test/v1",
+      },
+    });
+  });
+
   test("uses native default model with env OpenAI key when provider is auto", async () => {
     const rpcClient = new FakeRpcClient({
       "agents.defaults.provider": "auto",
