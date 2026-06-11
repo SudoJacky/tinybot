@@ -30,6 +30,7 @@ export type AgentWorkerOptions = {
   tools: ToolRegistry;
   emitEvent: (event: WorkerEvent) => void;
   reloadProvider?: ProviderReloadHandler;
+  listProviderModels?: ProviderModelsListHandler;
   approvalBridge?: ApprovalBridge;
   sessionBridge?: SessionBridge;
   contextBridge?: ContextBridge;
@@ -40,6 +41,15 @@ export type ProviderReloadHandler = () => Promise<ProviderReloadResult> | Provid
 export type ProviderReloadResult = {
   reloaded: boolean;
 };
+
+export type ProviderModelsListRequest = {
+  providerId: string;
+  model?: string;
+  manualModelIds: string[];
+  refreshLive: boolean;
+};
+
+export type ProviderModelsListHandler = (request: ProviderModelsListRequest) => Promise<unknown> | unknown;
 
 type ActiveRun = {
   traceId: string;
@@ -70,6 +80,7 @@ export class AgentWorker {
   private readonly tools: ToolRegistry;
   private readonly emitEvent: (event: WorkerEvent) => void;
   private readonly reloadProvider?: ProviderReloadHandler;
+  private readonly listProviderModels?: ProviderModelsListHandler;
   private readonly approvalBridge?: ApprovalBridge;
   private readonly sessionBridge?: SessionBridge;
   private readonly contextBridge?: ContextBridge;
@@ -82,6 +93,7 @@ export class AgentWorker {
     this.tools = options.tools;
     this.emitEvent = options.emitEvent;
     this.reloadProvider = options.reloadProvider;
+    this.listProviderModels = options.listProviderModels;
     this.approvalBridge = options.approvalBridge;
     this.sessionBridge = options.sessionBridge;
     this.contextBridge = options.contextBridge;
@@ -123,6 +135,10 @@ export class AgentWorker {
 
     if (request.method === "worker.provider.reload") {
       return this.handleProviderReloadRequest(request);
+    }
+
+    if (request.method === "provider.models.list") {
+      return this.handleProviderModelsListRequest(request);
     }
 
     if (request.method !== "agent.run") {
@@ -263,6 +279,23 @@ export class AgentWorker {
       };
     } catch (error) {
       return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private async handleProviderModelsListRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.listProviderModels) {
+      return this.failure(request, "provider.models.list requires a provider model list handler");
+    }
+    try {
+      const result = await this.listProviderModels(parseProviderModelsListRequest(request.params));
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
     }
   }
 
@@ -822,6 +855,22 @@ function parseRunInput(params: Record<string, unknown> | undefined): AgentRunInp
   };
 }
 
+function parseProviderModelsListRequest(params: Record<string, unknown> | undefined): ProviderModelsListRequest {
+  if (!isJsonObject(params)) {
+    throw new Error("provider.models.list requires object params");
+  }
+  const providerId = stringParam(params, "providerId", "provider_id");
+  if (!providerId) {
+    throw new Error("provider.models.list params.providerId must be a string");
+  }
+  return {
+    providerId,
+    model: stringParam(params, "model", "model"),
+    manualModelIds: stringListParam(params, "manualModelIds", "manual_model_ids"),
+    refreshLive: booleanParam(params, "refreshLive", "refresh_live") ?? false,
+  };
+}
+
 function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {
   const value = params[camelKey] ?? params[snakeKey];
   return typeof value === "number" ? value : undefined;
@@ -830,6 +879,17 @@ function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey
 function booleanParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {
   const value = params[camelKey] ?? params[snakeKey];
   return typeof value === "boolean" ? value : undefined;
+}
+
+function stringListParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): string[] {
+  const value = params[camelKey] ?? params[snakeKey];
+  if (typeof value === "string") {
+    return value.replace(/\n/g, ",").split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  return [];
 }
 
 function parseToolDefinition(value: unknown): ToolDefinition {

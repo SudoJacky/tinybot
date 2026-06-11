@@ -935,6 +935,66 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("lists provider models from native config without exposing provider secrets", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      env: {},
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const request = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "models-1",
+        trace_id: "trace-models",
+        method: "provider.models.list",
+        params: { providerId: "dashscope", manualModelIds: ["qwen-manual-extra"] },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+      providers: {
+        dashscope: {
+          provider: "dashscope",
+          api_base: "https://dashscope.test/compatible-mode/v1",
+          api_key: null,
+          models: ["qwen-profile", "qwen-max"],
+          manual_models: ["qwen-manual"],
+        },
+      },
+    });
+    await respondToProviderSecret(server, lines, "dashscope", { apiKey: "dashscope-key", apiKeySource: "config" });
+    await request;
+
+    const response = parsedLines(lines).at(-1);
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "models-1",
+      trace_id: "trace-models",
+      result: {
+        providerId: "dashscope",
+        model: "qwen-max",
+        source: "explicit",
+        apiKeySource: "config",
+        models: expect.arrayContaining(["qwen-max", "qwen-profile", "qwen-manual", "qwen-manual-extra"]),
+        modelSources: expect.objectContaining({
+          "qwen-max": ["curated", "profile"],
+          "qwen-profile": ["profile"],
+          "qwen-manual": ["manual"],
+          "qwen-manual-extra": ["manual"],
+        }),
+        sourceCounts: { curated: 11, profile: 1, live: 0, manual: 2 },
+        warning: null,
+        url: "https://dashscope.test/compatible-mode/v1/models",
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("dashscope-key");
+  });
+
   test("persists checkpoint and appends messages through native session RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);

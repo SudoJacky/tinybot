@@ -5,6 +5,7 @@ import { applyConfigPatch } from "../config/configPatch.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
 import type { JsonRecord } from "../config/configTypes.ts";
 import { createPublicConfigSnapshot } from "../config/configSnapshot.ts";
+import { listProviderModels } from "../providers/providerModels.ts";
 import { resolveRuntimeProvider, type ProviderSecretResolution, type TinybotPublicConfig } from "../providers/providerRuntime.ts";
 import { modelProviderConfigFromEnv, type ModelProviderConfig } from "./providerFactory.ts";
 
@@ -99,6 +100,55 @@ export async function modelProviderConfigFromNativeConfig(
   } catch {
     return legacyModelProviderConfigFromNativeConfig(configBridge, env);
   }
+}
+
+export async function providerModelsFromNativeConfig(
+  configBridge: NativeConfigBridge,
+  env: Record<string, string | undefined>,
+  input: {
+    providerId: string;
+    model?: string;
+    manualModelIds?: string[];
+    refreshLive?: boolean;
+  },
+): Promise<Record<string, unknown>> {
+  const snapshot = await configBridge.snapshotPublic();
+  const resolved = await resolveRuntimeProvider({
+    config: snapshot,
+    env,
+    provider: input.providerId,
+    model: input.model,
+    secretResolver: (secretInput) => configBridge.resolveProviderSecret(secretInput),
+  });
+  const manualModelIds = [...resolved.manualModelIds, ...(input.manualModelIds ?? [])];
+  const modelList = await listProviderModels({
+    providerId: resolved.providerId ?? input.providerId,
+    profileModels: resolved.models,
+    manualModelIds,
+    supportsModelDiscovery: resolved.supportsModelDiscovery,
+    apiKey: resolved.apiKey,
+    apiBase: resolved.apiBase,
+    refreshLive: false,
+  });
+  const modelSources = Object.fromEntries(modelList.models.map((model) => [model.id, model.sources]));
+  const warning = input.refreshLive
+    ? modelList.warning ?? "live discovery is not enabled for provider.models.list"
+    : modelList.warning ?? null;
+  return {
+    providerId: resolved.providerId ?? input.providerId,
+    model: resolved.model,
+    profileName: resolved.profileName ?? null,
+    source: resolved.source,
+    apiBase: resolved.apiBase ?? null,
+    apiKeySource: resolved.apiKeySource ?? null,
+    supportsModelDiscovery: resolved.supportsModelDiscovery,
+    models: modelList.models.map((model) => model.id),
+    modelSources,
+    sourceCounts: modelList.sourceCounts,
+    warning,
+    url: modelList.url ?? null,
+    warnings: resolved.warnings,
+  };
 }
 
 async function legacyModelProviderConfigFromNativeConfig(
