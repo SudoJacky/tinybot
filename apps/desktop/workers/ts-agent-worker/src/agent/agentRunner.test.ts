@@ -1292,6 +1292,33 @@ describe("AgentRunner", () => {
     ]);
   });
 
+  test("passes provider retry mode and emits provider retry wait events", async () => {
+    const provider = new QueueProvider([
+      { content: "done", toolCalls: [], stopReason: "stop" },
+    ]);
+    const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    const runner = new AgentRunner({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    const result = await runner.run(spec({ providerRetryMode: "persistent" }));
+
+    expect(result.finalContent).toBe("done");
+    expect(provider.options[0]).toMatchObject({ retryMode: "persistent" });
+    provider.options[0]?.onRetryWait?.({ attempt: 2, delaySeconds: 7, message: "rate limit" });
+    expect(events).toContainEqual({
+      type: "provider_retry",
+      payload: {
+        runId: "run-1",
+        attempt: 2,
+        delaySeconds: 7,
+        message: "rate limit",
+      },
+    });
+  });
+
   test("returns the empty final response message when the retry is still empty", async () => {
     const provider = new QueueProvider([
       { content: "", toolCalls: [], stopReason: "stop" },

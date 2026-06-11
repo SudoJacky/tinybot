@@ -37,6 +37,7 @@ export type AgentRunSpec = {
   temperature?: number;
   maxTokens?: number;
   reasoningEffort?: string;
+  providerRetryMode?: "standard" | "persistent";
   contextWindow?: number;
   toolResultBudget?: number;
   failOnToolError?: boolean;

@@ -775,6 +775,8 @@ function protocolEventName(event: AgentRunnerEvent): string {
       return "agent.memory_reference";
     case "task_progress":
       return "agent.task_progress";
+    case "provider_retry":
+      return "agent.provider_retry";
     case "usage":
       return "agent.usage";
   }
@@ -794,6 +796,7 @@ function withNativePayloadAliases(payload: Record<string, unknown>): Record<stri
     ...(payload.contextWindowTokens !== undefined ? { context_window_tokens: payload.contextWindowTokens } : {}),
     ...(payload.messageCount !== undefined ? { message_count: payload.messageCount } : {}),
     ...(payload.restoredMessageCount !== undefined ? { restored_message_count: payload.restoredMessageCount } : {}),
+    ...(payload.delaySeconds !== undefined ? { delay_seconds: payload.delaySeconds } : {}),
   };
 }
 
@@ -889,6 +892,7 @@ function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec
     temperature: numberParam(raw, "temperature", "temperature"),
     maxTokens: numberParam(raw, "maxTokens", "max_tokens"),
     reasoningEffort: stringParam(raw, "reasoningEffort", "reasoning_effort"),
+    providerRetryMode: providerRetryModeParam(raw),
     contextWindow: numberParam(raw, "contextWindow", "context_window"),
     toolResultBudget: numberParam(raw, "toolResultBudget", "tool_result_budget"),
     failOnToolError: booleanParam(raw, "failOnToolError", "fail_on_tool_error"),
@@ -931,6 +935,7 @@ function parseRunInput(params: Record<string, unknown> | undefined): AgentRunInp
     temperature: numberParam(raw, "temperature", "temperature"),
     maxTokens: numberParam(raw, "maxTokens", "max_tokens"),
     reasoningEffort: stringParam(raw, "reasoningEffort", "reasoning_effort"),
+    providerRetryMode: providerRetryModeParam(raw),
     contextWindow: numberParam(raw, "contextWindow", "context_window"),
     toolResultBudget: numberParam(raw, "toolResultBudget", "tool_result_budget"),
     failOnToolError: booleanParam(raw, "failOnToolError", "fail_on_tool_error"),
@@ -988,6 +993,11 @@ function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey
 function booleanParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): boolean | undefined {
   const value = params[camelKey] ?? params[snakeKey];
   return typeof value === "boolean" ? value : undefined;
+}
+
+function providerRetryModeParam(params: Record<string, unknown>): "standard" | "persistent" | undefined {
+  const value = params.providerRetryMode ?? params.provider_retry_mode;
+  return value === "standard" || value === "persistent" ? value : undefined;
 }
 
 function stringListParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): string[] {

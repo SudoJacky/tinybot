@@ -34,6 +34,7 @@ export type AgentRunnerEvent = {
     | "tool_call_delta"
     | "memory_reference"
     | "task_progress"
+    | "provider_retry"
     | "usage";
   payload: Record<string, unknown>;
 };
@@ -327,6 +328,8 @@ export class AgentRunner {
       model: spec.model,
       tools: this.toolDefinitions(spec),
       ...generationRequestOptions(spec),
+      ...providerRetryOptions(spec),
+      onRetryWait: (event) => this.emitProviderRetry(spec, event),
       onContentDelta: (delta) => {
         if (!spec.stream) {
           return;
@@ -361,7 +364,24 @@ export class AgentRunner {
     return {
       model: spec.model,
       ...generationRequestOptions(spec),
+      ...providerRetryOptions(spec),
+      onRetryWait: (event) => this.emitProviderRetry(spec, event),
     };
+  }
+
+  private emitProviderRetry(
+    spec: AgentRunSpec,
+    event: { attempt: number; delaySeconds: number; message: string },
+  ): void {
+    this.emitEvent({
+      type: "provider_retry",
+      payload: {
+        runId: spec.runId,
+        attempt: event.attempt,
+        delaySeconds: event.delaySeconds,
+        message: event.message,
+      },
+    });
   }
 
   private toolDefinitions(spec: AgentRunSpec): ToolDefinition[] {
@@ -427,6 +447,12 @@ function generationRequestOptions(spec: AgentRunSpec): Pick<ModelRequestOptions,
     ...(spec.temperature !== undefined ? { temperature: spec.temperature } : {}),
     ...(spec.maxTokens !== undefined ? { maxTokens: spec.maxTokens } : {}),
     ...(spec.reasoningEffort !== undefined ? { reasoningEffort: spec.reasoningEffort } : {}),
+  };
+}
+
+function providerRetryOptions(spec: AgentRunSpec): Pick<ModelRequestOptions, "retryMode"> {
+  return {
+    ...(spec.providerRetryMode !== undefined ? { retryMode: spec.providerRetryMode } : {}),
   };
 }
 

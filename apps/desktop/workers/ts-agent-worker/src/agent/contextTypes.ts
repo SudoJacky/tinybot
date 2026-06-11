@@ -95,6 +95,7 @@ export type AgentRunInput = {
   temperature?: number;
   maxTokens?: number;
   reasoningEffort?: string;
+  providerRetryMode?: "standard" | "persistent";
   failOnToolError?: boolean;
   metadata?: Record<string, unknown>;
 };

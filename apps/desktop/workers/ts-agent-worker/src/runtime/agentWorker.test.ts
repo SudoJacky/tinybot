@@ -1189,6 +1189,47 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("forwards provider retry wait callbacks as protocol events", async () => {
+    const events: WorkerEvent[] = [];
+    const provider = new QueueProvider([
+      { content: "done", toolCalls: [], stopReason: "stop" },
+    ]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [{ role: "user", content: "hello" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          provider_retry_mode: "persistent",
+        },
+      }),
+    );
+
+    expect(provider.options[0]).toMatchObject({ retryMode: "persistent" });
+    provider.options[0]?.onRetryWait?.({ attempt: 1, delaySeconds: 3, message: "rate limit" });
+    expect(events).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.provider_retry",
+      payload: expect.objectContaining({
+        runId: "run-1",
+        run_id: "run-1",
+        attempt: 1,
+        delaySeconds: 3,
+        delay_seconds: 3,
+        message: "rate limit",
+      }),
+    }));
+  });
+
   test("emits awaiting form event when a tool pauses for user input", async () => {
     const events: WorkerEvent[] = [];
     const tools = new ToolRegistry();
