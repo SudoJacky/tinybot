@@ -79,7 +79,7 @@ async function executeTaskAction(
     case "resume":
       return resumeResult(runtime, args, context);
     case "summary":
-      return deferredResult("Task summary generation is not available in the native TS runtime yet.", "task_summary");
+      return summaryResult(runtime, args, context);
     default:
       return { content: `Unknown action: ${String(args.action)}` };
   }
@@ -170,6 +170,25 @@ async function resumeResult(runtime: TaskRuntime, args: Record<string, unknown>,
       _task_plan_id: result.plan.id,
       _task_progress: progress,
     },
+  };
+}
+
+async function summaryResult(runtime: TaskRuntime, args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
+  const planId = requiredPlanId(args, "summary");
+  if (typeof planId !== "string") {
+    return { content: planId.content };
+  }
+  const result = await runtime.getPlanSummary(planId, traceId(context));
+  if (!result) {
+    return { content: `Error: Plan ${planId} not found` };
+  }
+  if (result.plan.status !== "completed") {
+    return {
+      content: `Plan is not completed yet (status: ${result.plan.status}).\nUse \`task action=status plan_id=${planId}\` to check progress.`,
+    };
+  }
+  return {
+    content: `# Task Completed: ${result.plan.title}\n\n## Results\n\n${result.summary}`,
   };
 }
 

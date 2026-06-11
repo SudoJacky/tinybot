@@ -49,6 +49,11 @@ export interface ResumePlanResult {
   spawnedCount: number;
 }
 
+export interface TaskPlanSummaryResult {
+  plan: TaskPlan;
+  summary: string;
+}
+
 export class TaskRuntime {
   private readonly store: TaskStoreBridge;
   private readonly planner?: TaskRuntimeOptions["planner"];
@@ -79,6 +84,20 @@ export class TaskRuntime {
   async getProgress(planId: string, traceId: string): Promise<TaskProgressPayload | null> {
     const plan = await this.store.getPlan(planId, traceId);
     return plan ? taskProgressPayload(plan) : null;
+  }
+
+  async getPlanSummary(planId: string, traceId: string): Promise<TaskPlanSummaryResult | null> {
+    const plan = await this.store.getPlan(planId, traceId);
+    if (!plan) {
+      return null;
+    }
+    const results = plan.subtasks
+      .filter((subtask) => subtask.status === "completed" && !!subtask.result)
+      .map((subtask) => `[${subtask.title}] ${subtask.result}`);
+    return {
+      plan,
+      summary: results.length > 0 ? results.join("\n\n") : "No completed subtasks.",
+    };
   }
 
   async resumePlan(planId: string, options: { parallel?: boolean }, traceId: string): Promise<ResumePlanResult | null> {

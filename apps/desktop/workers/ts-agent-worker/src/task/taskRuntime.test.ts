@@ -252,4 +252,26 @@ describe("TaskRuntime", () => {
       ],
     });
   });
+
+  test("summarizes completed subtask results for finished plans", async () => {
+    const completed = basePlan();
+    completed.status = "completed";
+    completed.subtasks[0] = {
+      ...completed.subtasks[0],
+      result: "Foundation done",
+    };
+    completed.subtasks[1] = {
+      ...completed.subtasks[1],
+      status: "completed",
+      result: "Runtime done",
+    };
+    const { bridge } = memoryBridge([completed]);
+    const runtime = new TaskRuntime({ store: bridge });
+
+    await expect(runtime.getPlanSummary("plan-1", "trace-summary")).resolves.toEqual({
+      plan: completed,
+      summary: "[Foundation] Foundation done\n\n[Runtime] Runtime done",
+    });
+    await expect(runtime.getPlanSummary("missing", "trace-summary")).resolves.toBeNull();
+  });
 });

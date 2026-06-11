@@ -121,7 +121,7 @@ describe("createTaskTool", () => {
     });
   });
 
-  test("reports deferred backend work for create, resume, and summary", async () => {
+  test("reports deferred backend work for create and resume without configured backends", async () => {
     const tool = createTaskTool({ store: memoryBridge([basePlan()]) });
 
     await expect(tool.execute({ action: "create", request: "Do the work" }, context)).resolves.toMatchObject({
@@ -132,9 +132,29 @@ describe("createTaskTool", () => {
       content: "Task background execution is not available in the native TS runtime yet.",
       metadata: { available: false, deferred: "subagent_runtime" },
     });
-    await expect(tool.execute({ action: "summary", plan_id: "plan-1" }, context)).resolves.toMatchObject({
-      content: "Task summary generation is not available in the native TS runtime yet.",
-      metadata: { available: false, deferred: "task_summary" },
+  });
+
+  test("returns final summary only for completed plans", async () => {
+    const completed = basePlan();
+    completed.status = "completed";
+    completed.subtasks[1] = {
+      ...completed.subtasks[1],
+      status: "completed",
+      result: "Runtime done",
+    };
+    const active = basePlan();
+    active.id = "active";
+    active.status = "executing";
+    const tool = createTaskTool({ store: memoryBridge([completed, active]) });
+
+    await expect(tool.execute({ action: "summary", plan_id: "plan-1" }, context)).resolves.toEqual({
+      content: "# Task Completed: Backend migration\n\n## Results\n\n[Foundation] Foundation done\n\n[Runtime] Runtime done",
+    });
+    await expect(tool.execute({ action: "summary", plan_id: "active" }, context)).resolves.toEqual({
+      content: "Plan is not completed yet (status: executing).\nUse `task action=status plan_id=active` to check progress.",
+    });
+    await expect(tool.execute({ action: "summary" }, context)).resolves.toEqual({
+      content: "Error: plan_id is required for summary action",
     });
   });
 
