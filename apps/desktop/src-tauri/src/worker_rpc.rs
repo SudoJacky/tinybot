@@ -966,8 +966,48 @@ impl WorkerMemoryRpc {
         self.require(WorkerCapability::MemoryWrite)?;
         let _session_id = params.session_id.as_deref();
         let _sha = params.sha.as_deref();
-        Ok(memory_dream_unavailable(
-            "Dream commands are unavailable in the native memory runtime yet.",
+        let evidence_cursor = self.last_evidence_cursor();
+        let pending_evidence = self.pending_conversation_evidence(evidence_cursor, 50)?;
+        if !pending_evidence.is_empty() {
+            let pending_count = pending_evidence.len();
+            return Ok(memory_dream_result_with_metadata(
+                &format!(
+                    "Dream has {pending_count} pending conversation evidence record(s).\n\nNative Dream extraction is not migrated yet."
+                ),
+                false,
+                serde_json::json!({
+                    "changed": false,
+                    "pending_evidence": pending_count,
+                    "last_evidence_cursor": evidence_cursor,
+                    "deferred": "dream_extraction"
+                }),
+            ));
+        }
+
+        let pending_legacy_history = self.pending_legacy_history_count()?;
+        if pending_legacy_history > 0 {
+            return Ok(memory_dream_result_with_metadata(
+                &format!(
+                    "Dream has {pending_legacy_history} pending legacy history record(s).\n\nNative Dream extraction is not migrated yet."
+                ),
+                false,
+                serde_json::json!({
+                    "changed": false,
+                    "pending_evidence": 0,
+                    "pending_legacy_history": pending_legacy_history,
+                    "last_dream_cursor": self.last_dream_cursor(),
+                    "deferred": "dream_extraction"
+                }),
+            ));
+        }
+
+        Ok(memory_dream_result_with_metadata(
+            "Dream: nothing to process.",
+            true,
+            serde_json::json!({
+                "changed": false,
+                "pending_evidence": 0
+            }),
         ))
     }
 
@@ -1661,6 +1701,10 @@ impl WorkerMemoryRpc {
             .join(".evidence_sequence")
     }
 
+    fn evidence_cursor_path(&self) -> PathBuf {
+        self.workspace_root.join("memory").join(".evidence_cursor")
+    }
+
     fn conversations_dir(&self) -> PathBuf {
         self.workspace_root.join("memory").join("conversations")
     }
@@ -1727,6 +1771,38 @@ impl WorkerMemoryRpc {
         Ok(records)
     }
 
+    fn pending_conversation_evidence(
+        &self,
+        since_cursor: usize,
+        limit: usize,
+    ) -> Result<Vec<Value>, crate::worker_protocol::WorkerProtocolError> {
+        let mut evidence = self.read_conversation_evidence_records()?;
+        evidence.retain(|record| {
+            record
+                .get("cursor")
+                .and_then(Value::as_u64)
+                .is_some_and(|cursor| cursor > since_cursor as u64)
+        });
+        evidence.sort_by(|left, right| {
+            let left_cursor = left.get("cursor").and_then(Value::as_u64).unwrap_or(0);
+            let right_cursor = right.get("cursor").and_then(Value::as_u64).unwrap_or(0);
+            left_cursor
+                .cmp(&right_cursor)
+                .then_with(|| {
+                    left.get("timestamp")
+                        .and_then(Value::as_str)
+                        .cmp(&right.get("timestamp").and_then(Value::as_str))
+                })
+                .then_with(|| {
+                    left.get("id")
+                        .and_then(Value::as_str)
+                        .cmp(&right.get("id").and_then(Value::as_str))
+                })
+        });
+        evidence.truncate(limit);
+        Ok(evidence)
+    }
+
     fn next_evidence_cursor(&self) -> Result<usize, crate::worker_protocol::WorkerProtocolError> {
         let sequence_path = self.evidence_sequence_path();
         if let Ok(contents) = fs::read_to_string(&sequence_path) {
@@ -1761,6 +1837,34 @@ impl WorkerMemoryRpc {
             }
         }
         Ok(max_cursor)
+    }
+
+    fn last_evidence_cursor(&self) -> usize {
+        fs::read_to_string(self.evidence_cursor_path())
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0)
+    }
+
+    fn pending_legacy_history_count(
+        &self,
+    ) -> Result<usize, crate::worker_protocol::WorkerProtocolError> {
+        let path = self.workspace_root.join("memory").join("history.jsonl");
+        let contents = match fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(error) => return Err(memory_io_error(error)),
+        };
+        let since_cursor = self.last_dream_cursor() as u64;
+        Ok(contents
+            .lines()
+            .filter(|line| {
+                serde_json::from_str::<Value>(line)
+                    .ok()
+                    .and_then(|value| value.get("cursor").and_then(Value::as_u64))
+                    .is_some_and(|cursor| cursor > since_cursor)
+            })
+            .count())
     }
 
     fn append_conversation_evidence_record(
@@ -2208,12 +2312,26 @@ fn memory_dream_unavailable(content: &str) -> Value {
 }
 
 fn memory_dream_result(content: &str, available: bool) -> Value {
+    memory_dream_result_with_metadata(content, available, serde_json::json!({}))
+}
+
+fn memory_dream_result_with_metadata(
+    content: &str,
+    available: bool,
+    extra_metadata: Value,
+) -> Value {
+    let mut metadata = serde_json::json!({
+        "render_as": "text",
+        "available": available
+    });
+    if let (Some(base), Some(extra)) = (metadata.as_object_mut(), extra_metadata.as_object()) {
+        for (key, value) in extra {
+            base.insert(key.clone(), value.clone());
+        }
+    }
     serde_json::json!({
         "content": content,
-        "metadata": {
-            "render_as": "text",
-            "available": available
-        }
+        "metadata": metadata
     })
 }
 
@@ -4324,6 +4442,88 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_memory_dream_run_reports_nothing_to_process_without_pending_evidence() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-run",
+            "trace-1",
+            "memory.dream_run",
+            json!({ "session_id": "session-1" }),
+        ));
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "content": "Dream: nothing to process.",
+                "metadata": {
+                    "render_as": "text",
+                    "available": true,
+                    "changed": false,
+                    "pending_evidence": 0
+                }
+            }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_memory_dream_run_reports_pending_evidence_deferred() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "memory/conversations/2026-06-12.jsonl",
+            &format!(
+                "{}\n",
+                json!({
+                    "id": "ev_1",
+                    "turn_id": "turn_1",
+                    "session_key": "desktop:session-1",
+                    "role": "user",
+                    "content": "Persist this as memory.",
+                    "timestamp": "2026-06-12T03:00:00Z",
+                    "message_index": 1,
+                    "cursor": 3
+                })
+            ),
+        );
+        fixture.write("memory/.evidence_cursor", "2");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-run",
+            "trace-1",
+            "memory.dream_run",
+            json!({}),
+        ));
+        let result = response.result.expect("dream run should return content");
+        let content = result
+            .get("content")
+            .and_then(Value::as_str)
+            .expect("dream run content should be text");
+
+        assert!(response.error.is_none());
+        assert!(content.contains("Dream has 1 pending conversation evidence record(s)."));
+        assert!(content.contains("Native Dream extraction is not migrated yet."));
+        assert_eq!(result["metadata"]["render_as"], json!("text"));
+        assert_eq!(result["metadata"]["available"], json!(false));
+        assert_eq!(result["metadata"]["pending_evidence"], json!(1));
+        assert_eq!(fixture.read("memory/.evidence_cursor"), "2");
+    }
+
+    #[test]
     fn dispatches_memory_dream_command_requests() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
@@ -4356,8 +4556,13 @@ mod tests {
         assert_eq!(
             run_response.result,
             Some(json!({
-                "content": "Dream commands are unavailable in the native memory runtime yet.",
-                "metadata": { "render_as": "text", "available": false }
+                "content": "Dream: nothing to process.",
+                "metadata": {
+                    "render_as": "text",
+                    "available": true,
+                    "changed": false,
+                    "pending_evidence": 0
+                }
             }))
         );
         assert_eq!(
