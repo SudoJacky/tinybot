@@ -20,6 +20,7 @@ export type AgentStopReason =
   | "error"
   | "tool_error"
   | "empty_final_response"
+  | "command"
   | "cancelled"
   | "awaiting_user_input"
   | "awaiting_approval"
@@ -52,5 +53,6 @@ export type AgentRunResult = {
   stopReason: AgentStopReason;
   error?: string;
   awaitingInput?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   contextMetadata?: ContextBuildMetadata & { bridge?: ContextBridgeMetadata };
 };

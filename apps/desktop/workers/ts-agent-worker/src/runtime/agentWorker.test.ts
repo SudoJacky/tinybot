@@ -182,6 +182,47 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("handles backend slash help before calling the provider", async () => {
+    const events: WorkerEvent[] = [];
+    const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-1",
+          messages: [{ role: "user", content: "  /HELP  " }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(provider.messages).toEqual([]);
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "req-1",
+      trace_id: "trace-1",
+      result: {
+        finalContent: expect.stringContaining("/help"),
+        stopReason: "command",
+        metadata: {
+          command: "/help",
+          render_as: "text",
+        },
+      },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.done",
+      payload: expect.objectContaining({ runId: "run-1", stopReason: "command" }),
+    }));
+  });
+
   test("routes skills WebUI list and detail requests through the skills bridge", async () => {
     const calls: Array<{ type: string; traceId: string; name?: string }> = [];
     const worker = new AgentWorker({

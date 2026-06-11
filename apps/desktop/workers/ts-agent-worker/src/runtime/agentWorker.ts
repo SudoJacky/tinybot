@@ -1,6 +1,8 @@
 import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "../agent/agentRunner.ts";
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
+import { createDefaultCommandRouter } from "../command/commandRegistry.ts";
+import type { CommandRouter } from "../command/commandRouter.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
@@ -40,6 +42,7 @@ export type AgentWorkerOptions = {
   sessionBridge?: SessionBridge;
   memoryBridge?: MemoryEvidenceBridge;
   contextBridge?: ContextBridge;
+  commandRouter?: CommandRouter;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
@@ -120,6 +123,7 @@ export class AgentWorker {
   private readonly sessionBridge?: SessionBridge;
   private readonly memoryBridge?: MemoryEvidenceBridge;
   private readonly contextBridge?: ContextBridge;
+  private readonly commandRouter: CommandRouter;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly checkpointWrites = new Map<string, Promise<void>>();
@@ -139,6 +143,7 @@ export class AgentWorker {
     this.sessionBridge = options.sessionBridge;
     this.memoryBridge = options.memoryBridge;
     this.contextBridge = options.contextBridge;
+    this.commandRouter = options.commandRouter ?? createDefaultCommandRouter();
     this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
   }
 
@@ -274,44 +279,67 @@ export class AgentWorker {
     spec: AgentRunSpec,
     contextMetadata?: ContextBuildMetadata & { bridge?: ContextBridgeMetadata },
   ): Promise<WorkerResponse> {
-      await this.prepareTools?.(request.trace_id);
-      const activeRun: ActiveRun = { traceId: request.trace_id, cancelled: false };
-      this.activeRuns.set(spec.runId, activeRun);
-      const runner = new AgentRunner({
-        provider: this.provider,
-        tools: this.tools,
-        emitEvent: (event) => this.emitRunnerEvent(request.trace_id, event),
-        checkpoint: (checkpoint) => {
-          this.emitCheckpoint(request.trace_id, spec.runId, checkpoint);
-          this.queueCheckpointWrite(spec.runId, () => this.persistCheckpoint(request.trace_id, spec, checkpoint));
-        },
-        isCancelled: () => activeRun.cancelled,
-      });
-      const result = await this.runAndClearActiveState(runner, spec);
-      await this.drainCheckpointWrites(spec.runId);
-      if (!isAwaitingInputResult(result)) {
-        await this.clearCheckpoint(request.trace_id, spec);
+    if (hasCommandMessage(spec.messages)) {
+      const commandResult = await this.tryHandleCommand(request.trace_id, spec);
+      if (commandResult) {
+        this.emitUsage(request.trace_id, spec, commandResult);
+        this.emitEvent({
+          protocol_version: WORKER_PROTOCOL_VERSION,
+          trace_id: request.trace_id,
+          event: "agent.done",
+          payload: withNativePayloadAliases({
+            runId: spec.runId,
+            stopReason: commandResult.stopReason,
+          }),
+        });
+        return {
+          protocol_version: WORKER_PROTOCOL_VERSION,
+          id: request.id,
+          trace_id: request.trace_id,
+          result: commandResult,
+        };
       }
-      const resultForLifecycle = contextMetadata ? { ...result, contextMetadata } : result;
-      const lifecycle = await this.turnLifecycle.finalizeTurn(request.trace_id, spec, resultForLifecycle);
-      this.emitAwaitingInput(request.trace_id, spec.runId, result);
-      this.emitUsage(request.trace_id, spec, result);
-      this.emitEvent({
-        protocol_version: WORKER_PROTOCOL_VERSION,
-        trace_id: request.trace_id,
-        event: "agent.done",
-        payload: withNativePayloadAliases({
-          runId: spec.runId,
-          stopReason: result.stopReason,
-          ...(lifecycle ? { lifecycle } : {}),
-        }),
-      });
-      return {
-        protocol_version: WORKER_PROTOCOL_VERSION,
-        id: request.id,
-        trace_id: request.trace_id,
-        result: contextMetadata ? { ...result, contextMetadata } : result,
-      };
+    }
+    if (this.prepareTools) {
+      await this.prepareTools(request.trace_id);
+    }
+    const activeRun: ActiveRun = { traceId: request.trace_id, cancelled: false };
+    this.activeRuns.set(spec.runId, activeRun);
+    const runner = new AgentRunner({
+      provider: this.provider,
+      tools: this.tools,
+      emitEvent: (event) => this.emitRunnerEvent(request.trace_id, event),
+      checkpoint: (checkpoint) => {
+        this.emitCheckpoint(request.trace_id, spec.runId, checkpoint);
+        this.queueCheckpointWrite(spec.runId, () => this.persistCheckpoint(request.trace_id, spec, checkpoint));
+      },
+      isCancelled: () => activeRun.cancelled,
+    });
+    const result = await this.runAndClearActiveState(runner, spec);
+    await this.drainCheckpointWrites(spec.runId);
+    if (!isAwaitingInputResult(result)) {
+      await this.clearCheckpoint(request.trace_id, spec);
+    }
+    const resultForLifecycle = contextMetadata ? { ...result, contextMetadata } : result;
+    const lifecycle = await this.turnLifecycle.finalizeTurn(request.trace_id, spec, resultForLifecycle);
+    this.emitAwaitingInput(request.trace_id, spec.runId, result);
+    this.emitUsage(request.trace_id, spec, result);
+    this.emitEvent({
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      trace_id: request.trace_id,
+      event: "agent.done",
+      payload: withNativePayloadAliases({
+        runId: spec.runId,
+        stopReason: result.stopReason,
+        ...(lifecycle ? { lifecycle } : {}),
+      }),
+    });
+    return {
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      id: request.id,
+      trace_id: request.trace_id,
+      result: contextMetadata ? { ...result, contextMetadata } : result,
+    };
   }
 
   private handleCancelRequest(request: WorkerRequest): WorkerResponse {
@@ -359,6 +387,33 @@ export class AgentWorker {
     } catch (error) {
       return this.failure(request, errorMessage(error));
     }
+  }
+
+  private async tryHandleCommand(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult | undefined> {
+    const message = lastUserMessage(spec.messages);
+    if (!message) {
+      return undefined;
+    }
+    const result = await this.commandRouter.dispatch(message.content, {
+      traceId,
+      runId: spec.runId,
+      sessionId: spec.sessionId,
+    });
+    if (!result.handled) {
+      return undefined;
+    }
+    const commandMessage: AgentMessage = {
+      role: "assistant",
+      content: result.output ?? "",
+      metadata: result.metadata,
+    };
+    return {
+      finalContent: commandMessage.content,
+      messages: [...spec.messages, commandMessage],
+      toolsUsed: [],
+      stopReason: "command",
+      ...(result.metadata ? { metadata: result.metadata } : {}),
+    };
   }
 
   private async handleProviderModelsListRequest(request: WorkerRequest): Promise<WorkerResponse> {
@@ -832,6 +887,20 @@ function parseCancelRunId(params: Record<string, unknown> | undefined): string {
     throw new Error("agent.cancel requires string params.runId");
   }
   return runId;
+}
+
+function lastUserMessage(messages: AgentMessage[]): AgentMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "user") {
+      return message;
+    }
+  }
+  return undefined;
+}
+
+function hasCommandMessage(messages: AgentMessage[]): boolean {
+  return lastUserMessage(messages)?.content.trim().startsWith("/") === true;
 }
 
 function parseRestoreCheckpointSessionId(params: Record<string, unknown> | undefined): string {
