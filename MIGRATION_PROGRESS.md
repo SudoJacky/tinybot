@@ -62,7 +62,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 14 | active | [ts_command_cli_runtime_migration_design.md](ts_command_cli_runtime_migration_design.md) | 先接 `CommandRouter` 和基础命令 | Started Command Runtime Phase 1: pure TS `CommandRouter` now covers priority/exact/prefix/interceptor semantics, and AgentWorker intercepts backend `/help` before provider execution with text-render metadata. `/stop`、`/restart`、`/status` remain next. |
+| 14 | active | [ts_command_cli_runtime_migration_design.md](ts_command_cli_runtime_migration_design.md) | 先接 `CommandRouter` 和基础命令 | Continued Command Runtime Phase 1: `/help`, priority `/stop`, and priority `/status` now run inside AgentWorker before provider execution. `/stop` cancels active runs for the current session; `/status` reports active run counts. `/restart` remains next. |
 | 15 | todo | [ts_task_cron_background_runtime_migration_design.md](ts_task_cron_background_runtime_migration_design.md) | 迁移 task/cron/background agent turn | 依赖 Tool Runtime、Security/Approval、Provider Runtime |
 | 16 | todo | [ts_cowork_runtime_migration_design.md](ts_cowork_runtime_migration_design.md) | 先做 snapshot/store/blueprint/mutations/mailbox | scheduler/agent runtime 等前置稳定后再接 |
 
@@ -152,6 +152,7 @@
 | 2026-06-12 | Continued Batch 4 MCP Runtime Phase 3 integration: Rust worker RPC now exposes `mcp.list_tools` for configured fixture tools, and TS `NativeMcpBridge` can discover/register gated dynamic MCP wrappers before agent runs while forwarding execution context to `mcp.call_tool`. |
 | 2026-06-12 | Continued Batch 4 MCP Runtime Phase 3 entrypoint wiring: the real TS worker now enables native MCP discovery while the reusable server factory keeps discovery opt-in for tests/embeds, and discovery failures are logged without blocking normal agent runs. |
 | 2026-06-12 | Started Batch 5 Command Runtime Phase 1: added pure TS `CommandRouter` semantics for priority/exact/prefix/interceptor dispatch and wired AgentWorker to answer backend `/help` before invoking the model provider. |
+| 2026-06-12 | Continued Batch 5 Command Runtime Phase 1: registered priority `/stop` and `/status` in the TS command router, with AgentWorker-backed session cancellation and active-run status snapshots before provider execution. |
 
 ## Next Checklist
 

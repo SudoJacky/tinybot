@@ -86,6 +86,7 @@ export type SkillsBridge = {
 
 type ActiveRun = {
   traceId: string;
+  sessionId?: string;
   cancelled: boolean;
 };
 
@@ -143,7 +144,10 @@ export class AgentWorker {
     this.sessionBridge = options.sessionBridge;
     this.memoryBridge = options.memoryBridge;
     this.contextBridge = options.contextBridge;
-    this.commandRouter = options.commandRouter ?? createDefaultCommandRouter();
+    this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
+      cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
+      getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
+    });
     this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
   }
 
@@ -303,7 +307,7 @@ export class AgentWorker {
     if (this.prepareTools) {
       await this.prepareTools(request.trace_id);
     }
-    const activeRun: ActiveRun = { traceId: request.trace_id, cancelled: false };
+    const activeRun: ActiveRun = { traceId: request.trace_id, sessionId: spec.sessionId, cancelled: false };
     this.activeRuns.set(spec.runId, activeRun);
     const runner = new AgentRunner({
       provider: this.provider,
@@ -345,8 +349,8 @@ export class AgentWorker {
   private handleCancelRequest(request: WorkerRequest): WorkerResponse {
     try {
       const runId = parseCancelRunId(request.params);
-      const activeRun = this.activeRuns.get(runId);
-      if (!activeRun) {
+      const cancelled = this.cancelActiveRun(runId);
+      if (!cancelled) {
         return {
           protocol_version: WORKER_PROTOCOL_VERSION,
           id: request.id,
@@ -354,13 +358,6 @@ export class AgentWorker {
           result: { ok: false, runId, reason: "not_found" },
         };
       }
-      activeRun.cancelled = true;
-      this.emitEvent({
-        protocol_version: WORKER_PROTOCOL_VERSION,
-        trace_id: activeRun.traceId,
-        event: "agent.cancelled",
-        payload: withNativePayloadAliases({ runId }),
-      });
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
         id: request.id,
@@ -387,6 +384,52 @@ export class AgentWorker {
     } catch (error) {
       return this.failure(request, errorMessage(error));
     }
+  }
+
+  private cancelActiveRun(runId: string): boolean {
+    const activeRun = this.activeRuns.get(runId);
+    if (!activeRun) {
+      return false;
+    }
+    activeRun.cancelled = true;
+    this.emitEvent({
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      trace_id: activeRun.traceId,
+      event: "agent.cancelled",
+      payload: withNativePayloadAliases({ runId }),
+    });
+    return true;
+  }
+
+  private cancelActiveRunsForSession(sessionId: string | undefined): { cancelledCount: number; runIds: string[] } {
+    if (!sessionId) {
+      return { cancelledCount: 0, runIds: [] };
+    }
+    const runIds: string[] = [];
+    for (const [runId, activeRun] of this.activeRuns.entries()) {
+      if (activeRun.sessionId === sessionId && this.cancelActiveRun(runId)) {
+        runIds.push(runId);
+      }
+    }
+    return { cancelledCount: runIds.length, runIds };
+  }
+
+  private statusSnapshot(sessionId: string | undefined): {
+    activeRunCount: number;
+    activeSessionRunCount: number;
+    sessionId?: string;
+  } {
+    let activeSessionRunCount = 0;
+    for (const activeRun of this.activeRuns.values()) {
+      if (activeRun.sessionId === sessionId) {
+        activeSessionRunCount += 1;
+      }
+    }
+    return {
+      activeRunCount: this.activeRuns.size,
+      activeSessionRunCount,
+      ...(sessionId ? { sessionId } : {}),
+    };
   }
 
   private async tryHandleCommand(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult | undefined> {
@@ -847,7 +890,7 @@ export class AgentWorker {
   }
 
   private async runResumedSpec(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult> {
-    const activeRun: ActiveRun = { traceId, cancelled: false };
+    const activeRun: ActiveRun = { traceId, sessionId: spec.sessionId, cancelled: false };
     this.activeRuns.set(spec.runId, activeRun);
     const runner = new AgentRunner({
       provider: this.provider,

@@ -223,6 +223,139 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("handles backend slash stop as a priority command for the current session", async () => {
+    const events: WorkerEvent[] = [];
+    const completion = deferred<ModelResponse>();
+    let providerCalls = 0;
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return completion.promise;
+        }
+        throw new Error("slash stop reached provider");
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    const runResponsePromise = worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-active-1",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "keep working" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    const stopResponse = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-stop-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/stop" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+    completion.resolve({ content: "late answer", toolCalls: [], stopReason: "stop" });
+    const runResponse = await runResponsePromise;
+
+    expect(providerCalls).toBe(1);
+    expect(stopResponse).toMatchObject({
+      result: {
+        finalContent: "Stopped 1 task(s).",
+        stopReason: "command",
+        metadata: {
+          command: "/stop",
+          render_as: "text",
+          cancelled_count: 1,
+        },
+      },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      event: "agent.cancelled",
+      payload: expect.objectContaining({ runId: "run-active-1" }),
+    }));
+    expect(runResponse.result).toMatchObject({
+      finalContent: "",
+      stopReason: "cancelled",
+      error: "cancelled",
+    });
+  });
+
+  test("handles backend slash status without calling the provider", async () => {
+    const completion = deferred<ModelResponse>();
+    let providerCalls = 0;
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return completion.promise;
+        }
+        throw new Error("slash status reached provider");
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+    });
+
+    const runResponsePromise = worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-active-1",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "keep working" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    const statusResponse = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-status-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/status" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+    completion.resolve({ content: "done", toolCalls: [], stopReason: "stop" });
+    await runResponsePromise;
+
+    expect(providerCalls).toBe(1);
+    expect(statusResponse).toMatchObject({
+      result: {
+        finalContent: expect.stringContaining("Active runs: 1"),
+        stopReason: "command",
+        metadata: {
+          command: "/status",
+          render_as: "text",
+          active_run_count: 1,
+          active_session_run_count: 1,
+        },
+      },
+    });
+  });
+
   test("routes skills WebUI list and detail requests through the skills bridge", async () => {
     const calls: Array<{ type: string; traceId: string; name?: string }> = [];
     const worker = new AgentWorker({
