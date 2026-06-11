@@ -28,6 +28,8 @@ import {
 } from "./desktopKnowledgeTraceability";
 import { installWebUiRenderGlobals } from "./desktopMarkdownGlobals";
 import { logDesktopNativeChatDebug, logDesktopNativeDebug, summarizeDebugText } from "./desktopNativeChatDebug";
+import { applyNativeConfigPatch } from "./desktopNativeConfigPatch";
+import { saveDesktopSettingsConfig } from "./desktopSettingsSave";
 import { buildDesktopTsAgentFormSubmissionInput } from "./desktopTsAgentFormActions";
 import { installDesktopNavigation } from "./desktopNavigation";
 import { applyDesktopWorkbenchRouteState } from "./desktopEntityFocus";
@@ -1461,7 +1463,13 @@ async function saveNativeSettingsPane(): Promise<void> {
       nativeSettingsConfig,
       nativeSettingsProviderCatalog,
     );
-    nativeSettingsConfig = await gatewayApi.config.patch(patch);
+    nativeSettingsConfig = await saveDesktopSettingsConfig(nativeSettingsConfig, patch, {
+      applyNativeConfigPatch,
+      applyGatewayConfigPatch: (fallbackPatch) => gatewayApi.config.patch(fallbackPatch),
+      onNativeFallback: (fallbackError) => {
+        logDesktopNativeDebug("settings.save.nativeFallback", { error: stringifyError(fallbackError) });
+      },
+    });
     nativeSettingsState = buildDesktopSettingsFormState(nativeSettingsConfig, nativeSettingsProviderCatalog);
     nativeSettingsLastSavedState = nativeSettingsState;
     updateNativeSettingsPane("saved");

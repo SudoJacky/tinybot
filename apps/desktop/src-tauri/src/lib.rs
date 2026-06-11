@@ -28,6 +28,7 @@ pub mod worker_shell;
 pub mod worker_stdio;
 pub mod worker_workspace;
 
+use crate::config_store::{ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_manager::{
     WorkerCommandSpec, WorkerManager, WorkerManagerError, WorkerManagerEvent, WorkerManagerState,
@@ -478,6 +479,17 @@ fn worker_resume_agent_approval(
 }
 
 #[tauri::command]
+fn apply_config_patch_result(
+    result: ConfigPatchBridgeResult,
+) -> Result<ConfigPatchApplyResult, String> {
+    apply_config_patch_result_to_path(
+        &default_tinybot_config_path(),
+        experimental_worker_config_snapshot(),
+        result,
+    )
+}
+
+#[tauri::command]
 fn start_gateway(state: State<'_, SharedGateway>) -> Result<GatewayRuntimeStatus, String> {
     match gateway_bootstrap_probe() {
         GatewayBootstrapProbe::Ready => {
@@ -845,6 +857,27 @@ fn persist_gateway_exit_policy(path: &Path, keep_running: bool) -> Result<(), St
         .map_err(|error| format!("failed to encode gateway preference: {error}"))?;
     std::fs::write(path, contents)
         .map_err(|error| format!("failed to persist gateway preference: {error}"))
+}
+
+fn default_tinybot_config_path() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".tinybot")
+        .join("config.json")
+}
+
+fn apply_config_patch_result_to_path(
+    config_path: &Path,
+    default_snapshot: serde_json::Value,
+    result: ConfigPatchBridgeResult,
+) -> Result<ConfigPatchApplyResult, String> {
+    let mut store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
+        .map_err(|error| format!("failed to load config store: {error}"))?;
+    store
+        .apply_validated_patch_result(result)
+        .map_err(|error| format!("failed to apply native config patch: {error}"))
 }
 
 fn safe_export_file_name(default_path: &str) -> String {
@@ -1578,6 +1611,7 @@ pub fn run() {
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
             worker_resume_agent_approval,
+            apply_config_patch_result,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
@@ -1928,6 +1962,38 @@ mod tests {
         assert!(!load_gateway_exit_policy(&path));
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn native_config_patch_result_persists_python_compatible_config_file() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join(".tinybot").join("config.json");
+        let result = apply_config_patch_result_to_path(
+            &config_path,
+            serde_json::json!({"agents":{"defaults":{"model":"gpt-4.1-mini","provider":"openai"}}}),
+            crate::config_store::ConfigPatchBridgeResult {
+                ok: true,
+                config: serde_json::json!({"agents":{"defaults":{"model":"gpt-4.1","provider":"openai"}}}),
+                updated_fields: vec!["agents.defaults.model".to_string()],
+                side_effects: crate::config_store::ConfigPatchSideEffects {
+                    applied: vec!["providerRuntimeChanged".to_string()],
+                    restart_required: vec![],
+                    warnings: vec![],
+                },
+                error: None,
+            },
+        )
+        .expect("native config patch should persist");
+
+        assert!(result.ok);
+        assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-4.1");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &std::fs::read_to_string(config_path).expect("config file should save")
+            )
+            .expect("saved config should be JSON")["agents"]["defaults"]["model"],
+            "gpt-4.1"
+        );
     }
 
     #[test]
