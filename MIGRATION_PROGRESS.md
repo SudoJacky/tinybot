@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 2：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 已开始推进并收紧 approval-aware policy；session/turn lifecycle 正在推进，已建立 persisted-message 清洗边界、`session.persist_turn` RPC 起点和 `agent.done.payload.lifecycle` 可观测元数据，下一步继续补 dedupe/truncate 和更完整的 history projection。
+- 当前批次：Batch 2：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 已开始推进并收紧 approval-aware policy；session/turn lifecycle 正在推进，已建立 persisted-message 清洗边界、dedupe/truncate、`session.persist_turn` RPC 起点和 `agent.done.payload.lifecycle` 可观测元数据，下一步继续补更完整的 history projection。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -39,7 +39,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 5 | active | [ts_tool_runtime_migration_design.md](ts_tool_runtime_migration_design.md) | 建立 tool schema、registry、prepare/execute metadata | 已具备 schema casting/validation、registry/runtime/native proxy 起点；本轮补齐 approval-aware policy，approval-gated 工具要求 `approval.request` 并限制在可交互通道 |
-| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 persist-turn 写 completed turn，并在 `agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；后续继续补 dedupe/truncate |
+| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 persist-turn 写 completed turn，并在 `agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；本轮补齐 TS persistence helper 的 Python-key dedupe 与 tool result truncate |
 | 7 | todo | [ts_context_builder_migration_design.md](ts_context_builder_migration_design.md) | 接入 deterministic context assembly | 在 AgentRunner 和 session projection 后推进，再挂 memory/RAG/skills |
 
 ### Batch 3: Safety And Real Model Runtime
@@ -104,6 +104,7 @@
 | 2026-06-11 | 启动 Batch 2 session/turn lifecycle：新增 `persistedMessages` 持久化清洗边界，让 `agent.run_input` 写回 session 时剥离 runtime context，并过滤 system prompt 与无工具调用的空 assistant 消息。 |
 | 2026-06-11 | 继续 Batch 2 session/turn lifecycle：新增 Rust `session.persist_turn` RPC 和 TS `NativeSessionBridge.persistTurn()`，AgentWorker 在 completed turn 持久化时优先使用 persist-turn，返回 saved/cleared/omitted side-effect metadata 起点。 |
 | 2026-06-11 | 继续 Batch 2 session/turn lifecycle：将 persist-turn 结果接入 `agent.done.payload.lifecycle`，报告 sessionId/runId/stopReason、checkpointCleared、persisted、savedMessageCount、awaitingInput 与 omittedSideEffects。 |
+| 2026-06-11 | 继续 Batch 2 session/turn lifecycle：补齐 `persistedSessionMessages()` 的 Python session-key dedupe 与 tool result truncate，并让 AgentWorker session persistence 按 `toolResultBudget` 应用清洗规则。 |
 
 ## Next Checklist
 

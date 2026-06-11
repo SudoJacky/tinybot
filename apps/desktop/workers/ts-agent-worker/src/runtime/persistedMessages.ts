@@ -1,14 +1,36 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import { RUNTIME_CONTEXT_TAG } from "../agent/contextBuilder.ts";
+import { truncateText } from "../support/messageHelpers.ts";
 
-export function persistedSessionMessages(messages: AgentMessage[]): AgentMessage[] {
-  return messages.flatMap((message) => {
-    const persisted = persistedSessionMessage(message);
-    return persisted ? [persisted] : [];
-  });
+export type PersistedSessionMessagesOptions = {
+  maxToolResultChars?: number;
+};
+
+export function persistedSessionMessages(
+  messages: AgentMessage[],
+  options: PersistedSessionMessagesOptions = {},
+): AgentMessage[] {
+  const seen = new Set<string>();
+  const persisted: AgentMessage[] = [];
+  for (const message of messages) {
+    const next = persistedSessionMessage(message, options);
+    if (!next) {
+      continue;
+    }
+    const key = persistedMessageKey(next);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    persisted.push(next);
+  }
+  return persisted;
 }
 
-function persistedSessionMessage(message: AgentMessage): AgentMessage | null {
+function persistedSessionMessage(
+  message: AgentMessage,
+  options: PersistedSessionMessagesOptions,
+): AgentMessage | null {
   if (message.role === "system") {
     return null;
   }
@@ -22,7 +44,23 @@ function persistedSessionMessage(message: AgentMessage): AgentMessage | null {
     }
     return { ...message, content };
   }
+  if (message.role === "tool" && options.maxToolResultChars !== undefined) {
+    return { ...message, content: truncateText(message.content, options.maxToolResultChars) };
+  }
   return { ...message };
+}
+
+function persistedMessageKey(message: AgentMessage): string {
+  if (message.role === "tool") {
+    return stableKey(["tool", message.toolCallId ?? ""]);
+  }
+  if (message.role === "assistant") {
+    return stableKey(["assistant", message.content, message.toolCalls ?? null]);
+  }
+  if (message.role === "user") {
+    return stableKey(["user", message.content]);
+  }
+  return stableKey([message.role, message.content]);
 }
 
 function isEmptyAssistantWithoutToolCalls(message: AgentMessage): boolean {
@@ -39,4 +77,8 @@ function stripRuntimeContext(content: string): string {
     return "";
   }
   return content.slice(separatorIndex + separator.length);
+}
+
+function stableKey(value: unknown): string {
+  return JSON.stringify(value);
 }

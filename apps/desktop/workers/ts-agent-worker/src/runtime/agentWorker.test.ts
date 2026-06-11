@@ -392,6 +392,53 @@ describe("AgentWorker", () => {
     }));
   });
 
+  test("truncates tool history when persisting session messages with a tool result budget", async () => {
+    const appendedSessions: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
+    const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async (sessionId, messages) => {
+          appendedSessions.push({ sessionId, messages });
+        },
+        getCheckpoint: async () => null,
+      },
+    });
+
+    await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-persist-truncate-1",
+          sessionId: "session-1",
+          messages: [
+            { role: "user", content: "Read README" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "call-read", name: "read_file", argumentsJson: "{\"path\":\"README.md\"}" }],
+            },
+            { role: "tool", content: "abcdef", toolCallId: "call-read", name: "read_file" },
+          ],
+          model: "test-model",
+          maxIterations: 1,
+          stream: false,
+          toolResultBudget: 3,
+        },
+      }),
+    );
+
+    expect(appendedSessions[0]?.messages).toContainEqual({
+      role: "tool",
+      content: "abc\n... (truncated)",
+      toolCallId: "call-read",
+      name: "read_file",
+    });
+  });
+
   test("accepts snake_case agent.run spec fields", async () => {
     const events: WorkerEvent[] = [];
     const clearedSessions: string[] = [];

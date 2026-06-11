@@ -898,13 +898,16 @@ function checkpointRunId(checkpoint: Record<string, unknown>): string {
 function sessionAppendMessages(spec: AgentRunSpec, result: AgentRunResult): AgentMessage[] {
   const contextMessages = internalContextAppendMessages(spec.metadata?._contextSessionAppendMessages);
   const initialMessageCount = spec.metadata?._contextInitialMessageCount;
+  const persistenceOptions = typeof spec.toolResultBudget === "number"
+    ? { maxToolResultChars: spec.toolResultBudget }
+    : {};
   if (!contextMessages || typeof initialMessageCount !== "number") {
-    return persistedSessionMessages(result.messages);
+    return persistedSessionMessages(result.messages, persistenceOptions);
   }
   return persistedSessionMessages([
     ...contextMessages,
     ...result.messages.slice(initialMessageCount),
-  ]);
+  ], persistenceOptions);
 }
 
 function lifecycleMetadataFromPersistedTurn(
