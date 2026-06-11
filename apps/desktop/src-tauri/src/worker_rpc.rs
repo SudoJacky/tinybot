@@ -18,6 +18,7 @@ use std::{
     fs,
     hash::{Hash, Hasher},
     path::PathBuf,
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -976,10 +977,36 @@ impl WorkerMemoryRpc {
     ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
         self.require(WorkerCapability::MemoryRead)?;
         let _session_id = params.session_id.as_deref();
-        let _sha = params.sha.as_deref();
-        Ok(memory_dream_unavailable(
-            "Dream history is not available because memory versioning is not initialized.",
-        ))
+        if !self.dream_git_initialized() {
+            if self.last_dream_cursor() == 0 {
+                return Ok(memory_dream_unavailable(
+                    "Dream has not run yet. Run `/dream`, or wait for the next scheduled Dream cycle.",
+                ));
+            }
+            return Ok(memory_dream_unavailable(
+                "Dream history is not available because memory versioning is not initialized.",
+            ));
+        }
+
+        let content = match params.sha.as_deref().map(str::trim).filter(|sha| !sha.is_empty()) {
+            Some(sha) => match self.dream_show_commit_diff(sha, 20) {
+                Some((commit, diff)) => dream_log_content(&commit, &diff, Some(sha)),
+                None => format!(
+                    "Couldn't find Dream change `{sha}`.\n\nUse `/dream-restore` to list recent versions, or `/dream-log` to inspect the latest one."
+                ),
+            },
+            None => {
+                let commits = self.dream_log_commits(1);
+                match commits.first() {
+                    Some(commit) => {
+                        let diff = self.dream_commit_diff(commit);
+                        dream_log_content(commit, &diff, None)
+                    }
+                    None => "Dream memory has no saved versions yet.".to_string(),
+                }
+            }
+        };
+        Ok(memory_dream_result(&content, true))
     }
 
     fn dream_restore(
@@ -1357,6 +1384,102 @@ impl WorkerMemoryRpc {
 
     fn notes_path(&self) -> PathBuf {
         self.workspace_root.join("memory").join("notes.jsonl")
+    }
+
+    fn dream_git_initialized(&self) -> bool {
+        self.workspace_root.join(".git").is_dir()
+    }
+
+    fn last_dream_cursor(&self) -> usize {
+        let path = self.workspace_root.join("memory").join(".dream_cursor");
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0)
+    }
+
+    fn dream_log_commits(&self, max_entries: usize) -> Vec<DreamCommitInfo> {
+        if max_entries == 0 {
+            return vec![];
+        }
+        let max_entries = max_entries.to_string();
+        let output = self.git_output(&[
+            "log",
+            "-n",
+            &max_entries,
+            "--date=format:%Y-%m-%d %H:%M",
+            "--format=%H%x1f%cd%x1f%s%x1e",
+        ]);
+        output
+            .unwrap_or_default()
+            .split('\x1e')
+            .filter_map(|record| {
+                let record = record.trim();
+                if record.is_empty() {
+                    return None;
+                }
+                let mut parts = record.splitn(3, '\x1f');
+                let sha = parts.next()?.trim();
+                let timestamp = parts.next()?.trim();
+                Some(DreamCommitInfo {
+                    sha: sha.chars().take(8).collect(),
+                    full_sha: sha.to_string(),
+                    timestamp: timestamp.to_string(),
+                })
+            })
+            .collect()
+    }
+
+    fn dream_show_commit_diff(
+        &self,
+        short_sha: &str,
+        max_entries: usize,
+    ) -> Option<(DreamCommitInfo, String)> {
+        self.dream_log_commits(max_entries)
+            .into_iter()
+            .find(|commit| commit.sha.starts_with(short_sha))
+            .map(|commit| {
+                let diff = self.dream_commit_diff(&commit);
+                (commit, diff)
+            })
+    }
+
+    fn dream_commit_diff(&self, commit: &DreamCommitInfo) -> String {
+        let parents = self
+            .git_output(&["rev-list", "--parents", "-n", "1", &commit.full_sha])
+            .unwrap_or_default();
+        let mut parts = parents.split_whitespace();
+        let Some(_commit_sha) = parts.next() else {
+            return String::new();
+        };
+        let Some(parent_sha) = parts.next() else {
+            return String::new();
+        };
+        self.git_output(&[
+            "diff",
+            "--no-color",
+            parent_sha,
+            &commit.full_sha,
+            "--",
+            "SOUL.md",
+            "USER.md",
+            "memory/MEMORY.md",
+            "memory/notes.jsonl",
+        ])
+        .unwrap_or_default()
+    }
+
+    fn git_output(&self, args: &[&str]) -> Option<String> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.workspace_root)
+            .args(args)
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
     fn read_notes(&self) -> Result<Vec<Value>, crate::worker_protocol::WorkerProtocolError> {
@@ -1744,6 +1867,13 @@ struct MemoryDreamParams {
     sha: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+struct DreamCommitInfo {
+    sha: String,
+    full_sha: String,
+    timestamp: String,
+}
+
 #[derive(Deserialize)]
 struct MemoryCaptureEvidenceParams {
     session_key: String,
@@ -1964,13 +2094,82 @@ fn invalid_memory_request(
 }
 
 fn memory_dream_unavailable(content: &str) -> Value {
+    memory_dream_result(content, false)
+}
+
+fn memory_dream_result(content: &str, available: bool) -> Value {
     serde_json::json!({
         "content": content,
         "metadata": {
             "render_as": "text",
-            "available": false
+            "available": available
         }
     })
+}
+
+fn dream_log_content(commit: &DreamCommitInfo, diff: &str, requested_sha: Option<&str>) -> String {
+    let mut lines = vec![
+        "## Dream Update".to_string(),
+        String::new(),
+        if requested_sha.is_some() {
+            "Here is the selected Dream memory change.".to_string()
+        } else {
+            "Here is the latest Dream memory change.".to_string()
+        },
+        String::new(),
+        format!("- Commit: `{}`", commit.sha),
+        format!("- Time: {}", commit.timestamp),
+        format!("- Changed files: {}", format_dream_changed_files(diff)),
+    ];
+    if diff.trim().is_empty() {
+        lines.extend([
+            String::new(),
+            "Dream recorded this version, but there is no file diff to display.".to_string(),
+        ]);
+    } else {
+        lines.extend([
+            String::new(),
+            format!("Use `/dream-restore {}` to undo this change.", commit.sha),
+            String::new(),
+            "```diff".to_string(),
+            diff.trim_end().to_string(),
+            "```".to_string(),
+        ]);
+    }
+    lines.join("\n")
+}
+
+fn format_dream_changed_files(diff: &str) -> String {
+    let files = extract_dream_changed_files(diff);
+    if files.is_empty() {
+        return "No tracked memory files changed.".to_string();
+    }
+    files
+        .into_iter()
+        .map(|path| format!("`{path}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn extract_dream_changed_files(diff: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    for line in diff.lines() {
+        if !line.starts_with("diff --git ") {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let _diff = parts.next();
+        let _git = parts.next();
+        let _left = parts.next();
+        let Some(right) = parts.next() else {
+            continue;
+        };
+        let path = right.strip_prefix("b/").unwrap_or(right).to_string();
+        if !files.contains(&path) {
+            files.push(path);
+        }
+    }
+    files
 }
 
 fn required_memory_note_id(
@@ -3884,6 +4083,75 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_memory_dream_log_for_latest_git_memory_commit() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("memory/MEMORY.md", "Initial memory\n");
+        fixture.write("USER.md", "");
+        fixture.write("SOUL.md", "");
+        fixture.write("memory/notes.jsonl", "");
+        fixture.git(&["init"]);
+        fixture.git(&[
+            "add",
+            "SOUL.md",
+            "USER.md",
+            "memory/MEMORY.md",
+            "memory/notes.jsonl",
+        ]);
+        fixture.git(&[
+            "-c",
+            "user.name=tinybot",
+            "-c",
+            "user.email=tinybot@dream",
+            "commit",
+            "-m",
+            "init: tinybot memory store",
+        ]);
+        fixture.write(
+            "memory/MEMORY.md",
+            "Initial memory\nDream captured a durable fact.\n",
+        );
+        fixture.git(&["add", "memory/MEMORY.md"]);
+        fixture.git(&[
+            "-c",
+            "user.name=tinybot",
+            "-c",
+            "user.email=tinybot@dream",
+            "commit",
+            "-m",
+            "dream: 2026-06-12, 1 change(s)",
+        ]);
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-log",
+            "trace-1",
+            "memory.dream_log",
+            json!({}),
+        ));
+        let result = response.result.expect("dream log should return content");
+        let content = result
+            .get("content")
+            .and_then(Value::as_str)
+            .expect("dream log content should be text");
+
+        assert!(response.error.is_none());
+        assert!(content.contains("## Dream Update"));
+        assert!(content.contains("Here is the latest Dream memory change."));
+        assert!(content.contains("- Changed files: `memory/MEMORY.md`"));
+        assert!(content.contains("Use `/dream-restore "));
+        assert!(content.contains("```diff"));
+        assert!(content.contains("+Dream captured a durable fact."));
+        assert_eq!(result["metadata"]["render_as"], json!("text"));
+        assert_eq!(result["metadata"]["available"], json!(true));
+    }
+
+    #[test]
     fn dispatches_memory_dream_command_requests() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
@@ -3923,7 +4191,7 @@ mod tests {
         assert_eq!(
             log_response.result,
             Some(json!({
-                "content": "Dream history is not available because memory versioning is not initialized.",
+                "content": "Dream has not run yet. Run `/dream`, or wait for the next scheduled Dream cycle.",
                 "metadata": { "render_as": "text", "available": false }
             }))
         );
@@ -5396,6 +5664,22 @@ mod tests {
                 .root
                 .join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             std::fs::read_to_string(path).expect("fixture file should read")
+        }
+
+        fn git(&self, args: &[&str]) {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&self.root)
+                .args(args)
+                .output()
+                .expect("git command should run");
+            assert!(
+                output.status.success(),
+                "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+                args,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
         }
     }
 
