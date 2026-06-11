@@ -35,14 +35,15 @@ export class NativeContextBridge implements ContextBridge {
     const runDefaults = await this.loadRunDefaults(traceId);
     const history = await this.loadHistory(input, traceId);
     const bootstrap = await this.loadBootstrapFiles(traceId);
-    const memoryNotes = await this.loadMemoryNotes(input, traceId);
+    const memoryRecall = await this.loadMemoryRecall(input, traceId);
     const skills = await this.loadSkillsContext(runDefaults.enabledSkills, traceId);
     return {
       input: {
         identity: DEFAULT_IDENTITY,
         bootstrapFiles: bootstrap.files,
         history: history.messages,
-        memoryNotes,
+        memoryNotes: memoryRecall.notes,
+        memoryRecallContext: memoryRecall.context,
         skills,
         currentMessage: input.input.content,
         currentRole: input.input.role ?? "user",
@@ -171,19 +172,28 @@ export class NativeContextBridge implements ContextBridge {
     }
   }
 
-  private async loadMemoryNotes(input: AgentRunInput, traceId: string): Promise<MemoryRecallNote[]> {
+  private async loadMemoryRecall(input: AgentRunInput, traceId: string): Promise<{
+    notes: MemoryRecallNote[];
+    context?: string;
+  }> {
     if (!shouldLoadMemoryNotes(input.input.content)) {
-      return [];
+      return { notes: [] };
     }
     try {
-      const result = asObject(await this.rpcClient.request(traceId, "memory.search", {
+      const result = asObject(await this.rpcClient.request(traceId, "memory.recall", {
         query: input.input.content,
-        status: "active",
-        limit: 6,
+        max_notes: 6,
+        max_chars: 1600,
       }));
-      return normalizeMemoryNotes(result?.notes);
+      const references = normalizeMemoryNotes(result?.references);
+      const notes = references.length > 0 ? references : normalizeMemoryNotes(result?.notes);
+      const context = asString(result?.context);
+      return {
+        notes,
+        ...(context && context.trim().length > 0 ? { context } : {}),
+      };
     } catch {
-      return [];
+      return { notes: [] };
     }
   }
 }
@@ -265,7 +275,7 @@ function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
   }
   return value.map((entry) => {
     const object = asObject(entry);
-    const id = asString(object?.id);
+    const id = asString(object?.id ?? object?.note_id ?? object?.noteId);
     const scope = asString(object?.scope);
     const type = asString(object?.type);
     const status = asString(object?.status);

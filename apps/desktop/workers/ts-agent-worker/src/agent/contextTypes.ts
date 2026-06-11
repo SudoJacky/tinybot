@@ -83,6 +83,7 @@ export type ContextBuildInput = {
   bootstrapFiles?: BootstrapFile[];
   history?: AgentMessage[];
   memoryNotes?: MemoryRecallNote[];
+  memoryRecallContext?: string;
   skills?: SkillsContext;
   currentMessage: string;
   currentRole?: Extract<AgentMessageRole, "user" | "system">;

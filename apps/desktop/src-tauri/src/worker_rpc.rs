@@ -244,6 +244,10 @@ impl WorkerRpcRouter {
                 let params: MemorySearchParams = parse_params(request)?;
                 self.memory.search(params)
             }
+            "memory.recall" => {
+                let params: MemoryRecallParams = parse_params(request)?;
+                self.memory.recall(params)
+            }
             "memory.save" => {
                 let params: MemorySaveParams = parse_params(request)?;
                 self.memory.save(params)
@@ -794,6 +798,31 @@ impl WorkerMemoryRpc {
         Ok(serde_json::json!({ "notes": notes }))
     }
 
+    fn recall(
+        &self,
+        params: MemoryRecallParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        let search_result = self.search(MemorySearchParams {
+            query: Some(params.query),
+            note_type: None,
+            scope: None,
+            status: Some("active".to_string()),
+            limit: Some(params.max_notes.unwrap_or(6).min(20)),
+        })?;
+        let notes = search_result
+            .get("notes")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let context = render_memory_recall_context(&notes, params.max_chars.unwrap_or(1600));
+        let references: Vec<Value> = notes.iter().map(memory_recall_reference).collect();
+        Ok(serde_json::json!({
+            "context": context,
+            "notes": notes,
+            "references": references
+        }))
+    }
+
     fn save(
         &self,
         params: MemorySaveParams,
@@ -1274,6 +1303,16 @@ struct MemorySearchParams {
 }
 
 #[derive(Deserialize)]
+struct MemoryRecallParams {
+    #[serde(default)]
+    query: String,
+    #[serde(default)]
+    max_notes: Option<usize>,
+    #[serde(default)]
+    max_chars: Option<usize>,
+}
+
+#[derive(Deserialize)]
 struct MemoryNoteIdParams {
     note_id: String,
 }
@@ -1510,6 +1549,111 @@ fn memory_note_locations(note: &Value, line: usize) -> Value {
         "line": line,
         "view_file": view_file
     })
+}
+
+fn memory_recall_reference(note: &Value) -> Value {
+    let mut reference = serde_json::json!({
+        "note_id": note.get("id").cloned().unwrap_or(Value::Null),
+        "scope": note.get("scope").cloned().unwrap_or(Value::String("project".to_string())),
+        "type": note.get("type").cloned().unwrap_or(Value::String("project".to_string())),
+        "status": note.get("status").cloned().unwrap_or(Value::String("active".to_string())),
+        "content": note.get("content").cloned().unwrap_or(Value::String(String::new())),
+        "priority": note.get("priority").cloned().unwrap_or(serde_json::json!(0.5)),
+        "confidence": note.get("confidence").cloned().unwrap_or(serde_json::json!(0.5)),
+        "tags": note.get("tags").cloned().unwrap_or(serde_json::json!([])),
+        "metadata": note.get("metadata").cloned().unwrap_or(serde_json::json!({})),
+    });
+    for key in ["file", "line", "view_file", "view_line"] {
+        if let Some(value) = note.get(key) {
+            reference[key] = value.clone();
+        }
+    }
+    let evidence_ids = memory_note_evidence_ids(note);
+    if !evidence_ids.is_empty() {
+        reference["evidence_ids"] = serde_json::json!(evidence_ids);
+    }
+    reference
+}
+
+fn render_memory_recall_context(notes: &[Value], max_chars: usize) -> String {
+    if notes.is_empty() || max_chars == 0 {
+        return String::new();
+    }
+    let mut lines = vec![
+        "---".to_string(),
+        "[MEMORY RECALL]".to_string(),
+        String::new(),
+        "Active Memory Notes selected for this request. Keep this separate from Experience and Knowledge Base context.".to_string(),
+        String::new(),
+    ];
+    for note in notes {
+        lines.push(format_memory_recall_note(note));
+    }
+    lines.push("---".to_string());
+    truncate_memory_context(&lines.join("\n"), max_chars)
+}
+
+fn format_memory_recall_note(note: &Value) -> String {
+    let content = note.get("content").and_then(Value::as_str).unwrap_or("");
+    let id = note.get("id").and_then(Value::as_str).unwrap_or("unknown");
+    let scope = note
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("project");
+    let note_type = note
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("project");
+    let priority = note.get("priority").and_then(Value::as_f64).unwrap_or(0.5);
+    let confidence = note
+        .get("confidence")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.5);
+    let tags = note
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("; tags: {value}"))
+        .unwrap_or_default();
+    format!(
+        "- {content} (id: {id}; scope: {scope}; type: {note_type}; priority: {}; confidence: {}{tags})",
+        format_memory_number(priority),
+        format_memory_number(confidence)
+    )
+}
+
+fn truncate_memory_context(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let mut truncated: String = value.chars().take(max_chars.saturating_sub(3)).collect();
+    truncated.push_str("...");
+    truncated
+}
+
+fn memory_note_evidence_ids(note: &Value) -> Vec<String> {
+    let mut ids = Vec::new();
+    if let Some(sources) = note.get("sources").and_then(Value::as_array) {
+        for source in sources {
+            if let Some(evidence_ids) = source.get("evidence_ids").and_then(Value::as_array) {
+                for evidence_id in evidence_ids {
+                    if let Some(evidence_id) = evidence_id.as_str() {
+                        ids.push(evidence_id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 fn invalid_rag_request(message: impl Into<String>) -> crate::worker_protocol::WorkerProtocolError {
@@ -2990,6 +3134,64 @@ mod tests {
         assert!(fixture
             .read("memory/notes.jsonl")
             .contains("User prefers concise implementation handoffs."));
+    }
+
+    #[test]
+    fn dispatches_memory_recall_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead, WorkerCapability::MemoryWrite]),
+        );
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "memory.save",
+            json!({
+                "content": "User prefers concise implementation handoffs.",
+                "note_type": "preference",
+                "priority": 0.8,
+                "confidence": 0.7,
+                "tags": ["handoff"]
+            }),
+        ));
+        let saved_note = save_response
+            .result
+            .as_ref()
+            .expect("memory.save should return result")["note"]
+            .clone();
+        let note_id = saved_note["id"].as_str().expect("saved note should have id");
+
+        let recall_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "memory.recall",
+            json!({
+                "query": "handoff",
+                "max_notes": 6,
+                "max_chars": 1600
+            }),
+        ));
+
+        let result = recall_response
+            .result
+            .as_ref()
+            .expect("memory.recall should return result");
+        assert_eq!(recall_response.error, None);
+        assert!(result["context"]
+            .as_str()
+            .expect("context should be a string")
+            .contains("[MEMORY RECALL]"));
+        assert_eq!(result["notes"][0]["id"], note_id);
+        assert_eq!(result["references"][0]["note_id"], note_id);
+        assert_eq!(
+            result["references"][0]["content"],
+            "User prefers concise implementation handoffs."
+        );
+        assert_eq!(result["references"][0]["view_file"], "USER.md");
     }
 
     #[test]

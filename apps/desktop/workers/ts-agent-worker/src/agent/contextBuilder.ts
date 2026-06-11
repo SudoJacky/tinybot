@@ -54,7 +54,9 @@ export function buildContextMessages(input: ContextBuildInput): ContextBuildResu
     messages.push(currentMessage);
   }
 
-  const memoryRecallContext = buildMemoryRecallContext(memoryNotes);
+  const memoryRecallContext = nonemptyString(input.memoryRecallContext)
+    ? input.memoryRecallContext
+    : buildMemoryRecallContext(memoryNotes);
   if (memoryRecallContext) {
     messages.push({ role: "system", content: memoryRecallContext });
   }
@@ -62,7 +64,7 @@ export function buildContextMessages(input: ContextBuildInput): ContextBuildResu
   return {
     messages,
     sessionAppendMessages: [currentMessage],
-    metadata: buildMetadata(input, history.length, mergedWithLastMessage, memoryNotes),
+    metadata: buildMetadata(input, history.length, mergedWithLastMessage, memoryNotes, memoryRecallContext),
   };
 }
 
@@ -83,9 +85,10 @@ function buildMetadata(
   historyMessageCount: number,
   mergedWithLastMessage: boolean,
   memoryNotes: MemoryRecallNote[],
+  memoryRecallContext: string,
 ): ContextBuildMetadata {
   const memoryReferences = memoryNotes.map(memoryReferenceMetadata);
-  const memoryContextIncluded = memoryReferences.length > 0;
+  const memoryContextIncluded = memoryReferences.length > 0 || nonemptyString(memoryRecallContext);
   const skillsSummaryIncluded = nonemptyString(input.skills?.skillsSummary);
   const alwaysSkillsIncluded = nonemptyString(input.skills?.activeSkillsContent);
   const skillsContextIncluded = skillsSummaryIncluded || alwaysSkillsIncluded;

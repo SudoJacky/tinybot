@@ -208,16 +208,17 @@ describe("NativeContextBridge", () => {
     });
   });
 
-  test("loads active memory notes for run input recall", async () => {
+  test("loads native-owned memory recall for run input context", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },
       "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
       "session.get_history": { session_id: "session-1", messages: [] },
       "workspace.read_bootstrap_files": { files: [], missing: [] },
-      "memory.search": {
-        notes: [
+      "memory.recall": {
+        context: "---\n[MEMORY RECALL]\n\n- User prefers concise implementation handoffs.\n---",
+        references: [
           {
-            id: "note_pref",
+            note_id: "note_pref",
             scope: "user",
             type: "preference",
             status: "active",
@@ -240,11 +241,11 @@ describe("NativeContextBridge", () => {
 
     expect(rpcClient.calls).toContainEqual({
       traceId: "trace-1",
-      method: "memory.search",
+      method: "memory.recall",
       params: {
         query: "Continue implementation",
-        status: "active",
-        limit: 6,
+        max_notes: 6,
+        max_chars: 1600,
       },
     });
     expect(result.input.memoryNotes).toEqual([
@@ -264,6 +265,8 @@ describe("NativeContextBridge", () => {
         viewLine: 12,
       },
     ]);
+    expect(result.input.memoryRecallContext).toContain("[MEMORY RECALL]");
+    expect(result.input.memoryRecallContext).toContain("concise implementation handoffs");
   });
 
   test("loads enabled skills context from native skills list", async () => {
