@@ -241,6 +241,99 @@ impl WorkerKnowledgeRpc {
         Ok(KnowledgeQueryResultSet { results })
     }
 
+    pub fn stats(&self) -> Result<KnowledgeStats, WorkerProtocolError> {
+        self.require(WorkerCapability::KnowledgeRead)?;
+        let store = KnowledgeStorePaths::new(&self.root);
+        let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
+        let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
+        let parent_chunk_count = chunks
+            .iter()
+            .filter(|chunk| chunk.chunk_type == "parent")
+            .count();
+        let child_chunk_count = chunks
+            .iter()
+            .filter(|chunk| chunk.chunk_type == "child")
+            .count();
+        let mut categories: HashMap<String, usize> = HashMap::new();
+        for document in &documents {
+            let category = if document.category.is_empty() {
+                "uncategorized"
+            } else {
+                document.category.as_str()
+            };
+            *categories.entry(category.to_string()).or_insert(0) += 1;
+        }
+        let total_chars = documents
+            .iter()
+            .map(|document| document.content.chars().count())
+            .sum();
+        let retrieval_ready = parent_chunk_count > 0;
+        let sparse_stage = serde_json::json!({
+            "ready": retrieval_ready,
+            "status": if retrieval_ready { "ready" } else { "empty" },
+            "processed": chunks.len(),
+            "total": chunks.len(),
+            "failed": 0,
+            "stale": 0
+        });
+        let stage_readiness = serde_json::json!({
+            "sparse_indexing": sparse_stage,
+            "dense_indexing": { "ready": false, "status": "not_configured", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
+            "claim_extraction": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
+            "claim_validation": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
+            "relation_extraction": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
+            "relation_validation": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
+            "graph_projection": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 },
+            "community_report_projection": { "ready": false, "status": "not_started", "processed": 0, "total": parent_chunk_count, "failed": 0, "stale": 0 }
+        });
+        let stage_coverage = serde_json::json!({
+            "sparse_indexing": if retrieval_ready { 1.0 } else { 0.0 },
+            "dense_indexing": 0.0,
+            "claim_extraction": 0.0,
+            "claim_validation": 0.0,
+            "relation_extraction": 0.0,
+            "relation_validation": 0.0,
+            "graph_projection": 0.0,
+            "community_report_projection": 0.0
+        });
+        let claims_ready = false;
+        let relations_ready = false;
+        let graph_ready = false;
+        Ok(KnowledgeStats {
+            document_count: documents.len(),
+            total_documents: documents.len(),
+            chunk_count: parent_chunk_count,
+            total_chunks: parent_chunk_count,
+            parent_chunk_count,
+            child_chunk_count,
+            entity_count: 0,
+            claim_count: 0,
+            relation_count: 0,
+            source_count: 0,
+            conflict_count: 0,
+            stage_status_count: 0,
+            candidate_diagnostic_count: 0,
+            community_count: 0,
+            community_count_by_level: serde_json::json!({}),
+            community_report_count: 0,
+            total_chars,
+            categories,
+            indexed_dense: 0,
+            indexed_sparse: chunks.len(),
+            stage_details: Vec::new(),
+            stage_readiness,
+            stage_coverage,
+            failed_stage_count: 0,
+            stale_stage_count: 0,
+            retrieval_ready,
+            claims_ready,
+            relations_ready,
+            graph_ready,
+            partial_availability: retrieval_ready
+                && (!claims_ready || !relations_ready || !graph_ready),
+        })
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -498,6 +591,40 @@ pub struct KnowledgeDeleteDocumentResult {
 #[derive(Clone, Debug, Serialize)]
 pub struct KnowledgeQueryResultSet {
     pub results: Vec<KnowledgeQueryResult>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct KnowledgeStats {
+    pub document_count: usize,
+    pub total_documents: usize,
+    pub chunk_count: usize,
+    pub total_chunks: usize,
+    pub parent_chunk_count: usize,
+    pub child_chunk_count: usize,
+    pub entity_count: usize,
+    pub claim_count: usize,
+    pub relation_count: usize,
+    pub source_count: usize,
+    pub conflict_count: usize,
+    pub stage_status_count: usize,
+    pub candidate_diagnostic_count: usize,
+    pub community_count: usize,
+    pub community_count_by_level: Value,
+    pub community_report_count: usize,
+    pub total_chars: usize,
+    pub categories: HashMap<String, usize>,
+    pub indexed_dense: usize,
+    pub indexed_sparse: usize,
+    pub stage_details: Vec<Value>,
+    pub stage_readiness: Value,
+    pub stage_coverage: Value,
+    pub failed_stage_count: usize,
+    pub stale_stage_count: usize,
+    pub retrieval_ready: bool,
+    pub claims_ready: bool,
+    pub relations_ready: bool,
+    pub graph_ready: bool,
+    pub partial_availability: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]

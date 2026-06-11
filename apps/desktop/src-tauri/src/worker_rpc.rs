@@ -298,6 +298,9 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.knowledge.delete_document(params)?)
                     .map_err(serialization_error)
             }
+            "knowledge.stats" => {
+                serde_json::to_value(self.knowledge.stats()?).map_err(serialization_error)
+            }
             "rag.query" => {
                 let params: RagQueryParams = parse_params(request)?;
                 self.query_rag(params)
@@ -4176,6 +4179,76 @@ mod tests {
             json!(["The child snippet contains uniqueneedle evidence for ranking."])
         );
         assert_eq!(result["retrieval_method"], "sparse");
+    }
+
+    #[test]
+    fn dispatches_knowledge_stats_with_readiness_payload() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let content = [
+            "# Stats Document",
+            "",
+            "Stats retrieval text for sparse readiness.",
+            "",
+            "## Second Section",
+            "",
+            "Another section for child chunk accounting.",
+        ]
+        .join("\n");
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Stats Document",
+                "content": content,
+                "category": "ops",
+                "tags": ["stats"],
+                "file_type": "md"
+            }),
+        ));
+        assert_eq!(add_response.error, None);
+
+        let stats_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.stats",
+            json!({}),
+        ));
+
+        assert_eq!(stats_response.error, None);
+        let stats = stats_response
+            .result
+            .as_ref()
+            .expect("knowledge.stats should return result");
+        assert_eq!(stats["document_count"], 1);
+        assert_eq!(stats["total_documents"], 1);
+        assert_eq!(stats["chunk_count"], 2);
+        assert_eq!(stats["parent_chunk_count"], 2);
+        assert_eq!(stats["child_chunk_count"], 2);
+        assert_eq!(stats["total_chunks"], 2);
+        assert_eq!(stats["categories"], json!({ "ops": 1 }));
+        assert_eq!(stats["indexed_sparse"], 4);
+        assert_eq!(stats["indexed_dense"], 0);
+        assert_eq!(stats["retrieval_ready"], true);
+        assert_eq!(stats["claims_ready"], false);
+        assert_eq!(stats["relations_ready"], false);
+        assert_eq!(stats["graph_ready"], false);
+        assert_eq!(stats["partial_availability"], true);
+        assert_eq!(stats["failed_stage_count"], 0);
+        assert_eq!(stats["stale_stage_count"], 0);
+        assert_eq!(stats["stage_readiness"]["sparse_indexing"]["ready"], true);
+        assert_eq!(stats["stage_coverage"]["sparse_indexing"], 1.0);
+        assert_eq!(stats["stage_details"], json!([]));
     }
 
     #[test]
