@@ -106,12 +106,10 @@ export class AgentRunner {
             result = { content: `Error: Tool '${toolCall.name}' not found. Available: ${availableToolNames(spec, this.tools)}` };
           }
           if (!result) {
-            const prepared = prepareToolArguments(this.tools, toolCall.name, args);
+            const prepared = this.tools.prepareCall(toolCall.name, args);
             args = prepared.args;
-            if (prepared.errors.length > 0) {
-              result = {
-                content: `Error: Invalid parameters for tool '${toolCall.name}': ${prepared.errors.join("; ")}`,
-              };
+            if (!prepared.ok) {
+              result = { content: prepared.content };
             } else {
               this.emitEvent({
                 type: "tool_start",
@@ -122,7 +120,7 @@ export class AgentRunner {
                 },
               });
               try {
-                result = await this.tools.execute(toolCall.name, args, {
+                result = await prepared.tool.execute(prepared.args, {
                   runId: spec.runId,
                   traceId: spec.traceId,
                   sessionId: spec.sessionId,
@@ -628,133 +626,6 @@ function errorName(error: unknown): string {
 
 function availableToolNames(spec: AgentRunSpec, tools: ToolRegistry): string {
   return (spec.tools ?? tools.definitions()).map((tool) => tool.name).join(", ");
-}
-
-function prepareToolArguments(
-  tools: ToolRegistry,
-  name: string,
-  args: Record<string, unknown>,
-): { args: Record<string, unknown>; errors: string[] } {
-  const definition = tools.definitions().find((tool) => tool.name === name);
-  const schema = asRecord(definition?.parameters);
-  if (!schema || schema.type !== "object") {
-    return { args, errors: [] };
-  }
-  const castArgs = castJsonSchemaValue(args, schema);
-  const preparedArgs = asRecord(castArgs) ?? args;
-  return {
-    args: preparedArgs,
-    errors: validateJsonSchemaValue(preparedArgs, { ...schema, type: "object" }, ""),
-  };
-}
-
-function castJsonSchemaValue(value: unknown, schema: Record<string, unknown>): unknown {
-  const schemaType = resolveJsonSchemaType(schema.type);
-  if (schemaType === "object") {
-    const objectValue = asRecord(value);
-    if (!objectValue) {
-      return value;
-    }
-    const properties = asRecord(schema.properties) ?? {};
-    return Object.fromEntries(
-      Object.entries(objectValue).map(([key, childValue]) => {
-        const childSchema = asRecord(properties[key]);
-        return [key, childSchema ? castJsonSchemaValue(childValue, childSchema) : childValue];
-      }),
-    );
-  }
-  if (typeof value === "string" && schemaType === "integer") {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isNaN(parsed) ? value : parsed;
-  }
-  if (typeof value === "string" && schemaType === "number") {
-    const parsed = Number.parseFloat(value);
-    return Number.isNaN(parsed) ? value : parsed;
-  }
-  if (typeof value === "string" && schemaType === "boolean") {
-    const lower = value.toLowerCase();
-    if (lower === "true" || lower === "1" || lower === "yes") {
-      return true;
-    }
-    if (lower === "false" || lower === "0" || lower === "no") {
-      return false;
-    }
-  }
-  if (Array.isArray(value) && schemaType === "array") {
-    const itemSchema = asRecord(schema.items);
-    return itemSchema ? value.map((item) => castJsonSchemaValue(item, itemSchema)) : value;
-  }
-  if (schemaType === "string" && value !== null && value !== undefined) {
-    return String(value);
-  }
-  return value;
-}
-
-function validateJsonSchemaValue(value: unknown, schema: Record<string, unknown>, path: string): string[] {
-  const schemaType = resolveJsonSchemaType(schema.type);
-  const label = path || "parameter";
-  if (schemaType === "object") {
-    const objectValue = asRecord(value);
-    if (!objectValue) {
-      return [`${label} should be object`];
-    }
-    const errors: string[] = [];
-    const properties = asRecord(schema.properties) ?? {};
-    const required = Array.isArray(schema.required) ? schema.required : [];
-    for (const key of required) {
-      if (typeof key === "string" && !(key in objectValue)) {
-        errors.push(`missing required ${subpath(path, key)}`);
-      }
-    }
-    for (const [key, childValue] of Object.entries(objectValue)) {
-      const childSchema = asRecord(properties[key]);
-      if (childSchema) {
-        errors.push(...validateJsonSchemaValue(childValue, childSchema, subpath(path, key)));
-      }
-    }
-    return errors;
-  }
-  if (schemaType === "string" && typeof value !== "string") {
-    return [`${label} should be string`];
-  }
-  if (schemaType === "boolean" && typeof value !== "boolean") {
-    return [`${label} should be boolean`];
-  }
-  if (schemaType === "integer" && (!Number.isInteger(value) || typeof value !== "number")) {
-    return [`${label} should be integer`];
-  }
-  if (schemaType === "number" && typeof value !== "number") {
-    return [`${label} should be number`];
-  }
-  if (schemaType === "array" && !Array.isArray(value)) {
-    return [`${label} should be array`];
-  }
-  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
-    return [`${label} must be one of ${formatJsonSchemaEnum(schema.enum)}`];
-  }
-  return [];
-}
-
-function resolveJsonSchemaType(value: unknown): string | undefined {
-  if (Array.isArray(value)) {
-    return value.find((item): item is string => typeof item === "string" && item !== "null");
-  }
-  return typeof value === "string" ? value : undefined;
-}
-
-function subpath(path: string, key: string): string {
-  return path ? `${path}.${key}` : key;
-}
-
-function formatJsonSchemaEnum(values: unknown[]): string {
-  return `[${values.map((value) => typeof value === "string" ? `'${value}'` : String(value)).join(", ")}]`;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
 }
 
 function errorMessage(error: unknown): string {
