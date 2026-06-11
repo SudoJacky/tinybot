@@ -3,8 +3,8 @@ use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_config::WorkerConfigRpc;
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_knowledge::{
-    KnowledgeAddDocumentParams, KnowledgeDocumentIdParams, KnowledgeListDocumentsParams,
-    KnowledgeQueryParams, WorkerKnowledgeRpc,
+    KnowledgeAddDocumentParams, KnowledgeContextParams, KnowledgeDocumentIdParams,
+    KnowledgeListDocumentsParams, KnowledgeQueryParams, WorkerKnowledgeRpc,
 };
 use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerResponse};
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
@@ -300,6 +300,10 @@ impl WorkerRpcRouter {
             }
             "knowledge.stats" => {
                 serde_json::to_value(self.knowledge.stats()?).map_err(serialization_error)
+            }
+            "knowledge.context" => {
+                let params: KnowledgeContextParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.context(params)?).map_err(serialization_error)
             }
             "rag.query" => {
                 let params: RagQueryParams = parse_params(request)?;
@@ -4249,6 +4253,84 @@ mod tests {
         assert_eq!(stats["stage_readiness"]["sparse_indexing"]["ready"], true);
         assert_eq!(stats["stage_coverage"]["sparse_indexing"], 1.0);
         assert_eq!(stats["stage_details"], json!([]));
+    }
+
+    #[test]
+    fn dispatches_knowledge_context_for_persistent_results() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Runtime Context Notes",
+                "content": "# Runtime Context Notes\n\nNative knowledge context should cite persistent retrieval evidence.\n",
+                "category": "runtime",
+                "tags": ["context"],
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        let context_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.context",
+            json!({
+                "current_message": "Please use persistent retrieval evidence",
+                "session_key": "desktop:session-1",
+                "max_chunks": 3,
+                "use_persistent_knowledge": true
+            }),
+        ));
+
+        assert_eq!(context_response.error, None);
+        let result = context_response
+            .result
+            .as_ref()
+            .expect("knowledge.context should return result");
+        assert!(result["context"]
+            .as_str()
+            .expect("context should be string")
+            .contains("[RELEVANT KNOWLEDGE]"));
+        assert!(result["context"]
+            .as_str()
+            .expect("context should be string")
+            .contains("contextual evidence"));
+        assert!(result["context"]
+            .as_str()
+            .expect("context should be string")
+            .contains("Runtime Context Notes"));
+        assert_eq!(result["persistent_results"][0]["doc_id"], doc_id);
+        assert_eq!(result["session_results"], json!([]));
+        assert_eq!(
+            result["references"][0],
+            json!({
+                "doc_id": doc_id,
+                "doc_name": "Runtime Context Notes",
+                "chunk_id": format!("chunk_{doc_id}_0"),
+                "file_path": format!("knowledge/files/{doc_id}.md"),
+                "line_start": 1,
+                "line_end": 3,
+                "retrieval_method": "sparse"
+            })
+        );
     }
 
     #[test]

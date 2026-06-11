@@ -269,6 +269,56 @@ describe("NativeContextBridge", () => {
     expect(result.input.memoryRecallContext).toContain("concise implementation handoffs");
   });
 
+  test("loads native-owned knowledge context for run input context", async () => {
+    const knowledgeReferences = [
+      {
+        doc_id: "doc-1",
+        doc_name: "Runtime Context Notes",
+        chunk_id: "chunk_doc-1_0",
+        file_path: "knowledge/files/doc-1.md",
+        line_start: 1,
+        line_end: 3,
+        retrieval_method: "sparse",
+      },
+    ];
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+      "knowledge.context": {
+        context: [
+          "---",
+          "[RELEVANT KNOWLEDGE]",
+          "",
+          "Treat these results as contextual evidence.",
+          "",
+          "- Runtime Context Notes: Native context.",
+          "---",
+        ].join("\n"),
+        persistent_results: [{ doc_id: "doc-1", doc_name: "Runtime Context Notes" }],
+        session_results: [],
+        references: knowledgeReferences,
+      },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput({ input: { content: "Use retrieval evidence" } }), "trace-1");
+
+    expect(rpcClient.calls).toContainEqual({
+      traceId: "trace-1",
+      method: "knowledge.context",
+      params: {
+        current_message: "Use retrieval evidence",
+        session_key: "session-1",
+        max_chunks: 5,
+        use_persistent_knowledge: true,
+      },
+    });
+    expect(result.input.knowledgeContext).toContain("[RELEVANT KNOWLEDGE]");
+    expect(result.input.knowledgeReferences).toEqual(knowledgeReferences);
+  });
+
   test("loads enabled skills context from native skills list", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },

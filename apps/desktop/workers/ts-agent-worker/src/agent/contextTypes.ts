@@ -78,12 +78,24 @@ export type SkillsContext = {
   };
 };
 
+export type KnowledgeReferenceMetadata = {
+  doc_id: string;
+  doc_name: string;
+  chunk_id: string;
+  file_path: string;
+  line_start: number;
+  line_end: number;
+  retrieval_method: string;
+};
+
 export type ContextBuildInput = {
   identity: string;
   bootstrapFiles?: BootstrapFile[];
   history?: AgentMessage[];
   memoryNotes?: MemoryRecallNote[];
   memoryRecallContext?: string;
+  knowledgeContext?: string;
+  knowledgeReferences?: KnowledgeReferenceMetadata[];
   skills?: SkillsContext;
   currentMessage: string;
   currentRole?: Extract<AgentMessageRole, "user" | "system">;
@@ -136,6 +148,7 @@ export type ContextBuildMetadata = {
   };
   omittedContext: string[];
   _memory_references?: MemoryReferenceMetadata[];
+  _knowledge_references?: KnowledgeReferenceMetadata[];
 };
 
 export type ContextBuildResult = {

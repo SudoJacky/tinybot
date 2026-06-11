@@ -133,6 +133,42 @@ describe("buildContextMessages", () => {
     ]);
   });
 
+  test("adds relevant knowledge as contextual evidence", () => {
+    const knowledgeReferences = [
+      {
+        doc_id: "doc-1",
+        doc_name: "Runtime Context Notes",
+        chunk_id: "chunk_doc-1_0",
+        file_path: "knowledge/files/doc-1.md",
+        line_start: 1,
+        line_end: 3,
+        retrieval_method: "sparse",
+      },
+    ];
+    const result = buildContextMessages({
+      identity: "Identity",
+      currentMessage: "Use retrieval evidence",
+      runtime: { currentTime: "now" },
+      knowledgeContext: [
+        "---",
+        "[RELEVANT KNOWLEDGE]",
+        "",
+        "Treat these results as contextual evidence.",
+        "",
+        "- Runtime Context Notes: Native context.",
+        "---",
+      ].join("\n"),
+      knowledgeReferences,
+    });
+
+    expect(result.messages.map((message) => message.role)).toEqual(["system", "user", "system"]);
+    expect(result.messages.at(-1)?.content).toContain("[RELEVANT KNOWLEDGE]");
+    expect(result.messages.at(-1)?.content).toContain("contextual evidence");
+    expect(result.metadata.knowledgeContextIncluded).toBe(true);
+    expect(result.metadata.omittedContext).not.toContain("knowledge");
+    expect(result.metadata._knowledge_references).toEqual(knowledgeReferences);
+  });
+
   test("injects active skills and skills summary into the system prompt", () => {
     const result = buildContextMessages({
       identity: "Identity",

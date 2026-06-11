@@ -8,6 +8,7 @@ import {
   type AgentRunInput,
   type BootstrapFile,
   type ContextBridgeLoadResult,
+  type KnowledgeReferenceMetadata,
   type MemoryRecallNote,
   type SkillsContext,
   type UserProfile,
@@ -36,6 +37,7 @@ export class NativeContextBridge implements ContextBridge {
     const history = await this.loadHistory(input, traceId);
     const bootstrap = await this.loadBootstrapFiles(traceId);
     const memoryRecall = await this.loadMemoryRecall(input, traceId);
+    const knowledgeContext = await this.loadKnowledgeContext(input, traceId);
     const skills = await this.loadSkillsContext(runDefaults.enabledSkills, traceId);
     return {
       input: {
@@ -44,6 +46,8 @@ export class NativeContextBridge implements ContextBridge {
         history: history.messages,
         memoryNotes: memoryRecall.notes,
         memoryRecallContext: memoryRecall.context,
+        knowledgeContext: knowledgeContext.context,
+        knowledgeReferences: knowledgeContext.references,
         skills,
         currentMessage: input.input.content,
         currentRole: input.input.role ?? "user",
@@ -196,6 +200,30 @@ export class NativeContextBridge implements ContextBridge {
       return { notes: [] };
     }
   }
+
+  private async loadKnowledgeContext(input: AgentRunInput, traceId: string): Promise<{
+    context?: string;
+    references: KnowledgeReferenceMetadata[];
+  }> {
+    if (!shouldLoadKnowledgeContext(input.input.content)) {
+      return { references: [] };
+    }
+    try {
+      const result = asObject(await this.rpcClient.request(traceId, "knowledge.context", {
+        current_message: input.input.content,
+        session_key: input.sessionId,
+        max_chunks: 5,
+        use_persistent_knowledge: true,
+      }));
+      const context = asString(result?.context);
+      return {
+        ...(context && context.trim().length > 0 ? { context } : {}),
+        references: normalizeKnowledgeReferences(result?.references),
+      };
+    } catch {
+      return { references: [] };
+    }
+  }
 }
 
 function normalizeHistoryMessage(value: unknown): AgentMessage | null {
@@ -305,6 +333,34 @@ function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
   }).filter((note): note is MemoryRecallNote => note !== null);
 }
 
+function normalizeKnowledgeReferences(value: unknown): KnowledgeReferenceMetadata[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => {
+    const object = asObject(entry);
+    const docId = asString(object?.doc_id ?? object?.docId);
+    const docName = asString(object?.doc_name ?? object?.docName);
+    const chunkId = asString(object?.chunk_id ?? object?.chunkId);
+    const filePath = asString(object?.file_path ?? object?.filePath);
+    const lineStart = numberValue(object?.line_start ?? object?.lineStart);
+    const lineEnd = numberValue(object?.line_end ?? object?.lineEnd);
+    const retrievalMethod = asString(object?.retrieval_method ?? object?.retrievalMethod);
+    if (!docId || !docName || !chunkId || !filePath || lineStart === undefined || lineEnd === undefined || !retrievalMethod) {
+      return null;
+    }
+    return {
+      doc_id: docId,
+      doc_name: docName,
+      chunk_id: chunkId,
+      file_path: filePath,
+      line_start: lineStart,
+      line_end: lineEnd,
+      retrieval_method: retrievalMethod,
+    };
+  }).filter((reference): reference is KnowledgeReferenceMetadata => reference !== null);
+}
+
 function normalizeSkillEntries(value: unknown): SkillStoreEntry[] {
   if (!Array.isArray(value)) {
     return [];
@@ -353,6 +409,14 @@ function shouldLoadMemoryNotes(text: string): boolean {
     return false;
   }
   return trimmed.length > 12 || /memory|remember|prefer|preference|project|decision|fix|followup|implement/i.test(trimmed);
+}
+
+function shouldLoadKnowledgeContext(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return /\b(knowledge|evidence|retrieval|document|documents|docs|source|sources|reference|context)\b/i.test(trimmed);
 }
 
 function normalizeStringArray(value: unknown): string[] {

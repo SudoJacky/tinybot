@@ -3,6 +3,7 @@ import type {
   ContextBuildInput,
   ContextBuildMetadata,
   ContextBuildResult,
+  KnowledgeReferenceMetadata,
   MemoryRecallNote,
   MemoryReferenceMetadata,
   RuntimeContext,
@@ -60,11 +61,15 @@ export function buildContextMessages(input: ContextBuildInput): ContextBuildResu
   if (memoryRecallContext) {
     messages.push({ role: "system", content: memoryRecallContext });
   }
+  const knowledgeContext = nonemptyString(input.knowledgeContext) ? input.knowledgeContext : "";
+  if (knowledgeContext) {
+    messages.push({ role: "system", content: knowledgeContext });
+  }
 
   return {
     messages,
     sessionAppendMessages: [currentMessage],
-    metadata: buildMetadata(input, history.length, mergedWithLastMessage, memoryNotes, memoryRecallContext),
+    metadata: buildMetadata(input, history.length, mergedWithLastMessage, memoryNotes, memoryRecallContext, knowledgeContext),
   };
 }
 
@@ -86,9 +91,12 @@ function buildMetadata(
   mergedWithLastMessage: boolean,
   memoryNotes: MemoryRecallNote[],
   memoryRecallContext: string,
+  knowledgeContext: string,
 ): ContextBuildMetadata {
   const memoryReferences = memoryNotes.map(memoryReferenceMetadata);
   const memoryContextIncluded = memoryReferences.length > 0 || nonemptyString(memoryRecallContext);
+  const knowledgeReferences = input.knowledgeReferences ?? [];
+  const knowledgeContextIncluded = knowledgeReferences.length > 0 || nonemptyString(knowledgeContext);
   const skillsSummaryIncluded = nonemptyString(input.skills?.skillsSummary);
   const alwaysSkillsIncluded = nonemptyString(input.skills?.activeSkillsContent);
   const skillsContextIncluded = skillsSummaryIncluded || alwaysSkillsIncluded;
@@ -98,7 +106,7 @@ function buildMetadata(
     mergedWithLastMessage,
     runtimeContextIncluded: true,
     memoryContextIncluded,
-    knowledgeContextIncluded: false,
+    knowledgeContextIncluded,
     skillsContextIncluded,
     ...(skillsSummaryIncluded ? { skillsSummaryIncluded } : {}),
     ...(alwaysSkillsIncluded ? { alwaysSkillsIncluded } : {}),
@@ -109,12 +117,28 @@ function buildMetadata(
       if (name === "memory") {
         return !memoryContextIncluded;
       }
+      if (name === "knowledge") {
+        return !knowledgeContextIncluded;
+      }
       if (name === "skills_detail") {
         return !skillsContextIncluded;
       }
       return true;
     }),
     ...(memoryContextIncluded ? { _memory_references: memoryReferences } : {}),
+    ...(knowledgeContextIncluded ? { _knowledge_references: knowledgeReferences.map(knowledgeReferenceMetadata) } : {}),
+  };
+}
+
+function knowledgeReferenceMetadata(reference: KnowledgeReferenceMetadata): KnowledgeReferenceMetadata {
+  return {
+    doc_id: reference.doc_id,
+    doc_name: reference.doc_name,
+    chunk_id: reference.chunk_id,
+    file_path: reference.file_path,
+    line_start: reference.line_start,
+    line_end: reference.line_end,
+    retrieval_method: reference.retrieval_method,
   };
 }
 
