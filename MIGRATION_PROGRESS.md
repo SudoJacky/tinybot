@@ -114,6 +114,7 @@
 | 2026-06-11 | 启动 Batch 2 context/session 组合边界：新增 `runtime/runInputContext.ts`，把 ContextBridge load result 经 ContextBuilder 投影为 AgentRunSpec、context metadata 与 TurnLifecycle 持久化所需的 `_contextSessionAppendMessages`。 |
 | 2026-06-12 | 继续 Batch 2 context/session 组合边界：让 `agent.run_input` 的 context metadata 传入 `TurnLifecycle.finalizeTurn()`，使 `session.persist_turn` 能收到 history/bootstrap/bridge metadata，而不仅返回给调用方。 |
 | 2026-06-12 | Closed the native persist-turn boundary for run input context metadata: Rust `session.persist_turn` now accepts snake_case/camelCase metadata, stores it on the persisted session turn, and clears stale metadata when absent. |
+| 2026-06-12 | Started TS Memory Notes recall in `agent.run_input`: `NativeContextBridge` now reads active notes through native `memory.search`, `ContextBuilder` injects Python-style `[MEMORY RECALL]` system context, and context metadata carries `_memory_references`. |
 
 ## Next Checklist
 

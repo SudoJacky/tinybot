@@ -1,5 +1,13 @@
 import type { AgentMessage } from "./agentRunSpec.ts";
-import type { ContextBuildInput, ContextBuildMetadata, ContextBuildResult, RuntimeContext, UserProfile } from "./contextTypes.ts";
+import type {
+  ContextBuildInput,
+  ContextBuildMetadata,
+  ContextBuildResult,
+  MemoryRecallNote,
+  MemoryReferenceMetadata,
+  RuntimeContext,
+  UserProfile,
+} from "./contextTypes.ts";
 import { mergeMessageContent } from "./messageContent.ts";
 import { buildSystemPrompt, includedBootstrapPaths } from "./systemPrompt.ts";
 
@@ -17,6 +25,7 @@ const OMITTED_CONTEXT = [
 export function buildContextMessages(input: ContextBuildInput): ContextBuildResult {
   const history = input.history ?? [];
   const currentRole = input.currentRole ?? "user";
+  const memoryNotes = activeMemoryNotes(input.memoryNotes);
   const runtimeContext = buildRuntimeContext(input.runtime);
   const currentContent = `${runtimeContext}\n\n${input.currentMessage}`;
   const currentMessage: AgentMessage = { role: currentRole, content: currentContent };
@@ -43,10 +52,15 @@ export function buildContextMessages(input: ContextBuildInput): ContextBuildResu
     messages.push(currentMessage);
   }
 
+  const memoryRecallContext = buildMemoryRecallContext(memoryNotes);
+  if (memoryRecallContext) {
+    messages.push({ role: "system", content: memoryRecallContext });
+  }
+
   return {
     messages,
     sessionAppendMessages: [currentMessage],
-    metadata: buildMetadata(input, history.length, mergedWithLastMessage),
+    metadata: buildMetadata(input, history.length, mergedWithLastMessage, memoryNotes),
   };
 }
 
@@ -66,17 +80,92 @@ function buildMetadata(
   input: ContextBuildInput,
   historyMessageCount: number,
   mergedWithLastMessage: boolean,
+  memoryNotes: MemoryRecallNote[],
 ): ContextBuildMetadata {
+  const memoryReferences = memoryNotes.map(memoryReferenceMetadata);
+  const memoryContextIncluded = memoryReferences.length > 0;
   return {
     bootstrapFiles: includedBootstrapPaths(input.bootstrapFiles),
     historyMessageCount,
     mergedWithLastMessage,
     runtimeContextIncluded: true,
-    memoryContextIncluded: false,
+    memoryContextIncluded,
     knowledgeContextIncluded: false,
     skillsContextIncluded: false,
-    omittedContext: [...OMITTED_CONTEXT],
+    omittedContext: OMITTED_CONTEXT.filter((name) => name !== "memory" || !memoryContextIncluded),
+    ...(memoryContextIncluded ? { _memory_references: memoryReferences } : {}),
   };
+}
+
+function buildMemoryRecallContext(notes: MemoryRecallNote[] | undefined): string {
+  if (!notes || notes.length === 0) {
+    return "";
+  }
+  return [
+    "---",
+    "[MEMORY RECALL]",
+    "",
+    "Active Memory Notes selected for this request. Keep this separate from Experience and Knowledge Base context.",
+    "",
+    ...notes.map(formatMemoryRecallNote),
+    "---",
+  ].join("\n");
+}
+
+function activeMemoryNotes(notes: MemoryRecallNote[] | undefined): MemoryRecallNote[] {
+  return notes?.filter((note) => note.status === "active" && note.content.trim().length > 0) ?? [];
+}
+
+function memoryReferenceMetadata(note: MemoryRecallNote): MemoryReferenceMetadata {
+  return {
+    note_id: note.id,
+    scope: note.scope,
+    type: note.type,
+    status: note.status,
+    content: note.content,
+    priority: note.priority ?? 0.5,
+    confidence: note.confidence ?? 0.5,
+    tags: note.tags ?? [],
+    metadata: note.metadata ?? {},
+    ...(nonemptyList(note.evidenceIds) ? { evidence_ids: note.evidenceIds } : {}),
+    ...(note.file ? { file: note.file } : {}),
+    ...(note.line !== undefined ? { line: note.line } : {}),
+    ...(note.viewFile ? { view_file: note.viewFile } : {}),
+    ...(note.viewLine !== undefined ? { view_line: note.viewLine } : {}),
+  };
+}
+
+function formatMemoryRecallNote(note: MemoryRecallNote): string {
+  const metadata = [
+    `id: ${note.id}`,
+    `scope: ${note.scope}`,
+    `type: ${note.type}`,
+    `priority: ${formatMemoryNumber(note.priority ?? 0.5)}`,
+    `confidence: ${formatMemoryNumber(note.confidence ?? 0.5)}`,
+  ];
+  if (nonemptyList(note.tags)) {
+    metadata.push(`tags: ${[...note.tags].sort().join(", ")}`);
+  }
+  if (note.metadata && Object.keys(note.metadata).length > 0) {
+    metadata.push(`metadata: ${stableJsonStringify(note.metadata)}`);
+  }
+  return `- ${note.content} (${metadata.join("; ")})`;
+}
+
+function formatMemoryNumber(value: number): string {
+  return Number.isInteger(value) ? value.toFixed(0) : String(value);
+}
+
+function stableJsonStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJsonStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJsonStringify(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function formatUserProfile(profile: UserProfile | undefined): string {

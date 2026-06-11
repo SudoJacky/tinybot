@@ -90,4 +90,46 @@ describe("buildContextMessages", () => {
     });
     expect(result.metadata.mergedWithLastMessage).toBe(true);
   });
+
+  test("adds memory recall as a separate system message with active note metadata", () => {
+    const result = buildContextMessages({
+      identity: "Identity",
+      currentMessage: "Continue the implementation",
+      runtime: { currentTime: "now" },
+      memoryNotes: [
+        {
+          id: "note_pref",
+          scope: "user",
+          type: "preference",
+          status: "active",
+          content: "User prefers concise implementation handoffs.",
+          priority: 0.8,
+          confidence: 0.7,
+          tags: ["handoff", "communication"],
+          metadata: { source: "desktop" },
+        },
+      ],
+    });
+
+    expect(result.messages.map((message) => message.role)).toEqual(["system", "user", "system"]);
+    expect(result.messages.at(-1)?.content).toContain("[MEMORY RECALL]");
+    expect(result.messages.at(-1)?.content).toContain(
+      "- User prefers concise implementation handoffs. (id: note_pref; scope: user; type: preference; priority: 0.8; confidence: 0.7; tags: communication, handoff; metadata: {\"source\":\"desktop\"})",
+    );
+    expect(result.metadata.memoryContextIncluded).toBe(true);
+    expect(result.metadata.omittedContext).not.toContain("memory");
+    expect(result.metadata._memory_references).toEqual([
+      {
+        note_id: "note_pref",
+        scope: "user",
+        type: "preference",
+        status: "active",
+        content: "User prefers concise implementation handoffs.",
+        priority: 0.8,
+        confidence: 0.7,
+        tags: ["handoff", "communication"],
+        metadata: { source: "desktop" },
+      },
+    ]);
+  });
 });

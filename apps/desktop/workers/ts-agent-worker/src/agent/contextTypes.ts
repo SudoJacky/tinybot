@@ -33,10 +33,45 @@ export type RuntimeContext = {
   userProfile?: UserProfile;
 };
 
+export type MemoryRecallNote = {
+  id: string;
+  scope: string;
+  type: string;
+  status: string;
+  content: string;
+  priority?: number;
+  confidence?: number;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  evidenceIds?: string[];
+  file?: string;
+  line?: number;
+  viewFile?: string;
+  viewLine?: number;
+};
+
+export type MemoryReferenceMetadata = {
+  note_id: string;
+  scope: string;
+  type: string;
+  status: string;
+  content: string;
+  priority: number;
+  confidence: number;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  evidence_ids?: string[];
+  file?: string;
+  line?: number;
+  view_file?: string;
+  view_line?: number;
+};
+
 export type ContextBuildInput = {
   identity: string;
   bootstrapFiles?: BootstrapFile[];
   history?: AgentMessage[];
+  memoryNotes?: MemoryRecallNote[];
   currentMessage: string;
   currentRole?: Extract<AgentMessageRole, "user" | "system">;
   runtime: RuntimeContext;
@@ -73,6 +108,7 @@ export type ContextBuildMetadata = {
   knowledgeContextIncluded: boolean;
   skillsContextIncluded: boolean;
   omittedContext: string[];
+  _memory_references?: MemoryReferenceMetadata[];
 };
 
 export type ContextBuildResult = {

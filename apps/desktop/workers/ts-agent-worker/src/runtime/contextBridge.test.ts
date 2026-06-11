@@ -177,4 +177,61 @@ describe("NativeContextBridge", () => {
       bootstrapFallbackUsed: true,
     });
   });
+
+  test("loads active memory notes for run input recall", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+      "memory.search": {
+        notes: [
+          {
+            id: "note_pref",
+            scope: "user",
+            type: "preference",
+            status: "active",
+            content: "User prefers concise implementation handoffs.",
+            priority: 0.8,
+            confidence: 0.7,
+            tags: ["handoff"],
+            metadata: { source: "desktop" },
+            file: "memory/notes.jsonl",
+            line: 1,
+            view_file: "USER.md",
+            view_line: 12,
+          },
+        ],
+      },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput({ input: { content: "Continue implementation" } }), "trace-1");
+
+    expect(rpcClient.calls).toContainEqual({
+      traceId: "trace-1",
+      method: "memory.search",
+      params: {
+        query: "Continue implementation",
+        status: "active",
+        limit: 6,
+      },
+    });
+    expect(result.input.memoryNotes).toEqual([
+      {
+        id: "note_pref",
+        scope: "user",
+        type: "preference",
+        status: "active",
+        content: "User prefers concise implementation handoffs.",
+        priority: 0.8,
+        confidence: 0.7,
+        tags: ["handoff"],
+        metadata: { source: "desktop" },
+        file: "memory/notes.jsonl",
+        line: 1,
+        viewFile: "USER.md",
+        viewLine: 12,
+      },
+    ]);
+  });
 });

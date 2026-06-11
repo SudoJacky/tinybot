@@ -4,6 +4,7 @@ import {
   type AgentRunInput,
   type BootstrapFile,
   type ContextBridgeLoadResult,
+  type MemoryRecallNote,
   type UserProfile,
 } from "../agent/contextTypes.ts";
 import type { JsonObject } from "../protocol/messages.ts";
@@ -27,11 +28,13 @@ export class NativeContextBridge implements ContextBridge {
     const runtime = await this.loadRuntime(input, traceId);
     const history = await this.loadHistory(input, traceId);
     const bootstrap = await this.loadBootstrapFiles(traceId);
+    const memoryNotes = await this.loadMemoryNotes(input, traceId);
     return {
       input: {
         identity: DEFAULT_IDENTITY,
         bootstrapFiles: bootstrap.files,
         history: history.messages,
+        memoryNotes,
         currentMessage: input.input.content,
         currentRole: input.input.role ?? "user",
         runtime: {
@@ -124,6 +127,22 @@ export class NativeContextBridge implements ContextBridge {
       return { files: fallbackFiles, missing, fallbackUsed: true };
     }
   }
+
+  private async loadMemoryNotes(input: AgentRunInput, traceId: string): Promise<MemoryRecallNote[]> {
+    if (!shouldLoadMemoryNotes(input.input.content)) {
+      return [];
+    }
+    try {
+      const result = asObject(await this.rpcClient.request(traceId, "memory.search", {
+        query: input.input.content,
+        status: "active",
+        limit: 6,
+      }));
+      return normalizeMemoryNotes(result?.notes);
+    } catch {
+      return [];
+    }
+  }
 }
 
 function normalizeHistoryMessage(value: unknown): AgentMessage | null {
@@ -195,6 +214,71 @@ function normalizeUserProfile(value: unknown): UserProfile | undefined {
     communicationStyle: asString(object.communicationStyle ?? object.communication_style),
     keyFacts: normalizeStringArray(object.keyFacts ?? object.key_facts),
   };
+}
+
+function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => {
+    const object = asObject(entry);
+    const id = asString(object?.id);
+    const scope = asString(object?.scope);
+    const type = asString(object?.type);
+    const status = asString(object?.status);
+    const content = asString(object?.content);
+    if (!id || !scope || !type || !status || content === undefined) {
+      return null;
+    }
+    const metadata = asObject(object?.metadata);
+    const viewLine = numberValue(object?.view_line ?? object?.viewLine);
+    const evidenceIds = memoryEvidenceIds(object?.sources ?? object?.evidence_ids ?? object?.evidenceIds);
+    return {
+      id,
+      scope,
+      type,
+      status,
+      content,
+      priority: numberValue(object?.priority),
+      confidence: numberValue(object?.confidence),
+      tags: normalizeStringArray(object?.tags),
+      ...(metadata ? { metadata } : {}),
+      ...(evidenceIds.length > 0 ? { evidenceIds } : {}),
+      file: asString(object?.file),
+      line: numberValue(object?.line),
+      viewFile: asString(object?.view_file ?? object?.viewFile),
+      viewLine,
+    };
+  }).filter((note): note is MemoryRecallNote => note !== null);
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function memoryEvidenceIds(value: unknown): string[] {
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return [...new Set(value)].sort();
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const ids = new Set<string>();
+  for (const source of value) {
+    const object = asObject(source);
+    for (const evidenceId of normalizeStringArray(object?.evidence_ids ?? object?.evidenceIds)) {
+      ids.add(evidenceId);
+    }
+  }
+  return Array.from(ids).sort();
+}
+
+function shouldLoadMemoryNotes(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return false;
+  }
+  return trimmed.length > 12 || /memory|remember|prefer|preference|project|decision|fix|followup|implement/i.test(trimmed);
 }
 
 function normalizeStringArray(value: unknown): string[] {
