@@ -1,5 +1,7 @@
 import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "../agent/agentRunner.ts";
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
+import { buildContextMessages } from "../agent/contextBuilder.ts";
+import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
@@ -10,6 +12,7 @@ import {
   type WorkerResponse,
 } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
+import type { ContextBridge } from "./contextBridge.ts";
 
 export type AgentWorkerOptions = {
   provider: ModelProvider;
@@ -17,6 +20,7 @@ export type AgentWorkerOptions = {
   emitEvent: (event: WorkerEvent) => void;
   approvalBridge?: ApprovalBridge;
   sessionBridge?: SessionBridge;
+  contextBridge?: ContextBridge;
 };
 
 type ActiveRun = {
@@ -55,6 +59,7 @@ export class AgentWorker {
   private readonly emitEvent: (event: WorkerEvent) => void;
   private readonly approvalBridge?: ApprovalBridge;
   private readonly sessionBridge?: SessionBridge;
+  private readonly contextBridge?: ContextBridge;
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly checkpointWrites = new Map<string, Promise<void>>();
 
@@ -64,6 +69,7 @@ export class AgentWorker {
     this.emitEvent = options.emitEvent;
     this.approvalBridge = options.approvalBridge;
     this.sessionBridge = options.sessionBridge;
+    this.contextBridge = options.contextBridge;
   }
 
   async handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
@@ -95,15 +101,89 @@ export class AgentWorker {
       return this.handleSubmitFormRequest(request);
     }
 
+    if (request.method === "agent.run_input") {
+      return this.handleRunInputRequest(request);
+    }
+
     if (request.method !== "agent.run") {
       return this.failure(request, "unknown worker method", { method: request.method }, "invalid_protocol");
     }
 
+    return this.handleRunRequest(request);
+  }
+
+  private async handleRunRequest(request: WorkerRequest): Promise<WorkerResponse> {
     let runId: string | undefined;
     try {
       const spec = parseRunSpec(request.params);
       runId = spec.runId;
       spec.traceId = request.trace_id;
+      return await this.runSpecForRequest(request, spec);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitEvent({
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        trace_id: request.trace_id,
+        event: "agent.error",
+        payload: withNativePayloadAliases(runId ? { runId, message } : { message }),
+      });
+      return this.failure(request, message);
+    }
+  }
+
+  private async handleRunInputRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    let runId: string | undefined;
+    try {
+      const input = parseRunInput(request.params);
+      runId = input.runId;
+      if (!this.contextBridge) {
+        throw new Error("agent.run_input requires a context bridge");
+      }
+      const loaded = await this.contextBridge.loadContextInput(input, request.trace_id);
+      const context = buildContextMessages(loaded.input);
+      const contextMetadata = {
+        ...context.metadata,
+        bridge: loaded.metadata,
+      };
+      this.emitContextMetadata(request.trace_id, input.runId, contextMetadata);
+      const spec: AgentRunSpec = {
+        runId: input.runId,
+        traceId: request.trace_id,
+        sessionId: input.sessionId,
+        messages: context.messages,
+        model: input.model ?? "gpt-4.1-mini",
+        maxIterations: input.maxIterations ?? 2,
+        stream: input.stream ?? false,
+        temperature: input.temperature,
+        maxTokens: input.maxTokens,
+        reasoningEffort: input.reasoningEffort,
+        contextWindow: input.contextWindow,
+        toolResultBudget: input.toolResultBudget,
+        failOnToolError: input.failOnToolError,
+        metadata: {
+          ...(input.metadata ?? {}),
+          _contextInitialMessageCount: context.messages.length,
+          _contextSessionAppendMessages: context.sessionAppendMessages,
+        },
+      };
+      return await this.runSpecForRequest(request, spec, contextMetadata);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitEvent({
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        trace_id: request.trace_id,
+        event: "agent.error",
+        payload: withNativePayloadAliases(runId ? { runId, message } : { message }),
+      });
+      return this.failure(request, message);
+    }
+  }
+
+  private async runSpecForRequest(
+    request: WorkerRequest,
+    spec: AgentRunSpec,
+    contextMetadata?: ContextBuildMetadata & { bridge?: ContextBridgeMetadata },
+  ): Promise<WorkerResponse> {
       const activeRun: ActiveRun = { traceId: request.trace_id, cancelled: false };
       this.activeRuns.set(spec.runId, activeRun);
       const runner = new AgentRunner({
@@ -137,18 +217,8 @@ export class AgentWorker {
         protocol_version: WORKER_PROTOCOL_VERSION,
         id: request.id,
         trace_id: request.trace_id,
-        result,
+        result: contextMetadata ? { ...result, contextMetadata } : result,
       };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.emitEvent({
-        protocol_version: WORKER_PROTOCOL_VERSION,
-        trace_id: request.trace_id,
-        event: "agent.error",
-        payload: withNativePayloadAliases(runId ? { runId, message } : { message }),
-      });
-      return this.failure(request, message);
-    }
   }
 
   private handleCancelRequest(request: WorkerRequest): WorkerResponse {
@@ -196,12 +266,15 @@ export class AgentWorker {
       let restored = false;
       let restoredMessageCount = 0;
       if (checkpoint) {
-        const restoredMessages = materializeCheckpointMessages(checkpoint);
-        restoredMessageCount = restoredMessages.length;
+        const shouldKeepCheckpointForResume = checkpointRequiresUserInputResume(checkpoint);
+        const restoredMessages = shouldKeepCheckpointForResume ? [] : materializeCheckpointMessages(checkpoint);
         if (restoredMessages.length > 0) {
           await this.sessionBridge.appendMessages(sessionId, restoredMessages, request.trace_id);
+          restoredMessageCount = restoredMessages.length;
         }
-        await this.sessionBridge.clearCheckpoint(sessionId, request.trace_id);
+        if (!shouldKeepCheckpointForResume) {
+          await this.sessionBridge.clearCheckpoint(sessionId, request.trace_id);
+        }
         restored = true;
       }
       return {
@@ -350,7 +423,7 @@ export class AgentWorker {
     if (!this.sessionBridge || !spec.sessionId) {
       return;
     }
-    await this.sessionBridge.appendMessages(spec.sessionId, result.messages, traceId);
+    await this.sessionBridge.appendMessages(spec.sessionId, sessionAppendMessages(spec, result), traceId);
   }
 
   private emitAwaitingInput(traceId: string, runId: string, result: AgentRunResult): void {
@@ -391,6 +464,19 @@ export class AgentWorker {
           ? { contextWindowTokens: spec.contextWindow, context_window_tokens: spec.contextWindow }
           : {}),
       }),
+    });
+  }
+
+  private emitContextMetadata(
+    traceId: string,
+    runId: string,
+    metadata: ContextBuildMetadata & { bridge?: ContextBridgeMetadata },
+  ): void {
+    this.emitEvent({
+      protocol_version: WORKER_PROTOCOL_VERSION,
+      trace_id: traceId,
+      event: "agent.context",
+      payload: withNativePayloadAliases({ runId, metadata }),
     });
   }
 
@@ -748,6 +834,38 @@ function checkpointRunId(checkpoint: Record<string, unknown>): string {
   return checkpointString(checkpoint.runId ?? checkpoint.run_id, "checkpoint.runId");
 }
 
+function sessionAppendMessages(spec: AgentRunSpec, result: AgentRunResult): AgentMessage[] {
+  const contextMessages = internalContextAppendMessages(spec.metadata?._contextSessionAppendMessages);
+  const initialMessageCount = spec.metadata?._contextInitialMessageCount;
+  if (!contextMessages || typeof initialMessageCount !== "number") {
+    return result.messages;
+  }
+  return [
+    ...contextMessages,
+    ...result.messages.slice(initialMessageCount),
+  ];
+}
+
+function internalContextAppendMessages(value: unknown): AgentMessage[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const messages = value.map((item) => {
+    if (!isJsonObject(item) || !isAgentRole(item.role) || typeof item.content !== "string") {
+      return null;
+    }
+    return {
+      role: item.role,
+      content: item.content,
+    };
+  });
+  return messages.every((message) => message !== null) ? (messages as AgentMessage[]) : null;
+}
+
+function isAgentRole(value: unknown): value is AgentMessage["role"] {
+  return value === "system" || value === "user" || value === "assistant" || value === "tool";
+}
+
 function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec {
   if (!isJsonObject(params) || !isJsonObject(params.spec)) {
     throw new Error("agent.run requires object params.spec");
@@ -779,6 +897,48 @@ function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec
     model: raw.model,
     maxIterations,
     stream: raw.stream,
+    temperature: numberParam(raw, "temperature", "temperature"),
+    maxTokens: numberParam(raw, "maxTokens", "max_tokens"),
+    reasoningEffort: stringParam(raw, "reasoningEffort", "reasoning_effort"),
+    contextWindow: numberParam(raw, "contextWindow", "context_window"),
+    toolResultBudget: numberParam(raw, "toolResultBudget", "tool_result_budget"),
+    failOnToolError: booleanParam(raw, "failOnToolError", "fail_on_tool_error"),
+    metadata: isJsonObject(raw.metadata) ? raw.metadata : undefined,
+  };
+}
+
+function parseRunInput(params: Record<string, unknown> | undefined): AgentRunInput {
+  if (!isJsonObject(params) || !isJsonObject(params.input)) {
+    throw new Error("agent.run_input requires object params.input");
+  }
+  const raw = params.input;
+  const runId = stringParam(raw, "runId", "run_id");
+  if (!runId) {
+    throw new Error("agent.run_input input.runId must be a string");
+  }
+  const sessionId = stringParam(raw, "sessionId", "session_id");
+  if (!sessionId) {
+    throw new Error("agent.run_input input.sessionId must be a string");
+  }
+  if (!isJsonObject(raw.input) || typeof raw.input.content !== "string") {
+    throw new Error("agent.run_input input.input.content must be a string");
+  }
+  const role = raw.input.role === "system" ? "system" : "user";
+  return {
+    runId,
+    sessionId,
+    input: {
+      role,
+      content: raw.input.content,
+      media: Array.isArray(raw.input.media)
+        ? raw.input.media.filter((item): item is string => typeof item === "string")
+        : undefined,
+    },
+    channel: stringParam(raw, "channel", "channel"),
+    chatId: stringParam(raw, "chatId", "chat_id"),
+    model: stringParam(raw, "model", "model"),
+    maxIterations: numberParam(raw, "maxIterations", "max_iterations"),
+    stream: booleanParam(raw, "stream", "stream"),
     temperature: numberParam(raw, "temperature", "temperature"),
     maxTokens: numberParam(raw, "maxTokens", "max_tokens"),
     reasoningEffort: stringParam(raw, "reasoningEffort", "reasoning_effort"),
@@ -1000,4 +1160,26 @@ function errorMessage(error: unknown): string {
 
 function isAwaitingInputResult(result: AgentRunResult): boolean {
   return result.stopReason === "awaiting_user_input" || result.stopReason === "awaiting_approval" || result.stopReason === "awaiting_form";
+}
+
+function checkpointRequiresUserInputResume(checkpoint: Record<string, unknown>): boolean {
+  return checkpointContainsAwaitingInput(checkpoint.messages)
+    || checkpointContainsAwaitingInput(checkpoint.completedToolResults ?? checkpoint.completed_tool_results)
+    || checkpointContainsAwaitingInput(checkpoint.assistantMessage ?? checkpoint.assistant_message);
+}
+
+function checkpointContainsAwaitingInput(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(checkpointContainsAwaitingInput);
+  }
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  const metadata = isJsonObject(value.metadata) ? value.metadata : {};
+  const awaitingUserInput = metadata.awaitingUserInput ?? metadata.awaiting_user_input;
+  const stopReason = metadata.stopReason ?? metadata.stop_reason;
+  return awaitingUserInput === true
+    || stopReason === "awaiting_user_input"
+    || stopReason === "awaiting_approval"
+    || stopReason === "awaiting_form";
 }

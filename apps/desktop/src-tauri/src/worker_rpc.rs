@@ -72,6 +72,11 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.workspace.read_file(&params.path)?)
                     .map_err(serialization_error)
             }
+            "workspace.read_bootstrap_files" => {
+                let params: BootstrapFilesParams = parse_params(request)?;
+                serde_json::to_value(self.workspace.read_bootstrap_files(&params.files)?)
+                    .map_err(serialization_error)
+            }
             "workspace.write_file" => {
                 let params: WriteFileParams = parse_params(request)?;
                 serde_json::to_value(self.workspace.write_file(&params.path, &params.contents)?)
@@ -88,6 +93,14 @@ impl WorkerRpcRouter {
                 let params: SessionIdParams = parse_params(request)?;
                 serde_json::to_value(self.session.get_metadata(&params.session_id)?)
                     .map_err(serialization_error)
+            }
+            "session.get_history" => {
+                let params: SessionHistoryParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .get_history(&params.session_id, params.limit.unwrap_or(80))?,
+                )
+                .map_err(serialization_error)
             }
             "session.list_metadata" => {
                 serde_json::to_value(self.session.list_metadata()?).map_err(serialization_error)
@@ -150,6 +163,10 @@ impl WorkerRpcRouter {
             "mcp.call_tool" => {
                 let params: McpCallToolParams = parse_params(request)?;
                 self.mcp.call_tool(params)
+            }
+            "runtime.now" => {
+                let params: RuntimeNowParams = parse_params(request)?;
+                Ok(runtime_now(params.timezone))
             }
             _ => Err(unknown_method_error(request)),
         }
@@ -606,6 +623,11 @@ struct PathParams {
 }
 
 #[derive(Deserialize)]
+struct BootstrapFilesParams {
+    files: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct WriteFileParams {
     path: String,
     contents: String,
@@ -614,6 +636,12 @@ struct WriteFileParams {
 #[derive(Deserialize)]
 struct SessionIdParams {
     session_id: String,
+}
+
+#[derive(Deserialize)]
+struct SessionHistoryParams {
+    session_id: String,
+    limit: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -716,6 +744,11 @@ struct MemorySaveParams {
     message_end: Option<usize>,
 }
 
+#[derive(Deserialize)]
+struct RuntimeNowParams {
+    timezone: Option<String>,
+}
+
 fn parse_params<T: for<'de> Deserialize<'de>>(
     request: &WorkerRequest,
 ) -> Result<T, crate::worker_protocol::WorkerProtocolError> {
@@ -730,6 +763,18 @@ fn parse_params<T: for<'de> Deserialize<'de>>(
             false,
             crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
         )
+    })
+}
+
+fn runtime_now(timezone: Option<String>) -> Value {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let timezone = timezone.unwrap_or_else(|| "local".to_string());
+    serde_json::json!({
+        "current_time": format!("unix-ms:{millis} {timezone}"),
+        "timezone": timezone,
     })
 }
 
@@ -1431,6 +1476,99 @@ mod tests {
             "Native Core Migration"
         );
         assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_session_get_history_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "first" },
+                { "role": "assistant", "content": "second" }
+            ],
+            "user_profile": { "name": "Ada" }
+        });
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.get_history",
+            json!({ "session_id": "session-1", "limit": 1 }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "session_id": "session-1",
+                "messages": [{ "role": "assistant", "content": "second" }],
+                "user_profile": { "name": "Ada" },
+                "updated_at": "2026-06-09T09:30:00Z"
+            }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_workspace_read_bootstrap_files_request() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agent rules");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "workspace.read_bootstrap_files",
+            json!({ "files": ["AGENTS.md", "TOOLS.md"] }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "files": [{ "path": "AGENTS.md", "contents": "agent rules" }],
+                "missing": ["TOOLS.md"]
+            }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_runtime_now_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::default(),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "runtime.now",
+            json!({ "timezone": "Asia/Shanghai" }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert!(response.error.is_none());
+        assert_eq!(response.result.as_ref().unwrap()["timezone"], "Asia/Shanghai");
+        assert!(response.result.as_ref().unwrap()["current_time"].as_str().is_some());
     }
 
     #[test]

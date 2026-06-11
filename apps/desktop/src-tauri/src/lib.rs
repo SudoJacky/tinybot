@@ -113,6 +113,12 @@ struct WorkerRunAgentInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerRunAgentWithInputInput {
+    input: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCancelAgentInput {
     run_id: String,
 }
@@ -392,6 +398,20 @@ fn worker_run_agent(
     worker_run_agent_with_options(
         state.inner(),
         input.spec,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(120),
+    )
+}
+
+#[tauri::command]
+fn worker_run_agent_input(
+    input: WorkerRunAgentWithInputInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_run_agent_input_with_options(
+        state.inner(),
+        input.input,
         ts_agent_worker_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
@@ -1060,6 +1080,48 @@ fn build_worker_run_agent_request(request_id: u128, spec: serde_json::Value) -> 
     )
 }
 
+fn worker_run_agent_input_with_options(
+    shared: &SharedGateway,
+    input: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let request = build_worker_run_agent_input_request(now_unix_ms(), input);
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker agent run input request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker agent run input returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| "worker agent run input response missing result".to_string())
+}
+
+fn build_worker_run_agent_input_request(
+    request_id: u128,
+    input: serde_json::Value,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("agent-run-input-{request_id}"),
+        format!("trace-agent-run-input-{request_id}"),
+        "agent.run_input",
+        serde_json::json!({ "input": input }),
+    )
+}
+
 fn worker_cancel_agent_with_options(
     shared: &SharedGateway,
     run_id: String,
@@ -1505,6 +1567,7 @@ pub fn run() {
             worker_probe_status,
             worker_echo_agent,
             worker_run_agent,
+            worker_run_agent_input,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -1734,6 +1797,25 @@ mod tests {
         assert_eq!(request.trace_id, "trace-agent-run-42");
         assert_eq!(request.method, "agent.run");
         assert_eq!(request.params, serde_json::json!({ "spec": agent_spec }));
+    }
+
+    #[test]
+    fn worker_run_agent_input_request_wraps_high_level_input_for_ts_worker() {
+        let agent_input = serde_json::json!({
+            "runId": "run-input-1",
+            "sessionId": "session-1",
+            "input": { "content": "hello" },
+            "model": "gpt-5",
+            "maxIterations": 3,
+            "stream": true
+        });
+
+        let request = build_worker_run_agent_input_request(42, agent_input.clone());
+
+        assert_eq!(request.id, "agent-run-input-42");
+        assert_eq!(request.trace_id, "trace-agent-run-input-42");
+        assert_eq!(request.method, "agent.run_input");
+        assert_eq!(request.params, serde_json::json!({ "input": agent_input }));
     }
 
     #[test]

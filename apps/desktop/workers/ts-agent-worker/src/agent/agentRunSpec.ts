@@ -1,4 +1,5 @@
 import type { ToolCallRequest, ToolDefinition, TokenUsage } from "../model/provider.ts";
+import type { ContextBuildMetadata, ContextBridgeMetadata } from "./contextTypes.ts";
 
 export type AgentMessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -50,4 +51,5 @@ export type AgentRunResult = {
   stopReason: AgentStopReason;
   error?: string;
   awaitingInput?: Record<string, unknown>;
+  contextMetadata?: ContextBuildMetadata & { bridge?: ContextBridgeMetadata };
 };
