@@ -12,7 +12,6 @@ import {
   type WorkerResponse,
 } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
-import { sessionCheckpointFromRunner } from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
 import { TurnLifecycle, type SessionBridge } from "./turnLifecycle.ts";
 
@@ -371,10 +370,7 @@ export class AgentWorker {
   }
 
   private async persistCheckpoint(traceId: string, spec: AgentRunSpec, checkpoint: AgentRunnerCheckpoint): Promise<void> {
-    if (!this.sessionBridge || !spec.sessionId) {
-      return;
-    }
-    await this.sessionBridge.setCheckpoint(spec.sessionId, sessionCheckpointFromRunner(spec, checkpoint), traceId);
+    await this.turnLifecycle.writeCheckpoint(traceId, spec, checkpoint);
   }
 
   private queueCheckpointWrite(runId: string, write: () => Promise<void>): void {
@@ -396,10 +392,7 @@ export class AgentWorker {
   }
 
   private async clearCheckpoint(traceId: string, spec: AgentRunSpec): Promise<void> {
-    if (!this.sessionBridge || !spec.sessionId) {
-      return;
-    }
-    await this.sessionBridge.clearCheckpoint(spec.sessionId, traceId);
+    await this.turnLifecycle.clearCheckpoint(traceId, spec);
   }
 
   private emitAwaitingInput(traceId: string, runId: string, result: AgentRunResult): void {

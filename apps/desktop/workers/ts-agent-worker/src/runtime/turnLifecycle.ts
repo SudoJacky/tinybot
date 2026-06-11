@@ -1,6 +1,8 @@
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
+import type { AgentRunnerCheckpoint } from "../agent/agentRunner.ts";
 import { RUNTIME_CONTEXT_TAG } from "../agent/contextBuilder.ts";
 import { isJsonObject } from "../protocol/messages.ts";
+import { sessionCheckpointFromRunner } from "./checkpoint.ts";
 import { persistedSessionMessages } from "./persistedMessages.ts";
 
 export type SessionBridge = {
@@ -46,6 +48,24 @@ export class TurnLifecycle {
 
   constructor(sessionBridge: SessionBridge | undefined) {
     this.sessionBridge = sessionBridge;
+  }
+
+  async writeCheckpoint(
+    traceId: string,
+    spec: AgentRunSpec,
+    checkpoint: AgentRunnerCheckpoint,
+  ): Promise<void> {
+    if (!this.sessionBridge || !spec.sessionId) {
+      return;
+    }
+    await this.sessionBridge.setCheckpoint(spec.sessionId, sessionCheckpointFromRunner(spec, checkpoint), traceId);
+  }
+
+  async clearCheckpoint(traceId: string, spec: AgentRunSpec): Promise<void> {
+    if (!this.sessionBridge || !spec.sessionId) {
+      return;
+    }
+    await this.sessionBridge.clearCheckpoint(spec.sessionId, traceId);
   }
 
   async finalizeTurn(
