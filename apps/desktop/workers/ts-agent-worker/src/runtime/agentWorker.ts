@@ -261,21 +261,7 @@ export class AgentWorker {
           "worker_error",
         );
       }
-      const checkpoint = await this.sessionBridge.getCheckpoint(sessionId, request.trace_id);
-      let restored = false;
-      let restoredMessageCount = 0;
-      if (checkpoint) {
-        const shouldKeepCheckpointForResume = checkpointRequiresUserInputResume(checkpoint);
-        const restoredMessages = shouldKeepCheckpointForResume ? [] : materializeCheckpointMessages(checkpoint);
-        if (restoredMessages.length > 0) {
-          await this.sessionBridge.appendMessages(sessionId, restoredMessages, request.trace_id);
-          restoredMessageCount = restoredMessages.length;
-        }
-        if (!shouldKeepCheckpointForResume) {
-          await this.sessionBridge.clearCheckpoint(sessionId, request.trace_id);
-        }
-        restored = true;
-      }
+      const { checkpoint, restored, restoredMessageCount } = await this.turnLifecycle.restoreCheckpoint(request.trace_id, sessionId);
       return {
         protocol_version: WORKER_PROTOCOL_VERSION,
         id: request.id,
@@ -958,55 +944,6 @@ function parseAgentMessage(value: unknown): AgentMessage {
   };
 }
 
-function materializeCheckpointMessages(checkpoint: Record<string, unknown>): AgentMessage[] {
-  const messages: AgentMessage[] = [];
-  const assistantMessage = parseCheckpointAgentMessage(checkpoint.assistantMessage ?? checkpoint.assistant_message);
-  if (assistantMessage) {
-    messages.push(assistantMessage);
-  }
-  const completedToolResults = checkpoint.completedToolResults ?? checkpoint.completed_tool_results;
-  if (Array.isArray(completedToolResults)) {
-    for (const message of completedToolResults) {
-      const parsed = parseCheckpointAgentMessage(message);
-      if (parsed) {
-        messages.push(parsed);
-      }
-    }
-  }
-  const pendingToolCalls = checkpoint.pendingToolCalls ?? checkpoint.pending_tool_calls;
-  if (Array.isArray(pendingToolCalls)) {
-    messages.push(...pendingToolCalls.map(pendingToolCallInterruptedMessage).filter((message) => message !== undefined));
-  }
-  return messages;
-}
-
-function parseCheckpointAgentMessage(value: unknown): AgentMessage | undefined {
-  try {
-    return parseAgentMessage(value);
-  } catch {
-    return undefined;
-  }
-}
-
-function pendingToolCallInterruptedMessage(value: unknown): AgentMessage | undefined {
-  if (!isJsonObject(value)) {
-    return undefined;
-  }
-  const functionPayload = isJsonObject(value.function) ? value.function : {};
-  const toolCallId = typeof value.id === "string" ? value.id : undefined;
-  const name = typeof value.name === "string"
-    ? value.name
-    : typeof functionPayload.name === "string"
-      ? functionPayload.name
-      : "tool";
-  return {
-    role: "tool",
-    content: "Error: Task interrupted before this tool finished.",
-    toolCallId,
-    name,
-  };
-}
-
 function parseCheckpointMessages(value: unknown): AgentMessage[] {
   if (!Array.isArray(value)) {
     throw new Error("approval checkpoint requires messages");
@@ -1101,26 +1038,4 @@ function errorMessage(error: unknown): string {
 
 function isAwaitingInputResult(result: AgentRunResult): boolean {
   return result.stopReason === "awaiting_user_input" || result.stopReason === "awaiting_approval" || result.stopReason === "awaiting_form";
-}
-
-function checkpointRequiresUserInputResume(checkpoint: Record<string, unknown>): boolean {
-  return checkpointContainsAwaitingInput(checkpoint.messages)
-    || checkpointContainsAwaitingInput(checkpoint.completedToolResults ?? checkpoint.completed_tool_results)
-    || checkpointContainsAwaitingInput(checkpoint.assistantMessage ?? checkpoint.assistant_message);
-}
-
-function checkpointContainsAwaitingInput(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.some(checkpointContainsAwaitingInput);
-  }
-  if (!isJsonObject(value)) {
-    return false;
-  }
-  const metadata = isJsonObject(value.metadata) ? value.metadata : {};
-  const awaitingUserInput = metadata.awaitingUserInput ?? metadata.awaiting_user_input;
-  const stopReason = metadata.stopReason ?? metadata.stop_reason;
-  return awaitingUserInput === true
-    || stopReason === "awaiting_user_input"
-    || stopReason === "awaiting_approval"
-    || stopReason === "awaiting_form";
 }

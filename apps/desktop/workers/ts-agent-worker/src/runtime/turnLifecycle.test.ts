@@ -99,6 +99,107 @@ describe("TurnLifecycle", () => {
     expect(cleared).toEqual([{ sessionId: "session-1", traceId: "trace-1" }]);
   });
 
+  test("restores interrupted checkpoints by appending materialized messages and clearing the checkpoint", async () => {
+    const appended: Array<{ sessionId: string; messages: AgentMessage[]; traceId: string }> = [];
+    const cleared: Array<{ sessionId: string; traceId: string }> = [];
+    const bridge: SessionBridge = {
+      setCheckpoint: async () => undefined,
+      clearCheckpoint: async (sessionId, traceId) => {
+        cleared.push({ sessionId, traceId });
+      },
+      appendMessages: async (sessionId, messages, traceId) => {
+        appended.push({ sessionId, messages, traceId });
+      },
+      getCheckpoint: async () => ({
+        runId: "run-1",
+        phase: "awaiting_tools",
+        iteration: 1,
+        model: "test-model",
+        assistantMessage: {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call-pending", name: "lookup", argumentsJson: "{}" }],
+        },
+        completedToolResults: [
+          { role: "tool", content: "finished", toolCallId: "call-done", name: "done_tool" },
+        ],
+        pendingToolCalls: [{ id: "call-pending", name: "lookup", argumentsJson: "{}" }],
+      }),
+    };
+
+    const restored = await new TurnLifecycle(bridge).restoreCheckpoint("trace-1", "session-1");
+
+    expect(restored).toMatchObject({
+      checkpoint: expect.objectContaining({ runId: "run-1", phase: "awaiting_tools" }),
+      restored: true,
+      restoredMessageCount: 3,
+    });
+    expect(appended).toEqual([
+      {
+        sessionId: "session-1",
+        traceId: "trace-1",
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [{ id: "call-pending", name: "lookup", argumentsJson: "{}" }],
+          },
+          { role: "tool", content: "finished", toolCallId: "call-done", name: "done_tool" },
+          {
+            role: "tool",
+            content: "Error: Task interrupted before this tool finished.",
+            toolCallId: "call-pending",
+            name: "lookup",
+          },
+        ],
+      },
+    ]);
+    expect(cleared).toEqual([{ sessionId: "session-1", traceId: "trace-1" }]);
+  });
+
+  test("keeps awaiting-input checkpoints during restore without appending pending transcript", async () => {
+    const appended: Array<AgentMessage[]> = [];
+    const cleared: string[] = [];
+    const bridge: SessionBridge = {
+      setCheckpoint: async () => undefined,
+      clearCheckpoint: async (sessionId) => {
+        cleared.push(sessionId);
+      },
+      appendMessages: async (_sessionId, messages) => {
+        appended.push(messages);
+      },
+      getCheckpoint: async () => ({
+        runId: "run-1",
+        phase: "tools_completed",
+        iteration: 1,
+        model: "test-model",
+        completedToolResults: [
+          {
+            role: "tool",
+            content: "Waiting for form submission.",
+            toolCallId: "call-form",
+            name: "request_form",
+            metadata: {
+              awaitingUserInput: true,
+              stopReason: "awaiting_form",
+              formId: "travel_plan",
+            },
+          },
+        ],
+      }),
+    };
+
+    const restored = await new TurnLifecycle(bridge).restoreCheckpoint("trace-1", "session-1");
+
+    expect(restored).toMatchObject({
+      checkpoint: expect.objectContaining({ runId: "run-1", phase: "tools_completed" }),
+      restored: true,
+      restoredMessageCount: 0,
+    });
+    expect(appended).toEqual([]);
+    expect(cleared).toEqual([]);
+  });
+
   test("persists completed turns through session.persist_turn and returns lifecycle metadata", async () => {
     const persistedTurns: Array<{ sessionId: string; messages: AgentMessage[]; clearCheckpoint: boolean }> = [];
     const bridge: SessionBridge = {
