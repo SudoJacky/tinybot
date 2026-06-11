@@ -42,6 +42,65 @@ describe("buildOpenAIChatRequest", () => {
     expect(request.extra_body).toEqual({ enable_search: true });
   });
 
+  test("adds prompt cache markers to system context recent messages and tool definitions", () => {
+    const request = buildOpenAIChatRequest({
+      defaultModel: "gpt-test",
+      messages: [
+        { role: "system", content: "You are TinyBot." },
+        { role: "user", content: "Earlier message" },
+        { role: "assistant", content: "Earlier answer" },
+        { role: "user", content: "Latest message" },
+      ],
+      options: {
+        tools: [
+          {
+            name: "read_file",
+            description: "Read a file",
+            parameters: { type: "object", properties: { path: { type: "string" } } },
+          },
+          {
+            name: "write_file",
+            description: "Write a file",
+            parameters: { type: "object", properties: { path: { type: "string" } } },
+          },
+        ],
+      },
+      requestTraits: { supportsPromptCaching: true },
+    });
+
+    expect(request.messages).toEqual([
+      {
+        role: "system",
+        content: [{ type: "text", text: "You are TinyBot.", cache_control: { type: "ephemeral" } }],
+      },
+      { role: "user", content: "Earlier message" },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Earlier answer", cache_control: { type: "ephemeral" } }],
+      },
+      { role: "user", content: "Latest message" },
+    ]);
+    expect(request.tools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "write_file",
+          description: "Write a file",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+        cache_control: { type: "ephemeral" },
+      },
+    ]);
+  });
+
   test("preserves message sanitization and tool-call id normalization", () => {
     const request = buildOpenAIChatRequest({
       defaultModel: "gpt-test",
