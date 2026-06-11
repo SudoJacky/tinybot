@@ -72,6 +72,10 @@ export type ProviderModelValidateHandler = (request: ProviderModelValidateReques
 export type SkillsBridge = {
   listWebuiSkills(traceId: string): Promise<unknown> | unknown;
   getWebuiSkillDetail(name: string, traceId: string): Promise<unknown> | unknown;
+  createWebuiSkill(body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  updateWebuiSkill(name: string, body: Record<string, unknown>, traceId: string): Promise<unknown> | unknown;
+  deleteWebuiSkill(name: string, traceId: string): Promise<unknown> | unknown;
+  validateWebuiSkill(name: string, traceId: string): Promise<unknown> | unknown;
 };
 
 type ActiveRun = {
@@ -190,6 +194,22 @@ export class AgentWorker {
 
     if (request.method === "skills.webui_detail") {
       return this.handleSkillsWebuiDetailRequest(request);
+    }
+
+    if (request.method === "skills.webui_create") {
+      return this.handleSkillsWebuiCreateRequest(request);
+    }
+
+    if (request.method === "skills.webui_update") {
+      return this.handleSkillsWebuiUpdateRequest(request);
+    }
+
+    if (request.method === "skills.webui_delete") {
+      return this.handleSkillsWebuiDeleteRequest(request);
+    }
+
+    if (request.method === "skills.webui_validate") {
+      return this.handleSkillsWebuiValidateRequest(request);
     }
 
     if (request.method !== "agent.run") {
@@ -424,6 +444,71 @@ export class AgentWorker {
         id: request.id,
         trace_id: request.trace_id,
         result: await this.skillsBridge.getWebuiSkillDetail(parseSkillDetailName(request.params), request.trace_id),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleSkillsWebuiCreateRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.skillsBridge) {
+      return this.failure(request, "skills.webui_create requires a skills bridge");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.skillsBridge.createWebuiSkill(parseSkillMutationBody(request.params, "skills.webui_create"), request.trace_id),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleSkillsWebuiUpdateRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.skillsBridge) {
+      return this.failure(request, "skills.webui_update requires a skills bridge");
+    }
+    try {
+      const { name, body } = parseNamedSkillMutation(request.params, "skills.webui_update");
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.skillsBridge.updateWebuiSkill(name, body, request.trace_id),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleSkillsWebuiDeleteRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.skillsBridge) {
+      return this.failure(request, "skills.webui_delete requires a skills bridge");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.skillsBridge.deleteWebuiSkill(parseSkillDetailName(request.params), request.trace_id),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleSkillsWebuiValidateRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.skillsBridge) {
+      return this.failure(request, "skills.webui_validate requires a skills bridge");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.skillsBridge.validateWebuiSkill(parseSkillDetailName(request.params), request.trace_id),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
@@ -1042,6 +1127,23 @@ function parseSkillDetailName(params: Record<string, unknown> | undefined): stri
     throw new Error("skills.webui_detail params.name must be a string");
   }
   return name;
+}
+
+function parseSkillMutationBody(params: Record<string, unknown> | undefined, method: string): Record<string, unknown> {
+  if (!isJsonObject(params) || !isJsonObject(params.body)) {
+    throw new Error(`${method} requires object params.body`);
+  }
+  return params.body;
+}
+
+function parseNamedSkillMutation(
+  params: Record<string, unknown> | undefined,
+  method: string,
+): { name: string; body: Record<string, unknown> } {
+  return {
+    name: parseSkillDetailName(params),
+    body: parseSkillMutationBody(params, method),
+  };
 }
 
 function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {

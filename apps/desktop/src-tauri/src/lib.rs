@@ -129,6 +129,19 @@ struct WorkerSkillDetailInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkerSkillCreateInput {
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerSkillUpdateInput {
+    name: String,
+    body: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WorkerCancelAgentInput {
     run_id: String,
 }
@@ -444,6 +457,63 @@ fn worker_skills_detail(
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     worker_skills_detail_with_options(
+        state.inner(),
+        input.name,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_skills_create(
+    input: WorkerSkillCreateInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_skills_create_with_options(
+        state.inner(),
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_skills_update(
+    input: WorkerSkillUpdateInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_skills_update_with_options(
+        state.inner(),
+        input.name,
+        input.body,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_skills_delete(
+    input: WorkerSkillDetailInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_skills_delete_with_options(
+        state.inner(),
+        input.name,
+        ts_agent_worker_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+fn worker_skills_validate(
+    input: WorkerSkillDetailInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_skills_validate_with_options(
         state.inner(),
         input.name,
         ts_agent_worker_workspace_root(),
@@ -1262,6 +1332,145 @@ fn build_worker_skills_detail_request(request_id: u128, name: String) -> WorkerR
     )
 }
 
+fn worker_skills_create_with_options(
+    shared: &SharedGateway,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_skills_worker_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_skills_create_request(now_unix_ms(), body),
+        timeout,
+        "create",
+    )
+}
+
+fn build_worker_skills_create_request(request_id: u128, body: serde_json::Value) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("skills-create-{request_id}"),
+        format!("trace-skills-create-{request_id}"),
+        "skills.webui_create",
+        serde_json::json!({ "body": body }),
+    )
+}
+
+fn worker_skills_update_with_options(
+    shared: &SharedGateway,
+    name: String,
+    body: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_skills_worker_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_skills_update_request(now_unix_ms(), name, body),
+        timeout,
+        "update",
+    )
+}
+
+fn build_worker_skills_update_request(
+    request_id: u128,
+    name: String,
+    body: serde_json::Value,
+) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("skills-update-{request_id}"),
+        format!("trace-skills-update-{request_id}"),
+        "skills.webui_update",
+        serde_json::json!({ "name": name, "body": body }),
+    )
+}
+
+fn worker_skills_delete_with_options(
+    shared: &SharedGateway,
+    name: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_skills_worker_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_skills_delete_request(now_unix_ms(), name),
+        timeout,
+        "delete",
+    )
+}
+
+fn build_worker_skills_delete_request(request_id: u128, name: String) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("skills-delete-{request_id}"),
+        format!("trace-skills-delete-{request_id}"),
+        "skills.webui_delete",
+        serde_json::json!({ "name": name }),
+    )
+}
+
+fn worker_skills_validate_with_options(
+    shared: &SharedGateway,
+    name: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    send_skills_worker_request(
+        shared,
+        workspace_root,
+        config_snapshot,
+        build_worker_skills_validate_request(now_unix_ms(), name),
+        timeout,
+        "validate",
+    )
+}
+
+fn build_worker_skills_validate_request(request_id: u128, name: String) -> WorkerRequest {
+    WorkerRequest::new(
+        format!("skills-validate-{request_id}"),
+        format!("trace-skills-validate-{request_id}"),
+        "skills.webui_validate",
+        serde_json::json!({ "name": name }),
+    )
+}
+
+fn send_skills_worker_request(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request: WorkerRequest,
+    timeout: Duration,
+    action: &str,
+) -> Result<serde_json::Value, String> {
+    let worker = {
+        let runtime = lock_runtime(shared);
+        runtime.experimental_worker.clone()
+    };
+
+    ensure_ts_agent_worker_running(&worker, workspace_root, config_snapshot)?;
+
+    let response = worker
+        .send_stdio_request(&request, timeout)
+        .map_err(|error| format!("worker skills {action} request failed: {}", error.message))?;
+
+    if let Some(error) = response.error {
+        return Err(format!(
+            "worker skills {action} returned error: {}",
+            error.message
+        ));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("worker skills {action} response missing result"))
+}
+
 fn worker_cancel_agent_with_options(
     shared: &SharedGateway,
     run_id: String,
@@ -1713,6 +1922,10 @@ pub fn run() {
             worker_run_agent_input,
             worker_skills_list,
             worker_skills_detail,
+            worker_skills_create,
+            worker_skills_update,
+            worker_skills_delete,
+            worker_skills_validate,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_submit_agent_form,
@@ -1968,6 +2181,14 @@ mod tests {
     fn worker_skills_requests_target_ts_webui_skill_methods() {
         let list_request = build_worker_skills_list_request(42);
         let detail_request = build_worker_skills_detail_request(43, "planner/phase".to_string());
+        let create_request = build_worker_skills_create_request(44, serde_json::json!({ "name": "planner" }));
+        let update_request = build_worker_skills_update_request(
+            45,
+            "planner/phase".to_string(),
+            serde_json::json!({ "content": "Updated" }),
+        );
+        let delete_request = build_worker_skills_delete_request(46, "planner/phase".to_string());
+        let validate_request = build_worker_skills_validate_request(47, "planner/phase".to_string());
 
         assert_eq!(list_request.id, "skills-list-42");
         assert_eq!(list_request.trace_id, "trace-skills-list-42");
@@ -1977,6 +2198,25 @@ mod tests {
         assert_eq!(detail_request.trace_id, "trace-skills-detail-43");
         assert_eq!(detail_request.method, "skills.webui_detail");
         assert_eq!(detail_request.params, serde_json::json!({ "name": "planner/phase" }));
+        assert_eq!(create_request.id, "skills-create-44");
+        assert_eq!(create_request.trace_id, "trace-skills-create-44");
+        assert_eq!(create_request.method, "skills.webui_create");
+        assert_eq!(create_request.params, serde_json::json!({ "body": { "name": "planner" } }));
+        assert_eq!(update_request.id, "skills-update-45");
+        assert_eq!(update_request.trace_id, "trace-skills-update-45");
+        assert_eq!(update_request.method, "skills.webui_update");
+        assert_eq!(
+            update_request.params,
+            serde_json::json!({ "name": "planner/phase", "body": { "content": "Updated" } })
+        );
+        assert_eq!(delete_request.id, "skills-delete-46");
+        assert_eq!(delete_request.trace_id, "trace-skills-delete-46");
+        assert_eq!(delete_request.method, "skills.webui_delete");
+        assert_eq!(delete_request.params, serde_json::json!({ "name": "planner/phase" }));
+        assert_eq!(validate_request.id, "skills-validate-47");
+        assert_eq!(validate_request.trace_id, "trace-skills-validate-47");
+        assert_eq!(validate_request.method, "skills.webui_validate");
+        assert_eq!(validate_request.params, serde_json::json!({ "name": "planner/phase" }));
     }
 
     #[test]

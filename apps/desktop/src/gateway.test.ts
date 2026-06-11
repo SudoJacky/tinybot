@@ -290,7 +290,7 @@ describe("gateway HTTP client", () => {
     });
   });
 
-  test("prefers native skills list and detail when available while preserving skill writes on the gateway", async () => {
+  test("prefers native skills operations when available", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {
         return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
@@ -300,6 +300,10 @@ describe("gateway HTTP client", () => {
     const nativeSkills = {
       list: vi.fn(async () => ({ skills: [{ name: "planner" }] })),
       detail: vi.fn(async (name: string) => ({ name, content: "Plan." })),
+      create: vi.fn(async (body: unknown) => ({ created: true, body })),
+      update: vi.fn(async (name: string, body: unknown) => ({ updated: true, name, body })),
+      delete: vi.fn(async (name: string) => ({ deleted: true, name })),
+      validate: vi.fn(async (name: string) => ({ name, valid: true })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
@@ -309,17 +313,25 @@ describe("gateway HTTP client", () => {
 
     await expect(client.skills.list()).resolves.toEqual({ skills: [{ name: "planner" }] });
     await expect(client.skills.detail("planner/phase")).resolves.toEqual({ name: "planner/phase", content: "Plan." });
-    await client.skills.update("planner/phase", { content: "# Updated" });
+    await expect(client.skills.create({ name: "planner" })).resolves.toEqual({ created: true, body: { name: "planner" } });
+    await expect(client.skills.update("planner/phase", { content: "# Updated" })).resolves.toEqual({
+      updated: true,
+      name: "planner/phase",
+      body: { content: "# Updated" },
+    });
+    await expect(client.skills.delete("planner/phase")).resolves.toEqual({ deleted: true, name: "planner/phase" });
+    await expect(client.skills.validate("planner/phase")).resolves.toEqual({ name: "planner/phase", valid: true });
 
     expect(nativeSkills.list).toHaveBeenCalledTimes(1);
     expect(nativeSkills.detail).toHaveBeenCalledWith("planner/phase");
-    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
-      "http://127.0.0.1:18790/webui/bootstrap",
-      "http://127.0.0.1:18790/api/skills/planner%2Fphase",
-    ]);
+    expect(nativeSkills.create).toHaveBeenCalledWith({ name: "planner" });
+    expect(nativeSkills.update).toHaveBeenCalledWith("planner/phase", { content: "# Updated" });
+    expect(nativeSkills.delete).toHaveBeenCalledWith("planner/phase");
+    expect(nativeSkills.validate).toHaveBeenCalledWith("planner/phase");
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("falls back to gateway skills reads when native skills are unavailable", async () => {
+  test("falls back to gateway skills operations when native skills are unavailable", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {
         return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
@@ -336,16 +348,36 @@ describe("gateway HTTP client", () => {
         detail: async () => {
           throw new Error("native unavailable");
         },
+        create: async () => {
+          throw new Error("native unavailable");
+        },
+        update: async () => {
+          throw new Error("native unavailable");
+        },
+        delete: async () => {
+          throw new Error("native unavailable");
+        },
+        validate: async () => {
+          throw new Error("native unavailable");
+        },
       },
     });
 
     await expect(client.skills.list()).resolves.toEqual({ gateway: true });
     await expect(client.skills.detail("planner/phase")).resolves.toEqual({ gateway: true });
+    await expect(client.skills.create({ name: "planner" })).resolves.toEqual({ gateway: true });
+    await expect(client.skills.update("planner/phase", { content: "# Updated" })).resolves.toEqual({ gateway: true });
+    await expect(client.skills.delete("planner/phase")).resolves.toEqual({ gateway: true });
+    await expect(client.skills.validate("planner/phase")).resolves.toEqual({ gateway: true });
 
     expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
       "http://127.0.0.1:18790/webui/bootstrap",
       "http://127.0.0.1:18790/api/skills",
       "http://127.0.0.1:18790/api/skills/planner%2Fphase",
+      "http://127.0.0.1:18790/api/skills",
+      "http://127.0.0.1:18790/api/skills/planner%2Fphase",
+      "http://127.0.0.1:18790/api/skills/planner%2Fphase",
+      "http://127.0.0.1:18790/api/skills/planner%2Fphase/validate",
     ]);
   });
 

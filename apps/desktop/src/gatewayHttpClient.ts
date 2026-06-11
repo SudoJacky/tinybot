@@ -12,6 +12,10 @@ type ClientOptions = {
 export type NativeSkillsApi = {
   list: () => Promise<unknown>;
   detail: (name: string) => Promise<unknown>;
+  create: (body: unknown) => Promise<unknown>;
+  update: (name: string, body: unknown) => Promise<unknown>;
+  delete: (name: string) => Promise<unknown>;
+  validate: (name: string) => Promise<unknown>;
 };
 
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
@@ -224,11 +228,27 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request(`/api/skills/${encodePathSegment(name)}`),
         "skills.detail",
       ),
-      create: (body: unknown) => request("/api/skills", jsonRequest("POST", body)),
+      create: (body: unknown) => nativeOrGateway(
+        () => options.nativeSkills?.create(body),
+        () => request("/api/skills", jsonRequest("POST", body)),
+        "skills.create",
+      ),
       update: (name: string, body: unknown) =>
-        request(`/api/skills/${encodePathSegment(name)}`, jsonRequest("PATCH", body)),
-      delete: (name: string) => request(`/api/skills/${encodePathSegment(name)}`, { method: "DELETE" }),
-      validate: (name: string) => request(`/api/skills/${encodePathSegment(name)}/validate`, { method: "POST" }),
+        nativeOrGateway(
+          () => options.nativeSkills?.update(name, body),
+          () => request(`/api/skills/${encodePathSegment(name)}`, jsonRequest("PATCH", body)),
+          "skills.update",
+        ),
+      delete: (name: string) => nativeOrGateway(
+        () => options.nativeSkills?.delete(name),
+        () => request(`/api/skills/${encodePathSegment(name)}`, { method: "DELETE" }),
+        "skills.delete",
+      ),
+      validate: (name: string) => nativeOrGateway(
+        () => options.nativeSkills?.validate(name),
+        () => request(`/api/skills/${encodePathSegment(name)}/validate`, { method: "POST" }),
+        "skills.validate",
+      ),
     },
     agentUi: {
       submitForm: (formId: string, body: unknown) =>

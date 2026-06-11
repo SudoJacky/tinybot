@@ -18,5 +18,21 @@ describe("desktop native skills API", () => {
       command: "worker_skills_detail",
       args: { input: { name: "planner/phase" } },
     });
+    await expect(api.create({ name: "planner" })).resolves.toEqual({
+      command: "worker_skills_create",
+      args: { input: { body: { name: "planner" } } },
+    });
+    await expect(api.update("planner/phase", { content: "Updated" })).resolves.toEqual({
+      command: "worker_skills_update",
+      args: { input: { name: "planner/phase", body: { content: "Updated" } } },
+    });
+    await expect(api.delete("planner/phase")).resolves.toEqual({
+      command: "worker_skills_delete",
+      args: { input: { name: "planner/phase" } },
+    });
+    await expect(api.validate("planner/phase")).resolves.toEqual({
+      command: "worker_skills_validate",
+      args: { input: { name: "planner/phase" } },
+    });
   });
 });

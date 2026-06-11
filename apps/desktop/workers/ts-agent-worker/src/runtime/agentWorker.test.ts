@@ -123,6 +123,16 @@ function skillsWebuiDetailRequest(params: Record<string, unknown>): WorkerReques
   };
 }
 
+function skillsWebuiMutationRequest(method: string, params: Record<string, unknown>): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: `${method}-1`,
+    trace_id: `trace-${method}`,
+    method,
+    params,
+  };
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((innerResolve) => {
@@ -203,6 +213,55 @@ describe("AgentWorker", () => {
     expect(calls).toEqual([
       { type: "list", traceId: "trace-skills-list" },
       { type: "detail", traceId: "trace-skills-detail", name: "planner" },
+    ]);
+  });
+
+  test("routes skills WebUI mutations through the skills bridge", async () => {
+    const calls: Array<{ type: string; traceId: string; name?: string; body?: unknown }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      skillsBridge: {
+        listWebuiSkills: async () => ({}),
+        getWebuiSkillDetail: async () => ({}),
+        createWebuiSkill: async (body, traceId) => {
+          calls.push({ type: "create", traceId, body });
+          return { created: true, name: "planner" };
+        },
+        updateWebuiSkill: async (name, body, traceId) => {
+          calls.push({ type: "update", traceId, name, body });
+          return { updated: true, name };
+        },
+        deleteWebuiSkill: async (name, traceId) => {
+          calls.push({ type: "delete", traceId, name });
+          return { deleted: true, name };
+        },
+        validateWebuiSkill: async (name, traceId) => {
+          calls.push({ type: "validate", traceId, name });
+          return { name, valid: true, message: "Skill is valid" };
+        },
+      },
+    });
+
+    await expect(worker.handleRequest(skillsWebuiMutationRequest("skills.webui_create", {
+      body: { name: "Planner", content: "Plan." },
+    }))).resolves.toMatchObject({ result: { created: true, name: "planner" } });
+    await expect(worker.handleRequest(skillsWebuiMutationRequest("skills.webui_update", {
+      name: "planner",
+      body: { content: "Updated." },
+    }))).resolves.toMatchObject({ result: { updated: true, name: "planner" } });
+    await expect(worker.handleRequest(skillsWebuiMutationRequest("skills.webui_delete", {
+      name: "planner",
+    }))).resolves.toMatchObject({ result: { deleted: true, name: "planner" } });
+    await expect(worker.handleRequest(skillsWebuiMutationRequest("skills.webui_validate", {
+      name: "planner",
+    }))).resolves.toMatchObject({ result: { name: "planner", valid: true } });
+    expect(calls).toEqual([
+      { type: "create", traceId: "trace-skills.webui_create", body: { name: "Planner", content: "Plan." } },
+      { type: "update", traceId: "trace-skills.webui_update", name: "planner", body: { content: "Updated." } },
+      { type: "delete", traceId: "trace-skills.webui_delete", name: "planner" },
+      { type: "validate", traceId: "trace-skills.webui_validate", name: "planner" },
     ]);
   });
 

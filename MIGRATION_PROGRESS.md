@@ -53,7 +53,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 10 | active | [ts_skills_runtime_migration_design.md](ts_skills_runtime_migration_design.md) | 先解决 prompt 行为 parity，再做 CRUD | Started TS Skills Runtime prompt parity: pure runtime now covers workspace-over-builtin discovery, frontmatter/tinybot/openclaw metadata, requirements availability, XML summary, always-skill selection, optional ContextBuilder injection, native `skills.list`, `agent.run_input` skills context loading, Python-compatible WebUI list/detail projection, and desktop native-first Skills list/detail read routing through the TS worker. |
+| 10 | active | [ts_skills_runtime_migration_design.md](ts_skills_runtime_migration_design.md) | 先解决 prompt 行为 parity，再做 CRUD | Started TS Skills Runtime prompt parity: pure runtime now covers workspace-over-builtin discovery, frontmatter/tinybot/openclaw metadata, requirements availability, XML summary, always-skill selection, optional ContextBuilder injection, native `skills.list`, `agent.run_input` skills context loading, Python-compatible WebUI list/detail projection, and desktop native-first Skills list/detail/create/update/delete/validate routing through the TS worker. |
 | 11 | active | [ts_memory_notes_migration_design.md](ts_memory_notes_migration_design.md) | 迁移 memory/notes persistent data 能力 | 已启动 TS/native Memory Notes recall 与显式操作面；`memory.search/save/trace/reject/supersede` 已具备 Rust RPC 与 TS native tools 起点，后续补 native-owned recall/evidence capture |
 | 12 | todo | [ts_knowledge_rag_migration_design.md](ts_knowledge_rag_migration_design.md) | 先做 TS types/formatting/tool bridge 和 sparse retrieval | semantic/GraphRAG 后置；当前相关 OpenSpec in-progress |
 | 13 | todo | [ts_mcp_runtime_migration_design.md](ts_mcp_runtime_migration_design.md) | 接入 MCP 外部动态工具层 | 应在 Tool Runtime + Approval + Config 稳定后做 |
@@ -137,6 +137,7 @@
 | 2026-06-12 | Continued Batch 4 Skills Runtime native bridge: Rust now exposes read-only `skills.list` with workspace-over-builtin precedence, and `NativeContextBridge` loads enabled skills plus PATH/env requirement probes into `agent.run_input` context. |
 | 2026-06-12 | Continued Batch 4 Skills Runtime WebUI contract: TS `SkillsRuntime` now projects Python-compatible `/api/skills` list/detail payloads, including enabled/available/always flags, missing requirements, stripped content, raw content, frontmatter metadata, and tinybot/openclaw metadata. |
 | 2026-06-12 | Continued Batch 4 Skills Runtime desktop read migration: TS worker now exposes `skills.webui_list` / `skills.webui_detail`, Rust/Tauri exposes `worker_skills_list` / `worker_skills_detail`, and desktop gateway clients prefer native Skills list/detail reads with Python gateway fallback for compatibility. |
+| 2026-06-12 | Continued Batch 4 Skills Runtime CRUD migration: TS worker now handles WebUI skill create/update/delete/validate through native workspace RPC, Rust/Tauri exposes matching `worker_skills_*` commands, and desktop gateway clients prefer native Skills write/validate operations with Python gateway fallback. |
 
 ## Next Checklist
 

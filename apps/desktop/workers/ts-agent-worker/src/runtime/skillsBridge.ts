@@ -27,6 +27,74 @@ export class NativeSkillsBridge implements SkillsBridge {
     return (await this.loadRuntime(traceId)).buildWebuiDetail(name);
   }
 
+  async createWebuiSkill(body: Record<string, unknown>, traceId: string): Promise<unknown> {
+    const name = normalizeSkillName(asString(body.name) ?? "");
+    if (!name) {
+      throw new Error("name is required");
+    }
+    if (name.length > 64) {
+      throw new Error("skill name too long (max 64 chars)");
+    }
+    const description = asString(body.description) ?? `Custom skill: ${name}`;
+    const content = asString(body.content) ?? "";
+    const contents = createSkillContent(name, description, content, body.always === true);
+    const path = skillFilePath(name);
+    await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
+    return {
+      created: true,
+      name,
+      path,
+      message: `Skill '${name}' created successfully`,
+    };
+  }
+
+  async updateWebuiSkill(name: string, body: Record<string, unknown>, traceId: string): Promise<unknown> {
+    const path = skillFilePath(name);
+    const file = asObject(await this.rpcClient.request(traceId, "workspace.read_file", { path, format: "raw" }));
+    const currentContent = asString(file?.content) ?? asString(file?.contents);
+    if (currentContent === undefined) {
+      throw new Error("skill not found");
+    }
+    const contents = updateSkillContent(currentContent, name, body);
+    await this.rpcClient.request(traceId, "workspace.write_file", { path, contents });
+    return { updated: true, name, path };
+  }
+
+  async deleteWebuiSkill(name: string, traceId: string): Promise<unknown> {
+    const result = asObject(await this.rpcClient.request(traceId, "skills.list", {}));
+    const entry = normalizeSkillEntries(result?.skills).find((skill) => skill.name === name);
+    if (entry?.source === "builtin") {
+      throw new Error("cannot delete builtin skills");
+    }
+    await this.rpcClient.request(traceId, "workspace.delete_file", {
+      path: skillDirPath(name),
+      recursive: true,
+    });
+    return { deleted: true, name };
+  }
+
+  async validateWebuiSkill(name: string, traceId: string): Promise<unknown> {
+    const path = skillFilePath(name);
+    const file = asObject(await this.rpcClient.request(traceId, "workspace.read_file", { path, format: "raw" }));
+    const content = asString(file?.content) ?? asString(file?.contents);
+    if (content === undefined) {
+      return { name, valid: false, message: "SKILL.md not found" };
+    }
+    const frontmatter = parseFrontmatter(content);
+    if (!frontmatter) {
+      return { name, valid: false, message: "Invalid frontmatter format" };
+    }
+    const result = validateSkillFrontmatter(name, frontmatter);
+    if (!result.valid) {
+      return result;
+    }
+    const listing = asObject(await this.rpcClient.request(traceId, "workspace.list_dir", {
+      path: skillDirPath(name),
+      recursive: false,
+    }));
+    return validateSkillChildren(name, listing?.entries);
+  }
+
   private async loadRuntime(traceId: string): Promise<SkillsRuntime> {
     const result = asObject(await this.rpcClient.request(traceId, "skills.list", {}));
     return new SkillsRuntime({
@@ -46,6 +114,147 @@ export class NativeSkillsBridge implements SkillsBridge {
       return undefined;
     }
   }
+}
+
+function createSkillContent(name: string, description: string, content: string, always: boolean): string {
+  const lines = [
+    "---",
+    `name: ${name}`,
+    `description: ${description}`,
+  ];
+  if (always) {
+    lines.push("always: true");
+  }
+  lines.push(
+    "---",
+    "",
+    `# ${titleCaseSkillName(name)}`,
+    "",
+    content || "[TODO: Add skill instructions here]",
+  );
+  return lines.join("\n");
+}
+
+function updateSkillContent(currentContent: string, name: string, body: Record<string, unknown>): string {
+  const match = currentContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  const frontmatterLines = ["---"];
+  if (match) {
+    for (const line of match[1].split(/\r?\n/)) {
+      const separator = line.indexOf(":");
+      if (separator === -1) {
+        continue;
+      }
+      const key = line.slice(0, separator).trim();
+      const value = line.slice(separator + 1).trim();
+      if (key === "description" && body.description !== undefined) {
+        frontmatterLines.push(`description: ${String(body.description)}`);
+      } else if (key === "always" && body.always !== undefined) {
+        frontmatterLines.push(`always: ${String(body.always).toLowerCase()}`);
+      } else {
+        frontmatterLines.push(`${key}: ${value}`);
+      }
+    }
+    if (body.description !== undefined && !frontmatterLines.some((line) => line.startsWith("description:"))) {
+      frontmatterLines.push(`description: ${String(body.description)}`);
+    }
+    if (body.always !== undefined && !frontmatterLines.some((line) => line.startsWith("always:"))) {
+      frontmatterLines.push(`always: ${String(body.always).toLowerCase()}`);
+    }
+  } else {
+    frontmatterLines.push(`name: ${name}`);
+    frontmatterLines.push(`description: ${asString(body.description) ?? name}`);
+    if (body.always === true) {
+      frontmatterLines.push("always: true");
+    }
+  }
+  frontmatterLines.push("---");
+  const bodyStart = match ? match[0].length : 0;
+  const bodyContent = body.content !== undefined ? String(body.content) : currentContent.slice(bodyStart).trim();
+  return `${frontmatterLines.join("\n")}\n${bodyContent}`;
+}
+
+function validateSkillFrontmatter(name: string, frontmatter: Record<string, string>): { name: string; valid: boolean; message: string } {
+  if (!("name" in frontmatter)) {
+    return { name, valid: false, message: "Missing 'name' in frontmatter" };
+  }
+  if (!("description" in frontmatter)) {
+    return { name, valid: false, message: "Missing 'description' in frontmatter" };
+  }
+  const skillName = frontmatter.name;
+  if (skillName !== name) {
+    return { name, valid: false, message: `Skill name '${skillName}' must match directory name '${name}'` };
+  }
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skillName)) {
+    return { name, valid: false, message: "Name should be hyphen-case (lowercase letters, digits, hyphens)" };
+  }
+  if (!frontmatter.description.trim()) {
+    return { name, valid: false, message: "Description cannot be empty" };
+  }
+  return { name, valid: true, message: "Skill is valid" };
+}
+
+function validateSkillChildren(name: string, entries: unknown): { name: string; valid: boolean; message: string } {
+  if (!Array.isArray(entries)) {
+    return { name, valid: true, message: "Skill is valid" };
+  }
+  const allowedDirs = new Set(["scripts", "references", "assets"]);
+  for (const entry of entries) {
+    const object = asObject(entry);
+    const entryPath = asString(object?.path);
+    if (!entryPath) {
+      continue;
+    }
+    const childName = entryPath.split(/[\\/]/).at(-1) ?? entryPath;
+    if (childName === "SKILL.md") {
+      continue;
+    }
+    if (object?.kind === "dir" && allowedDirs.has(childName)) {
+      continue;
+    }
+    return {
+      name,
+      valid: false,
+      message: `Unexpected file/directory: ${childName}. Only scripts/, references/, assets/ allowed`,
+    };
+  }
+  return { name, valid: true, message: "Skill is valid" };
+}
+
+function parseFrontmatter(content: string): Record<string, string> | null {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) {
+    return null;
+  }
+  const frontmatter: Record<string, string> = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const separator = line.indexOf(":");
+    if (separator === -1) {
+      continue;
+    }
+    frontmatter[line.slice(0, separator).trim()] = line.slice(separator + 1).trim().replace(/^['"]|['"]$/g, "");
+  }
+  return frontmatter;
+}
+
+function normalizeSkillName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
+function titleCaseSkillName(name: string): string {
+  return name.split("-").map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join(" ");
+}
+
+function skillDirPath(name: string): string {
+  return `skills/${name}`;
+}
+
+function skillFilePath(name: string): string {
+  return `${skillDirPath(name)}/SKILL.md`;
 }
 
 function normalizeSkillEntries(value: unknown): SkillStoreEntry[] {
