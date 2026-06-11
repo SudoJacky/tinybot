@@ -12,6 +12,7 @@ import {
   type WorkerResponse,
 } from "../protocol/messages.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
+import { sessionCheckpointFromRunner } from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
 import { persistedSessionMessages } from "./persistedMessages.ts";
 
@@ -407,24 +408,7 @@ export class AgentWorker {
     if (!this.sessionBridge || !spec.sessionId) {
       return;
     }
-    await this.sessionBridge.setCheckpoint(spec.sessionId, {
-      runId: spec.runId,
-      phase: checkpoint.phase,
-      iteration: checkpoint.iteration,
-      model: checkpoint.model,
-      maxIterations: spec.maxIterations,
-      stream: spec.stream,
-      temperature: spec.temperature,
-      maxTokens: spec.maxTokens,
-      reasoningEffort: spec.reasoningEffort,
-      contextWindow: spec.contextWindow,
-      toolResultBudget: spec.toolResultBudget,
-      failOnToolError: spec.failOnToolError,
-      messages: checkpoint.messages,
-      assistantMessage: checkpoint.assistantMessage,
-      completedToolResults: checkpoint.completedToolResults,
-      pendingToolCalls: checkpoint.pendingToolCalls,
-    }, traceId);
+    await this.sessionBridge.setCheckpoint(spec.sessionId, sessionCheckpointFromRunner(spec, checkpoint), traceId);
   }
 
   private queueCheckpointWrite(runId: string, write: () => Promise<void>): void {
