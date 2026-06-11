@@ -1,13 +1,16 @@
 import type { ToolContext, ToolExecutionErrorKind, ToolExecutionResult } from "./tool.ts";
 import type { ToolRegistry } from "./toolRegistry.ts";
+import type { ApprovalRuntime } from "../security/approvalRuntime.ts";
 
 const TOOL_RETRY_HINT = "\n\n[Analyze the error above and try a different approach.]";
 
 export class ToolRuntime {
   private readonly registry: ToolRegistry;
+  private readonly approvalRuntime?: ApprovalRuntime;
 
-  constructor(registry: ToolRegistry) {
+  constructor(registry: ToolRegistry, options: { approvalRuntime?: ApprovalRuntime } = {}) {
     this.registry = registry;
+    this.approvalRuntime = options.approvalRuntime;
   }
 
   async execute(name: string, args: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
@@ -21,6 +24,13 @@ export class ToolRuntime {
     }
 
     try {
+      const approvalResult = await this.approvalRuntime?.evaluateToolCall(prepared.tool, prepared.args, context);
+      if (approvalResult) {
+        return {
+          ok: true,
+          ...approvalResult,
+        };
+      }
       const result = await prepared.tool.execute(prepared.args, context);
       if (isErrorContent(result.content)) {
         return {

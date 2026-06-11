@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-import type { ApprovalCategory } from "./approvalTypes";
-import { normalizeCommand } from "./approvalPolicy";
+import type { ApprovalCategory } from "./approvalTypes.ts";
+import { normalizeCommand } from "./approvalPolicy.ts";
 
 export function buildApprovalFingerprint(
   toolName: string,

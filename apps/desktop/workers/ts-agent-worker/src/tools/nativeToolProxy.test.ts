@@ -252,6 +252,9 @@ describe("createNativeApprovalTools", () => {
     const operation = {
       toolName: "write_file",
       arguments: { path: "notes/today.md", contents: "hello" },
+    };
+    const classification = {
+      action: "require_approval",
       category: "filesystem_write",
       risk: "medium",
       reason: "File write/edit/delete tools can modify workspace state.",
@@ -268,7 +271,13 @@ describe("createNativeApprovalTools", () => {
     const [requestApproval] = createNativeApprovalTools(rpc);
 
     const result = await requestApproval.execute(
-      { operation },
+      {
+        operation,
+        classification,
+        fingerprint: "write_file:notes/today.md",
+        sessionFingerprint: "write_file:notes/today.md",
+        summary: "write_file path=\"notes/today.md\"",
+      },
       { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
@@ -290,6 +299,10 @@ describe("createNativeApprovalTools", () => {
           run_id: "run-1",
           session_id: "session-1",
           operation,
+          classification,
+          fingerprint: "write_file:notes/today.md",
+          session_fingerprint: "write_file:notes/today.md",
+          summary: "write_file path=\"notes/today.md\"",
         },
       },
     ]);

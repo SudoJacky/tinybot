@@ -10,6 +10,7 @@ import {
   type WorkerRequest,
   type WorkerResponse,
 } from "../protocol/messages.ts";
+import type { ApprovalRequestPayload } from "../security/approvalTypes.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import {
   approvalOperationFromCheckpoint,
@@ -39,6 +40,7 @@ type ActiveRun = {
 };
 
 export type ApprovalBridge = {
+  requestApproval(params: ApprovalRequestPayload, traceId: string): Promise<Record<string, unknown>>;
   resolveApproval(params: ApprovalResolutionRequest, traceId: string): Promise<Record<string, unknown>>;
 };
 

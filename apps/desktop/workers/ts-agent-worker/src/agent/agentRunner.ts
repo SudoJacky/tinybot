@@ -2,6 +2,7 @@ import type { AgentMessage, AgentRunResult, AgentRunSpec } from "./agentRunSpec.
 import type { ModelProvider, ModelRequestOptions, TokenUsage, ToolCallRequest, ToolDefinition } from "../model/provider.ts";
 import type { Tool, ToolResult } from "../tools/tool.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
+import { buildApprovalToolRequest } from "../security/approvalRuntime.ts";
 import { estimateMessage, estimateMessages } from "../support/tokenEstimator.ts";
 import {
   EMPTY_FINAL_RESPONSE_MESSAGE,
@@ -313,7 +314,7 @@ export class AgentRunner {
     context: { runId: string; traceId?: string; sessionId?: string },
   ): Promise<ToolResult> {
     const prepared = this.tools.prepareCall("request_approval", {
-      operation: approvalOperation(tool, args),
+      ...buildApprovalToolRequest(tool, args),
     });
     if (!prepared.ok) {
       return { content: prepared.content };
@@ -480,48 +481,6 @@ function awaitingInputFromMetadata(metadata: Record<string, unknown> | undefined
     ...metadata,
     stopReason,
   };
-}
-
-function approvalOperation(tool: Tool, args: Record<string, unknown>): Record<string, unknown> {
-  const category = approvalCategory(tool);
-  return {
-    toolName: tool.name,
-    arguments: args,
-    category,
-    risk: approvalRisk(category),
-    reason: approvalReason(category),
-  };
-}
-
-function approvalCategory(tool: Tool): string {
-  const capabilities = tool.capabilities ?? [];
-  if (capabilities.includes("fs.workspace.write")) {
-    return "filesystem_write";
-  }
-  if (capabilities.includes("shell.execute")) {
-    return "shell_execute";
-  }
-  if (capabilities.includes("memory.write")) {
-    return "memory_write";
-  }
-  return "tool_execution";
-}
-
-function approvalRisk(category: string): "medium" | "high" {
-  return category === "shell_execute" ? "high" : "medium";
-}
-
-function approvalReason(category: string): string {
-  switch (category) {
-    case "filesystem_write":
-      return "File write, edit, and delete tools can modify workspace state.";
-    case "shell_execute":
-      return "Shell commands can modify files, start processes, or affect the local environment.";
-    case "memory_write":
-      return "Memory writes can persist information beyond the current run.";
-    default:
-      return "This tool requires user approval before execution.";
-  }
 }
 
 function memoryReferencesFromMetadata(metadata: Record<string, unknown> | undefined): unknown[] | undefined {

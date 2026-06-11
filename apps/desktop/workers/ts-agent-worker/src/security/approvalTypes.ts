@@ -21,3 +21,19 @@ export type ApprovalClassification =
       risk: Extract<ApprovalRisk, "medium" | "high">;
       reason: string;
     };
+
+export type RequiredApprovalClassification = Extract<ApprovalClassification, { action: "require_approval" }>;
+
+export type ApprovalRequestPayload = {
+  runId: string;
+  sessionId?: string;
+  operation: {
+    toolName: string;
+    arguments: Record<string, unknown>;
+    toolCallId?: string;
+  };
+  classification: RequiredApprovalClassification;
+  fingerprint: string;
+  sessionFingerprint: string;
+  summary: string;
+};

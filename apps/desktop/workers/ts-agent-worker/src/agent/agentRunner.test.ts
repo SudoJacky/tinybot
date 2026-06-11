@@ -1048,10 +1048,16 @@ describe("AgentRunner", () => {
         operation: {
           toolName: "write_file",
           arguments: { path: "notes/today.md", content: "hello" },
+        },
+        classification: {
+          action: "require_approval",
           category: "filesystem_write",
           risk: "medium",
-          reason: "File write, edit, and delete tools can modify workspace state.",
+          reason: "File write/edit/delete tools can modify workspace state.",
         },
+        fingerprint: "write_file:notes/today.md",
+        sessionFingerprint: "write_file:notes/today.md",
+        summary: "write_file path=\"notes/today.md\"",
       },
     ]);
     expect(result.stopReason).toBe("awaiting_approval");
@@ -1070,9 +1076,6 @@ describe("AgentRunner", () => {
         operation: {
           toolName: "write_file",
           arguments: { path: "notes/today.md", content: "hello" },
-          category: "filesystem_write",
-          risk: "medium",
-          reason: "File write, edit, and delete tools can modify workspace state.",
         },
       },
     });

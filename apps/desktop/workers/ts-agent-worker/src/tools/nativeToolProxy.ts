@@ -335,6 +335,22 @@ function createRequestApprovalTool(rpcClient: NativeRpcClient): Tool {
         run_id: context.runId,
         operation,
       };
+      const classification = asObject(args.classification);
+      if (classification) {
+        params.classification = classification;
+      }
+      const fingerprint = asString(args.fingerprint);
+      if (fingerprint) {
+        params.fingerprint = fingerprint;
+      }
+      const sessionFingerprint = asString(args.sessionFingerprint);
+      if (sessionFingerprint) {
+        params.session_fingerprint = sessionFingerprint;
+      }
+      const summary = asString(args.summary);
+      if (summary) {
+        params.summary = summary;
+      }
       if (context.sessionId) {
         params.session_id = context.sessionId;
       }

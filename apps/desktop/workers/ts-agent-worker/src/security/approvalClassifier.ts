@@ -1,5 +1,5 @@
-import type { ApprovalCategory, ApprovalClassification, ApprovalRisk } from "./approvalTypes";
-import { isLowRiskExec } from "./approvalPolicy";
+import type { ApprovalCategory, ApprovalClassification, ApprovalRisk } from "./approvalTypes.ts";
+import { isLowRiskExec } from "./approvalPolicy.ts";
 
 export type ToolApprovalMetadata = {
   toolName: string;
