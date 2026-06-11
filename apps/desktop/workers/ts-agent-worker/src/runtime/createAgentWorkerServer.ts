@@ -1,6 +1,7 @@
 import type { ModelProvider, ModelRequestOptions, ModelResponse } from "../model/provider.ts";
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { WorkerEvent } from "../protocol/messages.ts";
+import type { JsonFetcher } from "../providers/modelDiscovery.ts";
 import { RpcClient } from "../protocol/rpcClient.ts";
 import { StdioServer } from "../protocol/stdioServer.ts";
 import {
@@ -36,6 +37,7 @@ export type CreateAgentWorkerServerOptions = {
   capabilities?: string[];
   channel?: string;
   createModelProvider?: (config: ModelProviderConfig) => ModelProvider;
+  fetchProviderModelsJson?: JsonFetcher;
   writeLine: (line: string) => void;
   writeLog: (line: string) => void;
 };
@@ -78,7 +80,12 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     tools: options.tools,
     emitEvent: writeEvent,
     reloadProvider: lazyProvider ? () => lazyProvider.reload() : undefined,
-    listProviderModels: (request) => providerModelsFromNativeConfig(configBridge, options.env ?? process.env, request),
+    listProviderModels: (request) => providerModelsFromNativeConfig(
+      configBridge,
+      options.env ?? process.env,
+      request,
+      options.fetchProviderModelsJson,
+    ),
     listProviderCatalog: () => providerCatalogForSettings(),
     resolveProviderRuntime: (request) => providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, request),
     validateProviderModel: (request) => providerModelValidationResult(request),

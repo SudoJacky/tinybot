@@ -995,6 +995,116 @@ describe("createAgentWorkerServer", () => {
     expect(JSON.stringify(response)).not.toContain("dashscope-key");
   });
 
+  test("refreshes provider models through live discovery when requested", async () => {
+    const lines: string[] = [];
+    const discoveryCalls: Array<{ url: string; authorization?: string }> = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      env: {},
+      fetchProviderModelsJson: async (url, headers) => {
+        discoveryCalls.push({ url, authorization: headers.Authorization });
+        if (url === "https://dashscope.test/compatible-mode/models") {
+          throw new Error("not found");
+        }
+        return { data: [{ id: "qwen-live" }, { id: "qwen-max" }] };
+      },
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const request = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "models-live-1",
+        trace_id: "trace-models-live",
+        method: "provider.models.list",
+        params: { providerId: "dashscope", refreshLive: true },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+      providers: {
+        dashscope: {
+          provider: "dashscope",
+          api_base: "https://dashscope.test/compatible-mode",
+          api_key: null,
+        },
+      },
+    });
+    await respondToProviderSecret(server, lines, "dashscope", { apiKey: "dashscope-key", apiKeySource: "config" });
+    await request;
+
+    expect(discoveryCalls).toEqual([
+      { url: "https://dashscope.test/compatible-mode/models", authorization: "Bearer dashscope-key" },
+      { url: "https://dashscope.test/compatible-mode/v1/models", authorization: "Bearer dashscope-key" },
+    ]);
+    const response = parsedLines(lines).at(-1);
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "models-live-1",
+      trace_id: "trace-models-live",
+      result: {
+        providerId: "dashscope",
+        models: expect.arrayContaining(["qwen-live", "qwen-max"]),
+        modelSources: expect.objectContaining({
+          "qwen-live": ["live"],
+          "qwen-max": ["curated", "live"],
+        }),
+        sourceCounts: { curated: 11, profile: 0, live: 1, manual: 0 },
+        warning: "live discovery used fallback base URL: https://dashscope.test/compatible-mode/v1",
+        url: "https://dashscope.test/compatible-mode/v1/models",
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("dashscope-key");
+  });
+
+  test("does not emit a live discovery warning when the primary models endpoint succeeds", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      env: {},
+      fetchProviderModelsJson: async () => ({ data: [{ id: "qwen-live" }] }),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const request = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "models-live-primary",
+        trace_id: "trace-models-live-primary",
+        method: "provider.models.list",
+        params: { providerId: "dashscope", refreshLive: true },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "dashscope", model: "qwen-max" } },
+      providers: {
+        dashscope: {
+          provider: "dashscope",
+          api_base: "https://dashscope.test/compatible-mode/v1",
+          api_key: null,
+        },
+      },
+    });
+    await respondToProviderSecret(server, lines, "dashscope", { apiKey: "dashscope-key", apiKeySource: "config" });
+    await request;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "models-live-primary",
+      result: {
+        models: expect.arrayContaining(["qwen-live"]),
+        warning: null,
+        url: "https://dashscope.test/compatible-mode/v1/models",
+      },
+    });
+  });
+
   test("lists provider catalog entries for settings surfaces", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({

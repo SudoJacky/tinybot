@@ -5,6 +5,7 @@ import { applyConfigPatch } from "../config/configPatch.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
 import type { JsonRecord } from "../config/configTypes.ts";
 import { createPublicConfigSnapshot } from "../config/configSnapshot.ts";
+import { probeOpenAICompatibleModels, type JsonFetcher } from "../providers/modelDiscovery.ts";
 import { listCatalogEntries } from "../providers/providerCatalog.ts";
 import { listProviderModels, validateModelForProvider } from "../providers/providerModels.ts";
 import { resolveRuntimeProvider, type ProviderSecretResolution, type TinybotPublicConfig } from "../providers/providerRuntime.ts";
@@ -112,6 +113,7 @@ export async function providerModelsFromNativeConfig(
     manualModelIds?: string[];
     refreshLive?: boolean;
   },
+  fetchJson: JsonFetcher = fetchModelDiscoveryJson,
 ): Promise<Record<string, unknown>> {
   const snapshot = await configBridge.snapshotPublic();
   const resolved = await resolveRuntimeProvider({
@@ -129,12 +131,15 @@ export async function providerModelsFromNativeConfig(
     supportsModelDiscovery: resolved.supportsModelDiscovery,
     apiKey: resolved.apiKey,
     apiBase: resolved.apiBase,
-    refreshLive: false,
+    refreshLive: input.refreshLive,
+    discoverer: (discoveryInput) => probeOpenAICompatibleModels({
+      apiBase: discoveryInput.apiBase,
+      headers: discoveryInput.headers,
+      providerId: discoveryInput.providerId,
+      fetchJson,
+    }),
   });
   const modelSources = Object.fromEntries(modelList.models.map((model) => [model.id, model.sources]));
-  const warning = input.refreshLive
-    ? modelList.warning ?? "live discovery is not enabled for provider.models.list"
-    : modelList.warning ?? null;
   return {
     providerId: resolved.providerId ?? input.providerId,
     model: resolved.model,
@@ -146,10 +151,27 @@ export async function providerModelsFromNativeConfig(
     models: modelList.models.map((model) => model.id),
     modelSources,
     sourceCounts: modelList.sourceCounts,
-    warning,
+    warning: modelList.warning ?? null,
     url: modelList.url ?? null,
     warnings: resolved.warnings,
   };
+}
+
+async function fetchModelDiscoveryJson(url: string, headers: Record<string, string>): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(url, {
+      headers,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json() as Promise<unknown>;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function providerCatalogForSettings(): Record<string, unknown> {

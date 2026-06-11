@@ -5,7 +5,7 @@ import {
   isGatewayProvider,
   isLocalProvider,
 } from "./providerCatalog.ts";
-import { joinModelsUrl } from "./modelDiscovery.ts";
+import { joinModelsUrl, type ModelDiscoveryResult } from "./modelDiscovery.ts";
 
 export type ProviderModelSource = "curated" | "profile" | "live" | "manual";
 
@@ -32,6 +32,11 @@ export type ListProviderModelsInput = {
   apiBase?: string;
   refreshLive?: boolean;
   fetcher?: (url: string, headers: Record<string, string>) => Promise<string[]>;
+  discoverer?: (input: {
+    apiBase: string | undefined;
+    headers: Record<string, string>;
+    providerId: string;
+  }) => Promise<ModelDiscoveryResult>;
 };
 
 export type ModelValidationResult = {
@@ -49,7 +54,7 @@ export async function listProviderModels(input: ListProviderModelsInput): Promis
   addModels(merged, sourceCounts, "manual", input.manualModelIds ?? []);
 
   let warning: string | undefined;
-  const modelsUrl = joinModelsUrl(input.apiBase);
+  let modelsUrl = joinModelsUrl(input.apiBase);
   if (input.refreshLive) {
     const allowed = liveDiscoveryAllowed({
       supportsModelDiscovery: input.supportsModelDiscovery ?? catalog?.supportsModelDiscovery ?? true,
@@ -59,7 +64,21 @@ export async function listProviderModels(input: ListProviderModelsInput): Promis
     });
     if (allowed.ok) {
       try {
-        const liveModels = input.liveModelIds ?? (await input.fetcher?.(modelsUrl, modelRequestHeaders(input.apiKey))) ?? [];
+        const headers = modelRequestHeaders(input.apiKey);
+        let liveModels = input.liveModelIds;
+        if (!liveModels && input.discoverer) {
+          const discovery = await input.discoverer({
+            apiBase: input.apiBase,
+            headers,
+            providerId: catalog?.id ?? input.providerId,
+          });
+          liveModels = discovery.models;
+          modelsUrl = discovery.url;
+          if (discovery.suggestedApiBase) {
+            warning = `live discovery used fallback base URL: ${discovery.suggestedApiBase}`;
+          }
+        }
+        liveModels ??= (await input.fetcher?.(modelsUrl, headers)) ?? [];
         addModels(merged, sourceCounts, "live", liveModels);
       } catch (error) {
         warning = `live discovery failed: ${error instanceof Error ? error.message : String(error)}`;
