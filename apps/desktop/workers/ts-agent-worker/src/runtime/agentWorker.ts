@@ -271,7 +271,9 @@ export class AgentWorker {
         if (restoredMessages.length > 0) {
           await this.sessionBridge.appendMessages(sessionId, restoredMessages, request.trace_id);
         }
-        await this.sessionBridge.clearCheckpoint(sessionId, request.trace_id);
+        if (!checkpointRequiresUserInputResume(checkpoint)) {
+          await this.sessionBridge.clearCheckpoint(sessionId, request.trace_id);
+        }
         restored = true;
       }
       return {
@@ -1157,4 +1159,26 @@ function errorMessage(error: unknown): string {
 
 function isAwaitingInputResult(result: AgentRunResult): boolean {
   return result.stopReason === "awaiting_user_input" || result.stopReason === "awaiting_approval" || result.stopReason === "awaiting_form";
+}
+
+function checkpointRequiresUserInputResume(checkpoint: Record<string, unknown>): boolean {
+  return checkpointContainsAwaitingInput(checkpoint.messages)
+    || checkpointContainsAwaitingInput(checkpoint.completedToolResults ?? checkpoint.completed_tool_results)
+    || checkpointContainsAwaitingInput(checkpoint.assistantMessage ?? checkpoint.assistant_message);
+}
+
+function checkpointContainsAwaitingInput(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(checkpointContainsAwaitingInput);
+  }
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  const metadata = isJsonObject(value.metadata) ? value.metadata : {};
+  const awaitingUserInput = metadata.awaitingUserInput ?? metadata.awaiting_user_input;
+  const stopReason = metadata.stopReason ?? metadata.stop_reason;
+  return awaitingUserInput === true
+    || stopReason === "awaiting_user_input"
+    || stopReason === "awaiting_approval"
+    || stopReason === "awaiting_form";
 }

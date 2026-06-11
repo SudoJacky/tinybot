@@ -1432,6 +1432,69 @@ describe("AgentWorker", () => {
     expect(cleared).toEqual([{ sessionId: "session-1", traceId: "trace-restore" }]);
   });
 
+  test("keeps awaiting-input checkpoint after restore so form submission can resume", async () => {
+    const appended: Array<{ sessionId: string; messages: AgentMessage[]; traceId: string }> = [];
+    const cleared: Array<{ sessionId: string; traceId: string }> = [];
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async (sessionId, traceId) => {
+          cleared.push({ sessionId, traceId });
+        },
+        appendMessages: async (sessionId, messages, traceId) => {
+          appended.push({ sessionId, messages, traceId });
+        },
+        getCheckpoint: async () => ({
+          runId: "run-1",
+          phase: "tools_completed",
+          iteration: 1,
+          model: "test-model",
+          messages: [
+            { role: "user", content: "collect details" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "call-form", name: "request_form", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "call-form",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+              },
+            },
+          ],
+          completedToolResults: [
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "call-form",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    const response = await worker.handleRequest(restoreCheckpointRequest("session-1"));
+
+    expect(response.result).toMatchObject({ restored: true });
+    expect(appended).toHaveLength(1);
+    expect(cleared).toEqual([]);
+  });
+
   test("accepts snake_case session_id for agent.restore_checkpoint", async () => {
     const worker = new AgentWorker({
       provider: new QueueProvider([]),
