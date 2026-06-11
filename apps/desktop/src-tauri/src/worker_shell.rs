@@ -7,6 +7,7 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
@@ -69,6 +70,8 @@ impl WorkerShellRpc {
                 serde_json::json!({ "error": error.to_string() }),
             )
         })?;
+        let stdout_reader = child.stdout.take().map(read_pipe_to_string);
+        let stderr_reader = child.stderr.take().map(read_pipe_to_string);
         let started = Instant::now();
         let timeout_duration = Duration::from_secs(timeout);
         let mut timed_out = false;
@@ -89,20 +92,14 @@ impl WorkerShellRpc {
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-        if let Some(mut pipe) = child.stdout.take() {
-            let _ = pipe.read_to_string(&mut stdout);
-        }
-        if let Some(mut pipe) = child.stderr.take() {
-            let _ = pipe.read_to_string(&mut stderr);
-        }
         let status = child.wait().map_err(|error| {
             shell_error(
                 "failed to wait for shell command",
                 serde_json::json!({ "error": error.to_string() }),
             )
         })?;
+        let stdout = join_pipe_reader(stdout_reader);
+        let stderr = join_pipe_reader(stderr_reader);
         let exit_code = if timed_out {
             -1
         } else {
@@ -176,6 +173,23 @@ impl WorkerShellRpc {
             WorkerProtocolErrorSource::RustCore,
         ))
     }
+}
+
+fn read_pipe_to_string<R>(mut reader: R) -> JoinHandle<String>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut output = String::new();
+        let _ = reader.read_to_string(&mut output);
+        output
+    })
+}
+
+fn join_pipe_reader(reader: Option<JoinHandle<String>>) -> String {
+    reader
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default()
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -328,4 +342,67 @@ fn shell_error(message: impl Into<String>, details: serde_json::Value) -> Worker
         false,
         WorkerProtocolErrorSource::RustCore,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn execute_drains_large_output_while_command_is_running() {
+        let fixture = ShellFixture::new();
+        let rpc = WorkerShellRpc::new(
+            fixture.root.clone(),
+            CapabilityPolicy::new([WorkerCapability::ShellExecute]),
+        );
+
+        let result = rpc
+            .execute(ShellExecuteParams {
+                command: large_output_command(),
+                working_dir: Some(".".to_string()),
+                timeout: Some(5),
+                restrict_to_workspace: Some(true),
+            })
+            .expect("large output command should complete");
+
+        assert!(!result.timed_out);
+        assert_eq!(result.exit_code, 0);
+        assert!(result.stdout.len() >= 200_000);
+        assert!(result.truncated);
+    }
+
+    #[cfg(target_os = "windows")]
+    fn large_output_command() -> String {
+        "for /L %i in (1,1,40000) do @echo xxxxx".to_string()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn large_output_command() -> String {
+        "yes x | head -c 200000".to_string()
+    }
+
+    struct ShellFixture {
+        root: PathBuf,
+    }
+
+    impl ShellFixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "tinybot-worker-shell-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("clock should be after unix epoch")
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&root).expect("shell fixture should create");
+            Self { root }
+        }
+    }
+
+    impl Drop for ShellFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
 }

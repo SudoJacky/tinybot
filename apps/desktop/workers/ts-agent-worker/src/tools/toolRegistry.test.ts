@@ -46,7 +46,7 @@ describe("ToolRegistry", () => {
     expect(registry.definitions()).toEqual([
       {
         name: "echo",
-        description: "Echo text",
+        description: "Echo text\nRequires user approval before execution.",
         parameters: {
           type: "object",
           properties: { text: { type: "string" }, count: { type: "integer" } },

@@ -988,6 +988,96 @@ describe("AgentRunner", () => {
     expect(checkpoints.map((checkpoint) => checkpoint.phase)).toEqual(["awaiting_tools", "tools_completed"]);
   });
 
+  test("requests approval before executing a tool that requires approval", async () => {
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-1",
+            name: "write_file",
+            argumentsJson: "{\"path\":\"notes/today.md\",\"content\":\"hello\"}",
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      {
+        content: "should not be requested",
+        toolCalls: [],
+        stopReason: "stop",
+      },
+    ]);
+    const tools = new ToolRegistry();
+    const executedWrites: Record<string, unknown>[] = [];
+    const approvalRequests: Record<string, unknown>[] = [];
+    tools.register({
+      name: "write_file",
+      description: "Write a file",
+      parameters: { type: "object" },
+      capabilities: ["fs.workspace.write"],
+      requiresApproval: true,
+      execute: async (args) => {
+        executedWrites.push(args);
+        return { content: "written" };
+      },
+    });
+    tools.register({
+      name: "request_approval",
+      description: "Request approval",
+      parameters: { type: "object" },
+      execute: async (args) => {
+        approvalRequests.push(args);
+        return {
+          content: "Waiting for approval.",
+          metadata: {
+            awaitingUserInput: true,
+            stopReason: "awaiting_approval",
+            approvalId: "approval-1",
+            operation: args.operation,
+          },
+        };
+      },
+    });
+    const runner = new AgentRunner({ provider, tools });
+
+    const result = await runner.run(spec());
+
+    expect(executedWrites).toEqual([]);
+    expect(approvalRequests).toEqual([
+      {
+        operation: {
+          toolName: "write_file",
+          arguments: { path: "notes/today.md", content: "hello" },
+          category: "filesystem_write",
+          risk: "medium",
+          reason: "File write, edit, and delete tools can modify workspace state.",
+        },
+      },
+    ]);
+    expect(result.stopReason).toBe("awaiting_approval");
+    expect(result.finalContent).toBe("");
+    expect(result.toolsUsed).toEqual(["write_file"]);
+    expect(provider.requests).toHaveLength(1);
+    expect(result.messages.at(-1)).toEqual({
+      role: "tool",
+      content: "Waiting for approval.",
+      toolCallId: "call-1",
+      name: "write_file",
+      metadata: {
+        awaitingUserInput: true,
+        stopReason: "awaiting_approval",
+        approvalId: "approval-1",
+        operation: {
+          toolName: "write_file",
+          arguments: { path: "notes/today.md", content: "hello" },
+          category: "filesystem_write",
+          risk: "medium",
+          reason: "File write, edit, and delete tools can modify workspace state.",
+        },
+      },
+    });
+  });
+
   test("forwards provider streaming deltas as runner events", async () => {
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
     const events: Array<{ type: string; payload: Record<string, unknown> }> = [];

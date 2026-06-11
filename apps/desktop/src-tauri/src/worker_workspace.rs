@@ -518,7 +518,7 @@ fn collect_workspace_dir_entries(
         }
         if metadata.is_dir() {
             entries.push(WorkspaceDirectoryEntry {
-                path: format!("{}/", workspace_relative_path(base, &path)?),
+                path: format!("{}/", workspace_relative_path(root, &path)?),
                 kind: "dir".to_string(),
                 size_bytes: None,
             });
@@ -527,7 +527,7 @@ fn collect_workspace_dir_entries(
             }
         } else if metadata.is_file() {
             entries.push(WorkspaceDirectoryEntry {
-                path: workspace_relative_path(base, &path)?,
+                path: workspace_relative_path(root, &path)?,
                 kind: "file".to_string(),
                 size_bytes: Some(metadata.len()),
             });
@@ -980,6 +980,22 @@ mod tests {
         assert_eq!(paths, vec!["README.md", "src/", "src/main.ts"]);
         assert_eq!(listing.path, ".");
         assert!(!listing.truncated);
+    }
+
+    #[test]
+    fn list_dir_reports_workspace_relative_paths_from_subdirectories() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("src/main.ts", "main");
+        fixture.write("src/components/button.ts", "button");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let listing = rpc
+            .list_dir("src", true, Some(10))
+            .expect("subdirectory should list");
+        let paths: Vec<String> = listing.entries.into_iter().map(|entry| entry.path).collect();
+
+        assert_eq!(listing.path, "src");
+        assert_eq!(paths, vec!["src/components/", "src/components/button.ts", "src/main.ts"]);
     }
 
     #[test]

@@ -23,7 +23,9 @@ export class ToolRegistry {
   definitions(): ToolDefinition[] {
     return Array.from(this.tools.values()).map((tool) => ({
       name: tool.name,
-      description: tool.description,
+      description: tool.requiresApproval
+        ? `${tool.description}\nRequires user approval before execution.`
+        : tool.description,
       parameters: tool.parameters,
     }));
   }
