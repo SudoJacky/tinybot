@@ -45,6 +45,7 @@ export async function collectChatCompletionStream(
   let usage: TokenUsage | undefined;
   let emittedTerminalToolCalls = false;
   let sequence = 0;
+  let lastProviderCallId: string | undefined;
 
   try {
     const iterator = stream[Symbol.asyncIterator]();
@@ -60,6 +61,7 @@ export async function collectChatCompletionStream(
       }
       usage = extractUsage(chunkObject) ?? usage;
       const providerCallId = typeof chunkObject.id === "string" ? chunkObject.id : undefined;
+      lastProviderCallId = providerCallId ?? lastProviderCallId;
 
       const choices = Array.isArray(chunkObject.choices) ? chunkObject.choices : [];
       for (const choice of choices) {
@@ -103,6 +105,9 @@ export async function collectChatCompletionStream(
       }
     }
   } catch (error) {
+    if (!emittedTerminalToolCalls) {
+      emitTerminalToolCallDeltas(toolCallBuffers, callbacks, "error", sequence, lastProviderCallId);
+    }
     return {
       content: streamErrorContent(error),
       toolCalls: [],

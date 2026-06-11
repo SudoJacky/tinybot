@@ -359,6 +359,18 @@ describe("collectChatCompletionStream", () => {
         status: "streaming",
         completed: false,
       },
+      {
+        index: 0,
+        toolCallIndex: 0,
+        providerCallId: undefined,
+        sequence: 2,
+        deltaText: "",
+        toolCallId: "call-1",
+        toolName: "send_message",
+        phase: "terminal",
+        status: "error",
+        completed: false,
+      },
     ]);
     expect(response).toMatchObject({
       content: "Error calling LLM: connection dropped",
