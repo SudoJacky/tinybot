@@ -8,13 +8,14 @@ import {
 export type ConfigSnapshotAccessErrorCode = "invalid_config_path" | "sensitive_config_path";
 
 export class ConfigSnapshotAccessError extends Error {
-  constructor(
-    readonly code: ConfigSnapshotAccessErrorCode,
-    readonly path: string,
-    message: string,
-  ) {
+  readonly code: ConfigSnapshotAccessErrorCode;
+  readonly path: string;
+
+  constructor(code: ConfigSnapshotAccessErrorCode, path: string, message: string) {
     super(message);
     this.name = "ConfigSnapshotAccessError";
+    this.code = code;
+    this.path = path;
   }
 }
 

@@ -4,7 +4,11 @@ import type { ToolRegistry } from "./toolRegistry.ts";
 const TOOL_RETRY_HINT = "\n\n[Analyze the error above and try a different approach.]";
 
 export class ToolRuntime {
-  constructor(private readonly registry: ToolRegistry) {}
+  private readonly registry: ToolRegistry;
+
+  constructor(registry: ToolRegistry) {
+    this.registry = registry;
+  }
 
   async execute(name: string, args: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const prepared = this.registry.prepareCall(name, args);

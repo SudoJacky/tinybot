@@ -14,6 +14,7 @@ use tauri::{
 };
 
 pub mod worker_capability;
+pub mod config_store;
 pub mod worker_config;
 pub mod worker_connection;
 pub mod worker_diagnostics;
