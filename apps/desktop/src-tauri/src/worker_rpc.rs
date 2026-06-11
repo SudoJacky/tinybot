@@ -205,6 +205,11 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.session.clear_checkpoint(&params.session_id)?)
                     .map_err(serialization_error)
             }
+            "session.clear" => {
+                let params: SessionIdParams = parse_params(request)?;
+                serde_json::to_value(self.session.clear_session(&params.session_id)?)
+                    .map_err(serialization_error)
+            }
             "session.append_messages" => {
                 let params: SessionAppendMessagesParams = parse_params(request)?;
                 serde_json::to_value(
@@ -2251,7 +2256,12 @@ fn mcp_fixture_tool_definitions(server_name: &str, server: &Value) -> Vec<Value>
         left.get("name")
             .and_then(Value::as_str)
             .unwrap_or_default()
-            .cmp(right.get("name").and_then(Value::as_str).unwrap_or_default())
+            .cmp(
+                right
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            )
     });
     definitions
 }
@@ -3360,6 +3370,54 @@ mod tests {
                 { "role": "user", "content": "hello" },
                 { "role": "assistant", "content": "done" }
             ])
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_session_clear_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" }
+            ],
+            "runtime_checkpoint": { "phase": "awaiting_tools" },
+            "user_profile": { "name": "Ada" },
+            "last_consolidated": 1
+        });
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![session],
+            20,
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "session.clear",
+            json!({ "session_id": "session-1" }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result.as_ref().unwrap()["messages_before"],
+            json!(2)
+        );
+        assert_eq!(
+            response.result.as_ref().unwrap()["messages_after"],
+            json!(0)
+        );
+        assert_eq!(
+            response.result.as_ref().unwrap()["checkpoint_cleared"],
+            json!(true)
+        );
+        assert_eq!(
+            response.result.as_ref().unwrap()["session"]["extra"]["messages"],
+            json!([])
         );
         assert!(response.error.is_none());
     }

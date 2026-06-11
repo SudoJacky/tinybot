@@ -13,6 +13,7 @@ export function createDefaultCommandRouter(capabilities: CommandCapabilities = {
   router.priority("/stop", (context) => stopResult(context, capabilities));
   router.priority("/status", (context) => statusResult(context, capabilities));
   router.priority("/restart", (context) => restartResult(context, capabilities));
+  router.exact("/new", (context) => newSessionResult(context, capabilities));
   router.exact("/help", () => helpResult());
   return router;
 }
@@ -98,6 +99,34 @@ async function restartResult(context: CommandContext, capabilities: CommandCapab
       command: "/restart",
       render_as: "text",
       restart_requested: true,
+    },
+  };
+}
+
+async function newSessionResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
+  if (!context.sessionId || !capabilities.clearSession) {
+    return {
+      handled: true,
+      output: "New session is unavailable in this runtime.",
+      metadata: {
+        command: "/new",
+        render_as: "text",
+        cleared: false,
+      },
+    };
+  }
+  const result = await capabilities.clearSession(context.sessionId, context.traceId);
+  return {
+    handled: true,
+    output: "New session started.",
+    metadata: {
+      command: "/new",
+      render_as: "text",
+      cleared: true,
+      session_id: result.sessionId,
+      messages_before: result.messagesBefore,
+      messages_after: result.messagesAfter,
+      checkpoint_cleared: result.checkpointCleared,
     },
   };
 }

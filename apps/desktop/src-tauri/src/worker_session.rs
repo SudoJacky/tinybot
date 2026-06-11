@@ -115,6 +115,38 @@ impl WorkerSessionRpc {
         Ok(session.clone())
     }
 
+    pub fn clear_session(
+        &mut self,
+        session_id: &str,
+    ) -> Result<ClearSessionResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        let session = self.session_mut_or_create(session_id);
+        ensure_extra_object(session);
+        let messages_before = session
+            .extra
+            .get("messages")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        let checkpoint_cleared = session.extra.get("runtime_checkpoint").is_some();
+        if let Some(extra) = session.extra.as_object_mut() {
+            extra.insert("messages".to_string(), serde_json::json!([]));
+            extra.insert("last_consolidated".to_string(), serde_json::json!(0));
+            extra.insert("user_profile".to_string(), serde_json::json!({}));
+            extra.remove("runtime_checkpoint");
+            extra.remove("last_context_metadata");
+            extra.remove("last_persisted_run_id");
+        }
+        session.updated_at = now_session_timestamp();
+        Ok(ClearSessionResult {
+            session_id: session.session_id.clone(),
+            messages_before,
+            messages_after: 0,
+            checkpoint_cleared,
+            session: session.clone(),
+        })
+    }
+
     pub fn append_messages(
         &mut self,
         session_id: &str,
@@ -265,6 +297,15 @@ pub struct PersistTurnResult {
     pub duplicate_message_count: usize,
     pub truncated_tool_result_count: usize,
     pub omitted_side_effects: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ClearSessionResult {
+    pub session_id: String,
+    pub messages_before: usize,
+    pub messages_after: usize,
+    pub checkpoint_cleared: bool,
+    pub session: SessionMetadata,
 }
 
 fn validate_session_id(session_id: &str) -> Result<(), WorkerProtocolError> {
@@ -575,6 +616,38 @@ mod tests {
 
         assert_eq!(updated.session_id, "desktop-session-1");
         assert!(updated.extra.get("runtime_checkpoint").is_none());
+    }
+
+    #[test]
+    fn clear_session_resets_messages_profile_and_checkpoint_with_write_capability() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "user", "content": "hello" },
+                { "role": "assistant", "content": "done" }
+            ],
+            "last_consolidated": 1,
+            "user_profile": { "name": "Ada" },
+            "runtime_checkpoint": { "phase": "awaiting_tools" },
+            "last_context_metadata": { "historyMessageCount": 2 },
+            "last_persisted_run_id": "run-1"
+        });
+        let mut rpc = WorkerSessionRpc::new(vec![session], write_policy());
+
+        let result = rpc
+            .clear_session("session-1")
+            .expect("session should clear");
+
+        assert_eq!(result.session_id, "session-1");
+        assert_eq!(result.messages_before, 2);
+        assert_eq!(result.messages_after, 0);
+        assert!(result.checkpoint_cleared);
+        assert_eq!(result.session.extra["messages"], json!([]));
+        assert_eq!(result.session.extra["last_consolidated"], json!(0));
+        assert_eq!(result.session.extra["user_profile"], json!({}));
+        assert!(result.session.extra.get("runtime_checkpoint").is_none());
+        assert!(result.session.extra.get("last_context_metadata").is_none());
+        assert!(result.session.extra.get("last_persisted_run_id").is_none());
     }
 
     #[test]

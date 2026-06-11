@@ -24,9 +24,10 @@ import {
 } from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
 import { buildRunInputSpec } from "./runInputContext.ts";
-import { TurnLifecycle, type MemoryEvidenceBridge, type SessionBridge } from "./turnLifecycle.ts";
+import { TurnLifecycle, type ClearSessionResult, type MemoryEvidenceBridge, type SessionBridge } from "./turnLifecycle.ts";
 
 export type { PersistTurnRequest, PersistTurnResult, SessionBridge } from "./turnLifecycle.ts";
+export type { ClearSessionResult } from "./turnLifecycle.ts";
 
 export type AgentWorkerOptions = {
   provider: ModelProvider;
@@ -151,6 +152,9 @@ export class AgentWorker {
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
       requestRestart: options.requestRestart,
+      ...(options.sessionBridge?.clearSession
+        ? { clearSession: (sessionId, traceId) => this.clearSessionForCommand(sessionId, traceId) }
+        : {}),
     });
     this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
   }
@@ -434,6 +438,18 @@ export class AgentWorker {
       activeSessionRunCount,
       ...(sessionId ? { sessionId } : {}),
     };
+  }
+
+  private async clearSessionForCommand(sessionId: string | undefined, traceId: string): Promise<ClearSessionResult> {
+    if (!sessionId || !this.sessionBridge?.clearSession) {
+      return {
+        sessionId: sessionId ?? "",
+        messagesBefore: 0,
+        messagesAfter: 0,
+        checkpointCleared: false,
+      };
+    }
+    return this.sessionBridge.clearSession(sessionId, traceId);
   }
 
   private async tryHandleCommand(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult | undefined> {

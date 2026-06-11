@@ -403,6 +403,62 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("handles backend slash new by clearing the current session", async () => {
+    const clearCalls: Array<{ sessionId: string; traceId: string }> = [];
+    let providerCalls = 0;
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        throw new Error("slash new reached provider");
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async () => undefined,
+        getCheckpoint: async () => null,
+        clearSession: async (sessionId, traceId) => {
+          clearCalls.push({ sessionId, traceId });
+          return { sessionId, messagesBefore: 3, messagesAfter: 0, checkpointCleared: true };
+        },
+      },
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-new-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/new" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(providerCalls).toBe(0);
+    expect(clearCalls).toEqual([{ sessionId: "session-1", traceId: "trace-1" }]);
+    expect(response).toMatchObject({
+      result: {
+        finalContent: "New session started.",
+        stopReason: "command",
+        metadata: {
+          command: "/new",
+          render_as: "text",
+          session_id: "session-1",
+          messages_before: 3,
+          messages_after: 0,
+          checkpoint_cleared: true,
+        },
+      },
+    });
+  });
+
   test("routes skills WebUI list and detail requests through the skills bridge", async () => {
     const calls: Array<{ type: string; traceId: string; name?: string }> = [];
     const worker = new AgentWorker({

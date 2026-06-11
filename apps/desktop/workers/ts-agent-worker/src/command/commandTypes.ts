@@ -25,10 +25,18 @@ export type RestartCommandRequest = {
   runId?: string;
 };
 
+export type ClearSessionCommandResult = {
+  sessionId: string;
+  messagesBefore: number;
+  messagesAfter: number;
+  checkpointCleared: boolean;
+};
+
 export type CommandCapabilities = {
   cancelActiveRunsForSession?: (sessionId: string | undefined) => Promise<CancelActiveRunsResult> | CancelActiveRunsResult;
   getStatusSnapshot?: (context: CommandContext) => Promise<CommandStatusSnapshot> | CommandStatusSnapshot;
   requestRestart?: (request: RestartCommandRequest) => Promise<void> | void;
+  clearSession?: (sessionId: string | undefined, traceId: string) => Promise<ClearSessionCommandResult> | ClearSessionCommandResult;
 };
 
 export type CommandResult = {

@@ -8,6 +8,7 @@ import { persistedSessionMessages } from "./persistedMessages.ts";
 export type SessionBridge = {
   setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void>;
   clearCheckpoint(sessionId: string, traceId: string): Promise<void>;
+  clearSession?(sessionId: string, traceId: string): Promise<ClearSessionResult>;
   appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void>;
   persistTurn?(sessionId: string, turn: PersistTurnRequest, traceId: string): Promise<PersistTurnResult>;
   getCheckpoint(sessionId: string, traceId: string): Promise<Record<string, unknown> | null>;
@@ -43,6 +44,13 @@ export type PersistTurnResult = {
   duplicateMessageCount: number;
   truncatedToolResultCount: number;
   omittedSideEffects: string[];
+};
+
+export type ClearSessionResult = {
+  sessionId: string;
+  messagesBefore: number;
+  messagesAfter: number;
+  checkpointCleared: boolean;
 };
 
 export type TurnLifecycleMetadata = {

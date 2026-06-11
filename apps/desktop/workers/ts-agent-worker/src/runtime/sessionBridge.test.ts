@@ -2,6 +2,37 @@ import { describe, expect, test } from "vitest";
 import { NativeSessionBridge } from "./sessionBridge";
 
 describe("NativeSessionBridge", () => {
+  test("clears a session through native session.clear", async () => {
+    const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
+    const bridge = new NativeSessionBridge({
+      request: async (traceId, method, params) => {
+        requests.push({ traceId, method, params });
+        return {
+          session_id: "session-1",
+          messages_before: 3,
+          messages_after: 0,
+          checkpoint_cleared: true,
+        };
+      },
+    });
+
+    const result = await bridge.clearSession("session-1", "trace-1");
+
+    expect(result).toEqual({
+      sessionId: "session-1",
+      messagesBefore: 3,
+      messagesAfter: 0,
+      checkpointCleared: true,
+    });
+    expect(requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "session.clear",
+        params: { session_id: "session-1" },
+      },
+    ]);
+  });
+
   test("serializes agent messages with native snake_case tool fields before appending", async () => {
     const requests: Array<{ traceId: string; method: string; params: Record<string, unknown> }> = [];
     const bridge = new NativeSessionBridge({

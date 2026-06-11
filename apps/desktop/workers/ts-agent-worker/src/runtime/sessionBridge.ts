@@ -1,7 +1,7 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
-import type { PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
+import type { ClearSessionResult, PersistTurnRequest, PersistTurnResult, SessionBridge } from "./agentWorker.ts";
 
 export class NativeSessionBridge implements SessionBridge {
   private readonly rpcClient: NativeRpcClient;
@@ -21,6 +21,13 @@ export class NativeSessionBridge implements SessionBridge {
     await this.rpcClient.request(traceId, "session.clear_checkpoint", {
       session_id: sessionId,
     });
+  }
+
+  async clearSession(sessionId: string, traceId: string): Promise<ClearSessionResult> {
+    const result = await this.rpcClient.request(traceId, "session.clear", {
+      session_id: sessionId,
+    });
+    return normalizeClearSessionResult(result, sessionId);
   }
 
   async appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void> {
@@ -67,6 +74,16 @@ function normalizePersistTurnResult(result: unknown, fallbackSessionId: string):
     duplicateMessageCount: numberField(payload, "duplicateMessageCount", "duplicate_message_count"),
     truncatedToolResultCount: numberField(payload, "truncatedToolResultCount", "truncated_tool_result_count"),
     omittedSideEffects: stringArrayField(payload, "omittedSideEffects", "omitted_side_effects"),
+  };
+}
+
+function normalizeClearSessionResult(result: unknown, fallbackSessionId: string): ClearSessionResult {
+  const payload = isJsonObject(result) ? result : {};
+  return {
+    sessionId: stringField(payload, "sessionId", "session_id") ?? fallbackSessionId,
+    messagesBefore: numberField(payload, "messagesBefore", "messages_before"),
+    messagesAfter: numberField(payload, "messagesAfter", "messages_after"),
+    checkpointCleared: booleanField(payload, "checkpointCleared", "checkpoint_cleared"),
   };
 }
 
