@@ -1,6 +1,7 @@
 use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_config::WorkerConfigRpc;
+use crate::worker_cron::{CronJobAddParams, CronJobRemoveParams, WorkerCronRpc};
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_knowledge::{
     KnowledgeAddDocumentParams, KnowledgeContextParams, KnowledgeDocumentIdParams,
@@ -36,6 +37,7 @@ pub struct WorkerRpcRouter {
     memory: WorkerMemoryRpc,
     knowledge: WorkerKnowledgeRpc,
     task: WorkerTaskRpc,
+    cron: WorkerCronRpc,
     mcp: WorkerMcpRpc,
     config_store: Option<ConfigStore>,
 }
@@ -60,6 +62,7 @@ impl WorkerRpcRouter {
             memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
             knowledge: WorkerKnowledgeRpc::new(workspace_root.clone(), policy.clone()),
             task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
+            cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
             config_store: None,
         }
@@ -356,6 +359,17 @@ impl WorkerRpcRouter {
             "task.plan.delete" => {
                 let params: TaskPlanIdParams = parse_params(request)?;
                 serde_json::to_value(self.task.delete_plan(params)?).map_err(serialization_error)
+            }
+            "cron.job.add" => {
+                let params: CronJobAddParams = parse_params(request)?;
+                serde_json::to_value(self.cron.add_job(params)?).map_err(serialization_error)
+            }
+            "cron.job.list" => {
+                serde_json::to_value(self.cron.list_jobs()?).map_err(serialization_error)
+            }
+            "cron.job.remove" => {
+                let params: CronJobRemoveParams = parse_params(request)?;
+                serde_json::to_value(self.cron.remove_job(params)?).map_err(serialization_error)
             }
             "mcp.call_tool" => {
                 let params: McpCallToolParams = parse_params(request)?;
@@ -4782,6 +4796,159 @@ mod tests {
             crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
         );
         assert_eq!(error.details["capability"], "task.write");
+        assert!(response.result.is_none());
+    }
+
+    #[test]
+    fn dispatches_cron_job_store_round_trip_requests() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::CronRead, WorkerCapability::CronWrite]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-cron-add",
+            "trace-1",
+            "cron.job.add",
+            json!({
+                "job": {
+                    "name": "Check status",
+                    "schedule": { "kind": "every", "everyMs": 60000 },
+                    "payload": {
+                        "kind": "agent_turn",
+                        "message": "Check status",
+                        "deliver": true,
+                        "channel": "native",
+                        "to": "run-1"
+                    },
+                    "deleteAfterRun": false
+                }
+            }),
+        ));
+        let add_result = add_response
+            .result
+            .as_ref()
+            .expect("cron.job.add should return result");
+        assert_eq!(add_response.error, None);
+        let job_id = add_result["job"]["id"]
+            .as_str()
+            .expect("cron job should receive id")
+            .to_string();
+        assert_eq!(add_result["job"]["name"], "Check status");
+        assert_eq!(add_result["job"]["schedule"]["everyMs"], 60000);
+        assert_eq!(add_result["job"]["payload"]["to"], "run-1");
+        assert!(add_result["job"]["enabled"].as_bool().unwrap());
+        assert!(add_result["job"]["createdAtMs"].as_i64().unwrap() > 0);
+        assert!(add_result["job"]["state"]["nextRunAtMs"].as_i64().unwrap() > 0);
+        assert!(fixture.read("cron/jobs.json").contains(&job_id));
+
+        let list_response = router.dispatch(&WorkerRequest::new(
+            "req-cron-list",
+            "trace-1",
+            "cron.job.list",
+            json!({}),
+        ));
+        assert_eq!(list_response.error, None);
+        assert_eq!(
+            list_response.result.as_ref().unwrap()["jobs"][0]["id"],
+            job_id
+        );
+
+        let remove_response = router.dispatch(&WorkerRequest::new(
+            "req-cron-remove",
+            "trace-1",
+            "cron.job.remove",
+            json!({ "job_id": job_id }),
+        ));
+        assert_eq!(remove_response.error, None);
+        assert_eq!(remove_response.result, Some(json!({ "status": "removed" })));
+
+        let empty_response = router.dispatch(&WorkerRequest::new(
+            "req-cron-list-empty",
+            "trace-1",
+            "cron.job.list",
+            json!({}),
+        ));
+        assert_eq!(empty_response.result, Some(json!({ "jobs": [] })));
+    }
+
+    #[test]
+    fn dispatches_cron_job_remove_protects_system_events() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "cron/jobs.json",
+            &json!({
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "system-job",
+                        "name": "System upkeep",
+                        "enabled": true,
+                        "schedule": { "kind": "every", "everyMs": 60000 },
+                        "payload": { "kind": "system_event", "message": "upkeep" },
+                        "state": { "nextRunAtMs": 1234, "lastRunAtMs": null, "lastError": null, "runCount": 0, "history": [] },
+                        "createdAtMs": 1000,
+                        "updatedAtMs": 1000,
+                        "deleteAfterRun": false
+                    }
+                ]
+            })
+            .to_string(),
+        );
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::CronRead, WorkerCapability::CronWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-cron-protected",
+            "trace-1",
+            "cron.job.remove",
+            json!({ "job_id": "system-job" }),
+        ));
+
+        assert_eq!(response.error, None);
+        assert_eq!(response.result, Some(json!({ "status": "protected" })));
+        assert!(fixture.read("cron/jobs.json").contains("system-job"));
+    }
+
+    #[test]
+    fn denies_cron_job_add_without_write_capability() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::CronRead]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-cron-add",
+            "trace-1",
+            "cron.job.add",
+            json!({
+                "job": {
+                    "name": "Check status",
+                    "schedule": { "kind": "every", "everyMs": 60000 },
+                    "payload": { "kind": "agent_turn", "message": "Check status" }
+                }
+            }),
+        ));
+
+        let error = response.error.expect("cron write should be denied");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+        assert_eq!(error.details["capability"], "cron.write");
         assert!(response.result.is_none());
     }
 

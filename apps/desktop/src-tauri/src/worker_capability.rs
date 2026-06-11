@@ -39,6 +39,10 @@ pub enum WorkerCapability {
     TaskRead,
     #[serde(rename = "task.write")]
     TaskWrite,
+    #[serde(rename = "cron.read")]
+    CronRead,
+    #[serde(rename = "cron.write")]
+    CronWrite,
     #[serde(rename = "mcp.call")]
     McpCall,
     #[serde(rename = "shell.execute")]
@@ -88,6 +92,8 @@ mod tests {
         assert!(!policy.allows(&WorkerCapability::MemoryWrite));
         assert!(!policy.allows(&WorkerCapability::TaskRead));
         assert!(!policy.allows(&WorkerCapability::TaskWrite));
+        assert!(!policy.allows(&WorkerCapability::CronRead));
+        assert!(!policy.allows(&WorkerCapability::CronWrite));
         assert!(!policy.allows(&WorkerCapability::McpCall));
         assert!(!policy.allows(&WorkerCapability::ShellExecute));
     }
@@ -254,6 +260,33 @@ mod tests {
             json!({
                 "capability": "task.write",
                 "scope": "task://plans"
+            })
+        );
+    }
+
+    #[test]
+    fn cron_capability_names_serialize_as_protocol_strings() {
+        let read_grant = CapabilityGrant {
+            capability: WorkerCapability::CronRead,
+            scope: "cron://jobs".to_string(),
+        };
+        let write_grant = CapabilityGrant {
+            capability: WorkerCapability::CronWrite,
+            scope: "cron://jobs".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(read_grant).expect("grant should serialize"),
+            json!({
+                "capability": "cron.read",
+                "scope": "cron://jobs"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(write_grant).expect("grant should serialize"),
+            json!({
+                "capability": "cron.write",
+                "scope": "cron://jobs"
             })
         );
     }
