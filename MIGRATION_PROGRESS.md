@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；config Phase 1 已复核，ConfigStore Load/Save/Migrations 的 TS migration/path/load diagnostics、Rust/native 文件 I/O、TS patch/validate、native patch-result bridge 与 side-effect planning 起点已建立，下一步推进受控 `config.patch` RPC/host action。
+- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；config Phase 1 已复核，ConfigStore Load/Save/Migrations 的 TS migration/path/load diagnostics、Rust/native 文件 I/O、TS patch/validate、native patch-result bridge、side-effect planning 与受控 `config.apply_patch_result` RPC 起点已建立，下一步推进 host action 持久化到 ConfigStore / 真实 `config.patch` 输入桥接。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -31,7 +31,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 2 | verify | [ts_shared_support_runtime_migration_design.md](ts_shared_support_runtime_migration_design.md) | 建立 prompt/template/token/status/evaluator 等公共能力 | 已建立 runtime/token/message/status/template/evaluator support helper 起点，并让 `AgentRunner`、message content 消费 shared helper |
-| 3 | active | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | Phase 1 已复核；Phase 2 已建立 TS migration、path resolver、load diagnostics 与 Rust/native file I/O 起点；Phase 3 已启动 TS config patch/validate、native patch-result bridge 与 side-effect planning 起点 |
+| 3 | active | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | Phase 1 已复核；Phase 2 已建立 TS migration、path resolver、load diagnostics 与 Rust/native file I/O 起点；Phase 3 已启动 TS config patch/validate、native patch-result bridge、side-effect planning 与受控 write RPC 起点 |
 | 4 | todo | [ts_agent_loop_design.md](ts_agent_loop_design.md) | 先做 fake-provider `AgentRunner` skeleton | 形成 TS agent 最小执行闭环 |
 
 ### Batch 2: Execution, Persistence, And Context
@@ -96,6 +96,7 @@
 | 2026-06-11 | 启动 Batch 1 config Phase 3：新增 TS `configPatch` 起点，覆盖 deep partial merge、masked secret placeholder skip、全量 schema revalidation rollback 与 `updatedFields` 叶子路径输出，为后续 Rust/native `config.patch` 桥接提供稳定结果结构。 |
 | 2026-06-11 | 继续 Batch 1 config Phase 3：新增 Rust/native `ConfigPatchBridgeResult` 和 `apply_validated_patch_result()`，消费 TS patch/validate 结果，成功时更新 snapshot 并落盘，失败时保留内存与文件，为后续受控 `config.patch` RPC/host action 铺路。 |
 | 2026-06-11 | 继续 Batch 1 config Phase 3：扩展 TS `configPatch` side-effect planning，按 updated fields 规划 provider runtime、embedding、MCP、SSRF、channel、knowledge 热更新，以及 workspace reload/gateway restart warnings。 |
+| 2026-06-11 | 继续 Batch 1 config Phase 3：新增 Rust worker RPC `config.apply_patch_result`，要求 `config.write` capability，消费 TS patch result，更新 native in-memory config snapshot 并返回脱敏 config、updatedFields 与 sideEffects；默认 agent worker 仍不授予 `config.write`。 |
 
 ## Next Checklist
 
@@ -115,5 +116,6 @@
 - [x] 继续 config Phase 3：推进 TS config patch/validate 纯函数起点。
 - [x] 继续 config Phase 3：推进 Rust/native ConfigStore 与 TS `config.patch` 结果桥接。
 - [x] 继续 config Phase 3：推进 config patch side-effect planning 起点。
-- [ ] 继续 config Phase 3：推进受控 `config.patch` RPC/host action 起点。
+- [x] 继续 config Phase 3：推进受控 `config.apply_patch_result` RPC 起点。
+- [ ] 继续 config Phase 3：推进 host action 持久化到 ConfigStore / 真实 `config.patch` patch 输入桥接。
 - [x] 在 Batch 1 shared support Phase 1 完成后更新 `Current Focus` 和对应状态。

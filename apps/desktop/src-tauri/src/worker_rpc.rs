@@ -1,3 +1,4 @@
+use crate::config_store::ConfigPatchBridgeResult;
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_config::WorkerConfigRpc;
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
@@ -83,7 +84,7 @@ impl WorkerRpcRouter {
                         format: params.format.unwrap_or(WorkspaceReadFormat::Raw),
                     },
                 )?)
-                    .map_err(serialization_error)
+                .map_err(serialization_error)
             }
             "workspace.read_bootstrap_files" => {
                 let params: BootstrapFilesParams = parse_params(request)?;
@@ -121,6 +122,11 @@ impl WorkerRpcRouter {
             }
             "config.snapshot_public" => {
                 serde_json::to_value(self.config.snapshot_public()?).map_err(serialization_error)
+            }
+            "config.apply_patch_result" => {
+                let params: ConfigPatchBridgeResult = parse_params(request)?;
+                serde_json::to_value(self.config.apply_patch_result(params)?)
+                    .map_err(serialization_error)
             }
             "provider.resolve_secret" => {
                 let params: ProviderResolveSecretParams = parse_params(request)?;
@@ -1577,6 +1583,67 @@ mod tests {
     }
 
     #[test]
+    fn dispatches_config_apply_patch_result_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": { "defaults": { "model": "gpt-5" } },
+                "providers": { "openai": { "apiKey": "sk-old-secret" } }
+            }),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "config.apply_patch_result",
+            json!({
+                "ok": true,
+                "config": {
+                    "agents": { "defaults": { "model": "gpt-5.1" } },
+                    "providers": { "openai": { "apiKey": "sk-new-secret" } }
+                },
+                "updatedFields": ["agents.defaults.model"],
+                "sideEffects": {
+                    "applied": ["providerRuntimeChanged"],
+                    "restartRequired": [],
+                    "warnings": []
+                },
+                "error": null
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        let result = response.result.expect("patch result should return");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["updatedFields"], json!(["agents.defaults.model"]));
+        assert_eq!(
+            result["sideEffects"]["applied"],
+            json!(["providerRuntimeChanged"])
+        );
+        assert_eq!(result["config"]["agents"]["defaults"]["model"], "gpt-5.1");
+        assert_eq!(
+            result["config"]["providers"]["openai"]["apiKey"],
+            serde_json::Value::Null
+        );
+        assert!(response.error.is_none());
+
+        let get_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-2",
+            "config.get",
+            json!({ "path": "agents.defaults.model" }),
+        ));
+        assert_eq!(
+            get_response.result,
+            Some(json!({ "path": "agents.defaults.model", "value": "gpt-5.1" }))
+        );
+    }
+
+    #[test]
     fn dispatches_provider_resolve_secret_request() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(
@@ -1734,8 +1801,13 @@ mod tests {
         let response = router.dispatch(&request);
 
         assert!(response.error.is_none());
-        assert_eq!(response.result.as_ref().unwrap()["timezone"], "Asia/Shanghai");
-        assert!(response.result.as_ref().unwrap()["current_time"].as_str().is_some());
+        assert_eq!(
+            response.result.as_ref().unwrap()["timezone"],
+            "Asia/Shanghai"
+        );
+        assert!(response.result.as_ref().unwrap()["current_time"]
+            .as_str()
+            .is_some());
     }
 
     #[test]
@@ -2405,7 +2477,10 @@ mod tests {
             json!({}),
             vec![],
             20,
-            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead, WorkerCapability::FsWorkspaceWrite]),
+            CapabilityPolicy::new([
+                WorkerCapability::FsWorkspaceRead,
+                WorkerCapability::FsWorkspaceWrite,
+            ]),
         );
 
         let list_response = router.dispatch(&WorkerRequest::new(

@@ -52,6 +52,8 @@ pub struct ConfigPatchBridgeResult {
     pub config: Value,
     #[serde(rename = "updatedFields", alias = "updated_fields")]
     pub updated_fields: Vec<String>,
+    #[serde(rename = "sideEffects", alias = "side_effects", default)]
+    pub side_effects: ConfigPatchSideEffects,
     pub error: Option<String>,
 }
 
@@ -61,7 +63,17 @@ pub struct ConfigPatchApplyResult {
     pub config: Value,
     #[serde(rename = "updatedFields", alias = "updated_fields")]
     pub updated_fields: Vec<String>,
+    #[serde(rename = "sideEffects", alias = "side_effects")]
+    pub side_effects: ConfigPatchSideEffects,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub struct ConfigPatchSideEffects {
+    pub applied: Vec<String>,
+    #[serde(rename = "restartRequired", alias = "restart_required")]
+    pub restart_required: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 impl ConfigStore {
@@ -139,6 +151,7 @@ impl ConfigStore {
                 ok: false,
                 config: self.snapshot.clone(),
                 updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
                 error: result.error,
             });
         }
@@ -147,6 +160,7 @@ impl ConfigStore {
                 ok: false,
                 config: self.snapshot.clone(),
                 updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
                 error: Some(
                     "validated config patch result must contain an object config".to_string(),
                 ),
@@ -160,6 +174,7 @@ impl ConfigStore {
             ok: true,
             config: self.snapshot.clone(),
             updated_fields: result.updated_fields,
+            side_effects: result.side_effects,
             error: None,
         })
     }
@@ -349,6 +364,11 @@ mod tests {
                     "agents.defaults.model".to_string(),
                     "agents.defaults.provider".to_string(),
                 ],
+                side_effects: ConfigPatchSideEffects {
+                    applied: vec!["providerRuntimeChanged".to_string()],
+                    restart_required: vec![],
+                    warnings: vec![],
+                },
                 error: None,
             })
             .expect("validated patch should save");
@@ -358,6 +378,7 @@ mod tests {
             result.updated_fields,
             vec!["agents.defaults.model", "agents.defaults.provider"]
         );
+        assert_eq!(result.side_effects.applied, vec!["providerRuntimeChanged"]);
         assert_eq!(store.snapshot()["agents"]["defaults"]["model"], "gpt-5");
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(
@@ -383,6 +404,7 @@ mod tests {
                 ok: false,
                 config: json!({"agents":{"defaults":{"model":" "}}}),
                 updated_fields: vec!["agents.defaults.model".to_string()],
+                side_effects: ConfigPatchSideEffects::default(),
                 error: Some("agents.defaults.model must not be empty".to_string()),
             })
             .expect("failed patch result should not be an IO error");

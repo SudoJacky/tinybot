@@ -1,3 +1,6 @@
+use crate::config_store::{
+    ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigPatchSideEffects,
+};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -35,6 +38,42 @@ impl WorkerConfigRpc {
         self.require(WorkerCapability::ConfigRead)?;
         Ok(ConfigSnapshotPublicResult {
             value: redact_sensitive_value(&self.snapshot),
+        })
+    }
+
+    pub fn apply_patch_result(
+        &mut self,
+        result: ConfigPatchBridgeResult,
+    ) -> Result<ConfigPatchApplyResult, WorkerProtocolError> {
+        self.require(WorkerCapability::ConfigWrite)?;
+        if !result.ok {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: redact_sensitive_value(&self.snapshot),
+                updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
+                error: result.error,
+            });
+        }
+        if !result.config.is_object() {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: redact_sensitive_value(&self.snapshot),
+                updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
+                error: Some(
+                    "validated config patch result must contain an object config".to_string(),
+                ),
+            });
+        }
+
+        self.snapshot = result.config;
+        Ok(ConfigPatchApplyResult {
+            ok: true,
+            config: redact_sensitive_value(&self.snapshot),
+            updated_fields: result.updated_fields,
+            side_effects: result.side_effects,
+            error: None,
         })
     }
 
@@ -95,9 +134,7 @@ fn redact_sensitive_value(value: &Value) -> Value {
                 })
                 .collect(),
         ),
-        Value::Array(values) => {
-            Value::Array(values.iter().map(redact_sensitive_value).collect())
-        }
+        Value::Array(values) => Value::Array(values.iter().map(redact_sensitive_value).collect()),
         other => other.clone(),
     }
 }
@@ -239,8 +276,74 @@ mod tests {
         assert!(rpc.get("agents.defaults.\0model").is_err());
     }
 
+    #[test]
+    fn config_patch_result_requires_write_capability() {
+        let mut rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+        let error = rpc
+            .apply_patch_result(valid_patch_result())
+            .expect_err("config patch should require write capability");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["capability"], "config.write");
+    }
+
+    #[test]
+    fn config_patch_result_updates_snapshot_and_returns_redacted_config() {
+        let mut rpc = WorkerConfigRpc::new(config_fixture(), write_policy());
+
+        let result = rpc
+            .apply_patch_result(valid_patch_result())
+            .expect("config patch result should apply");
+
+        assert!(result.ok);
+        assert_eq!(result.updated_fields, vec!["agents.defaults.model"]);
+        assert_eq!(result.side_effects.applied, vec!["providerRuntimeChanged"]);
+        assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-5.1");
+        assert_eq!(
+            result.config["providers"]["openai"]["apiKey"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            rpc.get("agents.defaults.model")
+                .expect("updated config should be readable")
+                .value,
+            json!("gpt-5.1")
+        );
+    }
+
     fn read_policy() -> CapabilityPolicy {
         CapabilityPolicy::new([WorkerCapability::ConfigRead])
+    }
+
+    fn write_policy() -> CapabilityPolicy {
+        CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite])
+    }
+
+    fn valid_patch_result() -> ConfigPatchBridgeResult {
+        ConfigPatchBridgeResult {
+            ok: true,
+            config: json!({
+                "agents": {
+                    "defaults": {
+                        "model": "gpt-5.1",
+                        "provider": "openai"
+                    }
+                },
+                "providers": {
+                    "openai": {
+                        "apiKey": "sk-new-secret"
+                    }
+                }
+            }),
+            updated_fields: vec!["agents.defaults.model".to_string()],
+            side_effects: crate::config_store::ConfigPatchSideEffects {
+                applied: vec!["providerRuntimeChanged".to_string()],
+                restart_required: vec![],
+                warnings: vec![],
+            },
+            error: None,
+        }
     }
 
     fn config_fixture() -> serde_json::Value {
