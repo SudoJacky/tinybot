@@ -1,5 +1,6 @@
 use crate::config_store::{
-    ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigPatchSideEffects,
+    ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigPatchSideEffects, ConfigStore,
+    ConfigStoreError,
 };
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
@@ -74,6 +75,25 @@ impl WorkerConfigRpc {
             updated_fields: result.updated_fields,
             side_effects: result.side_effects,
             error: None,
+        })
+    }
+
+    pub fn apply_patch_result_to_store(
+        &mut self,
+        store: &mut ConfigStore,
+        result: ConfigPatchBridgeResult,
+    ) -> Result<ConfigPatchApplyResult, WorkerProtocolError> {
+        self.require(WorkerCapability::ConfigWrite)?;
+        let result = store
+            .apply_validated_patch_result(result)
+            .map_err(config_store_protocol_error)?;
+        self.snapshot = store.snapshot().clone();
+        Ok(ConfigPatchApplyResult {
+            ok: result.ok,
+            config: redact_sensitive_value(&result.config),
+            updated_fields: result.updated_fields,
+            side_effects: result.side_effects,
+            error: result.error,
         })
     }
 
@@ -166,6 +186,16 @@ fn sensitive_config_error(path: &str) -> WorkerProtocolError {
         WorkerProtocolErrorCode::CapabilityDenied,
         "worker config path is sensitive",
         serde_json::json!({ "path": path }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn config_store_protocol_error(error: ConfigStoreError) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        "failed to apply config patch result",
+        serde_json::json!({ "error": error.to_string() }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
@@ -312,6 +342,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn config_patch_result_to_store_saves_and_returns_redacted_config() {
+        let fixture = ConfigStoreFixture::new();
+        let config_path = fixture.path("config.json");
+        let mut store = ConfigStore::from_snapshot(config_path.clone(), config_fixture());
+        let mut rpc = WorkerConfigRpc::new(store.snapshot().clone(), write_policy());
+
+        let result = rpc
+            .apply_patch_result_to_store(&mut store, valid_patch_result())
+            .expect("config patch result should apply to store");
+
+        assert!(result.ok);
+        assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-5.1");
+        assert_eq!(
+            result.config["providers"]["openai"]["apiKey"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &std::fs::read_to_string(config_path).expect("patched config should save")
+            )
+            .expect("saved config should be JSON")["agents"]["defaults"]["model"],
+            json!("gpt-5.1")
+        );
+        assert_eq!(
+            rpc.get("agents.defaults.model")
+                .expect("updated config should be readable")
+                .value,
+            json!("gpt-5.1")
+        );
+    }
+
     fn read_policy() -> CapabilityPolicy {
         CapabilityPolicy::new([WorkerCapability::ConfigRead])
     }
@@ -364,5 +426,32 @@ mod tests {
                 }
             }
         })
+    }
+
+    struct ConfigStoreFixture {
+        root: std::path::PathBuf,
+    }
+
+    impl ConfigStoreFixture {
+        fn new() -> Self {
+            let nonce = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time should be monotonic")
+                .as_nanos();
+            let root =
+                std::env::temp_dir().join(format!("tinybot-worker-config-store-test-{nonce}"));
+            std::fs::create_dir_all(&root).expect("fixture root should create");
+            Self { root }
+        }
+
+        fn path(&self, relative: &str) -> std::path::PathBuf {
+            self.root.join(relative)
+        }
+    }
+
+    impl Drop for ConfigStoreFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 }

@@ -20,6 +20,9 @@ class FakeRpcClient {
     if (method === "provider.resolve_secret") {
       return { apiKey: "native-secret", apiKeySource: "config" };
     }
+    if (method === "config.apply_patch_result") {
+      return params;
+    }
     const path = params.path;
     if (typeof path !== "string") {
       throw new Error("config.get path must be a string");
@@ -136,6 +139,51 @@ describe("NativeConfigBridge", () => {
           profileName: "dashscope-search",
           apiKeyEnvVars: ["DASHSCOPE_API_KEY"],
         },
+      },
+    ]);
+  });
+
+  test("applies config patch through TS validation before sending native patch result", async () => {
+    const rpcClient = new FakeRpcClient({});
+    const bridge = new NativeConfigBridge(rpcClient);
+
+    const result = await bridge.applyPatch(
+      {
+        agents: {
+          defaults: {
+            model: "gpt-5",
+            provider: "openai",
+          },
+        },
+        providers: {
+          openai: {
+            apiKey: "sk-real-secret",
+            apiBase: "https://old.example/v1",
+          },
+        },
+      },
+      {
+        providers: {
+          openai: {
+            apiKey: "********",
+            apiBase: "https://new.example/v1",
+          },
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      updatedFields: ["providers.openai.apiBase"],
+      sideEffects: { applied: ["providerRuntimeChanged"], restartRequired: [], warnings: [] },
+    });
+    expect(result.config.providers.openai.apiKey).toBe("sk-real-secret");
+    expect(result.config.providers.openai.apiBase).toBe("https://new.example/v1");
+    expect(rpcClient.requests).toEqual([
+      {
+        traceId: "worker-config",
+        method: "config.apply_patch_result",
+        params: result,
       },
     ]);
   });

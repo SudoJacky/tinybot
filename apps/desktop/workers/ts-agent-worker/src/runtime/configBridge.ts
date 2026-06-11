@@ -1,11 +1,26 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import type { NativeRpcClient } from "../tools/nativeToolProxy.ts";
 import type { ModelResponse } from "../model/provider.ts";
+import { applyConfigPatch } from "../config/configPatch.ts";
+import { parseTinybotConfig } from "../config/configSchema.ts";
+import type { JsonRecord } from "../config/configTypes.ts";
 import { createPublicConfigSnapshot } from "../config/configSnapshot.ts";
 import { resolveRuntimeProvider, type ProviderSecretResolution, type TinybotPublicConfig } from "../providers/providerRuntime.ts";
 import { modelProviderConfigFromEnv, type ModelProviderConfig } from "./providerFactory.ts";
 
 const CONFIG_TRACE_ID = "worker-config";
+
+export type NativeConfigPatchApplyResponse = {
+  ok: boolean;
+  config: JsonRecord;
+  updatedFields: string[];
+  sideEffects: {
+    applied: string[];
+    restartRequired: string[];
+    warnings: string[];
+  };
+  error?: string | null;
+};
 
 export class NativeConfigBridge {
   private readonly rpcClient: NativeRpcClient;
@@ -28,6 +43,15 @@ export class NativeConfigBridge {
       throw new Error("config.snapshot_public did not return an object snapshot");
     }
     return createPublicConfigSnapshot(value);
+  }
+
+  async applyPatch(current: JsonRecord, patch: JsonRecord): Promise<NativeConfigPatchApplyResponse> {
+    const result = applyConfigPatch(parseTinybotConfig(current), patch);
+    return this.rpcClient.request(
+      CONFIG_TRACE_ID,
+      "config.apply_patch_result",
+      result as unknown as JsonObject,
+    ) as Promise<NativeConfigPatchApplyResponse>;
   }
 
   async resolveProviderSecret(input: {

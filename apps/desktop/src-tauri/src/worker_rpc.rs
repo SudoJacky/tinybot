@@ -1,4 +1,4 @@
-use crate::config_store::ConfigPatchBridgeResult;
+use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_config::WorkerConfigRpc;
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
@@ -29,6 +29,7 @@ pub struct WorkerRpcRouter {
     form: WorkerFormRpc,
     memory: WorkerMemoryRpc,
     mcp: WorkerMcpRpc,
+    config_store: Option<ConfigStore>,
 }
 
 impl WorkerRpcRouter {
@@ -50,7 +51,27 @@ impl WorkerRpcRouter {
             form: WorkerFormRpc::new(policy.clone()),
             memory: WorkerMemoryRpc::new(workspace_root, policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
+            config_store: None,
         }
+    }
+
+    pub fn with_config_store(
+        workspace_root: PathBuf,
+        config_store: ConfigStore,
+        sessions: Vec<SessionMetadata>,
+        diagnostic_capacity: usize,
+        policy: CapabilityPolicy,
+    ) -> Self {
+        let config_snapshot = config_store.snapshot().clone();
+        let mut router = Self::new(
+            workspace_root,
+            config_snapshot,
+            sessions,
+            diagnostic_capacity,
+            policy,
+        );
+        router.config_store = Some(config_store);
+        router
     }
 
     pub fn dispatch(&mut self, request: &WorkerRequest) -> WorkerResponse {
@@ -125,8 +146,13 @@ impl WorkerRpcRouter {
             }
             "config.apply_patch_result" => {
                 let params: ConfigPatchBridgeResult = parse_params(request)?;
-                serde_json::to_value(self.config.apply_patch_result(params)?)
-                    .map_err(serialization_error)
+                let result = if let Some(config_store) = self.config_store.as_mut() {
+                    self.config
+                        .apply_patch_result_to_store(config_store, params)?
+                } else {
+                    self.config.apply_patch_result(params)?
+                };
+                serde_json::to_value(result).map_err(serialization_error)
             }
             "provider.resolve_secret" => {
                 let params: ProviderResolveSecretParams = parse_params(request)?;
@@ -1640,6 +1666,124 @@ mod tests {
         assert_eq!(
             get_response.result,
             Some(json!({ "path": "agents.defaults.model", "value": "gpt-5.1" }))
+        );
+    }
+
+    #[test]
+    fn dispatches_config_apply_patch_result_to_config_store() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join("tinybot-config.json");
+        let store = crate::config_store::ConfigStore::from_snapshot(
+            config_path.clone(),
+            json!({
+                "agents": { "defaults": { "model": "gpt-5" } },
+                "providers": { "openai": { "apiKey": "sk-old-secret" } }
+            }),
+        );
+        let mut router = WorkerRpcRouter::with_config_store(
+            fixture.root.clone(),
+            store,
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "config.apply_patch_result",
+            json!({
+                "ok": true,
+                "config": {
+                    "agents": { "defaults": { "model": "gpt-5.2" } },
+                    "providers": { "openai": { "apiKey": "sk-new-secret" } }
+                },
+                "updatedFields": ["agents.defaults.model"],
+                "sideEffects": {
+                    "applied": ["providerRuntimeChanged"],
+                    "restartRequired": [],
+                    "warnings": []
+                },
+                "error": null
+            }),
+        ));
+
+        let result = response.result.expect("stored patch result should return");
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["config"]["agents"]["defaults"]["model"], "gpt-5.2");
+        assert_eq!(
+            result["config"]["providers"]["openai"]["apiKey"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &std::fs::read_to_string(config_path).expect("patched config should save")
+            )
+            .expect("saved config should be JSON"),
+            json!({
+                "agents": { "defaults": { "model": "gpt-5.2" } },
+                "providers": { "openai": { "apiKey": "sk-new-secret" } }
+            })
+        );
+
+        let get_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-2",
+            "config.get",
+            json!({ "path": "agents.defaults.model" }),
+        ));
+        assert_eq!(
+            get_response.result,
+            Some(json!({ "path": "agents.defaults.model", "value": "gpt-5.2" }))
+        );
+    }
+
+    #[test]
+    fn config_store_patch_result_requires_write_capability_before_save() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join("tinybot-config.json");
+        let store = crate::config_store::ConfigStore::from_snapshot(
+            config_path.clone(),
+            json!({
+                "agents": { "defaults": { "model": "gpt-5" } }
+            }),
+        );
+        let mut router = WorkerRpcRouter::with_config_store(
+            fixture.root.clone(),
+            store,
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ConfigRead]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "config.apply_patch_result",
+            json!({
+                "ok": true,
+                "config": {
+                    "agents": { "defaults": { "model": "gpt-5.2" } }
+                },
+                "updatedFields": ["agents.defaults.model"],
+                "sideEffects": {
+                    "applied": ["providerRuntimeChanged"],
+                    "restartRequired": [],
+                    "warnings": []
+                },
+                "error": null
+            }),
+        ));
+
+        let error = response.error.expect("response should contain error");
+        assert_eq!(
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+        );
+        assert_eq!(error.details["capability"], "config.write");
+        assert!(
+            !config_path.exists(),
+            "denied config patch must not create or save config"
         );
     }
 
