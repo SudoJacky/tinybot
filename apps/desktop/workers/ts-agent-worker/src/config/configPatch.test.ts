@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { applyConfigPatch } from "./configPatch";
+import { applyConfigPatch, planConfigPatchSideEffects } from "./configPatch";
 import { defaultTinybotConfig, parseTinybotConfig } from "./configSchema";
 import { UI_SECRET_PLACEHOLDER } from "./configMasking";
 
@@ -38,6 +38,7 @@ describe("configPatch", () => {
       "providers.openrouter.apiBase",
       "providers.openrouter.models",
     ]);
+    expect(result.sideEffects.applied).toEqual(["providerRuntimeChanged"]);
   });
 
   test("skips masked secret placeholders while applying adjacent fields", () => {
@@ -63,6 +64,7 @@ describe("configPatch", () => {
     expect(result.config.providers.openai.apiKey).toBe("real-openai-key");
     expect(result.config.providers.openai.apiBase).toBe("https://new.example/v1");
     expect(result.updatedFields).toEqual(["providers.openai.apiBase"]);
+    expect(result.sideEffects.applied).toEqual(["providerRuntimeChanged"]);
   });
 
   test("returns the original config and error when patch validation fails", () => {
@@ -79,6 +81,45 @@ describe("configPatch", () => {
     expect(result.ok).toBe(false);
     expect(result.config).toEqual(current);
     expect(result.updatedFields).toEqual([]);
+    expect(result.sideEffects).toEqual({ applied: [], restartRequired: [], warnings: [] });
     expect(result.error).toContain("agents.defaults.model");
+  });
+
+  test("plans hot update side effects from updated fields", () => {
+    expect(planConfigPatchSideEffects([
+      "agents.defaults.model",
+      "agents.defaults.activeProfile",
+      "agents.defaults.embedding.apiKeyEnvVar",
+      "tools.mcpServers.local.command",
+      "tools.ssrfWhitelist",
+      "channels.slack.enabled",
+      "knowledge.rerankEnabled",
+    ])).toEqual({
+      applied: [
+        "providerRuntimeChanged",
+        "embeddingConfigChanged",
+        "mcpConfigChanged",
+        "ssrfWhitelistChanged",
+        "channelConfigChanged",
+        "knowledgeConfigChanged",
+      ],
+      restartRequired: [],
+      warnings: [],
+    });
+  });
+
+  test("marks workspace and gateway changes as restart or reload required", () => {
+    expect(planConfigPatchSideEffects([
+      "agents.defaults.workspace",
+      "gateway.host",
+      "gateway.port",
+    ])).toEqual({
+      applied: [],
+      restartRequired: ["workspaceReloadRequired", "gatewayRestartRequired"],
+      warnings: [
+        "agents.defaults.workspace requires an explicit workspace reload",
+        "gateway host or port changes require restart",
+      ],
+    });
   });
 });
