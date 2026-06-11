@@ -296,13 +296,14 @@ describe("AgentWorker", () => {
   });
 
   test("persists completed run_input turns through the session lifecycle bridge when available", async () => {
+    const events: WorkerEvent[] = [];
     const persistedTurns: Array<{ sessionId: string; turn: Record<string, unknown> }> = [];
     const appendedSessions: Array<{ sessionId: string; messages: AgentMessage[] }> = [];
     const provider = new QueueProvider([{ content: "done", toolCalls: [], stopReason: "stop" }]);
     const worker = new AgentWorker({
       provider,
       tools: new ToolRegistry(),
-      emitEvent: () => undefined,
+      emitEvent: (event) => events.push(event),
       sessionBridge: {
         setCheckpoint: async () => undefined,
         clearCheckpoint: async () => undefined,
@@ -370,6 +371,25 @@ describe("AgentWorker", () => {
         }),
       },
     ]);
+    expect(events).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-run-input",
+      event: "agent.done",
+      payload: expect.objectContaining({
+        runId: "run-input-persist-1",
+        stopReason: "final_response",
+        lifecycle: {
+          sessionId: "session-1",
+          runId: "run-input-persist-1",
+          stopReason: "final_response",
+          checkpointCleared: true,
+          persisted: true,
+          savedMessageCount: 2,
+          awaitingInput: false,
+          omittedSideEffects: [],
+        },
+      }),
+    }));
   });
 
   test("accepts snake_case agent.run spec fields", async () => {

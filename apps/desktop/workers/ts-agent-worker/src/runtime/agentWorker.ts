@@ -56,6 +56,17 @@ export type PersistTurnResult = {
   omittedSideEffects: string[];
 };
 
+type TurnLifecycleMetadata = {
+  sessionId: string;
+  runId: string;
+  stopReason: AgentRunResult["stopReason"];
+  checkpointCleared: boolean;
+  persisted: boolean;
+  savedMessageCount: number;
+  awaitingInput: boolean;
+  omittedSideEffects: string[];
+};
+
 export type ApprovalBridge = {
   resolveApproval(params: ApprovalResolutionRequest, traceId: string): Promise<Record<string, unknown>>;
 };
@@ -222,7 +233,7 @@ export class AgentWorker {
       if (!isAwaitingInputResult(result)) {
         await this.clearCheckpoint(request.trace_id, spec);
       }
-      await this.appendMessages(request.trace_id, spec, result);
+      const lifecycle = await this.appendMessages(request.trace_id, spec, result);
       this.emitAwaitingInput(request.trace_id, spec.runId, result);
       this.emitUsage(request.trace_id, spec, result);
       this.emitEvent({
@@ -232,6 +243,7 @@ export class AgentWorker {
         payload: withNativePayloadAliases({
           runId: spec.runId,
           stopReason: result.stopReason,
+          ...(lifecycle ? { lifecycle } : {}),
         }),
       });
       return {
@@ -440,21 +452,35 @@ export class AgentWorker {
     await this.sessionBridge.clearCheckpoint(spec.sessionId, traceId);
   }
 
-  private async appendMessages(traceId: string, spec: AgentRunSpec, result: AgentRunResult): Promise<void> {
+  private async appendMessages(
+    traceId: string,
+    spec: AgentRunSpec,
+    result: AgentRunResult,
+  ): Promise<TurnLifecycleMetadata | undefined> {
     if (!this.sessionBridge || !spec.sessionId) {
-      return;
+      return undefined;
     }
     const messages = sessionAppendMessages(spec, result);
     if (this.sessionBridge.persistTurn) {
-      await this.sessionBridge.persistTurn(spec.sessionId, {
+      const persisted = await this.sessionBridge.persistTurn(spec.sessionId, {
         runId: spec.runId,
         messages,
         clearCheckpoint: !isAwaitingInputResult(result),
         runtimeContextTag: RUNTIME_CONTEXT_TAG,
       }, traceId);
-      return;
+      return lifecycleMetadataFromPersistedTurn(spec, result, persisted);
     }
     await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
+    return {
+      sessionId: spec.sessionId,
+      runId: spec.runId,
+      stopReason: result.stopReason,
+      checkpointCleared: !isAwaitingInputResult(result),
+      persisted: true,
+      savedMessageCount: messages.length,
+      awaitingInput: isAwaitingInputResult(result),
+      omittedSideEffects: [],
+    };
   }
 
   private emitAwaitingInput(traceId: string, runId: string, result: AgentRunResult): void {
@@ -657,7 +683,7 @@ export class AgentWorker {
     if (!isAwaitingInputResult(result)) {
       await this.clearCheckpoint(traceId, spec);
     }
-    await this.appendMessages(traceId, spec, result);
+    const lifecycle = await this.appendMessages(traceId, spec, result);
     this.emitAwaitingInput(traceId, spec.runId, result);
     this.emitUsage(traceId, spec, result);
     this.emitEvent({
@@ -667,6 +693,7 @@ export class AgentWorker {
       payload: withNativePayloadAliases({
         runId: spec.runId,
         stopReason: result.stopReason,
+        ...(lifecycle ? { lifecycle } : {}),
       }),
     });
     return result;
@@ -878,6 +905,23 @@ function sessionAppendMessages(spec: AgentRunSpec, result: AgentRunResult): Agen
     ...contextMessages,
     ...result.messages.slice(initialMessageCount),
   ]);
+}
+
+function lifecycleMetadataFromPersistedTurn(
+  spec: AgentRunSpec,
+  result: AgentRunResult,
+  persisted: PersistTurnResult,
+): TurnLifecycleMetadata {
+  return {
+    sessionId: persisted.sessionId,
+    runId: spec.runId,
+    stopReason: result.stopReason,
+    checkpointCleared: persisted.checkpointCleared,
+    persisted: true,
+    savedMessageCount: persisted.savedMessageCount,
+    awaitingInput: isAwaitingInputResult(result),
+    omittedSideEffects: persisted.omittedSideEffects,
+  };
 }
 
 function internalContextAppendMessages(value: unknown): AgentMessage[] | null {
