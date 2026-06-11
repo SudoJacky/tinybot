@@ -32,11 +32,24 @@ export type ClearSessionCommandResult = {
   checkpointCleared: boolean;
 };
 
+export type PendingApprovalSummary = {
+  id: string;
+  summary: string;
+  risk: string;
+  category: string;
+  reason: string;
+};
+
+export type PendingApprovalListResult = {
+  approvals: PendingApprovalSummary[];
+};
+
 export type CommandCapabilities = {
   cancelActiveRunsForSession?: (sessionId: string | undefined) => Promise<CancelActiveRunsResult> | CancelActiveRunsResult;
   getStatusSnapshot?: (context: CommandContext) => Promise<CommandStatusSnapshot> | CommandStatusSnapshot;
   requestRestart?: (request: RestartCommandRequest) => Promise<void> | void;
   clearSession?: (sessionId: string | undefined, traceId: string) => Promise<ClearSessionCommandResult> | ClearSessionCommandResult;
+  listPendingApprovals?: (sessionId: string | undefined, traceId: string) => Promise<PendingApprovalListResult> | PendingApprovalListResult;
 };
 
 export type CommandResult = {

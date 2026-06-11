@@ -97,6 +97,7 @@ type ActiveRun = {
 export type ApprovalBridge = {
   requestApproval(params: ApprovalRequestPayload, traceId: string): Promise<Record<string, unknown>>;
   resolveApproval(params: ApprovalResolutionRequest, traceId: string): Promise<Record<string, unknown>>;
+  listPendingApprovals?(sessionId: string, traceId: string): Promise<Record<string, unknown>>;
 };
 
 export type ApprovalResolutionRequest = {
@@ -154,6 +155,9 @@ export class AgentWorker {
       requestRestart: options.requestRestart,
       ...(options.sessionBridge?.clearSession
         ? { clearSession: (sessionId, traceId) => this.clearSessionForCommand(sessionId, traceId) }
+        : {}),
+      ...(options.approvalBridge?.listPendingApprovals
+        ? { listPendingApprovals: (sessionId, traceId) => this.listPendingApprovalsForCommand(sessionId, traceId) }
         : {}),
     });
     this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
@@ -450,6 +454,28 @@ export class AgentWorker {
       };
     }
     return this.sessionBridge.clearSession(sessionId, traceId);
+  }
+
+  private async listPendingApprovalsForCommand(
+    sessionId: string | undefined,
+    traceId: string,
+  ): Promise<{ approvals: Array<{ id: string; summary: string; risk: string; category: string; reason: string }> }> {
+    if (!sessionId || !this.approvalBridge?.listPendingApprovals) {
+      return { approvals: [] };
+    }
+    const result = await this.approvalBridge.listPendingApprovals(sessionId, traceId);
+    const approvals = Array.isArray(result.approvals) ? result.approvals : [];
+    return {
+      approvals: approvals
+        .filter(isPendingApprovalSummary)
+        .map((item) => ({
+          id: item.id,
+          summary: item.summary,
+          risk: item.risk,
+          category: item.category,
+          reason: item.reason,
+        })),
+    };
   }
 
   private async tryHandleCommand(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult | undefined> {
@@ -964,6 +990,21 @@ function lastUserMessage(messages: AgentMessage[]): AgentMessage | undefined {
 
 function hasCommandMessage(messages: AgentMessage[]): boolean {
   return lastUserMessage(messages)?.content.trim().startsWith("/") === true;
+}
+
+function isPendingApprovalSummary(value: unknown): value is {
+  id: string;
+  summary: string;
+  risk: string;
+  category: string;
+  reason: string;
+} {
+  return isJsonObject(value)
+    && typeof value.id === "string"
+    && typeof value.summary === "string"
+    && typeof value.risk === "string"
+    && typeof value.category === "string"
+    && typeof value.reason === "string";
 }
 
 function parseRestoreCheckpointSessionId(params: Record<string, unknown> | undefined): string {

@@ -76,4 +76,40 @@ describe("NativeApprovalBridge", () => {
       sessionFingerprint: "write_file:notes.md",
     });
   });
+
+  test("lists pending approvals for a session", async () => {
+    const { client, calls } = rpcClient({
+      approvals: [
+        {
+          id: "approval-1",
+          summary: "write_file path=\"notes.md\"",
+          risk: "medium",
+          category: "filesystem_write",
+          reason: "File write/edit/delete tools can modify workspace state.",
+        },
+      ],
+    });
+    const bridge = new NativeApprovalBridge(client);
+
+    const result = await bridge.listPendingApprovals("session-1", "trace-1");
+
+    expect(calls).toEqual([
+      {
+        traceId: "trace-1",
+        method: "approval.list_pending",
+        params: { session_id: "session-1" },
+      },
+    ]);
+    expect(result).toEqual({
+      approvals: [
+        {
+          id: "approval-1",
+          summary: "write_file path=\"notes.md\"",
+          risk: "medium",
+          category: "filesystem_write",
+          reason: "File write/edit/delete tools can modify workspace state.",
+        },
+      ],
+    });
+  });
 });

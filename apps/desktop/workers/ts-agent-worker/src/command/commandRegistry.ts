@@ -14,6 +14,7 @@ export function createDefaultCommandRouter(capabilities: CommandCapabilities = {
   router.priority("/status", (context) => statusResult(context, capabilities));
   router.priority("/restart", (context) => restartResult(context, capabilities));
   router.exact("/new", (context) => newSessionResult(context, capabilities));
+  router.exact("/approvals", (context) => approvalsResult(context, capabilities));
   router.exact("/help", () => helpResult());
   return router;
 }
@@ -129,4 +130,45 @@ async function newSessionResult(context: CommandContext, capabilities: CommandCa
       checkpoint_cleared: result.checkpointCleared,
     },
   };
+}
+
+async function approvalsResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
+  const result = context.sessionId && capabilities.listPendingApprovals
+    ? await capabilities.listPendingApprovals(context.sessionId, context.traceId)
+    : { approvals: [] };
+  const approvals = Array.isArray(result.approvals) ? result.approvals : [];
+  return {
+    handled: true,
+    output: formatPendingApprovals(approvals),
+    metadata: {
+      command: "/approvals",
+      render_as: "text",
+      pending_count: approvals.length,
+    },
+  };
+}
+
+function formatPendingApprovals(approvals: Array<{
+  id: string;
+  summary: string;
+  risk: string;
+  category: string;
+  reason: string;
+}>): string {
+  if (approvals.length === 0) {
+    return "No pending approvals.";
+  }
+  return [
+    "## Pending Approvals",
+    "",
+    ...approvals.flatMap((item) => [
+      `- \`${item.id}\` ${item.summary}`,
+      `  Risk: ${item.risk} (${item.category})`,
+      `  Reason: ${item.reason}`,
+    ]),
+    "",
+    "Approve once: `/approve <id> once`",
+    "Allow for this session: `/approve <id> session`",
+    "Deny: `/deny <id>`",
+  ].join("\n");
 }

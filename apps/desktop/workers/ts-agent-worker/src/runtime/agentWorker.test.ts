@@ -459,6 +459,69 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("handles backend slash approvals by listing pending approvals", async () => {
+    let providerCalls = 0;
+    const listCalls: Array<{ sessionId: string; traceId: string }> = [];
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        throw new Error("slash approvals reached provider");
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      approvalBridge: {
+        requestApproval: async () => ({}),
+        resolveApproval: async () => ({}),
+        listPendingApprovals: async (sessionId: string, traceId: string) => {
+          listCalls.push({ sessionId, traceId });
+          return {
+            approvals: [
+              {
+                id: "approval-1",
+                summary: "write_file path=\"notes.md\"",
+                risk: "medium",
+                category: "filesystem_write",
+                reason: "File write/edit/delete tools can modify workspace state.",
+              },
+            ],
+          };
+        },
+      } as any,
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-approvals-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/approvals" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(providerCalls).toBe(0);
+    expect(listCalls).toEqual([{ sessionId: "session-1", traceId: "trace-1" }]);
+    expect(response).toMatchObject({
+      result: {
+        finalContent: expect.stringContaining("## Pending Approvals"),
+        stopReason: "command",
+        metadata: {
+          command: "/approvals",
+          render_as: "text",
+          pending_count: 1,
+        },
+      },
+    });
+    expect(response.result?.finalContent).toContain("`approval-1` write_file path=\"notes.md\"");
+    expect(response.result?.finalContent).toContain("Approve once: `/approve <id> once`");
+  });
+
   test("routes skills WebUI list and detail requests through the skills bridge", async () => {
     const calls: Array<{ type: string; traceId: string; name?: string }> = [];
     const worker = new AgentWorker({

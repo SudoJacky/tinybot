@@ -39,4 +39,11 @@ export class NativeApprovalBridge implements ApprovalBridge {
     });
     return (typeof result === "object" && result !== null && !Array.isArray(result) ? result : {}) as JsonObject;
   }
+
+  async listPendingApprovals(sessionId: string, traceId: string): Promise<Record<string, unknown>> {
+    const result = await this.rpcClient.request(traceId, "approval.list_pending", {
+      session_id: sessionId,
+    });
+    return (typeof result === "object" && result !== null && !Array.isArray(result) ? result : {}) as JsonObject;
+  }
 }

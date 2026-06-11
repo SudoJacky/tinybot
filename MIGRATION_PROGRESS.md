@@ -62,7 +62,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 14 | active | [ts_command_cli_runtime_migration_design.md](ts_command_cli_runtime_migration_design.md) | 先接 `CommandRouter` 和基础命令 | Continued Command Runtime Phase 1: `/help`, priority `/stop`, priority `/status`, priority `/restart`, and exact `/new` now run inside AgentWorker before provider execution. `/new` has a native `session.clear` bridge for messages/profile/checkpoint reset; knowledge cleanup and memory archive hooks remain later. |
+| 14 | active | [ts_command_cli_runtime_migration_design.md](ts_command_cli_runtime_migration_design.md) | 先接 `CommandRouter` 和基础命令 | Continued Command Runtime Phase 1: `/help`, priority `/stop`, priority `/status`, priority `/restart`, exact `/new`, and exact `/approvals` now run inside AgentWorker before provider execution. `/new` has a native `session.clear` bridge for messages/profile/checkpoint reset; `/approvals` uses native `approval.list_pending` to render session-scoped pending approvals. Knowledge cleanup and memory archive hooks remain later. |
 | 15 | todo | [ts_task_cron_background_runtime_migration_design.md](ts_task_cron_background_runtime_migration_design.md) | 迁移 task/cron/background agent turn | 依赖 Tool Runtime、Security/Approval、Provider Runtime |
 | 16 | todo | [ts_cowork_runtime_migration_design.md](ts_cowork_runtime_migration_design.md) | 先做 snapshot/store/blueprint/mutations/mailbox | scheduler/agent runtime 等前置稳定后再接 |
 
@@ -155,6 +155,7 @@
 | 2026-06-12 | Continued Batch 5 Command Runtime Phase 1: registered priority `/stop` and `/status` in the TS command router, with AgentWorker-backed session cancellation and active-run status snapshots before provider execution. |
 | 2026-06-12 | Continued Batch 5 Command Runtime Phase 1: registered priority `/restart` as a TS command contract that requests restart through an injected native bridge and returns Python-compatible `Restarting...` text without calling the provider. |
 | 2026-06-12 | Continued Batch 5 Command Runtime Phase 1: added exact `/new` with TS/native `session.clear`, resetting messages, `last_consolidated`, user profile, runtime checkpoint, and last-context metadata before returning Python-compatible `New session started.` text. |
+| 2026-06-12 | Continued Batch 5 Command Runtime Phase 1: added exact `/approvals` with TS/native `approval.list_pending`, rendering Python-compatible session-scoped pending approvals before provider execution. |
 
 ## Next Checklist
 
