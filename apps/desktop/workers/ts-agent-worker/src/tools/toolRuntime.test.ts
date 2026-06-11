@@ -131,6 +131,58 @@ describe("ToolRuntime", () => {
     ]);
   });
 
+  test("executes risky tools when native approval scope already allows them", async () => {
+    const registry = new ToolRegistry();
+    let executedArgs: Record<string, unknown> | undefined;
+    registry.register({
+      name: "write_file",
+      description: "Write file",
+      parameters: { type: "object" },
+      execute: async (args) => {
+        executedArgs = args;
+        return { content: `wrote:${String(args.path)}` };
+      },
+    });
+    const requests: unknown[] = [];
+    const runtime = new ToolRuntime(registry, {
+      approvalRuntime: new ApprovalRuntime({
+        bridge: {
+          requestApproval: async (payload) => {
+            requests.push(payload);
+            return {
+              decision: "allow",
+              status: "approved",
+              scope: "session",
+              operation: payload.operation,
+              fingerprint: payload.fingerprint,
+              sessionFingerprint: payload.sessionFingerprint,
+            };
+          },
+        },
+      }),
+    });
+
+    await expect(
+      runtime.execute("write_file", { path: "notes.md", content: "hello" }, {
+        runId: "run-1",
+        traceId: "trace-1",
+        sessionId: "session-1",
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      content: "wrote:notes.md",
+    });
+    expect(executedArgs).toEqual({ path: "notes.md", content: "hello" });
+    expect(requests).toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        sessionId: "session-1",
+        fingerprint: "write_file:notes.md",
+        sessionFingerprint: "write_file:notes.md",
+      }),
+    ]);
+  });
+
   test("allows read-only tools without approval bridge calls", async () => {
     const registry = new ToolRegistry();
     registry.register({

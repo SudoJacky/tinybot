@@ -322,8 +322,8 @@ impl WorkerRpcRouter {
 struct WorkerApprovalRpc {
     policy: CapabilityPolicy,
     pending: HashMap<String, ApprovalRecord>,
-    approved_once: Vec<String>,
-    approved_session: Vec<String>,
+    approved_once: Vec<ApprovalGrant>,
+    approved_session: Vec<ApprovalGrant>,
     denied: Vec<Value>,
 }
 
@@ -344,6 +344,12 @@ impl WorkerApprovalRpc {
     ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
         self.require(WorkerCapability::ApprovalRequest)?;
         let record = ApprovalRecord::from_params(params);
+        if self.consume_once_approval(&record) {
+            return Ok(approval_allowed_result(&record, "once"));
+        }
+        if self.has_session_approval(&record) {
+            return Ok(approval_allowed_result(&record, "session"));
+        }
         let approval_id = record.id.clone();
         let mut result = serde_json::json!({
             "content": "Waiting for approval.",
@@ -384,12 +390,15 @@ impl WorkerApprovalRpc {
         self.pending.remove(&params.approval_id);
         if params.approved {
             if scope == "once" {
-                if !self.approved_once.contains(&record.fingerprint) {
-                    self.approved_once.push(record.fingerprint.clone());
+                let grant = ApprovalGrant::once(&record);
+                if !self.approved_once.contains(&grant) {
+                    self.approved_once.push(grant);
                 }
-            } else if !self.approved_session.contains(&record.session_fingerprint) {
-                self.approved_session
-                    .push(record.session_fingerprint.clone());
+            } else {
+                let grant = ApprovalGrant::session(&record);
+                if !self.approved_session.contains(&grant) {
+                    self.approved_session.push(grant);
+                }
             }
         } else {
             self.denied.push(serde_json::json!({
@@ -414,6 +423,20 @@ impl WorkerApprovalRpc {
         }))
     }
 
+    fn consume_once_approval(&mut self, record: &ApprovalRecord) -> bool {
+        let grant = ApprovalGrant::once(record);
+        let Some(index) = self.approved_once.iter().position(|item| item == &grant) else {
+            return false;
+        };
+        self.approved_once.remove(index);
+        true
+    }
+
+    fn has_session_approval(&self, record: &ApprovalRecord) -> bool {
+        let grant = ApprovalGrant::session(record);
+        self.approved_session.contains(&grant)
+    }
+
     fn require(
         &self,
         capability: WorkerCapability,
@@ -428,6 +451,28 @@ impl WorkerApprovalRpc {
             false,
             crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
         ))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ApprovalGrant {
+    session_id: Option<String>,
+    fingerprint: String,
+}
+
+impl ApprovalGrant {
+    fn once(record: &ApprovalRecord) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            fingerprint: record.fingerprint.clone(),
+        }
+    }
+
+    fn session(record: &ApprovalRecord) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            fingerprint: record.session_fingerprint.clone(),
+        }
     }
 }
 
@@ -504,6 +549,26 @@ impl ApprovalRecord {
             session_fingerprint,
         }
     }
+}
+
+fn approval_allowed_result(record: &ApprovalRecord, scope: &str) -> Value {
+    let mut result = serde_json::json!({
+        "decision": "allow",
+        "status": "approved",
+        "scope": scope,
+        "operation": record.operation,
+        "runId": record.run_id,
+        "category": record.category,
+        "risk": record.risk,
+        "reason": record.reason,
+        "summary": record.summary,
+        "fingerprint": record.fingerprint,
+        "sessionFingerprint": record.session_fingerprint,
+    });
+    if let Some(session_id) = record.session_id.clone() {
+        result["sessionId"] = Value::String(session_id);
+    }
+    result
 }
 
 fn approval_id_for(
@@ -1909,7 +1974,7 @@ mod tests {
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
     use crate::worker_protocol::WorkerRequest;
     use crate::worker_rpc::WorkerRpcRouter;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::path::PathBuf;
 
     #[test]
@@ -3212,6 +3277,47 @@ mod tests {
         assert!(project_view.contains("Use the TS worker for experimental agent runs."));
     }
 
+    fn approval_test_router(fixture: &WorkspaceFixture) -> WorkerRpcRouter {
+        WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ApprovalRequest,
+                WorkerCapability::ApprovalResolve,
+            ]),
+        )
+    }
+
+    fn approval_request(
+        request_id: &'static str,
+        run_id: &str,
+        session_id: &str,
+        operation: Value,
+        fingerprint: &str,
+        session_fingerprint: &str,
+    ) -> WorkerRequest {
+        WorkerRequest::new(
+            request_id,
+            "trace-1",
+            "approval.request",
+            json!({
+                "run_id": run_id,
+                "session_id": session_id,
+                "operation": operation,
+                "classification": {
+                    "category": "filesystem_write",
+                    "risk": "medium",
+                    "reason": "File write/edit/delete tools can modify workspace state."
+                },
+                "fingerprint": fingerprint,
+                "session_fingerprint": session_fingerprint,
+                "summary": "write_file path=\"notes/today.md\""
+            }),
+        )
+    }
+
     #[test]
     fn dispatches_approval_request() {
         let fixture = WorkspaceFixture::new();
@@ -3371,6 +3477,152 @@ mod tests {
             response.error.as_ref().map(|error| error.message.as_str()),
             Some("pending approval not found")
         );
+    }
+
+    #[test]
+    fn approval_once_scope_is_consumed_by_the_next_matching_request() {
+        let fixture = WorkspaceFixture::new();
+        let operation = json!({
+            "toolName": "write_file",
+            "arguments": { "path": "notes/today.md", "contents": "hello" },
+            "toolCallId": "call-1"
+        });
+        let mut router = approval_test_router(&fixture);
+        let request_response = router.dispatch(&approval_request(
+            "req-request",
+            "run-1",
+            "session-1",
+            operation.clone(),
+            "write_file:notes/today.md",
+            "write_file:notes/today.md",
+        ));
+        let approval_id = request_response.result.as_ref().unwrap()["approvalId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let resolve_response = router.dispatch(&WorkerRequest::new(
+            "req-resolve",
+            "trace-1",
+            "approval.resolve",
+            json!({
+                "session_id": "session-1",
+                "approval_id": approval_id,
+                "approved": true,
+                "scope": "once"
+            }),
+        ));
+        assert!(resolve_response.error.is_none());
+
+        let allowed_response = router.dispatch(&approval_request(
+            "req-allowed",
+            "run-2",
+            "session-1",
+            operation.clone(),
+            "write_file:notes/today.md",
+            "write_file:notes/today.md",
+        ));
+        assert_eq!(
+            allowed_response.result.as_ref().unwrap()["decision"],
+            "allow"
+        );
+        assert_eq!(allowed_response.result.as_ref().unwrap()["scope"], "once");
+        assert_eq!(
+            allowed_response.result.as_ref().unwrap()["operation"],
+            operation
+        );
+        assert!(allowed_response.error.is_none());
+
+        let pending_again_response = router.dispatch(&approval_request(
+            "req-pending-again",
+            "run-3",
+            "session-1",
+            operation,
+            "write_file:notes/today.md",
+            "write_file:notes/today.md",
+        ));
+        let result = pending_again_response.result.as_ref().unwrap();
+        assert_eq!(result["stopReason"], "awaiting_approval");
+        assert_eq!(result["awaitingUserInput"], true);
+        assert!(result["approvalId"]
+            .as_str()
+            .unwrap()
+            .starts_with("approval-"));
+        assert!(pending_again_response.error.is_none());
+    }
+
+    #[test]
+    fn approval_session_scope_allows_matching_session_fingerprint_only_in_same_session() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = approval_test_router(&fixture);
+        let original_operation = json!({
+            "toolName": "write_file",
+            "arguments": { "path": "notes/today.md", "contents": "hello" },
+            "toolCallId": "call-1"
+        });
+        let request_response = router.dispatch(&approval_request(
+            "req-request",
+            "run-1",
+            "session-1",
+            original_operation,
+            "write_file:notes/today.md:hello",
+            "write_file:notes/today.md",
+        ));
+        let approval_id = request_response.result.as_ref().unwrap()["approvalId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let resolve_response = router.dispatch(&WorkerRequest::new(
+            "req-resolve",
+            "trace-1",
+            "approval.resolve",
+            json!({
+                "session_id": "session-1",
+                "approval_id": approval_id,
+                "approved": true,
+                "scope": "session"
+            }),
+        ));
+        assert!(resolve_response.error.is_none());
+
+        let changed_operation = json!({
+            "toolName": "write_file",
+            "arguments": { "path": "notes/today.md", "contents": "changed" },
+            "toolCallId": "call-2"
+        });
+        let allowed_response = router.dispatch(&approval_request(
+            "req-allowed",
+            "run-2",
+            "session-1",
+            changed_operation.clone(),
+            "write_file:notes/today.md:changed",
+            "write_file:notes/today.md",
+        ));
+        assert_eq!(
+            allowed_response.result.as_ref().unwrap()["decision"],
+            "allow"
+        );
+        assert_eq!(
+            allowed_response.result.as_ref().unwrap()["scope"],
+            "session"
+        );
+        assert_eq!(
+            allowed_response.result.as_ref().unwrap()["operation"],
+            changed_operation
+        );
+        assert!(allowed_response.error.is_none());
+
+        let other_session_response = router.dispatch(&approval_request(
+            "req-other-session",
+            "run-3",
+            "session-2",
+            changed_operation,
+            "write_file:notes/today.md:changed",
+            "write_file:notes/today.md",
+        ));
+        let result = other_session_response.result.as_ref().unwrap();
+        assert_eq!(result["stopReason"], "awaiting_approval");
+        assert_eq!(result["awaitingUserInput"], true);
+        assert!(other_session_response.error.is_none());
     }
 
     #[test]

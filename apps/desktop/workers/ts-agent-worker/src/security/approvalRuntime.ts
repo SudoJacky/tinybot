@@ -42,6 +42,9 @@ export class ApprovalRuntime {
       ...buildApprovalToolRequest(tool, args),
     };
     const result = await this.bridge.requestApproval(payload, context.traceId ?? context.runId);
+    if (result.decision === "allow") {
+      return undefined;
+    }
     const { content: rawContent, ...rawMetadata } = result;
     return {
       content: typeof rawContent === "string" ? rawContent : "Waiting for approval.",
