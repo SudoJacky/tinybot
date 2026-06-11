@@ -48,7 +48,7 @@ export function extractRetryAfterSeconds(error: unknown): number | undefined {
   const headerValue =
     header(error, "retry-after") ??
     header(asObject(error)?.response, "retry-after");
-  const parsedHeader = parsePositiveSeconds(headerValue);
+  const parsedHeader = parseRetryAfterHeaderSeconds(headerValue);
   if (parsedHeader !== undefined) {
     return parsedHeader;
   }
@@ -126,6 +126,21 @@ function parsePositiveSeconds(value: unknown): number | undefined {
   }
   const parsed = Number(String(value).trim());
   return Number.isFinite(parsed) && parsed > 0 ? Math.ceil(parsed) : undefined;
+}
+
+function parseRetryAfterHeaderSeconds(value: unknown): number | undefined {
+  const numeric = parsePositiveSeconds(value);
+  if (numeric !== undefined) {
+    return numeric;
+  }
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const timestampMs = Date.parse(String(value).trim());
+  if (!Number.isFinite(timestampMs)) {
+    return undefined;
+  }
+  return Math.max(1, Math.ceil((timestampMs - Date.now()) / 1000));
 }
 
 function retrySecondsFromMatch(match: RegExpMatchArray | null, defaultUnit?: string): number | undefined {

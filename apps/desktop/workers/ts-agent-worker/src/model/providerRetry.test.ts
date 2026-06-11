@@ -54,4 +54,12 @@ describe("providerRetry", () => {
     expect(extractRetryAfterSeconds({ response: { text: "wait 2 minutes before retry" } })).toBe(120);
     expect(extractRetryAfterSeconds({ response: { text: "{\"retry_after\": 3}" } })).toBe(3);
   });
+
+  test("extracts retry-after from HTTP-date headers like the Python provider", () => {
+    const seconds = extractRetryAfterSeconds({
+      headers: { "retry-after": "Wed, 21 Oct 2099 07:28:00 GMT" },
+    });
+
+    expect(seconds).toBeGreaterThan(0);
+  });
 });
