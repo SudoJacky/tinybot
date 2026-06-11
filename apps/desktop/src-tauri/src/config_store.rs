@@ -46,6 +46,24 @@ pub enum ConfigStoreError {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct ConfigPatchBridgeResult {
+    pub ok: bool,
+    pub config: Value,
+    #[serde(rename = "updatedFields", alias = "updated_fields")]
+    pub updated_fields: Vec<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct ConfigPatchApplyResult {
+    pub ok: bool,
+    pub config: Value,
+    #[serde(rename = "updatedFields", alias = "updated_fields")]
+    pub updated_fields: Vec<String>,
+    pub error: Option<String>,
+}
+
 impl ConfigStore {
     pub fn load(config_path: PathBuf, default_snapshot: Value) -> Result<Self, ConfigStoreError> {
         match fs::read_to_string(&config_path) {
@@ -109,6 +127,40 @@ impl ConfigStore {
         fs::write(&self.config_path, contents).map_err(|source| ConfigStoreError::Io {
             path: self.config_path.clone(),
             source,
+        })
+    }
+
+    pub fn apply_validated_patch_result(
+        &mut self,
+        result: ConfigPatchBridgeResult,
+    ) -> Result<ConfigPatchApplyResult, ConfigStoreError> {
+        if !result.ok {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: self.snapshot.clone(),
+                updated_fields: Vec::new(),
+                error: result.error,
+            });
+        }
+        if !result.config.is_object() {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: self.snapshot.clone(),
+                updated_fields: Vec::new(),
+                error: Some(
+                    "validated config patch result must contain an object config".to_string(),
+                ),
+            });
+        }
+
+        self.snapshot = result.config;
+        self.save_snapshot()?;
+
+        Ok(ConfigPatchApplyResult {
+            ok: true,
+            config: self.snapshot.clone(),
+            updated_fields: result.updated_fields,
+            error: None,
         })
     }
 
@@ -280,6 +332,73 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&saved).expect("saved config should be JSON"),
             json!({"tools":{"restrictToWorkspace":false}})
+        );
+    }
+
+    #[test]
+    fn apply_validated_patch_result_updates_snapshot_and_saves_file() {
+        let fixture = ConfigStoreFixture::new();
+        let path = fixture.path("config.json");
+        let mut store = ConfigStore::from_snapshot(path.clone(), default_snapshot());
+
+        let result = store
+            .apply_validated_patch_result(ConfigPatchBridgeResult {
+                ok: true,
+                config: json!({"agents":{"defaults":{"model":"gpt-5","provider":"openai"}}}),
+                updated_fields: vec![
+                    "agents.defaults.model".to_string(),
+                    "agents.defaults.provider".to_string(),
+                ],
+                error: None,
+            })
+            .expect("validated patch should save");
+
+        assert!(result.ok);
+        assert_eq!(
+            result.updated_fields,
+            vec!["agents.defaults.model", "agents.defaults.provider"]
+        );
+        assert_eq!(store.snapshot()["agents"]["defaults"]["model"], "gpt-5");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &fs::read_to_string(path).expect("patched config should save")
+            )
+            .expect("patched config should be JSON"),
+            json!({"agents":{"defaults":{"model":"gpt-5","provider":"openai"}}})
+        );
+    }
+
+    #[test]
+    fn apply_failed_patch_result_preserves_snapshot_and_file() {
+        let fixture = ConfigStoreFixture::new();
+        let path = fixture.path("config.json");
+        let original = default_snapshot();
+        let mut store = ConfigStore::from_snapshot(path.clone(), original.clone());
+        store
+            .save_snapshot()
+            .expect("fixture config should save before failed patch");
+
+        let result = store
+            .apply_validated_patch_result(ConfigPatchBridgeResult {
+                ok: false,
+                config: json!({"agents":{"defaults":{"model":" "}}}),
+                updated_fields: vec!["agents.defaults.model".to_string()],
+                error: Some("agents.defaults.model must not be empty".to_string()),
+            })
+            .expect("failed patch result should not be an IO error");
+
+        assert!(!result.ok);
+        assert_eq!(
+            result.error,
+            Some("agents.defaults.model must not be empty".to_string())
+        );
+        assert_eq!(store.snapshot(), &original);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                &fs::read_to_string(path).expect("original config should still exist")
+            )
+            .expect("original config should be JSON"),
+            original
         );
     }
 
