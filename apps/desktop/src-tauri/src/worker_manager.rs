@@ -1017,7 +1017,7 @@ mod tests {
                     event,
                     WorkerManagerEvent::Protocol(protocol_event)
                         if protocol_event.event == "agent.tool.result"
-                            && protocol_event.payload["content"] == "hello from native workspace"
+                            && protocol_event.payload["content"].as_str().is_some_and(|content| content.contains("1| hello from native workspace"))
                 )
             });
             let has_done = events.iter().any(|event| {
@@ -1068,7 +1068,7 @@ mod tests {
                 event,
                 WorkerManagerEvent::Protocol(protocol_event)
                     if protocol_event.event == "agent.tool.result"
-                        && protocol_event.payload["content"] == "hello from native workspace"
+                        && protocol_event.payload["content"].as_str().is_some_and(|content| content.contains("1| hello from native workspace"))
             )
         }));
         assert!(events.iter().any(|event| {

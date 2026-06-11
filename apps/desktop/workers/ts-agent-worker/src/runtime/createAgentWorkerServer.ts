@@ -10,7 +10,10 @@ import {
   createNativeMemoryTools,
   createNativeRagTools,
   createNativeReadOnlyTools,
+  createNativeShellTools,
+  createNativeWriteTools,
 } from "../tools/nativeToolProxy.ts";
+import { registerToolsByPolicy } from "../tools/toolPolicy.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import { NativeApprovalBridge } from "./approvalBridge.ts";
 import { AgentWorker } from "./agentWorker.ts";
@@ -23,6 +26,8 @@ export type CreateAgentWorkerServerOptions = {
   provider?: ModelProvider;
   tools: ToolRegistry;
   env?: Record<string, string | undefined>;
+  capabilities?: string[];
+  channel?: string;
   createModelProvider?: (config: ModelProviderConfig) => ModelProvider;
   writeLine: (line: string) => void;
   writeLog: (line: string) => void;
@@ -30,24 +35,23 @@ export type CreateAgentWorkerServerOptions = {
 
 export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions): StdioServer {
   const rpcClient = new RpcClient({ writeLine: options.writeLine });
-  for (const tool of createNativeReadOnlyTools(rpcClient)) {
-    options.tools.register(tool);
-  }
-  for (const tool of createNativeApprovalTools(rpcClient)) {
-    options.tools.register(tool);
-  }
-  for (const tool of createNativeFormTools(rpcClient)) {
-    options.tools.register(tool);
-  }
-  for (const tool of createNativeMemoryTools(rpcClient)) {
-    options.tools.register(tool);
-  }
-  for (const tool of createNativeRagTools(rpcClient)) {
-    options.tools.register(tool);
-  }
-  for (const tool of createNativeMcpTools(rpcClient)) {
-    options.tools.register(tool);
-  }
+  registerToolsByPolicy(
+    options.tools,
+    [
+      ...createNativeReadOnlyTools(rpcClient),
+      ...createNativeWriteTools(rpcClient),
+      ...createNativeShellTools(rpcClient),
+      ...createNativeApprovalTools(rpcClient),
+      ...createNativeFormTools(rpcClient),
+      ...createNativeMemoryTools(rpcClient),
+      ...createNativeRagTools(rpcClient),
+      ...createNativeMcpTools(rpcClient),
+    ],
+    {
+      capabilities: options.capabilities ?? DEFAULT_NATIVE_TOOL_CAPABILITIES,
+      channel: options.channel ?? "agent_ui",
+    },
+  );
   const writeEvent = (event: WorkerEvent): void => {
     options.writeLine(JSON.stringify(event));
   };
@@ -72,6 +76,17 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     writeLog: options.writeLog,
   });
 }
+
+const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
+  "fs.workspace.read",
+  "fs.workspace.write",
+  "shell.execute",
+  "approval.request",
+  "form.request",
+  "memory.read",
+  "memory.write",
+  "mcp.call",
+];
 
 class LazyModelProvider implements ModelProvider {
   private provider: Promise<ModelProvider> | null = null;

@@ -3,7 +3,9 @@ import { describe, expect, test } from "vitest";
 import type { JsonObject } from "../protocol/messages";
 import {
   createNativeApprovalTools,
+  createNativeShellTools,
   createNativeFormTools,
+  createNativeWriteTools,
   createNativeMcpTools,
   createNativeMemoryTools,
   createNativeRagTools,
@@ -29,41 +31,167 @@ class FakeRpcClient {
 }
 
 describe("createNativeReadOnlyTools", () => {
-  test("creates a read_file tool backed by workspace.read_file", async () => {
-    const rpc = new FakeRpcClient([{ path: "README.md", contents: "hello\nworld" }]);
+  test("creates a read_file tool backed by paginated workspace.read_file", async () => {
+    const rpc = new FakeRpcClient([{ path: "README.md", content: "2| hello\n3| world" }]);
     const [readFile] = createNativeReadOnlyTools(rpc);
 
-    const result = await readFile.execute({ path: "README.md" }, { runId: "run-1", traceId: "trace-1" });
+    const result = await readFile.execute({ path: "README.md", offset: 2, limit: 2 }, { runId: "run-1", traceId: "trace-1" });
 
     expect(readFile.name).toBe("read_file");
-    expect(result.content).toBe("hello\nworld");
+    expect(readFile.readOnly).toBe(true);
+    expect(readFile.concurrencySafe).toBe(true);
+    expect(result.content).toBe("2| hello\n3| world");
     expect(rpc.requests).toEqual([
       {
         traceId: "trace-1",
         method: "workspace.read_file",
-        params: { path: "README.md" },
+        params: { path: "README.md", offset: 2, limit: 2, format: "numbered_lines" },
       },
     ]);
   });
 
-  test("creates a list_dir tool backed by workspace.list_files", async () => {
+  test("creates a list_dir tool backed by path-aware workspace.list_dir", async () => {
     const rpc = new FakeRpcClient([
-      [
-        { path: "README.md", kind: "file", bytes: 12 },
-        { path: "src/index.ts", kind: "file", bytes: 100 },
-      ],
+      {
+        entries: [
+          { path: "src/", kind: "dir" },
+          { path: "src/index.ts", kind: "file", size_bytes: 100 },
+        ],
+      },
     ]);
     const [, listDir] = createNativeReadOnlyTools(rpc);
 
-    const result = await listDir.execute({}, { runId: "run-1", traceId: "trace-1" });
+    const result = await listDir.execute(
+      { path: ".", recursive: true, max_entries: 20 },
+      { runId: "run-1", traceId: "trace-1" },
+    );
 
     expect(listDir.name).toBe("list_dir");
-    expect(result.content).toBe("README.md\nsrc/index.ts");
+    expect(listDir.readOnly).toBe(true);
+    expect(listDir.concurrencySafe).toBe(true);
+    expect(result.content).toBe("src/\nsrc/index.ts");
     expect(rpc.requests).toEqual([
       {
         traceId: "trace-1",
-        method: "workspace.list_files",
-        params: {},
+        method: "workspace.list_dir",
+        params: { path: ".", recursive: true, max_entries: 20 },
+      },
+    ]);
+  });
+});
+
+describe("createNativeWriteTools", () => {
+  test("creates a write_file tool backed by workspace.write_file", async () => {
+    const rpc = new FakeRpcClient([{ path: "notes/today.md", bytes_written: 5 }]);
+    const [writeFile] = createNativeWriteTools(rpc);
+
+    const result = await writeFile.execute(
+      { path: "notes/today.md", content: "hello" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+
+    expect(writeFile.name).toBe("write_file");
+    expect(result.content).toBe("Wrote 5 bytes to notes/today.md.");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "workspace.write_file",
+        params: { path: "notes/today.md", contents: "hello" },
+      },
+    ]);
+  });
+
+  test("creates an edit_file tool that reads raw content and writes the replacement", async () => {
+    const rpc = new FakeRpcClient([
+      { path: "notes/today.md", content: "hello world", content_type: "text" },
+      { path: "notes/today.md", bytes_written: 12 },
+    ]);
+    const [, editFile] = createNativeWriteTools(rpc);
+
+    const result = await editFile.execute(
+      { path: "notes/today.md", old_text: "world", new_text: "desktop" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+
+    expect(editFile.name).toBe("edit_file");
+    expect(result.content).toBe("Edited notes/today.md.");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "workspace.read_file",
+        params: { path: "notes/today.md", format: "raw" },
+      },
+      {
+        traceId: "trace-1",
+        method: "workspace.write_file",
+        params: { path: "notes/today.md", contents: "hello desktop" },
+      },
+    ]);
+  });
+
+  test("edit_file warns when a replacement is ambiguous", async () => {
+    const rpc = new FakeRpcClient([{ path: "notes/today.md", content: "repeat\nrepeat\n", content_type: "text" }]);
+    const [, editFile] = createNativeWriteTools(rpc);
+
+    const result = await editFile.execute(
+      { path: "notes/today.md", old_text: "repeat", new_text: "once" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+
+    expect(result.content).toBe("Warning: old_text appears 2 times. Provide more context to make it unique, or set replace_all=true.");
+    expect(rpc.requests).toHaveLength(1);
+  });
+
+  test("creates a delete_file tool backed by workspace.delete_file", async () => {
+    const rpc = new FakeRpcClient([{ path: "notes", deleted: true, kind: "dir" }]);
+    const [, , deleteFile] = createNativeWriteTools(rpc);
+
+    const result = await deleteFile.execute(
+      { path: "notes", recursive: true },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+
+    expect(deleteFile.name).toBe("delete_file");
+    expect(result.content).toBe("Deleted dir notes.");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "workspace.delete_file",
+        params: { path: "notes", recursive: true },
+      },
+    ]);
+  });
+});
+
+describe("createNativeShellTools", () => {
+  test("creates an exec tool backed by shell.execute", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        stdout: "hello\n",
+        stderr: "",
+        exit_code: 0,
+        timed_out: false,
+        blocked: false,
+        truncated: false,
+        content: "hello\n\nExit code: 0",
+      },
+    ]);
+    const [exec] = createNativeShellTools(rpc);
+
+    const result = await exec.execute(
+      { command: "echo hello", working_dir: ".", timeout: 5 },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+
+    expect(exec.name).toBe("exec");
+    expect(exec.exclusive).toBe(true);
+    expect(result.content).toBe("hello\n\nExit code: 0");
+    expect(result.metadata).toEqual({ exitCode: 0, timedOut: false, blocked: false, truncated: false });
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "shell.execute",
+        params: { command: "echo hello", working_dir: ".", timeout: 5, restrict_to_workspace: true },
       },
     ]);
   });

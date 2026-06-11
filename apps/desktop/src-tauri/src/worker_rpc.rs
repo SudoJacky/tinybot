@@ -4,7 +4,8 @@ use crate::worker_diagnostics::WorkerDiagnosticsRpc;
 use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerResponse};
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
 use crate::worker_session::{SessionMetadata, WorkerSessionRpc};
-use crate::worker_workspace::WorkerWorkspaceRpc;
+use crate::worker_shell::{ShellExecuteParams, WorkerShellRpc};
+use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, WorkspaceReadOptions};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -22,6 +23,7 @@ pub struct WorkerRpcRouter {
     secret: WorkerSecretRpc,
     session: WorkerSessionRpc,
     diagnostics: WorkerDiagnosticsRpc,
+    shell: WorkerShellRpc,
     approval: WorkerApprovalRpc,
     form: WorkerFormRpc,
     memory: WorkerMemoryRpc,
@@ -42,6 +44,7 @@ impl WorkerRpcRouter {
             secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
             session: WorkerSessionRpc::new(sessions, policy.clone()),
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
+            shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
             approval: WorkerApprovalRpc::new(policy.clone()),
             form: WorkerFormRpc::new(policy.clone()),
             memory: WorkerMemoryRpc::new(workspace_root, policy.clone()),
@@ -71,8 +74,15 @@ impl WorkerRpcRouter {
                     .map_err(serialization_error)
             }
             "workspace.read_file" => {
-                let params: PathParams = parse_params(request)?;
-                serde_json::to_value(self.workspace.read_file(&params.path)?)
+                let params: ReadFileParams = parse_params(request)?;
+                serde_json::to_value(self.workspace.read_file_with_options(
+                    &params.path,
+                    WorkspaceReadOptions {
+                        offset: params.offset,
+                        limit: params.limit,
+                        format: params.format.unwrap_or(WorkspaceReadFormat::Raw),
+                    },
+                )?)
                     .map_err(serialization_error)
             }
             "workspace.read_bootstrap_files" => {
@@ -84,6 +94,23 @@ impl WorkerRpcRouter {
                 let params: WriteFileParams = parse_params(request)?;
                 serde_json::to_value(self.workspace.write_file(&params.path, &params.contents)?)
                     .map_err(serialization_error)
+            }
+            "workspace.list_dir" => {
+                let params: ListDirParams = parse_params(request)?;
+                serde_json::to_value(self.workspace.list_dir(
+                    &params.path,
+                    params.recursive.unwrap_or(false),
+                    params.max_entries,
+                )?)
+                .map_err(serialization_error)
+            }
+            "workspace.delete_file" => {
+                let params: DeleteFileParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.workspace
+                        .delete_file(&params.path, params.recursive.unwrap_or(false))?,
+                )
+                .map_err(serialization_error)
             }
             "workspace.list_files" => {
                 serde_json::to_value(self.workspace.list_files()?).map_err(serialization_error)
@@ -146,6 +173,10 @@ impl WorkerRpcRouter {
                 let params: DiagnosticsAppendParams = parse_params(request)?;
                 serde_json::to_value(self.diagnostics.append(&params.stream, &params.line)?)
                     .map_err(serialization_error)
+            }
+            "shell.execute" => {
+                let params: ShellExecuteParams = parse_params(request)?;
+                serde_json::to_value(self.shell.execute(params)?).map_err(serialization_error)
             }
             "approval.request" => {
                 let params: ApprovalRequestParams = parse_params(request)?;
@@ -634,6 +665,33 @@ struct PathParams {
 }
 
 #[derive(Deserialize)]
+struct ReadFileParams {
+    path: String,
+    #[serde(default)]
+    offset: Option<usize>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_workspace_read_format")]
+    format: Option<WorkspaceReadFormat>,
+}
+
+#[derive(Deserialize)]
+struct ListDirParams {
+    path: String,
+    #[serde(default)]
+    recursive: Option<bool>,
+    #[serde(default)]
+    max_entries: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct DeleteFileParams {
+    path: String,
+    #[serde(default)]
+    recursive: Option<bool>,
+}
+
+#[derive(Deserialize)]
 struct BootstrapFilesParams {
     files: Vec<String>,
 }
@@ -774,6 +832,25 @@ fn parse_params<T: for<'de> Deserialize<'de>>(
             false,
             crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
         )
+    })
+}
+
+fn deserialize_workspace_read_format<'de, D>(
+    deserializer: D,
+) -> Result<Option<WorkspaceReadFormat>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(match value.as_deref() {
+        None => None,
+        Some("raw") => Some(WorkspaceReadFormat::Raw),
+        Some("numbered_lines") => Some(WorkspaceReadFormat::NumberedLines),
+        Some(other) => {
+            return Err(serde::de::Error::custom(format!(
+                "unsupported workspace read format: {other}"
+            )));
+        }
     })
 }
 
@@ -1354,7 +1431,16 @@ mod tests {
         assert!(response.error.is_none());
         assert_eq!(
             response.result,
-            Some(json!({ "path": "notes/today.md", "contents": "hello router" }))
+            Some(json!({
+                "path": "notes/today.md",
+                "contents": "hello router",
+                "content": "hello router",
+                "content_type": "text",
+                "line_start": null,
+                "line_end": null,
+                "line_total": null,
+                "truncated": false
+            }))
         );
     }
 
@@ -2307,6 +2393,73 @@ mod tests {
                 "sessionId": "session-1"
             }))
         );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_workspace_list_dir_and_delete_file_requests() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "hello");
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead, WorkerCapability::FsWorkspaceWrite]),
+        );
+
+        let list_response = router.dispatch(&WorkerRequest::new(
+            "req-list",
+            "trace-1",
+            "workspace.list_dir",
+            json!({ "path": ".", "recursive": true, "max_entries": 10 }),
+        ));
+        let delete_response = router.dispatch(&WorkerRequest::new(
+            "req-delete",
+            "trace-1",
+            "workspace.delete_file",
+            json!({ "path": "notes", "recursive": true }),
+        ));
+
+        assert_eq!(
+            list_response.result.as_ref().unwrap()["entries"][0]["path"],
+            "notes/"
+        );
+        assert_eq!(
+            list_response.result.as_ref().unwrap()["entries"][1]["path"],
+            "notes/today.md"
+        );
+        assert_eq!(
+            delete_response.result,
+            Some(json!({ "path": "notes", "kind": "dir", "deleted": true }))
+        );
+        assert!(list_response.error.is_none());
+        assert!(delete_response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_shell_execute_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::ShellExecute]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-shell",
+            "trace-1",
+            "shell.execute",
+            json!({ "command": "echo tinybot", "working_dir": ".", "timeout": 5 }),
+        ));
+
+        let result = response.result.expect("shell.execute should return result");
+        assert_eq!(result["exit_code"], 0);
+        assert_eq!(result["timed_out"], false);
+        assert_eq!(result["blocked"], false);
+        assert!(result["content"].as_str().unwrap().contains("tinybot"));
         assert!(response.error.is_none());
     }
 
