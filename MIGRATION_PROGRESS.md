@@ -54,7 +54,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 10 | todo | [ts_skills_runtime_migration_design.md](ts_skills_runtime_migration_design.md) | 先解决 prompt 行为 parity，再做 CRUD | 放在 ContextBuilder 之后、WebUI skills routes 切换之前 |
-| 11 | todo | [ts_memory_notes_migration_design.md](ts_memory_notes_migration_design.md) | 迁移 memory/notes persistent data 能力 | 依赖 tool/context/session，建议在 approval gate 后推进 |
+| 11 | active | [ts_memory_notes_migration_design.md](ts_memory_notes_migration_design.md) | 迁移 memory/notes persistent data 能力 | 已启动 TS/native Memory Notes recall 与显式操作面；`memory.search/save/trace/reject/supersede` 已具备 Rust RPC 与 TS native tools 起点，后续补 native-owned recall/evidence capture |
 | 12 | todo | [ts_knowledge_rag_migration_design.md](ts_knowledge_rag_migration_design.md) | 先做 TS types/formatting/tool bridge 和 sparse retrieval | semantic/GraphRAG 后置；当前相关 OpenSpec in-progress |
 | 13 | todo | [ts_mcp_runtime_migration_design.md](ts_mcp_runtime_migration_design.md) | 接入 MCP 外部动态工具层 | 应在 Tool Runtime + Approval + Config 稳定后做 |
 
@@ -115,6 +115,7 @@
 | 2026-06-12 | 继续 Batch 2 context/session 组合边界：让 `agent.run_input` 的 context metadata 传入 `TurnLifecycle.finalizeTurn()`，使 `session.persist_turn` 能收到 history/bootstrap/bridge metadata，而不仅返回给调用方。 |
 | 2026-06-12 | Closed the native persist-turn boundary for run input context metadata: Rust `session.persist_turn` now accepts snake_case/camelCase metadata, stores it on the persisted session turn, and clears stale metadata when absent. |
 | 2026-06-12 | Started TS Memory Notes recall in `agent.run_input`: `NativeContextBridge` now reads active notes through native `memory.search`, `ContextBuilder` injects Python-style `[MEMORY RECALL]` system context, and context metadata carries `_memory_references`. |
+| 2026-06-12 | Extended TS/native Memory Notes operations: Rust worker RPC now supports `memory.trace`, `memory.reject`, and `memory.supersede`, and TS native tools expose `trace_memory_note`, `reject_memory_note`, and `supersede_memory_note`. |
 
 ## Next Checklist
 

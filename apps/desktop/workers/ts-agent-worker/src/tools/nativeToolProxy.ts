@@ -26,7 +26,13 @@ export function createNativeFormTools(rpcClient: NativeRpcClient): Tool[] {
 }
 
 export function createNativeMemoryTools(rpcClient: NativeRpcClient): Tool[] {
-  return [createSearchMemoryNotesTool(rpcClient), createSaveMemoryNoteTool(rpcClient)];
+  return [
+    createSearchMemoryNotesTool(rpcClient),
+    createSaveMemoryNoteTool(rpcClient),
+    createTraceMemoryNoteTool(rpcClient),
+    createRejectMemoryNoteTool(rpcClient),
+    createSupersedeMemoryNoteTool(rpcClient),
+  ];
 }
 
 export function createNativeRagTools(rpcClient: NativeRpcClient): Tool[] {
@@ -491,6 +497,127 @@ function createSaveMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
   };
 }
 
+function createTraceMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "trace_memory_note",
+    description: "Trace a Memory Note to its canonical JSONL row and rendered memory view location.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["memory.read"],
+    parameters: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", minLength: 1 },
+      },
+      required: ["note_id"],
+    },
+    execute: async (args, context) => {
+      const noteId = stringArg(args, "note_id");
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "memory.trace", {
+        note_id: noteId,
+      })) ?? {};
+      return { content: formatMemoryTrace(result) };
+    },
+  };
+}
+
+function createRejectMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "reject_memory_note",
+    description: "Mark a Memory Note as rejected so it no longer appears in active memory recall or managed views.",
+    capabilities: ["memory.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", minLength: 1 },
+        reason: { type: "string" },
+      },
+      required: ["note_id"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = { note_id: stringArg(args, "note_id") };
+      copyOptionalStringArg(args, params, "reason");
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "memory.reject", params)) ?? {};
+      const note = asObject(result.note) ?? {};
+      return { content: `Memory Note rejected: ${asString(note.id) ?? params.note_id}` };
+    },
+  };
+}
+
+function createSupersedeMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "supersede_memory_note",
+    description: "Replace an existing Memory Note with a new active note and mark the old note as superseded.",
+    capabilities: ["memory.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        note_id: { type: "string", minLength: 1 },
+        replacement_content: { type: "string", minLength: 1 },
+        note_type: { type: "string", enum: ["preference", "instruction", "project", "decision", "fix", "followup"] },
+        scope: { type: "string", enum: ["user", "assistant", "project", "session"] },
+        priority: { type: "number", minimum: 0, maximum: 1 },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+        tags: { type: "string", description: "Optional comma-separated tags." },
+        metadata: { type: "string", description: "Optional JSON object metadata." },
+        message_start: { type: "integer", minimum: 0 },
+        message_end: { type: "integer", minimum: 0 },
+      },
+      required: ["note_id", "replacement_content"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {
+        note_id: stringArg(args, "note_id"),
+        replacement_content: stringArg(args, "replacement_content"),
+      };
+      if (context.sessionId) {
+        params.session_id = context.sessionId;
+      }
+      copyOptionalStringArg(args, params, "note_type");
+      copyOptionalStringArg(args, params, "scope");
+      const priority = optionalNumberArg(args, "priority");
+      if (priority !== undefined) {
+        params.priority = priority;
+      }
+      const confidence = optionalNumberArg(args, "confidence");
+      if (confidence !== undefined) {
+        params.confidence = confidence;
+      }
+      const tags = optionalStringArg(args, "tags");
+      if (tags !== undefined) {
+        params.tags = tags
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter((tag) => tag.length > 0);
+      }
+      const metadata = optionalStringArg(args, "metadata");
+      if (metadata !== undefined) {
+        const parsed = JSON.parse(metadata);
+        if (!asObject(parsed)) {
+          throw new Error("metadata must be a JSON object");
+        }
+        params.metadata = parsed;
+      }
+      const messageStart = optionalIntegerArg(args, "message_start");
+      if (messageStart !== undefined) {
+        params.message_start = messageStart;
+      }
+      const messageEnd = optionalIntegerArg(args, "message_end");
+      if (messageEnd !== undefined) {
+        params.message_end = messageEnd;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "memory.supersede", params)) ?? {};
+      const oldNote = asObject(result.old_note) ?? {};
+      const replacement = asObject(result.note) ?? {};
+      return {
+        content: `Memory Note superseded: ${asString(oldNote.id) ?? params.note_id} -> ${asString(replacement.id) ?? "unknown"}`,
+      };
+    },
+  };
+}
+
 function createCallMcpTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "call_mcp_tool",
@@ -697,6 +824,27 @@ function formatMemoryNote(value: unknown): string | null {
   const tags = Array.isArray(note.tags) && note.tags.length > 0 ? ` tags=${note.tags.join(",")}` : "";
   const metadata = asObject(note.metadata) ? ` metadata=${JSON.stringify(note.metadata)}` : "";
   return `- [${id}] ${scope}/${type}/${status} priority=${formatMemoryNumber(priority)} confidence=${formatMemoryNumber(confidence)}${tags}${metadata}\n  ${asString(note.content) ?? ""}\n  sources: ${formatMemorySources(note.sources)}`;
+}
+
+function formatMemoryTrace(result: JsonObject): string {
+  const note = asObject(result.note) ?? {};
+  const locations = asObject(result.locations) ?? {};
+  const noteId = asString(note.id) ?? "unknown";
+  const status = asString(note.status) ?? "unknown";
+  const noteType = asString(note.type) ?? "unknown";
+  const scope = asString(note.scope) ?? "unknown";
+  const file = asString(locations.file);
+  const line = typeof locations.line === "number" ? locations.line : undefined;
+  const viewFile = asString(locations.view_file);
+  const viewLine = typeof locations.view_line === "number" ? locations.view_line : undefined;
+  const location = file ? `${file}${line !== undefined ? `:${line}` : ""}` : "unknown";
+  const viewLocation = viewFile ? `${viewFile}${viewLine !== undefined ? `:${viewLine}` : ""}` : "unknown";
+  return [
+    `Memory Note ${noteId} (${scope}/${noteType}/${status})`,
+    asString(note.content) ?? "",
+    `canonical: ${location}`,
+    `view: ${viewLocation}`,
+  ].filter((lineContent) => lineContent.length > 0).join("\n");
 }
 
 function formatMemoryNumber(value: number): string {

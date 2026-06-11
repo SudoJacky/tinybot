@@ -242,6 +242,18 @@ impl WorkerRpcRouter {
                 let params: MemorySaveParams = parse_params(request)?;
                 self.memory.save(params)
             }
+            "memory.trace" => {
+                let params: MemoryNoteIdParams = parse_params(request)?;
+                self.memory.trace(params)
+            }
+            "memory.reject" => {
+                let params: MemoryRejectParams = parse_params(request)?;
+                self.memory.reject(params)
+            }
+            "memory.supersede" => {
+                let params: MemorySupersedeParams = parse_params(request)?;
+                self.memory.supersede(params)
+            }
             "rag.query" => {
                 let params: RagQueryParams = parse_params(request)?;
                 self.query_rag(params)
@@ -622,6 +634,170 @@ impl WorkerMemoryRpc {
         Ok(serde_json::json!({ "note": note }))
     }
 
+    fn trace(
+        &self,
+        params: MemoryNoteIdParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryRead)?;
+        let note_id = required_memory_note_id(&params.note_id)?;
+        let (note, line) = self.find_note_with_line(note_id)?;
+        Ok(serde_json::json!({
+            "note": note,
+            "locations": memory_note_locations(&note, line)
+        }))
+    }
+
+    fn reject(
+        &self,
+        params: MemoryRejectParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryWrite)?;
+        let note_id = required_memory_note_id(&params.note_id)?;
+        let mut notes = self.read_notes()?;
+        let timestamp = memory_timestamp();
+        let note = find_note_mut(&mut notes, note_id)?;
+        note["status"] = Value::String("rejected".to_string());
+        note["updated_at"] = Value::String(timestamp);
+        if let Some(reason) = params.reason.filter(|reason| !reason.trim().is_empty()) {
+            ensure_json_object_field(note, "metadata");
+            note["metadata"]["rejected_reason"] = Value::String(reason);
+        }
+        let rejected = note.clone();
+        self.write_notes(&notes)?;
+        self.refresh_memory_views(&notes)?;
+        Ok(serde_json::json!({
+            "note": rejected,
+            "views_refreshed": true
+        }))
+    }
+
+    fn supersede(
+        &self,
+        params: MemorySupersedeParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryWrite)?;
+        let note_id = required_memory_note_id(&params.note_id)?;
+        let replacement_content = params.replacement_content.trim();
+        if replacement_content.is_empty() {
+            return Err(invalid_memory_request(
+                "Replacement Memory Note content is required",
+            ));
+        }
+        let mut notes = self.read_notes()?;
+        let old_note = notes
+            .iter()
+            .find(|note| note.get("id").and_then(Value::as_str) == Some(note_id))
+            .cloned()
+            .ok_or_else(|| invalid_memory_request(format!("Memory Note not found: {note_id}")))?;
+        let note_type = match params.note_type {
+            Some(note_type) => {
+                validate_memory_value("note_type", &note_type, MEMORY_NOTE_TYPES)?.to_string()
+            }
+            None => old_note
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("project")
+                .to_string(),
+        };
+        let scope = match params.scope {
+            Some(scope) => validate_memory_value("scope", &scope, MEMORY_NOTE_SCOPES)?.to_string(),
+            None => old_note
+                .get("scope")
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| default_memory_scope(&note_type))
+                .to_string(),
+        };
+        let priority = validate_memory_score(
+            "priority",
+            params
+                .priority
+                .or_else(|| old_note.get("priority").and_then(Value::as_f64))
+                .unwrap_or(0.5),
+        )?;
+        let confidence = validate_memory_score(
+            "confidence",
+            params
+                .confidence
+                .or_else(|| old_note.get("confidence").and_then(Value::as_f64))
+                .unwrap_or(0.5),
+        )?;
+        let metadata = match params.metadata {
+            Some(value) if value.is_object() => value,
+            Some(_) => return Err(invalid_memory_request("metadata must be a JSON object")),
+            None => old_note
+                .get("metadata")
+                .filter(|value| value.is_object())
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({})),
+        };
+        let tags = params.tags.unwrap_or_else(|| {
+            old_note
+                .get("tags")
+                .and_then(Value::as_array)
+                .map(|tags| {
+                    tags.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        let tags: Vec<String> = tags
+            .into_iter()
+            .map(|tag| tag.trim().to_string())
+            .filter(|tag| !tag.is_empty())
+            .collect();
+        let mut source = serde_json::json!({ "capture_origin": "explicit" });
+        if let Some(session_id) = params.session_id.filter(|value| !value.trim().is_empty()) {
+            source["session_key"] = Value::String(session_id);
+        }
+        if let Some(message_start) = params.message_start {
+            source["message_start"] = serde_json::json!(message_start);
+        }
+        if let Some(message_end) = params.message_end {
+            source["message_end"] = serde_json::json!(message_end);
+        }
+        let timestamp = memory_timestamp();
+        let replacement_id =
+            generate_memory_note_id(&note_type, &scope, replacement_content, &source);
+        let mut replacement = serde_json::json!({
+            "id": replacement_id,
+            "scope": scope,
+            "type": note_type,
+            "status": "active",
+            "content": replacement_content,
+            "priority": priority,
+            "confidence": confidence,
+            "sources": [source],
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "supersedes": [note_id]
+        });
+        if !tags.is_empty() {
+            replacement["tags"] = serde_json::json!(tags);
+        }
+        if metadata
+            .as_object()
+            .is_some_and(|object| !object.is_empty())
+        {
+            replacement["metadata"] = metadata;
+        }
+        notes.retain(|existing| existing.get("id") != replacement.get("id"));
+        notes.push(replacement.clone());
+        let old_note = find_note_mut(&mut notes, note_id)?;
+        old_note["status"] = Value::String("superseded".to_string());
+        old_note["superseded_by"] = replacement["id"].clone();
+        old_note["updated_at"] = Value::String(memory_timestamp());
+        let old_note = old_note.clone();
+        self.write_notes(&notes)?;
+        self.refresh_memory_views(&notes)?;
+        Ok(serde_json::json!({
+            "old_note": old_note,
+            "note": replacement,
+            "views_refreshed": true
+        }))
+    }
+
     fn require(
         &self,
         capability: WorkerCapability,
@@ -666,6 +842,16 @@ impl WorkerMemoryRpc {
                 value.is_object().then_some((value, index + 1))
             })
             .collect())
+    }
+
+    fn find_note_with_line(
+        &self,
+        note_id: &str,
+    ) -> Result<(Value, usize), crate::worker_protocol::WorkerProtocolError> {
+        self.read_notes_with_lines()?
+            .into_iter()
+            .find(|(note, _line)| note.get("id").and_then(Value::as_str) == Some(note_id))
+            .ok_or_else(|| invalid_memory_request(format!("Memory Note not found: {note_id}")))
     }
 
     fn write_notes(
@@ -838,6 +1024,18 @@ struct MemorySearchParams {
 }
 
 #[derive(Deserialize)]
+struct MemoryNoteIdParams {
+    note_id: String,
+}
+
+#[derive(Deserialize)]
+struct MemoryRejectParams {
+    note_id: String,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct RagQueryParams {
     query: String,
     #[serde(default)]
@@ -872,6 +1070,30 @@ struct MemorySaveParams {
     tags: Option<Vec<String>>,
     #[serde(default)]
     metadata: Option<Value>,
+    #[serde(default)]
+    message_start: Option<usize>,
+    #[serde(default)]
+    message_end: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct MemorySupersedeParams {
+    note_id: String,
+    replacement_content: String,
+    #[serde(default)]
+    note_type: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    priority: Option<f64>,
+    #[serde(default)]
+    confidence: Option<f64>,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+    #[serde(default)]
+    metadata: Option<Value>,
+    #[serde(default)]
+    session_id: Option<String>,
     #[serde(default)]
     message_start: Option<usize>,
     #[serde(default)]
@@ -999,6 +1221,45 @@ fn invalid_memory_request(
         false,
         crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
     )
+}
+
+fn required_memory_note_id(
+    note_id: &str,
+) -> Result<&str, crate::worker_protocol::WorkerProtocolError> {
+    let note_id = note_id.trim();
+    if note_id.is_empty() {
+        return Err(invalid_memory_request("Memory Note id is required"));
+    }
+    Ok(note_id)
+}
+
+fn find_note_mut<'a>(
+    notes: &'a mut [Value],
+    note_id: &str,
+) -> Result<&'a mut Value, crate::worker_protocol::WorkerProtocolError> {
+    notes
+        .iter_mut()
+        .find(|note| note.get("id").and_then(Value::as_str) == Some(note_id))
+        .ok_or_else(|| invalid_memory_request(format!("Memory Note not found: {note_id}")))
+}
+
+fn ensure_json_object_field(note: &mut Value, field: &str) {
+    if !note.get(field).is_some_and(Value::is_object) {
+        note[field] = serde_json::json!({});
+    }
+}
+
+fn memory_note_locations(note: &Value, line: usize) -> Value {
+    let view_file = note
+        .get("type")
+        .and_then(Value::as_str)
+        .map(memory_note_view_file)
+        .unwrap_or("memory/MEMORY.md");
+    serde_json::json!({
+        "file": "memory/notes.jsonl",
+        "line": line,
+        "view_file": view_file
+    })
 }
 
 fn invalid_rag_request(message: impl Into<String>) -> crate::worker_protocol::WorkerProtocolError {
@@ -2411,6 +2672,132 @@ mod tests {
         assert!(fixture
             .read("memory/notes.jsonl")
             .contains("User prefers concise implementation handoffs."));
+    }
+
+    #[test]
+    fn dispatches_memory_trace_reject_and_supersede_requests() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead, WorkerCapability::MemoryWrite]),
+        );
+        let save_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "memory.save",
+            json!({
+                "content": "Use pytest for TS worker tests.",
+                "note_type": "instruction",
+                "scope": "assistant",
+                "priority": 0.6,
+                "confidence": 0.65,
+                "tags": ["testing"]
+            }),
+        ));
+        let old_note = save_response
+            .result
+            .as_ref()
+            .expect("memory.save should return result")["note"]
+            .clone();
+        let old_note_id = old_note["id"].as_str().expect("saved note should have id");
+
+        let trace_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "memory.trace",
+            json!({ "note_id": old_note_id }),
+        ));
+        let supersede_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "memory.supersede",
+            json!({
+                "note_id": old_note_id,
+                "replacement_content": "Use vitest for TS worker tests.",
+                "note_type": "instruction",
+                "scope": "assistant",
+                "priority": 0.8,
+                "confidence": 0.9,
+                "tags": ["testing", "typescript"],
+                "metadata": { "reason": "TS worker tests run in Vitest" },
+                "session_id": "session-1",
+                "message_start": 5,
+                "message_end": 6
+            }),
+        ));
+        let replacement_id = supersede_response
+            .result
+            .as_ref()
+            .expect("memory.supersede should return result")["note"]["id"]
+            .as_str()
+            .expect("replacement note should have id")
+            .to_string();
+        let reject_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "memory.reject",
+            json!({ "note_id": replacement_id }),
+        ));
+
+        assert_eq!(
+            trace_response.result.as_ref().unwrap()["note"]["id"],
+            old_note_id
+        );
+        assert_eq!(
+            trace_response.result.as_ref().unwrap()["locations"],
+            json!({
+                "file": "memory/notes.jsonl",
+                "line": 1,
+                "view_file": "SOUL.md"
+            })
+        );
+        assert_eq!(
+            supersede_response.result.as_ref().unwrap()["old_note"]["status"],
+            "superseded"
+        );
+        assert_eq!(
+            supersede_response.result.as_ref().unwrap()["old_note"]["superseded_by"],
+            replacement_id
+        );
+        assert_eq!(
+            supersede_response.result.as_ref().unwrap()["note"]["supersedes"],
+            json!([old_note_id])
+        );
+        assert_eq!(
+            supersede_response.result.as_ref().unwrap()["note"]["sources"],
+            json!([{
+                "capture_origin": "explicit",
+                "session_key": "session-1",
+                "message_start": 5,
+                "message_end": 6
+            }])
+        );
+        assert_eq!(
+            reject_response.result.as_ref().unwrap()["note"]["status"],
+            "rejected"
+        );
+        assert_eq!(
+            reject_response.result.as_ref().unwrap()["views_refreshed"],
+            true
+        );
+        assert!(trace_response.error.is_none());
+        assert!(supersede_response.error.is_none());
+        assert!(reject_response.error.is_none());
+        assert!(fixture
+            .read("memory/notes.jsonl")
+            .contains("\"status\":\"superseded\""));
+        assert!(fixture
+            .read("memory/notes.jsonl")
+            .contains("\"status\":\"rejected\""));
+        assert!(!fixture
+            .read("SOUL.md")
+            .contains("Use pytest for TS worker tests."));
+        assert!(!fixture
+            .read("SOUL.md")
+            .contains("Use vitest for TS worker tests."));
     }
 
     #[test]

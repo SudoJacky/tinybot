@@ -406,6 +406,111 @@ describe("createNativeMemoryTools", () => {
       },
     ]);
   });
+
+  test("creates trace, reject, and supersede memory tools backed by native RPC", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        note: {
+          id: "mem_1",
+          scope: "assistant",
+          type: "instruction",
+          status: "active",
+          content: "Use pytest for TS worker tests.",
+        },
+        locations: {
+          file: "memory/notes.jsonl",
+          line: 1,
+          view_file: "SOUL.md",
+          view_line: 12,
+        },
+      },
+      {
+        note: {
+          id: "mem_1",
+          scope: "assistant",
+          type: "instruction",
+          status: "rejected",
+          content: "Use pytest for TS worker tests.",
+        },
+        views_refreshed: true,
+      },
+      {
+        old_note: {
+          id: "mem_1",
+          status: "superseded",
+          superseded_by: "mem_2",
+        },
+        note: {
+          id: "mem_2",
+          scope: "assistant",
+          type: "instruction",
+          status: "active",
+          content: "Use vitest for TS worker tests.",
+          supersedes: ["mem_1"],
+        },
+        views_refreshed: true,
+      },
+    ]);
+    const [, , traceMemoryNote, rejectMemoryNote, supersedeMemoryNote] = createNativeMemoryTools(rpc);
+
+    const trace = await traceMemoryNote.execute({ note_id: "mem_1" }, { runId: "run-1", traceId: "trace-1" });
+    const reject = await rejectMemoryNote.execute(
+      { note_id: "mem_1", reason: "obsolete" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+    const supersede = await supersedeMemoryNote.execute(
+      {
+        note_id: "mem_1",
+        replacement_content: "Use vitest for TS worker tests.",
+        note_type: "instruction",
+        scope: "assistant",
+        priority: 0.8,
+        confidence: 0.9,
+        tags: "testing, typescript",
+        metadata: "{\"reason\":\"TS worker tests run in Vitest\"}",
+        message_start: 5,
+        message_end: 6,
+      },
+      { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
+    );
+
+    expect(traceMemoryNote.name).toBe("trace_memory_note");
+    expect(rejectMemoryNote.name).toBe("reject_memory_note");
+    expect(supersedeMemoryNote.name).toBe("supersede_memory_note");
+    expect(trace.content).toContain("Memory Note mem_1");
+    expect(trace.content).toContain("memory/notes.jsonl:1");
+    expect(reject.content).toBe("Memory Note rejected: mem_1");
+    expect(supersede.content).toBe("Memory Note superseded: mem_1 -> mem_2");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "memory.trace",
+        params: { note_id: "mem_1" },
+      },
+      {
+        traceId: "trace-1",
+        method: "memory.reject",
+        params: { note_id: "mem_1", reason: "obsolete" },
+      },
+      {
+        traceId: "trace-1",
+        method: "memory.supersede",
+        params: {
+          session_id: "session-1",
+          note_id: "mem_1",
+          replacement_content: "Use vitest for TS worker tests.",
+          note_type: "instruction",
+          scope: "assistant",
+          priority: 0.8,
+          confidence: 0.9,
+          tags: ["testing", "typescript"],
+          metadata: { reason: "TS worker tests run in Vitest" },
+          message_start: 5,
+          message_end: 6,
+        },
+      },
+    ]);
+  });
 });
 
 describe("createNativeRagTools", () => {
