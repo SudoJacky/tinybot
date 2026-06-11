@@ -67,11 +67,23 @@ export type MemoryReferenceMetadata = {
   view_line?: number;
 };
 
+export type SkillsContext = {
+  activeSkillsContent?: string;
+  skillsSummary?: string;
+  alwaysSkillNames?: string[];
+  unavailableCount?: number;
+  sourceCounts?: {
+    workspace: number;
+    builtin: number;
+  };
+};
+
 export type ContextBuildInput = {
   identity: string;
   bootstrapFiles?: BootstrapFile[];
   history?: AgentMessage[];
   memoryNotes?: MemoryRecallNote[];
+  skills?: SkillsContext;
   currentMessage: string;
   currentRole?: Extract<AgentMessageRole, "user" | "system">;
   runtime: RuntimeContext;
@@ -112,6 +124,14 @@ export type ContextBuildMetadata = {
   memoryContextIncluded: boolean;
   knowledgeContextIncluded: boolean;
   skillsContextIncluded: boolean;
+  skillsSummaryIncluded?: boolean;
+  alwaysSkillsIncluded?: boolean;
+  alwaysSkillNames?: string[];
+  skillsUnavailableCount?: number;
+  skillsSourceCounts?: {
+    workspace: number;
+    builtin: number;
+  };
   omittedContext: string[];
   _memory_references?: MemoryReferenceMetadata[];
 };

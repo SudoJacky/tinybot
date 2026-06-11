@@ -35,6 +35,8 @@ export function buildContextMessages(input: ContextBuildInput): ContextBuildResu
       content: buildSystemPrompt({
         identity: input.identity,
         bootstrapFiles: input.bootstrapFiles,
+        activeSkillsContent: input.skills?.activeSkillsContent,
+        skillsSummary: input.skills?.skillsSummary,
       }),
     },
     ...history.map((message) => ({ ...message })),
@@ -84,6 +86,9 @@ function buildMetadata(
 ): ContextBuildMetadata {
   const memoryReferences = memoryNotes.map(memoryReferenceMetadata);
   const memoryContextIncluded = memoryReferences.length > 0;
+  const skillsSummaryIncluded = nonemptyString(input.skills?.skillsSummary);
+  const alwaysSkillsIncluded = nonemptyString(input.skills?.activeSkillsContent);
+  const skillsContextIncluded = skillsSummaryIncluded || alwaysSkillsIncluded;
   return {
     bootstrapFiles: includedBootstrapPaths(input.bootstrapFiles),
     historyMessageCount,
@@ -91,8 +96,21 @@ function buildMetadata(
     runtimeContextIncluded: true,
     memoryContextIncluded,
     knowledgeContextIncluded: false,
-    skillsContextIncluded: false,
-    omittedContext: OMITTED_CONTEXT.filter((name) => name !== "memory" || !memoryContextIncluded),
+    skillsContextIncluded,
+    ...(skillsSummaryIncluded ? { skillsSummaryIncluded } : {}),
+    ...(alwaysSkillsIncluded ? { alwaysSkillsIncluded } : {}),
+    ...(input.skills?.alwaysSkillNames ? { alwaysSkillNames: input.skills.alwaysSkillNames } : {}),
+    ...(input.skills?.unavailableCount !== undefined ? { skillsUnavailableCount: input.skills.unavailableCount } : {}),
+    ...(input.skills?.sourceCounts ? { skillsSourceCounts: input.skills.sourceCounts } : {}),
+    omittedContext: OMITTED_CONTEXT.filter((name) => {
+      if (name === "memory") {
+        return !memoryContextIncluded;
+      }
+      if (name === "skills_detail") {
+        return !skillsContextIncluded;
+      }
+      return true;
+    }),
     ...(memoryContextIncluded ? { _memory_references: memoryReferences } : {}),
   };
 }
@@ -184,4 +202,8 @@ function formatUserProfile(profile: UserProfile | undefined): string {
 
 function nonemptyList(value: string[] | undefined): value is string[] {
   return Array.isArray(value) && value.length > 0;
+}
+
+function nonemptyString(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }

@@ -132,4 +132,33 @@ describe("buildContextMessages", () => {
       },
     ]);
   });
+
+  test("injects active skills and skills summary into the system prompt", () => {
+    const result = buildContextMessages({
+      identity: "Identity",
+      currentMessage: "Use skills",
+      runtime: { currentTime: "now" },
+      skills: {
+        activeSkillsContent: "### Skill: planner\n\nPlan the work.",
+        skillsSummary: "<skills>\n  <skill available=\"true\"><name>planner</name></skill>\n</skills>",
+        alwaysSkillNames: ["planner"],
+        unavailableCount: 1,
+        sourceCounts: { workspace: 1, builtin: 2 },
+      },
+    });
+
+    expect(result.messages[0].content).toContain("# Active Skills\n\n### Skill: planner\n\nPlan the work.");
+    expect(result.messages[0].content).toContain("# Skills");
+    expect(result.messages[0].content).toContain("<skills>\n  <skill available=\"true\"><name>planner</name></skill>\n</skills>");
+    expect(result.messages[0].content).not.toContain("(deferred in TS context phase 1)");
+    expect(result.metadata).toMatchObject({
+      skillsContextIncluded: true,
+      skillsSummaryIncluded: true,
+      alwaysSkillsIncluded: true,
+      alwaysSkillNames: ["planner"],
+      skillsUnavailableCount: 1,
+      skillsSourceCounts: { workspace: 1, builtin: 2 },
+    });
+    expect(result.metadata.omittedContext).not.toContain("skills_detail");
+  });
 });
