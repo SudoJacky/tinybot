@@ -4079,6 +4079,106 @@ mod tests {
     }
 
     #[test]
+    fn knowledge_query_returns_parent_context_for_matched_child_chunks() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+        let retrieval_section = [
+            "## Retrieval Pipeline",
+            "",
+            "Sparse retrieval should find child chunks with precise lexical evidence.",
+            "The child snippet contains uniqueneedle evidence for ranking.",
+            "Parent context must include enough surrounding text for the model.",
+        ]
+        .join("\n");
+        let content = [
+            "# Desktop Knowledge Notes",
+            "",
+            "Introductory text without the target term.",
+            "",
+            retrieval_section.as_str(),
+            "",
+            "## Operational Notes",
+            "",
+            "Unrelated final section for ordering.",
+        ]
+        .join("\n");
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Chunked Knowledge Notes",
+                "content": content,
+                "category": "desktop",
+                "tags": ["chunking"],
+                "file_type": "md"
+            }),
+        ));
+        let doc_id = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result")["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        assert_eq!(add_response.error, None);
+        assert_eq!(
+            add_response.result.as_ref().unwrap()["document"]["chunk_count"],
+            3
+        );
+        let chunks_jsonl = fixture.read("knowledge/chunks.jsonl");
+        assert!(chunks_jsonl.contains(&format!("\"id\":\"chunk_{doc_id}_1\"")));
+        assert!(chunks_jsonl.contains(&format!("\"id\":\"chunk_{doc_id}_1_child_0\"")));
+        assert!(chunks_jsonl.contains("\"chunk_type\":\"child\""));
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.query",
+            json!({
+                "query": "uniqueneedle",
+                "category": "desktop",
+                "tags": ["chunking"],
+                "limit": 3
+            }),
+        ));
+
+        assert_eq!(query_response.error, None);
+        let result = &query_response
+            .result
+            .as_ref()
+            .expect("knowledge.query should return result")["results"][0];
+        assert_eq!(result["id"], format!("chunk_{doc_id}_1"));
+        assert_eq!(result["parent_id"], format!("chunk_{doc_id}_1"));
+        assert_eq!(result["chunk_type"], "parent");
+        assert_eq!(result["section_path"], "Retrieval Pipeline");
+        assert!(result["content"]
+            .as_str()
+            .expect("result content should be string")
+            .contains("Parent context must include enough surrounding text"));
+        assert_eq!(
+            result["matched_child_ids"],
+            json!([format!("chunk_{doc_id}_1_child_1")])
+        );
+        assert_eq!(
+            result["matched_child_snippets"],
+            json!(["The child snippet contains uniqueneedle evidence for ranking."])
+        );
+        assert_eq!(result["retrieval_method"], "sparse");
+    }
+
+    #[test]
     fn dispatches_mcp_call_tool_request_from_configured_allowlist() {
         let fixture = WorkspaceFixture::new();
         let mut router = WorkerRpcRouter::new(

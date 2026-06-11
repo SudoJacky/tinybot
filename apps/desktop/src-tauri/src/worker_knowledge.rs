@@ -5,7 +5,7 @@ use crate::worker_protocol::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{hash_map::DefaultHasher, HashMap},
     fs::{self, File},
     hash::{Hash, Hasher},
     io::{BufRead, BufReader, Write},
@@ -61,14 +61,19 @@ impl WorkerKnowledgeRpc {
                 serde_json::json!({ "path": relative_file_path, "error": error.to_string() }),
             )
         })?;
-        let parent_chunk = KnowledgeChunk::parent(
+        let parent_sections = split_parent_sections(&content);
+        let chunks = build_document_chunks(
             &doc_id,
             name,
             &relative_file_path,
-            &content,
+            &parent_sections,
             &params,
             &created_at,
         );
+        let parent_chunk_count = chunks
+            .iter()
+            .filter(|chunk| chunk.chunk_type == "parent")
+            .count();
         let document = KnowledgeDocument {
             id: doc_id.clone(),
             name: name.to_string(),
@@ -78,13 +83,15 @@ impl WorkerKnowledgeRpc {
             file_type,
             content,
             created_at,
-            chunk_count: 1,
+            chunk_count: parent_chunk_count,
             category: params.category.unwrap_or_default(),
             tags: params.tags.unwrap_or_default(),
             metadata: params.metadata.unwrap_or_else(|| serde_json::json!({})),
         };
         append_jsonl(&store.documents_file, &document)?;
-        append_jsonl(&store.chunks_file, &parent_chunk)?;
+        for chunk in &chunks {
+            append_jsonl(&store.chunks_file, chunk)?;
+        }
         Ok(KnowledgeDocumentResult { document })
     }
 
@@ -171,11 +178,13 @@ impl WorkerKnowledgeRpc {
         }
         let chunks =
             read_jsonl::<KnowledgeChunk>(&KnowledgeStorePaths::new(&self.root).chunks_file)?;
-        let mut results = Vec::new();
+        let parents: HashMap<String, KnowledgeChunk> = chunks
+            .iter()
+            .filter(|chunk| chunk.chunk_type == "parent")
+            .map(|chunk| (chunk.id.clone(), chunk.clone()))
+            .collect();
+        let mut results_by_parent: HashMap<String, KnowledgeQueryResult> = HashMap::new();
         for chunk in chunks {
-            if chunk.chunk_type != "parent" {
-                continue;
-            }
             if let Some(category) = params.category.as_deref().filter(|value| !value.is_empty()) {
                 if chunk.category != category {
                     continue;
@@ -190,8 +199,34 @@ impl WorkerKnowledgeRpc {
             if score == 0 {
                 continue;
             }
-            results.push(KnowledgeQueryResult::from_chunk(chunk, score));
+            if chunk.chunk_type == "parent" {
+                let entry = results_by_parent
+                    .entry(chunk.id.clone())
+                    .or_insert_with(|| KnowledgeQueryResult::from_chunk(chunk, 0));
+                entry.score += score;
+                entry.rrf_score += score;
+                entry.bm25_score += score;
+                entry.sparse_contribution += score;
+            } else if chunk.chunk_type == "child" {
+                let Some(parent) = parents.get(&chunk.parent_id).cloned() else {
+                    continue;
+                };
+                let entry = results_by_parent
+                    .entry(parent.id.clone())
+                    .or_insert_with(|| KnowledgeQueryResult::from_chunk(parent, 0));
+                entry.score += score;
+                entry.rrf_score += score;
+                entry.bm25_score += score;
+                entry.sparse_contribution += score;
+                if !entry.matched_child_ids.contains(&chunk.id) {
+                    entry.matched_child_ids.push(chunk.id.clone());
+                }
+                if !entry.matched_child_snippets.contains(&chunk.content) {
+                    entry.matched_child_snippets.push(chunk.content.clone());
+                }
+            }
         }
+        let mut results: Vec<KnowledgeQueryResult> = results_by_parent.into_values().collect();
         results.sort_by(|left, right| {
             right
                 .score
@@ -304,37 +339,96 @@ impl KnowledgeChunk {
         doc_id: &str,
         doc_name: &str,
         file_path: &str,
-        content: &str,
+        section: &ParentSection,
+        index: usize,
         params: &KnowledgeAddDocumentParams,
         created_at: &str,
     ) -> Self {
-        let id = format!("chunk_{doc_id}_0");
+        let id = format!("chunk_{doc_id}_{index}");
         Self {
             id: id.clone(),
             doc_id: doc_id.to_string(),
             parent_id: id,
             chunk_type: "parent".to_string(),
-            content: content.to_string(),
-            retrieval_text: content.to_string(),
-            semantic_text: content.to_string(),
-            context_content: content.to_string(),
+            content: section.content.clone(),
+            retrieval_text: section.content.clone(),
+            semantic_text: section.content.clone(),
+            context_content: section.content.clone(),
             summary: String::new(),
-            chunk_index: 0,
+            chunk_index: index,
             child_index: 0,
-            start_char: 0,
-            end_char: content.chars().count(),
-            line_start: 1,
-            line_end: content.lines().count().max(1),
+            start_char: section.start_char,
+            end_char: section.end_char,
+            line_start: section.line_start,
+            line_end: section.line_end,
             page: None,
             created_at: created_at.to_string(),
             doc_name: doc_name.to_string(),
             file_path: file_path.to_string(),
             category: params.category.clone().unwrap_or_default(),
             tags: params.tags.clone().unwrap_or_default(),
-            section_path: first_markdown_heading(content).unwrap_or_default(),
+            section_path: section.section_path.clone(),
             block_type: "text".to_string(),
         }
     }
+
+    fn child(
+        doc_id: &str,
+        doc_name: &str,
+        file_path: &str,
+        parent_id: &str,
+        parent_index: usize,
+        child_index: usize,
+        line: &SectionLine,
+        section_path: &str,
+        params: &KnowledgeAddDocumentParams,
+        created_at: &str,
+    ) -> Self {
+        Self {
+            id: format!("chunk_{doc_id}_{parent_index}_child_{child_index}"),
+            doc_id: doc_id.to_string(),
+            parent_id: parent_id.to_string(),
+            chunk_type: "child".to_string(),
+            content: line.content.clone(),
+            retrieval_text: line.content.clone(),
+            semantic_text: line.content.clone(),
+            context_content: line.content.clone(),
+            summary: String::new(),
+            chunk_index: parent_index,
+            child_index,
+            start_char: line.start_char,
+            end_char: line.end_char,
+            line_start: line.line_number,
+            line_end: line.line_number,
+            page: None,
+            created_at: created_at.to_string(),
+            doc_name: doc_name.to_string(),
+            file_path: file_path.to_string(),
+            category: params.category.clone().unwrap_or_default(),
+            tags: params.tags.clone().unwrap_or_default(),
+            section_path: section_path.to_string(),
+            block_type: "text".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ParentSection {
+    content: String,
+    start_char: usize,
+    end_char: usize,
+    line_start: usize,
+    line_end: usize,
+    section_path: String,
+    child_lines: Vec<SectionLine>,
+}
+
+#[derive(Clone, Debug)]
+struct SectionLine {
+    content: String,
+    start_char: usize,
+    end_char: usize,
+    line_number: usize,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -622,6 +716,166 @@ fn make_document_id(name: &str, content: &str, created_at: &str) -> String {
     format!("doc_{:08x}", (hasher.finish() & 0xffff_ffff) as u32)
 }
 
+fn build_document_chunks(
+    doc_id: &str,
+    doc_name: &str,
+    file_path: &str,
+    sections: &[ParentSection],
+    params: &KnowledgeAddDocumentParams,
+    created_at: &str,
+) -> Vec<KnowledgeChunk> {
+    let mut chunks = Vec::new();
+    for (index, section) in sections.iter().enumerate() {
+        let parent = KnowledgeChunk::parent(
+            doc_id, doc_name, file_path, section, index, params, created_at,
+        );
+        let parent_id = parent.id.clone();
+        chunks.push(parent);
+        if sections.len() <= 1 {
+            continue;
+        }
+        for (child_index, line) in section.child_lines.iter().enumerate() {
+            chunks.push(KnowledgeChunk::child(
+                doc_id,
+                doc_name,
+                file_path,
+                &parent_id,
+                index,
+                child_index,
+                line,
+                &section.section_path,
+                params,
+                created_at,
+            ));
+        }
+    }
+    chunks
+}
+
+fn split_parent_sections(content: &str) -> Vec<ParentSection> {
+    let line_spans = content_line_spans(content);
+    if line_spans.is_empty() {
+        return vec![ParentSection {
+            content: content.to_string(),
+            start_char: 0,
+            end_char: content.chars().count(),
+            line_start: 1,
+            line_end: 1,
+            section_path: String::new(),
+            child_lines: Vec::new(),
+        }];
+    }
+    let mut sections = Vec::new();
+    let mut current_start = 0usize;
+    let mut current_line_start = 1usize;
+    let mut current_section_path = first_markdown_heading(content).unwrap_or_default();
+    let mut current_child_lines = Vec::new();
+    for (index, line) in line_spans.iter().enumerate() {
+        if line.is_heading && index != current_start {
+            sections.push(parent_section_from_lines(
+                &line_spans[current_start..index],
+                current_line_start,
+                current_section_path,
+                current_child_lines,
+            ));
+            current_start = index;
+            current_line_start = line.line_number;
+            current_section_path = line.heading.clone().unwrap_or_default();
+            current_child_lines = Vec::new();
+        }
+        if !line.is_heading && !line.trimmed.is_empty() {
+            current_child_lines.push(SectionLine {
+                content: line.trimmed.clone(),
+                start_char: line.start_char,
+                end_char: line.end_char,
+                line_number: line.line_number,
+            });
+        }
+    }
+    sections.push(parent_section_from_lines(
+        &line_spans[current_start..],
+        current_line_start,
+        current_section_path,
+        current_child_lines,
+    ));
+    sections
+}
+
+fn parent_section_from_lines(
+    lines: &[LineSpan],
+    line_start: usize,
+    section_path: String,
+    child_lines: Vec<SectionLine>,
+) -> ParentSection {
+    let content = lines
+        .iter()
+        .map(|line| line.original.as_str())
+        .collect::<Vec<_>>()
+        .join("");
+    let start_char = lines.first().map(|line| line.start_char).unwrap_or(0);
+    let end_char = lines.last().map(|line| line.end_char).unwrap_or(start_char);
+    let line_end = lines
+        .last()
+        .map(|line| line.line_number)
+        .unwrap_or(line_start);
+    ParentSection {
+        content,
+        start_char,
+        end_char,
+        line_start,
+        line_end,
+        section_path,
+        child_lines,
+    }
+}
+
+#[derive(Clone, Debug)]
+struct LineSpan {
+    original: String,
+    trimmed: String,
+    start_char: usize,
+    end_char: usize,
+    line_number: usize,
+    is_heading: bool,
+    heading: Option<String>,
+}
+
+fn content_line_spans(content: &str) -> Vec<LineSpan> {
+    let mut spans = Vec::new();
+    let mut offset = 0usize;
+    for (index, line) in content.split_inclusive('\n').enumerate() {
+        let line_without_newline = line.trim_end_matches(['\r', '\n']);
+        let trimmed = line_without_newline.trim().to_string();
+        let heading = markdown_heading_text(&trimmed);
+        let end_char = offset + line.chars().count();
+        spans.push(LineSpan {
+            original: line.to_string(),
+            trimmed,
+            start_char: offset,
+            end_char,
+            line_number: index + 1,
+            is_heading: heading.is_some(),
+            heading,
+        });
+        offset = end_char;
+    }
+    if offset < content.chars().count() {
+        let remainder = &content[offset..];
+        let trimmed = remainder.trim().to_string();
+        let heading = markdown_heading_text(&trimmed);
+        spans.push(LineSpan {
+            original: remainder.to_string(),
+            trimmed,
+            start_char: offset,
+            end_char: content.chars().count(),
+            line_number: spans.len() + 1,
+            is_heading: heading.is_some(),
+            heading,
+        });
+    }
+    spans
+}
+
 fn now_timestamp() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -631,15 +885,18 @@ fn now_timestamp() -> String {
 }
 
 fn first_markdown_heading(content: &str) -> Option<String> {
-    content.lines().find_map(|line| {
-        let trimmed = line.trim();
-        let title = trimmed.trim_start_matches('#').trim();
-        if trimmed.starts_with('#') && !title.is_empty() {
-            Some(title.to_string())
-        } else {
-            None
-        }
-    })
+    content
+        .lines()
+        .find_map(|line| markdown_heading_text(line.trim()))
+}
+
+fn markdown_heading_text(trimmed: &str) -> Option<String> {
+    let title = trimmed.trim_start_matches('#').trim();
+    if trimmed.starts_with('#') && !title.is_empty() {
+        Some(title.to_string())
+    } else {
+        None
+    }
 }
 
 fn knowledge_query_terms(query: &str) -> Vec<String> {
