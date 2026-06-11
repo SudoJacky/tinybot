@@ -276,6 +276,10 @@ impl WorkerRpcRouter {
                 let params: RagQueryParams = parse_params(request)?;
                 self.query_rag(params)
             }
+            "knowledge.query" => {
+                let params: KnowledgeQueryParams = parse_params(request)?;
+                self.query_knowledge(params)
+            }
             "mcp.call_tool" => {
                 let params: McpCallToolParams = parse_params(request)?;
                 self.mcp.call_tool(params)
@@ -333,6 +337,43 @@ impl WorkerRpcRouter {
         });
         documents.truncate(limit);
         Ok(serde_json::json!({ "documents": documents }))
+    }
+
+    fn query_knowledge(
+        &self,
+        params: KnowledgeQueryParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        let result = self.query_rag(RagQueryParams {
+            query: params.query,
+            collection: params.category,
+            limit: params.limit,
+        })?;
+        let documents = result
+            .get("documents")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let results: Vec<Value> = documents
+            .into_iter()
+            .filter_map(|document| {
+                let object = document.as_object()?;
+                let id = object
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .or_else(|| object.get("path").and_then(Value::as_str))
+                    .unwrap_or("unknown");
+                Some(serde_json::json!({
+                    "id": id,
+                    "doc_id": id,
+                    "doc_name": object.get("title").cloned().unwrap_or_else(|| Value::String(id.to_string())),
+                    "file_path": object.get("path").cloned().unwrap_or_else(|| Value::String(id.to_string())),
+                    "score": object.get("score").cloned().unwrap_or(serde_json::json!(0)),
+                    "content": object.get("excerpt").cloned().or_else(|| object.get("content").cloned()).unwrap_or_else(|| Value::String(String::new())),
+                    "retrieval_method": "sparse"
+                }))
+            })
+            .collect();
+        Ok(serde_json::json!({ "results": results }))
     }
 }
 
@@ -1609,6 +1650,15 @@ struct RagQueryParams {
     query: String,
     #[serde(default)]
     collection: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct KnowledgeQueryParams {
+    query: String,
+    #[serde(default)]
+    category: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
 }
@@ -3864,6 +3914,50 @@ mod tests {
                     "path": "docs/ts-agent-loop.md",
                     "score": 2,
                     "excerpt": "TS worker should proxy product integrations through Rust."
+                }]
+            }))
+        );
+        assert!(response.error.is_none());
+    }
+
+    #[test]
+    fn dispatches_knowledge_query_request() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "docs/ts-agent-loop.md",
+            "# TS Agent Loop Design\n\nTS worker should proxy product integrations through Rust.\n",
+        );
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        );
+        let request = WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.query",
+            json!({
+                "query": "TS worker Rust",
+                "category": "docs",
+                "limit": 3
+            }),
+        );
+
+        let response = router.dispatch(&request);
+
+        assert_eq!(
+            response.result,
+            Some(json!({
+                "results": [{
+                    "id": "docs/ts-agent-loop.md",
+                    "doc_id": "docs/ts-agent-loop.md",
+                    "doc_name": "TS Agent Loop Design",
+                    "file_path": "docs/ts-agent-loop.md",
+                    "score": 2,
+                    "content": "TS worker should proxy product integrations through Rust.",
+                    "retrieval_method": "sparse"
                 }]
             }))
         );

@@ -55,7 +55,7 @@
 | --- | --- | --- | --- | --- |
 | 10 | active | [ts_skills_runtime_migration_design.md](ts_skills_runtime_migration_design.md) | 先解决 prompt 行为 parity，再做 CRUD | Started TS Skills Runtime prompt parity: pure runtime now covers workspace-over-builtin discovery, frontmatter/tinybot/openclaw metadata, requirements availability, XML summary, always-skill selection, optional ContextBuilder injection, native `skills.list`, `agent.run_input` skills context loading, Python-compatible WebUI list/detail projection, and desktop native-first Skills list/detail/create/update/delete/validate routing through the TS worker. |
 | 11 | active | [ts_memory_notes_migration_design.md](ts_memory_notes_migration_design.md) | 迁移 memory/notes persistent data 能力 | 已启动 TS/native Memory Notes recall 与显式操作面；`memory.search/save/trace/reject/supersede` 已具备 Rust RPC 与 TS native tools 起点；`memory.recall` 已由 Rust/native 生成 bounded recall context、notes、references，并由 TS `NativeContextBridge` 优先用于 `agent.run_input` context；`memory.capture_evidence/list_evidence` 已建立 native conversation evidence JSONL/cursor 起点，并由 TS TurnLifecycle 在 persist-turn 后调用；后续补 Dream extraction/consolidation/profile hooks |
-| 12 | todo | [ts_knowledge_rag_migration_design.md](ts_knowledge_rag_migration_design.md) | 先做 TS types/formatting/tool bridge 和 sparse retrieval | semantic/GraphRAG 后置；当前相关 OpenSpec in-progress |
+| 12 | active | [ts_knowledge_rag_migration_design.md](ts_knowledge_rag_migration_design.md) | 先做 TS types/formatting/tool bridge 和 sparse retrieval | Phase 1 started: TS `query_knowledge` tool and result formatting contract, Rust `knowledge.query` sparse compatibility endpoint backed by current native RAG scan; `query_rag` remains as a compatibility alias. |
 | 13 | todo | [ts_mcp_runtime_migration_design.md](ts_mcp_runtime_migration_design.md) | 接入 MCP 外部动态工具层 | 应在 Tool Runtime + Approval + Config 稳定后做 |
 
 ### Batch 5: Commands, Background Work, And Cowork
@@ -140,6 +140,7 @@
 | 2026-06-12 | Continued Batch 4 Skills Runtime CRUD migration: TS worker now handles WebUI skill create/update/delete/validate through native workspace RPC, Rust/Tauri exposes matching `worker_skills_*` commands, and desktop gateway clients prefer native Skills write/validate operations with Python gateway fallback. |
 | 2026-06-12 | Continued Batch 4 Memory Notes recall: Rust worker RPC now exposes `memory.recall` with bounded native `[MEMORY RECALL]` context, notes, and references, and TS `NativeContextBridge` consumes that native-owned recall payload for `agent.run_input`. |
 | 2026-06-12 | Continued Batch 4 Memory Notes evidence capture: Rust worker RPC now exposes `memory.capture_evidence` / `memory.list_evidence` with daily JSONL evidence files and cursor sequencing, and TS `TurnLifecycle` captures clean persisted turn messages after `session.persist_turn`. |
+| 2026-06-12 | Started Batch 4 Knowledge/RAG bridge: TS now exposes `query_knowledge` with normalized knowledge result formatting, Rust worker RPC accepts `knowledge.query` and maps the existing sparse native RAG scan into knowledge-style results while keeping `query_rag` available as a compatibility alias. |
 
 ## Next Checklist
 

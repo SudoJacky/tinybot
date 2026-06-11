@@ -563,7 +563,7 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
-  test("registers RAG tools that call native rag RPC", async () => {
+  test("registers knowledge tools that call native knowledge RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([
       {
@@ -571,8 +571,8 @@ describe("createAgentWorkerServer", () => {
         toolCalls: [
           {
             id: "call-rag",
-            name: "query_rag",
-            argumentsJson: JSON.stringify({ query: "TS worker bridge", collection: "docs", limit: 3 }),
+            name: "query_knowledge",
+            argumentsJson: JSON.stringify({ query: "TS worker bridge", category: "docs", limit: 3 }),
           },
         ],
         stopReason: "tool_calls",
@@ -604,15 +604,15 @@ describe("createAgentWorkerServer", () => {
       }),
     );
 
-    await waitFor(() => parsedLines(lines).some((line) => line.method === "rag.query"));
-    const ragRequest = parsedLines(lines).find((line) => line.method === "rag.query");
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "knowledge.query"));
+    const ragRequest = parsedLines(lines).find((line) => line.method === "knowledge.query");
     expect(ragRequest).toMatchObject({
       protocol_version: "1",
       trace_id: "trace-1",
-      method: "rag.query",
+      method: "knowledge.query",
       params: {
         query: "TS worker bridge",
-        collection: "docs",
+        category: "docs",
         limit: 3,
       },
     });
@@ -623,13 +623,15 @@ describe("createAgentWorkerServer", () => {
         id: ragRequest?.id,
         trace_id: "trace-1",
         result: {
-          documents: [
+          results: [
             {
               id: "doc-1",
-              title: "TS Agent Loop Design",
-              path: "docs/ts-agent-loop.md",
+              doc_name: "TS Agent Loop Design",
+              file_path: "docs/ts-agent-loop.md",
+              line_start: 12,
+              line_end: 18,
               score: 0.91,
-              excerpt: "TS worker should proxy product integrations through Rust.",
+              content: "TS worker should proxy product integrations through Rust.",
             },
           ],
         },
@@ -641,7 +643,7 @@ describe("createAgentWorkerServer", () => {
       role: "tool",
       content: expect.stringContaining("TS worker should proxy product integrations through Rust."),
       toolCallId: "call-rag",
-      name: "query_rag",
+      name: "query_knowledge",
     });
     expect(parsedLines(lines).at(-1)).toMatchObject({
       protocol_version: "1",

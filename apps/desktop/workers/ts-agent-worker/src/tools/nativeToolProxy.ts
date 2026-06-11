@@ -1,4 +1,5 @@
 import type { JsonObject } from "../protocol/messages.ts";
+import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
 import type { Tool } from "./tool.ts";
 
 export type NativeRpcClient = {
@@ -36,7 +37,7 @@ export function createNativeMemoryTools(rpcClient: NativeRpcClient): Tool[] {
 }
 
 export function createNativeRagTools(rpcClient: NativeRpcClient): Tool[] {
-  return [createQueryRagTool(rpcClient)];
+  return [createQueryKnowledgeTool(rpcClient), createQueryRagTool(rpcClient)];
 }
 
 export function createNativeMcpTools(rpcClient: NativeRpcClient): Tool[] {
@@ -407,10 +408,49 @@ function createSearchMemoryNotesTool(rpcClient: NativeRpcClient): Tool {
   };
 }
 
+function createQueryKnowledgeTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "query_knowledge",
+    description: "Query the native Knowledge Base for contextual evidence relevant to the current task.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["fs.workspace.read"],
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", minLength: 1, description: "Natural-language knowledge retrieval query." },
+        category: { type: "string", description: "Optional knowledge document category filter." },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+      },
+      required: ["query"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {
+        query: stringArg(args, "query"),
+      };
+      if (context.sessionId) {
+        params.session_id = context.sessionId;
+      }
+      copyOptionalStringArg(args, params, "category");
+      const limit = optionalIntegerArg(args, "limit");
+      if (limit !== undefined) {
+        params.limit = limit;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "knowledge.query", params)) ?? {};
+      const rawResults = Array.isArray(result.results)
+        ? result.results
+        : Array.isArray(result.documents)
+          ? result.documents
+          : [];
+      return { content: formatKnowledgeQueryResults(normalizeKnowledgeQueryResults(rawResults)) };
+    },
+  };
+}
+
 function createQueryRagTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "query_rag",
-    description: "Query the native retrieval index for workspace knowledge relevant to the current task.",
+    description: "Compatibility alias for query_knowledge. Query the native retrieval index for workspace knowledge.",
     readOnly: true,
     concurrencySafe: true,
     capabilities: ["fs.workspace.read"],

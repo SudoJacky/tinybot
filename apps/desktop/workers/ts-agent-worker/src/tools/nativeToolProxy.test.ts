@@ -527,39 +527,43 @@ describe("createNativeMemoryTools", () => {
 });
 
 describe("createNativeRagTools", () => {
-  test("creates a query_rag tool backed by rag.query", async () => {
+  test("creates a query_knowledge tool backed by knowledge.query", async () => {
     const rpc = new FakeRpcClient([
       {
-        documents: [
+        results: [
           {
             id: "doc-1",
-            title: "TS Agent Loop Design",
-            path: "docs/ts-agent-loop.md",
+            doc_name: "TS Agent Loop Design",
+            file_path: "docs/ts-agent-loop.md",
+            line_start: 12,
+            line_end: 18,
             score: 0.91,
-            excerpt: "TS worker should proxy product integrations through Rust.",
+            content: "TS worker should proxy product integrations through Rust.",
           },
         ],
       },
     ]);
-    const [queryRag] = createNativeRagTools(rpc);
+    const [queryKnowledge] = createNativeRagTools(rpc);
 
-    const result = await queryRag.execute(
-      { query: "TS worker bridge", collection: "docs", limit: 3 },
+    const result = await queryKnowledge.execute(
+      { query: "TS worker bridge", category: "docs", limit: 3 },
       { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
-    expect(queryRag.name).toBe("query_rag");
-    expect(result.content).toContain("## RAG Results");
+    expect(queryKnowledge.name).toBe("query_knowledge");
+    expect(result.content).toContain("## Knowledge Results");
+    expect(result.content).toContain("contextual evidence");
     expect(result.content).toContain("[doc-1] TS Agent Loop Design");
+    expect(result.content).toContain("docs/ts-agent-loop.md:12-18");
     expect(result.content).toContain("TS worker should proxy product integrations through Rust.");
     expect(rpc.requests).toEqual([
       {
         traceId: "trace-1",
-        method: "rag.query",
+        method: "knowledge.query",
         params: {
           session_id: "session-1",
           query: "TS worker bridge",
-          collection: "docs",
+          category: "docs",
           limit: 3,
         },
       },
