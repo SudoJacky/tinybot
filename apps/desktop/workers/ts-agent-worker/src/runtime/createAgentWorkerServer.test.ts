@@ -1422,6 +1422,7 @@ describe("createAgentWorkerServer", () => {
         result: { session_id: "session-1", saved_message_count: 2 },
       }),
     );
+    await respondToMemoryCapture(server, lines, "trace-1");
     await run;
 
     expect(lines.map((line) => JSON.parse(line)).at(-1)).toMatchObject({
@@ -1788,6 +1789,7 @@ describe("createAgentWorkerServer", () => {
         result: { session_id: "session-1", saved_message_count: 4 },
       }),
     );
+    await respondToMemoryCapture(server, lines, "trace-resume-denied");
     await resume;
 
     expect(parsedLines(lines).at(-1)).toMatchObject({
@@ -1932,6 +1934,7 @@ describe("createAgentWorkerServer", () => {
         result: { session_id: "session-1", saved_message_count: 4 },
       }),
     );
+    await respondToMemoryCapture(server, lines, "trace-submit-form");
     await submit;
 
     expect(provider.requests).toHaveLength(1);
@@ -2025,6 +2028,22 @@ async function respondToProviderSecret(
       id: request.id,
       trace_id: request.trace_id,
       result: value,
+    }),
+  );
+}
+
+async function respondToMemoryCapture(server: ReturnType<typeof createAgentWorkerServer>, lines: string[], traceId: string): Promise<void> {
+  await waitFor(() => parsedLines(lines).some((line) => line.method === "memory.capture_evidence" && line.trace_id === traceId));
+  const request = parsedLines(lines).find((line) => line.method === "memory.capture_evidence" && line.trace_id === traceId);
+  if (!request || typeof request.id !== "string") {
+    throw new Error(`missing memory.capture_evidence request for ${traceId}`);
+  }
+  await server.handleLine(
+    JSON.stringify({
+      protocol_version: "1",
+      id: request.id,
+      trace_id: traceId,
+      result: { evidence: [] },
     }),
   );
 }

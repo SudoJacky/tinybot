@@ -21,7 +21,7 @@ import {
 } from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
 import { buildRunInputSpec } from "./runInputContext.ts";
-import { TurnLifecycle, type SessionBridge } from "./turnLifecycle.ts";
+import { TurnLifecycle, type MemoryEvidenceBridge, type SessionBridge } from "./turnLifecycle.ts";
 
 export type { PersistTurnRequest, PersistTurnResult, SessionBridge } from "./turnLifecycle.ts";
 
@@ -37,6 +37,7 @@ export type AgentWorkerOptions = {
   skillsBridge?: SkillsBridge;
   approvalBridge?: ApprovalBridge;
   sessionBridge?: SessionBridge;
+  memoryBridge?: MemoryEvidenceBridge;
   contextBridge?: ContextBridge;
 };
 
@@ -114,6 +115,7 @@ export class AgentWorker {
   private readonly skillsBridge?: SkillsBridge;
   private readonly approvalBridge?: ApprovalBridge;
   private readonly sessionBridge?: SessionBridge;
+  private readonly memoryBridge?: MemoryEvidenceBridge;
   private readonly contextBridge?: ContextBridge;
   private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -131,8 +133,9 @@ export class AgentWorker {
     this.skillsBridge = options.skillsBridge;
     this.approvalBridge = options.approvalBridge;
     this.sessionBridge = options.sessionBridge;
+    this.memoryBridge = options.memoryBridge;
     this.contextBridge = options.contextBridge;
-    this.turnLifecycle = new TurnLifecycle(options.sessionBridge);
+    this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
   }
 
   async handleRequest(request: WorkerRequest): Promise<WorkerResponse> {

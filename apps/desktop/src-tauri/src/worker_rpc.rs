@@ -248,6 +248,14 @@ impl WorkerRpcRouter {
                 let params: MemoryRecallParams = parse_params(request)?;
                 self.memory.recall(params)
             }
+            "memory.capture_evidence" => {
+                let params: MemoryCaptureEvidenceParams = parse_params(request)?;
+                self.memory.capture_evidence(params)
+            }
+            "memory.list_evidence" => {
+                let params: MemoryListEvidenceParams = parse_params(request)?;
+                self.memory.list_evidence(params)
+            }
             "memory.save" => {
                 let params: MemorySaveParams = parse_params(request)?;
                 self.memory.save(params)
@@ -823,6 +831,114 @@ impl WorkerMemoryRpc {
         }))
     }
 
+    fn capture_evidence(
+        &self,
+        params: MemoryCaptureEvidenceParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryWrite)?;
+        let session_key = params.session_key.trim();
+        if session_key.is_empty() {
+            return Err(invalid_memory_request("session_key is required"));
+        }
+        let mut evidence_messages = Vec::new();
+        for (offset, message) in params.messages.iter().enumerate() {
+            let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+            if role != "user" && role != "assistant" {
+                continue;
+            }
+            let content = conversation_evidence_text(message);
+            if content.trim().is_empty() {
+                continue;
+            }
+            evidence_messages.push((
+                params.start_index.unwrap_or(0) + offset,
+                role.to_string(),
+                content,
+                message
+                    .get("timestamp")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(memory_timestamp),
+            ));
+        }
+        if evidence_messages.is_empty() {
+            return Ok(serde_json::json!({ "evidence": [] }));
+        }
+        let turn_id = generate_conversation_turn_id(session_key, &evidence_messages);
+        let existing_ids = self.read_conversation_evidence_ids()?;
+        let mut known_ids = existing_ids;
+        let mut written = Vec::new();
+        for (message_index, role, content, timestamp) in evidence_messages {
+            let evidence_id = generate_conversation_evidence_id(
+                session_key,
+                &turn_id,
+                &role,
+                &content,
+                message_index,
+            );
+            if known_ids.contains(&evidence_id) {
+                continue;
+            }
+            let cursor = self.next_evidence_cursor()?;
+            let record = serde_json::json!({
+                "id": evidence_id,
+                "turn_id": turn_id,
+                "session_key": session_key,
+                "role": role,
+                "content": content,
+                "timestamp": timestamp,
+                "message_index": message_index,
+                "cursor": cursor
+            });
+            self.append_conversation_evidence_record(&record)?;
+            self.write_evidence_sequence(cursor)?;
+            known_ids.insert(record["id"].as_str().unwrap_or_default().to_string());
+            written.push(record);
+        }
+        Ok(serde_json::json!({ "evidence": written }))
+    }
+
+    fn list_evidence(
+        &self,
+        params: MemoryListEvidenceParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryRead)?;
+        let mut evidence = self.read_conversation_evidence_records()?;
+        if let Some(session_key) = params.session_key {
+            evidence.retain(|record| {
+                record.get("session_key").and_then(Value::as_str) == Some(session_key.as_str())
+            });
+        }
+        if let Some(since_cursor) = params.since_cursor {
+            evidence.retain(|record| {
+                record
+                    .get("cursor")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|cursor| cursor > since_cursor as u64)
+            });
+        }
+        evidence.sort_by(|left, right| {
+            let left_cursor = left.get("cursor").and_then(Value::as_u64).unwrap_or(0);
+            let right_cursor = right.get("cursor").and_then(Value::as_u64).unwrap_or(0);
+            left_cursor
+                .cmp(&right_cursor)
+                .then_with(|| {
+                    left.get("timestamp")
+                        .and_then(Value::as_str)
+                        .cmp(&right.get("timestamp").and_then(Value::as_str))
+                })
+                .then_with(|| {
+                    left.get("id")
+                        .and_then(Value::as_str)
+                        .cmp(&right.get("id").and_then(Value::as_str))
+                })
+        });
+        if let Some(limit) = params.limit {
+            evidence.truncate(limit);
+        }
+        Ok(serde_json::json!({ "evidence": evidence }))
+    }
+
     fn save(
         &self,
         params: MemorySaveParams,
@@ -1149,6 +1265,151 @@ impl WorkerMemoryRpc {
         }
         Ok(())
     }
+
+    fn evidence_sequence_path(&self) -> PathBuf {
+        self.workspace_root
+            .join("memory")
+            .join(".evidence_sequence")
+    }
+
+    fn conversations_dir(&self) -> PathBuf {
+        self.workspace_root.join("memory").join("conversations")
+    }
+
+    fn conversation_evidence_path(&self, timestamp: &str) -> PathBuf {
+        self.conversations_dir()
+            .join(format!("{}.jsonl", conversation_evidence_date(timestamp)))
+    }
+
+    fn read_conversation_evidence_ids(
+        &self,
+    ) -> Result<std::collections::HashSet<String>, crate::worker_protocol::WorkerProtocolError>
+    {
+        let mut ids = std::collections::HashSet::new();
+        let conversations_dir = self.conversations_dir();
+        let entries = match fs::read_dir(&conversations_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
+            Err(error) => return Err(memory_io_error(error)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(memory_io_error)?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let contents = fs::read_to_string(path).map_err(memory_io_error)?;
+            for line in contents.lines() {
+                if let Ok(value) = serde_json::from_str::<Value>(line) {
+                    if let Some(id) = value.get("id").and_then(Value::as_str) {
+                        ids.insert(id.to_string());
+                    }
+                }
+            }
+        }
+        Ok(ids)
+    }
+
+    fn read_conversation_evidence_records(
+        &self,
+    ) -> Result<Vec<Value>, crate::worker_protocol::WorkerProtocolError> {
+        let mut records = Vec::new();
+        let conversations_dir = self.conversations_dir();
+        let entries = match fs::read_dir(&conversations_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(records),
+            Err(error) => return Err(memory_io_error(error)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(memory_io_error)?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let contents = fs::read_to_string(path).map_err(memory_io_error)?;
+            for line in contents.lines() {
+                if let Ok(value) = serde_json::from_str::<Value>(line) {
+                    if value.is_object() {
+                        records.push(value);
+                    }
+                }
+            }
+        }
+        Ok(records)
+    }
+
+    fn next_evidence_cursor(&self) -> Result<usize, crate::worker_protocol::WorkerProtocolError> {
+        let sequence_path = self.evidence_sequence_path();
+        if let Ok(contents) = fs::read_to_string(&sequence_path) {
+            if let Ok(value) = contents.trim().parse::<usize>() {
+                return Ok(value + 1);
+            }
+        }
+        Ok(self.max_evidence_cursor()? + 1)
+    }
+
+    fn max_evidence_cursor(&self) -> Result<usize, crate::worker_protocol::WorkerProtocolError> {
+        let mut max_cursor = 0;
+        let conversations_dir = self.conversations_dir();
+        let entries = match fs::read_dir(&conversations_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(error) => return Err(memory_io_error(error)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(memory_io_error)?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let contents = fs::read_to_string(path).map_err(memory_io_error)?;
+            for line in contents.lines() {
+                if let Ok(value) = serde_json::from_str::<Value>(line) {
+                    if let Some(cursor) = value.get("cursor").and_then(Value::as_u64) {
+                        max_cursor = max_cursor.max(cursor as usize);
+                    }
+                }
+            }
+        }
+        Ok(max_cursor)
+    }
+
+    fn append_conversation_evidence_record(
+        &self,
+        record: &Value,
+    ) -> Result<(), crate::worker_protocol::WorkerProtocolError> {
+        let timestamp = record
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let path = self.conversation_evidence_path(timestamp);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(memory_io_error)?;
+        }
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(memory_io_error)?;
+        writeln!(
+            file,
+            "{}",
+            serde_json::to_string(record).map_err(serialization_error)?
+        )
+        .map_err(memory_io_error)
+    }
+
+    fn write_evidence_sequence(
+        &self,
+        cursor: usize,
+    ) -> Result<(), crate::worker_protocol::WorkerProtocolError> {
+        let path = self.evidence_sequence_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(memory_io_error)?;
+        }
+        fs::write(path, cursor.to_string()).map_err(memory_io_error)
+    }
 }
 
 #[derive(Deserialize)]
@@ -1310,6 +1571,25 @@ struct MemoryRecallParams {
     max_notes: Option<usize>,
     #[serde(default)]
     max_chars: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct MemoryCaptureEvidenceParams {
+    session_key: String,
+    #[serde(default)]
+    start_index: Option<usize>,
+    #[serde(default)]
+    messages: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct MemoryListEvidenceParams {
+    #[serde(default)]
+    since_cursor: Option<usize>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    session_key: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1654,6 +1934,139 @@ fn memory_note_evidence_ids(note: &Value) -> Vec<String> {
     ids.sort();
     ids.dedup();
     ids
+}
+
+fn conversation_evidence_text(message: &Value) -> String {
+    let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+    if role != "user" && role != "assistant" {
+        return String::new();
+    }
+    if role == "assistant" && message.get("tool_calls").is_some_and(Value::is_array) {
+        return String::new();
+    }
+    match message.get("content") {
+        Some(Value::String(content)) => strip_think_tags(content).trim().to_string(),
+        Some(Value::Array(blocks)) => {
+            let mut parts = Vec::new();
+            for block in blocks {
+                let Some(block) = block.as_object() else {
+                    continue;
+                };
+                match block.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        if let Some(text) = block.get("text").and_then(Value::as_str) {
+                            let text = strip_think_tags(text).trim().to_string();
+                            if !text.is_empty() {
+                                parts.push(text);
+                            }
+                        }
+                    }
+                    Some("image_url") => parts.push("[media omitted]".to_string()),
+                    _ => {}
+                }
+            }
+            parts.join("\n").trim().to_string()
+        }
+        _ => String::new(),
+    }
+}
+
+fn strip_think_tags(value: &str) -> String {
+    let mut output = String::new();
+    let mut rest = value;
+    loop {
+        let Some(start) = rest.find("<think>") else {
+            output.push_str(rest);
+            break;
+        };
+        output.push_str(&rest[..start]);
+        let after_start = &rest[start + "<think>".len()..];
+        if let Some(end) = after_start.find("</think>") {
+            rest = &after_start[end + "</think>".len()..];
+        } else {
+            break;
+        }
+    }
+    output
+}
+
+fn generate_conversation_turn_id(
+    session_key: &str,
+    messages: &[(usize, String, String, String)],
+) -> String {
+    let mut payload = String::new();
+    payload.push_str(session_key);
+    for (message_index, role, content, _) in messages {
+        payload.push('|');
+        payload.push_str(&message_index.to_string());
+        payload.push(':');
+        payload.push_str(role);
+        payload.push(':');
+        payload.push_str(content);
+    }
+    format!("turn_{:016x}", stable_memory_hash(&payload))
+}
+
+fn generate_conversation_evidence_id(
+    session_key: &str,
+    turn_id: &str,
+    role: &str,
+    content: &str,
+    message_index: usize,
+) -> String {
+    format!(
+        "ev_{:016x}",
+        stable_memory_hash(&format!(
+            "{session_key}|{turn_id}|{role}|{content}|{message_index}"
+        ))
+    )
+}
+
+fn stable_memory_hash(value: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn conversation_evidence_date(timestamp: &str) -> String {
+    let candidate = timestamp.get(..10).unwrap_or_default();
+    if is_iso_date(candidate) {
+        candidate.to_string()
+    } else {
+        memory_timestamp_date()
+    }
+}
+
+fn is_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[8..10].iter().all(u8::is_ascii_digit)
+}
+
+fn memory_timestamp_date() -> String {
+    let days = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() / 86_400)
+        .unwrap_or_default();
+    // Civil date conversion based on Howard Hinnant's days_from_civil inverse.
+    let z = days as i64 + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if m <= 2 { 1 } else { 0 };
+    format!("{year:04}-{m:02}-{d:02}")
 }
 
 fn invalid_rag_request(message: impl Into<String>) -> crate::worker_protocol::WorkerProtocolError {
@@ -3163,7 +3576,9 @@ mod tests {
             .as_ref()
             .expect("memory.save should return result")["note"]
             .clone();
-        let note_id = saved_note["id"].as_str().expect("saved note should have id");
+        let note_id = saved_note["id"]
+            .as_str()
+            .expect("saved note should have id");
 
         let recall_response = router.dispatch(&WorkerRequest::new(
             "req-2",
@@ -3192,6 +3607,71 @@ mod tests {
             "User prefers concise implementation handoffs."
         );
         assert_eq!(result["references"][0]["view_file"], "USER.md");
+    }
+
+    #[test]
+    fn dispatches_memory_capture_evidence_request() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead, WorkerCapability::MemoryWrite]),
+        );
+
+        let response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "memory.capture_evidence",
+            json!({
+                "session_key": "desktop:session-1",
+                "start_index": 7,
+                "messages": [
+                    { "role": "user", "content": "Remember this migration note.", "timestamp": "2026-06-12T03:00:00Z" },
+                    { "role": "assistant", "content": "Captured.", "timestamp": "2026-06-12T03:00:01Z" },
+                    { "role": "assistant", "content": "", "tool_calls": [{ "id": "call-1" }] },
+                    { "role": "tool", "content": "ignored" }
+                ]
+            }),
+        ));
+
+        let result = response
+            .result
+            .as_ref()
+            .expect("memory.capture_evidence should return result");
+        assert_eq!(response.error, None);
+        assert_eq!(result["evidence"].as_array().unwrap().len(), 2);
+        assert_eq!(result["evidence"][0]["session_key"], "desktop:session-1");
+        assert_eq!(result["evidence"][0]["role"], "user");
+        assert_eq!(
+            result["evidence"][0]["content"],
+            "Remember this migration note."
+        );
+        assert_eq!(result["evidence"][0]["message_index"], 7);
+        assert_eq!(result["evidence"][0]["cursor"], 1);
+        assert_eq!(result["evidence"][1]["role"], "assistant");
+        assert_eq!(result["evidence"][1]["message_index"], 8);
+        assert_eq!(result["evidence"][1]["cursor"], 2);
+        assert!(fixture
+            .read("memory/conversations/2026-06-12.jsonl")
+            .contains("Remember this migration note."));
+        assert_eq!(fixture.read("memory/.evidence_sequence").trim(), "2");
+
+        let list_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "memory.list_evidence",
+            json!({ "session_key": "desktop:session-1", "limit": 10 }),
+        ));
+        let list_result = list_response
+            .result
+            .as_ref()
+            .expect("memory.list_evidence should return result");
+        assert_eq!(list_response.error, None);
+        assert_eq!(list_result["evidence"].as_array().unwrap().len(), 2);
+        assert_eq!(list_result["evidence"][0]["cursor"], 1);
+        assert_eq!(list_result["evidence"][1]["cursor"], 2);
     }
 
     #[test]

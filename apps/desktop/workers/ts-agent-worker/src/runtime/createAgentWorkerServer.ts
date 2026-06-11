@@ -27,6 +27,7 @@ import {
   providerRuntimeFromNativeConfig,
 } from "./configBridge.ts";
 import { NativeContextBridge } from "./contextBridge.ts";
+import { NativeMemoryBridge } from "./memoryBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
 import { NativeSessionBridge } from "./sessionBridge.ts";
 import { NativeSkillsBridge } from "./skillsBridge.ts";
@@ -93,6 +94,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     skillsBridge: new NativeSkillsBridge(rpcClient, options.env ?? process.env),
     approvalBridge: new NativeApprovalBridge(rpcClient),
     sessionBridge: new NativeSessionBridge(rpcClient),
+    memoryBridge: new NativeMemoryBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),
   });
   return new StdioServer({

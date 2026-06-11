@@ -13,12 +13,25 @@ export type SessionBridge = {
   getCheckpoint(sessionId: string, traceId: string): Promise<Record<string, unknown> | null>;
 };
 
+export type MemoryEvidenceBridge = {
+  captureEvidence(sessionId: string, request: CaptureEvidenceRequest, traceId: string): Promise<CaptureEvidenceResult>;
+};
+
 export type PersistTurnRequest = {
   runId: string;
   messages: AgentMessage[];
   clearCheckpoint: boolean;
   runtimeContextTag?: string;
   contextMetadata?: Record<string, unknown>;
+};
+
+export type CaptureEvidenceRequest = {
+  messages: AgentMessage[];
+  startIndex: number;
+};
+
+export type CaptureEvidenceResult = {
+  evidence: Array<Record<string, unknown>>;
 };
 
 export type PersistTurnResult = {
@@ -40,6 +53,7 @@ export type TurnLifecycleMetadata = {
   persisted: boolean;
   savedMessageCount: number;
   awaitingInput: boolean;
+  evidenceCapturedCount: number;
   omittedSideEffects: string[];
 };
 
@@ -51,9 +65,11 @@ export type RestoreCheckpointResult = {
 
 export class TurnLifecycle {
   private readonly sessionBridge: SessionBridge | undefined;
+  private readonly memoryBridge: MemoryEvidenceBridge | undefined;
 
-  constructor(sessionBridge: SessionBridge | undefined) {
+  constructor(sessionBridge: SessionBridge | undefined, memoryBridge?: MemoryEvidenceBridge) {
     this.sessionBridge = sessionBridge;
+    this.memoryBridge = memoryBridge;
   }
 
   async writeCheckpoint(
@@ -115,9 +131,11 @@ export class TurnLifecycle {
         runtimeContextTag: RUNTIME_CONTEXT_TAG,
         contextMetadata: result.contextMetadata,
       }, traceId);
-      return lifecycleMetadataFromPersistedTurn(spec, result, persisted);
+      const evidenceCapturedCount = await this.captureEvidence(traceId, spec.sessionId, messages, persisted.messagesBefore);
+      return lifecycleMetadataFromPersistedTurn(spec, result, persisted, evidenceCapturedCount);
     }
     await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
+    const evidenceCapturedCount = await this.captureEvidence(traceId, spec.sessionId, messages, 0);
     return {
       sessionId: spec.sessionId,
       runId: spec.runId,
@@ -126,8 +144,26 @@ export class TurnLifecycle {
       persisted: true,
       savedMessageCount: messages.length,
       awaitingInput: isAwaitingInputResult(result),
-      omittedSideEffects: [],
+      evidenceCapturedCount,
+      omittedSideEffects: evidenceCapturedCount > 0 ? [] : ["conversation_evidence"],
     };
+  }
+
+  private async captureEvidence(
+    traceId: string,
+    sessionId: string,
+    messages: AgentMessage[],
+    startIndex: number,
+  ): Promise<number> {
+    if (!this.memoryBridge || messages.length === 0) {
+      return 0;
+    }
+    try {
+      const result = await this.memoryBridge.captureEvidence(sessionId, { messages, startIndex }, traceId);
+      return Array.isArray(result.evidence) ? result.evidence.length : 0;
+    } catch {
+      return 0;
+    }
   }
 }
 
@@ -150,6 +186,7 @@ function lifecycleMetadataFromPersistedTurn(
   spec: AgentRunSpec,
   result: AgentRunResult,
   persisted: PersistTurnResult,
+  evidenceCapturedCount: number,
 ): TurnLifecycleMetadata {
   return {
     sessionId: persisted.sessionId,
@@ -159,7 +196,10 @@ function lifecycleMetadataFromPersistedTurn(
     persisted: true,
     savedMessageCount: persisted.savedMessageCount,
     awaitingInput: isAwaitingInputResult(result),
-    omittedSideEffects: persisted.omittedSideEffects,
+    evidenceCapturedCount,
+    omittedSideEffects: evidenceCapturedCount > 0
+      ? persisted.omittedSideEffects.filter((name) => name !== "conversation_evidence")
+      : persisted.omittedSideEffects,
   };
 }
 

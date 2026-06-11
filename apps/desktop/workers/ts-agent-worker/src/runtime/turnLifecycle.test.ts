@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
 import type { AgentRunnerCheckpoint } from "../agent/agentRunner.ts";
 import { RUNTIME_CONTEXT_TAG } from "../agent/contextBuilder.ts";
-import { TurnLifecycle, type SessionBridge } from "./turnLifecycle.ts";
+import { TurnLifecycle, type MemoryEvidenceBridge, type SessionBridge } from "./turnLifecycle.ts";
 
 function spec(overrides: Partial<AgentRunSpec> = {}): AgentRunSpec {
   return {
@@ -202,6 +202,7 @@ describe("TurnLifecycle", () => {
 
   test("persists completed turns through session.persist_turn and returns lifecycle metadata", async () => {
     const persistedTurns: Array<{ sessionId: string; messages: AgentMessage[]; clearCheckpoint: boolean }> = [];
+    const capturedEvidence: Array<{ sessionId: string; messages: AgentMessage[]; startIndex: number; traceId: string }> = [];
     const bridge: SessionBridge = {
       setCheckpoint: async () => undefined,
       clearCheckpoint: async () => undefined,
@@ -216,19 +217,41 @@ describe("TurnLifecycle", () => {
           checkpointCleared: turn.clearCheckpoint,
           duplicateMessageCount: 0,
           truncatedToolResultCount: 0,
-          omittedSideEffects: ["memory_extraction"],
+          omittedSideEffects: ["conversation_evidence", "memory_extraction"],
         };
       },
       getCheckpoint: async () => null,
     };
+    const memoryBridge: MemoryEvidenceBridge = {
+      captureEvidence: async (sessionId, request, traceId) => {
+        capturedEvidence.push({
+          sessionId,
+          messages: request.messages,
+          startIndex: request.startIndex,
+          traceId,
+        });
+        return { evidence: [{ id: "ev-user" }, { id: "ev-assistant" }] };
+      },
+    };
 
-    const lifecycle = new TurnLifecycle(bridge);
+    const lifecycle = new TurnLifecycle(bridge, memoryBridge);
     const metadata = await lifecycle.finalizeTurn("trace-1", spec(), result());
 
     expect(persistedTurns).toEqual([
       {
         sessionId: "session-1",
         clearCheckpoint: true,
+        messages: [
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "done" },
+        ],
+      },
+    ]);
+    expect(capturedEvidence).toEqual([
+      {
+        sessionId: "session-1",
+        traceId: "trace-1",
+        startIndex: 0,
         messages: [
           { role: "user", content: "hello" },
           { role: "assistant", content: "done" },
@@ -243,6 +266,7 @@ describe("TurnLifecycle", () => {
       persisted: true,
       savedMessageCount: 2,
       awaitingInput: false,
+      evidenceCapturedCount: 2,
       omittedSideEffects: ["memory_extraction"],
     });
   });

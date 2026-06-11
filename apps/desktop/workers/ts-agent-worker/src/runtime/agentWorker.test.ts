@@ -508,6 +508,7 @@ describe("AgentWorker", () => {
           persisted: true,
           savedMessageCount: 2,
           awaitingInput: false,
+          evidenceCapturedCount: 0,
           omittedSideEffects: [],
         },
       }),
