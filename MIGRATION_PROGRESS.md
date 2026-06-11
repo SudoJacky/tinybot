@@ -123,6 +123,7 @@
 | 2026-06-12 | Started Batch 3 Provider Runtime hardening: `config.apply_patch_result` now refreshes the native provider secret resolver snapshot after successful config patches, so `provider.resolve_secret` observes newly saved provider API keys while public config reads remain redacted. |
 | 2026-06-12 | Continued Batch 3 Provider Runtime request parity: `buildOpenAIChatRequest()` now honors `supportsPromptCaching` by adding Python-style ephemeral `cache_control` markers to the system message, recent context message, and final tool definition. |
 | 2026-06-12 | Continued Batch 3 Provider Runtime stream parity: `collectChatCompletionStream()` and `OpenAIProvider.complete()` now support `streamIdleTimeoutMs`, returning a model-visible error when a provider stream stalls while preserving already emitted deltas. |
+| 2026-06-12 | Continued Batch 3 Provider Runtime config reload: `worker.provider.reload` now clears the TS worker lazy provider cache so the next run reloads native config and provider secrets while active runs keep their existing provider instance. |
 
 ## Next Checklist
 

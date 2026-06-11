@@ -10,7 +10,7 @@ type ParsedLine = {
   id?: unknown;
   trace_id?: unknown;
   method?: unknown;
-  params?: { path?: unknown };
+  params?: { path?: unknown; providerId?: unknown };
 };
 
 class QueueProvider implements ModelProvider {
@@ -800,6 +800,138 @@ describe("createAgentWorkerServer", () => {
       id: "req-1",
       trace_id: "trace-1",
       result: { finalContent: "native config done", stopReason: "final_response" },
+    });
+  });
+
+  test("reloads lazy model provider config for the next run", async () => {
+    const lines: string[] = [];
+    const createdConfigs: ModelProviderConfig[] = [];
+    let providerCount = 0;
+    const server = createAgentWorkerServer({
+      tools: new ToolRegistry(),
+      env: {},
+      createModelProvider: (config) => {
+        providerCount += 1;
+        createdConfigs.push(config);
+        return new QueueProvider([{ content: `provider ${providerCount}`, toolCalls: [], stopReason: "stop" }]);
+      },
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const firstRun = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "hello" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "openai", model: "gpt-5" } },
+      providers: {
+        openai: {
+          provider: "openai",
+          api_base: "https://api.first.test/v1",
+          api_key: null,
+        },
+      },
+    });
+    await respondToProviderSecret(server, lines, "openai", { apiKey: "first-key", apiKeySource: "config" });
+    await firstRun;
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-1",
+      trace_id: "trace-1",
+      result: { finalContent: "provider 1", stopReason: "final_response" },
+    });
+
+    lines.length = 0;
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "reload-1",
+        trace_id: "trace-reload",
+        method: "worker.provider.reload",
+        params: { reason: "config.apply_patch_result" },
+      }),
+    );
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "reload-1",
+      trace_id: "trace-reload",
+      result: { reloaded: true },
+    });
+
+    lines.length = 0;
+    const secondRun = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-2",
+        trace_id: "trace-2",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-2",
+            messages: [{ role: "user", content: "hello again" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { provider: "openai", model: "gpt-5.1" } },
+      providers: {
+        openai: {
+          provider: "openai",
+          api_base: "https://api.second.test/v1",
+          api_key: null,
+        },
+      },
+    });
+    await respondToProviderSecret(server, lines, "openai", { apiKey: "second-key", apiKeySource: "config" });
+    await secondRun;
+
+    expect(createdConfigs).toEqual([
+      {
+        kind: "resolved",
+        resolved: expect.objectContaining({
+          providerId: "openai",
+          apiKey: "first-key",
+          apiBase: "https://api.first.test/v1",
+          model: "gpt-5",
+        }),
+      },
+      {
+        kind: "resolved",
+        resolved: expect.objectContaining({
+          providerId: "openai",
+          apiKey: "second-key",
+          apiBase: "https://api.second.test/v1",
+          model: "gpt-5.1",
+        }),
+      },
+    ]);
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-2",
+      trace_id: "trace-2",
+      result: { finalContent: "provider 2", stopReason: "final_response" },
     });
   });
 

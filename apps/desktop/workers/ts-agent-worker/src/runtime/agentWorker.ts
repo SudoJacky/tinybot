@@ -29,9 +29,16 @@ export type AgentWorkerOptions = {
   provider: ModelProvider;
   tools: ToolRegistry;
   emitEvent: (event: WorkerEvent) => void;
+  reloadProvider?: ProviderReloadHandler;
   approvalBridge?: ApprovalBridge;
   sessionBridge?: SessionBridge;
   contextBridge?: ContextBridge;
+};
+
+export type ProviderReloadHandler = () => Promise<ProviderReloadResult> | ProviderReloadResult;
+
+export type ProviderReloadResult = {
+  reloaded: boolean;
 };
 
 type ActiveRun = {
@@ -62,6 +69,7 @@ export class AgentWorker {
   private readonly provider: ModelProvider;
   private readonly tools: ToolRegistry;
   private readonly emitEvent: (event: WorkerEvent) => void;
+  private readonly reloadProvider?: ProviderReloadHandler;
   private readonly approvalBridge?: ApprovalBridge;
   private readonly sessionBridge?: SessionBridge;
   private readonly contextBridge?: ContextBridge;
@@ -73,6 +81,7 @@ export class AgentWorker {
     this.provider = options.provider;
     this.tools = options.tools;
     this.emitEvent = options.emitEvent;
+    this.reloadProvider = options.reloadProvider;
     this.approvalBridge = options.approvalBridge;
     this.sessionBridge = options.sessionBridge;
     this.contextBridge = options.contextBridge;
@@ -110,6 +119,10 @@ export class AgentWorker {
 
     if (request.method === "agent.run_input") {
       return this.handleRunInputRequest(request);
+    }
+
+    if (request.method === "worker.provider.reload") {
+      return this.handleProviderReloadRequest(request);
     }
 
     if (request.method !== "agent.run") {
@@ -233,6 +246,23 @@ export class AgentWorker {
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleProviderReloadRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.reloadProvider) {
+      return this.failure(request, "worker.provider.reload requires a reloadable provider");
+    }
+    try {
+      const result = await this.reloadProvider();
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
     }
   }
 

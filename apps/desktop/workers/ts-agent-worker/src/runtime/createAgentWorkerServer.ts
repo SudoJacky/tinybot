@@ -55,16 +55,21 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   const writeEvent = (event: WorkerEvent): void => {
     options.writeLine(JSON.stringify(event));
   };
-  const provider =
-    options.provider ??
-    new LazyModelProvider(async () => {
+  const lazyProvider = options.provider
+    ? undefined
+    : new LazyModelProvider(async () => {
       const config = await modelProviderConfigFromNativeConfig(new NativeConfigBridge(rpcClient), options.env ?? process.env);
       return (options.createModelProvider ?? createModelProvider)(config);
     });
+  const provider = options.provider ?? lazyProvider;
+  if (!provider) {
+    throw new Error("model provider is unavailable");
+  }
   const worker = new AgentWorker({
     provider,
     tools: options.tools,
     emitEvent: writeEvent,
+    reloadProvider: lazyProvider ? () => lazyProvider.reload() : undefined,
     approvalBridge: new NativeApprovalBridge(rpcClient),
     sessionBridge: new NativeSessionBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),
@@ -99,6 +104,11 @@ class LazyModelProvider implements ModelProvider {
   async complete(messages: AgentMessage[], options?: ModelRequestOptions): Promise<ModelResponse> {
     const provider = await this.getProvider();
     return provider.complete(messages, options);
+  }
+
+  reload(): { reloaded: true } {
+    this.provider = null;
+    return { reloaded: true };
   }
 
   private getProvider(): Promise<ModelProvider> {
