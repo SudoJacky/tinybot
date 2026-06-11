@@ -110,6 +110,76 @@ describe("McpRuntimeManager", () => {
     expect(registry.toolNames).toEqual(["mcp_good_ok"]);
   });
 
+  test("reports wrapped-name collisions without overwriting the existing MCP tool", async () => {
+    const registry = new ToolRegistry();
+    const manager = new McpRuntimeManager({
+      registry,
+      connector: {
+        connect: async (server) => ({
+          session: sessionReturning(server.name),
+          tools: [{ name: "echo", inputSchema: { type: "object" } }],
+          close: async () => undefined,
+        }),
+      },
+    });
+
+    const result = await manager.connectAll(normalizeMcpServersConfig({
+      "foo-bar": { command: "node" },
+      foo_bar: { command: "node" },
+    }));
+
+    expect(result.servers[0]).toMatchObject({
+      name: "foo-bar",
+      registeredTools: ["mcp_foo_bar_echo"],
+      collisionTools: [],
+    });
+    expect(result.servers[1]).toMatchObject({
+      name: "foo_bar",
+      registeredTools: [],
+      collisionTools: ["mcp_foo_bar_echo"],
+    });
+    expect(registry.toolNames).toEqual(["mcp_foo_bar_echo"]);
+    await expect(registry.execute("mcp_foo_bar_echo", {}, { runId: "run-1" })).resolves.toMatchObject({
+      content: "foo-bar",
+    });
+  });
+
+  test("reconnect replaces previous MCP registrations while preserving non-MCP tools", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "read_file",
+      description: "Read",
+      parameters: { type: "object" },
+      readOnly: true,
+      async execute() {
+        return { content: "file" };
+      },
+    });
+    let connectCount = 0;
+    const manager = new McpRuntimeManager({
+      registry,
+      connector: {
+        connect: async () => {
+          connectCount += 1;
+          return {
+            session: sessionReturning(`v${connectCount}`),
+            tools: [{ name: `tool_${connectCount}`, inputSchema: { type: "object" } }],
+            close: async () => undefined,
+          };
+        },
+      },
+    });
+
+    await manager.connectAll(normalizeMcpServersConfig({ first: { command: "node" } }));
+    await manager.connectAll(normalizeMcpServersConfig({ second: { command: "node" } }));
+
+    expect(registry.toolNames).toEqual(["read_file", "mcp_second_tool_2"]);
+    expect(registry.has("mcp_first_tool_1")).toBe(false);
+    await expect(registry.execute("mcp_second_tool_2", {}, { runId: "run-1" })).resolves.toMatchObject({
+      content: "v2",
+    });
+  });
+
   test("close unregisters MCP tools and closes connected sessions", async () => {
     const registry = new ToolRegistry();
     const close = vi.fn(async () => undefined);

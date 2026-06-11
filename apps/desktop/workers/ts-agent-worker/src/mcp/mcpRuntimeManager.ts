@@ -19,6 +19,7 @@ export type McpServerDiagnostic = {
   status: "connected" | "failed";
   registeredTools: string[];
   skippedTools: string[];
+  collisionTools: string[];
   unmatchedEnabledTools: string[];
   error: string | null;
 };
@@ -74,12 +75,23 @@ export class McpRuntimeManager {
       this.clients.set(server.name, client);
       const registeredTools: string[] = [];
       const skippedTools: string[] = [];
+      const collisionTools: string[] = [];
       const matchedAllowlist = new Set<string>();
       const allowAll = server.enabledTools.includes("*");
       for (const rawTool of client.tools) {
         const wrappedName = wrappedMcpToolName(server.safeName, rawTool.name);
         if (!allowAll && !server.enabledTools.includes(rawTool.name) && !server.enabledTools.includes(wrappedName)) {
           skippedTools.push(wrappedName);
+          continue;
+        }
+        if (server.enabledTools.includes(rawTool.name)) {
+          matchedAllowlist.add(rawTool.name);
+        }
+        if (server.enabledTools.includes(wrappedName)) {
+          matchedAllowlist.add(wrappedName);
+        }
+        if (this.registry.has(wrappedName)) {
+          collisionTools.push(wrappedName);
           continue;
         }
         const tool = createMcpToolWrapper({
@@ -91,12 +103,6 @@ export class McpRuntimeManager {
         this.registry.register(tool);
         this.registeredTools.add(tool.name);
         registeredTools.push(tool.name);
-        if (server.enabledTools.includes(rawTool.name)) {
-          matchedAllowlist.add(rawTool.name);
-        }
-        if (server.enabledTools.includes(wrappedName)) {
-          matchedAllowlist.add(wrappedName);
-        }
       }
       return {
         name: server.name,
@@ -104,6 +110,7 @@ export class McpRuntimeManager {
         status: "connected",
         registeredTools,
         skippedTools,
+        collisionTools,
         unmatchedEnabledTools: allowAll ? [] : server.enabledTools.filter((name) => !matchedAllowlist.has(name)),
         error: null,
       };
@@ -114,6 +121,7 @@ export class McpRuntimeManager {
         status: "failed",
         registeredTools: [],
         skippedTools: [],
+        collisionTools: [],
         unmatchedEnabledTools: [],
         error: errorMessage(error),
       };
