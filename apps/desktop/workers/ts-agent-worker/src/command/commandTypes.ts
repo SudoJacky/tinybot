@@ -60,6 +60,24 @@ export type ResolvePendingApprovalResult = {
   scope?: "once" | "session";
 };
 
+export type DreamCommandRequest = {
+  traceId: string;
+  sessionId: string | undefined;
+};
+
+export type DreamLogCommandRequest = DreamCommandRequest & {
+  sha?: string;
+};
+
+export type DreamRestoreCommandRequest = DreamCommandRequest & {
+  sha?: string;
+};
+
+export type DreamCommandResult = {
+  content: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type CommandCapabilities = {
   cancelActiveRunsForSession?: (sessionId: string | undefined) => Promise<CancelActiveRunsResult> | CancelActiveRunsResult;
   getStatusSnapshot?: (context: CommandContext) => Promise<CommandStatusSnapshot> | CommandStatusSnapshot;
@@ -67,6 +85,9 @@ export type CommandCapabilities = {
   clearSession?: (sessionId: string | undefined, traceId: string) => Promise<ClearSessionCommandResult> | ClearSessionCommandResult;
   listPendingApprovals?: (sessionId: string | undefined, traceId: string) => Promise<PendingApprovalListResult> | PendingApprovalListResult;
   resolvePendingApproval?: (request: ResolvePendingApprovalRequest) => Promise<ResolvePendingApprovalResult> | ResolvePendingApprovalResult;
+  runDream?: (request: DreamCommandRequest) => Promise<DreamCommandResult> | DreamCommandResult;
+  getDreamLog?: (request: DreamLogCommandRequest) => Promise<DreamCommandResult> | DreamCommandResult;
+  restoreDream?: (request: DreamRestoreCommandRequest) => Promise<DreamCommandResult> | DreamCommandResult;
 };
 
 export type CommandResult = {

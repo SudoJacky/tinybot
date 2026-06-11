@@ -3,7 +3,15 @@ import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentR
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import { createDefaultCommandRouter } from "../command/commandRegistry.ts";
 import type { CommandRouter } from "../command/commandRouter.ts";
-import type { ResolvePendingApprovalRequest, ResolvePendingApprovalResult, RestartCommandRequest } from "../command/commandTypes.ts";
+import type {
+  DreamCommandRequest,
+  DreamCommandResult,
+  DreamLogCommandRequest,
+  DreamRestoreCommandRequest,
+  ResolvePendingApprovalRequest,
+  ResolvePendingApprovalResult,
+  RestartCommandRequest,
+} from "../command/commandTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
@@ -41,6 +49,7 @@ export type AgentWorkerOptions = {
   validateProviderModel?: ProviderModelValidateHandler;
   skillsBridge?: SkillsBridge;
   approvalBridge?: ApprovalBridge;
+  dreamBridge?: DreamCommandBridge;
   sessionBridge?: SessionBridge;
   memoryBridge?: MemoryEvidenceBridge;
   contextBridge?: ContextBridge;
@@ -88,6 +97,12 @@ export type SkillsBridge = {
   validateWebuiSkill(name: string, traceId: string): Promise<unknown> | unknown;
 };
 
+export type DreamCommandBridge = {
+  runDream(request: DreamCommandRequest): Promise<DreamCommandResult> | DreamCommandResult;
+  getDreamLog(request: DreamLogCommandRequest): Promise<DreamCommandResult> | DreamCommandResult;
+  restoreDream(request: DreamRestoreCommandRequest): Promise<DreamCommandResult> | DreamCommandResult;
+};
+
 type ActiveRun = {
   traceId: string;
   sessionId?: string;
@@ -126,6 +141,7 @@ export class AgentWorker {
   private readonly validateProviderModel?: ProviderModelValidateHandler;
   private readonly skillsBridge?: SkillsBridge;
   private readonly approvalBridge?: ApprovalBridge;
+  private readonly dreamBridge?: DreamCommandBridge;
   private readonly sessionBridge?: SessionBridge;
   private readonly memoryBridge?: MemoryEvidenceBridge;
   private readonly contextBridge?: ContextBridge;
@@ -146,6 +162,7 @@ export class AgentWorker {
     this.validateProviderModel = options.validateProviderModel;
     this.skillsBridge = options.skillsBridge;
     this.approvalBridge = options.approvalBridge;
+    this.dreamBridge = options.dreamBridge;
     this.sessionBridge = options.sessionBridge;
     this.memoryBridge = options.memoryBridge;
     this.contextBridge = options.contextBridge;
@@ -161,6 +178,13 @@ export class AgentWorker {
         : {}),
       ...(options.approvalBridge
         ? { resolvePendingApproval: (request) => this.resolvePendingApprovalForCommand(request) }
+        : {}),
+      ...(options.dreamBridge
+        ? {
+          runDream: (request) => this.runDreamForCommand(request),
+          getDreamLog: (request) => this.getDreamLogForCommand(request),
+          restoreDream: (request) => this.restoreDreamForCommand(request),
+        }
         : {}),
     });
     this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
@@ -514,6 +538,18 @@ export class AgentWorker {
         scope: request.scope,
       };
     }
+  }
+
+  private runDreamForCommand(request: DreamCommandRequest): Promise<DreamCommandResult> | DreamCommandResult {
+    return this.dreamBridge?.runDream(request) ?? { content: "Dream commands are unavailable in this runtime." };
+  }
+
+  private getDreamLogForCommand(request: DreamLogCommandRequest): Promise<DreamCommandResult> | DreamCommandResult {
+    return this.dreamBridge?.getDreamLog(request) ?? { content: "Dream commands are unavailable in this runtime." };
+  }
+
+  private restoreDreamForCommand(request: DreamRestoreCommandRequest): Promise<DreamCommandResult> | DreamCommandResult {
+    return this.dreamBridge?.restoreDream(request) ?? { content: "Dream commands are unavailable in this runtime." };
   }
 
   private async tryHandleCommand(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult | undefined> {

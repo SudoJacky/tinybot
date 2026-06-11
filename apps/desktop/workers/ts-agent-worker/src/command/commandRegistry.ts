@@ -2,10 +2,17 @@ import { CommandRouter } from "./commandRouter.ts";
 import type { CommandCapabilities, CommandContext, CommandResult } from "./commandTypes.ts";
 
 const HELP_COMMANDS = [
-  { command: "/help", description: "Show available backend slash commands." },
-  { command: "/status", description: "Show worker and session status." },
-  { command: "/stop", description: "Cancel an active run." },
+  { command: "/new", description: "Start a new conversation." },
+  { command: "/stop", description: "Stop the current task." },
   { command: "/restart", description: "Restart the backend worker." },
+  { command: "/status", description: "Show worker and session status." },
+  { command: "/dream", description: "Manually trigger Dream consolidation." },
+  { command: "/dream-log [sha]", description: "Show Dream memory changes." },
+  { command: "/dream-restore [sha]", description: "List or restore Dream memory versions." },
+  { command: "/approvals", description: "List pending approval requests." },
+  { command: "/approve <id> once|session", description: "Approve a pending request." },
+  { command: "/deny <id>", description: "Deny a pending request." },
+  { command: "/help", description: "Show available backend slash commands." },
 ];
 
 export function createDefaultCommandRouter(capabilities: CommandCapabilities = {}): CommandRouter {
@@ -17,6 +24,11 @@ export function createDefaultCommandRouter(capabilities: CommandCapabilities = {
   router.exact("/approvals", (context) => approvalsResult(context, capabilities));
   router.prefix("/approve", (context) => approveResult(context, capabilities));
   router.prefix("/deny", (context) => denyResult(context, capabilities));
+  router.exact("/dream", (context) => dreamResult(context, capabilities));
+  router.exact("/dream-log", (context) => dreamLogResult(context, capabilities));
+  router.prefix("/dream-log", (context) => dreamLogResult(context, capabilities));
+  router.exact("/dream-restore", (context) => dreamRestoreResult(context, capabilities));
+  router.prefix("/dream-restore", (context) => dreamRestoreResult(context, capabilities));
   router.exact("/help", () => helpResult());
   return router;
 }
@@ -243,8 +255,54 @@ async function denyResult(context: CommandContext, capabilities: CommandCapabili
   });
 }
 
+async function dreamResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
+  if (!capabilities.runDream) {
+    return unavailableDreamResult("/dream");
+  }
+  const result = await capabilities.runDream({
+    traceId: context.traceId,
+    sessionId: context.sessionId,
+  });
+  return textCommandResult("/dream", result.content, result.metadata);
+}
+
+async function dreamLogResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
+  if (!capabilities.getDreamLog) {
+    return unavailableDreamResult("/dream-log");
+  }
+  const result = await capabilities.getDreamLog({
+    traceId: context.traceId,
+    sessionId: context.sessionId,
+    ...firstArgMetadata(context),
+  });
+  return textCommandResult("/dream-log", result.content, result.metadata);
+}
+
+async function dreamRestoreResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
+  if (!capabilities.restoreDream) {
+    return unavailableDreamResult("/dream-restore");
+  }
+  const result = await capabilities.restoreDream({
+    traceId: context.traceId,
+    sessionId: context.sessionId,
+    ...firstArgMetadata(context),
+  });
+  return textCommandResult("/dream-restore", result.content, result.metadata);
+}
+
+function unavailableDreamResult(command: "/dream" | "/dream-log" | "/dream-restore"): CommandResult {
+  return textCommandResult(command, "Dream commands are unavailable in this runtime.", {
+    available: false,
+  });
+}
+
 function commandArgs(context: CommandContext): string[] {
   return context.args.trim().split(/\s+/).filter(Boolean);
+}
+
+function firstArgMetadata(context: CommandContext): { sha?: string } {
+  const sha = commandArgs(context)[0];
+  return sha ? { sha } : {};
 }
 
 function approvalNotFoundResult(

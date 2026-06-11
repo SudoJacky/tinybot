@@ -3,6 +3,89 @@ import { describe, expect, test } from "vitest";
 import { createDefaultCommandRouter } from "./commandRegistry";
 
 describe("createDefaultCommandRouter", () => {
+  test("generates help text from the registered backend commands", async () => {
+    const router = createDefaultCommandRouter();
+
+    const result = await router.dispatch("/help", { traceId: "trace-1" });
+
+    expect(result).toMatchObject({
+      handled: true,
+      metadata: {
+        command: "/help",
+        render_as: "text",
+      },
+    });
+    expect(result.output).toContain("/new - Start a new conversation.");
+    expect(result.output).toContain("/approvals - List pending approval requests.");
+    expect(result.output).toContain("/approve <id> once|session - Approve a pending request.");
+    expect(result.output).toContain("/deny <id> - Deny a pending request.");
+    expect(result.output).toContain("/dream - Manually trigger Dream consolidation.");
+    expect(result.output).toContain("/dream-log [sha] - Show Dream memory changes.");
+    expect(result.output).toContain("/dream-restore [sha] - List or restore Dream memory versions.");
+  });
+
+  test("runs dream commands through the dream command bridge", async () => {
+    const calls: unknown[] = [];
+    const router = createDefaultCommandRouter({
+      runDream: async (request) => {
+        calls.push({ type: "run", request });
+        return { content: "Dream completed." };
+      },
+      getDreamLog: async (request) => {
+        calls.push({ type: "log", request });
+        return { content: "## Dream Update\n\n- Commit: `abc123`" };
+      },
+      restoreDream: async (request) => {
+        calls.push({ type: "restore", request });
+        return { content: "## Dream Restore\n\nChoose a Dream memory version to restore." };
+      },
+    });
+
+    await expect(router.dispatch("/dream", { traceId: "trace-1", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Dream completed.",
+      metadata: {
+        command: "/dream",
+        render_as: "text",
+      },
+    });
+    await expect(router.dispatch("/dream-log abc123 --ignored", { traceId: "trace-2", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "## Dream Update\n\n- Commit: `abc123`",
+      metadata: {
+        command: "/dream-log",
+        render_as: "text",
+      },
+    });
+    await expect(router.dispatch("/dream-restore", { traceId: "trace-3", sessionId: "session-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "## Dream Restore\n\nChoose a Dream memory version to restore.",
+      metadata: {
+        command: "/dream-restore",
+        render_as: "text",
+      },
+    });
+    expect(calls).toEqual([
+      { type: "run", request: { traceId: "trace-1", sessionId: "session-1" } },
+      { type: "log", request: { traceId: "trace-2", sessionId: "session-1", sha: "abc123" } },
+      { type: "restore", request: { traceId: "trace-3", sessionId: "session-1" } },
+    ]);
+  });
+
+  test("reports unavailable dream commands when the bridge is absent", async () => {
+    const router = createDefaultCommandRouter();
+
+    await expect(router.dispatch("/dream-log", { traceId: "trace-1" })).resolves.toMatchObject({
+      handled: true,
+      output: "Dream commands are unavailable in this runtime.",
+      metadata: {
+        command: "/dream-log",
+        render_as: "text",
+        available: false,
+      },
+    });
+  });
+
   test("returns Python-compatible usage for malformed approve commands", async () => {
     const router = createDefaultCommandRouter();
 

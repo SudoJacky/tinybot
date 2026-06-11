@@ -651,6 +651,56 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("handles backend slash dream log through the dream bridge", async () => {
+    let providerCalls = 0;
+    const calls: Array<{ traceId: string; sessionId?: string; sha?: string }> = [];
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        throw new Error("slash dream log reached provider");
+      },
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      dreamBridge: {
+        runDream: async () => ({ content: "unused" }),
+        getDreamLog: async (request) => {
+          calls.push(request);
+          return { content: "## Dream Update\n\n- Commit: `abc123`" };
+        },
+        restoreDream: async () => ({ content: "unused" }),
+      },
+    });
+
+    const response = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-dream-log-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: "/dream-log abc123" }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(providerCalls).toBe(0);
+    expect(calls).toEqual([{ traceId: "trace-1", sessionId: "session-1", sha: "abc123" }]);
+    expect(response).toMatchObject({
+      result: {
+        finalContent: "## Dream Update\n\n- Commit: `abc123`",
+        stopReason: "command",
+        metadata: {
+          command: "/dream-log",
+          render_as: "text",
+        },
+      },
+    });
+  });
+
   test("routes skills WebUI list and detail requests through the skills bridge", async () => {
     const calls: Array<{ type: string; traceId: string; name?: string }> = [];
     const worker = new AgentWorker({
