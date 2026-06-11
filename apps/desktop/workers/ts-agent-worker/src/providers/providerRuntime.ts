@@ -47,7 +47,8 @@ export type ResolvedRuntimeProvider = {
 };
 
 export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput): Promise<ResolvedRuntimeProvider> {
-  const selectedModel = input.model?.trim() || stringAt(input.config, "agents.defaults.model") || "gpt-4.1-mini";
+  const configuredModel = input.model?.trim() || stringAt(input.config, "agents.defaults.model");
+  const selectedModel = configuredModel || "gpt-4.1-mini";
 
   const explicitOverride = normalizeProviderId(input.provider);
   if (explicitOverride && explicitOverride !== "auto") {
@@ -65,7 +66,7 @@ export async function resolveRuntimeProvider(input: ResolveRuntimeProviderInput)
     return resolveEntry(input, explicitProvider, selectedModel, "explicit");
   }
 
-  const inferred = inferProviderFromModel(selectedModel);
+  const inferred = configuredModel ? inferProviderFromModel(configuredModel) : undefined;
   if (inferred) {
     return resolveEntry(input, inferred.id, selectedModel, "model");
   }

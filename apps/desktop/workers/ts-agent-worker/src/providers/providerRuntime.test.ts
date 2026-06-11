@@ -73,6 +73,21 @@ describe("resolveRuntimeProvider", () => {
     expect(resolved.apiKey).toBe("zhipu-key");
   });
 
+  test("does not infer OpenAI from the synthetic fallback model before credential fallback", async () => {
+    const resolved = await resolveRuntimeProvider({
+      config: {
+        agents: { defaults: { provider: "auto" } },
+        providers: {},
+      },
+      env: { DASHSCOPE_API_KEY: "dashscope-key" },
+    });
+
+    expect(resolved.providerId).toBe("dashscope");
+    expect(resolved.model).toBe("gpt-4.1-mini");
+    expect(resolved.source).toBe("credentials");
+    expect(resolved.apiKey).toBe("dashscope-key");
+  });
+
   test("falls back to first provider with usable credentials in catalog order", async () => {
     const resolved = await resolveRuntimeProvider({
       config: {
