@@ -137,4 +137,49 @@ describe("createTaskTool", () => {
       metadata: { available: false, deferred: "task_summary" },
     });
   });
+
+  test("creates a task plan when a planner is configured", async () => {
+    const bridge = memoryBridge([]);
+    const tool = createTaskTool({
+      store: bridge,
+      planner: {
+        createPlan: async (request, planContext) => ({
+          id: "plan-new",
+          title: "Created native plan",
+          originalRequest: request,
+          status: "planning",
+          currentSubtaskIds: [],
+          context: planContext,
+          subtasks: [
+            {
+              id: "a",
+              title: "Inspect",
+              description: "Inspect Python",
+              status: "pending",
+              dependencies: [],
+              parallelSafe: true,
+              result: null,
+              error: null,
+              startedAt: null,
+              completedAt: null,
+              retryCount: 0,
+              maxRetries: 2,
+            },
+          ],
+        }),
+      },
+    });
+
+    await expect(tool.execute({ action: "create", request: "Plan this" }, context)).resolves.toMatchObject({
+      content: expect.stringContaining("Task plan created (plan_id: plan-new)."),
+      metadata: {
+        _task_event: true,
+        _task_plan_id: "plan-new",
+        _task_progress: expect.objectContaining({ plan_id: "plan-new", pending: 1 }),
+      },
+    });
+    await expect(tool.execute({ action: "status", plan_id: "plan-new" }, context)).resolves.toMatchObject({
+      content: expect.stringContaining("## Created native plan (id: plan-new)"),
+    });
+  });
 });

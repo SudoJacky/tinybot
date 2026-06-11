@@ -131,4 +131,32 @@ describe("TaskRuntime", () => {
       completedAt: "2026-06-12T00:00:00.000Z",
     });
   });
+
+  test("creates and persists a planner-generated task plan", async () => {
+    const { bridge, saves } = memoryBridge([]);
+    const runtime = new TaskRuntime({
+      store: bridge,
+      planner: {
+        createPlan: async (request, planContext) => ({
+          id: "plan-created",
+          title: "Created plan",
+          originalRequest: request,
+          status: "planning",
+          currentSubtaskIds: [],
+          context: planContext,
+          subtasks: [],
+        }),
+      },
+    });
+
+    const plan = await runtime.createPlan(
+      "Create a TS plan",
+      { channel: "desktop", chatId: "chat-1", sessionKey: "desktop:chat-1" },
+      "trace-create",
+    );
+
+    expect(plan.id).toBe("plan-created");
+    expect(saves).toHaveLength(1);
+    expect(saves[0]).toMatchObject({ id: "plan-created", originalRequest: "Create a TS plan" });
+  });
 });

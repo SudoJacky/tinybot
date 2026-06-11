@@ -1,6 +1,8 @@
 import type { JsonObject } from "../protocol/messages.ts";
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
+import type { ModelProvider } from "../model/provider.ts";
 import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
+import { TaskPlanner } from "../task/taskPlanner.ts";
 import { createTaskTool } from "../task/taskTool.ts";
 import type { Tool } from "./tool.ts";
 
@@ -53,8 +55,18 @@ export function createNativeMcpTools(rpcClient: NativeRpcClient): Tool[] {
   return [createCallMcpTool(rpcClient)];
 }
 
-export function createNativeTaskTools(rpcClient: NativeRpcClient): Tool[] {
-  return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient) })];
+export function createNativeTaskTools(
+  rpcClient: NativeRpcClient,
+  options: { provider?: ModelProvider; model?: string; workspace?: string } = {},
+): Tool[] {
+  const planner = options.provider
+    ? new TaskPlanner({
+      provider: options.provider,
+      model: options.model,
+      workspace: options.workspace,
+    })
+    : undefined;
+  return [createTaskTool({ store: new NativeTaskStoreBridge(rpcClient), planner })];
 }
 
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {

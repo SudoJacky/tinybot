@@ -75,7 +75,7 @@ async function executeTaskAction(
     case "remove_subtask":
       return removeSubtaskResult(runtime, args, context);
     case "create":
-      return deferredResult("Task plan creation is not available in the native TS runtime yet.", "task_planning");
+      return createResult(runtime, args, context);
     case "resume":
       return deferredResult("Task background execution is not available in the native TS runtime yet.", "subagent_runtime");
     case "summary":
@@ -96,6 +96,39 @@ async function statusResult(runtime: TaskRuntime, args: Record<string, unknown>,
     return { content: `Error: Plan ${planId} not found` };
   }
   return { content: formatPlanSummary(plan) };
+}
+
+async function createResult(runtime: TaskRuntime, args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
+  const request = stringArg(args, "request");
+  if (!request) {
+    return { content: "Error: request is required for create action" };
+  }
+  const plan = await runtime.createPlan(request, {
+    channel: stringArg(args, "channel") || "native",
+    chatId: context.sessionId ?? context.runId,
+  }, traceId(context));
+  if (!plan) {
+    return deferredResult("Task plan creation is not available in the native TS runtime yet.", "task_planning");
+  }
+  const progress = taskProgressPayload(plan);
+  const warning = Array.isArray(plan.context.dagErrors) && plan.context.dagErrors.length > 0
+    ? `\n\nWarning: Plan has dependency issues: ${JSON.stringify(plan.context.dagErrors)}\nPlease fix before executing.`
+    : "";
+  return {
+    content: [
+      `Task plan created (plan_id: ${plan.id}).`,
+      "",
+      formatPlanSummary(plan),
+      "",
+      `Hint: use \`task action=resume plan_id=${plan.id}\` to start background execution.`,
+      warning,
+    ].join("\n"),
+    metadata: {
+      _task_event: true,
+      _task_plan_id: plan.id,
+      _task_progress: progress,
+    },
+  };
 }
 
 async function progressResult(runtime: TaskRuntime, args: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {

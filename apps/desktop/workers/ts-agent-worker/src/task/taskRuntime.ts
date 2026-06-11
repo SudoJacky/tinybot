@@ -1,5 +1,6 @@
 import { validateTaskDag } from "./taskDag";
 import { taskProgressPayload, type TaskProgressPayload } from "./taskProgress";
+import type { TaskPlanContext } from "./taskPlanner";
 import type { SubTask, SubTaskStatus, TaskPlan } from "./taskTypes";
 
 export interface TaskStoreBridge {
@@ -25,23 +26,36 @@ export interface UpdateSubtaskResultRequest {
 
 export interface TaskRuntimeOptions {
   store: TaskStoreBridge;
+  planner?: {
+    createPlan(request: string, context: TaskPlanContext, traceId: string): Promise<TaskPlan>;
+  };
   idGenerator?: () => string;
   now?: () => string;
 }
 
 export class TaskRuntime {
   private readonly store: TaskStoreBridge;
+  private readonly planner?: TaskRuntimeOptions["planner"];
   private readonly idGenerator: () => string;
   private readonly now: () => string;
 
   constructor(options: TaskRuntimeOptions) {
     this.store = options.store;
+    this.planner = options.planner;
     this.idGenerator = options.idGenerator ?? randomTaskId;
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
   listPlans(traceId: string, options?: { includeCompleted?: boolean }): Promise<TaskPlan[]> {
     return this.store.listPlans(traceId, options);
+  }
+
+  async createPlan(request: string, context: TaskPlanContext, traceId: string): Promise<TaskPlan | null> {
+    if (!this.planner) {
+      return null;
+    }
+    const plan = await this.planner.createPlan(request, context, traceId);
+    return this.store.savePlan(plan, traceId);
   }
 
   async getProgress(planId: string, traceId: string): Promise<TaskProgressPayload | null> {

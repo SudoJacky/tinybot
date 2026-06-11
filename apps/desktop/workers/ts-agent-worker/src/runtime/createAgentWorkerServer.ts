@@ -51,24 +51,6 @@ export type CreateAgentWorkerServerOptions = {
 export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions): StdioServer {
   const rpcClient = new RpcClient({ writeLine: options.writeLine });
   const capabilities = options.capabilities ?? DEFAULT_NATIVE_TOOL_CAPABILITIES;
-  registerToolsByPolicy(
-    options.tools,
-    [
-      ...createNativeReadOnlyTools(rpcClient),
-      ...createNativeWriteTools(rpcClient),
-      ...createNativeShellTools(rpcClient),
-      ...createNativeApprovalTools(rpcClient),
-      ...createNativeFormTools(rpcClient),
-      ...createNativeMemoryTools(rpcClient),
-      ...createNativeRagTools(rpcClient),
-      ...createNativeMcpTools(rpcClient),
-      ...createNativeTaskTools(rpcClient),
-    ],
-    {
-      capabilities,
-      channel: options.channel ?? "agent_ui",
-    },
-  );
   const writeEvent = (event: WorkerEvent): void => {
     options.writeLine(JSON.stringify(event));
   };
@@ -83,6 +65,24 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   if (!provider) {
     throw new Error("model provider is unavailable");
   }
+  registerToolsByPolicy(
+    options.tools,
+    [
+      ...createNativeReadOnlyTools(rpcClient),
+      ...createNativeWriteTools(rpcClient),
+      ...createNativeShellTools(rpcClient),
+      ...createNativeApprovalTools(rpcClient),
+      ...createNativeFormTools(rpcClient),
+      ...createNativeMemoryTools(rpcClient),
+      ...createNativeRagTools(rpcClient),
+      ...createNativeMcpTools(rpcClient),
+      ...createNativeTaskTools(rpcClient, { provider }),
+    ],
+    {
+      capabilities,
+      channel: options.channel ?? "agent_ui",
+    },
+  );
   const mcpBridge = options.enableNativeMcpDiscovery === true && capabilities.includes("mcp.call")
     ? new NativeMcpBridge({ rpcClient, registry: options.tools })
     : undefined;
