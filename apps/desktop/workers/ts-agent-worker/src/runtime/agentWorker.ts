@@ -609,6 +609,8 @@ export class AgentWorker {
   }
 
   private async runResumedSpec(traceId: string, spec: AgentRunSpec): Promise<AgentRunResult> {
+    const activeRun: ActiveRun = { traceId, cancelled: false };
+    this.activeRuns.set(spec.runId, activeRun);
     const runner = new AgentRunner({
       provider: this.provider,
       tools: this.tools,
@@ -617,8 +619,9 @@ export class AgentWorker {
         this.emitCheckpoint(traceId, spec.runId, nextCheckpoint);
         this.queueCheckpointWrite(spec.runId, () => this.persistCheckpoint(traceId, spec, nextCheckpoint));
       },
+      isCancelled: () => activeRun.cancelled,
     });
-    const result = await runner.run(spec);
+    const result = await this.runAndClearActiveState(runner, spec);
     await this.drainCheckpointWrites(spec.runId);
     if (!isAwaitingInputResult(result)) {
       await this.clearCheckpoint(traceId, spec);

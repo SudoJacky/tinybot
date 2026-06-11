@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；config Phase 1 已复核，ConfigStore Load/Save/Migrations 的 TS migration/path/load diagnostics、Rust/native 文件 I/O、TS patch/validate、native patch-result bridge、side-effect planning、受控 `config.apply_patch_result` RPC、store-aware 持久化、TS `applyPatch()` 输入桥接与桌面 settings native-first 保存路径已建立，下一步复核 config 验收项并进入 AgentRunner skeleton。
+- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；config Phase 1 已复核，ConfigStore Load/Save/Migrations 的 TS migration/path/load diagnostics、Rust/native 文件 I/O、TS patch/validate、native patch-result bridge、side-effect planning、受控 `config.apply_patch_result` RPC、store-aware 持久化、TS `applyPatch()` 输入桥接与桌面 settings native-first 保存路径已建立；AgentRunner/worker 最小执行闭环进入 verify，下一步复核 agent loop 验收项并推进 tool/session/context 边界。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -32,7 +32,7 @@
 | --- | --- | --- | --- | --- |
 | 2 | verify | [ts_shared_support_runtime_migration_design.md](ts_shared_support_runtime_migration_design.md) | 建立 prompt/template/token/status/evaluator 等公共能力 | 已建立 runtime/token/message/status/template/evaluator support helper 起点，并让 `AgentRunner`、message content 消费 shared helper |
 | 3 | verify | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | Phase 1 已复核；Phase 2 已建立 TS migration、path resolver、load diagnostics 与 Rust/native file I/O 起点；Phase 3 已建立 TS config patch/validate、native patch-result bridge、side-effect planning、受控 write RPC、store-aware 持久化、TS patch 输入桥接与桌面 settings native-first 保存路径 |
-| 4 | todo | [ts_agent_loop_design.md](ts_agent_loop_design.md) | 先做 fake-provider `AgentRunner` skeleton | 形成 TS agent 最小执行闭环 |
+| 4 | verify | [ts_agent_loop_design.md](ts_agent_loop_design.md) | 先做 fake-provider `AgentRunner` skeleton | TS `AgentRunner` / worker 最小执行闭环已具备，覆盖 final response、tool loop、usage、checkpoint/session append/clear、awaiting input、restore/resume 与 cancel；等待按 agent loop 验收项复核 |
 
 ### Batch 2: Execution, Persistence, And Context
 
@@ -99,6 +99,7 @@
 | 2026-06-11 | 继续 Batch 1 config Phase 3：新增 Rust worker RPC `config.apply_patch_result`，要求 `config.write` capability，消费 TS patch result，更新 native in-memory config snapshot 并返回脱敏 config、updatedFields 与 sideEffects；默认 agent worker 仍不授予 `config.write`。 |
 | 2026-06-11 | 继续 Batch 1 config Phase 3：为 Rust `WorkerRpcRouter` 增加可选 `ConfigStore` 持久化路径，`config.apply_patch_result` 在有 store 时先校验 `config.write` 再落盘，并同步后续 `config.get` snapshot；同时新增 TS `NativeConfigBridge.applyPatch()`，用 TS schema/patch validate 生成 patch result 后交给 native。 |
 | 2026-06-11 | 完成 Batch 1 config Phase 3 的 desktop settings 保存切换：新增前端 `applyNativeConfigPatch()` / `saveDesktopSettingsConfig()`，保存时优先通过 Tauri `apply_config_patch_result` 写入 Rust `ConfigStore`，native 不可用时保留 Python gateway `PATCH /api/config` fallback。 |
+| 2026-06-11 | 推进 Batch 1 agent loop 并进入 verify：TS worker 恢复路径 `runResumedSpec()` 登记 active run 并传递 cancel state，使 `agent.submit_form` / `agent.resume_approval` 恢复后的长请求也能被 `agent.cancel` 命中；补充 resumed form cancellation 回归测试。 |
 
 ## Next Checklist
 

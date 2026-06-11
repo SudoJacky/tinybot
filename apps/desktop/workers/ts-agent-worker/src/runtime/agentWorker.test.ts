@@ -1923,6 +1923,84 @@ describe("AgentWorker", () => {
     expect(clearedSessions).toEqual(["session-1"]);
   });
 
+  test("cancels a resumed form submission run by checkpoint runId", async () => {
+    const events: WorkerEvent[] = [];
+    const completion = deferred<ModelResponse>();
+    const provider: ModelProvider = {
+      complete: async () => completion.promise,
+    };
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+      sessionBridge: {
+        setCheckpoint: async () => undefined,
+        clearCheckpoint: async () => undefined,
+        appendMessages: async () => undefined,
+        getCheckpoint: async (sessionId) => ({
+          sessionId,
+          runId: "run-resumed-form-1",
+          phase: "tools_completed",
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+          messages: [
+            { role: "user", content: "plan a trip" },
+            {
+              role: "assistant",
+              content: "",
+              toolCalls: [{ id: "form-call-1", name: "request_form", argumentsJson: "{}" }],
+            },
+            {
+              role: "tool",
+              content: "Waiting for form submission.",
+              toolCallId: "form-call-1",
+              name: "request_form",
+              metadata: {
+                awaitingUserInput: true,
+                stopReason: "awaiting_form",
+                formId: "travel_plan",
+              },
+            },
+          ],
+        }),
+      },
+    });
+
+    const resumeResponsePromise = worker.handleRequest(
+      submitFormRequest({
+        sessionId: "session-1",
+        formId: "travel_plan",
+        values: { destination: "Paris" },
+      }),
+    );
+    await Promise.resolve();
+
+    const cancelResponse = await worker.handleRequest(cancelRequest("run-resumed-form-1"));
+    completion.resolve({ content: "late resumed answer", toolCalls: [], stopReason: "stop" });
+    const resumeResponse = await resumeResponsePromise;
+
+    expect(cancelResponse).toMatchObject({
+      protocol_version: "1",
+      id: "cancel-1",
+      trace_id: "trace-cancel",
+      result: { ok: true, runId: "run-resumed-form-1" },
+    });
+    expect(resumeResponse.result).toMatchObject({
+      result: {
+        finalContent: "",
+        stopReason: "cancelled",
+        error: "cancelled",
+      },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      protocol_version: "1",
+      trace_id: "trace-submit-form",
+      event: "agent.cancelled",
+      payload: expect.objectContaining({ runId: "run-resumed-form-1" }),
+    }));
+  });
+
   test("treats a cancel form action as a cancelled submission when resuming", async () => {
     const appendedMessages: AgentMessage[][] = [];
     const worker = new AgentWorker({
