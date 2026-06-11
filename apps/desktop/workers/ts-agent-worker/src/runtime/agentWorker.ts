@@ -182,7 +182,8 @@ export class AgentWorker {
       if (!isAwaitingInputResult(result)) {
         await this.clearCheckpoint(request.trace_id, spec);
       }
-      const lifecycle = await this.turnLifecycle.finalizeTurn(request.trace_id, spec, result);
+      const resultForLifecycle = contextMetadata ? { ...result, contextMetadata } : result;
+      const lifecycle = await this.turnLifecycle.finalizeTurn(request.trace_id, spec, resultForLifecycle);
       this.emitAwaitingInput(request.trace_id, spec.runId, result);
       this.emitUsage(request.trace_id, spec, result);
       this.emitEvent({

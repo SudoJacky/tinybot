@@ -368,6 +368,15 @@ describe("AgentWorker", () => {
             { role: "user", content: "Continue" },
             { role: "assistant", content: "done" },
           ],
+          contextMetadata: expect.objectContaining({
+            historyMessageCount: 1,
+            bridge: {
+              missingSession: false,
+              malformedHistoryCount: 0,
+              missingBootstrapFiles: [],
+              bootstrapFallbackUsed: false,
+            },
+          }),
         }),
       },
     ]);
