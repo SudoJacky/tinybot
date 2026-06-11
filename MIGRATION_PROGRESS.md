@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；下一步推进 config canonical schema/selectors。
+- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；正在推进 config canonical schema/selectors。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -31,7 +31,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 2 | verify | [ts_shared_support_runtime_migration_design.md](ts_shared_support_runtime_migration_design.md) | 建立 prompt/template/token/status/evaluator 等公共能力 | 已建立 runtime/token/message/status/template/evaluator support helper 起点，并让 `AgentRunner`、message content 消费 shared helper |
-| 3 | todo | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | provider、tool、security、MCP、knowledge、channel 的共同输入 |
+| 3 | active | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | 已建立 read-only TS defaults/schema/selectors 起点，并让 provider runtime 消费 selectors |
 | 4 | todo | [ts_agent_loop_design.md](ts_agent_loop_design.md) | 先做 fake-provider `AgentRunner` skeleton | 形成 TS agent 最小执行闭环 |
 
 ### Batch 2: Execution, Persistence, And Context
@@ -84,6 +84,7 @@
 | 2026-06-11 | 推进 Batch 1 shared support：新增 TS `support/runtimeHelpers`、`support/tokenEstimator`，并从 `AgentRunner` 抽出 finalization、tool result normalization、blank text 和 usage estimate helper。 |
 | 2026-06-11 | 继续推进 Batch 1 shared support：新增 TS `support/messageHelpers`、`support/statusFormatter`，覆盖 current time、text block、split/truncate、assistant message、think stripping、runtime status formatting，并让 `agent/messageContent` 复用 shared text block helper。 |
 | 2026-06-11 | 补齐 Batch 1 shared support Phase 1 纯 TS helper：新增 `support/templates` 覆盖当前 bundled templates 使用的 Jinja 子集，并新增 `support/evaluator` 覆盖 background notification evaluator prompt/tool decision parsing。 |
+| 2026-06-11 | 启动 Batch 1 config canonical schema/selectors：新增 TS read-only config defaults/schema/selectors，覆盖 AgentDefaults、Providers、Tools、Knowledge、Gateway、Channels，并让 provider runtime 通过 selectors 读取 provider/profile/defaults。 |
 
 ## Next Checklist
 
@@ -91,5 +92,6 @@
 - [x] 为 Batch 1 拆出第一个可实现任务：shared support runtime 的最小公共 helper/API。
 - [x] 继续补齐 shared support Phase 1：template renderer、evaluator parser。
 - [x] 迁移 shared support Phase 1 的 status/message helpers。
-- [ ] 确认 config canonical schema/selectors 的边界，避免与 provider/tool/security 后续设计冲突。
+- [x] 确认 config canonical schema/selectors 的第一阶段边界：先做 read-only schema/defaults/selectors，不替换 load/save/patch。
+- [ ] 继续 config Phase 1：补齐 default fixture parity、config masking、更多 selectors 与 worker snapshot 消费点。
 - [x] 在 Batch 1 shared support Phase 1 完成后更新 `Current Focus` 和对应状态。
