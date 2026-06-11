@@ -1,8 +1,21 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, test } from "vitest";
 
 import { defaultTinybotConfig, parseTinybotConfig, TinybotConfigValidationError } from "./configSchema";
 
 describe("configSchema", () => {
+  test("parses Python default config fixture for canonical core fields", () => {
+    const raw = JSON.parse(
+      readFileSync(new URL("../../../../../../tests/fixtures/config/default_config.json", import.meta.url), "utf-8"),
+    );
+
+    const config = parseTinybotConfig(raw);
+    const defaults = defaultTinybotConfig();
+
+    expect(config).toEqual(defaults);
+  });
+
   test("matches Python default config for worker-relevant core fields", () => {
     const config = defaultTinybotConfig();
 
