@@ -72,10 +72,7 @@ impl WorkerSessionRpc {
             .extra
             .get("messages")
             .and_then(Value::as_array)
-            .map(|items| {
-                let start = items.len().saturating_sub(limit);
-                items[start..].to_vec()
-            })
+            .map(|items| project_history_messages(items, session_last_consolidated(session), limit))
             .unwrap_or_default();
         let user_profile = session
             .extra
@@ -301,6 +298,128 @@ fn ensure_messages_array(session: &mut SessionMetadata) {
     }
 }
 
+fn project_history_messages(
+    messages: &[Value],
+    last_consolidated: usize,
+    limit: usize,
+) -> Vec<Value> {
+    let unconsolidated_start = last_consolidated.min(messages.len());
+    let unconsolidated = &messages[unconsolidated_start..];
+    let limit_start = unconsolidated.len().saturating_sub(limit);
+    let mut sliced = &unconsolidated[limit_start..];
+    if let Some(first_user) = sliced
+        .iter()
+        .position(|message| message_role(message) == Some("user"))
+    {
+        sliced = &sliced[first_user..];
+    }
+    let legal_start = find_legal_message_start(sliced);
+    sliced[legal_start..]
+        .iter()
+        .filter(|message| !is_progress_message(message))
+        .filter_map(project_history_message)
+        .collect()
+}
+
+fn session_last_consolidated(session: &SessionMetadata) -> usize {
+    session
+        .extra
+        .get("last_consolidated")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or_default()
+}
+
+fn find_legal_message_start(messages: &[Value]) -> usize {
+    let mut declared: Vec<String> = Vec::new();
+    let mut start = 0;
+    for (index, message) in messages.iter().enumerate() {
+        match message_role(message) {
+            Some("assistant") => {
+                for tool_call_id in assistant_tool_call_ids(message) {
+                    if !declared.contains(&tool_call_id) {
+                        declared.push(tool_call_id);
+                    }
+                }
+            }
+            Some("tool") => {
+                if let Some(tool_call_id) = message_string(message, "tool_call_id") {
+                    if !declared.contains(&tool_call_id) {
+                        start = index + 1;
+                        declared.clear();
+                        for previous in &messages[start..=index] {
+                            if message_role(previous) == Some("assistant") {
+                                for previous_tool_call_id in assistant_tool_call_ids(previous) {
+                                    if !declared.contains(&previous_tool_call_id) {
+                                        declared.push(previous_tool_call_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    start
+}
+
+fn project_history_message(message: &Value) -> Option<Value> {
+    let object = message.as_object()?;
+    let role = object.get("role")?.as_str()?;
+    let mut projected = serde_json::Map::new();
+    projected.insert("role".to_string(), Value::String(role.to_string()));
+    projected.insert(
+        "content".to_string(),
+        object
+            .get("content")
+            .cloned()
+            .unwrap_or_else(|| Value::String(String::new())),
+    );
+    for key in [
+        "tool_calls",
+        "tool_call_id",
+        "name",
+        "reasoning_content",
+        "thinking_blocks",
+    ] {
+        if let Some(value) = object.get(key) {
+            projected.insert(key.to_string(), value.clone());
+        }
+    }
+    Some(Value::Object(projected))
+}
+
+fn assistant_tool_call_ids(message: &Value) -> Vec<String> {
+    message
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .map(|tool_calls| {
+            tool_calls
+                .iter()
+                .filter_map(|tool_call| message_string(tool_call, "id"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn is_progress_message(message: &Value) -> bool {
+    message_role(message) == Some("progress")
+        || message
+            .get("_task_event")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+}
+
+fn message_role(message: &Value) -> Option<&str> {
+    message.get("role").and_then(Value::as_str)
+}
+
+fn message_string(message: &Value, key: &str) -> Option<String> {
+    message.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
 fn now_session_timestamp() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -522,14 +641,63 @@ mod tests {
         assert_eq!(history.updated_at, "2026-06-09T09:30:00Z");
         assert_eq!(
             history.messages,
-            vec![
-                json!({ "role": "assistant", "content": "second" }),
-                json!({ "role": "user", "content": "third" })
-            ]
+            vec![json!({ "role": "user", "content": "third" })]
         );
         assert_eq!(
             history.user_profile,
             json!({ "name": "Ada", "preferences": ["concise"] })
+        );
+    }
+
+    #[test]
+    fn get_history_projects_from_legal_user_and_tool_boundary() {
+        let mut session = session_fixture();
+        session.extra = json!({
+            "messages": [
+                { "role": "tool", "content": "orphan", "tool_call_id": "orphan-call", "name": "read_file" },
+                { "role": "assistant", "content": "previous answer" },
+                { "role": "user", "content": "run a task" },
+                { "role": "progress", "content": "Task Progress", "_task_event": true },
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-read",
+                            "type": "function",
+                            "function": { "name": "read_file", "arguments": "{}" }
+                        }
+                    ]
+                },
+                { "role": "tool", "content": "README", "tool_call_id": "call-read", "name": "read_file" },
+                { "role": "assistant", "content": "done", "_task_event": true },
+                { "role": "assistant", "content": "final done" }
+            ]
+        });
+        let rpc = WorkerSessionRpc::new(vec![session], read_policy());
+
+        let history = rpc
+            .get_history("session-1", 80)
+            .expect("history should read");
+
+        assert_eq!(
+            history.messages,
+            vec![
+                json!({ "role": "user", "content": "run a task" }),
+                json!({
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-read",
+                            "type": "function",
+                            "function": { "name": "read_file", "arguments": "{}" }
+                        }
+                    ]
+                }),
+                json!({ "role": "tool", "content": "README", "tool_call_id": "call-read", "name": "read_file" }),
+                json!({ "role": "assistant", "content": "final done" })
+            ]
         );
     }
 

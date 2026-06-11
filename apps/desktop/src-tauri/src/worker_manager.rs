@@ -1186,6 +1186,104 @@ mod tests {
     }
 
     #[test]
+    fn manager_runs_consecutive_real_ts_agent_worker_turns_with_persisted_history() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("AGENTS.md", "agent bootstrap");
+        let session = SessionMetadata {
+            session_id: "desktop-continuation-session-1".to_string(),
+            title: "Continuation".to_string(),
+            workspace_dir: fixture.root.display().to_string(),
+            created_at: "2026-06-10T09:00:00Z".to_string(),
+            updated_at: "2026-06-10T09:30:00Z".to_string(),
+            extra: json!({ "messages": [] }),
+        };
+        let manager = WorkerManager::new(20);
+        let router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            { "content": "first answer", "stopReason": "stop" },
+                            { "content": "second answer", "stopReason": "stop" }
+                        ]
+                    }
+                }
+            }),
+            vec![session],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::DiagnosticsWrite,
+                WorkerCapability::FsWorkspaceRead,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ]),
+        );
+
+        manager
+            .start_stdio_rpc(ts_agent_worker_spec(), router)
+            .expect("TS agent worker should start");
+
+        let first = WorkerRequest::new(
+            "agent-run-input-real-ts-continuation-1",
+            "trace-real-ts-agent-continuation-1",
+            "agent.run_input",
+            json!({
+                "input": {
+                    "runId": "real-ts-run-continuation-1",
+                    "sessionId": "desktop-continuation-session-1",
+                    "input": { "content": "First turn" },
+                    "channel": "desktop",
+                    "chatId": "chat-1",
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let first_response = manager
+            .send_stdio_request(&first, std::time::Duration::from_secs(5))
+            .expect("first real TS agent worker continuation request should complete")
+            .result
+            .expect("first continuation run should return result");
+        assert_eq!(first_response["finalContent"], "first answer");
+        assert_eq!(first_response["contextMetadata"]["historyMessageCount"], 0);
+
+        let second = WorkerRequest::new(
+            "agent-run-input-real-ts-continuation-2",
+            "trace-real-ts-agent-continuation-2",
+            "agent.run_input",
+            json!({
+                "input": {
+                    "runId": "real-ts-run-continuation-2",
+                    "sessionId": "desktop-continuation-session-1",
+                    "input": { "content": "Second turn" },
+                    "channel": "desktop",
+                    "chatId": "chat-1",
+                    "model": "fixture-model",
+                    "maxIterations": 2,
+                    "stream": false
+                }
+            }),
+        );
+        let second_response = manager
+            .send_stdio_request(&second, std::time::Duration::from_secs(5))
+            .expect("second real TS agent worker continuation request should complete")
+            .result
+            .expect("second continuation run should return result");
+        assert_eq!(second_response["finalContent"], "second answer");
+        assert_eq!(second_response["contextMetadata"]["historyMessageCount"], 2);
+        manager.stop().expect("TS agent worker should stop");
+    }
+
+    #[test]
     fn manager_resumes_real_ts_agent_worker_form_checkpoint() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let event_log = events.clone();
