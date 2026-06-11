@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 2：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 已开始推进并收紧 approval-aware policy；session/turn lifecycle 正在推进，已建立 persisted-message 清洗边界、dedupe/truncate、versioned checkpoint helper、`session.persist_turn` RPC 起点、Rust `session.get_history` legal projection、`agent.done.payload.lifecycle` 可观测元数据，以及 `TurnLifecycle.finalizeTurn()` / checkpoint write-clear / restore materialization / approval-form resume projection 抽象；下一步推进 ContextBuilder 与 SessionBridge/TurnLifecycle 的组合边界。
+- 当前批次：Batch 2：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 已开始推进并收紧 approval-aware policy；session/turn lifecycle 正在推进，已建立 persisted-message 清洗边界、dedupe/truncate、versioned checkpoint helper、`session.persist_turn` RPC 起点、Rust `session.get_history` legal projection、`agent.done.payload.lifecycle` 可观测元数据，以及 `TurnLifecycle.finalizeTurn()` / checkpoint write-clear / restore materialization / approval-form resume projection 抽象；ContextBridge -> ContextBuilder -> AgentRunSpec 的 run_input projection 已抽出，下一步继续补更完整的连续会话验收。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -40,7 +40,7 @@
 | --- | --- | --- | --- | --- |
 | 5 | active | [ts_tool_runtime_migration_design.md](ts_tool_runtime_migration_design.md) | 建立 tool schema、registry、prepare/execute metadata | 已具备 schema casting/validation、registry/runtime/native proxy 起点；本轮补齐 approval-aware policy，approval-gated 工具要求 `approval.request` 并限制在可交互通道 |
 | 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 `TurnLifecycle.finalizeTurn()` 写 completed turn，并通过 `TurnLifecycle.writeCheckpoint()` / `clearCheckpoint()` / `restoreCheckpoint()` 收敛 checkpoint write-clear 与 restore materialization；`checkpoint.ts` 已承载 approval/form resume projection helper；`agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；已补齐 TS persistence helper 的 Python-key dedupe/tool truncate、versioned checkpoint helper，以及 Rust `session.get_history` 的 user/tool legal boundary projection；真实 TS worker 连续两轮可读取上一轮 persisted history |
-| 7 | todo | [ts_context_builder_migration_design.md](ts_context_builder_migration_design.md) | 接入 deterministic context assembly | 在 AgentRunner 和 session projection 后推进，再挂 memory/RAG/skills |
+| 7 | active | [ts_context_builder_migration_design.md](ts_context_builder_migration_design.md) | 接入 deterministic context assembly | 已有 deterministic `contextBuilder.ts`、`NativeContextBridge` 与 `agent.run_input` product path；本轮新增 `runInputContext.ts`，把 ContextBridge 输出投影为 AgentRunSpec 和 context metadata，下一步补连续会话 round-trip 验收，再挂 memory/RAG/skills |
 
 ### Batch 3: Safety And Real Model Runtime
 
@@ -111,6 +111,7 @@
 | 2026-06-11 | 继续 Batch 2 session/turn lifecycle：把 runner checkpoint write 和 terminal clear 委托给 `TurnLifecycle.writeCheckpoint()` / `clearCheckpoint()`，让 AgentWorker 不再直接构造 session checkpoint payload；后续继续收敛 restore/resume materialization。 |
 | 2026-06-11 | 继续 Batch 2 session/turn lifecycle：新增 `TurnLifecycle.restoreCheckpoint()`，把 interrupted checkpoint materialization、pending-tool interrupted transcript、awaiting-input keep-checkpoint 规则从 AgentWorker 收敛到 lifecycle；后续继续抽取 approval/form resume projection。 |
 | 2026-06-11 | 继续 Batch 2 session/turn lifecycle：在 `runtime/checkpoint.ts` 增加 approval/form resume projection helpers，覆盖 approved operation extraction、approved result replacement、denied approval 与 submitted form spec projection，并让 AgentWorker 复用这些 helper。 |
+| 2026-06-11 | 启动 Batch 2 context/session 组合边界：新增 `runtime/runInputContext.ts`，把 ContextBridge load result 经 ContextBuilder 投影为 AgentRunSpec、context metadata 与 TurnLifecycle 持久化所需的 `_contextSessionAppendMessages`。 |
 
 ## Next Checklist
 

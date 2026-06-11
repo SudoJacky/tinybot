@@ -1,6 +1,5 @@
 import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "../agent/agentRunner.ts";
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
-import { buildContextMessages } from "../agent/contextBuilder.ts";
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
@@ -20,6 +19,7 @@ import {
   resumedSpecFromSubmittedForm,
 } from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
+import { buildRunInputSpec } from "./runInputContext.ts";
 import { TurnLifecycle, type SessionBridge } from "./turnLifecycle.ts";
 
 export type { PersistTurnRequest, PersistTurnResult, SessionBridge } from "./turnLifecycle.ts";
@@ -145,32 +145,8 @@ export class AgentWorker {
         throw new Error("agent.run_input requires a context bridge");
       }
       const loaded = await this.contextBridge.loadContextInput(input, request.trace_id);
-      const context = buildContextMessages(loaded.input);
-      const contextMetadata = {
-        ...context.metadata,
-        bridge: loaded.metadata,
-      };
+      const { spec, contextMetadata } = buildRunInputSpec(request.trace_id, input, loaded);
       this.emitContextMetadata(request.trace_id, input.runId, contextMetadata);
-      const spec: AgentRunSpec = {
-        runId: input.runId,
-        traceId: request.trace_id,
-        sessionId: input.sessionId,
-        messages: context.messages,
-        model: input.model ?? "gpt-4.1-mini",
-        maxIterations: input.maxIterations ?? 2,
-        stream: input.stream ?? false,
-        temperature: input.temperature,
-        maxTokens: input.maxTokens,
-        reasoningEffort: input.reasoningEffort,
-        contextWindow: input.contextWindow,
-        toolResultBudget: input.toolResultBudget,
-        failOnToolError: input.failOnToolError,
-        metadata: {
-          ...(input.metadata ?? {}),
-          _contextInitialMessageCount: context.messages.length,
-          _contextSessionAppendMessages: context.sessionAppendMessages,
-        },
-      };
       return await this.runSpecForRequest(request, spec, contextMetadata);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
