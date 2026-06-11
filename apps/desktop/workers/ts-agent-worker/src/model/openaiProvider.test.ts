@@ -379,6 +379,31 @@ describe("OpenAIProvider", () => {
     });
   });
 
+  test("returns nested provider response body when the OpenAI stream cannot be created", async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: async () => {
+            throw Object.assign(new Error("bad request"), {
+              response: {
+                body: "provider body error",
+              },
+            });
+          },
+        },
+      },
+    };
+    const provider = new OpenAIProvider({ client, defaultModel: "gpt-test" });
+
+    const response = await provider.complete([{ role: "user", content: "hello" }]);
+
+    expect(response).toMatchObject({
+      content: "Error: provider body error",
+      toolCalls: [],
+      stopReason: "error",
+    });
+  });
+
   test("returns an error response when the OpenAI stream stalls past the idle timeout", async () => {
     const client = {
       chat: {

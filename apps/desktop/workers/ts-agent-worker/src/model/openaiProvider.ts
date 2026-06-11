@@ -80,7 +80,8 @@ function providerErrorBody(error: unknown): string {
   if (!isRecord(error)) {
     return "";
   }
-  const body = error.doc ?? (isRecord(error.response) ? error.response.text : undefined);
+  const response = isRecord(error.response) ? error.response : undefined;
+  const body = error.doc ?? response?.text ?? response?.body;
   return body === undefined || body === null ? "" : String(body).trim();
 }
 
