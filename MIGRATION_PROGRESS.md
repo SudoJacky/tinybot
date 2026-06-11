@@ -31,7 +31,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 2 | verify | [ts_shared_support_runtime_migration_design.md](ts_shared_support_runtime_migration_design.md) | 建立 prompt/template/token/status/evaluator 等公共能力 | 已建立 runtime/token/message/status/template/evaluator support helper 起点，并让 `AgentRunner`、message content 消费 shared helper |
-| 3 | active | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | 已建立 read-only TS defaults/schema/selectors、default fixture parity、provider runtime selector、config masking 与 worker snapshot 防御性脱敏 |
+| 3 | active | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | 已建立 read-only TS defaults/schema/selectors、default fixture parity、provider runtime selector、config masking、config snapshot/path helper 与 worker snapshot 防御性脱敏 |
 | 4 | todo | [ts_agent_loop_design.md](ts_agent_loop_design.md) | 先做 fake-provider `AgentRunner` skeleton | 形成 TS agent 最小执行闭环 |
 
 ### Batch 2: Execution, Persistence, And Context
@@ -88,6 +88,7 @@
 | 2026-06-11 | 继续 Batch 1 config Phase 1：新增 TS `configMasking`，覆盖 public RPC null masking、UI placeholder masking、sensitive path/key 判定，并让 `NativeConfigBridge.snapshotPublic()` 在进入 provider runtime 前做防御性脱敏。 |
 | 2026-06-11 | 继续 Batch 1 config Phase 1：新增 Python `Config().model_dump(mode="json", by_alias=True)` 生成的 `tests/fixtures/config/default_config.json`，并让 TS schema 测试完整解析该 fixture 后与 `defaultTinybotConfig()` 对齐。 |
 | 2026-06-11 | 继续 Batch 1 config Phase 1：新增 `selectProviderRuntimeInput(config, model?)` 聚合 selector，覆盖 profile 优先级、explicit provider 和 model override，并让 provider runtime 消费该 selector。 |
+| 2026-06-11 | 继续 Batch 1 config Phase 1：新增 TS `configSnapshot`，复用 masking/path 规则实现 public snapshot 构造、public path read、invalid/sensitive path 拒绝，并让 `NativeConfigBridge.snapshotPublic()` 消费该复用层。 |
 
 ## Next Checklist
 
@@ -99,5 +100,6 @@
 - [x] 继续 config Phase 1：补齐 config masking 与 worker snapshot 防御性脱敏消费点。
 - [x] 继续 config Phase 1：补齐 Python default fixture parity。
 - [x] 继续 config Phase 1：补齐 provider runtime 聚合 selector 并接入 provider runtime。
-- [ ] 继续 config Phase 1：补齐后续 snapshot/patch 复用点。
+- [x] 继续 config Phase 1：补齐 public snapshot/path read 复用点。
+- [ ] 继续 config Phase 1：复核 Phase 1 验收项并决定是否进入 config Phase 2。
 - [x] 在 Batch 1 shared support Phase 1 完成后更新 `Current Focus` 和对应状态。
