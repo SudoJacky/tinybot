@@ -1,4 +1,6 @@
 import type { JsonObject } from "../protocol/messages.ts";
+import { NativeCronBridge } from "../cron/cronBridge.ts";
+import { createCronTool } from "../cron/cronTool.ts";
 import { formatKnowledgeQueryResults, normalizeKnowledgeQueryResults } from "../knowledge/knowledgeFormatting.ts";
 import type { ModelProvider } from "../model/provider.ts";
 import { NativeTaskStoreBridge } from "../task/taskStoreBridge.ts";
@@ -54,6 +56,10 @@ export function createNativeRagTools(rpcClient: NativeRpcClient): Tool[] {
 
 export function createNativeMcpTools(rpcClient: NativeRpcClient): Tool[] {
   return [createCallMcpTool(rpcClient)];
+}
+
+export function createNativeCronTools(rpcClient: NativeRpcClient): Tool[] {
+  return [createCronTool({ bridge: new NativeCronBridge(rpcClient), defaultTimezone: "UTC" })];
 }
 
 export function createNativeTaskTools(

@@ -812,6 +812,98 @@ describe("createAgentWorkerServer", () => {
     }));
   });
 
+  test("registers cron tool that calls native cron RPC", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([
+      {
+        content: "",
+        toolCalls: [
+          {
+            id: "call-cron",
+            name: "cron",
+            argumentsJson: JSON.stringify({
+              action: "add",
+              message: "Check status",
+              every_seconds: 60,
+              deliver: true,
+            }),
+          },
+        ],
+        stopReason: "tool_calls",
+      },
+      { content: "cron checked", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "schedule a status check" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "cron.job.add"));
+    const cronRequest = parsedLines(lines).find((line) => line.method === "cron.job.add");
+    expect(cronRequest).toMatchObject({
+      protocol_version: "1",
+      trace_id: "trace-1",
+      method: "cron.job.add",
+      params: {
+        job: {
+          name: "Check status",
+          schedule: { kind: "every", everyMs: 60000 },
+          payload: { kind: "agent_turn", message: "Check status", deliver: true, channel: "native", to: "run-1" },
+          deleteAfterRun: false,
+        },
+      },
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: cronRequest?.id,
+        trace_id: "trace-1",
+        result: {
+          job: {
+            id: "job-1",
+            name: "Check status",
+            enabled: true,
+            schedule: { kind: "every", everyMs: 60000 },
+            payload: { kind: "agent_turn", message: "Check status", deliver: true, channel: "native", to: "run-1" },
+            state: { nextRunAtMs: 1775000060000 },
+            createdAtMs: 1775000000000,
+            updatedAtMs: 1775000000000,
+            deleteAfterRun: false,
+          },
+        },
+      }),
+    );
+    await run;
+
+    expect(provider.requests[1]).toContainEqual(expect.objectContaining({
+      role: "tool",
+      content: "Created job 'Check status' (id: job-1)",
+      toolCallId: "call-cron",
+      name: "cron",
+    }));
+  });
+
   test("registers MCP tools that call native mcp RPC", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([

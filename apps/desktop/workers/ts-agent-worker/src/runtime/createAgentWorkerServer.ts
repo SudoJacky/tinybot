@@ -6,6 +6,7 @@ import { RpcClient } from "../protocol/rpcClient.ts";
 import { StdioServer } from "../protocol/stdioServer.ts";
 import {
   createNativeApprovalTools,
+  createNativeCronTools,
   createNativeFormTools,
   createNativeMcpTools,
   createNativeMemoryTools,
@@ -76,6 +77,7 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
       ...createNativeMemoryTools(rpcClient),
       ...createNativeRagTools(rpcClient),
       ...createNativeMcpTools(rpcClient),
+      ...createNativeCronTools(rpcClient),
       ...createNativeTaskTools(rpcClient, { provider }),
     ],
     {
@@ -133,6 +135,8 @@ const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
   "knowledge.read",
   "knowledge.write",
   "mcp.call",
+  "cron.read",
+  "cron.write",
   "task.read",
   "task.write",
 ];
