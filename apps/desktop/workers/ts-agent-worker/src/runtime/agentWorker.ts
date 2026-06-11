@@ -31,6 +31,9 @@ export type AgentWorkerOptions = {
   emitEvent: (event: WorkerEvent) => void;
   reloadProvider?: ProviderReloadHandler;
   listProviderModels?: ProviderModelsListHandler;
+  listProviderCatalog?: ProviderCatalogListHandler;
+  resolveProviderRuntime?: ProviderRuntimeResolveHandler;
+  validateProviderModel?: ProviderModelValidateHandler;
   approvalBridge?: ApprovalBridge;
   sessionBridge?: SessionBridge;
   contextBridge?: ContextBridge;
@@ -50,6 +53,20 @@ export type ProviderModelsListRequest = {
 };
 
 export type ProviderModelsListHandler = (request: ProviderModelsListRequest) => Promise<unknown> | unknown;
+
+export type ProviderRuntimeResolveRequest = {
+  providerId?: string;
+  model?: string;
+};
+
+export type ProviderModelValidateRequest = {
+  providerId: string;
+  model: string;
+};
+
+export type ProviderCatalogListHandler = () => Promise<unknown> | unknown;
+export type ProviderRuntimeResolveHandler = (request: ProviderRuntimeResolveRequest) => Promise<unknown> | unknown;
+export type ProviderModelValidateHandler = (request: ProviderModelValidateRequest) => Promise<unknown> | unknown;
 
 type ActiveRun = {
   traceId: string;
@@ -81,6 +98,9 @@ export class AgentWorker {
   private readonly emitEvent: (event: WorkerEvent) => void;
   private readonly reloadProvider?: ProviderReloadHandler;
   private readonly listProviderModels?: ProviderModelsListHandler;
+  private readonly listProviderCatalog?: ProviderCatalogListHandler;
+  private readonly resolveProviderRuntime?: ProviderRuntimeResolveHandler;
+  private readonly validateProviderModel?: ProviderModelValidateHandler;
   private readonly approvalBridge?: ApprovalBridge;
   private readonly sessionBridge?: SessionBridge;
   private readonly contextBridge?: ContextBridge;
@@ -94,6 +114,9 @@ export class AgentWorker {
     this.emitEvent = options.emitEvent;
     this.reloadProvider = options.reloadProvider;
     this.listProviderModels = options.listProviderModels;
+    this.listProviderCatalog = options.listProviderCatalog;
+    this.resolveProviderRuntime = options.resolveProviderRuntime;
+    this.validateProviderModel = options.validateProviderModel;
     this.approvalBridge = options.approvalBridge;
     this.sessionBridge = options.sessionBridge;
     this.contextBridge = options.contextBridge;
@@ -139,6 +162,18 @@ export class AgentWorker {
 
     if (request.method === "provider.models.list") {
       return this.handleProviderModelsListRequest(request);
+    }
+
+    if (request.method === "provider.catalog.list") {
+      return this.handleProviderCatalogListRequest(request);
+    }
+
+    if (request.method === "provider.runtime.resolve") {
+      return this.handleProviderRuntimeResolveRequest(request);
+    }
+
+    if (request.method === "provider.model.validate") {
+      return this.handleProviderModelValidateRequest(request);
     }
 
     if (request.method !== "agent.run") {
@@ -293,6 +328,54 @@ export class AgentWorker {
         id: request.id,
         trace_id: request.trace_id,
         result,
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleProviderCatalogListRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.listProviderCatalog) {
+      return this.failure(request, "provider.catalog.list requires a provider catalog handler");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.listProviderCatalog(),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error));
+    }
+  }
+
+  private async handleProviderRuntimeResolveRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.resolveProviderRuntime) {
+      return this.failure(request, "provider.runtime.resolve requires a provider runtime handler");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.resolveProviderRuntime(parseProviderRuntimeResolveRequest(request.params)),
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async handleProviderModelValidateRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    if (!this.validateProviderModel) {
+      return this.failure(request, "provider.model.validate requires a provider model validation handler");
+    }
+    try {
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: await this.validateProviderModel(parseProviderModelValidateRequest(request.params)),
       };
     } catch (error) {
       return this.failure(request, errorMessage(error), {}, "invalid_protocol");
@@ -869,6 +952,32 @@ function parseProviderModelsListRequest(params: Record<string, unknown> | undefi
     manualModelIds: stringListParam(params, "manualModelIds", "manual_model_ids"),
     refreshLive: booleanParam(params, "refreshLive", "refresh_live") ?? false,
   };
+}
+
+function parseProviderRuntimeResolveRequest(params: Record<string, unknown> | undefined): ProviderRuntimeResolveRequest {
+  if (params !== undefined && !isJsonObject(params)) {
+    throw new Error("provider.runtime.resolve requires object params");
+  }
+  const raw = params ?? {};
+  return {
+    providerId: stringParam(raw, "providerId", "provider_id"),
+    model: stringParam(raw, "model", "model"),
+  };
+}
+
+function parseProviderModelValidateRequest(params: Record<string, unknown> | undefined): ProviderModelValidateRequest {
+  if (!isJsonObject(params)) {
+    throw new Error("provider.model.validate requires object params");
+  }
+  const providerId = stringParam(params, "providerId", "provider_id");
+  if (!providerId) {
+    throw new Error("provider.model.validate params.providerId must be a string");
+  }
+  const model = stringParam(params, "model", "model");
+  if (!model) {
+    throw new Error("provider.model.validate params.model must be a string");
+  }
+  return { providerId, model };
 }
 
 function numberParam(params: Record<string, unknown>, camelKey: string, snakeKey: string): number | undefined {

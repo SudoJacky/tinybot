@@ -10,7 +10,7 @@ type ParsedLine = {
   id?: unknown;
   trace_id?: unknown;
   method?: unknown;
-  params?: { path?: unknown; providerId?: unknown };
+  params?: { path?: unknown; providerId?: unknown; profileName?: unknown };
 };
 
 class QueueProvider implements ModelProvider {
@@ -993,6 +993,137 @@ describe("createAgentWorkerServer", () => {
       },
     });
     expect(JSON.stringify(response)).not.toContain("dashscope-key");
+  });
+
+  test("lists provider catalog entries for settings surfaces", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "catalog-1",
+        trace_id: "trace-catalog",
+        method: "provider.catalog.list",
+        params: {},
+      }),
+    );
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "catalog-1",
+      trace_id: "trace-catalog",
+      result: {
+        providers: expect.arrayContaining([
+          expect.objectContaining({
+            id: "dashscope",
+            displayName: "DashScope",
+            categories: ["built_in"],
+            supportsModelDiscovery: true,
+            curatedModels: expect.arrayContaining(["qwen-max"]),
+          }),
+        ]),
+      },
+    });
+  });
+
+  test("resolves provider runtime status from native config without exposing provider secrets", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      env: {},
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const request = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "runtime-1",
+        trace_id: "trace-runtime",
+        method: "provider.runtime.resolve",
+        params: {},
+      }),
+    );
+
+    await respondToConfigSnapshot(server, lines, {
+      agents: { defaults: { active_profile: "dashscope-coding", provider: "openai", model: "qwen3-coder-plus" } },
+      providers: {
+        profiles: {
+          "dashscope-coding": {
+            provider: "dashscope",
+            api_base: "https://dashscope.test/compatible-mode/v1",
+            api_key: null,
+            models: ["qwen3-coder-plus"],
+            manual_models: ["qwen-manual"],
+          },
+        },
+      },
+    });
+    await respondToProviderSecret(server, lines, "dashscope", { apiKey: "profile-key", apiKeySource: "config" });
+    await request;
+
+    expect(parsedLines(lines)).toContainEqual(
+      expect.objectContaining({
+        method: "provider.resolve_secret",
+        params: expect.objectContaining({ providerId: "dashscope", profileName: "dashscope-coding" }),
+      }),
+    );
+    const response = parsedLines(lines).at(-1);
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "runtime-1",
+      trace_id: "trace-runtime",
+      result: {
+        providerId: "dashscope",
+        model: "qwen3-coder-plus",
+        profileName: "dashscope-coding",
+        source: "profile",
+        apiMode: "openai_chat_completions",
+        apiBase: "https://dashscope.test/compatible-mode/v1",
+        apiKeySource: "config",
+        models: ["qwen3-coder-plus"],
+        manualModelIds: ["qwen-manual"],
+        supportsModelDiscovery: true,
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("profile-key");
+  });
+
+  test("validates model ids against provider catalog before saving settings", async () => {
+    const lines: string[] = [];
+    const server = createAgentWorkerServer({
+      provider: new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]),
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "validate-1",
+        trace_id: "trace-validate",
+        method: "provider.model.validate",
+        params: { providerId: "deepseek", model: "qwen-max" },
+      }),
+    );
+
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "validate-1",
+      trace_id: "trace-validate",
+      result: {
+        ok: false,
+        message: "Model 'qwen-max' appears to belong to provider 'dashscope', not 'deepseek'.",
+      },
+    });
   });
 
   test("persists checkpoint and appends messages through native session RPC", async () => {

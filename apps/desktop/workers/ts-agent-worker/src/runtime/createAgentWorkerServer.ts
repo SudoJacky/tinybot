@@ -17,7 +17,14 @@ import { registerToolsByPolicy } from "../tools/toolPolicy.ts";
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import { NativeApprovalBridge } from "./approvalBridge.ts";
 import { AgentWorker } from "./agentWorker.ts";
-import { NativeConfigBridge, modelProviderConfigFromNativeConfig, providerModelsFromNativeConfig } from "./configBridge.ts";
+import {
+  NativeConfigBridge,
+  modelProviderConfigFromNativeConfig,
+  providerCatalogForSettings,
+  providerModelValidationResult,
+  providerModelsFromNativeConfig,
+  providerRuntimeFromNativeConfig,
+} from "./configBridge.ts";
 import { NativeContextBridge } from "./contextBridge.ts";
 import { createModelProvider, type ModelProviderConfig } from "./providerFactory.ts";
 import { NativeSessionBridge } from "./sessionBridge.ts";
@@ -72,6 +79,9 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     emitEvent: writeEvent,
     reloadProvider: lazyProvider ? () => lazyProvider.reload() : undefined,
     listProviderModels: (request) => providerModelsFromNativeConfig(configBridge, options.env ?? process.env, request),
+    listProviderCatalog: () => providerCatalogForSettings(),
+    resolveProviderRuntime: (request) => providerRuntimeFromNativeConfig(configBridge, options.env ?? process.env, request),
+    validateProviderModel: (request) => providerModelValidationResult(request),
     approvalBridge: new NativeApprovalBridge(rpcClient),
     sessionBridge: new NativeSessionBridge(rpcClient),
     contextBridge: new NativeContextBridge(rpcClient),

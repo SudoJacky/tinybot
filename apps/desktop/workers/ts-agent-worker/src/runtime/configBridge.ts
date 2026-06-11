@@ -5,7 +5,8 @@ import { applyConfigPatch } from "../config/configPatch.ts";
 import { parseTinybotConfig } from "../config/configSchema.ts";
 import type { JsonRecord } from "../config/configTypes.ts";
 import { createPublicConfigSnapshot } from "../config/configSnapshot.ts";
-import { listProviderModels } from "../providers/providerModels.ts";
+import { listCatalogEntries } from "../providers/providerCatalog.ts";
+import { listProviderModels, validateModelForProvider } from "../providers/providerModels.ts";
 import { resolveRuntimeProvider, type ProviderSecretResolution, type TinybotPublicConfig } from "../providers/providerRuntime.ts";
 import { modelProviderConfigFromEnv, type ModelProviderConfig } from "./providerFactory.ts";
 
@@ -151,6 +152,50 @@ export async function providerModelsFromNativeConfig(
   };
 }
 
+export function providerCatalogForSettings(): Record<string, unknown> {
+  return {
+    providers: listCatalogEntries().map((entry) => ({
+      id: entry.id,
+      displayName: entry.displayName,
+      aliases: entry.aliases,
+      categories: entry.categories,
+      defaultApiBase: entry.defaultApiBase ?? null,
+      apiMode: entry.apiMode,
+      supportsModelDiscovery: entry.supportsModelDiscovery,
+      curatedModels: entry.curatedModelIds,
+      modelPrefixes: entry.modelPrefixes,
+      requestTraits: entry.requestTraits,
+    })),
+  };
+}
+
+export async function providerRuntimeFromNativeConfig(
+  configBridge: NativeConfigBridge,
+  env: Record<string, string | undefined>,
+  input: {
+    providerId?: string;
+    model?: string;
+  },
+): Promise<Record<string, unknown>> {
+  const snapshot = await configBridge.snapshotPublic();
+  const resolved = await resolveRuntimeProvider({
+    config: snapshot,
+    env,
+    provider: input.providerId,
+    model: input.model,
+    secretResolver: (secretInput) => configBridge.resolveProviderSecret(secretInput),
+  });
+  return publicProviderRuntime(resolved);
+}
+
+export function providerModelValidationResult(input: { providerId: string; model: string }): Record<string, unknown> {
+  const result = validateModelForProvider(input);
+  return {
+    ok: result.ok,
+    message: result.message ?? null,
+  };
+}
+
 async function legacyModelProviderConfigFromNativeConfig(
   configBridge: NativeConfigBridge,
   env: Record<string, string | undefined>,
@@ -184,6 +229,24 @@ async function legacyModelProviderConfigFromNativeConfig(
   } catch {
     return modelProviderConfigFromEnv(env);
   }
+}
+
+function publicProviderRuntime(resolved: Awaited<ReturnType<typeof resolveRuntimeProvider>>): Record<string, unknown> {
+  return {
+    providerId: resolved.providerId ?? null,
+    model: resolved.model,
+    profileName: resolved.profileName ?? null,
+    source: resolved.source,
+    apiMode: resolved.apiMode ?? null,
+    apiBase: resolved.apiBase ?? null,
+    apiKeySource: resolved.apiKeySource ?? null,
+    models: resolved.models,
+    manualModelIds: resolved.manualModelIds,
+    supportsModelDiscovery: resolved.supportsModelDiscovery,
+    requestTraits: resolved.requestTraits,
+    extraBody: resolved.extraBody,
+    warnings: resolved.warnings,
+  };
 }
 
 function pathValue(config: TinybotPublicConfig, segments: string[]): unknown {
