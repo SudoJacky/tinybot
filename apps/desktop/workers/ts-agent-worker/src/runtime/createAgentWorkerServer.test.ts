@@ -73,6 +73,72 @@ describe("createAgentWorkerServer", () => {
     );
   });
 
+  test("routes dream slash commands through native memory dream RPC", async () => {
+    const lines: string[] = [];
+    const provider = new QueueProvider([{ content: "unused", toolCalls: [], stopReason: "stop" }]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      writeLine: (line) => lines.push(line),
+      writeLog: () => undefined,
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-dream-log",
+        trace_id: "trace-dream-log",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-dream-log",
+            sessionId: "session-1",
+            messages: [{ role: "user", content: "/dream-log abc123" }],
+            model: "test-model",
+            maxIterations: 2,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "memory.dream_log"));
+    const request = parsedLines(lines).find((line) => line.method === "memory.dream_log");
+    expect(request).toMatchObject({
+      trace_id: "trace-dream-log",
+      method: "memory.dream_log",
+      params: { sha: "abc123", session_id: "session-1" },
+    });
+    if (!request || typeof request.id !== "string") {
+      throw new Error("missing memory.dream_log request id");
+    }
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: request.id,
+        trace_id: "trace-dream-log",
+        result: { content: "## Dream Update\n\n- Commit: `abc123`" },
+      }),
+    );
+    await run;
+
+    expect(provider.requests).toHaveLength(0);
+    const messages = parsedLines(lines);
+    expect(messages.at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-dream-log",
+      trace_id: "trace-dream-log",
+      result: {
+        finalContent: "## Dream Update\n\n- Commit: `abc123`",
+        stopReason: "command",
+        metadata: {
+          command: "/dream-log",
+          render_as: "text",
+        },
+      },
+    });
+  });
+
   test("writes usage protocol events before the final agent response", async () => {
     const lines: string[] = [];
     const server = createAgentWorkerServer({

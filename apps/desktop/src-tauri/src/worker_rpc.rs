@@ -263,6 +263,18 @@ impl WorkerRpcRouter {
                 let params: MemoryRecallParams = parse_params(request)?;
                 self.memory.recall(params)
             }
+            "memory.dream_run" => {
+                let params: MemoryDreamParams = parse_params(request)?;
+                self.memory.dream_run(params)
+            }
+            "memory.dream_log" => {
+                let params: MemoryDreamParams = parse_params(request)?;
+                self.memory.dream_log(params)
+            }
+            "memory.dream_restore" => {
+                let params: MemoryDreamParams = parse_params(request)?;
+                self.memory.dream_restore(params)
+            }
             "memory.capture_evidence" => {
                 let params: MemoryCaptureEvidenceParams = parse_params(request)?;
                 self.memory.capture_evidence(params)
@@ -944,6 +956,42 @@ impl WorkerMemoryRpc {
             "notes": notes,
             "references": references
         }))
+    }
+
+    fn dream_run(
+        &self,
+        params: MemoryDreamParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryWrite)?;
+        let _session_id = params.session_id.as_deref();
+        let _sha = params.sha.as_deref();
+        Ok(memory_dream_unavailable(
+            "Dream commands are unavailable in the native memory runtime yet.",
+        ))
+    }
+
+    fn dream_log(
+        &self,
+        params: MemoryDreamParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryRead)?;
+        let _session_id = params.session_id.as_deref();
+        let _sha = params.sha.as_deref();
+        Ok(memory_dream_unavailable(
+            "Dream history is not available because memory versioning is not initialized.",
+        ))
+    }
+
+    fn dream_restore(
+        &self,
+        params: MemoryDreamParams,
+    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
+        self.require(WorkerCapability::MemoryWrite)?;
+        let _session_id = params.session_id.as_deref();
+        let _sha = params.sha.as_deref();
+        Ok(memory_dream_unavailable(
+            "Dream history is not available because memory versioning is not initialized.",
+        ))
     }
 
     fn capture_evidence(
@@ -1689,6 +1737,14 @@ struct MemoryRecallParams {
 }
 
 #[derive(Deserialize)]
+struct MemoryDreamParams {
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    sha: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct MemoryCaptureEvidenceParams {
     session_key: String,
     #[serde(default)]
@@ -1905,6 +1961,16 @@ fn invalid_memory_request(
         false,
         crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
     )
+}
+
+fn memory_dream_unavailable(content: &str) -> Value {
+    serde_json::json!({
+        "content": content,
+        "metadata": {
+            "render_as": "text",
+            "available": false
+        }
+    })
 }
 
 fn required_memory_note_id(
@@ -3815,6 +3881,62 @@ mod tests {
             "User prefers concise implementation handoffs."
         );
         assert_eq!(result["references"][0]["view_file"], "USER.md");
+    }
+
+    #[test]
+    fn dispatches_memory_dream_command_requests() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([WorkerCapability::MemoryRead, WorkerCapability::MemoryWrite]),
+        );
+
+        let run_response = router.dispatch(&WorkerRequest::new(
+            "req-run",
+            "trace-1",
+            "memory.dream_run",
+            json!({ "session_id": "session-1" }),
+        ));
+        let log_response = router.dispatch(&WorkerRequest::new(
+            "req-log",
+            "trace-1",
+            "memory.dream_log",
+            json!({ "sha": "abc123" }),
+        ));
+        let restore_response = router.dispatch(&WorkerRequest::new(
+            "req-restore",
+            "trace-1",
+            "memory.dream_restore",
+            json!({}),
+        ));
+
+        assert_eq!(
+            run_response.result,
+            Some(json!({
+                "content": "Dream commands are unavailable in the native memory runtime yet.",
+                "metadata": { "render_as": "text", "available": false }
+            }))
+        );
+        assert_eq!(
+            log_response.result,
+            Some(json!({
+                "content": "Dream history is not available because memory versioning is not initialized.",
+                "metadata": { "render_as": "text", "available": false }
+            }))
+        );
+        assert_eq!(
+            restore_response.result,
+            Some(json!({
+                "content": "Dream history is not available because memory versioning is not initialized.",
+                "metadata": { "render_as": "text", "available": false }
+            }))
+        );
+        assert!(run_response.error.is_none());
+        assert!(log_response.error.is_none());
+        assert!(restore_response.error.is_none());
     }
 
     #[test]

@@ -62,7 +62,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 14 | active | [ts_command_cli_runtime_migration_design.md](ts_command_cli_runtime_migration_design.md) | 先接 `CommandRouter` 和基础命令 | Continued Command Runtime Phase 1/3: `/help`, priority `/stop`, priority `/status`, priority `/restart`, exact `/new`, exact `/approvals`, prefix `/approve`, prefix `/deny`, exact `/dream`, prefix `/dream-log`, and prefix `/dream-restore` now run inside AgentWorker before provider execution. `/new` has a native `session.clear` bridge; approvals use native `approval.list_pending` / `approval.resolve`; Dream commands have the TS command contract and injectable bridge, with native/Python Dream backend wiring still later. Knowledge cleanup and memory archive hooks remain later. |
+| 14 | active | [ts_command_cli_runtime_migration_design.md](ts_command_cli_runtime_migration_design.md) | 先接 `CommandRouter` 和基础命令 | Continued Command Runtime Phase 1/3: `/help`, priority `/stop`, priority `/status`, priority `/restart`, exact `/new`, exact `/approvals`, prefix `/approve`, prefix `/deny`, exact `/dream`, prefix `/dream-log`, and prefix `/dream-restore` now run inside AgentWorker before provider execution. `/new` has a native `session.clear` bridge; approvals use native `approval.list_pending` / `approval.resolve`; Dream commands use `NativeDreamBridge` and Rust `memory.dream_run/log/restore` RPC placeholders, with full native/Python Dream backend behavior still later. Knowledge cleanup and memory archive hooks remain later. |
 | 15 | todo | [ts_task_cron_background_runtime_migration_design.md](ts_task_cron_background_runtime_migration_design.md) | 迁移 task/cron/background agent turn | 依赖 Tool Runtime、Security/Approval、Provider Runtime |
 | 16 | todo | [ts_cowork_runtime_migration_design.md](ts_cowork_runtime_migration_design.md) | 先做 snapshot/store/blueprint/mutations/mailbox | scheduler/agent runtime 等前置稳定后再接 |
 
@@ -158,6 +158,7 @@
 | 2026-06-12 | Continued Batch 5 Command Runtime Phase 1: added exact `/approvals` with TS/native `approval.list_pending`, rendering Python-compatible session-scoped pending approvals before provider execution. |
 | 2026-06-12 | Continued Batch 5 Command Runtime Phase 1: added prefix `/approve` and `/deny` with TS/native `approval.resolve`, including usage, missing-approval text, once/session approval output, and denied output before provider execution. |
 | 2026-06-12 | Continued Batch 5 Command Runtime Phase 3: added `/dream`, `/dream-log`, and `/dream-restore` TS command contracts through an injectable Dream bridge, and expanded `/help` from the registry-backed command list; native/Python Dream backend wiring remains follow-up work. |
+| 2026-06-12 | Continued Batch 5 Command Runtime Phase 3 native wiring: added `NativeDreamBridge`, wired real TS worker server `/dream-log` dispatch through `memory.dream_log`, and added Rust `memory.dream_run` / `memory.dream_log` / `memory.dream_restore` RPC placeholders returning explicit text instead of unknown-method errors. |
 
 ## Next Checklist
 
