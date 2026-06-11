@@ -152,6 +152,9 @@ impl WorkerRpcRouter {
                 } else {
                     self.config.apply_patch_result(params)?
                 };
+                if result.ok {
+                    self.secret.update_snapshot(self.config.snapshot().clone());
+                }
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "provider.resolve_secret" => {
@@ -2157,7 +2160,11 @@ mod tests {
             }),
             vec![],
             20,
-            CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite]),
+            CapabilityPolicy::new([
+                WorkerCapability::ConfigRead,
+                WorkerCapability::ConfigWrite,
+                WorkerCapability::ProviderSecretRead,
+            ]),
         );
         let request = WorkerRequest::new(
             "req-1",
@@ -2205,6 +2212,21 @@ mod tests {
             get_response.result,
             Some(json!({ "path": "agents.defaults.model", "value": "gpt-5.1" }))
         );
+
+        let secret_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-3",
+            "provider.resolve_secret",
+            json!({ "providerId": "openai", "apiKeyEnvVars": ["OPENAI_API_KEY"] }),
+        ));
+        assert_eq!(
+            secret_response.result,
+            Some(json!({
+                "apiKey": "sk-new-secret",
+                "apiKeySource": "config"
+            }))
+        );
+        assert!(secret_response.error.is_none());
     }
 
     #[test]

@@ -47,7 +47,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 8 | active | [ts_security_approval_migration_design.md](ts_security_approval_migration_design.md) | 建立 approval gate 和安全边界 | Phase 1 TS classifier/fingerprint complete. Phase 2 Rust pending store started. Phase 3 TS `NativeApprovalBridge.requestApproval()` added. Phase 4 TS `ApprovalRuntime` now gates `ToolRuntime.execute()` before risky side effects, and AgentRunner's existing `requiresApproval` path emits the same fingerprint/classification contract. Phase 5 native once/session scope reuse now allows matching requests, consumes once approvals, and keeps session approvals scoped to the original session. |
-| 9 | todo | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 依赖 ContextBuilder、Tool Runtime、Session/Turn、Approval |
+| 9 | active | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 已有 provider catalog/runtime/model-listing、OpenAI request builder、stream parser、retry helper 与 native secret bridge 起点；本轮补齐 native config patch 后 provider secret snapshot 同步，避免保存新 API key 后 TS provider runtime 仍解析旧 secret。 |
 
 ### Batch 4: User Memory, Knowledge, Skills, And External Tools
 
@@ -120,6 +120,7 @@
 | 2026-06-12 | Started Security/Approval Phase 2: Rust native `approval.request` now keeps an in-memory pending approval record with operation, classification, summary, fingerprint, and session fingerprint; `approval.resolve` consumes that record and rejects missing pending approvals. |
 | 2026-06-12 | Started Security/Approval Phase 3/4 TS path: `NativeApprovalBridge` now supports `requestApproval`, `ApprovalRuntime` gates `ToolRuntime.execute()` before risky side effects, `request_approval` forwards classification/fingerprint fields, and AgentRunner's existing approval path now emits the same contract. |
 | 2026-06-12 | Continued Security/Approval Phase 5: Rust `approval.request` now honors approved once/session fingerprints, consumes once approvals, limits session approval reuse to the same session, and TS `ApprovalRuntime` treats native `decision: "allow"` as permission to execute the original tool. |
+| 2026-06-12 | Started Batch 3 Provider Runtime hardening: `config.apply_patch_result` now refreshes the native provider secret resolver snapshot after successful config patches, so `provider.resolve_secret` observes newly saved provider API keys while public config reads remain redacted. |
 
 ## Next Checklist
 

@@ -20,6 +20,10 @@ impl WorkerConfigRpc {
         Self { snapshot, policy }
     }
 
+    pub fn snapshot(&self) -> &Value {
+        &self.snapshot
+    }
+
     pub fn get(&self, path: &str) -> Result<ConfigGetResult, WorkerProtocolError> {
         self.require(WorkerCapability::ConfigRead)?;
         let segments = normalize_config_path(path)?;

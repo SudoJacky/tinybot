@@ -16,6 +16,10 @@ impl WorkerSecretRpc {
         Self { snapshot, policy }
     }
 
+    pub fn update_snapshot(&mut self, snapshot: Value) {
+        self.snapshot = snapshot;
+    }
+
     pub fn resolve_secret(
         &self,
         params: ProviderResolveSecretParams,
