@@ -43,6 +43,16 @@ function runInputRequest(params: Record<string, unknown>): WorkerRequest {
   };
 }
 
+function cronRunDueRequest(params: Record<string, unknown>): WorkerRequest {
+  return {
+    protocol_version: "1",
+    id: "cron-run-due-1",
+    trace_id: "trace-cron-run-due",
+    method: "cron.run_due",
+    params,
+  };
+}
+
 function cancelRequest(runId: string): WorkerRequest {
   return {
     protocol_version: "1",
@@ -180,6 +190,110 @@ describe("AgentWorker", () => {
         stopReason: "final_response",
       }),
     }));
+  });
+
+  test("runs due cron agent-turn jobs through the AgentRunner", async () => {
+    const events: WorkerEvent[] = [];
+    const provider = new QueueProvider([{ content: "cron completed", toolCalls: [], stopReason: "stop" }]);
+    const worker = new AgentWorker({
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: (event) => events.push(event),
+    });
+
+    const response = await worker.handleRequest(cronRunDueRequest({
+      model: "fixture-model",
+      maxIterations: 2,
+      stream: false,
+      jobs: [
+        {
+          id: "job-1",
+          name: "Check status",
+          enabled: true,
+          schedule: { kind: "every", everyMs: 60000 },
+          payload: {
+            kind: "agent_turn",
+            message: "Check system status",
+            deliver: true,
+            channel: "desktop",
+            to: "chat-1",
+          },
+          state: { nextRunAtMs: 1000 },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          deleteAfterRun: false,
+        },
+      ],
+    }));
+
+    expect(response).toMatchObject({
+      protocol_version: "1",
+      id: "cron-run-due-1",
+      trace_id: "trace-cron-run-due",
+      result: {
+        records: [
+          expect.objectContaining({
+            jobId: "job-1",
+            status: "ok",
+            runId: "cron-job-1-cron-run-due-1",
+            finalContent: "cron completed",
+            stopReason: "final_response",
+          }),
+        ],
+      },
+    });
+    expect(provider.messages[0]).toEqual([
+      {
+        role: "user",
+        content: "[Scheduled Task] Timer finished.\n\nTask 'Check status' has been triggered.\nScheduled instruction: Check system status",
+      },
+    ]);
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "agent.done",
+      payload: expect.objectContaining({ runId: "cron-job-1-cron-run-due-1" }),
+    }));
+  });
+
+  test("reports skipped and failed cron job records without aborting the due batch", async () => {
+    const worker = new AgentWorker({
+      provider: new QueueProvider([]),
+      tools: new ToolRegistry(),
+      emitEvent: () => {},
+    });
+
+    const response = await worker.handleRequest(cronRunDueRequest({
+      model: "fixture-model",
+      jobs: [
+        {
+          id: "disabled",
+          name: "Disabled",
+          enabled: false,
+          payload: { kind: "agent_turn", message: "Skip me" },
+        },
+        {
+          id: "system",
+          name: "Dream",
+          enabled: true,
+          payload: { kind: "system_event", message: "dream" },
+        },
+        {
+          id: "failing",
+          name: "Failing",
+          enabled: true,
+          payload: { kind: "agent_turn", message: "Run me" },
+        },
+      ],
+    }));
+
+    expect(response).toMatchObject({
+      result: {
+        records: [
+          expect.objectContaining({ jobId: "disabled", status: "skipped", error: "job is disabled" }),
+          expect.objectContaining({ jobId: "system", status: "skipped", error: expect.stringContaining("system_event") }),
+          expect.objectContaining({ jobId: "failing", status: "error", runId: "cron-failing-cron-run-due-1", error: "no queued model response" }),
+        ],
+      },
+    });
   });
 
   test("handles backend slash help before calling the provider", async () => {

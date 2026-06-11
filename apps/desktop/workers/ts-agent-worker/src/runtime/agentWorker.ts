@@ -109,6 +109,26 @@ type ActiveRun = {
   cancelled: boolean;
 };
 
+type CronRunDueJob = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  payload: {
+    kind: "agent_turn" | "system_event";
+    message: string;
+    deliver?: boolean;
+    channel?: string | null;
+    to?: string | null;
+  };
+};
+
+type CronRunDueParams = {
+  jobs: CronRunDueJob[];
+  model: string;
+  maxIterations: number;
+  stream: boolean;
+};
+
 export type ApprovalBridge = {
   requestApproval(params: ApprovalRequestPayload, traceId: string): Promise<Record<string, unknown>>;
   resolveApproval(params: ApprovalResolutionRequest, traceId: string): Promise<Record<string, unknown>>;
@@ -223,6 +243,10 @@ export class AgentWorker {
       return this.handleRunInputRequest(request);
     }
 
+    if (request.method === "cron.run_due") {
+      return this.handleCronRunDueRequest(request);
+    }
+
     if (request.method === "worker.provider.reload") {
       return this.handleProviderReloadRequest(request);
     }
@@ -272,6 +296,82 @@ export class AgentWorker {
     }
 
     return this.handleRunRequest(request);
+  }
+
+  private async handleCronRunDueRequest(request: WorkerRequest): Promise<WorkerResponse> {
+    try {
+      const params = parseCronRunDueParams(request.params);
+      const records: Array<Record<string, unknown>> = [];
+      for (const job of params.jobs) {
+        records.push(await this.runCronJobForRequest(request, job, params));
+      }
+      return {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        id: request.id,
+        trace_id: request.trace_id,
+        result: { records },
+      };
+    } catch (error) {
+      return this.failure(request, errorMessage(error), {}, "invalid_protocol");
+    }
+  }
+
+  private async runCronJobForRequest(
+    request: WorkerRequest,
+    job: CronRunDueJob,
+    params: CronRunDueParams,
+  ): Promise<Record<string, unknown>> {
+    const runAtMs = Date.now();
+    if (!job.enabled) {
+      return cronRunRecord(job, "skipped", runAtMs, Date.now() - runAtMs, {
+        error: "job is disabled",
+      });
+    }
+    if (job.payload.kind !== "agent_turn") {
+      return cronRunRecord(job, "skipped", runAtMs, Date.now() - runAtMs, {
+        error: "system_event cron payloads are not handled by the TS worker yet",
+      });
+    }
+
+    const runId = `cron-${sanitizeCronRunId(job.id)}-${sanitizeCronRunId(request.id)}`;
+    const spec: AgentRunSpec = {
+      runId,
+      traceId: request.trace_id,
+      sessionId: `cron:${job.id}`,
+      messages: [{ role: "user", content: scheduledTaskPrompt(job) }],
+      model: params.model,
+      maxIterations: params.maxIterations,
+      stream: params.stream,
+      metadata: {
+        source: "cron",
+        cronJobId: job.id,
+        cronJobName: job.name,
+        deliver: job.payload.deliver === true,
+        channel: job.payload.channel ?? undefined,
+        to: job.payload.to ?? undefined,
+      },
+    };
+
+    try {
+      const response = await this.runSpecForRequest(request, spec);
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      const result = isJsonObject(response.result) ? response.result : {};
+      const stopReason = typeof result.stopReason === "string" ? result.stopReason : "error";
+      const status = stopReason === "error" || stopReason === "tool_error" ? "error" : "ok";
+      return cronRunRecord(job, status, runAtMs, Date.now() - runAtMs, {
+        runId,
+        finalContent: typeof result.finalContent === "string" ? result.finalContent : "",
+        stopReason,
+        ...(typeof result.error === "string" ? { error: result.error } : {}),
+      });
+    } catch (error) {
+      return cronRunRecord(job, "error", runAtMs, Date.now() - runAtMs, {
+        runId,
+        error: errorMessage(error),
+      });
+    }
   }
 
   private async handleRunRequest(request: WorkerRequest): Promise<WorkerResponse> {
@@ -1296,6 +1396,80 @@ function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec
     failOnToolError: booleanParam(raw, "failOnToolError", "fail_on_tool_error"),
     metadata: isJsonObject(raw.metadata) ? raw.metadata : undefined,
   };
+}
+
+function parseCronRunDueParams(params: Record<string, unknown> | undefined): CronRunDueParams {
+  if (!isJsonObject(params) || !Array.isArray(params.jobs)) {
+    throw new Error("cron.run_due requires array params.jobs");
+  }
+  const model = stringParam(params, "model", "model");
+  if (!model) {
+    throw new Error("cron.run_due params.model must be a string");
+  }
+  return {
+    jobs: params.jobs.map(parseCronRunDueJob),
+    model,
+    maxIterations: numberParam(params, "maxIterations", "max_iterations") ?? 4,
+    stream: booleanParam(params, "stream", "stream") ?? false,
+  };
+}
+
+function parseCronRunDueJob(value: unknown): CronRunDueJob {
+  if (!isJsonObject(value)) {
+    throw new Error("cron.run_due jobs must be objects");
+  }
+  const id = stringParam(value, "id", "id");
+  const name = stringParam(value, "name", "name");
+  const payload = isJsonObject(value.payload) ? value.payload : undefined;
+  if (!id || !name || !payload) {
+    throw new Error("cron.run_due job.id, job.name, and job.payload are required");
+  }
+  const message = stringParam(payload, "message", "message");
+  if (!message) {
+    throw new Error("cron.run_due job.payload.message must be a string");
+  }
+  return {
+    id,
+    name,
+    enabled: value.enabled !== false,
+    payload: {
+      kind: payload.kind === "system_event" ? "system_event" : "agent_turn",
+      message,
+      deliver: payload.deliver === true,
+      channel: stringParam(payload, "channel", "channel") ?? null,
+      to: stringParam(payload, "to", "to") ?? null,
+    },
+  };
+}
+
+function scheduledTaskPrompt(job: CronRunDueJob): string {
+  return [
+    "[Scheduled Task] Timer finished.",
+    "",
+    `Task '${job.name}' has been triggered.`,
+    `Scheduled instruction: ${job.payload.message}`,
+  ].join("\n");
+}
+
+function cronRunRecord(
+  job: CronRunDueJob,
+  status: "ok" | "error" | "skipped",
+  runAtMs: number,
+  durationMs: number,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    jobId: job.id,
+    jobName: job.name,
+    status,
+    runAtMs,
+    durationMs,
+    ...extra,
+  };
+}
+
+function sanitizeCronRunId(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.:-]/g, "-");
 }
 
 function parseRunInput(params: Record<string, unknown> | undefined): AgentRunInput {
