@@ -34,6 +34,11 @@ export interface TaskStore {
   plans: TaskPlan[];
 }
 
+export type TaskStoreInput = {
+  version?: number;
+  plans?: TaskPlanInput[];
+};
+
 export type SubTaskInput = Partial<
   Omit<SubTask, "parallelSafe" | "retryCount" | "maxRetries" | "dependencies" | "status">
 > & {
