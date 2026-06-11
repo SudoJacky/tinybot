@@ -19,6 +19,7 @@ export type StreamCallbacks = {
   onContentDelta?: (delta: string) => void;
   onReasoningDelta?: (delta: string) => void;
   onToolCallDelta?: (delta: ToolCallDelta) => void;
+  streamIdleTimeoutMs?: number;
 };
 
 type ToolCallBuffer = {
@@ -46,7 +47,13 @@ export async function collectChatCompletionStream(
   let sequence = 0;
 
   try {
-    for await (const chunk of stream) {
+    const iterator = stream[Symbol.asyncIterator]();
+    while (true) {
+      const next = await nextStreamChunk(iterator, callbacks.streamIdleTimeoutMs);
+      if (next.done) {
+        break;
+      }
+      const chunk = next.value;
       const chunkObject = asObject(chunk);
       if (!chunkObject) {
         continue;
@@ -216,10 +223,44 @@ function emitTerminalToolCallDeltas(
 }
 
 function streamErrorContent(error: unknown): string {
+  if (error instanceof StreamIdleTimeoutError) {
+    return `Error calling LLM: stream stalled for more than ${error.timeoutMs} ms`;
+  }
   if (error instanceof Error) {
     return `Error calling LLM: ${error.message}`;
   }
   return `Error calling LLM: ${String(error)}`;
+}
+
+class StreamIdleTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`stream stalled for more than ${timeoutMs} ms`);
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+async function nextStreamChunk(
+  iterator: AsyncIterator<unknown>,
+  idleTimeoutMs: number | undefined,
+): Promise<IteratorResult<unknown>> {
+  if (!idleTimeoutMs || idleTimeoutMs <= 0) {
+    return iterator.next();
+  }
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      iterator.next(),
+      new Promise<IteratorResult<unknown>>((_, reject) => {
+        timeout = setTimeout(() => reject(new StreamIdleTimeoutError(idleTimeoutMs)), idleTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function asObject(value: unknown): JsonObject | null {

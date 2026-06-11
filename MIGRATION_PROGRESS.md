@@ -47,7 +47,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 8 | active | [ts_security_approval_migration_design.md](ts_security_approval_migration_design.md) | 建立 approval gate 和安全边界 | Phase 1 TS classifier/fingerprint complete. Phase 2 Rust pending store started. Phase 3 TS `NativeApprovalBridge.requestApproval()` added. Phase 4 TS `ApprovalRuntime` now gates `ToolRuntime.execute()` before risky side effects, and AgentRunner's existing `requiresApproval` path emits the same fingerprint/classification contract. Phase 5 native once/session scope reuse now allows matching requests, consumes once approvals, and keeps session approvals scoped to the original session. |
-| 9 | active | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 已有 provider catalog/runtime/model-listing、OpenAI request builder、stream parser、retry helper 与 native secret bridge 起点；已补齐 native config patch 后 provider secret snapshot 同步，避免保存新 API key 后 TS provider runtime 仍解析旧 secret；本轮补齐 OpenAI-compatible prompt caching request trait 的 cache_control marker 注入。 |
+| 9 | active | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 已有 provider catalog/runtime/model-listing、OpenAI request builder、stream parser、retry helper 与 native secret bridge 起点；已补齐 native config patch 后 provider secret snapshot 同步、OpenAI-compatible prompt caching request trait 的 cache_control marker 注入；本轮补齐 stream idle timeout，避免真实模型流式响应停滞时 TS provider 永久等待。 |
 
 ### Batch 4: User Memory, Knowledge, Skills, And External Tools
 
@@ -122,6 +122,7 @@
 | 2026-06-12 | Continued Security/Approval Phase 5: Rust `approval.request` now honors approved once/session fingerprints, consumes once approvals, limits session approval reuse to the same session, and TS `ApprovalRuntime` treats native `decision: "allow"` as permission to execute the original tool. |
 | 2026-06-12 | Started Batch 3 Provider Runtime hardening: `config.apply_patch_result` now refreshes the native provider secret resolver snapshot after successful config patches, so `provider.resolve_secret` observes newly saved provider API keys while public config reads remain redacted. |
 | 2026-06-12 | Continued Batch 3 Provider Runtime request parity: `buildOpenAIChatRequest()` now honors `supportsPromptCaching` by adding Python-style ephemeral `cache_control` markers to the system message, recent context message, and final tool definition. |
+| 2026-06-12 | Continued Batch 3 Provider Runtime stream parity: `collectChatCompletionStream()` and `OpenAIProvider.complete()` now support `streamIdleTimeoutMs`, returning a model-visible error when a provider stream stalls while preserving already emitted deltas. |
 
 ## Next Checklist
 
