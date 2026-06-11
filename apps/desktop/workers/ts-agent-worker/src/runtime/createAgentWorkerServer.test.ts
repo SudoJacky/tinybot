@@ -211,7 +211,7 @@ describe("createAgentWorkerServer", () => {
       id: "worker-req-1",
       trace_id: "trace-1",
       method: "workspace.read_file",
-      params: { path: "README.md" },
+      params: { path: "README.md", format: "numbered_lines" },
     });
 
     await server.handleLine(

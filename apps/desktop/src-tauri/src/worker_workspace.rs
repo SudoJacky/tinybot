@@ -6,6 +6,20 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 const BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"];
+const DEFAULT_READ_LIMIT: usize = 2000;
+const IGNORED_DIRS: &[&str] = &[
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+];
 
 #[derive(Clone, Debug)]
 pub struct WorkerWorkspaceRpc {
@@ -51,6 +65,82 @@ impl WorkerWorkspaceRpc {
         })
     }
 
+    pub fn read_file_with_options(
+        &self,
+        requested_path: &str,
+        options: WorkspaceReadOptions,
+    ) -> Result<WorkspaceReadFileResult, WorkerProtocolError> {
+        let file = self.read_file(requested_path)?;
+        match options.format {
+            WorkspaceReadFormat::Raw => Ok(WorkspaceReadFileResult {
+                path: file.path,
+                contents: file.contents.clone(),
+                content: file.contents,
+                content_type: "text".to_string(),
+                line_start: None,
+                line_end: None,
+                line_total: None,
+                truncated: false,
+            }),
+            WorkspaceReadFormat::NumberedLines => {
+                let lines: Vec<&str> = file.contents.lines().collect();
+                if lines.is_empty() {
+                    return Ok(WorkspaceReadFileResult {
+                        path: file.path,
+                        contents: file.contents,
+                        content: format!("(Empty file: {requested_path})"),
+                        content_type: "text".to_string(),
+                        line_start: Some(1),
+                        line_end: Some(0),
+                        line_total: Some(0),
+                        truncated: false,
+                    });
+                }
+                let total = lines.len();
+                let offset = options.offset.unwrap_or(1).max(1);
+                if offset > total {
+                    return Err(filesystem_error(
+                        "workspace read offset is beyond end of file",
+                        serde_json::json!({
+                            "path": file.path,
+                            "offset": offset,
+                            "line_total": total,
+                        }),
+                    ));
+                }
+                let limit = options.limit.unwrap_or(DEFAULT_READ_LIMIT).max(1);
+                let start = offset - 1;
+                let end_exclusive = (start + limit).min(total);
+                let line_end = end_exclusive;
+                let mut content = lines[start..end_exclusive]
+                    .iter()
+                    .enumerate()
+                    .map(|(index, line)| format!("{}| {}", start + index + 1, line))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let truncated = line_end < total;
+                if truncated {
+                    content.push_str(&format!(
+                        "\n\n(Showing lines {offset}-{line_end} of {total}. Use offset={} to continue.)",
+                        line_end + 1
+                    ));
+                } else {
+                    content.push_str(&format!("\n\n(End of file - {total} lines total)"));
+                }
+                Ok(WorkspaceReadFileResult {
+                    path: file.path,
+                    contents: file.contents,
+                    content,
+                    content_type: "text".to_string(),
+                    line_start: Some(offset),
+                    line_end: Some(line_end),
+                    line_total: Some(total),
+                    truncated,
+                })
+            }
+        }
+    }
+
     pub fn list_files(&self) -> Result<Vec<WorkspaceFileEntry>, WorkerProtocolError> {
         self.require(WorkerCapability::FsWorkspaceRead)?;
         let root = canonicalize_workspace_root(&self.root)?;
@@ -58,6 +148,47 @@ impl WorkerWorkspaceRpc {
         collect_workspace_files(&root, &root, &mut entries)?;
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         Ok(entries)
+    }
+
+    pub fn list_dir(
+        &self,
+        requested_path: &str,
+        recursive: bool,
+        max_entries: Option<usize>,
+    ) -> Result<WorkspaceDirectoryListing, WorkerProtocolError> {
+        self.require(WorkerCapability::FsWorkspaceRead)?;
+        let root = canonicalize_workspace_root(&self.root)?;
+        let relative_path = normalize_workspace_dir_path(requested_path)?;
+        let absolute_path = workspace_dir_absolute_path(&self.root, &relative_path);
+        ensure_inside_workspace(&self.root, &absolute_path)?;
+        if !absolute_path.is_dir() {
+            return Err(filesystem_error(
+                "workspace path is not a directory",
+                serde_json::json!({ "path": relative_path }),
+            ));
+        }
+        let base = absolute_path.canonicalize().map_err(|error| {
+            filesystem_error(
+                "failed to resolve workspace directory",
+                serde_json::json!({
+                    "path": relative_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        let mut entries = Vec::new();
+        collect_workspace_dir_entries(&root, &base, &base, recursive, &mut entries)?;
+        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        let total_entries = entries.len();
+        let cap = max_entries.unwrap_or(200).max(1);
+        let truncated = total_entries > cap;
+        entries.truncate(cap);
+        Ok(WorkspaceDirectoryListing {
+            path: relative_path,
+            entries,
+            total_entries,
+            truncated,
+        })
     }
 
     pub fn read_bootstrap_files(
@@ -124,6 +255,94 @@ impl WorkerWorkspaceRpc {
         })
     }
 
+    pub fn delete_file(
+        &self,
+        requested_path: &str,
+        recursive: bool,
+    ) -> Result<WorkspaceDeleteResult, WorkerProtocolError> {
+        self.require(WorkerCapability::FsWorkspaceWrite)?;
+        let relative_path = normalize_workspace_dir_path(requested_path)?;
+        if relative_path == "." || relative_path == ".git" || relative_path.starts_with(".git/") {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "refusing to delete protected workspace path",
+                serde_json::json!({ "path": relative_path }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        let absolute_path = workspace_dir_absolute_path(&self.root, &relative_path);
+        if !absolute_path.exists() {
+            return Err(filesystem_error(
+                "workspace path does not exist",
+                serde_json::json!({ "path": relative_path }),
+            ));
+        }
+        ensure_inside_workspace(&self.root, &absolute_path)?;
+        let metadata = std::fs::symlink_metadata(&absolute_path).map_err(|error| {
+            filesystem_error(
+                "failed to inspect workspace path",
+                serde_json::json!({
+                    "path": relative_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        if metadata.is_dir() {
+            if recursive {
+                std::fs::remove_dir_all(&absolute_path).map_err(|error| {
+                    filesystem_error(
+                        "failed to delete workspace directory",
+                        serde_json::json!({
+                            "path": relative_path,
+                            "error": error.to_string(),
+                        }),
+                    )
+                })?;
+            } else {
+                std::fs::remove_dir(&absolute_path).map_err(|error| {
+                    let message = if absolute_path.read_dir().map(|mut items| items.next().is_some()).unwrap_or(false) {
+                        "workspace directory is not empty"
+                    } else {
+                        "failed to delete workspace directory"
+                    };
+                    filesystem_error(
+                        message,
+                        serde_json::json!({
+                            "path": relative_path,
+                            "error": error.to_string(),
+                        }),
+                    )
+                })?;
+            }
+            return Ok(WorkspaceDeleteResult {
+                path: relative_path,
+                kind: "dir".to_string(),
+                deleted: true,
+            });
+        }
+        if metadata.is_file() {
+            std::fs::remove_file(&absolute_path).map_err(|error| {
+                filesystem_error(
+                    "failed to delete workspace file",
+                    serde_json::json!({
+                        "path": relative_path,
+                        "error": error.to_string(),
+                    }),
+                )
+            })?;
+            return Ok(WorkspaceDeleteResult {
+                path: relative_path,
+                kind: "file".to_string(),
+                deleted: true,
+            });
+        }
+        Err(filesystem_error(
+            "workspace path is not a regular file or directory",
+            serde_json::json!({ "path": relative_path }),
+        ))
+    }
+
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
@@ -151,9 +370,49 @@ pub struct WorkspaceFileContent {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub enum WorkspaceReadFormat {
+    Raw,
+    NumberedLines,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceReadOptions {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+    pub format: WorkspaceReadFormat,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceReadFileResult {
+    pub path: String,
+    pub contents: String,
+    pub content: String,
+    pub content_type: String,
+    pub line_start: Option<usize>,
+    pub line_end: Option<usize>,
+    pub line_total: Option<usize>,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct WorkspaceFileEntry {
     pub path: String,
     pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceDirectoryEntry {
+    pub path: String,
+    pub kind: String,
+    pub size_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceDirectoryListing {
+    pub path: String,
+    pub entries: Vec<WorkspaceDirectoryEntry>,
+    pub total_entries: usize,
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -166,6 +425,13 @@ pub struct WorkspaceBootstrapFiles {
 pub struct WorkspaceWriteResult {
     pub path: String,
     pub bytes_written: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceDeleteResult {
+    pub path: String,
+    pub kind: String,
+    pub deleted: bool,
 }
 
 fn collect_workspace_files(
@@ -214,6 +480,74 @@ fn collect_workspace_files(
     Ok(())
 }
 
+fn collect_workspace_dir_entries(
+    root: &Path,
+    base: &Path,
+    current: &Path,
+    recursive: bool,
+    entries: &mut Vec<WorkspaceDirectoryEntry>,
+) -> Result<(), WorkerProtocolError> {
+    for entry in std::fs::read_dir(current).map_err(|error| {
+        filesystem_error(
+            "failed to list workspace directory",
+            serde_json::json!({
+                "path": current.display().to_string(),
+                "error": error.to_string(),
+            }),
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            filesystem_error(
+                "failed to inspect workspace directory entry",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+        let path = entry.path();
+        ensure_inside_canonical_workspace(root, &path)?;
+        let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+            filesystem_error(
+                "failed to read workspace path metadata",
+                serde_json::json!({
+                    "path": path.display().to_string(),
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        if metadata.file_type().is_symlink() || ignored_workspace_path(base, &path) {
+            continue;
+        }
+        if metadata.is_dir() {
+            entries.push(WorkspaceDirectoryEntry {
+                path: format!("{}/", workspace_relative_path(root, &path)?),
+                kind: "dir".to_string(),
+                size_bytes: None,
+            });
+            if recursive {
+                collect_workspace_dir_entries(root, base, &path, recursive, entries)?;
+            }
+        } else if metadata.is_file() {
+            entries.push(WorkspaceDirectoryEntry {
+                path: workspace_relative_path(root, &path)?,
+                kind: "file".to_string(),
+                size_bytes: Some(metadata.len()),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn ignored_workspace_path(base: &Path, path: &Path) -> bool {
+    path.strip_prefix(base)
+        .ok()
+        .map(|relative| {
+            relative.components().any(|component| {
+                let name = component.as_os_str().to_string_lossy();
+                IGNORED_DIRS.iter().any(|ignored| *ignored == name)
+            })
+        })
+        .unwrap_or(false)
+}
+
 fn normalize_workspace_path(requested_path: &str) -> Result<String, WorkerProtocolError> {
     let normalized = requested_path.replace('\\', "/");
     if normalized.is_empty()
@@ -229,10 +563,36 @@ fn normalize_workspace_path(requested_path: &str) -> Result<String, WorkerProtoc
     Ok(normalized)
 }
 
+fn normalize_workspace_dir_path(requested_path: &str) -> Result<String, WorkerProtocolError> {
+    let normalized = requested_path.replace('\\', "/");
+    let normalized = normalized.trim_end_matches('/');
+    if normalized == "." {
+        return Ok(".".to_string());
+    }
+    if normalized.is_empty()
+        || normalized.starts_with('/')
+        || normalized.contains(':')
+        || normalized.contains('\0')
+        || normalized
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(invalid_workspace_path(requested_path));
+    }
+    Ok(normalized.to_string())
+}
+
 fn join_workspace_relative(root: &Path, relative_path: &str) -> PathBuf {
     relative_path
         .split('/')
         .fold(root.to_path_buf(), |path, part| path.join(part))
+}
+
+fn workspace_dir_absolute_path(root: &Path, relative_path: &str) -> PathBuf {
+    if relative_path == "." {
+        return root.to_path_buf();
+    }
+    join_workspace_relative(root, relative_path)
 }
 
 fn ensure_inside_workspace(root: &Path, path: &Path) -> Result<(), WorkerProtocolError> {
@@ -576,6 +936,89 @@ mod tests {
             std::fs::read_to_string(outside).expect("outside file should read"),
             "secret"
         );
+    }
+
+    #[test]
+    fn read_file_with_options_returns_numbered_paginated_lines() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "one\ntwo\nthree\nfour\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let file = rpc
+            .read_file_with_options(
+                "notes/today.md",
+                WorkspaceReadOptions {
+                    offset: Some(2),
+                    limit: Some(2),
+                    format: WorkspaceReadFormat::NumberedLines,
+                },
+            )
+            .expect("paginated file should read");
+
+        assert_eq!(file.path, "notes/today.md");
+        assert_eq!(file.content, "2| two\n3| three\n\n(Showing lines 2-3 of 4. Use offset=4 to continue.)");
+        assert_eq!(file.content_type, "text");
+        assert_eq!(file.line_start, Some(2));
+        assert_eq!(file.line_end, Some(3));
+        assert_eq!(file.line_total, Some(4));
+        assert!(file.truncated);
+    }
+
+    #[test]
+    fn list_dir_respects_path_recursion_max_entries_and_ignores_noise() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("README.md", "readme");
+        fixture.write("src/main.ts", "main");
+        fixture.write("node_modules/pkg/index.js", "noise");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let listing = rpc
+            .list_dir(".", true, Some(10))
+            .expect("workspace directory should list");
+        let paths: Vec<String> = listing.entries.into_iter().map(|entry| entry.path).collect();
+
+        assert_eq!(paths, vec!["README.md", "src/", "src/main.ts"]);
+        assert_eq!(listing.path, ".");
+        assert!(!listing.truncated);
+    }
+
+    #[test]
+    fn list_dir_reports_workspace_relative_paths_from_subdirectories() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("src/main.ts", "main");
+        fixture.write("src/components/button.ts", "button");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let listing = rpc
+            .list_dir("src", true, Some(10))
+            .expect("subdirectory should list");
+        let paths: Vec<String> = listing.entries.into_iter().map(|entry| entry.path).collect();
+
+        assert_eq!(listing.path, "src");
+        assert_eq!(paths, vec!["src/components/", "src/components/button.ts", "src/main.ts"]);
+    }
+
+    #[test]
+    fn delete_file_refuses_workspace_root_and_requires_recursive_for_nonempty_dirs() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "hello");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let root_error = rpc
+            .delete_file(".", true)
+            .expect_err("workspace root should be protected");
+        let nonempty_error = rpc
+            .delete_file("notes", false)
+            .expect_err("non-empty dir should require recursive");
+        let deleted = rpc
+            .delete_file("notes", true)
+            .expect("recursive delete should delete directory");
+
+        assert_eq!(root_error.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert_eq!(nonempty_error.message, "workspace directory is not empty");
+        assert_eq!(deleted.path, "notes");
+        assert_eq!(deleted.kind, "dir");
+        assert!(!fixture.root.join("notes").exists());
     }
 
     fn read_policy() -> CapabilityPolicy {

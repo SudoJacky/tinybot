@@ -9,6 +9,14 @@ export function createNativeReadOnlyTools(rpcClient: NativeRpcClient): Tool[] {
   return [createReadFileTool(rpcClient), createListDirTool(rpcClient)];
 }
 
+export function createNativeWriteTools(rpcClient: NativeRpcClient): Tool[] {
+  return [createWriteFileTool(rpcClient), createEditFileTool(rpcClient), createDeleteFileTool(rpcClient)];
+}
+
+export function createNativeShellTools(rpcClient: NativeRpcClient): Tool[] {
+  return [createExecTool(rpcClient)];
+}
+
 export function createNativeApprovalTools(rpcClient: NativeRpcClient): Tool[] {
   return [createRequestApprovalTool(rpcClient)];
 }
@@ -32,19 +40,37 @@ export function createNativeMcpTools(rpcClient: NativeRpcClient): Tool[] {
 function createReadFileTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "read_file",
-    description: "Read the contents of a workspace file.",
+    description: "Read the contents of a file. Returns numbered lines. Use offset and limit to paginate through large files.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["fs.workspace.read"],
     parameters: {
       type: "object",
       properties: {
         path: { type: "string", description: "The workspace-relative file path to read" },
+        offset: { type: "integer", minimum: 1, description: "Line number to start reading from (1-indexed, default 1)" },
+        limit: { type: "integer", minimum: 1, description: "Maximum number of lines to read (default 2000)" },
       },
       required: ["path"],
     },
     execute: async (args, context) => {
       const path = stringArg(args, "path");
-      const result = await rpcClient.request(requireTraceId(context.traceId), "workspace.read_file", { path });
+      const offset = optionalIntegerArg(args, "offset");
+      const limit = optionalIntegerArg(args, "limit");
+      const params: JsonObject = { path, format: "numbered_lines" };
+      if (offset !== undefined) {
+        params.offset = offset;
+      }
+      if (limit !== undefined) {
+        params.limit = limit;
+      }
+      const result = await rpcClient.request(requireTraceId(context.traceId), "workspace.read_file", params);
       const file = asObject(result);
-      const contents = file && typeof file.contents === "string" ? file.contents : "";
+      const contents = typeof file?.content === "string"
+        ? file.content
+        : typeof file?.contents === "string"
+          ? file.contents
+          : "";
       return { content: contents };
     },
   };
@@ -53,24 +79,181 @@ function createReadFileTool(rpcClient: NativeRpcClient): Tool {
 function createListDirTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "list_dir",
-    description: "List workspace files.",
+    description: "List the contents of a directory. Set recursive=true to explore nested structure.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["fs.workspace.read"],
     parameters: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Ignored for now; the native gateway lists the active workspace" },
+        path: { type: "string", description: "The workspace-relative directory path to list" },
+        recursive: { type: "boolean", description: "Recursively list all files (default false)" },
+        max_entries: { type: "integer", minimum: 1, description: "Maximum entries to return (default 200)" },
       },
+      required: ["path"],
     },
-    execute: async (_args, context) => {
-      const result = await rpcClient.request(requireTraceId(context.traceId), "workspace.list_files", {});
-      const entries = Array.isArray(result) ? result : [];
+    execute: async (args, context) => {
+      const path = stringArg(args, "path");
+      const recursive = optionalBooleanArg(args, "recursive");
+      const maxEntries = optionalIntegerArg(args, "max_entries");
+      const params: JsonObject = { path };
+      if (recursive !== undefined) {
+        params.recursive = recursive;
+      }
+      if (maxEntries !== undefined) {
+        params.max_entries = maxEntries;
+      }
+      const result = await rpcClient.request(requireTraceId(context.traceId), "workspace.list_dir", params);
+      const response = asObject(result);
+      const entries = Array.isArray(response?.entries) ? response.entries : Array.isArray(result) ? result : [];
       return {
         content: entries
           .map((entry) => {
             const object = asObject(entry);
-            return typeof object?.path === "string" ? object.path : null;
+            if (typeof object?.path !== "string") {
+              return null;
+            }
+            return object.kind === "dir" && !object.path.endsWith("/") ? `${object.path}/` : object.path;
           })
           .filter((path): path is string => path !== null)
           .join("\n"),
+      };
+    },
+  };
+}
+
+function createWriteFileTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "write_file",
+    description: "Write content to a file at the given path. Creates parent directories if needed.",
+    capabilities: ["fs.workspace.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+      },
+      required: ["path", "content"],
+    },
+    execute: async (args, context) => {
+      const path = stringArg(args, "path");
+      const content = stringArgAllowEmpty(args, "content");
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "workspace.write_file", {
+        path,
+        contents: content,
+      })) ?? {};
+      const resultPath = asString(result.path) ?? path;
+      const bytesWritten = typeof result.bytes_written === "number" ? result.bytes_written : content.length;
+      return { content: `Wrote ${bytesWritten} bytes to ${resultPath}.` };
+    },
+  };
+}
+
+function createEditFileTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "edit_file",
+    description: "Edit a file by replacing old_text with new_text. Set replace_all=true to replace every occurrence.",
+    capabilities: ["fs.workspace.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        old_text: { type: "string" },
+        new_text: { type: "string" },
+        replace_all: { type: "boolean" },
+      },
+      required: ["path", "old_text", "new_text"],
+    },
+    execute: async (args, context) => {
+      const path = stringArg(args, "path");
+      const oldText = stringArgAllowEmpty(args, "old_text");
+      const newText = stringArgAllowEmpty(args, "new_text");
+      const replaceAll = optionalBooleanArg(args, "replace_all") ?? false;
+      const traceId = requireTraceId(context.traceId);
+      const file = asObject(await rpcClient.request(traceId, "workspace.read_file", { path, format: "raw" })) ?? {};
+      const rawContent = typeof file.content === "string"
+        ? file.content
+        : typeof file.contents === "string"
+          ? file.contents
+          : "";
+      const edit = applyTextEdit(rawContent, oldText, newText, replaceAll, path);
+      if (!edit.ok) {
+        return { content: edit.content };
+      }
+      await rpcClient.request(traceId, "workspace.write_file", { path, contents: edit.content });
+      return { content: `Edited ${path}.` };
+    },
+  };
+}
+
+function createDeleteFileTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "delete_file",
+    description: "Delete a file or directory. Directories must be empty unless recursive=true.",
+    capabilities: ["fs.workspace.write"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        recursive: { type: "boolean" },
+      },
+      required: ["path"],
+    },
+    execute: async (args, context) => {
+      const path = stringArg(args, "path");
+      const recursive = optionalBooleanArg(args, "recursive") ?? false;
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "workspace.delete_file", {
+        path,
+        recursive,
+      })) ?? {};
+      const resultPath = asString(result.path) ?? path;
+      const kind = asString(result.kind) ?? "path";
+      return { content: `Deleted ${kind} ${resultPath}.` };
+    },
+  };
+}
+
+function createExecTool(rpcClient: NativeRpcClient): Tool {
+  return {
+    name: "exec",
+    description: "Execute a shell command in the workspace and return output. Use with caution.",
+    exclusive: true,
+    capabilities: ["shell.execute"],
+    requiresApproval: true,
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        working_dir: { type: "string" },
+        timeout: { type: "integer", minimum: 1, maximum: 600 },
+      },
+      required: ["command"],
+    },
+    execute: async (args, context) => {
+      const params: JsonObject = {
+        command: stringArg(args, "command"),
+        restrict_to_workspace: true,
+      };
+      const workingDir = optionalStringArg(args, "working_dir");
+      const timeout = optionalIntegerArg(args, "timeout");
+      if (workingDir !== undefined) {
+        params.working_dir = workingDir;
+      }
+      if (timeout !== undefined) {
+        params.timeout = timeout;
+      }
+      const result = asObject(await rpcClient.request(requireTraceId(context.traceId), "shell.execute", params)) ?? {};
+      return {
+        content: asString(result.content) ?? formatShellResult(result),
+        metadata: {
+          exitCode: typeof result.exit_code === "number" ? result.exit_code : undefined,
+          timedOut: result.timed_out === true,
+          blocked: result.blocked === true,
+          truncated: result.truncated === true,
+        },
       };
     },
   };
@@ -80,6 +263,7 @@ function createRequestFormTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "request_form",
     description: "Request structured user input through the native Agent UI form renderer.",
+    capabilities: ["form.request"],
     parameters: {
       type: "object",
       properties: {
@@ -128,6 +312,7 @@ function createRequestApprovalTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "request_approval",
     description: "Request user approval for a pending native operation before it is executed.",
+    capabilities: ["approval.request"],
     parameters: {
       type: "object",
       properties: {
@@ -167,6 +352,9 @@ function createSearchMemoryNotesTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "search_memory_notes",
     description: "Search Memory Notes by query, type, status, and limit without mixing in Experience or Knowledge Base.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["memory.read"],
     parameters: {
       type: "object",
       properties: {
@@ -201,6 +389,9 @@ function createQueryRagTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "query_rag",
     description: "Query the native retrieval index for workspace knowledge relevant to the current task.",
+    readOnly: true,
+    concurrencySafe: true,
+    capabilities: ["fs.workspace.read"],
     parameters: {
       type: "object",
       properties: {
@@ -234,6 +425,8 @@ function createSaveMemoryNoteTool(rpcClient: NativeRpcClient): Tool {
     name: "save_memory_note",
     description:
       "Save durable agent-side memory as a typed Memory Note. Use this only for durable preferences, instructions, project facts, decisions, fixes, or followups.",
+    capabilities: ["memory.write"],
+    requiresApproval: true,
     parameters: {
       type: "object",
       properties: {
@@ -302,6 +495,7 @@ function createCallMcpTool(rpcClient: NativeRpcClient): Tool {
   return {
     name: "call_mcp_tool",
     description: "Call an allowlisted tool on a configured native MCP server.",
+    capabilities: ["mcp.call"],
     parameters: {
       type: "object",
       properties: {
@@ -348,6 +542,14 @@ function optionalStringArg(args: Record<string, unknown>, key: string): string |
   return value;
 }
 
+function stringArgAllowEmpty(args: Record<string, unknown>, key: string): string {
+  const value = args[key];
+  if (typeof value !== "string") {
+    throw new Error(`${key} must be a string`);
+  }
+  return value;
+}
+
 function objectArg(args: Record<string, unknown>, key: string): JsonObject {
   const value = args[key];
   const object = asObject(value);
@@ -379,6 +581,17 @@ function optionalIntegerArg(args: Record<string, unknown>, key: string): number 
   return value;
 }
 
+function optionalBooleanArg(args: Record<string, unknown>, key: string): boolean | undefined {
+  const value = args[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`${key} must be a boolean when provided`);
+  }
+  return value;
+}
+
 function copyOptionalStringArg(args: Record<string, unknown>, params: JsonObject, key: string): void {
   const value = optionalStringArg(args, key);
   if (value !== undefined) {
@@ -399,6 +612,67 @@ function asObject(value: unknown): JsonObject | null {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function applyTextEdit(
+  content: string,
+  oldText: string,
+  newText: string,
+  replaceAll: boolean,
+  path: string,
+): { ok: true; content: string } | { ok: false; content: string } {
+  const usesCrLf = content.includes("\r\n");
+  const normalizedContent = content.replace(/\r\n/g, "\n");
+  const normalizedOld = oldText.replace(/\r\n/g, "\n");
+  const normalizedNew = newText.replace(/\r\n/g, "\n");
+  const match = findTextMatch(normalizedContent, normalizedOld);
+  if (!match.fragment) {
+    return { ok: false, content: `Error: old_text not found in ${path}. Verify the file content.` };
+  }
+  if (match.count > 1 && !replaceAll) {
+    return {
+      ok: false,
+      content: `Warning: old_text appears ${match.count} times. Provide more context to make it unique, or set replace_all=true.`,
+    };
+  }
+  const updated = replaceAll
+    ? normalizedContent.split(match.fragment).join(normalizedNew)
+    : normalizedContent.replace(match.fragment, normalizedNew);
+  return { ok: true, content: usesCrLf ? updated.replace(/\n/g, "\r\n") : updated };
+}
+
+function findTextMatch(content: string, oldText: string): { fragment: string | null; count: number } {
+  if (oldText.length > 0 && content.includes(oldText)) {
+    return { fragment: oldText, count: content.split(oldText).length - 1 };
+  }
+  const oldLines = oldText.split("\n");
+  if (oldLines.length === 0) {
+    return { fragment: null, count: 0 };
+  }
+  const strippedOld = oldLines.map((line) => line.trim());
+  const contentLines = content.split("\n");
+  const candidates: string[] = [];
+  for (let index = 0; index <= contentLines.length - strippedOld.length; index += 1) {
+    const window = contentLines.slice(index, index + strippedOld.length);
+    if (window.map((line) => line.trim()).join("\n") === strippedOld.join("\n")) {
+      candidates.push(window.join("\n"));
+    }
+  }
+  return { fragment: candidates[0] ?? null, count: candidates.length };
+}
+
+function formatShellResult(result: JsonObject): string {
+  const parts: string[] = [];
+  if (typeof result.stdout === "string" && result.stdout.length > 0) {
+    parts.push(result.stdout);
+  }
+  if (typeof result.stderr === "string" && result.stderr.trim().length > 0) {
+    parts.push(`STDERR:\n${result.stderr}`);
+  }
+  if (typeof result.exit_code === "number") {
+    parts.push(`Exit code: ${result.exit_code}`);
+  }
+  return parts.join("\n").trim() || "(no output)";
 }
 
 function formatMemoryNotes(notes: unknown[]): string {
