@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；config Phase 1 已复核，正在推进 ConfigStore Load/Save/Migrations 的 TS migration 起点。
+- 当前批次：Batch 1，native core 基座已通过本地复核，shared support Phase 1 纯 TS helper 基座已基本建立；config Phase 1 已复核，正在推进 ConfigStore Load/Save/Migrations 的 TS migration/path resolver 起点。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -31,7 +31,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 2 | verify | [ts_shared_support_runtime_migration_design.md](ts_shared_support_runtime_migration_design.md) | 建立 prompt/template/token/status/evaluator 等公共能力 | 已建立 runtime/token/message/status/template/evaluator support helper 起点，并让 `AgentRunner`、message content 消费 shared helper |
-| 3 | active | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | Phase 1 已复核；Phase 2 已启动 TS migration，覆盖 legacy `tools.exec.restrictToWorkspace` |
+| 3 | active | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | Phase 1 已复核；Phase 2 已启动 TS migration 和 path resolver 起点 |
 | 4 | todo | [ts_agent_loop_design.md](ts_agent_loop_design.md) | 先做 fake-provider `AgentRunner` skeleton | 形成 TS agent 最小执行闭环 |
 
 ### Batch 2: Execution, Persistence, And Context
@@ -90,6 +90,7 @@
 | 2026-06-11 | 继续 Batch 1 config Phase 1：新增 `selectProviderRuntimeInput(config, model?)` 聚合 selector，覆盖 profile 优先级、explicit provider 和 model override，并让 provider runtime 消费该 selector。 |
 | 2026-06-11 | 继续 Batch 1 config Phase 1：新增 TS `configSnapshot`，复用 masking/path 规则实现 public snapshot 构造、public path read、invalid/sensitive path 拒绝，并让 `NativeConfigBridge.snapshotPublic()` 消费该复用层。 |
 | 2026-06-11 | 复核 Batch 1 config Phase 1 验收项后进入 Phase 2 起点：新增 TS `configMigrations`，对齐 Python `_migrate_config()` 的 `tools.exec.restrictToWorkspace` 到 `tools.restrictToWorkspace` 迁移，并让 `parseTinybotConfig()` 消费迁移结果。 |
+| 2026-06-11 | 继续 Batch 1 config Phase 2：新增 TS `configPaths` 纯函数起点，对齐 Python `paths.py` 的 config data dir、media/cron/logs/knowledge、workspace、CLI history、bridge、legacy sessions 路径派生；暂不做目录创建或替换 Rust ConfigStore。 |
 
 ## Next Checklist
 
@@ -103,5 +104,6 @@
 - [x] 继续 config Phase 1：补齐 provider runtime 聚合 selector 并接入 provider runtime。
 - [x] 继续 config Phase 1：补齐 public snapshot/path read 复用点。
 - [x] 继续 config Phase 1：复核 Phase 1 验收项并进入 config Phase 2。
-- [ ] 继续 config Phase 2：推进 ConfigStore load/save/diagnostics 或 path resolver 起点。
+- [x] 继续 config Phase 2：推进 path resolver 起点。
+- [ ] 继续 config Phase 2：推进 ConfigStore load/save/diagnostics 起点。
 - [x] 在 Batch 1 shared support Phase 1 完成后更新 `Current Focus` 和对应状态。
