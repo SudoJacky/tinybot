@@ -35,6 +35,7 @@ describe("NativeContextBridge", () => {
   test("loads runtime, session history, user profile, and bootstrap files from native RPC", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "2026-06-10 09:00:00 Asia/Shanghai" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
       "session.get_history": {
         session_id: "session-1",
         messages: [
@@ -59,6 +60,7 @@ describe("NativeContextBridge", () => {
 
     expect(rpcClient.calls.map((call) => call.method)).toEqual([
       "runtime.now",
+      "config.snapshot_public",
       "session.get_history",
       "workspace.read_bootstrap_files",
     ]);
@@ -86,9 +88,32 @@ describe("NativeContextBridge", () => {
     });
   });
 
+  test("loads provider retry mode from native config defaults for run input projection", async () => {
+    const rpcClient = new FakeRpcClient({
+      "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "persistent" } } } },
+      "session.get_history": { session_id: "session-1", messages: [] },
+      "workspace.read_bootstrap_files": { files: [], missing: [] },
+    });
+    const bridge = new NativeContextBridge(rpcClient);
+
+    const result = await bridge.loadContextInput(runInput({ providerRetryMode: undefined }), "trace-1");
+
+    expect(rpcClient.calls.map((call) => call.method)).toEqual([
+      "runtime.now",
+      "config.snapshot_public",
+      "session.get_history",
+      "workspace.read_bootstrap_files",
+    ]);
+    expect((result as { runDefaults?: { providerRetryMode?: string } }).runDefaults).toEqual({
+      providerRetryMode: "persistent",
+    });
+  });
+
   test("preserves tool-call fields when normalizing session history", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "2026-06-10 09:00:00 Asia/Shanghai" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
       "session.get_history": {
         session_id: "session-1",
         messages: [
@@ -153,6 +178,7 @@ describe("NativeContextBridge", () => {
   test("falls back to per-file bootstrap reads when the batch RPC is unavailable", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
       "session.get_history": new Error("session metadata not found"),
       "workspace.read_bootstrap_files": new Error("unknown worker method"),
       "workspace.read_file": { path: "AGENTS.md", contents: "Agent rules" },
@@ -163,6 +189,7 @@ describe("NativeContextBridge", () => {
 
     expect(rpcClient.calls.map((call) => call.method)).toEqual([
       "runtime.now",
+      "config.snapshot_public",
       "session.get_history",
       "workspace.read_bootstrap_files",
       "workspace.read_file",
@@ -181,6 +208,7 @@ describe("NativeContextBridge", () => {
   test("loads active memory notes for run input recall", async () => {
     const rpcClient = new FakeRpcClient({
       "runtime.now": { current_time: "fixed now" },
+      "config.snapshot_public": { value: { agents: { defaults: { provider_retry_mode: "standard" } } } },
       "session.get_history": { session_id: "session-1", messages: [] },
       "workspace.read_bootstrap_files": { files: [], missing: [] },
       "memory.search": {

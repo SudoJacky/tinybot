@@ -100,6 +100,10 @@ export type AgentRunInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type AgentRunDefaults = {
+  providerRetryMode?: "standard" | "persistent";
+};
+
 export type ContextBuildMetadata = {
   bootstrapFiles: string[];
   historyMessageCount: number;
@@ -127,5 +131,6 @@ export type ContextBridgeMetadata = {
 
 export type ContextBridgeLoadResult = {
   input: ContextBuildInput;
+  runDefaults?: AgentRunDefaults;
   metadata: ContextBridgeMetadata;
 };

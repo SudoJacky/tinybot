@@ -34,7 +34,7 @@ export function buildRunInputSpec(
       temperature: input.temperature,
       maxTokens: input.maxTokens,
       reasoningEffort: input.reasoningEffort,
-      providerRetryMode: input.providerRetryMode,
+      providerRetryMode: input.providerRetryMode ?? loaded.runDefaults?.providerRetryMode,
       contextWindow: input.contextWindow,
       toolResultBudget: input.toolResultBudget,
       failOnToolError: input.failOnToolError,

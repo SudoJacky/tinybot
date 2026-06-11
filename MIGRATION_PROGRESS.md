@@ -47,7 +47,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 8 | active | [ts_security_approval_migration_design.md](ts_security_approval_migration_design.md) | 建立 approval gate 和安全边界 | Phase 1 TS classifier/fingerprint complete. Phase 2 Rust pending store started. Phase 3 TS `NativeApprovalBridge.requestApproval()` added. Phase 4 TS `ApprovalRuntime` now gates `ToolRuntime.execute()` before risky side effects, and AgentRunner's existing `requiresApproval` path emits the same fingerprint/classification contract. Phase 5 native once/session scope reuse now allows matching requests, consumes once approvals, and keeps session approvals scoped to the original session. |
-| 9 | active | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 已有 provider catalog/runtime/model-listing、OpenAI request builder、stream parser、retry helper 与 native secret bridge 起点；已补齐 native config patch 后 provider secret snapshot 同步、OpenAI-compatible prompt caching request trait 的 cache_control marker 注入、stream idle timeout、lazy provider config reload、provider retry wait event，以及 `provider.catalog.list` / `provider.runtime.resolve` / `provider.models.list` / `provider.model.validate` worker RPC 起点。 |
+| 9 | active | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 已有 provider catalog/runtime/model-listing、OpenAI request builder、stream parser、retry helper 与 native secret bridge 起点；已补齐 native config patch 后 provider secret snapshot 同步、OpenAI-compatible prompt caching request trait 的 cache_control marker 注入、stream idle timeout、lazy provider config reload、provider retry wait event、run_input provider retry default projection，以及 `provider.catalog.list` / `provider.runtime.resolve` / `provider.models.list` / `provider.model.validate` worker RPC 起点。 |
 
 ### Batch 4: User Memory, Knowledge, Skills, And External Tools
 
@@ -127,6 +127,7 @@
 | 2026-06-12 | Continued Batch 3 Provider Runtime model listing contract: `provider.models.list` now resolves provider metadata from native public config plus the narrow secret bridge, returns merged curated/profile/manual model sources, and keeps API keys out of the worker response. |
 | 2026-06-12 | Continued Batch 3 Provider Runtime settings contract: `provider.catalog.list`, `provider.runtime.resolve`, and `provider.model.validate` now expose catalog metadata, safe resolved runtime status, and model/provider mismatch validation through the TS worker without exposing provider API keys. |
 | 2026-06-12 | Continued Batch 3 Provider Runtime retry observability: `AgentRunner` now forwards `providerRetryMode` to model providers and emits `agent.provider_retry` protocol events from provider retry wait callbacks, including `provider_retry_mode` parsing for direct and run-input requests. |
+| 2026-06-12 | Continued Batch 3 Provider Runtime config parity: native `agent.run_input` now reads `agents.defaults.provider_retry_mode` from `config.snapshot_public` and uses it when the caller does not provide an explicit provider retry mode, matching the Python `AgentLoop.from_config()` default flow. |
 
 ## Next Checklist
 

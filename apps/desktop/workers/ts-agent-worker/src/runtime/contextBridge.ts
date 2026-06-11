@@ -1,5 +1,6 @@
 import type { AgentMessage } from "../agent/agentRunSpec.ts";
 import {
+  type AgentRunDefaults,
   BOOTSTRAP_FILE_ORDER,
   type AgentRunInput,
   type BootstrapFile,
@@ -26,6 +27,7 @@ export class NativeContextBridge implements ContextBridge {
 
   async loadContextInput(input: AgentRunInput, traceId: string): Promise<ContextBridgeLoadResult> {
     const runtime = await this.loadRuntime(input, traceId);
+    const runDefaults = await this.loadRunDefaults(traceId);
     const history = await this.loadHistory(input, traceId);
     const bootstrap = await this.loadBootstrapFiles(traceId);
     const memoryNotes = await this.loadMemoryNotes(input, traceId);
@@ -44,6 +46,7 @@ export class NativeContextBridge implements ContextBridge {
           userProfile: history.userProfile,
         },
       },
+      runDefaults,
       metadata: {
         missingSession: history.missingSession,
         malformedHistoryCount: history.malformedHistoryCount,
@@ -125,6 +128,20 @@ export class NativeContextBridge implements ContextBridge {
         }
       }
       return { files: fallbackFiles, missing, fallbackUsed: true };
+    }
+  }
+
+  private async loadRunDefaults(traceId: string): Promise<AgentRunDefaults> {
+    try {
+      const result = asObject(await this.rpcClient.request(traceId, "config.snapshot_public", {}));
+      const snapshot = asObject(result?.value);
+      const agents = asObject(snapshot?.agents);
+      const defaults = asObject(agents?.defaults);
+      return {
+        providerRetryMode: providerRetryModeValue(defaults?.providerRetryMode ?? defaults?.provider_retry_mode),
+      };
+    } catch {
+      return {};
     }
   }
 
@@ -254,6 +271,10 @@ function normalizeMemoryNotes(value: unknown): MemoryRecallNote[] {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function providerRetryModeValue(value: unknown): AgentRunDefaults["providerRetryMode"] {
+  return value === "standard" || value === "persistent" ? value : undefined;
 }
 
 function memoryEvidenceIds(value: unknown): string[] {

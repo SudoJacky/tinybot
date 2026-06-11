@@ -97,4 +97,15 @@ describe("buildRunInputSpec", () => {
       _contextInitialMessageCount: 4,
     });
   });
+
+  test("uses bridge run defaults when optional run_input fields are omitted", () => {
+    const result = buildRunInputSpec("trace-1", input({
+      providerRetryMode: undefined,
+    }), {
+      ...loaded(),
+      runDefaults: { providerRetryMode: "persistent" },
+    });
+
+    expect(result.spec.providerRetryMode).toBe("persistent");
+  });
 });
