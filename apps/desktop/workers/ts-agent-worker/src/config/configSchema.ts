@@ -12,6 +12,7 @@ import type {
   TinybotConfig,
 } from "./configTypes.ts";
 import { applyConfigMigrations } from "./configMigrations.ts";
+import { normalizeMcpServersConfig } from "../mcp/mcpConfig.ts";
 
 export class TinybotConfigValidationError extends Error {
   constructor(message: string) {
@@ -354,31 +355,27 @@ function parseExecToolConfig(input: JsonRecord | undefined, defaults: ExecToolCo
 }
 
 function parseMcpServers(input: JsonRecord | undefined): Record<string, McpServerConfig> {
-  const servers: Record<string, McpServerConfig> = {};
-  for (const [name, value] of Object.entries(input ?? {})) {
-    const server = record(value) ?? {};
-    const type = enumValue(read(server, "type"), ["stdio", "sse", "streamableHttp"], null);
-    const command = stringValue(read(server, "command"), "");
-    const url = stringValue(read(server, "url"), "");
-    const toolTimeout = positiveInteger(read(server, "toolTimeout", "tool_timeout"), 30, `tools.mcpServers.${name}.toolTimeout`);
-    if (type === "stdio" && !command) {
-      throw new TinybotConfigValidationError(`stdio MCP server '${name}' requires command`);
+  try {
+    const normalized = normalizeMcpServersConfig(input);
+    return Object.fromEntries(Object.entries(normalized).map(([name, server]) => [
+      name,
+      {
+        type: server.type,
+        command: server.command,
+        args: server.args,
+        env: server.env,
+        url: server.url,
+        headers: server.headers,
+        toolTimeout: server.toolTimeout,
+        enabledTools: server.enabledTools,
+      },
+    ]));
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new TinybotConfigValidationError(error.message);
     }
-    if ((type === "sse" || type === "streamableHttp") && !url) {
-      throw new TinybotConfigValidationError(`${type} MCP server '${name}' requires url`);
-    }
-    servers[name] = {
-      type,
-      command,
-      args: stringList(read(server, "args"), []),
-      env: stringRecord(read(server, "env")),
-      url,
-      headers: stringRecord(read(server, "headers")),
-      toolTimeout,
-      enabledTools: stringList(read(server, "enabledTools", "enabled_tools"), ["*"]),
-    };
+    throw error;
   }
-  return servers;
 }
 
 function parseKnowledge(input: JsonRecord | undefined, defaults: KnowledgeConfig): KnowledgeConfig {

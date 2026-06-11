@@ -100,6 +100,44 @@ describe("configSchema", () => {
     expect(Object.keys(config.agents.defaults)).not.toContain("active_profile");
   });
 
+  test("normalizes MCP server transport detection and allowlist aliases", () => {
+    const config = parseTinybotConfig({
+      tools: {
+        mcp_servers: {
+          filesystem: {
+            command: "npx",
+            enabled_tools: [],
+          },
+          docs: {
+            url: "https://example.test/sse",
+            tool_timeout: 45,
+          },
+          remote: {
+            url: "https://example.test/mcp",
+            enabledTools: ["search"],
+          },
+        },
+      },
+    });
+
+    expect(config.tools.mcpServers.filesystem).toMatchObject({
+      type: "stdio",
+      command: "npx",
+      enabledTools: [],
+    });
+    expect(config.tools.mcpServers.docs).toMatchObject({
+      type: "sse",
+      url: "https://example.test/sse",
+      toolTimeout: 45,
+      enabledTools: ["*"],
+    });
+    expect(config.tools.mcpServers.remote).toMatchObject({
+      type: "streamableHttp",
+      url: "https://example.test/mcp",
+      enabledTools: ["search"],
+    });
+  });
+
   test("preserves extra provider and channel sections", () => {
     const config = parseTinybotConfig({
       providers: {
