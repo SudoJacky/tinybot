@@ -14,7 +14,7 @@
 
 ## Current Focus
 
-- 当前批次：Batch 2：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 已开始推进并收紧 approval-aware policy；session/turn lifecycle 正在推进，已建立 persisted-message 清洗边界、dedupe/truncate、versioned checkpoint helper、`session.persist_turn` RPC 起点、Rust `session.get_history` legal projection 和 `agent.done.payload.lifecycle` 可观测元数据，下一步继续补更完整的 lifecycle abstraction。
+- 当前批次：Batch 2：native core/shared/config/AgentRunner 最小闭环已进入 verify；tool runtime 已开始推进并收紧 approval-aware policy；session/turn lifecycle 正在推进，已建立 persisted-message 清洗边界、dedupe/truncate、versioned checkpoint helper、`session.persist_turn` RPC 起点、Rust `session.get_history` legal projection、`agent.done.payload.lifecycle` 可观测元数据，以及 `TurnLifecycle.finalizeTurn()` 抽象；下一步继续补 checkpoint write/clear 与 resume 的完整 lifecycle abstraction。
 - 当前业务优先级：`add-source-traceable-knowledge-indexing` 与 knowledge/RAG 相关，但应在 tool/context/session/approval 等前置层稳定后再完整接入。
 - 总体路径：`native core -> shared/config -> agent/tool/session/context -> approval/provider -> skills/memory/knowledge/MCP -> command/task -> cowork -> webui/channel/API -> heartbeat`
 
@@ -39,7 +39,7 @@
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
 | 5 | active | [ts_tool_runtime_migration_design.md](ts_tool_runtime_migration_design.md) | 建立 tool schema、registry、prepare/execute metadata | 已具备 schema casting/validation、registry/runtime/native proxy 起点；本轮补齐 approval-aware policy，approval-gated 工具要求 `approval.request` 并限制在可交互通道 |
-| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 persist-turn 写 completed turn，并在 `agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；已补齐 TS persistence helper 的 Python-key dedupe/tool truncate、versioned checkpoint helper，以及 Rust `session.get_history` 的 user/tool legal boundary projection；真实 TS worker 连续两轮可读取上一轮 persisted history |
+| 6 | active | [ts_session_turn_lifecycle_migration_design.md](ts_session_turn_lifecycle_migration_design.md) | 明确 persistence/checkpoint/resume 语义 | 已建立 `persistedMessages` 起点和 Rust/TS `session.persist_turn` RPC；AgentWorker 在可用时优先通过 `TurnLifecycle.finalizeTurn()` 写 completed turn，并在 `agent.done.payload.lifecycle` 暴露 persisted/saved/checkpoint/omitted side-effect metadata；已补齐 TS persistence helper 的 Python-key dedupe/tool truncate、versioned checkpoint helper，以及 Rust `session.get_history` 的 user/tool legal boundary projection；真实 TS worker 连续两轮可读取上一轮 persisted history |
 | 7 | todo | [ts_context_builder_migration_design.md](ts_context_builder_migration_design.md) | 接入 deterministic context assembly | 在 AgentRunner 和 session projection 后推进，再挂 memory/RAG/skills |
 
 ### Batch 3: Safety And Real Model Runtime
@@ -107,6 +107,7 @@
 | 2026-06-11 | 继续 Batch 2 session/turn lifecycle：补齐 `persistedSessionMessages()` 的 Python session-key dedupe 与 tool result truncate，并让 AgentWorker session persistence 按 `toolResultBudget` 应用清洗规则。 |
 | 2026-06-11 | 继续 Batch 2 session/turn lifecycle：补齐 Rust `session.get_history` 的 Python-style history projection，覆盖 last-consolidated/limit 后的 user 起点、tool legal boundary、progress/task event 过滤，并增加真实 TS worker 连续两轮读取上一轮 persisted history 的集成测试。 |
 | 2026-06-11 | 继续 Batch 2 session/turn lifecycle：新增 TS `runtime/checkpoint.ts`，把 AgentRunner checkpoint 转成 versioned session checkpoint payload，并保留 camelCase/snake_case aliases 供 native/Python resume 路径消费；AgentWorker checkpoint 持久化改为使用该 helper。 |
+| 2026-06-11 | 继续 Batch 2 session/turn lifecycle：新增 TS `runtime/turnLifecycle.ts`，把 completed-turn persistence、清洗后的 append fallback 与 lifecycle metadata 从 AgentWorker 抽出，并覆盖 persist-turn、fallback append、awaiting-input checkpoint 保留路径。 |
 
 ## Next Checklist
 

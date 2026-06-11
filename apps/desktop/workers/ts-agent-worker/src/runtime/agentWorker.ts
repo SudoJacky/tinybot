@@ -1,6 +1,6 @@
 import { AgentRunner, type AgentRunnerCheckpoint, type AgentRunnerEvent } from "../agent/agentRunner.ts";
 import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentRunSpec.ts";
-import { buildContextMessages, RUNTIME_CONTEXT_TAG } from "../agent/contextBuilder.ts";
+import { buildContextMessages } from "../agent/contextBuilder.ts";
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
@@ -14,7 +14,9 @@ import {
 import type { ToolRegistry } from "../tools/toolRegistry.ts";
 import { sessionCheckpointFromRunner } from "./checkpoint.ts";
 import type { ContextBridge } from "./contextBridge.ts";
-import { persistedSessionMessages } from "./persistedMessages.ts";
+import { TurnLifecycle, type SessionBridge } from "./turnLifecycle.ts";
+
+export type { PersistTurnRequest, PersistTurnResult, SessionBridge } from "./turnLifecycle.ts";
 
 export type AgentWorkerOptions = {
   provider: ModelProvider;
@@ -28,44 +30,6 @@ export type AgentWorkerOptions = {
 type ActiveRun = {
   traceId: string;
   cancelled: boolean;
-};
-
-export type SessionBridge = {
-  setCheckpoint(sessionId: string, checkpoint: Record<string, unknown>, traceId: string): Promise<void>;
-  clearCheckpoint(sessionId: string, traceId: string): Promise<void>;
-  appendMessages(sessionId: string, messages: AgentMessage[], traceId: string): Promise<void>;
-  persistTurn?(sessionId: string, turn: PersistTurnRequest, traceId: string): Promise<PersistTurnResult>;
-  getCheckpoint(sessionId: string, traceId: string): Promise<Record<string, unknown> | null>;
-};
-
-export type PersistTurnRequest = {
-  runId: string;
-  messages: AgentMessage[];
-  clearCheckpoint: boolean;
-  runtimeContextTag?: string;
-  contextMetadata?: Record<string, unknown>;
-};
-
-export type PersistTurnResult = {
-  sessionId: string;
-  messagesBefore: number;
-  messagesAfter: number;
-  savedMessageCount: number;
-  checkpointCleared: boolean;
-  duplicateMessageCount: number;
-  truncatedToolResultCount: number;
-  omittedSideEffects: string[];
-};
-
-type TurnLifecycleMetadata = {
-  sessionId: string;
-  runId: string;
-  stopReason: AgentRunResult["stopReason"];
-  checkpointCleared: boolean;
-  persisted: boolean;
-  savedMessageCount: number;
-  awaitingInput: boolean;
-  omittedSideEffects: string[];
 };
 
 export type ApprovalBridge = {
@@ -93,6 +57,7 @@ export class AgentWorker {
   private readonly approvalBridge?: ApprovalBridge;
   private readonly sessionBridge?: SessionBridge;
   private readonly contextBridge?: ContextBridge;
+  private readonly turnLifecycle: TurnLifecycle;
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly checkpointWrites = new Map<string, Promise<void>>();
 
@@ -103,6 +68,7 @@ export class AgentWorker {
     this.approvalBridge = options.approvalBridge;
     this.sessionBridge = options.sessionBridge;
     this.contextBridge = options.contextBridge;
+    this.turnLifecycle = new TurnLifecycle(options.sessionBridge);
   }
 
   async handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
@@ -234,7 +200,7 @@ export class AgentWorker {
       if (!isAwaitingInputResult(result)) {
         await this.clearCheckpoint(request.trace_id, spec);
       }
-      const lifecycle = await this.appendMessages(request.trace_id, spec, result);
+      const lifecycle = await this.turnLifecycle.finalizeTurn(request.trace_id, spec, result);
       this.emitAwaitingInput(request.trace_id, spec.runId, result);
       this.emitUsage(request.trace_id, spec, result);
       this.emitEvent({
@@ -434,37 +400,6 @@ export class AgentWorker {
       return;
     }
     await this.sessionBridge.clearCheckpoint(spec.sessionId, traceId);
-  }
-
-  private async appendMessages(
-    traceId: string,
-    spec: AgentRunSpec,
-    result: AgentRunResult,
-  ): Promise<TurnLifecycleMetadata | undefined> {
-    if (!this.sessionBridge || !spec.sessionId) {
-      return undefined;
-    }
-    const messages = sessionAppendMessages(spec, result);
-    if (this.sessionBridge.persistTurn) {
-      const persisted = await this.sessionBridge.persistTurn(spec.sessionId, {
-        runId: spec.runId,
-        messages,
-        clearCheckpoint: !isAwaitingInputResult(result),
-        runtimeContextTag: RUNTIME_CONTEXT_TAG,
-      }, traceId);
-      return lifecycleMetadataFromPersistedTurn(spec, result, persisted);
-    }
-    await this.sessionBridge.appendMessages(spec.sessionId, messages, traceId);
-    return {
-      sessionId: spec.sessionId,
-      runId: spec.runId,
-      stopReason: result.stopReason,
-      checkpointCleared: !isAwaitingInputResult(result),
-      persisted: true,
-      savedMessageCount: messages.length,
-      awaitingInput: isAwaitingInputResult(result),
-      omittedSideEffects: [],
-    };
   }
 
   private emitAwaitingInput(traceId: string, runId: string, result: AgentRunResult): void {
@@ -667,7 +602,7 @@ export class AgentWorker {
     if (!isAwaitingInputResult(result)) {
       await this.clearCheckpoint(traceId, spec);
     }
-    const lifecycle = await this.appendMessages(traceId, spec, result);
+    const lifecycle = await this.turnLifecycle.finalizeTurn(traceId, spec, result);
     this.emitAwaitingInput(traceId, spec.runId, result);
     this.emitUsage(traceId, spec, result);
     this.emitEvent({
@@ -877,58 +812,6 @@ function resumedSpecFromCheckpoint(
 
 function checkpointRunId(checkpoint: Record<string, unknown>): string {
   return checkpointString(checkpoint.runId ?? checkpoint.run_id, "checkpoint.runId");
-}
-
-function sessionAppendMessages(spec: AgentRunSpec, result: AgentRunResult): AgentMessage[] {
-  const contextMessages = internalContextAppendMessages(spec.metadata?._contextSessionAppendMessages);
-  const initialMessageCount = spec.metadata?._contextInitialMessageCount;
-  const persistenceOptions = typeof spec.toolResultBudget === "number"
-    ? { maxToolResultChars: spec.toolResultBudget }
-    : {};
-  if (!contextMessages || typeof initialMessageCount !== "number") {
-    return persistedSessionMessages(result.messages, persistenceOptions);
-  }
-  return persistedSessionMessages([
-    ...contextMessages,
-    ...result.messages.slice(initialMessageCount),
-  ], persistenceOptions);
-}
-
-function lifecycleMetadataFromPersistedTurn(
-  spec: AgentRunSpec,
-  result: AgentRunResult,
-  persisted: PersistTurnResult,
-): TurnLifecycleMetadata {
-  return {
-    sessionId: persisted.sessionId,
-    runId: spec.runId,
-    stopReason: result.stopReason,
-    checkpointCleared: persisted.checkpointCleared,
-    persisted: true,
-    savedMessageCount: persisted.savedMessageCount,
-    awaitingInput: isAwaitingInputResult(result),
-    omittedSideEffects: persisted.omittedSideEffects,
-  };
-}
-
-function internalContextAppendMessages(value: unknown): AgentMessage[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const messages = value.map((item) => {
-    if (!isJsonObject(item) || !isAgentRole(item.role) || typeof item.content !== "string") {
-      return null;
-    }
-    return {
-      role: item.role,
-      content: item.content,
-    };
-  });
-  return messages.every((message) => message !== null) ? (messages as AgentMessage[]) : null;
-}
-
-function isAgentRole(value: unknown): value is AgentMessage["role"] {
-  return value === "system" || value === "user" || value === "assistant" || value === "tool";
 }
 
 function parseRunSpec(params: Record<string, unknown> | undefined): AgentRunSpec {
