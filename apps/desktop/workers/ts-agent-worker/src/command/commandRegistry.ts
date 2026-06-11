@@ -12,6 +12,7 @@ export function createDefaultCommandRouter(capabilities: CommandCapabilities = {
   const router = new CommandRouter();
   router.priority("/stop", (context) => stopResult(context, capabilities));
   router.priority("/status", (context) => statusResult(context, capabilities));
+  router.priority("/restart", (context) => restartResult(context, capabilities));
   router.exact("/help", () => helpResult());
   return router;
 }
@@ -69,6 +70,34 @@ async function statusResult(context: CommandContext, capabilities: CommandCapabi
       active_run_count: snapshot.activeRunCount,
       active_session_run_count: snapshot.activeSessionRunCount,
       ...(snapshot.sessionId ? { session_id: snapshot.sessionId } : {}),
+    },
+  };
+}
+
+async function restartResult(context: CommandContext, capabilities: CommandCapabilities): Promise<CommandResult> {
+  if (!capabilities.requestRestart) {
+    return {
+      handled: true,
+      output: "Restart is unavailable in this runtime.",
+      metadata: {
+        command: "/restart",
+        render_as: "text",
+        restart_requested: false,
+      },
+    };
+  }
+  await capabilities.requestRestart({
+    traceId: context.traceId,
+    runId: context.runId,
+    sessionId: context.sessionId,
+  });
+  return {
+    handled: true,
+    output: "Restarting...",
+    metadata: {
+      command: "/restart",
+      render_as: "text",
+      restart_requested: true,
     },
   };
 }

@@ -3,6 +3,7 @@ import type { AgentMessage, AgentRunResult, AgentRunSpec } from "../agent/agentR
 import type { AgentRunInput, ContextBuildMetadata, ContextBridgeMetadata } from "../agent/contextTypes.ts";
 import { createDefaultCommandRouter } from "../command/commandRegistry.ts";
 import type { CommandRouter } from "../command/commandRouter.ts";
+import type { RestartCommandRequest } from "../command/commandTypes.ts";
 import type { ModelProvider, ToolDefinition } from "../model/provider.ts";
 import {
   isJsonObject,
@@ -43,10 +44,12 @@ export type AgentWorkerOptions = {
   memoryBridge?: MemoryEvidenceBridge;
   contextBridge?: ContextBridge;
   commandRouter?: CommandRouter;
+  requestRestart?: RestartRequestHandler;
 };
 
 export type PrepareToolsHandler = (traceId: string) => Promise<unknown> | unknown;
 export type ProviderReloadHandler = () => Promise<ProviderReloadResult> | ProviderReloadResult;
+export type RestartRequestHandler = (request: RestartCommandRequest) => Promise<void> | void;
 
 export type ProviderReloadResult = {
   reloaded: boolean;
@@ -147,6 +150,7 @@ export class AgentWorker {
     this.commandRouter = options.commandRouter ?? createDefaultCommandRouter({
       cancelActiveRunsForSession: (sessionId) => this.cancelActiveRunsForSession(sessionId),
       getStatusSnapshot: (context) => this.statusSnapshot(context.sessionId),
+      requestRestart: options.requestRestart,
     });
     this.turnLifecycle = new TurnLifecycle(options.sessionBridge, options.memoryBridge);
   }

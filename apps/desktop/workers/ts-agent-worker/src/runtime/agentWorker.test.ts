@@ -356,6 +356,53 @@ describe("AgentWorker", () => {
     });
   });
 
+  test("handles backend slash restart through the native restart bridge", async () => {
+    const restartRequests: Array<{ traceId: string; runId?: string; sessionId?: string }> = [];
+    let providerCalls = 0;
+    const provider: ModelProvider = {
+      complete: async () => {
+        providerCalls += 1;
+        throw new Error("slash restart reached provider");
+      },
+    };
+    const workerOptions = {
+      provider,
+      tools: new ToolRegistry(),
+      emitEvent: () => undefined,
+      requestRestart: async (request: { traceId: string; runId?: string; sessionId?: string }) => {
+        restartRequests.push(request);
+      },
+    };
+    const worker = new AgentWorker(workerOptions);
+
+    const restartResponse = await worker.handleRequest(
+      request({
+        spec: {
+          runId: "run-restart-command",
+          sessionId: "session-1",
+          messages: [{ role: "user", content: " /restart " }],
+          model: "test-model",
+          maxIterations: 2,
+          stream: false,
+        },
+      }),
+    );
+
+    expect(providerCalls).toBe(0);
+    expect(restartRequests).toEqual([{ traceId: "trace-1", runId: "run-restart-command", sessionId: "session-1" }]);
+    expect(restartResponse).toMatchObject({
+      result: {
+        finalContent: "Restarting...",
+        stopReason: "command",
+        metadata: {
+          command: "/restart",
+          render_as: "text",
+          restart_requested: true,
+        },
+      },
+    });
+  });
+
   test("routes skills WebUI list and detail requests through the skills bridge", async () => {
     const calls: Array<{ type: string; traceId: string; name?: string }> = [];
     const worker = new AgentWorker({

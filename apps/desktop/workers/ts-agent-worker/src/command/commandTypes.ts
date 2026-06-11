@@ -19,9 +19,16 @@ export type CommandStatusSnapshot = {
   sessionId?: string;
 };
 
+export type RestartCommandRequest = {
+  traceId: string;
+  sessionId?: string;
+  runId?: string;
+};
+
 export type CommandCapabilities = {
   cancelActiveRunsForSession?: (sessionId: string | undefined) => Promise<CancelActiveRunsResult> | CancelActiveRunsResult;
   getStatusSnapshot?: (context: CommandContext) => Promise<CommandStatusSnapshot> | CommandStatusSnapshot;
+  requestRestart?: (request: RestartCommandRequest) => Promise<void> | void;
 };
 
 export type CommandResult = {
