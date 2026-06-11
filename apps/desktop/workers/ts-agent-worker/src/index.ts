@@ -6,6 +6,7 @@ import { createAgentWorkerServer } from "./runtime/createAgentWorkerServer.ts";
 const server = createAgentWorkerServer({
   tools: new ToolRegistry(),
   env: process.env,
+  enableNativeMcpDiscovery: true,
   writeLine: (line) => {
     process.stdout.write(`${line}\n`);
   },

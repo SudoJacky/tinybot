@@ -80,14 +80,16 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
   if (!provider) {
     throw new Error("model provider is unavailable");
   }
-  const mcpBridge = options.enableNativeMcpDiscovery && capabilities.includes("mcp.call")
+  const mcpBridge = options.enableNativeMcpDiscovery === true && capabilities.includes("mcp.call")
     ? new NativeMcpBridge({ rpcClient, registry: options.tools })
     : undefined;
   const worker = new AgentWorker({
     provider,
     tools: options.tools,
     emitEvent: writeEvent,
-    prepareTools: mcpBridge ? (traceId) => mcpBridge.ensureConnected(traceId) : undefined,
+    prepareTools: mcpBridge ? (traceId) => mcpBridge.ensureConnected(traceId).catch((error) => {
+      options.writeLog(`native MCP discovery failed: ${errorMessage(error)}`);
+    }) : undefined,
     reloadProvider: lazyProvider ? () => lazyProvider.reload() : undefined,
     listProviderModels: (request) => providerModelsFromNativeConfig(
       configBridge,
@@ -110,6 +112,10 @@ export function createAgentWorkerServer(options: CreateAgentWorkerServerOptions)
     writeLine: options.writeLine,
     writeLog: options.writeLog,
   });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 const DEFAULT_NATIVE_TOOL_CAPABILITIES = [

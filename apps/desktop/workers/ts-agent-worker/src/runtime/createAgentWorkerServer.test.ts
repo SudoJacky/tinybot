@@ -863,6 +863,66 @@ describe("createAgentWorkerServer", () => {
     });
   });
 
+  test("continues agent runs when native MCP discovery fails", async () => {
+    const lines: string[] = [];
+    const logs: string[] = [];
+    const provider = new QueueProvider([
+      { content: "mcp unavailable but run continues", toolCalls: [], stopReason: "stop" },
+    ]);
+    const server = createAgentWorkerServer({
+      provider,
+      tools: new ToolRegistry(),
+      enableNativeMcpDiscovery: true,
+      writeLine: (line) => lines.push(line),
+      writeLog: (line) => logs.push(line),
+    });
+
+    const run = server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: "req-1",
+        trace_id: "trace-1",
+        method: "agent.run",
+        params: {
+          spec: {
+            runId: "run-1",
+            messages: [{ role: "user", content: "hello" }],
+            model: "test-model",
+            maxIterations: 1,
+            stream: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => parsedLines(lines).some((line) => line.method === "mcp.list_tools"));
+    const listRequest = parsedLines(lines).find((line) => line.method === "mcp.list_tools");
+    await server.handleLine(
+      JSON.stringify({
+        protocol_version: "1",
+        id: listRequest?.id,
+        trace_id: "trace-1",
+        error: {
+          code: "worker_error",
+          message: "native MCP unavailable",
+          details: {},
+          retryable: false,
+          source: "rust_core",
+        },
+      }),
+    );
+    await run;
+
+    expect(provider.requests).toHaveLength(1);
+    expect(logs).toContain("native MCP discovery failed: native MCP unavailable");
+    expect(parsedLines(lines).at(-1)).toMatchObject({
+      protocol_version: "1",
+      id: "req-1",
+      trace_id: "trace-1",
+      result: { finalContent: "mcp unavailable but run continues", stopReason: "final_response" },
+    });
+  });
+
   test("loads model provider config from native config when provider is not injected", async () => {
     const lines: string[] = [];
     const provider = new QueueProvider([{ content: "native config done", toolCalls: [], stopReason: "stop" }]);
