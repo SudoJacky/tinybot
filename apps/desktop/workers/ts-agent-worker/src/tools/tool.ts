@@ -1,3 +1,5 @@
+import type { ApprovalCategory, ApprovalRisk } from "../security/approvalTypes.ts";
+
 export type JsonSchema = Record<string, unknown>;
 
 export type ToolContext = {
@@ -17,6 +19,8 @@ export type ToolMetadata = {
   concurrencySafe?: boolean;
   capabilities?: string[];
   requiresApproval?: boolean;
+  approvalCategory?: ApprovalCategory;
+  approvalRisk?: ApprovalRisk;
 };
 
 export type ToolDefinition = {
@@ -57,5 +61,7 @@ export interface Tool {
   concurrencySafe?: boolean;
   capabilities?: string[];
   requiresApproval?: boolean;
+  approvalCategory?: ApprovalCategory;
+  approvalRisk?: ApprovalRisk;
   execute(args: Record<string, unknown>, context: ToolContext): Promise<ToolResult>;
 }

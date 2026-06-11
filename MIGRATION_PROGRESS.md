@@ -46,7 +46,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 8 | todo | [ts_security_approval_migration_design.md](ts_security_approval_migration_design.md) | 建立 approval gate 和安全边界 | 放在 Tool Runtime 之后、副作用能力全面接入之前 |
+| 8 | active | [ts_security_approval_migration_design.md](ts_security_approval_migration_design.md) | 建立 approval gate 和安全边界 | Phase 1 started: TS classifier/fingerprint/policy helpers now cover Python approval parity for read-only, risky exec, safe exec, request_form, MCP, file writes, persistent data, external messages, and stable fingerprints. |
 | 9 | todo | [ts_model_provider_runtime_migration_design.md](ts_model_provider_runtime_migration_design.md) | 让 TS worker 承担真实 chat 后端 | 依赖 ContextBuilder、Tool Runtime、Session/Turn、Approval |
 
 ### Batch 4: User Memory, Knowledge, Skills, And External Tools
@@ -116,6 +116,7 @@
 | 2026-06-12 | Closed the native persist-turn boundary for run input context metadata: Rust `session.persist_turn` now accepts snake_case/camelCase metadata, stores it on the persisted session turn, and clears stale metadata when absent. |
 | 2026-06-12 | Started TS Memory Notes recall in `agent.run_input`: `NativeContextBridge` now reads active notes through native `memory.search`, `ContextBuilder` injects Python-style `[MEMORY RECALL]` system context, and context metadata carries `_memory_references`. |
 | 2026-06-12 | Extended TS/native Memory Notes operations: Rust worker RPC now supports `memory.trace`, `memory.reject`, and `memory.supersede`, and TS native tools expose `trace_memory_note`, `reject_memory_note`, and `supersede_memory_note`. |
+| 2026-06-12 | Started Security/Approval Phase 1: added TS approval classification and fingerprint helpers aligned with Python approval behavior, including MCP read-only approval, request_form exemption, safe exec detection, and session/once fingerprint rules. |
 
 ## Next Checklist
 
