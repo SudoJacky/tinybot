@@ -30,7 +30,7 @@
 
 | Order | Status | Document | Goal | Notes |
 | --- | --- | --- | --- | --- |
-| 2 | active | [ts_shared_support_runtime_migration_design.md](ts_shared_support_runtime_migration_design.md) | 建立 prompt/template/token/status/evaluator 等公共能力 | 已建立 runtime/token support helper 起点，并让 `AgentRunner` 消费 shared helper |
+| 2 | active | [ts_shared_support_runtime_migration_design.md](ts_shared_support_runtime_migration_design.md) | 建立 prompt/template/token/status/evaluator 等公共能力 | 已建立 runtime/token/message/status support helper 起点，并让 `AgentRunner`、message content 消费 shared helper |
 | 3 | todo | [ts_config_runtime_migration_design.md](ts_config_runtime_migration_design.md) | 建立 canonical config schema/selectors | provider、tool、security、MCP、knowledge、channel 的共同输入 |
 | 4 | todo | [ts_agent_loop_design.md](ts_agent_loop_design.md) | 先做 fake-provider `AgentRunner` skeleton | 形成 TS agent 最小执行闭环 |
 
@@ -82,11 +82,13 @@
 | 2026-06-11 | 根据 `overall.md` 创建初始跟踪文档和分批推进顺序。 |
 | 2026-06-11 | 复核 `rust-native-core-worker-migration`：OpenSpec 17/17 complete，`cargo test` in `apps/desktop/src-tauri` 158/158 passed。 |
 | 2026-06-11 | 推进 Batch 1 shared support：新增 TS `support/runtimeHelpers`、`support/tokenEstimator`，并从 `AgentRunner` 抽出 finalization、tool result normalization、blank text 和 usage estimate helper。 |
+| 2026-06-11 | 继续推进 Batch 1 shared support：新增 TS `support/messageHelpers`、`support/statusFormatter`，覆盖 current time、text block、split/truncate、assistant message、think stripping、runtime status formatting，并让 `agent/messageContent` 复用 shared text block helper。 |
 
 ## Next Checklist
 
 - [x] 复核 `ts_native_core.md` 对应实现和 `rust-native-core-worker-migration` 完成状态。
 - [x] 为 Batch 1 拆出第一个可实现任务：shared support runtime 的最小公共 helper/API。
-- [ ] 继续补齐 shared support Phase 1：template renderer、status/message helpers、evaluator parser。
+- [ ] 继续补齐 shared support Phase 1：template renderer、evaluator parser。
+- [x] 迁移 shared support Phase 1 的 status/message helpers。
 - [ ] 确认 config canonical schema/selectors 的边界，避免与 provider/tool/security 后续设计冲突。
 - [ ] 在 Batch 1 完成后更新 `Current Focus` 和对应状态。
