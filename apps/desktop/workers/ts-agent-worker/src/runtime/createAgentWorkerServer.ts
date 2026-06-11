@@ -113,6 +113,8 @@ const DEFAULT_NATIVE_TOOL_CAPABILITIES = [
   "form.request",
   "memory.read",
   "memory.write",
+  "knowledge.read",
+  "knowledge.write",
   "mcp.call",
 ];
 

@@ -18,6 +18,7 @@ pub mod config_store;
 pub mod worker_config;
 pub mod worker_connection;
 pub mod worker_diagnostics;
+pub mod worker_knowledge;
 pub mod worker_manager;
 pub mod worker_protocol;
 pub mod worker_rpc;
@@ -1754,6 +1755,8 @@ fn experimental_worker_router(
             WorkerCapability::FormRequest,
             WorkerCapability::MemoryRead,
             WorkerCapability::MemoryWrite,
+            WorkerCapability::KnowledgeRead,
+            WorkerCapability::KnowledgeWrite,
             WorkerCapability::McpCall,
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,

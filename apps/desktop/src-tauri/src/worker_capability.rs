@@ -31,6 +31,10 @@ pub enum WorkerCapability {
     MemoryRead,
     #[serde(rename = "memory.write")]
     MemoryWrite,
+    #[serde(rename = "knowledge.read")]
+    KnowledgeRead,
+    #[serde(rename = "knowledge.write")]
+    KnowledgeWrite,
     #[serde(rename = "mcp.call")]
     McpCall,
     #[serde(rename = "shell.execute")]
@@ -190,6 +194,33 @@ mod tests {
             json!({
                 "capability": "memory.write",
                 "scope": "memory://notes"
+            })
+        );
+    }
+
+    #[test]
+    fn knowledge_capability_names_serialize_as_protocol_strings() {
+        let read_grant = CapabilityGrant {
+            capability: WorkerCapability::KnowledgeRead,
+            scope: "knowledge://workspace".to_string(),
+        };
+        let write_grant = CapabilityGrant {
+            capability: WorkerCapability::KnowledgeWrite,
+            scope: "knowledge://workspace".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(read_grant).expect("grant should serialize"),
+            json!({
+                "capability": "knowledge.read",
+                "scope": "knowledge://workspace"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(write_grant).expect("grant should serialize"),
+            json!({
+                "capability": "knowledge.write",
+                "scope": "knowledge://workspace"
             })
         );
     }

@@ -2,6 +2,10 @@ use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_config::WorkerConfigRpc;
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
+use crate::worker_knowledge::{
+    KnowledgeAddDocumentParams, KnowledgeDocumentIdParams, KnowledgeListDocumentsParams,
+    KnowledgeQueryParams, WorkerKnowledgeRpc,
+};
 use crate::worker_protocol::{validate_protocol_version, WorkerRequest, WorkerResponse};
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
 use crate::worker_session::{SessionMetadata, WorkerSessionRpc};
@@ -28,6 +32,7 @@ pub struct WorkerRpcRouter {
     approval: WorkerApprovalRpc,
     form: WorkerFormRpc,
     memory: WorkerMemoryRpc,
+    knowledge: WorkerKnowledgeRpc,
     mcp: WorkerMcpRpc,
     config_store: Option<ConfigStore>,
 }
@@ -49,7 +54,8 @@ impl WorkerRpcRouter {
             shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
             approval: WorkerApprovalRpc::new(policy.clone()),
             form: WorkerFormRpc::new(policy.clone()),
-            memory: WorkerMemoryRpc::new(workspace_root, policy.clone()),
+            memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
+            knowledge: WorkerKnowledgeRpc::new(workspace_root.clone(), policy.clone()),
             mcp: WorkerMcpRpc::new(config_snapshot, policy),
             config_store: None,
         }
@@ -272,13 +278,33 @@ impl WorkerRpcRouter {
                 let params: MemorySupersedeParams = parse_params(request)?;
                 self.memory.supersede(params)
             }
+            "knowledge.add_document" => {
+                let params: KnowledgeAddDocumentParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.add_document(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.list_documents" => {
+                let params: KnowledgeListDocumentsParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.list_documents(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.get_document" => {
+                let params: KnowledgeDocumentIdParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.get_document(params)?)
+                    .map_err(serialization_error)
+            }
+            "knowledge.delete_document" => {
+                let params: KnowledgeDocumentIdParams = parse_params(request)?;
+                serde_json::to_value(self.knowledge.delete_document(params)?)
+                    .map_err(serialization_error)
+            }
             "rag.query" => {
                 let params: RagQueryParams = parse_params(request)?;
                 self.query_rag(params)
             }
             "knowledge.query" => {
                 let params: KnowledgeQueryParams = parse_params(request)?;
-                self.query_knowledge(params)
+                serde_json::to_value(self.knowledge.query(params)?).map_err(serialization_error)
             }
             "mcp.call_tool" => {
                 let params: McpCallToolParams = parse_params(request)?;
@@ -337,43 +363,6 @@ impl WorkerRpcRouter {
         });
         documents.truncate(limit);
         Ok(serde_json::json!({ "documents": documents }))
-    }
-
-    fn query_knowledge(
-        &self,
-        params: KnowledgeQueryParams,
-    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
-        let result = self.query_rag(RagQueryParams {
-            query: params.query,
-            collection: params.category,
-            limit: params.limit,
-        })?;
-        let documents = result
-            .get("documents")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let results: Vec<Value> = documents
-            .into_iter()
-            .filter_map(|document| {
-                let object = document.as_object()?;
-                let id = object
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .or_else(|| object.get("path").and_then(Value::as_str))
-                    .unwrap_or("unknown");
-                Some(serde_json::json!({
-                    "id": id,
-                    "doc_id": id,
-                    "doc_name": object.get("title").cloned().unwrap_or_else(|| Value::String(id.to_string())),
-                    "file_path": object.get("path").cloned().unwrap_or_else(|| Value::String(id.to_string())),
-                    "score": object.get("score").cloned().unwrap_or(serde_json::json!(0)),
-                    "content": object.get("excerpt").cloned().or_else(|| object.get("content").cloned()).unwrap_or_else(|| Value::String(String::new())),
-                    "retrieval_method": "sparse"
-                }))
-            })
-            .collect();
-        Ok(serde_json::json!({ "results": results }))
     }
 }
 
@@ -1650,15 +1639,6 @@ struct RagQueryParams {
     query: String,
     #[serde(default)]
     collection: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-#[derive(Deserialize)]
-struct KnowledgeQueryParams {
-    query: String,
-    #[serde(default)]
-    category: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
 }
@@ -3921,7 +3901,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatches_knowledge_query_request() {
+    fn knowledge_query_requires_knowledge_read_capability() {
         let fixture = WorkspaceFixture::new();
         fixture.write(
             "docs/ts-agent-loop.md",
@@ -3947,21 +3927,155 @@ mod tests {
 
         let response = router.dispatch(&request);
 
+        let error = response.error.expect("response should contain error");
         assert_eq!(
-            response.result,
-            Some(json!({
-                "results": [{
-                    "id": "docs/ts-agent-loop.md",
-                    "doc_id": "docs/ts-agent-loop.md",
-                    "doc_name": "TS Agent Loop Design",
-                    "file_path": "docs/ts-agent-loop.md",
-                    "score": 2,
-                    "content": "TS worker should proxy product integrations through Rust.",
-                    "retrieval_method": "sparse"
-                }]
-            }))
+            error.code,
+            crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
         );
-        assert!(response.error.is_none());
+        assert_eq!(error.details["capability"], "knowledge.read");
+        assert!(response.result.is_none());
+    }
+
+    #[test]
+    fn dispatches_knowledge_document_crud_and_sparse_query() {
+        let fixture = WorkspaceFixture::new();
+        let mut router = WorkerRpcRouter::new(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::new([
+                WorkerCapability::KnowledgeRead,
+                WorkerCapability::KnowledgeWrite,
+            ]),
+        );
+
+        let add_response = router.dispatch(&WorkerRequest::new(
+            "req-1",
+            "trace-1",
+            "knowledge.add_document",
+            json!({
+                "name": "Desktop Knowledge Notes",
+                "content": "# Desktop Knowledge Notes\n\nTS worker knowledge store should persist chunks for sparse retrieval.\n",
+                "category": "desktop",
+                "tags": ["ts", "knowledge"],
+                "file_type": "md",
+                "original_path": "docs/desktop-knowledge.md"
+            }),
+        ));
+        let add_result = add_response
+            .result
+            .as_ref()
+            .expect("knowledge.add_document should return result");
+        let doc_id = add_result["document"]["id"]
+            .as_str()
+            .expect("document id should be present")
+            .to_string();
+
+        assert_eq!(add_response.error, None);
+        assert!(doc_id.starts_with("doc_"));
+        assert_eq!(add_result["document"]["name"], "Desktop Knowledge Notes");
+        assert_eq!(add_result["document"]["chunk_count"], 1);
+        assert_eq!(add_result["document"]["category"], "desktop");
+        assert_eq!(add_result["document"]["tags"], json!(["ts", "knowledge"]));
+        assert!(fixture.read("knowledge/documents.jsonl").contains(&doc_id));
+        assert!(fixture
+            .read("knowledge/chunks.jsonl")
+            .contains(&format!("chunk_{doc_id}_0")));
+
+        let list_response = router.dispatch(&WorkerRequest::new(
+            "req-2",
+            "trace-1",
+            "knowledge.list_documents",
+            json!({ "category": "desktop", "limit": 10 }),
+        ));
+        assert_eq!(list_response.error, None);
+        assert_eq!(
+            list_response.result.as_ref().unwrap()["documents"][0]["id"],
+            doc_id
+        );
+
+        let get_response = router.dispatch(&WorkerRequest::new(
+            "req-3",
+            "trace-1",
+            "knowledge.get_document",
+            json!({ "doc_id": doc_id }),
+        ));
+        assert_eq!(get_response.error, None);
+        assert_eq!(
+            get_response.result.as_ref().unwrap()["content"],
+            "# Desktop Knowledge Notes\n\nTS worker knowledge store should persist chunks for sparse retrieval.\n"
+        );
+
+        let query_response = router.dispatch(&WorkerRequest::new(
+            "req-4",
+            "trace-1",
+            "knowledge.query",
+            json!({
+                "query": "sparse retrieval",
+                "category": "desktop",
+                "tags": ["knowledge"],
+                "limit": 5
+            }),
+        ));
+        assert_eq!(query_response.error, None);
+        assert_eq!(
+            query_response.result.as_ref().unwrap()["results"][0],
+            json!({
+                "id": format!("chunk_{doc_id}_0"),
+                "doc_id": doc_id,
+                "parent_id": format!("chunk_{doc_id}_0"),
+                "chunk_type": "parent",
+                "content": "# Desktop Knowledge Notes\n\nTS worker knowledge store should persist chunks for sparse retrieval.\n",
+                "matched_child_ids": [],
+                "matched_child_snippets": [],
+                "doc_name": "Desktop Knowledge Notes",
+                "file_path": format!("knowledge/files/{doc_id}.md"),
+                "start_char": 0,
+                "end_char": 97,
+                "line_start": 1,
+                "line_end": 3,
+                "section_path": "Desktop Knowledge Notes",
+                "block_type": "text",
+                "score": 2,
+                "rrf_score": 2,
+                "semantic_score": null,
+                "bm25_score": 2,
+                "dense_distance": null,
+                "dense_rank": null,
+                "sparse_rank": 1,
+                "dense_contribution": null,
+                "sparse_contribution": 2,
+                "method": "sparse",
+                "retrieval_method": "sparse",
+                "score_metadata": {},
+                "source_snippets": [],
+                "matched_methods": [],
+                "matched_entities": [],
+                "matched_claims": [],
+                "matched_claim_evidence": [],
+                "matched_relations": [],
+                "matched_relation_evidence": [],
+                "matched_communities": [],
+                "conflict_metadata": [],
+                "projection_metadata": []
+            })
+        );
+
+        let delete_response = router.dispatch(&WorkerRequest::new(
+            "req-5",
+            "trace-1",
+            "knowledge.delete_document",
+            json!({ "doc_id": doc_id }),
+        ));
+        assert_eq!(delete_response.error, None);
+        assert_eq!(delete_response.result.as_ref().unwrap()["deleted"], true);
+        assert!(!fixture
+            .read("knowledge/documents.jsonl")
+            .contains("Desktop Knowledge Notes"));
+        assert!(!fixture
+            .read("knowledge/chunks.jsonl")
+            .contains("Desktop Knowledge Notes"));
     }
 
     #[test]

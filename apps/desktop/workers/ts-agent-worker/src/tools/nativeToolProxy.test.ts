@@ -543,19 +543,19 @@ describe("createNativeRagTools", () => {
         ],
       },
     ]);
-    const [queryKnowledge] = createNativeRagTools(rpc);
+    const queryKnowledge = createNativeRagTools(rpc).find((tool) => tool.name === "query_knowledge");
 
-    const result = await queryKnowledge.execute(
+    const result = await queryKnowledge?.execute(
       { query: "TS worker bridge", category: "docs", limit: 3 },
       { runId: "run-1", traceId: "trace-1", sessionId: "session-1" },
     );
 
-    expect(queryKnowledge.name).toBe("query_knowledge");
-    expect(result.content).toContain("## Knowledge Results");
-    expect(result.content).toContain("contextual evidence");
-    expect(result.content).toContain("[doc-1] TS Agent Loop Design");
-    expect(result.content).toContain("docs/ts-agent-loop.md:12-18");
-    expect(result.content).toContain("TS worker should proxy product integrations through Rust.");
+    expect(queryKnowledge?.name).toBe("query_knowledge");
+    expect(result?.content).toContain("## Knowledge Results");
+    expect(result?.content).toContain("contextual evidence");
+    expect(result?.content).toContain("[doc-1] TS Agent Loop Design");
+    expect(result?.content).toContain("docs/ts-agent-loop.md:12-18");
+    expect(result?.content).toContain("TS worker should proxy product integrations through Rust.");
     expect(rpc.requests).toEqual([
       {
         traceId: "trace-1",
@@ -566,6 +566,110 @@ describe("createNativeRagTools", () => {
           category: "docs",
           limit: 3,
         },
+      },
+    ]);
+  });
+
+  test("creates knowledge document tools backed by native knowledge RPCs", async () => {
+    const rpc = new FakeRpcClient([
+      {
+        document: {
+          id: "doc-1",
+          name: "Desktop Knowledge Notes",
+          file_path: "knowledge/files/doc-1.md",
+          file_type: "md",
+          category: "desktop",
+          tags: ["ts"],
+          chunk_count: 1,
+          created_at: "2026-06-12T03:45:00",
+          content: "TS worker knowledge store should persist chunks.",
+        },
+      },
+      {
+        documents: [
+          {
+            id: "doc-1",
+            name: "Desktop Knowledge Notes",
+            file_path: "knowledge/files/doc-1.md",
+            file_type: "md",
+            category: "desktop",
+            tags: ["ts"],
+            chunk_count: 1,
+            created_at: "2026-06-12T03:45:00",
+            content: "TS worker knowledge store should persist chunks.",
+          },
+        ],
+      },
+      {
+        document: { id: "doc-1", name: "Desktop Knowledge Notes" },
+        content: "TS worker knowledge store should persist chunks.",
+      },
+      { deleted: true, doc_id: "doc-1" },
+    ]);
+    const tools = Object.fromEntries(createNativeRagTools(rpc).map((tool) => [tool.name, tool]));
+
+    const addResult = await tools.add_document.execute(
+      {
+        name: "Desktop Knowledge Notes",
+        content: "TS worker knowledge store should persist chunks.",
+        category: "desktop",
+        tags: "ts",
+        file_type: "md",
+        original_path: "docs/desktop-knowledge.md",
+      },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+    const listResult = await tools.list_documents.execute(
+      { category: "desktop", limit: 10 },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+    const getResult = await tools.get_document.execute(
+      { doc_id: "doc-1" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+    const deleteResult = await tools.delete_document.execute(
+      { doc_id: "doc-1" },
+      { runId: "run-1", traceId: "trace-1" },
+    );
+
+    expect(tools.add_document.requiresApproval).toBe(true);
+    expect(tools.add_document.capabilities).toEqual(["knowledge.write"]);
+    expect(tools.list_documents.readOnly).toBe(true);
+    expect(tools.list_documents.capabilities).toEqual(["knowledge.read"]);
+    expect(tools.get_document.capabilities).toEqual(["knowledge.read"]);
+    expect(tools.delete_document.requiresApproval).toBe(true);
+    expect(addResult.content).toContain("Successfully added document 'Desktop Knowledge Notes'");
+    expect(listResult.content).toContain("## Knowledge Base Documents");
+    expect(listResult.content).toContain("ID: doc-1");
+    expect(getResult.content).toBe("## Document Content (ID: doc-1)\n\nTS worker knowledge store should persist chunks.");
+    expect(deleteResult.content).toBe("Successfully deleted document doc-1 and all associated data.");
+    expect(rpc.requests).toEqual([
+      {
+        traceId: "trace-1",
+        method: "knowledge.add_document",
+        params: {
+          name: "Desktop Knowledge Notes",
+          content: "TS worker knowledge store should persist chunks.",
+          category: "desktop",
+          tags: ["ts"],
+          file_type: "md",
+          original_path: "docs/desktop-knowledge.md",
+        },
+      },
+      {
+        traceId: "trace-1",
+        method: "knowledge.list_documents",
+        params: { category: "desktop", limit: 10 },
+      },
+      {
+        traceId: "trace-1",
+        method: "knowledge.get_document",
+        params: { doc_id: "doc-1" },
+      },
+      {
+        traceId: "trace-1",
+        method: "knowledge.delete_document",
+        params: { doc_id: "doc-1" },
       },
     ]);
   });
