@@ -203,11 +203,13 @@ impl WorkerRpcRouter {
             }
             "session.persist_turn" => {
                 let params: SessionPersistTurnParams = parse_params(request)?;
+                let context_metadata = params.context_metadata();
                 serde_json::to_value(self.session.persist_turn(
                     &params.session_id,
                     &params.run_id,
                     params.messages,
                     params.clear_checkpoint,
+                    context_metadata,
                 )?)
                 .map_err(serialization_error)
             }
@@ -774,6 +776,18 @@ struct SessionPersistTurnParams {
     messages: Vec<Value>,
     #[serde(default)]
     clear_checkpoint: bool,
+    #[serde(default)]
+    context_metadata: Option<Value>,
+    #[serde(default, rename = "contextMetadata")]
+    context_metadata_camel: Option<Value>,
+}
+
+impl SessionPersistTurnParams {
+    fn context_metadata(&self) -> Option<Value> {
+        self.context_metadata
+            .clone()
+            .or_else(|| self.context_metadata_camel.clone())
+    }
 }
 
 #[derive(Deserialize)]
@@ -2124,7 +2138,10 @@ mod tests {
             json!({}),
             vec![session],
             20,
-            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+            CapabilityPolicy::new([
+                WorkerCapability::SessionWrite,
+                WorkerCapability::SessionMetadataRead,
+            ]),
         );
         let request = WorkerRequest::new(
             "req-1",
@@ -2137,7 +2154,19 @@ mod tests {
                     { "role": "user", "content": "hello" },
                     { "role": "assistant", "content": "done" }
                 ],
-                "clear_checkpoint": true
+                "clear_checkpoint": true,
+                "contextMetadata": {
+                    "historyMessageCount": 1,
+                    "bridge": {
+                        "missingSession": false
+                    }
+                },
+                "context_metadata": {
+                    "historyMessageCount": 1,
+                    "bridge": {
+                        "missingSession": false
+                    }
+                }
             }),
         );
 
@@ -2160,6 +2189,19 @@ mod tests {
                     "user_profile_update"
                 ]
             }))
+        );
+        let updated = router
+            .session
+            .get_metadata("session-1")
+            .expect("session should exist");
+        assert_eq!(
+            updated.extra["last_context_metadata"],
+            json!({
+                "historyMessageCount": 1,
+                "bridge": {
+                    "missingSession": false
+                }
+            })
         );
         assert!(response.error.is_none());
     }

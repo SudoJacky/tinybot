@@ -142,6 +142,7 @@ impl WorkerSessionRpc {
         run_id: &str,
         messages: Vec<Value>,
         clear_checkpoint: bool,
+        context_metadata: Option<Value>,
     ) -> Result<PersistTurnResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_session_id(session_id)?;
@@ -172,6 +173,14 @@ impl WorkerSessionRpc {
                 "last_persisted_run_id".to_string(),
                 Value::String(run_id.to_string()),
             );
+            match context_metadata {
+                Some(context_metadata) => {
+                    extra.insert("last_context_metadata".to_string(), context_metadata);
+                }
+                None => {
+                    extra.remove("last_context_metadata");
+                }
+            }
         }
         let messages_after = session
             .extra
@@ -812,6 +821,12 @@ mod tests {
                     json!({ "role": "assistant", "content": "done" }),
                 ],
                 true,
+                Some(json!({
+                    "historyMessageCount": 1,
+                    "bridge": {
+                        "missingSession": false
+                    }
+                })),
             )
             .expect("turn should persist");
 
@@ -842,6 +857,15 @@ mod tests {
         );
         assert!(updated.extra.get("runtime_checkpoint").is_none());
         assert_eq!(updated.extra["last_persisted_run_id"], "run-1");
+        assert_eq!(
+            updated.extra["last_context_metadata"],
+            json!({
+                "historyMessageCount": 1,
+                "bridge": {
+                    "missingSession": false
+                }
+            })
+        );
     }
 
     #[test]
